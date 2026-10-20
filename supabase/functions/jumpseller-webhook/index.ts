@@ -110,6 +110,12 @@ serve(async (req) => {
         return new Response("Invalid order payload", { status: 400 });
       }
 
+      const appCode = String(order.source?.created_from_app_code || "").toLowerCase();
+      if (appCode === "mercadolibre") {
+        console.log(`⏭️ Ignorando webhook Jumpseller para orden #JS-${order.id} (proviene de la app de Mercado Libre).`);
+        return new Response("Ignored MercadoLibre order in Jumpseller", { status: 200 });
+      }
+
       const statusName = order.status; // 'Pending', 'Paid', 'Canceled', 'Abandoned', 'Open'
       const isCancelled = ['Canceled', 'Abandoned', 'Open'].includes(statusName);
 
@@ -221,7 +227,7 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
   const { data: existingOrder } = await supabase
     .from('orders')
     .select('id, status, estado_wms, raw_jumpseller_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
-    .eq('merchant_id', merchantId)
+    .eq('comercio', comercio)
     .in('external_order_number', [orderNumber, finalOrderNumber])
     .eq('external_platform', 'Jumpseller')
     .maybeSingle();
@@ -418,13 +424,27 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     const existingMap = new Map((existingItems || []).map((i: any) => [i.product_id, i]));
     const processedProductIds = new Set();
 
-    const { data: whRel } = await supabase
-      .from('merchants_warehouses')
-      .select('warehouse_id')
-      .eq('merchant_id', merchantId)
-      .limit(1)
-      .maybeSingle();
-    let warehouseId = whRel?.warehouse_id || null;
+    let warehouseId: string | null = null;
+    if (comercio) {
+      const { data: cacWh } = await supabase
+        .from('comercios_adicional_config')
+        .select('default_warehouse_id')
+        .eq('comercio', comercio)
+        .maybeSingle();
+      if (cacWh?.default_warehouse_id) {
+        warehouseId = cacWh.default_warehouse_id;
+      }
+    }
+
+    if (!warehouseId) {
+      const { data: whRel } = await supabase
+        .from('merchants_warehouses')
+        .select('warehouse_id')
+        .eq('merchant_id', merchantId)
+        .limit(1)
+        .maybeSingle();
+      warehouseId = whRel?.warehouse_id || null;
+    }
 
     if (!warehouseId) {
       const { data: defaultWh } = await supabase.from('warehouses').select('id').limit(1).maybeSingle();

@@ -388,6 +388,7 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
 
       let localOrderId = null;
       let shouldInsertItems = false;
+      let existingItemsToReconcile = null;
 
       if (existingOrder) {
         const existingRaw = existingOrder.raw_woocommerce_data || {};
@@ -435,16 +436,27 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
         }
         localOrderId = existingOrder.id;
 
-        // Auto-recuperación (Healer): Validar si ya tiene ítems guardados (solo si no fue editado en WMS)
+        // Auto-recuperación (Healer): Validar si ya tiene ítems guardados o si requieren reconciliación (solo si no fue editado en WMS)
         if (!isWmsItemsEdited) {
           const { data: existingItems, error: itemsCheckErr } = await supabase
             .from('order_items')
-            .select('id')
+            .select('id, product_id, quantity, warehouse_id')
             .eq('order_id', localOrderId);
 
           if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
             console.log(`ℹ️ Pedido existente ${finalOrderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);
             shouldInsertItems = true;
+          } else if (!itemsCheckErr && existingItems && existingItems.length > 0) {
+            const rawStatus = (existingOrder.status || '').toLowerCase();
+            const rawWmsStatus = (existingOrder.estado_wms || '').toLowerCase();
+            const isClosedOrDispatched = ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawStatus) ||
+                                         ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawWmsStatus);
+            const wmsStatus = (existingOrder.estado_wms || existingOrder.status || 'En procesamiento').toLowerCase();
+            const estadosCriticos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'];
+
+            if (!isClosedOrDispatched && !estadosCriticos.includes(wmsStatus)) {
+              existingItemsToReconcile = existingItems;
+            }
           }
         }
       } else {
@@ -479,13 +491,15 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
         shouldInsertItems = true;
       }
 
-      // Registrar ítems en order_items
-      if (localOrderId && shouldInsertItems) {
+      // Registrar o reconciliar ítems en order_items (pre-expandiendo packs y consolidando cantidades por product_id)
+      if (localOrderId && (shouldInsertItems || existingItemsToReconcile)) {
+        const expectedQuantities = new Map();
+
         for (const [sku, qty] of Object.entries(itemQuantities)) {
           // Buscar producto en la base de datos
           let { data: product } = await supabase
             .from('products')
-            .select('id')
+            .select('id, is_pack')
             .eq('sku', sku)
             .eq('comercio', integration.comercio)
             .maybeSingle();
@@ -513,7 +527,7 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
                 price: productPrice,
                 description: 'Creado automáticamente desde integración de WooCommerce (al procesar pedido)'
               }])
-              .select('id')
+              .select('id, is_pack')
               .single();
 
             if (!prodErr && newProd) {
@@ -525,22 +539,74 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
           }
 
           if (product) {
+            if (product.is_pack) {
+              const { data: packMembers } = await supabase
+                .from('product_pack_items')
+                .select('member_product_id, quantity')
+                .eq('pack_product_id', product.id);
+
+              if (packMembers && packMembers.length > 0) {
+                for (const pm of packMembers) {
+                  const currentQty = expectedQuantities.get(pm.member_product_id) || 0;
+                  expectedQuantities.set(pm.member_product_id, currentQty + (Number(pm.quantity || 1) * Number(qty)));
+                }
+              } else {
+                const currentQty = expectedQuantities.get(product.id) || 0;
+                expectedQuantities.set(product.id, currentQty + Number(qty));
+              }
+            } else {
+              const currentQty = expectedQuantities.get(product.id) || 0;
+              expectedQuantities.set(product.id, currentQty + Number(qty));
+            }
+          } else {
+            console.warn(`   ⚠️ SKU ${sku} no encontrado en base de datos. No se pudo registrar en la orden.`);
+          }
+        }
+
+        if (shouldInsertItems) {
+          for (const [prodId, totalQty] of expectedQuantities.entries()) {
             const { error: itemErr } = await supabase
               .from('order_items')
               .insert([{
                 order_id: localOrderId,
-                product_id: product.id,
+                product_id: prodId,
                 warehouse_id: warehouseId,
-                quantity: qty
+                quantity: totalQty
               }]);
 
             if (itemErr) {
-              console.error(`   ❌ Error al registrar ítem SKU ${sku} para la orden:`, itemErr.message);
+              console.error(`   ❌ Error al registrar ítem (product_id ${prodId}) para la orden:`, itemErr.message);
             } else {
-              console.log(`   + Registrado ítem: SKU ${sku} x ${qty} (Stock Reservado)`);
+              console.log(`   + Registrado ítem consolidado: product_id ${prodId} x ${totalQty} (Stock Reservado)`);
             }
-          } else {
-            console.warn(`   ⚠️ SKU ${sku} no encontrado en base de datos. No se pudo registrar en la orden.`);
+          }
+        } else if (existingItemsToReconcile) {
+          const existingMap = new Map(existingItemsToReconcile.map(i => [i.product_id, i]));
+          for (const [prodId, totalQty] of expectedQuantities.entries()) {
+            const existing = existingMap.get(prodId);
+            if (existing) {
+              const targetWarehouseId = existing.warehouse_id || warehouseId;
+              if (existing.quantity !== totalQty || (!existing.warehouse_id && warehouseId)) {
+                await supabase
+                  .from('order_items')
+                  .update({
+                    quantity: totalQty,
+                    warehouse_id: targetWarehouseId
+                  })
+                  .eq('id', existing.id);
+                console.log(`   🔄 Actualizada cantidad consolidada para product_id ${prodId}: ${existing.quantity} -> ${totalQty}`);
+              }
+            } else {
+              await supabase
+                .from('order_items')
+                .insert([{
+                  order_id: localOrderId,
+                  product_id: prodId,
+                  warehouse_id: warehouseId,
+                  quantity: totalQty
+                }]);
+              console.log(`   + Agregado ítem faltante consolidado: product_id ${prodId} x ${totalQty}`);
+            }
           }
         }
       }

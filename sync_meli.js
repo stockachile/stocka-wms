@@ -381,21 +381,44 @@ async function insertOrderItems(localOrderId, itemQuantities, itemsList, resolve
  * Sincroniza los pedidos de un cliente específico de MercadoLibre
  */
 async function syncMerchantOrders(integration) {
-  // A. Obtener bodega por defecto para el cliente
+  // A. Obtener bodega por defecto para el cliente (priorizando comercios_adicional_config por nombre de comercio)
   let warehouseId = null;
-  const { data: whRel } = await supabase
-    .from('merchants_warehouses')
-    .select('warehouse_id')
-    .eq('merchant_id', integration.merchant_id)
-    .limit(1)
-    .maybeSingle();
+  if (integration.comercio) {
+    const { data: cacWh } = await supabase
+      .from('comercios_adicional_config')
+      .select('default_warehouse_id, comercio_id')
+      .eq('comercio', integration.comercio)
+      .maybeSingle();
+    if (cacWh?.default_warehouse_id) {
+      warehouseId = cacWh.default_warehouse_id;
+    } else if (cacWh?.comercio_id) {
+      const { data: whByComercioId } = await supabase
+        .from('merchants_warehouses')
+        .select('warehouse_id')
+        .eq('merchant_id', cacWh.comercio_id)
+        .limit(1)
+        .maybeSingle();
+      if (whByComercioId?.warehouse_id) {
+        warehouseId = whByComercioId.warehouse_id;
+      }
+    }
+  }
 
-  if (whRel) {
-    warehouseId = whRel.warehouse_id;
-  } else {
-    const { data: defaultWh } = await supabase.from('warehouses').select('id').limit(1).maybeSingle();
-    if (defaultWh) {
-      warehouseId = defaultWh.id;
+  if (!warehouseId) {
+    const { data: whRel } = await supabase
+      .from('merchants_warehouses')
+      .select('warehouse_id')
+      .eq('merchant_id', integration.merchant_id)
+      .limit(1)
+      .maybeSingle();
+
+    if (whRel) {
+      warehouseId = whRel.warehouse_id;
+    } else {
+      const { data: defaultWh } = await supabase.from('warehouses').select('id').limit(1).maybeSingle();
+      if (defaultWh) {
+        warehouseId = defaultWh.id;
+      }
     }
   }
 

@@ -370,21 +370,29 @@ CREATE POLICY "Usuarios ven sus notificaciones o las generales" ON public.dashbo
 CREATE OR REPLACE FUNCTION public.tr_fn_billing_record_before_update()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Autocompletar abono de Fulfillment si se marca como Recibido
-    IF (NEW.pago_fulfillment = 'Recibido' AND OLD.pago_fulfillment IS DISTINCT FROM 'Recibido') THEN
+    -- Si el desglose operativo se marca como Aprobado, asegurar pago_fulfillment = 'aprobado' (si no está ya Recibido)
+    IF (NEW.desglose_fulfillment = 'Aprobado' AND OLD.desglose_fulfillment IS DISTINCT FROM 'Aprobado') THEN
+        IF (NEW.pago_fulfillment IS DISTINCT FROM 'Recibido') THEN
+            NEW.pago_fulfillment := 'aprobado';
+        END IF;
+        NEW.abono_fulfillment := NEW.total_fulfillment;
+    END IF;
+
+    -- Autocompletar abono de Fulfillment si se marca como Recibido o aprobado
+    IF (NEW.pago_fulfillment IN ('Recibido', 'aprobado') AND OLD.pago_fulfillment IS DISTINCT FROM NEW.pago_fulfillment) THEN
         NEW.abono_fulfillment := NEW.total_fulfillment;
     END IF;
     
-    -- Autocompletar abono de Envíame si se marca como Recibido
-    IF (NEW.pago_enviame = 'Recibido' AND OLD.pago_enviame IS DISTINCT FROM 'Recibido') THEN
+    -- Autocompletar abono de Envíame si se marca como Recibido o aprobado
+    IF (NEW.pago_enviame IN ('Recibido', 'aprobado') AND OLD.pago_enviame IS DISTINCT FROM NEW.pago_enviame) THEN
         NEW.abono_enviame := NEW.enviame;
     END IF;
 
-    -- Si se cambia de estado Recibido a otro, y el abono es igual al total, resetear a 0 por comodidad
-    IF (NEW.pago_fulfillment IS DISTINCT FROM 'Recibido' AND OLD.pago_fulfillment = 'Recibido' AND NEW.abono_fulfillment = NEW.total_fulfillment) THEN
+    -- Si se cambia de estado Recibido/aprobado a otro estado no saldado, y el abono era igual al total, resetear a 0 por comodidad
+    IF (NEW.pago_fulfillment NOT IN ('Recibido', 'aprobado') AND OLD.pago_fulfillment IN ('Recibido', 'aprobado') AND NEW.abono_fulfillment = NEW.total_fulfillment) THEN
         NEW.abono_fulfillment := 0;
     END IF;
-    IF (NEW.pago_enviame IS DISTINCT FROM 'Recibido' AND OLD.pago_enviame = 'Recibido' AND NEW.abono_enviame = NEW.enviame) THEN
+    IF (NEW.pago_enviame NOT IN ('Recibido', 'aprobado') AND OLD.pago_enviame IN ('Recibido', 'aprobado') AND NEW.abono_enviame = NEW.enviame) THEN
         NEW.abono_enviame := 0;
     END IF;
 

@@ -170,11 +170,14 @@ async function syncOrders(integration) {
 
       const { data: adicionalConfig } = await supabase
         .from('comercios_adicional_config')
-        .select('pedido_trae_sigla, plat_siglas_config')
+        .select('pedido_trae_sigla, plat_siglas_config, default_warehouse_id')
         .eq('comercio', integration.comercio)
         .maybeSingle();
 
       if (adicionalConfig) {
+        if (adicionalConfig.default_warehouse_id) {
+          integration._defaultWarehouseId = adicionalConfig.default_warehouse_id;
+        }
         const platConfig = (adicionalConfig.plat_siglas_config || {})['Shopify'];
         if (platConfig) {
           hasPlatConfig = true;
@@ -194,14 +197,17 @@ async function syncOrders(integration) {
     }
   }
 
-  // Cargar primera bodega asignada al comerciante
-  const { data: whRelation } = await supabase
-    .from('merchants_warehouses')
-    .select('warehouse_id')
-    .eq('merchant_id', integration.merchant_id)
-    .limit(1)
-    .maybeSingle();
-  const warehouseId = whRelation?.warehouse_id || null;
+  // Cargar primera bodega asignada al comerciante (priorizando default_warehouse_id del comercio)
+  let warehouseId = integration._defaultWarehouseId || null;
+  if (!warehouseId) {
+    const { data: whRelation } = await supabase
+      .from('merchants_warehouses')
+      .select('warehouse_id')
+      .eq('merchant_id', integration.merchant_id)
+      .limit(1)
+      .maybeSingle();
+    warehouseId = whRelation?.warehouse_id || null;
+  }
 
   // Cargar equivalencias de SKU
   const skuMap = {};

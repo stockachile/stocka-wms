@@ -2093,6 +2093,343 @@ window.getOrderNoteText = function(order) {
   return '';
 };
 
+// Helper para obtener las notas internas del pedido (visibles únicamente para el equipo administrador)
+window.getOrderAdminNote = function(order) {
+  if (!order) return '';
+  // 1. Si existe columna directa en orders
+  if (typeof order.admin_notes === 'string' && order.admin_notes.trim()) {
+    return order.admin_notes.trim();
+  }
+  if (typeof order.internal_notes === 'string' && order.internal_notes.trim()) {
+    return order.internal_notes.trim();
+  }
+  if (typeof order.notas_internas === 'string' && order.notas_internas.trim()) {
+    return order.notas_internas.trim();
+  }
+
+  // 2. Si está en jsonb raw payloads de integraciones
+  const rawPayloads = [
+    order.raw_shopify_data,
+    order.raw_woocommerce_data,
+    order.raw_meli_data,
+    order.raw_falabella_data,
+    order.raw_paris_data,
+    order.raw_ripley_data,
+    order.raw_jumpseller_data,
+    order.raw_tiendanube_data,
+    order.raw_walmart_data,
+    order.raw_lightdata_data
+  ];
+  for (const raw of rawPayloads) {
+    if (raw && typeof raw === 'object') {
+      if (typeof raw.admin_notes === 'string' && raw.admin_notes.trim()) {
+        return raw.admin_notes.trim();
+      }
+      if (typeof raw.internal_notes === 'string' && raw.internal_notes.trim()) {
+        return raw.internal_notes.trim();
+      }
+      if (typeof raw.wms_admin_notes === 'string' && raw.wms_admin_notes.trim()) {
+        return raw.wms_admin_notes.trim();
+      }
+    }
+  }
+
+  // 3. Fallback a propiedad en memoria
+  if (typeof order._adminNotes === 'string' && order._adminNotes.trim()) {
+    return order._adminNotes.trim();
+  }
+
+  return '';
+};
+
+// Alternar formulario de edición inline para notas internas en la Torre de Control
+window.toggleEditAdminNote = function(orderId) {
+  const viewEl = document.getElementById(`wms-admin-note-view-${orderId}`);
+  const editEl = document.getElementById(`wms-admin-note-edit-${orderId}`);
+  const inputEl = document.getElementById(`wms-admin-note-input-${orderId}`);
+  if (!editEl || !viewEl) return;
+
+  const isEditing = editEl.style.display !== 'none';
+  if (isEditing) {
+    editEl.style.display = 'none';
+    viewEl.style.display = 'block';
+  } else {
+    viewEl.style.display = 'none';
+    editEl.style.display = 'block';
+    if (inputEl) {
+      inputEl.focus();
+    }
+  }
+};
+
+window.cancelEditAdminNote = function(orderId) {
+  const viewEl = document.getElementById(`wms-admin-note-view-${orderId}`);
+  const editEl = document.getElementById(`wms-admin-note-edit-${orderId}`);
+  const inputEl = document.getElementById(`wms-admin-note-input-${orderId}`);
+  const order = (window.loadedOrders || []).find(o => String(o.id) === String(orderId));
+  const currentNote = window.getOrderAdminNote(order);
+
+  if (inputEl) inputEl.value = currentNote;
+  if (editEl) editEl.style.display = 'none';
+  if (viewEl) viewEl.style.display = 'block';
+};
+
+// Guardar nota interna de administración en Supabase y actualizar la UI de Torre de Control en caliente
+window.saveOrderAdminNote = async function(orderId, customNote = null, silent = false) {
+  const inputEl = document.getElementById(`wms-admin-note-input-${orderId}`);
+  const noteVal = customNote !== null ? String(customNote).trim() : (inputEl ? inputEl.value.trim() : '');
+  const saveBtn = document.getElementById(`btn-save-admin-note-${orderId}`);
+
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="ri-loader-4-line spin" style="display:inline-block; animation:spin 1s linear infinite;"></i> Guardando...';
+  }
+
+  try {
+    const order = (window.loadedOrders || []).find(o => String(o.id) === String(orderId));
+    const rawKey = order?.raw_shopify_data ? 'raw_shopify_data' :
+                   (order?.raw_woocommerce_data ? 'raw_woocommerce_data' :
+                   (order?.raw_falabella_data ? 'raw_falabella_data' :
+                   (order?.raw_paris_data ? 'raw_paris_data' :
+                   (order?.raw_ripley_data ? 'raw_ripley_data' :
+                   (order?.raw_jumpseller_data ? 'raw_jumpseller_data' :
+                   (order?.raw_tiendanube_data ? 'raw_tiendanube_data' :
+                   (order?.raw_meli_data ? 'raw_meli_data' :
+                   (order?.raw_walmart_data ? 'raw_walmart_data' : 'raw_shopify_data'))))))));
+
+    const existingRaw = (order && order[rawKey]) ? { ...order[rawKey] } : {};
+    existingRaw.admin_notes = noteVal;
+    existingRaw.wms_custom_edited = true;
+
+    // Actualizar en base de datos Supabase
+    let updatePayload = {
+      [rawKey]: existingRaw,
+      admin_notes: noteVal
+    };
+
+    let { error: updateErr } = await supabase
+      .from('orders')
+      .update(updatePayload)
+      .eq('id', orderId);
+
+    // Si la columna directa admin_notes aún no existe en SQL (código 42703), guardar en rawKey
+    if (updateErr && (updateErr.code === '42703' || String(updateErr.message || '').includes('admin_notes'))) {
+      delete updatePayload.admin_notes;
+      const resFallback = await supabase
+        .from('orders')
+        .update(updatePayload)
+        .eq('id', orderId);
+      updateErr = resFallback.error;
+    }
+
+    if (updateErr) throw updateErr;
+
+    // Actualizar el objeto del pedido en memoria
+    if (order) {
+      order.admin_notes = noteVal;
+      order[rawKey] = existingRaw;
+      order._adminNotes = noteVal;
+      delete order._wmsTags;
+      delete order._wmsSearchIndex;
+    }
+
+    // Registrar en auditoría de modificaciones
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userEmail = session?.user?.email || 'admin@stocka.cl';
+      const userId = session?.user?.id || null;
+      await supabase.from('order_audit_logs').insert({
+        order_id: orderId,
+        user_id: userId,
+        user_email: userEmail,
+        action: noteVal ? 'Nota Interna Admin Añadida/Modificada' : 'Nota Interna Admin Eliminada',
+        details: {
+          comment: noteVal || '(Nota vacía)',
+          admin_note: noteVal
+        }
+      });
+      if (typeof window.loadOrderAuditLogs === 'function') {
+        window.loadOrderAuditLogs(orderId);
+      }
+    } catch (auditErr) {
+      console.warn('Aviso registrando auditoría de nota interna:', auditErr);
+    }
+
+    // Actualizar la interfaz inline en Torre de Control
+    const viewEl = document.getElementById(`wms-admin-note-view-${orderId}`);
+    const editEl = document.getElementById(`wms-admin-note-edit-${orderId}`);
+    const cardEl = document.getElementById(`wms-admin-notes-card-${orderId}`);
+    const hasNote = Boolean(noteVal);
+
+    if (viewEl) {
+      viewEl.innerHTML = hasNote 
+        ? (window.escapeHtml ? window.escapeHtml(noteVal) : noteVal) 
+        : '<span style="color: var(--color-text-muted); font-style: italic; font-weight: normal;">Sin nota interna registrada (visible exclusivamente para administradores).</span>';
+      viewEl.style.fontWeight = hasNote ? '600' : 'normal';
+      viewEl.style.display = 'block';
+    }
+    if (editEl) editEl.style.display = 'none';
+
+    if (cardEl) {
+      cardEl.style.background = hasNote ? 'rgba(99, 102, 241, 0.07)' : 'var(--color-bg)';
+      cardEl.style.borderColor = hasNote ? 'rgba(99, 102, 241, 0.35)' : 'var(--color-border)';
+      const toggleBtn = cardEl.querySelector('button[onclick*="toggleEditAdminNote"]');
+      if (toggleBtn) {
+        toggleBtn.innerHTML = `<i class="ri-edit-line"></i> ${hasNote ? 'Editar' : 'Añadir Nota'}`;
+      }
+    }
+
+    // Actualizar el badge en la fila de badges si existe
+    const badgesRow = document.getElementById(`badges-row-${orderId}`);
+    if (badgesRow) {
+      let badgeElem = document.getElementById(`admin-note-badge-${orderId}`);
+      if (hasNote) {
+        if (!badgeElem) {
+          const container = badgesRow.querySelector('div');
+          if (container) {
+            const span = document.createElement('span');
+            span.id = `admin-note-badge-${orderId}`;
+            span.className = 'badge wms-order-tag-badge';
+            span.onclick = (e) => window.filterByOrderTag('CON NOTA INTERNA', e);
+            span.style.cssText = 'background-color: rgba(99, 102, 241, 0.12); color: #4338ca; border: 1px solid rgba(99, 102, 241, 0.35); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer;';
+            span.title = `Nota Interna Admin: ${noteVal} (Clic para filtrar)`;
+            span.innerHTML = `<i class="ri-lock-2-line" style="color: #4f46e5;"></i> NOTA INTERNA <i class="ri-pencil-line" onclick="event.stopPropagation(); window.openOrderAdminNoteModal('${orderId}')" title="Editar nota interna" style="margin-left: 0.15rem; font-size: 0.7rem; opacity: 0.85;"></i>`;
+            container.appendChild(span);
+          }
+        } else {
+          badgeElem.title = `Nota Interna Admin: ${noteVal} (Clic para filtrar)`;
+        }
+      } else if (badgeElem) {
+        badgeElem.remove();
+      }
+    }
+
+    // Actualizar botón de candado en la columna de ID si existe en la tabla
+    const lockBtns = document.querySelectorAll(`.btn-order-admin-note-trigger[data-order-id="${orderId}"]`);
+    lockBtns.forEach(btn => {
+      btn.style.color = hasNote ? '#4f46e5' : '#94a3b8';
+      btn.title = hasNote ? `Nota Interna Admin: ${noteVal} (Clic para ver/editar)` : 'Añadir Nota Interna Admin';
+      const icon = btn.querySelector('i');
+      if (icon) {
+        icon.className = hasNote ? 'ri-lock-2-fill' : 'ri-lock-2-line';
+      }
+    });
+
+    // Actualizar opciones de filtros de tags
+    if (typeof window.updateOrderTagFilterOptions === 'function') {
+      window.updateOrderTagFilterOptions();
+    }
+
+    // Sincronizar celda en Grilla de Agendas si está disponible
+    if (typeof window.refreshAgendasOrderCell === 'function') {
+      window.refreshAgendasOrderCell(orderId, 'admin_notes', noteVal);
+    }
+
+    if (!silent) {
+      if (window.showToast) {
+        window.showToast('Nota interna de administración guardada correctamente.', 'success');
+      } else if (window.Swal) {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'success',
+          title: 'Nota interna guardada',
+          showConfirmButton: false,
+          timer: 1500
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Error al guardar nota interna:', err);
+    if (window.Swal) {
+      Swal.fire('Error', 'No se pudo guardar la nota interna: ' + (err.message || err), 'error');
+    } else {
+      alert('Error guardando nota interna: ' + err.message);
+    }
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<i class="ri-save-line"></i> Guardar';
+    }
+  }
+};
+
+// Modal interactivo rápido para ver, agregar, editar o eliminar la nota interna de un pedido
+window.openOrderAdminNoteModal = async function(orderId) {
+  if (!orderId) return;
+  let order = (window.loadedOrders || []).find(o => String(o.id) === String(orderId))
+    || (window.agendasGridState?.filteredOrders || []).find(o => String(o.id) === String(orderId));
+
+  if (!order) {
+    try {
+      const { data: dbOrder } = await supabase.from('orders').select('*').eq('id', orderId).maybeSingle();
+      if (dbOrder) order = dbOrder;
+    } catch (e) {
+      console.warn('Error fetching order for admin note:', e);
+    }
+  }
+
+  const currentNote = order ? window.getOrderAdminNote(order) : '';
+  const orderNum = order ? (order.external_order_number || order.id.slice(0, 8)) : orderId.slice(0, 8);
+  const comercio = order?.comercio ? ` - ${order.comercio}` : '';
+
+  const { value: formValues, isConfirmed } = await Swal.fire({
+    title: `<div style="display:flex; align-items:center; gap:0.5rem; justify-content:center; color:#4338ca; font-size:1.15rem;">
+              <i class="ri-lock-2-line" style="font-size:1.35rem; color:#4f46e5;"></i>
+              <span>Nota Interna Admin</span>
+            </div>`,
+    html: `
+      <div style="text-align:left; font-size:0.875rem;">
+        <div style="background:rgba(99, 102, 241, 0.08); border-left:3px solid #4f46e5; padding:0.6rem 0.8rem; border-radius:4px; margin-bottom:1rem; color:#312e81;">
+          <strong>Pedido #${orderNum}${comercio}</strong><br>
+          <span style="font-size:0.775rem; color:#4338ca; line-height:1.3; display:inline-block; margin-top:0.25rem;">
+            🔒 Esta nota es <b>exclusiva para administradores WMS</b> en Torre de Control. No se muestra al cliente ni a Shopify / Falabella / MercadoLibre.
+          </span>
+        </div>
+        <label style="display:block; font-weight:600; font-size:0.8rem; color:var(--color-text-main, #1e293b); margin-bottom:0.35rem;">
+          Anotación u observación interna:
+        </label>
+        <textarea id="swal-admin-note-text" class="wms-input-ctrl" style="width:100%; min-height:100px; padding:0.5rem; font-size:0.85rem; border-radius:6px; border:1.5px solid rgba(99, 102, 241, 0.35); box-sizing:border-box; resize:vertical; font-family:inherit;" placeholder="Ej: Pedido retenido por confirmación de dirección; Cliente solicita regalo; Paquete especial; etc.">${window.escapeHtml ? window.escapeHtml(currentNote) : currentNote}</textarea>
+        ${currentNote ? `
+          <div style="margin-top:0.5rem; text-align:right;">
+            <button type="button" id="btn-swal-clear-admin-note" style="background:none; border:none; color:#ef4444; font-size:0.775rem; font-weight:600; cursor:pointer; padding:0.2rem 0.4rem; border-radius:4px; display:inline-flex; align-items:center; gap:0.2rem;">
+              <i class="ri-delete-bin-line"></i> Eliminar nota interna
+            </button>
+          </div>
+        ` : ''}
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-save-line"></i> Guardar Nota',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#4f46e5',
+    cancelButtonColor: '#94a3b8',
+    focusConfirm: false,
+    didOpen: () => {
+      const textarea = document.getElementById('swal-admin-note-text');
+      if (textarea) {
+        textarea.focus();
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      }
+      const clearBtn = document.getElementById('btn-swal-clear-admin-note');
+      if (clearBtn) {
+        clearBtn.onclick = () => {
+          if (textarea) textarea.value = '';
+          Swal.clickConfirm();
+        };
+      }
+    },
+    preConfirm: () => {
+      const text = document.getElementById('swal-admin-note-text')?.value || '';
+      return text.trim();
+    }
+  });
+
+  if (isConfirmed && formValues !== undefined) {
+    await window.saveOrderAdminNote(orderId, formValues);
+  }
+};
+
 // Helper para obtener la lista limpia de códigos de barra alternativos (multi-código) de un producto
 window.getProductAlternateBarcodes = function(prod) {
   if (!prod) return [];
@@ -2146,10 +2483,25 @@ window.getProductAllScannableCodes = function(prod, order, commerceStrict) {
   return codes;
 };
 
-// Helper para resolver el SKU que se envía al Picker en active_orders (concatenación SKU + todos los códigos de barra asociados)
+// Helper para resolver el SKU que se envía al Picker en active_orders (concatenación SKU + códigos escaneables ajustados a max 100 caracteres)
 window.resolvePickerSku = function(prod, order, commerceStrict) {
   const allCodes = window.getProductAllScannableCodes(prod, order, commerceStrict);
-  return allCodes.join(' | ');
+  let res = allCodes.join(' | ');
+  if (res.length > 100) {
+    const fittingCodes = [];
+    let currentLen = 0;
+    for (const code of allCodes) {
+      const addedLen = fittingCodes.length === 0 ? code.length : (3 + code.length);
+      if (currentLen + addedLen <= 100) {
+        fittingCodes.push(code);
+        currentLen += addedLen;
+      } else {
+        break;
+      }
+    }
+    res = fittingCodes.length > 0 ? fittingCodes.join(' | ') : ((prod?.sku || order?.sku || 'SKU-TEMP').slice(0, 100));
+  }
+  return res.slice(0, 100);
 };
 
 // Helper para construir la observación que se envía al Picker en active_orders (campo observation / Nota)
@@ -2186,7 +2538,7 @@ window.buildPickerObservation = function(order, prodDescription) {
     result = pickingReqText;
   }
 
-  return result;
+  return (result || '').slice(0, 1000);
 };
 
 // Helper para resolver el código de seguimiento/etiqueta que se envía al Picker en active_orders
@@ -3047,9 +3399,9 @@ window.pollForLightDataTracking = function(orderIds, maxWaitSeconds = 90) {
                 const ordNo = String(localOrd.external_order_number || localOrd.id);
                 const effTrack = String(localOrd.raw_lightdata_data?.did || localOrd.raw_lightdata_data?.id || localOrd.tracking_number || '').trim();
                 if (effTrack) {
-                  const pickerUpd = { tracking: effTrack, operator: 'ALPHA' };
+                  const pickerUpd = { tracking: effTrack.slice(0, 255), operator: 'ALPHA' };
                   if (localOrd.sucursal_pickeo) {
-                    pickerUpd.sucursal = localOrd.sucursal_pickeo;
+                    pickerUpd.sucursal = String(localOrd.sucursal_pickeo).trim().slice(0, 100);
                   }
                   pickerSupabase
                     .from('active_orders')
@@ -7234,20 +7586,36 @@ async function renderAdminOrders() {
   await window.loadConfigOptions();
 
   try {
-    // Cargar todos los packs de todos los comercios para trazabilidad en Admin
+    // Cargar todos los packs de todos los comercios y sus unidades por pack para trazabilidad en Admin
     let packSkusList = [];
+    let packUnitsBySkuMap = {};
     try {
-      const { data: packsData } = await supabase
-        .from('products')
-        .select('sku')
-        .eq('is_pack', true);
+      const [{ data: packsData }, { data: packItemsData }] = await Promise.all([
+        supabase.from('products').select('id, sku').eq('is_pack', true),
+        supabase.from('product_pack_items').select('pack_product_id, quantity')
+      ]);
       if (packsData) {
-        packSkusList = packsData.map(p => p.sku.toLowerCase());
+        packSkusList = packsData.map(p => (p.sku || '').toLowerCase()).filter(Boolean);
+        const unitsByPackId = {};
+        if (Array.isArray(packItemsData)) {
+          packItemsData.forEach(pi => {
+            if (pi.pack_product_id) {
+              unitsByPackId[pi.pack_product_id] = (unitsByPackId[pi.pack_product_id] || 0) + (Number(pi.quantity) || 1);
+            }
+          });
+        }
+        packsData.forEach(p => {
+          const skuLower = (p.sku || '').trim().toLowerCase();
+          if (skuLower && unitsByPackId[p.id] > 0) {
+            packUnitsBySkuMap[skuLower] = unitsByPackId[p.id];
+          }
+        });
       }
     } catch (e) {
       console.error('Error fetching pack SKUs for admin:', e);
     }
     window.currentPackSkusList = packSkusList;
+    window.currentPackUnitsBySkuMap = packUnitsBySkuMap;
 
     window.lastFetchedDateFrom = initialDateFrom;
     window.lastFetchedDateTo = initialDateTo;
@@ -7311,6 +7679,7 @@ async function renderAdminOrders() {
         delete o._wmsStockAlert;
         delete o._wmsShipmentGlobalStatus;
         delete o._wmsPacksMap;
+        delete o._wmsQtyMismatchInfo;
         delete o._wmsEffectiveCat;
         delete o._wmsDateStr;
         delete o._wmsSearchIndex;
@@ -7327,10 +7696,18 @@ async function renderAdminOrders() {
       }
       const foundPacksMap = new Map();
 
-      // 1. Verificar en order.sku
+      // 1. Verificar en order.sku (soportando SKU único o lista separada por comas)
       const mainSku = (order.sku || '').trim().toLowerCase();
-      if (mainSku && packSkus.has(mainSku)) {
-        foundPacksMap.set(mainSku, order.cantidad || 1);
+      if (mainSku) {
+        if (packSkus.has(mainSku)) {
+          foundPacksMap.set(mainSku, order.cantidad || 1);
+        } else if (mainSku.includes(',')) {
+          mainSku.split(',').map(s => s.trim()).filter(Boolean).forEach(s => {
+            if (packSkus.has(s)) {
+              foundPacksMap.set(s, 1);
+            }
+          });
+        }
       }
 
       // 2. Verificar en order_items
@@ -7357,6 +7734,9 @@ async function renderAdminOrders() {
               if (vSkuAttr) sku = vSkuAttr.value_name || '';
             }
             qty = item.quantity || 1;
+          } else if (platform === 'woocommerce') {
+            sku = item.sku || (item.product_id ? `WC-${item.product_id}${item.variation_id ? '-' + item.variation_id : ''}` : '');
+            qty = item.quantity || item.qty || 1;
           } else {
             sku = item.sku || item.variant_sku || item.seller_sku || item.platform_sku || '';
             qty = item.quantity || item.qty || 1;
@@ -7390,6 +7770,95 @@ async function renderAdminOrders() {
 
       order._wmsPacksMap = foundPacksMap;
       return foundPacksMap;
+    };
+
+    window.getOrderQtyMismatchInfo = function(order) {
+      if (!order) return { hasMismatch: false, headerQty: 0, itemsSum: 0, expectedItemsSum: 0, tooltip: '' };
+      if (order._wmsQtyMismatchInfo !== undefined) return order._wmsQtyMismatchInfo;
+
+      const headerQty = (order.cantidad !== null && order.cantidad !== undefined) ? Number(order.cantidad) : null;
+      if (headerQty === null || isNaN(headerQty) || headerQty <= 0 || !Array.isArray(order.order_items)) {
+        const emptyRes = { hasMismatch: false, headerQty: headerQty || 0, itemsSum: 0, expectedItemsSum: headerQty || 0, tooltip: '' };
+        order._wmsQtyMismatchInfo = emptyRes;
+        return emptyRes;
+      }
+
+      const rawItems = order.order_items;
+      let activeItemsSum = 0;
+      let eliminatedUnits = 0;
+      let giftUnits = 0;
+
+      rawItems.forEach(oi => {
+        const q = Number(oi.quantity) || 0;
+        if (window.isOrderItemEliminated && window.isOrderItemEliminated(order, oi)) {
+          eliminatedUnits += q;
+        } else {
+          activeItemsSum += q;
+          if (oi.is_gift || oi.campaign_id || oi.tag) {
+            giftUnits += q;
+          }
+        }
+      });
+
+      const packsMap = window.getOrderPacksMap ? window.getOrderPacksMap(order) : new Map();
+      const packUnitsMap = window.currentPackUnitsBySkuMap || {};
+      let expectedExtraPackUnits = 0;
+      let hasUnknownSizePack = false;
+
+      if (packsMap && packsMap.size > 0) {
+        packsMap.forEach((packQty, packSku) => {
+          const unitsPerPack = packUnitsMap[packSku];
+          if (unitsPerPack !== undefined && unitsPerPack > 0) {
+            expectedExtraPackUnits += (unitsPerPack - 1) * (Number(packQty) || 1);
+          } else {
+            hasUnknownSizePack = true;
+          }
+        });
+      }
+
+      const isManuallyEdited = !!(
+        order.wms_items_edited ||
+        order.raw_woocommerce_data?.wms_items_edited ||
+        order.raw_shopify_data?.wms_items_edited
+      );
+
+      const expectedItemsSum = Math.max(0, headerQty + expectedExtraPackUnits + giftUnits - eliminatedUnits);
+      const minExpectedBase = Math.max(0, headerQty - eliminatedUnits);
+
+      let hasMismatch = false;
+      if (rawItems.length === 0 && headerQty > 0) {
+        hasMismatch = true;
+      } else if (!isManuallyEdited && activeItemsSum < minExpectedBase) {
+        hasMismatch = true;
+      } else if (!isManuallyEdited && activeItemsSum !== expectedItemsSum) {
+        if (activeItemsSum > expectedItemsSum && hasUnknownSizePack) {
+          hasMismatch = false;
+        } else {
+          hasMismatch = true;
+        }
+      }
+
+      let tooltip = '';
+      if (hasMismatch) {
+        if (rawItems.length === 0) {
+          tooltip = `Descuadre de unidades: La columna UDS indica ${headerQty} un., pero el pedido no tiene ítems desglosados (0 un.)`;
+        } else if (expectedItemsSum !== headerQty) {
+          tooltip = `Descuadre de unidades: Columna UDS indica ${headerQty} un. (${expectedItemsSum} un. físicas esperadas con packs/campaña), pero los ítems desglosados suman ${activeItemsSum} un.`;
+        } else {
+          tooltip = `Descuadre de unidades: La columna UDS indica ${headerQty} un., pero la sumatoria de los ítems desglosados es ${activeItemsSum} un.`;
+        }
+      }
+
+      const res = {
+        hasMismatch,
+        headerQty,
+        itemsSum: activeItemsSum,
+        expectedItemsSum,
+        hasExpandedUnits: !hasMismatch && activeItemsSum > headerQty && rawItems.length > 0,
+        tooltip
+      };
+      order._wmsQtyMismatchInfo = res;
+      return res;
     };
 
     window.getOrderShipmentGlobalStatus = function(order) {
@@ -8547,6 +9016,12 @@ async function renderAdminOrders() {
         tags.add('CON NOTA');
       }
 
+      // 8b. Con Nota Interna Admin (Solo visible por administradores)
+      const adminNote = window.getOrderAdminNote ? window.getOrderAdminNote(order) : '';
+      if (adminNote && adminNote.trim()) {
+        tags.add('CON NOTA INTERNA');
+      }
+
       // 9. Sin Stock
       const stockAlert = window.checkOrderStockAlert(order);
       if (stockAlert && stockAlert.hasStockAlert) {
@@ -8624,6 +9099,12 @@ async function renderAdminOrders() {
         }
       }
 
+      // 18. Descuadre de Unidades (Columna UDS vs Suma de Ítems Desglosados)
+      const qtyMismatch = window.getOrderQtyMismatchInfo ? window.getOrderQtyMismatchInfo(order) : null;
+      if (qtyMismatch && qtyMismatch.hasMismatch) {
+        tags.add('DESCUADRE UDS.');
+      }
+
       order._wmsTags = Array.from(tags);
       return order._wmsTags;
     };
@@ -8644,9 +9125,11 @@ async function renderAdminOrders() {
       });
 
       const orderPillTags = [
+        { key: 'DESCUADRE UDS.', label: 'DESCUADRE UDS. (Ítems ≠ UDS)', icon: '⚠️' },
         { key: 'Asignado Optiroute', label: 'Asignado Optiroute', icon: '🛣️' },
         { key: 'Con Packs', label: 'Con Packs', icon: '📦' },
         { key: 'CON NOTA', label: 'CON NOTA', icon: '💬' },
+        { key: 'CON NOTA INTERNA', label: 'CON NOTA INTERNA (Admin)', icon: '🔒' },
         { key: 'Etiqueta', label: 'Etiqueta Generada', icon: '🏷️' },
         { key: 'Exportado', label: 'Exportado a Shopify', icon: '✔️' },
         { key: 'SIN STOCK', label: 'SIN STOCK', icon: '🚨' }
@@ -10344,8 +10827,10 @@ window.getWmsFilteredOrders = function(excludeColKey = null, forTab = null) {
         const operadorStr = order.operador || '';
         const agendaStr = order.agenda || '';
         const tagsStr = (window.getOrderTags ? window.getOrderTags(order) : []).join(' ');
+        const orderNoteStr = window.getOrderNoteText ? window.getOrderNoteText(order) : '';
+        const adminNoteStr = window.getOrderAdminNote ? window.getOrderAdminNote(order) : '';
 
-        searchIndex = `${orderId} ${extNo} ${skuStr} ${nameStr} ${company} ${customer} ${tracking} ${sucursal} ${shippingMethodStr} ${shippingCityStr} ${operadorStr} ${agendaStr} ${tagsStr}`.toLowerCase();
+        searchIndex = `${orderId} ${extNo} ${skuStr} ${nameStr} ${company} ${customer} ${tracking} ${sucursal} ${shippingMethodStr} ${shippingCityStr} ${operadorStr} ${agendaStr} ${tagsStr} ${orderNoteStr} ${adminNoteStr}`.toLowerCase();
         order._wmsSearchIndex = searchIndex;
       }
       if (!searchIndex.includes(searchText)) return false;
@@ -10949,9 +11434,12 @@ window.applyWmsFiltersAndRender = function() {
       labelBadgeHtml = `<span class="badge wms-order-tag-badge ${isLabelActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('Etiqueta', event)" style="background-color: rgba(113, 23, 235, 0.12); color: #7117eb; border: 1px solid rgba(113, 23, 235, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isLabelActive ? 'outline: 2px solid #7117eb; box-shadow: 0 0 6px rgba(113,23,235,0.5);' : ''}" title="Etiqueta Generada (Clic para filtrar)"><i class="ri-qr-code-line"></i> Etiqueta</span>`;
     }
 
+    const adminNoteForCol = window.getOrderAdminNote ? window.getOrderAdminNote(order) : '';
+    const adminNoteLockBtn = `<button type="button" onclick="event.stopPropagation(); window.openOrderAdminNoteModal('${order.id}')" class="btn-order-admin-note-trigger" data-order-id="${order.id}" style="background: none; border: none; padding: 0 2px; margin-left: 2px; cursor: pointer; color: ${adminNoteForCol ? '#4f46e5' : '#94a3b8'}; font-size: 0.85rem; vertical-align: middle; display: inline-flex; align-items: center;" title="${adminNoteForCol ? `Nota Interna Admin: ${adminNoteForCol.replace(/"/g, '&quot;')} (Clic para ver/editar)` : 'Añadir Nota Interna Admin'}"><i class="${adminNoteForCol ? 'ri-lock-2-fill' : 'ri-lock-2-line'}"></i></button>`;
+
     const orderDisplayId = order.external_order_number 
-      ? `<div style="display:flex; flex-direction:column; gap:0.15rem;"><div style="display:inline-flex; align-items:center;"><span onclick="event.stopPropagation(); window.openWmsOrderModal('${order.id}');" style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; cursor: pointer; color: var(--color-primary);" title="Abrir Ficha Completa del Pedido (${order.external_order_number})">${order.external_order_number}</span>${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.external_order_number, 'Número de pedido', 'Copiar número de pedido') : ''}</div> <span style="font-size: 0.7rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span></div>` 
-      : `<div style="display:flex; flex-direction:column; gap:0.15rem;"><div style="display:inline-flex; align-items:center;"><span onclick="event.stopPropagation(); window.openWmsOrderModal('${order.id}');" style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; cursor: pointer; color: var(--color-primary);" title="Abrir Ficha Completa del Pedido (${order.id})">${order.id.split('-')[0]}</span>${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.id, 'ID de pedido', 'Copiar ID de pedido') : ''}</div></div>`;
+      ? `<div style="display:flex; flex-direction:column; gap:0.15rem;"><div style="display:inline-flex; align-items:center;"><span onclick="event.stopPropagation(); window.openWmsOrderModal('${order.id}');" style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; cursor: pointer; color: var(--color-primary);" title="Abrir Ficha Completa del Pedido (${order.external_order_number})">${order.external_order_number}</span>${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.external_order_number, 'Número de pedido', 'Copiar número de pedido') : ''}${adminNoteLockBtn}</div> <span style="font-size: 0.7rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span></div>` 
+      : `<div style="display:flex; flex-direction:column; gap:0.15rem;"><div style="display:inline-flex; align-items:center;"><span onclick="event.stopPropagation(); window.openWmsOrderModal('${order.id}');" style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; cursor: pointer; color: var(--color-primary);" title="Abrir Ficha Completa del Pedido (${order.id})">${order.id.split('-')[0]}</span>${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.id, 'ID de pedido', 'Copiar ID de pedido') : ''}${adminNoteLockBtn}</div></div>`;
 
     // Validar si el courier u operador guardado en el pedido es un operador ignorado (RECIBELO, WELIVERY)
     const orderCourierUpper = (order.courier || '').toUpperCase().trim();
@@ -11881,6 +12369,13 @@ window.applyWmsFiltersAndRender = function() {
       noteBadgeHtml = `<span class="badge wms-order-tag-badge ${isNoteActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('CON NOTA', event)" style="background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isNoteActive ? 'outline: 2px solid #92400e; box-shadow: 0 0 6px rgba(146,64,14,0.4);' : ''}" title="Nota: ${(orderNote || '').replace(/"/g, '&quot;')} (Clic para filtrar)"><i class="ri-chat-3-line" style="color: #d97706;"></i> CON NOTA</span>`;
     }
 
+    const adminNote = window.getOrderAdminNote ? window.getOrderAdminNote(order) : '';
+    let adminNoteBadgeHtml = '';
+    if (adminNote) {
+      const isAdminNoteActive = selectedTag === 'CON NOTA INTERNA';
+      adminNoteBadgeHtml = `<span id="admin-note-badge-${order.id}" class="badge wms-order-tag-badge ${isAdminNoteActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('CON NOTA INTERNA', event)" style="background-color: rgba(99, 102, 241, 0.12); color: #4338ca; border: 1px solid rgba(99, 102, 241, 0.35); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isAdminNoteActive ? 'outline: 2px solid #4338ca; box-shadow: 0 0 6px rgba(67,56,202,0.4);' : ''}" title="Nota Interna Admin: ${(adminNote || '').replace(/"/g, '&quot;')} (Clic para filtrar)"><i class="ri-lock-2-line" style="color: #4f46e5;"></i> NOTA INTERNA <i class="ri-pencil-line" onclick="event.stopPropagation(); window.openOrderAdminNoteModal('${order.id}')" title="Editar nota interna" style="margin-left: 0.15rem; font-size: 0.7rem; opacity: 0.85;"></i></span>`;
+    }
+
     let customPlatformTagsHtml = '';
     const rawStoreTags = new Set();
     if (order.raw_shopify_data?.tags) {
@@ -12068,6 +12563,44 @@ window.applyWmsFiltersAndRender = function() {
 
     const shippingFullAddress = [order.shipping_address, order.shipping_complement].filter(Boolean).join(', ').trim();
 
+    const qtyMismatch = window.getOrderQtyMismatchInfo ? window.getOrderQtyMismatchInfo(order) : { hasMismatch: false };
+    const isQtyMismatchActive = selectedTag === 'DESCUADRE UDS.';
+    const safeMismatchTooltip = (qtyMismatch.tooltip || 'Descuadre entre columna UDS. y sumatoria de ítems desglosados').replace(/"/g, '&quot;');
+
+    const qtyMismatchBadgeHtml = qtyMismatch.hasMismatch
+      ? `<span class="badge wms-order-tag-badge ${isQtyMismatchActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('DESCUADRE UDS.', event)" style="background-color: #fff7ed; color: #c2410c; border: 1.5px solid #f97316; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; box-shadow: 0 1px 3px rgba(249, 115, 22, 0.2); ${isQtyMismatchActive ? 'outline: 2px solid #c2410c; box-shadow: 0 0 6px rgba(194,65,12,0.5);' : ''}" title="${safeMismatchTooltip} (Clic para filtrar)"><i class="ri-error-warning-fill" style="color: #ea580c; font-size: 0.78rem;"></i> DESCUADRE UDS. (${qtyMismatch.itemsSum}/${qtyMismatch.expectedItemsSum})</span>`
+      : '';
+
+    const qtyCellHtml = qtyMismatch.hasMismatch
+      ? `<div onclick="event.stopPropagation(); window.toggleOrderRow('${order.id}')" style="display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.08rem; background: #fff7ed; border: 1.5px solid #f97316; border-radius: 6px; padding: 0.14rem 0.38rem; cursor: pointer; box-shadow: 0 1px 3px rgba(249, 115, 22, 0.18);" title="${safeMismatchTooltip} (Clic para ver desglose)">
+          <span style="display: inline-flex; align-items: center; gap: 0.15rem; color: #c2410c; font-weight: 800; font-size: 0.85rem; line-height: 1.1;">
+            ${qtyStr} <i class="ri-error-warning-fill" style="color: #ea580c; font-size: 0.82rem;"></i>
+          </span>
+          <span style="font-size: 0.62rem; font-weight: 700; color: #9a3412; white-space: nowrap; line-height: 1;">
+            Ítems: ${qtyMismatch.itemsSum}
+          </span>
+        </div>`
+      : (qtyMismatch.hasExpandedUnits
+          ? `<div style="display: inline-flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.15;" title="Unidades de compra: ${qtyStr} | Unidades físicas desglosadas (packs/campaña): ${qtyMismatch.itemsSum}">
+              <strong style="color: var(--color-text-main); font-size: 0.85rem;">${qtyStr}</strong>
+              <span style="font-size: 0.62rem; color: #7c3aed; font-weight: 700; white-space: nowrap;">(${qtyMismatch.itemsSum} fís.)</span>
+            </div>`
+          : `<strong style="color: var(--color-text-main); font-size: 0.85rem;">${qtyStr}</strong>`);
+
+    const qtyMismatchAlertBoxHtml = qtyMismatch.hasMismatch
+      ? `<div style="margin-top: 0.85rem; padding: 0.6rem 0.8rem; background: #fff7ed; border: 1px solid #fdba74; border-left: 4px solid #f97316; border-radius: var(--radius-sm); font-size: 0.8rem; color: #9a3412; display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-error-warning-fill" style="font-size: 1.15rem; color: #ea580c; flex-shrink: 0;"></i>
+            <div>
+              <strong>Alerta de Descuadre de Unidades:</strong> Columna UDS indica <strong>${qtyMismatch.headerQty}</strong>${qtyMismatch.expectedItemsSum !== qtyMismatch.headerQty ? ` (<strong>${qtyMismatch.expectedItemsSum}</strong> un. físicas esperadas)` : ''}, pero la sumatoria de ítems desglosados es <strong>${qtyMismatch.itemsSum}</strong>.
+            </div>
+          </div>
+          <button type="button" onclick="window.openEditOrderItemsModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.2rem 0.5rem; font-size: 0.72rem; font-weight: 700; border-color: #f97316; color: #c2410c; background: #ffffff; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-edit-line"></i> Corregir Ítems
+          </button>
+        </div>`
+      : '';
+
     rowsHtml += `
       <tr id="row-${order.id}" class="order-row ${isInitiallyExpanded ? 'expanded' : ''}" data-order-id="${order.id}" style="transition: background-color 0.2s;">
         <td style="text-align: center;" onclick="event.stopPropagation()">
@@ -12123,7 +12656,7 @@ window.applyWmsFiltersAndRender = function() {
             ${optirouteAssignedTagHtml}
           </div>
         </td>
-        <td style="text-align: center;"><strong style="color: var(--color-text-main); font-size: 0.85rem;">${qtyStr}</strong></td>
+        <td style="text-align: center;">${qtyCellHtml}</td>
         <td style="padding: 0.35rem 0.35rem; vertical-align: middle;">
           <div style="display: flex; flex-direction: column; gap: 0.25rem; min-width: 145px; max-width: 195px;">
             <div style="display: flex; align-items: center; gap: 0.25rem;">
@@ -12151,7 +12684,7 @@ window.applyWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.2s;">
         <td colspan="13" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
+            ${categoryBadgeHtml}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${qtyMismatchBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${adminNoteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>
@@ -12241,6 +12774,35 @@ window.applyWmsFiltersAndRender = function() {
                   </div>
                   <div style="font-size: 0.825rem; color: var(--color-text-main); font-weight: ${orderNote ? '600' : 'normal'}; word-break: break-word; white-space: pre-wrap; line-height: 1.35;">
                     ${orderNote ? window.escapeHtml(orderNote) : '<span style="color: var(--color-text-muted); font-style: italic; font-weight: normal;">Sin notas</span>'}
+                  </div>
+                </div>
+
+                <!-- Notas Internas Admin (Solo Administradores WMS) -->
+                <div id="wms-admin-notes-card-${order.id}" style="margin-top: 0.65rem; margin-bottom: 0.5rem; background: ${adminNote ? 'rgba(99, 102, 241, 0.07)' : 'var(--color-bg)'}; border: 1px solid ${adminNote ? 'rgba(99, 102, 241, 0.35)' : 'var(--color-border)'}; border-left: 3px solid #6366f1; padding: 0.5rem 0.65rem; border-radius: var(--radius-sm); transition: all 0.2s;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.25rem;">
+                    <strong style="color: #4f46e5; font-size: 0.8rem; display: flex; align-items: center; gap: 0.35rem;">
+                      <i class="ri-lock-2-line"></i> Nota Interna (Solo Admins WMS):
+                    </strong>
+                    <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                      ${adminNote ? window.renderCopyFieldBtn(adminNote, 'Nota Interna Admin') : ''}
+                      <button type="button" onclick="window.toggleEditAdminNote('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.1rem 0.35rem; font-size: 0.7rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; color: #4338ca; border-color: rgba(99, 102, 241, 0.4); background: #ffffff;">
+                        <i class="ri-edit-line"></i> ${adminNote ? 'Editar' : 'Añadir Nota'}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div id="wms-admin-note-view-${order.id}" style="font-size: 0.825rem; color: var(--color-text-main); font-weight: ${adminNote ? '600' : 'normal'}; word-break: break-word; white-space: pre-wrap; line-height: 1.35;">
+                    ${adminNote ? (window.escapeHtml ? window.escapeHtml(adminNote) : adminNote) : '<span style="color: var(--color-text-muted); font-style: italic; font-weight: normal;">Sin nota interna registrada (visible exclusivamente para administradores).</span>'}
+                  </div>
+
+                  <div id="wms-admin-note-edit-${order.id}" style="display: none; margin-top: 0.4rem;">
+                    <textarea id="wms-admin-note-input-${order.id}" class="wms-input-ctrl" style="width: 100%; min-height: 65px; font-size: 0.8rem; box-sizing: border-box; padding: 0.4rem; border-radius: 4px; border: 1px solid rgba(99, 102, 241, 0.4); margin-bottom: 0.35rem; resize: vertical;" placeholder="Escribe anotación interna visible solo para administradores...">${adminNote ? (window.escapeHtml ? window.escapeHtml(adminNote) : adminNote) : ''}</textarea>
+                    <div style="display: flex; justify-content: flex-end; gap: 0.35rem;">
+                      <button type="button" onclick="window.cancelEditAdminNote('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.72rem; cursor: pointer;">Cancelar</button>
+                      <button type="button" id="btn-save-admin-note-${order.id}" onclick="window.saveOrderAdminNote('${order.id}')" class="btn btn-primary btn-sm" style="padding: 0.15rem 0.55rem; font-size: 0.72rem; background: #4f46e5; border-color: #4338ca; cursor: pointer;">
+                        <i class="ri-save-line"></i> Guardar
+                      </button>
+                    </div>
                   </div>
                 </div>
                 
@@ -12347,6 +12909,7 @@ window.applyWmsFiltersAndRender = function() {
                     </tfoot>
                   </table>
                 </div>
+                ${qtyMismatchAlertBoxHtml}
                 ${originalPacksHtml}
 
                 <!-- Reasignar Comercio -->
@@ -14368,6 +14931,7 @@ window.applyBulkWmsStatus = async function() {
       window.lastBulkWmsDeferredTrackingCount = 0;
       window.lastDeferredBulkWmsOrders = [];
       window.lastBulkWmsTempLabelOrders = [];
+      window.lastBulkWmsPickerErrors = [];
 
       if (formValues.keepPicking || hasMixedSucursales) {
         // Enviar cada pedido con su respectiva sucursal asignada
@@ -14421,18 +14985,23 @@ window.applyBulkWmsStatus = async function() {
 
           // Enviar a Picker con sus datos (con verificación de tracking o forzando etiqueta temporal / ignorando falta de tracking)
           const isMissing = window.isOrderMissingTracking ? window.isOrderMissingTracking(order) : false;
-          const pickRes = await window.sendSingleOrderToPicker(order, { 
-            forceTemporaryLabel: formValues.forceTempLabel || formValues.ignoreTracking,
-            ignoreMissingTracking: formValues.ignoreTracking 
-          });
-          if (pickRes && pickRes.skipped && pickRes.reason === 'missing_tracking') {
-            window.lastBulkWmsDeferredTrackingCount++;
-            window.lastDeferredBulkWmsOrders.push(order);
-          } else {
-            window.lastBulkWmsSentPickerCount++;
-            if (formValues.autoPrintTempLabels && isMissing) {
-              window.lastBulkWmsTempLabelOrders.push(order);
+          try {
+            const pickRes = await window.sendSingleOrderToPicker(order, { 
+              forceTemporaryLabel: formValues.forceTempLabel || formValues.ignoreTracking,
+              ignoreMissingTracking: formValues.ignoreTracking 
+            });
+            if (pickRes && pickRes.skipped && pickRes.reason === 'missing_tracking') {
+              window.lastBulkWmsDeferredTrackingCount++;
+              window.lastDeferredBulkWmsOrders.push(order);
+            } else {
+              window.lastBulkWmsSentPickerCount++;
+              if (formValues.autoPrintTempLabels && isMissing) {
+                window.lastBulkWmsTempLabelOrders.push(order);
+              }
             }
+          } catch (singlePickerErr) {
+            console.error(`Error enviando pedido ${order.external_order_number || order.id} al Picker:`, singlePickerErr);
+            window.lastBulkWmsPickerErrors.push({ order, error: singlePickerErr });
           }
         }
       } else {
@@ -14493,18 +15062,23 @@ window.applyBulkWmsStatus = async function() {
             item.warehouse_id = effWarehouseId;
           });
           const isMissing = window.isOrderMissingTracking ? window.isOrderMissingTracking(order) : false;
-          const pickRes = await window.sendSingleOrderToPicker(order, { 
-            forceTemporaryLabel: formValues.forceTempLabel || formValues.ignoreTracking,
-            ignoreMissingTracking: formValues.ignoreTracking 
-          });
-          if (pickRes && pickRes.skipped && pickRes.reason === 'missing_tracking') {
-            window.lastBulkWmsDeferredTrackingCount++;
-            window.lastDeferredBulkWmsOrders.push(order);
-          } else {
-            window.lastBulkWmsSentPickerCount++;
-            if (formValues.autoPrintTempLabels && isMissing) {
-              window.lastBulkWmsTempLabelOrders.push(order);
+          try {
+            const pickRes = await window.sendSingleOrderToPicker(order, { 
+              forceTemporaryLabel: formValues.forceTempLabel || formValues.ignoreTracking,
+              ignoreMissingTracking: formValues.ignoreTracking 
+            });
+            if (pickRes && pickRes.skipped && pickRes.reason === 'missing_tracking') {
+              window.lastBulkWmsDeferredTrackingCount++;
+              window.lastDeferredBulkWmsOrders.push(order);
+            } else {
+              window.lastBulkWmsSentPickerCount++;
+              if (formValues.autoPrintTempLabels && isMissing) {
+                window.lastBulkWmsTempLabelOrders.push(order);
+              }
             }
+          } catch (singlePickerErr) {
+            console.error(`Error enviando pedido ${order.external_order_number || order.id} al Picker:`, singlePickerErr);
+            window.lastBulkWmsPickerErrors.push({ order, error: singlePickerErr });
           }
         }
       }
@@ -14521,15 +15095,26 @@ window.applyBulkWmsStatus = async function() {
         ? `<p style="color: #b45309; font-weight: 600; margin-top: 0.35rem;">🏷️ <strong>${window.lastBulkWmsTempLabelOrders.length}</strong> pedido(s) fueron enviados al Picker con <strong>Etiqueta Temporal Stocka</strong>.${formValues.autoPrintTempLabels ? ' Se abrió el cuadro de impresión para sus etiquetas.' : ''}</p>`
         : '';
 
+      const pickerErrors = window.lastBulkWmsPickerErrors || [];
+      const pickerErrorNoteHtml = pickerErrors.length > 0
+        ? `<div style="margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; color: #b91c1c; font-size: 0.85rem;">
+             ⚠️ <strong>${pickerErrors.length}</strong> pedido(s) tuvieron avisos o problemas al sincronizarse al Picker:
+             <ul style="margin: 0.25rem 0 0 1rem; padding: 0; max-height: 80px; overflow-y: auto;">
+               ${pickerErrors.map(e => `<li>${e.order?.external_order_number || e.order?.id}: ${e.error?.message || e.error || 'Error'}</li>`).join('')}
+             </ul>
+           </div>`
+        : '';
+
       if (window.lastBulkWmsDeferredTrackingCount > 0) {
         Swal.fire({
-          icon: 'success',
-          title: '¡Pedidos En Preparación!',
+          icon: pickerErrors.length > 0 ? 'warning' : 'success',
+          title: pickerErrors.length > 0 ? 'Pedidos En Preparación (con avisos)' : '¡Pedidos En Preparación!',
           html: `
             <div style="text-align: left; font-size: 0.9rem;">
               <p>Se actualizaron <strong>${ids.length}</strong> pedidos a 'En preparación' en WMS.</p>
               <p>📦 <strong>${window.lastBulkWmsSentPickerCount}</strong> pedido(s) fueron enviados al Picker inmediatamente.</p>
               ${tempLabelNoteHtml}
+              ${pickerErrorNoteHtml}
               <p style="color: #d97706; font-weight: 600;">⏳ <strong>${window.lastBulkWmsDeferredTrackingCount}</strong> pedido(s) con operador sin tracking quedaron en espera y se sincronizarán al Picker automáticamente en cuanto se genere su etiqueta.</p>
               ${failedOrders.size > 0 ? `<p style="color: #ef4444; font-weight: 600; margin-top: 0.5rem;">⚠️ ${failedOrders.size} pedido(s) con stock insuficiente quedaron pendientes.</p>` : ''}
               <div style="margin-top: 0.85rem; padding: 0.75rem; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 6px; text-align: center;">
@@ -14552,6 +15137,21 @@ window.applyBulkWmsStatus = async function() {
               });
             }
           }
+        });
+      } else if (pickerErrors.length > 0) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Pedidos Actualizados con Avisos',
+          html: `
+            <div style="text-align: left; font-size: 0.9rem;">
+              <p>Se actualizaron <strong>${ids.length}</strong> pedidos en WMS.</p>
+              <p>📦 <strong>${window.lastBulkWmsSentPickerCount}</strong> pedido(s) fueron enviados al Picker exitosamente.</p>
+              ${tempLabelNoteHtml}
+              ${pickerErrorNoteHtml}
+              ${failedOrders.size > 0 ? `<p style="color: #ef4444; font-weight: 600; margin-top: 0.5rem;">⚠️ ${failedOrders.size} pedido(s) con stock insuficiente quedaron pendientes.</p>` : ''}
+            </div>
+          `,
+          confirmButtonColor: '#7117eb'
         });
       } else if (window.lastBulkWmsTempLabelOrders && window.lastBulkWmsTempLabelOrders.length > 0) {
         Swal.fire({
@@ -51841,7 +52441,7 @@ window.saveModalSelectField = function(selectEl, recordId, fieldName, periodId, 
     selectEl.className = 'billing-select ' + getStatusClass(val);
   }
 
-  if (val === 'Recibido') {
+  if (val === 'Recibido' || val === 'aprobado') {
     const today = new Date().toLocaleDateString('sv-SE');
     if (fieldName === 'pago_fulfillment') {
       const totalInput = document.getElementById(`modal-field-total-fulf-${recordId}`);
@@ -51851,9 +52451,11 @@ window.saveModalSelectField = function(selectEl, recordId, fieldName, periodId, 
         const numVal = parseInt((totalInput.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
         saveField(recordId, 'abono_fulfillment', numVal);
       }
-      const dateInput = document.getElementById(`modal-field-pago-date-fulf-${recordId}`);
-      if (dateInput) dateInput.value = today;
-      saveField(recordId, 'fecha_pago_recibido_fulfillment', today);
+      if (val === 'Recibido') {
+        const dateInput = document.getElementById(`modal-field-pago-date-fulf-${recordId}`);
+        if (dateInput) dateInput.value = today;
+        saveField(recordId, 'fecha_pago_recibido_fulfillment', today);
+      }
     } else if (fieldName === 'pago_enviame') {
       const totalInput = document.getElementById(`modal-field-total-env-${recordId}`);
       const abonoInput = document.getElementById(`modal-field-abono-env-${recordId}`);
@@ -51862,9 +52464,25 @@ window.saveModalSelectField = function(selectEl, recordId, fieldName, periodId, 
         const numVal = parseInt((totalInput.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
         saveField(recordId, 'abono_enviame', numVal);
       }
-      const dateInput = document.getElementById(`modal-field-pago-date-env-${recordId}`);
-      if (dateInput) dateInput.value = today;
-      saveField(recordId, 'fecha_pago_recibido_enviame', today);
+      if (val === 'Recibido') {
+        const dateInput = document.getElementById(`modal-field-pago-date-env-${recordId}`);
+        if (dateInput) dateInput.value = today;
+        saveField(recordId, 'fecha_pago_recibido_enviame', today);
+      }
+    }
+  } else if (fieldName === 'desglose_fulfillment' && val === 'Aprobado') {
+    const totalInput = document.getElementById(`modal-field-total-fulf-${recordId}`);
+    const abonoInput = document.getElementById(`modal-field-abono-fulf-${recordId}`);
+    if (totalInput && abonoInput) {
+      abonoInput.value = totalInput.value;
+      const numVal = parseInt((totalInput.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+      saveField(recordId, 'abono_fulfillment', numVal);
+    }
+    const pagoSelectModal = document.getElementById(`modal-field-pago-fulf-${recordId}`);
+    if (pagoSelectModal && pagoSelectModal.value !== 'Recibido' && pagoSelectModal.value !== 'aprobado') {
+      pagoSelectModal.value = 'aprobado';
+      pagoSelectModal.className = 'billing-select ' + getStatusClass('aprobado');
+      saveField(recordId, 'pago_fulfillment', 'aprobado');
     }
   }
 
@@ -54266,8 +54884,8 @@ window.updateSelectField = function(selectEl, recordId, fieldName) {
   if (row) {
     row.setAttribute(`data-${fieldName.replace('_', '-')}`, val);
     
-    // Auto-fill abono locally if status is marked Recibido
-    if (val === 'Recibido') {
+    // Auto-fill abono locally if status is marked Recibido or aprobado
+    if (val === 'Recibido' || val === 'aprobado') {
       const today = new Date().toLocaleDateString('sv-SE');
       if (fieldName === 'pago_fulfillment') {
         const totalInput = row.querySelector('input[onblur*="total_fulfillment"]');
@@ -54277,16 +54895,20 @@ window.updateSelectField = function(selectEl, recordId, fieldName) {
           const numVal = parseInt((totalInput.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
           saveField(recordId, 'abono_fulfillment', numVal);
         }
-        saveField(recordId, 'fecha_pago_recibido_fulfillment', today);
-        
-        // Dynamic DOM injection of the datepicker badge
-        let dateContainer = selectEl.parentNode.querySelector('.payment-date-badge');
-        if (!dateContainer) {
-          const div = document.createElement('div');
-          div.className = 'payment-date-badge';
-          div.title = 'Fecha de Pago Recibido';
-          div.innerHTML = `<i class="ri-calendar-check-line" style="color: #10b981; font-size: 0.8rem;"></i><input type="date" value="${today}" class="billing-compact-date" onchange="saveField('${recordId}', 'fecha_pago_recibido_fulfillment', this.value)">`;
-          selectEl.parentNode.appendChild(div);
+        if (val === 'Recibido') {
+          saveField(recordId, 'fecha_pago_recibido_fulfillment', today);
+          // Dynamic DOM injection of the datepicker badge
+          let dateContainer = selectEl.parentNode.querySelector('.payment-date-badge');
+          if (!dateContainer) {
+            const div = document.createElement('div');
+            div.className = 'payment-date-badge';
+            div.title = 'Fecha de Pago Recibido';
+            div.innerHTML = `<i class="ri-calendar-check-line" style="color: #10b981; font-size: 0.8rem;"></i><input type="date" value="${today}" class="billing-compact-date" onchange="saveField('${recordId}', 'fecha_pago_recibido_fulfillment', this.value)">`;
+            selectEl.parentNode.appendChild(div);
+          }
+        } else {
+          let dateContainer = selectEl.parentNode.querySelector('.payment-date-badge');
+          if (dateContainer) dateContainer.remove();
         }
       } else if (fieldName === 'pago_enviame') {
         const totalInput = row.querySelector('input[onblur*="enviame"]');
@@ -54296,21 +54918,40 @@ window.updateSelectField = function(selectEl, recordId, fieldName) {
           const numVal = parseInt((totalInput.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
           saveField(recordId, 'abono_enviame', numVal);
         }
-        saveField(recordId, 'fecha_pago_recibido_enviame', today);
-        
-        // Dynamic DOM injection of the datepicker badge
-        let dateContainer = selectEl.parentNode.querySelector('.payment-date-badge');
-        if (!dateContainer) {
-          const div = document.createElement('div');
-          div.className = 'payment-date-badge';
-          div.title = 'Fecha de Pago Recibido';
-          div.innerHTML = `<i class="ri-calendar-check-line" style="color: #10b981; font-size: 0.8rem;"></i><input type="date" value="${today}" class="billing-compact-date" onchange="saveField('${recordId}', 'fecha_pago_recibido_enviame', this.value)">`;
-          selectEl.parentNode.appendChild(div);
+        if (val === 'Recibido') {
+          saveField(recordId, 'fecha_pago_recibido_enviame', today);
+          // Dynamic DOM injection of the datepicker badge
+          let dateContainer = selectEl.parentNode.querySelector('.payment-date-badge');
+          if (!dateContainer) {
+            const div = document.createElement('div');
+            div.className = 'payment-date-badge';
+            div.title = 'Fecha de Pago Recibido';
+            div.innerHTML = `<i class="ri-calendar-check-line" style="color: #10b981; font-size: 0.8rem;"></i><input type="date" value="${today}" class="billing-compact-date" onchange="saveField('${recordId}', 'fecha_pago_recibido_enviame', this.value)">`;
+            selectEl.parentNode.appendChild(div);
+          }
+        } else {
+          let dateContainer = selectEl.parentNode.querySelector('.payment-date-badge');
+          if (dateContainer) dateContainer.remove();
         }
+      }
+    } else if (fieldName === 'desglose_fulfillment' && val === 'Aprobado') {
+      const totalInput = row.querySelector('input[onblur*="total_fulfillment"]');
+      const abonoInput = row.querySelector('input[onblur*="abono_fulfillment"]');
+      if (totalInput && abonoInput) {
+        abonoInput.value = totalInput.value;
+        const numVal = parseInt((totalInput.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+        saveField(recordId, 'abono_fulfillment', numVal);
+      }
+      const pagoSelect = row.querySelector('select[onchange*="pago_fulfillment"]');
+      if (pagoSelect && pagoSelect.value !== 'Recibido' && pagoSelect.value !== 'aprobado') {
+        pagoSelect.value = 'aprobado';
+        pagoSelect.className = 'billing-select ' + getStatusClass('aprobado');
+        row.setAttribute('data-pago-fulf', 'aprobado');
+        saveField(recordId, 'pago_fulfillment', 'aprobado');
       }
     } else {
       // Remove dynamic datepicker if status changed from Recibido
-      let dateContainer = selectEl.parentNode.querySelector('.payment-date-badge') || selectEl.parentNode.querySelector('div:not(.billing-actions-group)');
+      let dateContainer = selectEl.parentNode.querySelector('.payment-date-badge');
       if (dateContainer) {
         dateContainer.remove();
       }
@@ -54323,7 +54964,7 @@ window.updateSelectField = function(selectEl, recordId, fieldName) {
   }
   
   saveField(recordId, fieldName, val);
-  if (['pago_fulfillment', 'pago_enviame'].includes(fieldName) && row) {
+  if (['pago_fulfillment', 'pago_enviame', 'desglose_fulfillment'].includes(fieldName) && row) {
     const type = fieldName === 'pago_enviame' ? 'env' : 'fulf';
     if (window.updateRowFinancialBadge) {
       window.updateRowFinancialBadge(recordId, type);
@@ -67389,7 +68030,7 @@ window.editWmsOrderComuna = async function(orderId) {
           try {
             await pickerSupabase
               .from('active_orders')
-              .update({ contact_data_t: newComuna })
+              .update({ contact_data_t: String(newComuna || '').slice(0, 255) })
               .eq('order_number', orderNumber);
             console.log(`✅ Comuna sincronizada en Picker active_orders para ${orderNumber}: ${newComuna}`);
           } catch (pErr) {
@@ -67647,13 +68288,13 @@ window.editWmsOrderShippingDetails = async function(orderId) {
             await pickerSupabase
               .from('active_orders')
               .update({
-                client_name: formValues.name || 'Sin nombre',
-                contact_data_q: formValues.email || '',
-                contact_data_r: formValues.phone || '',
-                contact_data_s: formValues.address || '',
-                contact_data_t: formValues.city || '',
-                contact_data_u: formValues.complement || '',
-                observation: newObservation
+                client_name: (formValues.name || 'Sin nombre').slice(0, 255),
+                contact_data_q: (formValues.email || '').slice(0, 255),
+                contact_data_r: (formValues.phone || '').slice(0, 255),
+                contact_data_s: (formValues.address || '').slice(0, 255),
+                contact_data_t: (formValues.city || '').slice(0, 255),
+                contact_data_u: (formValues.complement || '').slice(0, 255),
+                observation: (newObservation || '').slice(0, 1000)
               })
               .eq('order_number', orderNumber);
             console.log(`✅ Datos de despacho y notas sincronizados en Picker active_orders para ${orderNumber}`);
@@ -67664,8 +68305,8 @@ window.editWmsOrderShippingDetails = async function(orderId) {
             await pickerSupabase
               .from('sucursal_pickups')
               .update({
-                nombre_apellido: formValues.name || 'Sin nombre',
-                observaciones: `${formValues.name || 'Cliente'} | ${formValues.note ? formValues.note + ' | ' : ''}Ingreso automático desde WMS`
+                nombre_apellido: String(formValues.name || 'Sin nombre').slice(0, 255),
+                observaciones: `${String(formValues.name || 'Cliente').slice(0, 255)} | ${formValues.note ? String(formValues.note).slice(0, 500) + ' | ' : ''}Ingreso automático desde WMS`.slice(0, 1000)
               })
               .eq('pedido', orderNumber);
           } catch (pErr) {
@@ -68473,6 +69114,7 @@ window.openWmsOrderModal = async function(orderId) {
   }
 
   const displayNote = window.getOrderNoteText ? window.getOrderNoteText(order) : (order.notas || order.observation || '');
+  const displayAdminNote = window.getOrderAdminNote ? window.getOrderAdminNote(order) : '';
   const orderNumber = String(order.external_order_number || order.id || '').trim();
   const comercio = String(order.comercio || 'Stocka').trim();
   const canalVentas = String(order.origen || order.external_platform || 'Manual').trim();
@@ -68750,10 +69392,17 @@ window.openWmsOrderModal = async function(orderId) {
             <input type="url" id="wms-modal-tracking-url" class="wms-input-ctrl" value="${window.escapeHtml ? window.escapeHtml(currentTrackingUrl) : currentTrackingUrl}" placeholder="https://tracking.courier.cl/...">
           </div>
           <div class="wms-modal-field" style="margin-top: 0.6rem;">
-            <div class="wms-modal-card-title" style="margin-bottom: 0.35rem;">
-              <i class="ri-file-text-line"></i> Notas y Observaciones
+            <div class="wms-modal-card-title" style="margin-bottom: 0.35rem; color: #4338ca; display: flex; align-items: center; justify-content: space-between;">
+              <span><i class="ri-lock-2-line"></i> Nota Interna WMS (Solo Administradores)</span>
+              <span style="font-size: 0.65rem; background: #e0e7ff; color: #4338ca; padding: 0.1rem 0.35rem; border-radius: 4px; font-weight: 700;">Privada</span>
             </div>
-            <textarea id="wms-modal-note" class="wms-input-ctrl" style="min-height: 85px; resize: vertical;" placeholder="Instrucciones especiales de entrega o preparación...">${window.escapeHtml ? window.escapeHtml(displayNote) : displayNote}</textarea>
+            <textarea id="wms-modal-admin-note" class="wms-input-ctrl" style="min-height: 65px; resize: vertical; border-color: #c7d2fe; background: #f8faff;" placeholder="Nota confidencial interna (no visible para clientes ni tiendas)...">${window.escapeHtml ? window.escapeHtml(displayAdminNote) : displayAdminNote}</textarea>
+          </div>
+          <div class="wms-modal-field" style="margin-top: 0.6rem;">
+            <div class="wms-modal-card-title" style="margin-bottom: 0.35rem;">
+              <i class="ri-file-text-line"></i> Notas y Observaciones del Pedido
+            </div>
+            <textarea id="wms-modal-note" class="wms-input-ctrl" style="min-height: 65px; resize: vertical;" placeholder="Instrucciones especiales de entrega o preparación...">${window.escapeHtml ? window.escapeHtml(displayNote) : displayNote}</textarea>
           </div>
         </div>
       </div>
@@ -68841,6 +69490,7 @@ window.openWmsOrderModal = async function(orderId) {
       const tracking = document.getElementById('wms-modal-tracking')?.value.trim() || '';
       const tracking_url = document.getElementById('wms-modal-tracking-url')?.value.trim() || '';
       const note = document.getElementById('wms-modal-note')?.value.trim() || '';
+      const admin_notes = document.getElementById('wms-modal-admin-note')?.value.trim() ?? '';
 
       if (!address) {
         Swal.showValidationMessage('La dirección de despacho es obligatoria.');
@@ -68893,7 +69543,8 @@ window.openWmsOrderModal = async function(orderId) {
         courier,
         tracking,
         tracking_url,
-        note
+        note,
+        admin_notes
       };
     }
   });
@@ -68986,6 +69637,15 @@ window.openWmsOrderModal = async function(orderId) {
       (order.order_items || []).forEach(it => { it.warehouse_id = targetWhId; });
     }
 
+    // Guardar y sincronizar nota interna de administración si se modificó
+    if (formValues.admin_notes !== undefined && typeof window.saveOrderAdminNote === 'function') {
+      try {
+        await window.saveOrderAdminNote(orderId, formValues.admin_notes, true);
+      } catch (adminNoteErr) {
+        console.warn('Aviso guardando nota interna en openWmsOrderModal:', adminNoteErr);
+      }
+    }
+
     // Actualizar memoria local
     Object.assign(order, updatePayload);
     order.comuna = formValues.city;
@@ -68993,6 +69653,10 @@ window.openWmsOrderModal = async function(orderId) {
     order.direccion = formValues.address;
     order.complemento = formValues.complement;
     order.courier = formValues.courier;
+    if (formValues.admin_notes !== undefined) {
+      order.admin_notes = formValues.admin_notes;
+      order._adminNotes = formValues.admin_notes;
+    }
     if (order.notas !== undefined) order.notas = formValues.note;
     if (order.observation !== undefined) order.observation = formValues.note;
     delete order._wmsTags;
@@ -69007,6 +69671,10 @@ window.openWmsOrderModal = async function(orderId) {
         fOrd.direccion = formValues.address;
         fOrd.complemento = formValues.complement;
         fOrd.courier = formValues.courier;
+        if (formValues.admin_notes !== undefined) {
+          fOrd.admin_notes = formValues.admin_notes;
+          fOrd._adminNotes = formValues.admin_notes;
+        }
         delete fOrd._wmsTags;
       }
     }
@@ -69042,6 +69710,7 @@ window.openWmsOrderModal = async function(orderId) {
       window.refreshAgendasOrderCell(orderId, 'agenda', formValues.agenda);
       window.refreshAgendasOrderCell(orderId, 'operador', formValues.operador);
       window.refreshAgendasOrderCell(orderId, 'courier', formValues.courier);
+      window.refreshAgendasOrderCell(orderId, 'admin_notes', formValues.admin_notes);
     }
 
     // Re-renderizar Torre de Control
@@ -69158,13 +69827,13 @@ window.registerPickupIfNeeded = async function(order) {
         const { error: insErr } = await pickerSupabase
           .from('sucursal_pickups')
           .insert([{
-            comercio: comercio,
-            pedido: orderNumber,
-            nombre_apellido: customerName,
+            comercio: String(comercio || '').slice(0, 100),
+            pedido: String(orderNumber || '').slice(0, 255),
+            nombre_apellido: String(customerName || '').slice(0, 255),
             estado_pedido: 'NO PREPARADO',
-            sucursal: sucursal,
-            observaciones: `${customerName} | Ingreso automático desde WMS`,
-            pin_retiro: pin,
+            sucursal: String(sucursal || '').slice(0, 100),
+            observaciones: `${String(customerName || '').slice(0, 255)} | Ingreso automático desde WMS`.slice(0, 1000),
+            pin_retiro: String(pin || '').slice(0, 50),
             marcar_retirado_web: false,
             avisado_x_mail: false,
             cant_mails_enviados: 0,
@@ -69253,13 +69922,13 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
   const forceItemsUpdate = Boolean(options && options.itemsChanged);
   if (!forceItemsUpdate) {
     const updatePayload = {
-      operator: finalOperator,
-      tracking: finalTrack,
-      agenda: order.agenda || 'STK',
-      sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
-      contact_data_s: order.shipping_address || '',
-      contact_data_t: order.shipping_city || '',
-      contact_data_u: order.shipping_complement || ''
+      operator: String(finalOperator || '').slice(0, 100),
+      tracking: String(finalTrack || '').slice(0, 255),
+      agenda: String(order.agenda || 'STK').slice(0, 100),
+      sucursal: String(order.sucursal_pickeo || 'Sucursal Virtual (Hub)').slice(0, 100),
+      contact_data_s: String(order.shipping_address || '').slice(0, 255),
+      contact_data_t: String(order.shipping_city || '').slice(0, 255),
+      contact_data_u: String(order.shipping_complement || '').slice(0, 255)
     };
 
     const { error: updErr } = await pickerSupabase
@@ -69354,31 +70023,31 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
     }
 
     payloads.push({
-      sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
-      order_number: orderNumber,
-      agenda: order.agenda || 'STK',
+      sucursal: (order.sucursal_pickeo || 'Sucursal Virtual (Hub)').slice(0, 100),
+      order_number: String(orderNumber).slice(0, 100),
+      agenda: (order.agenda || 'STK').slice(0, 100),
       quantity: parseInt(item.quantity, 10) || 1,
-      sku: window.resolvePickerSku(prod, order, commerceStrict),
-      name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || order.item || 'Producto WMS'),
-      color: colorVal ? String(colorVal).trim() : null,
-      color_bg: colorBg || null,
-      color_text: colorText || null,
-      talla: tallaVal ? String(tallaVal).trim() : null,
-      manga: mangaVal ? String(mangaVal).trim() : null,
-      cuello: cuelloVal ? String(cuelloVal).trim() : null,
-      client_name: order.customer_name || 'Sin nombre',
-      tracking: finalTrack,
-      operator: finalOperator,
+      sku: (window.resolvePickerSku(prod, order, commerceStrict) || 'SKU-TEMP').slice(0, 100),
+      name: ((prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || order.item || 'Producto WMS')).slice(0, 255),
+      color: colorVal ? String(colorVal).trim().slice(0, 100) : null,
+      color_bg: colorBg ? String(colorBg).slice(0, 50) : null,
+      color_text: colorText ? String(colorText).slice(0, 50) : null,
+      talla: tallaVal ? String(tallaVal).trim().slice(0, 100) : null,
+      manga: mangaVal ? String(mangaVal).trim().slice(0, 100) : null,
+      cuello: cuelloVal ? String(cuelloVal).trim().slice(0, 100) : null,
+      client_name: (order.customer_name || 'Sin nombre').slice(0, 255),
+      tracking: String(finalTrack || '').slice(0, 255),
+      operator: String(finalOperator || '').slice(0, 100),
       totu: totu,
-      sheet_status: targetSheetStatus,
-      observation: finalObs,
-      contact_data_q: order.customer_email || '',
-      contact_data_r: order.customer_phone || '',
-      contact_data_s: order.shipping_address || '',
-      contact_data_t: order.shipping_city || '',
-      contact_data_u: order.shipping_complement || '',
-      extra_col_v: prod.image_url || '',
-      comercio: order.comercio || 'MAGIC MAKEUP',
+      sheet_status: String(targetSheetStatus || 'EN PREPARACIÓN').slice(0, 100),
+      observation: (finalObs || '').slice(0, 1000),
+      contact_data_q: (order.customer_email || '').slice(0, 255),
+      contact_data_r: (order.customer_phone || '').slice(0, 255),
+      contact_data_s: (order.shipping_address || '').slice(0, 255),
+      contact_data_t: (order.shipping_city || '').slice(0, 255),
+      contact_data_u: (order.shipping_complement || '').slice(0, 255),
+      extra_col_v: (prod.image_url || '').slice(0, 500),
+      comercio: (order.comercio || 'MAGIC MAKEUP').slice(0, 100),
       picking_match_strict: commerceStrict || prod.picking_match_strict || false,
       created_by: 'Sistema WMS'
     });
@@ -69421,8 +70090,8 @@ window.updatePickerTrackingForOrder = async function(order, newTracking, operato
       .limit(1);
 
     if (actCheck && actCheck.length > 0) {
-      const updatePayload = { tracking: cleanTrack };
-      if (operator) updatePayload.operator = operator;
+      const updatePayload = { tracking: cleanTrack.slice(0, 255) };
+      if (operator) updatePayload.operator = String(operator).slice(0, 100);
       await pickerSupabase
         .from('active_orders')
         .update(updatePayload)
@@ -69606,31 +70275,31 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
     }
 
     payloads.push({
-      sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
-      order_number: orderNumber,
-      agenda: order.agenda || 'STK',
+      sucursal: (order.sucursal_pickeo || 'Sucursal Virtual (Hub)').slice(0, 100),
+      order_number: String(orderNumber).slice(0, 100),
+      agenda: (order.agenda || 'STK').slice(0, 100),
       quantity: parseInt(item.quantity, 10) || 1,
-      sku: window.resolvePickerSku(prod, order, commerceStrict),
-      name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || order.item || 'Producto WMS'),
-      color: colorVal ? String(colorVal).trim() : null,
-      color_bg: colorBg || null,
-      color_text: colorText || null,
-      talla: tallaVal ? String(tallaVal).trim() : null,
-      manga: mangaVal ? String(mangaVal).trim() : null,
-      cuello: cuelloVal ? String(cuelloVal).trim() : null,
-      client_name: order.customer_name || 'Sin nombre',
-      tracking: cleanTracking,
-      operator: cleanOperator,
+      sku: (window.resolvePickerSku(prod, order, commerceStrict) || 'SKU-TEMP').slice(0, 100),
+      name: ((prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || order.item || 'Producto WMS')).slice(0, 255),
+      color: colorVal ? String(colorVal).trim().slice(0, 100) : null,
+      color_bg: colorBg ? String(colorBg).slice(0, 50) : null,
+      color_text: colorText ? String(colorText).slice(0, 50) : null,
+      talla: tallaVal ? String(tallaVal).trim().slice(0, 100) : null,
+      manga: mangaVal ? String(mangaVal).trim().slice(0, 100) : null,
+      cuello: cuelloVal ? String(cuelloVal).trim().slice(0, 100) : null,
+      client_name: (order.customer_name || 'Sin nombre').slice(0, 255),
+      tracking: String(cleanTracking || '').slice(0, 255),
+      operator: String(cleanOperator || '').slice(0, 100),
       totu: totu,
       sheet_status: 'EN PREPARACIÓN',
-      observation: window.buildPickerObservation ? window.buildPickerObservation(order, prod.description) : (order.observation || prod.description || ''),
-      contact_data_q: order.customer_email || '',
-      contact_data_r: order.customer_phone || '',
-      contact_data_s: order.shipping_address || '',
-      contact_data_t: order.shipping_city || '',
-      contact_data_u: order.shipping_complement || '',
-      extra_col_v: prod.image_url || '',
-      comercio: order.comercio || 'MAGIC MAKEUP',
+      observation: (window.buildPickerObservation ? window.buildPickerObservation(order, prod.description) : (order.observation || prod.description || '')).slice(0, 1000),
+      contact_data_q: (order.customer_email || '').slice(0, 255),
+      contact_data_r: (order.customer_phone || '').slice(0, 255),
+      contact_data_s: (order.shipping_address || '').slice(0, 255),
+      contact_data_t: (order.shipping_city || '').slice(0, 255),
+      contact_data_u: (order.shipping_complement || '').slice(0, 255),
+      extra_col_v: (prod.image_url || '').slice(0, 500),
+      comercio: (order.comercio || 'MAGIC MAKEUP').slice(0, 100),
       picking_match_strict: commerceStrict || prod.picking_match_strict || false,
       created_by: 'Sistema WMS'
     });
@@ -69639,31 +70308,31 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
   // Fallback si la orden no tiene order_items pero tiene información de item/sku en cabecera
   if (payloads.length === 0 && (order.sku || order.item)) {
     payloads.push({
-      sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
-      order_number: orderNumber,
-      agenda: order.agenda || 'STK',
+      sucursal: (order.sucursal_pickeo || 'Sucursal Virtual (Hub)').slice(0, 100),
+      order_number: String(orderNumber).slice(0, 100),
+      agenda: (order.agenda || 'STK').slice(0, 100),
       quantity: parseInt(order.cantidad, 10) || 1,
-      sku: order.sku || 'SKU-TEMP',
-      name: order.item || 'Producto WMS',
+      sku: (order.sku || 'SKU-TEMP').slice(0, 100),
+      name: (order.item || 'Producto WMS').slice(0, 255),
       color: null,
       color_bg: null,
       color_text: null,
       talla: null,
       manga: null,
       cuello: null,
-      client_name: order.customer_name || 'Sin nombre',
-      tracking: cleanTracking,
-      operator: cleanOperator,
+      client_name: (order.customer_name || 'Sin nombre').slice(0, 255),
+      tracking: String(cleanTracking || '').slice(0, 255),
+      operator: String(cleanOperator || '').slice(0, 100),
       totu: parseInt(order.cantidad, 10) || 1,
       sheet_status: 'EN PREPARACIÓN',
-      observation: window.buildPickerObservation ? window.buildPickerObservation(order, '') : (order.observation || ''),
-      contact_data_q: order.customer_email || '',
-      contact_data_r: order.customer_phone || '',
-      contact_data_s: order.shipping_address || '',
-      contact_data_t: order.shipping_city || '',
-      contact_data_u: order.shipping_complement || '',
+      observation: (window.buildPickerObservation ? window.buildPickerObservation(order, '') : (order.observation || '')).slice(0, 1000),
+      contact_data_q: (order.customer_email || '').slice(0, 255),
+      contact_data_r: (order.customer_phone || '').slice(0, 255),
+      contact_data_s: (order.shipping_address || '').slice(0, 255),
+      contact_data_t: (order.shipping_city || '').slice(0, 255),
+      contact_data_u: (order.shipping_complement || '').slice(0, 255),
       extra_col_v: '',
-      comercio: order.comercio || 'MAGIC MAKEUP',
+      comercio: (order.comercio || 'MAGIC MAKEUP').slice(0, 100),
       picking_match_strict: commerceStrict || false,
       created_by: 'Sistema WMS'
     });
@@ -69882,31 +70551,31 @@ window.sendIntakeToPicker = async function(id) {
         : (item.name || 'Producto Ingreso WMS');
 
       payloads.push({
-        sucursal: pickerSucursal,
-        order_number: orderNumber,
+        sucursal: String(pickerSucursal || 'Sucursal Virtual (Hub)').slice(0, 100),
+        order_number: String(orderNumber).slice(0, 100),
         agenda: 'INGRESO',
         quantity: parseInt(item.qty, 10) || 1,
-        sku: pickingSku,
-        name: prodName,
-        color: colorVal ? String(colorVal).trim() : '-',
-        color_bg: colorBg || null,
-        color_text: colorText || null,
-        talla: tallaVal ? String(tallaVal).trim() : '-',
-        manga: mangaVal ? String(mangaVal).trim() : '-',
-        cuello: cuelloVal ? String(cuelloVal).trim() : '-',
-        client_name: `Ingreso: ${dec.comercio || 'Comercio'}`,
-        tracking: dec.delivery_method || 'Particular',
+        sku: String(pickingSku || 'SKU-TEMP').slice(0, 100),
+        name: String(prodName).slice(0, 255),
+        color: colorVal ? String(colorVal).trim().slice(0, 100) : '-',
+        color_bg: colorBg ? String(colorBg).slice(0, 50) : null,
+        color_text: colorText ? String(colorText).slice(0, 50) : null,
+        talla: tallaVal ? String(tallaVal).trim().slice(0, 100) : '-',
+        manga: mangaVal ? String(mangaVal).trim().slice(0, 100) : '-',
+        cuello: cuelloVal ? String(cuelloVal).trim().slice(0, 100) : '-',
+        client_name: String(`Ingreso: ${dec.comercio || 'Comercio'}`).slice(0, 255),
+        tracking: String(dec.delivery_method || 'Particular').slice(0, 255),
         operator: '',
         totu: totu,
         sheet_status: 'EN PREPARACIÓN',
-        observation: `⚠️ INGRESO DE STOCK. Contar y verificar cantidades recibidas. Notas: ${dec.notes || 'Ninguna'}`,
-        contact_data_q: dec.contact_info || '',
-        contact_data_r: dec.carrier_info || '',
+        observation: String(`⚠️ INGRESO DE STOCK. Contar y verificar cantidades recibidas. Notas: ${dec.notes || 'Ninguna'}`).slice(0, 1000),
+        contact_data_q: String(dec.contact_info || '').slice(0, 255),
+        contact_data_r: String(dec.carrier_info || '').slice(0, 255),
         contact_data_s: '',
         contact_data_t: '',
         contact_data_u: '',
         extra_col_v: '',
-        comercio: dec.comercio || 'MAGIC MAKEUP',
+        comercio: String(dec.comercio || 'MAGIC MAKEUP').slice(0, 100),
         picking_match_strict: isStrict,
         created_by: 'WMS - Ingreso'
       });
@@ -70472,6 +71141,66 @@ window.syncInboundLabelsToBilling = function() {
   }
 };
 
+window.getEffectiveInboundLabelQty = function(item, idx) {
+  if (!item || !item.needs_label) return 0;
+  // Si el input existe en el DOM en este instante, respetar su valor actual (incluso si es "0" o vacío)
+  if (idx !== undefined && idx !== null) {
+    const domInput = document.getElementById(`manage-dec-label-qty-input-${idx}`);
+    if (domInput) {
+      const rawDom = String(domInput.value ?? '').trim();
+      if (rawDom === '') return 0;
+      const parsedDom = parseInt(rawDom, 10);
+      return isNaN(parsedDom) || parsedDom <= 0 ? 0 : parsedDom;
+    }
+  }
+  if (item.label_qty !== undefined && item.label_qty !== null && String(item.label_qty).trim() !== '') {
+    const parsed = parseInt(item.label_qty, 10);
+    return isNaN(parsed) || parsed <= 0 ? 0 : parsed;
+  }
+  if (item.label_qty_manual) {
+    return 0;
+  }
+  if (item.qty_confirmed !== undefined && item.qty_confirmed !== null && String(item.qty_confirmed).trim() !== '') {
+    const parsed = parseInt(item.qty_confirmed, 10);
+    return isNaN(parsed) || parsed <= 0 ? 0 : parsed;
+  }
+  const parsed = parseInt(item.qty, 10);
+  return isNaN(parsed) || parsed <= 0 ? 0 : parsed;
+};
+
+window.updateInboundLabelsSummaryCounters = function() {
+  const items = window.currentDeclarationProductsEditing || [];
+  const labelItems = items
+    .map((item, idx) => ({ item, idx }))
+    .filter(entry => entry.item.needs_label);
+
+  let totalCopies = 0;
+  let activeSkuCount = 0;
+  labelItems.forEach(({ item, idx }) => {
+    const q = window.getEffectiveInboundLabelQty(item, idx);
+    item.label_qty = q;
+    totalCopies += q;
+    if (q > 0) activeSkuCount++;
+    const costCell = document.getElementById(`manage-dec-label-cost-${idx}`);
+    if (costCell) {
+      costCell.textContent = `$${(q * 100).toLocaleString('es-CL')} CLP`;
+    }
+  });
+
+  const totalCostClp = totalCopies * 100;
+  const skuCountEl = document.getElementById('manage-dec-labels-sku-count');
+  const copiesCountEl = document.getElementById('manage-dec-labels-total-copies');
+  const btnCountEl = document.getElementById('manage-dec-labels-total-btn-count');
+  const billingBadgeEl = document.getElementById('manage-dec-labels-billing-badge');
+  const totalCostEl = document.getElementById('manage-dec-labels-total-cost');
+
+  if (skuCountEl) skuCountEl.textContent = activeSkuCount;
+  if (copiesCountEl) copiesCountEl.textContent = totalCopies;
+  if (btnCountEl) btnCountEl.textContent = totalCopies;
+  if (billingBadgeEl) billingBadgeEl.textContent = `+$${totalCostClp.toLocaleString('es-CL')} CLP (${totalCopies} uds × $100)`;
+  if (totalCostEl) totalCostEl.textContent = `$${totalCostClp.toLocaleString('es-CL')} CLP`;
+};
+
 window.renderInboundDeclarationLabelsPanel = function() {
   const panel = document.getElementById('manage-dec-labels-panel');
   const tbody = document.getElementById('manage-dec-labels-tbody');
@@ -70482,9 +71211,12 @@ window.renderInboundDeclarationLabelsPanel = function() {
     .map((item, idx) => ({ item, idx }))
     .filter(entry => entry.item.needs_label);
 
+  const btnCountEl = document.getElementById('manage-dec-labels-total-btn-count');
+
   if (labelItems.length === 0) {
     panel.style.display = 'none';
     tbody.innerHTML = '';
+    if (btnCountEl) btnCountEl.textContent = '0';
     return;
   }
 
@@ -70492,7 +71224,8 @@ window.renderInboundDeclarationLabelsPanel = function() {
 
   let totalCopies = 0;
   tbody.innerHTML = labelItems.map(({ item, idx }, rowNum) => {
-    const qty = parseInt(item.label_qty, 10) || 0;
+    const qty = window.getEffectiveInboundLabelQty(item);
+    item.label_qty = qty;
     totalCopies += qty;
     const itemCostClp = qty * 100;
     const labelCode = item.label_code || item.sku || '';
@@ -70500,33 +71233,33 @@ window.renderInboundDeclarationLabelsPanel = function() {
     const labelSize = item.label_size || '5x2.5';
 
     return `
-      <tr style="border-bottom: 1px solid #ede9fe; vertical-align: middle;">
-        <td style="padding: 6px 8px; text-align: center; font-weight: 700; color: #6d28d9; font-family: monospace;">
-          ${rowNum + 1}
-        </td>
+      <tr style="border-bottom: 1px solid #ede9fe; vertical-align: middle; ${qty === 0 ? 'opacity: 0.65; background: rgba(0,0,0,0.015);' : ''}" id="manage-dec-label-row-${idx}">
         <td style="padding: 6px 8px;">
-          <div style="font-weight: 700; font-family: monospace; font-size: 0.8rem; color: var(--color-text-main);">${window.escapeHtml ? window.escapeHtml(item.sku || '') : (item.sku || '')}</div>
-          <div style="font-size: 0.72rem; color: var(--color-text-muted);">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-weight: 700; color: #6d28d9; font-family: monospace; font-size: 0.75rem; background: rgba(109, 40, 217, 0.08); padding: 1px 6px; border-radius: 4px;">#${rowNum + 1}</span>
+            <span style="font-weight: 700; font-family: monospace; font-size: 0.8rem; color: var(--color-text-main);">${window.escapeHtml ? window.escapeHtml(item.sku || '') : (item.sku || '')}</span>
+          </div>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 2px;">
             ${!item.sku_check && !item.barcode_check ? '<span style="color:#dc2626; font-weight:600;">Sin SKU ni Cód. Barras</span>' : (!item.sku_check ? '<span style="color:#6d28d9; font-weight:600;">Check SKU desmarcado</span>' : 'Etiqueta manual')}
           </div>
         </td>
         <td style="padding: 6px 8px;">
-          <input type="text" class="form-input" value="${window.escapeHtml ? window.escapeHtml(labelCode) : labelCode}" onchange="window.updateInboundLabelField(${idx}, 'label_code', this.value)" style="height: 28px; font-size: 0.78rem; font-family: monospace; font-weight: 700; padding: 2px 6px; background: #fff; border-color: #c4b5fd;" title="Código que se codificará en las barras (por defecto el SKU)">
+          <input type="text" class="form-input" value="${window.escapeHtml ? window.escapeHtml(labelName) : labelName}" onchange="window.updateInboundLabelField(${idx}, 'label_name', this.value)" style="height: 28px; font-size: 0.78rem; padding: 2px 6px; background: #fff; border-color: #c4b5fd;" title="Nombre descriptivo impreso sobre el código de barras">
         </td>
         <td style="padding: 6px 8px;">
-          <input type="text" class="form-input" value="${window.escapeHtml ? window.escapeHtml(labelName) : labelName}" onchange="window.updateInboundLabelField(${idx}, 'label_name', this.value)" style="height: 28px; font-size: 0.78rem; padding: 2px 6px; background: #fff; border-color: #c4b5fd;" title="Nombre descriptivo impreso bajo el código de barras">
+          <input type="text" class="form-input" value="${window.escapeHtml ? window.escapeHtml(labelCode) : labelCode}" onchange="window.updateInboundLabelField(${idx}, 'label_code', this.value)" style="height: 28px; font-size: 0.78rem; font-family: monospace; font-weight: 700; padding: 2px 6px; background: #fff; border-color: #c4b5fd;" title="Código que se codificará en las barras (por defecto el SKU)">
         </td>
         <td style="padding: 6px 8px; text-align: center;">
           <select class="form-select" onchange="window.updateInboundLabelField(${idx}, 'label_size', this.value)" style="height: 28px; font-size: 0.75rem; padding: 2px 6px; background: #fff; border-color: #c4b5fd; width: 105px; margin: 0 auto;">
             <option value="5x2.5" ${labelSize === '5x2.5' ? 'selected' : ''}>5 x 2.5 cm</option>
-            <option value="7x5" ${labelSize === '7x5' ? 'selected' : ''}>7 x 5 cm</option>
-            <option value="10x5" ${labelSize === '10x5' ? 'selected' : ''}>10 x 5 cm</option>
+            <option value="5x5" ${labelSize === '5x5' ? 'selected' : ''}>5 x 5 cm</option>
+            <option value="10x15" ${labelSize === '10x15' ? 'selected' : ''}>10 x 15 cm</option>
           </select>
         </td>
         <td style="padding: 6px 8px; text-align: center;">
-          <input type="number" min="0" class="form-input" value="${qty}" oninput="window.updateInboundLabelField(${idx}, 'label_qty', this.value)" style="width: 72px; height: 28px; text-align: center; font-weight: 700; font-size: 0.82rem; padding: 2px 6px; margin: 0 auto; background: #fff; border-color: #8b5cf6;">
+          <input type="number" id="manage-dec-label-qty-input-${idx}" min="0" class="form-input" value="${qty}" oninput="window.updateInboundLabelField(${idx}, 'label_qty', this.value)" style="width: 72px; height: 28px; text-align: center; font-weight: 700; font-size: 0.82rem; padding: 2px 6px; margin: 0 auto; background: #fff; border-color: #8b5cf6;">
         </td>
-        <td style="padding: 6px 8px; text-align: right; font-weight: 700; color: #5b21b6; font-family: monospace; font-size: 0.8rem;">
+        <td id="manage-dec-label-cost-${idx}" style="padding: 6px 8px; text-align: right; font-weight: 700; color: #5b21b6; font-family: monospace; font-size: 0.8rem;">
           $${itemCostClp.toLocaleString('es-CL')} CLP
         </td>
         <td style="padding: 6px 8px; text-align: center;">
@@ -70543,16 +71276,7 @@ window.renderInboundDeclarationLabelsPanel = function() {
     `;
   }).join('');
 
-  const totalCostClp = totalCopies * 100;
-  const skuCountEl = document.getElementById('manage-dec-labels-sku-count');
-  const copiesCountEl = document.getElementById('manage-dec-labels-total-copies');
-  const billingBadgeEl = document.getElementById('manage-dec-labels-billing-badge');
-  const totalCostEl = document.getElementById('manage-dec-labels-total-cost');
-
-  if (skuCountEl) skuCountEl.textContent = labelItems.length;
-  if (copiesCountEl) copiesCountEl.textContent = totalCopies;
-  if (billingBadgeEl) billingBadgeEl.textContent = `+$${totalCostClp.toLocaleString('es-CL')} CLP (${totalCopies} uds × $100)`;
-  if (totalCostEl) totalCostEl.textContent = `$${totalCostClp.toLocaleString('es-CL')} CLP`;
+  window.updateInboundLabelsSummaryCounters();
 };
 
 window.updateInboundLabelField = function(idx, field, value) {
@@ -70561,10 +71285,16 @@ window.updateInboundLabelField = function(idx, field, value) {
   window._inboundLabelsTouched = true;
 
   if (field === 'label_qty') {
-    const parsed = parseInt(value, 10);
+    const rawStr = String(value ?? '').trim();
+    const parsed = rawStr === '' ? 0 : parseInt(rawStr, 10);
     item.label_qty = isNaN(parsed) || parsed < 0 ? 0 : parsed;
     item.label_qty_manual = true;
-    window.renderInboundDeclarationLabelsPanel();
+    const rowEl = document.getElementById(`manage-dec-label-row-${idx}`);
+    if (rowEl) {
+      rowEl.style.opacity = item.label_qty === 0 ? '0.65' : '1';
+      rowEl.style.background = item.label_qty === 0 ? 'rgba(0,0,0,0.015)' : '';
+    }
+    window.updateInboundLabelsSummaryCounters();
     window.syncInboundLabelsToBilling();
     return;
   }
@@ -70600,60 +71330,107 @@ window.removeInboundProductFromLabels = function(idx) {
 window.printSingleInboundProductLabel = function(idx) {
   if (!window.currentDeclarationProductsEditing || !window.currentDeclarationProductsEditing[idx]) return;
   const item = window.currentDeclarationProductsEditing[idx];
-  const copies = parseInt(item.label_qty, 10) || parseInt(item.qty_confirmed, 10) || parseInt(item.qty, 10) || 1;
+  const copies = window.getEffectiveInboundLabelQty(item, idx);
+  if (copies <= 0) {
+    if (window.Swal) {
+      window.Swal.fire('Cantidad en 0', 'Este SKU tiene 0 copias asignadas para imprimir.', 'info');
+    }
+    return;
+  }
   const size = item.label_size || document.getElementById('manage-dec-labels-global-size')?.value || '5x2.5';
+  const codeToEncode = String(item.label_code || item.sku || '').trim();
   const queue = [{
-    sku: item.label_code || item.sku,
-    barcode: item.label_code || item.sku,
-    name: item.label_name || item.name || item.sku,
+    sku: codeToEncode,
+    barcode: codeToEncode,
+    name: item.label_name || item.name || item.sku || '',
+    qty: copies,
     copies: copies
   }];
+  const printOpts = {
+    size: size,
+    template: 'name+barcode',
+    withHumanReadable: true,
+    dataSource: 'barcode',
+    withVariants: false
+  };
   if (typeof window.printLabels === 'function') {
-    window.printLabels(queue, { size });
+    window.printLabels(queue, printOpts);
+  } else if (typeof window.printDeclarationLabels5x25 === 'function') {
+    window.printDeclarationLabels5x25();
   } else {
     alert('El generador de etiquetas no está disponible.');
   }
 };
 
 window.printInboundDeclarationLabels = function() {
-  const items = (window.currentDeclarationProductsEditing || []).filter(it => it.needs_label && (parseInt(it.label_qty, 10) || 0) > 0);
-  if (items.length === 0) {
+  const validEntries = (window.currentDeclarationProductsEditing || [])
+    .map((it, idx) => ({ it, idx, copies: window.getEffectiveInboundLabelQty(it, idx) }))
+    .filter(entry => entry.it.needs_label && entry.copies > 0);
+
+  if (validEntries.length === 0) {
     if (window.Swal) {
       window.Swal.fire('Sin etiquetas', 'No hay etiquetas con cantidad mayor a 0 para imprimir.', 'info');
     }
     return;
   }
-  const globalSize = document.getElementById('manage-dec-labels-global-size')?.value || items[0]?.label_size || '5x2.5';
-  const queue = items.map(it => ({
-    sku: it.label_code || it.sku,
-    barcode: it.label_code || it.sku,
-    name: it.label_name || it.name || it.sku,
-    copies: parseInt(it.label_qty, 10) || 1
-  }));
+  const globalSize = document.getElementById('manage-dec-labels-global-size')?.value || validEntries[0]?.it?.label_size || '5x2.5';
+  const queue = validEntries.map(({ it, copies }) => {
+    const codeToEncode = String(it.label_code || it.sku || '').trim();
+    return {
+      sku: codeToEncode,
+      barcode: codeToEncode,
+      name: it.label_name || it.name || it.sku || '',
+      qty: copies,
+      copies: copies
+    };
+  });
+  const printOpts = {
+    size: globalSize,
+    template: 'name+barcode',
+    withHumanReadable: true,
+    dataSource: 'barcode',
+    withVariants: false
+  };
   if (typeof window.printLabels === 'function') {
-    window.printLabels(queue, { size: globalSize });
+    window.printLabels(queue, printOpts);
+  } else if (typeof window.printDeclarationLabels5x25 === 'function') {
+    window.printDeclarationLabels5x25();
   } else {
     alert('El motor de impresión de etiquetas no está cargado.');
   }
 };
 
 window.exportInboundDeclarationLabelsZPL = function() {
-  const items = (window.currentDeclarationProductsEditing || []).filter(it => it.needs_label && (parseInt(it.label_qty, 10) || 0) > 0);
-  if (items.length === 0) {
+  const validEntries = (window.currentDeclarationProductsEditing || [])
+    .map((it, idx) => ({ it, idx, copies: window.getEffectiveInboundLabelQty(it, idx) }))
+    .filter(entry => entry.it.needs_label && entry.copies > 0);
+
+  if (validEntries.length === 0) {
     if (window.Swal) {
       window.Swal.fire('Sin etiquetas', 'No hay etiquetas con cantidad mayor a 0 para exportar ZPL.', 'info');
     }
     return;
   }
-  const globalSize = document.getElementById('manage-dec-labels-global-size')?.value || items[0]?.label_size || '5x2.5';
-  const queue = items.map(it => ({
-    sku: it.label_code || it.sku,
-    barcode: it.label_code || it.sku,
-    name: it.label_name || it.name || it.sku,
-    copies: parseInt(it.label_qty, 10) || 1
-  }));
+  const globalSize = document.getElementById('manage-dec-labels-global-size')?.value || validEntries[0]?.it?.label_size || '5x2.5';
+  const queue = validEntries.map(({ it, copies }) => {
+    const codeToEncode = String(it.label_code || it.sku || '').trim();
+    return {
+      sku: codeToEncode,
+      barcode: codeToEncode,
+      name: it.label_name || it.name || it.sku || '',
+      qty: copies,
+      copies: copies
+    };
+  });
+  const zplOpts = {
+    size: globalSize,
+    template: 'name+barcode',
+    withHumanReadable: true,
+    dataSource: 'barcode',
+    withVariants: false
+  };
   if (typeof window.showZPLModal === 'function') {
-    window.showZPLModal(queue, { size: globalSize });
+    window.showZPLModal(queue, zplOpts);
   } else {
     alert('El exportador ZPL no está disponible.');
   }
@@ -96169,14 +96946,14 @@ El CLIENTE declara bajo juramento que a la fecha de la suscripción del presente
 Asimismo, el CLIENTE renuncia de manera irrevocable a entablar cualquier acción legal, civil, mercantil o de otra índole posterior tendiente a reclamar diferencias de tarifas, devoluciones de cobros o revisión de facturaciones pasadas correspondientes a la vigencia de la relación contractual, otorgando a STOCKA el más amplio finiquito respecto de tales conceptos.
 
 TERCERA: RECONCILIACIÓN FÍSICA DE INVENTARIO Y LIBERACIÓN DE RESPONSABILIDAD
-Las partes acuerdan que con fecha previa o simultánea al retiro definitivo, se realizará un conteo físico completo de las mercaderías del CLIENTE custodiadas por STOCKA. De acuerdo con el sistema informático WMS, el stock registrado asciende a:
+Las partes acuerdan que con fecha previa o simultánea al retiro definitivo, se realizará un conteo físico en bodega de las mercaderías del CLIENTE custodiadas por STOCKA. De acuerdo con el sistema informático WMS, el stock registrado a la fecha (correspondiente a una fotografía del momento, sujeta a variación por pedidos en procesamiento, órdenes en curso o unidades en tránsito) asciende a:
 - Unidades Totales: ${totalUnits} unidades.
 - SKUs con Stock: ${totalSKUs} ítems.
 
-Cualquier diferencia, merma o daño verificado en este proceso presencial será resuelto de conformidad a las tolerancias de merma técnica establecidas en el contrato general de servicios. Una vez firmado el recibo de retiro a conformidad por parte del transportista o representante del CLIENTE el día de la entrega, se entenderá que el inventario fue entregado en perfectas condiciones y cuadraje. STOCKA quedará liberada de toda responsabilidad de custodia, pérdida, daño parcial o total de la mercadería, asumiendo el CLIENTE todo riesgo posterior.
+Cualquier diferencia, merma o daño verificado en este conteo físico en bodega será resuelto de conformidad a las tolerancias de merma técnica establecidas en el contrato general de servicios. Una vez firmado el recibo de retiro a conformidad por parte del transportista o representante del CLIENTE el día de la entrega, se entenderá que el inventario fue entregado en perfectas condiciones y cuadraje. STOCKA quedará liberada de toda responsabilidad de custodia, pérdida, daño parcial o total de la mercadería, asumiendo el CLIENTE todo riesgo posterior.
 
 CUARTA: TARIFA DE PREPARACIÓN DE RETIRO (OUTBOUND FEE DE SALIDA)
-De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza bajo la siguiente estructura:
+De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza referencialmente bajo la siguiente estructura:
 - Tarifa Fija Base de Preparación: $${cfg.baseFee.toLocaleString('es-CL')} CLP neto
 - Recargo por SKU adicional (sobre ${cfg.skuLimit}): $${skuSurcharge.toLocaleString('es-CL')} CLP neto
 - Recargo por unidades adicionales (sobre ${cfg.unitsLimit}): $${unitsSurcharge.toLocaleString('es-CL')} CLP neto
@@ -96184,7 +96961,7 @@ ${extraLines ? extraLines + '\n' : ''}- Subtotal Neto Estimado: $${netTotal.toLo
 - IVA (19%): $${iva.toLocaleString('es-CL')} CLP
 - TOTAL BRUTO ESTIMADO A PAGAR: $${brutoTotal.toLocaleString('es-CL')} CLP
 
-Esta cantidad deberá ser transferida a la cuenta bancaria de STOCKA de forma previa o en el mismo acto de retiro de la mercadería, siendo condición sine qua non para autorizar la salida física del inventario de las bodegas.
+El monto definitivo de salida variará según las unidades y SKUs que efectivamente sean preparados para retiro, posterior al procesamiento de cualquier orden pendiente, en proceso y futura. Esta cantidad deberá ser transferida a la cuenta bancaria de STOCKA de forma previa o en el mismo acto de retiro de la mercadería, siendo condición sine qua non para autorizar la salida física del inventario de las bodegas.
 
 QUINTA: LIBERACIÓN MUTUA DE RESPONSABILIDADES Y PACTO DE INDEMNIDAD
 Con la firma de este convenio de término, las partes se otorgan recíproco y definitivo finiquito respecto de todas y cada una de las obligaciones emanadas del contrato de prestación de servicios logísticos, declarando que nada se adeudan por concepto de indemnizaciones, perjuicios, multas o prestaciones pendientes de ninguna naturaleza. El CLIENTE se compromete a mantener indemne a STOCKA por cualquier reclamo de terceros derivado de los productos retirados, vicios ocultos de fabricación, o uso indebido de los mismos posterior a la entrega.
@@ -96289,19 +97066,19 @@ function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTot
 
         <p class="no-indent">
           <strong><u>TERCERA</u>: RECONCILIACIÓN FÍSICA DE INVENTARIO Y LIBERACIÓN DE RESPONSABILIDAD</strong><br>
-          Las partes acuerdan que con fecha previa o simultánea al retiro definitivo, se realizará un conteo físico completo de las mercaderías del CLIENTE custodiadas por STOCKA. De acuerdo con el sistema informático WMS, el stock registrado asciende a:
+          Las partes acuerdan que con fecha previa o simultánea al retiro definitivo, se realizará un conteo físico en bodega de las mercaderías del CLIENTE custodiadas por STOCKA. De acuerdo con el sistema informático WMS, el stock registrado a la fecha (correspondiente a una fotografía del momento, sujeta a variación por pedidos en procesamiento, órdenes en curso o unidades en tránsito) asciende a:
         </p>
         <ul style="padding-left: 3rem; margin-bottom: 1.25rem; list-style-type: disc;">
           <li><strong>Unidades Totales:</strong> ${totalUnits} unidades.</li>
           <li><strong>SKUs con Stock:</strong> ${totalSKUs} ítems.</li>
         </ul>
         <p class="no-indent">
-          Cualquier diferencia, merma o daño verificado en este proceso presencial será resuelto de conformidad a las tolerancias de merma técnica establecidas en el contrato general de servicios. Una vez firmado el recibo de retiro a conformidad por parte del transportista o representante del CLIENTE el día de la entrega, se entenderá que el inventario fue entregado en perfectas condiciones y cuadraje. STOCKA quedará liberada de toda responsabilidad de custodia, pérdida, daño parcial o total de la mercadería, asumiendo el CLIENTE todo riesgo posterior.
+          Cualquier diferencia, merma o daño verificado en este conteo físico en bodega será resuelto de conformidad a las tolerancias de merma técnica establecidas en el contrato general de servicios. Una vez firmado el recibo de retiro a conformidad por parte del transportista o representante del CLIENTE el día de la entrega, se entenderá que el inventario fue entregado en perfectas condiciones y cuadraje. STOCKA quedará liberada de toda responsabilidad de custodia, pérdida, daño parcial o total de la mercadería, asumiendo el CLIENTE todo riesgo posterior.
         </p>
 
         <p class="no-indent">
           <strong><u>CUARTA</u>: TARIFA DE PREPARACIÓN DE RETIRO (OUTBOUND FEE DE SALIDA)</strong><br>
-          De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza bajo la estructura de cobro de salida consolidada:
+          De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza referencialmente bajo la estructura de cobro de salida consolidada:
         </p>
         <ul style="padding-left: 3rem; margin-bottom: 1.25rem; list-style-type: disc;">
           <li><strong>Tarifa Fija Base de Preparación:</strong> $${cfg.baseFee.toLocaleString('es-CL')} CLP neto</li>
@@ -96313,7 +97090,7 @@ function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTot
           <li><strong>TOTAL BRUTO ESTIMADO A PAGAR:</strong> $${brutoTotal.toLocaleString('es-CL')} CLP</li>
         </ul>
         <p class="no-indent">
-          Esta cantidad deberá ser transferida a la cuenta bancaria de STOCKA de forma previa o en el mismo acto de retiro de la mercadería, siendo condición sine qua non para autorizar la salida física del inventario de las bodegas.
+          El monto definitivo de salida variará según las unidades y SKUs que efectivamente sean preparados para retiro, posterior al procesamiento de cualquier orden pendiente, en proceso y futura. Esta cantidad deberá ser transferida a la cuenta bancaria de STOCKA de forma previa o en el mismo acto de retiro de la mercadería, siendo condición sine qua non para autorizar la salida física del inventario de las bodegas.
         </p>
 
         <p class="no-indent">
@@ -96583,7 +97360,7 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
 
         <h2 class="section-title">2. Resumen y Listado de Inventario Registrado</h2>
         <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
-          Resumen total de existencias en la solicitud de salida a la fecha (sujeto a cuadraje físico presencial en bodega previo al retiro):
+          Resumen de existencias en la solicitud de salida al momento de la consulta (fotografía del momento sujeta a variación por pedidos en procesamiento, órdenes en curso, unidades en tránsito y conteo físico en bodega previo al retiro):
         </p>
         <table class="data-table">
           <thead>
@@ -96634,7 +97411,7 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
           ${outboundPagado ? `<span style="background:#d1fae5;color:#065f46;font-size:0.72rem;font-weight:700;padding:2px 10px;border-radius:99px;margin-left:0.75rem;vertical-align:middle;">✔ PAGADO</span>` : `<span style="background:#fef3c7;color:#92400e;font-size:0.72rem;font-weight:700;padding:2px 10px;border-radius:99px;margin-left:0.75rem;vertical-align:middle;">PENDIENTE DE PAGO</span>`}
         </h2>
         <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
-          Costo del retiro físico (preparación, entrega de stock y cargos/ajustes asociados):
+          Costo referencial del retiro físico (sujeto a variación según lo que efectivamente sea preparado posterior al procesamiento de órdenes pendientes, en proceso y futuras):
         </p>
         <div class="cost-box" ${outboundPagado ? 'style="opacity:0.7;"' : ''}>
           <div class="cost-row">

@@ -1159,7 +1159,7 @@ window.syncPickingRequestToPicker = async function(orderId, request) {
       }
 
       const updatePayload = {
-        observation: newObs,
+        observation: (newObs || '').slice(0, 1000),
         has_picking_requests: hasReq,
         picking_requests_json: hasReq ? request.items : null,
         picking_requests_confirmed: allResolved

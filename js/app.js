@@ -8277,7 +8277,7 @@ window.openPickerOrderHistoryModal = async function(orderId) {
 window.getOrderPacksMap = function(order) {
   if (!order) return new Map();
   if (order._packsMap) return order._packsMap;
-  const packSkus = new Set(window.currentPackSkusList || []);
+  const packSkus = new Set((window.currentPackSkusList || []).map(s => String(s || '').trim().toLowerCase()));
   const foundPacksMap = new Map();
 
   const checkRawItems = (items, platformType) => {
@@ -8290,7 +8290,7 @@ window.getOrderPacksMap = function(order) {
         sku = item.sku || '';
         qty = item.quantity || 1;
       } else if (platformType === 'woocommerce') {
-        sku = item.sku || '';
+        sku = item.sku || (item.product_id ? `WC-${item.product_id}${item.variation_id ? '-' + item.variation_id : ''}` : '');
         qty = item.quantity || 1;
       } else if (platformType === 'falabella') {
         sku = item.SellerSku || item.sku || '';
@@ -8306,6 +8306,7 @@ window.getOrderPacksMap = function(order) {
         qty = item.quantity || 1;
       }
 
+      sku = String(sku || '').trim().toLowerCase();
       if (sku && packSkus.has(sku)) {
         foundPacksMap.set(sku, (foundPacksMap.get(sku) || 0) + Number(qty));
       }
@@ -8314,7 +8315,7 @@ window.getOrderPacksMap = function(order) {
 
   if (order.order_items && Array.isArray(order.order_items)) {
     order.order_items.forEach(oi => {
-      const sku = oi.products?.sku || oi.sku;
+      const sku = String(oi.products?.sku || oi.sku || '').trim().toLowerCase();
       if (sku && packSkus.has(sku)) {
         foundPacksMap.set(sku, (foundPacksMap.get(sku) || 0) + Number(oi.quantity || 1));
       }
@@ -8327,6 +8328,19 @@ window.getOrderPacksMap = function(order) {
   if (order.raw_paris_data?.order_lines) checkRawItems(order.raw_paris_data.order_lines, 'paris');
   if (order.raw_ripley_data?.order_lines) checkRawItems(order.raw_ripley_data.order_lines, 'ripley');
   if (order.raw_meli_data?.order_items) checkRawItems(order.raw_meli_data.order_items, 'meli');
+
+  if (foundPacksMap.size === 0 && order.sku) {
+    const mainSku = String(order.sku).trim().toLowerCase();
+    if (packSkus.has(mainSku)) {
+      foundPacksMap.set(mainSku, Number(order.cantidad || 1));
+    } else if (mainSku.includes(',')) {
+      mainSku.split(',').map(s => s.trim()).filter(Boolean).forEach(s => {
+        if (packSkus.has(s)) {
+          foundPacksMap.set(s, 1);
+        }
+      });
+    }
+  }
 
   order._packsMap = foundPacksMap;
   return foundPacksMap;
@@ -18327,7 +18341,7 @@ async function renderRedZone(container, profile, commerceList) {
               </span>
             </div>
             <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--color-text-muted);">
-              A continuación se detalla el volumen y listado actualizado de stock para retiro en la plataforma WMS:
+              A continuación se detalla el volumen y listado de stock registrado en la plataforma WMS (fotografía del momento actual):
             </p>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
@@ -18347,7 +18361,7 @@ async function renderRedZone(container, profile, commerceList) {
               <div style="font-size: 0.825rem; color: #14532d; line-height: 1.5;">
                 <strong>Certificación de Inventario para Retiro:</strong>
                 <p style="margin: 0.25rem 0 0 0;">
-                  Es condición indispensable para la entrega de la mercadería coordinar y certificar un <strong>conteo físico presencial en bodega</strong>. Cualquier cambio posterior en el catálogo o inventario, o ajuste realizado tras el cuadraje en bodega, se verá reflejado automáticamente en este listado y en el cálculo de costos de salida.
+                  Es condición indispensable para la entrega de la mercadería coordinar y certificar un <strong>conteo físico en bodega</strong>. Los registros exhibidos corresponden a una <strong>fotografía del momento</strong>, la cual podría verse actualizada por pedidos en procesamiento, órdenes en curso, unidades en tránsito o ajustes realizados tras el cuadraje en bodega. Asimismo, el <strong>monto de salida variará</strong> según lo que efectivamente sea preparado para retiro, posterior al procesamiento de cualquier orden pendiente, en proceso y futura.
                 </p>
               </div>
             </div>
@@ -18399,7 +18413,7 @@ async function renderRedZone(container, profile, commerceList) {
               ` : ''}
             </div>
             <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--color-text-muted);">
-              Cálculo tarifario actualizado de la preparación física del inventario y costos/ajustes asociados a la solicitud de salida:
+              Cálculo tarifario estimado de la preparación física del inventario y costos/ajustes asociados a la solicitud de salida:
             </p>
 
             <div style="background-color: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem;">
@@ -18440,7 +18454,7 @@ async function renderRedZone(container, profile, commerceList) {
               </div>
             </div>
             <p style="margin: 0.75rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted); line-height: 1.4;">
-              *Nota: Los valores se actualizan automáticamente en función de las existencias vigentes del catálogo/inventario y de los conceptos de retiro registrados en la solicitud.
+              *Nota: El monto de salida exhibido corresponde a una estimación referencial según la fotografía actual de inventario y <strong>variará en función de las unidades y SKUs que efectivamente sean preparados para retiro</strong>, posterior al procesamiento de órdenes pendientes, en proceso y futuras.
             </p>
           </div>
 
@@ -18736,14 +18750,14 @@ El CLIENTE declara bajo juramento que a la fecha de la suscripción del presente
 Asimismo, el CLIENTE renuncia de manera irrevocable a entablar cualquier acción legal, civil, mercantil o de otra índole posterior tendiente a reclamar diferencias de tarifas, devoluciones de cobros o revisión de facturaciones pasadas correspondientes a la vigencia de la relación contractual, otorgando a STOCKA el más amplio finiquito respecto de tales conceptos.
 
 TERCERA: RECONCILIACIÓN FÍSICA DE INVENTARIO Y LIBERACIÓN DE RESPONSABILIDAD
-Las partes acuerdan que con fecha previa o simultánea al retiro definitivo, se realizará un conteo físico completo de las mercaderías del CLIENTE custodiadas por STOCKA. De acuerdo con el sistema informático WMS, el stock registrado asciende a:
+Las partes acuerdan que con fecha previa o simultánea al retiro definitivo, se realizará un conteo físico en bodega de las mercaderías del CLIENTE custodiadas por STOCKA. De acuerdo con el sistema informático WMS, el stock registrado a la fecha (correspondiente a una fotografía del momento, sujeta a variación por pedidos en procesamiento, órdenes en curso o unidades en tránsito) asciende a:
 - Unidades Totales: ${totalUnits} unidades.
 - SKUs con Stock: ${totalSKUs} ítems.
 
-Cualquier diferencia, merma o daño verificado en este proceso presencial será resuelto de conformidad a las tolerancias de merma técnica establecidas en el contrato general de servicios. Una vez firmado el recibo de retiro a conformidad por parte del transportista o representante del CLIENTE el día de la entrega, se entenderá que el inventario fue entregado en perfectas condiciones y cuadraje. STOCKA quedará liberada de toda responsabilidad de custodia, pérdida, daño parcial o total de la mercadería, asumiendo el CLIENTE todo riesgo posterior.
+Cualquier diferencia, merma o daño verificado en este conteo físico en bodega será resuelto de conformidad a las tolerancias de merma técnica establecidas en el contrato general de servicios. Una vez firmado el recibo de retiro a conformidad por parte del transportista o representante del CLIENTE el día de la entrega, se entenderá que el inventario fue entregado en perfectas condiciones y cuadraje. STOCKA quedará liberada de toda responsabilidad de custodia, pérdida, daño parcial o total de la mercadería, asumiendo el CLIENTE todo riesgo posterior.
 
 CUARTA: TARIFA DE PREPARACIÓN DE RETIRO (OUTBOUND FEE DE SALIDA)
-De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza bajo la siguiente estructura:
+De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza referencialmente bajo la siguiente estructura:
 - Tarifa Fija Base de Preparación: $${cfg.baseFee.toLocaleString('es-CL')} CLP neto
 - Recargo por SKU adicional (sobre ${cfg.skuLimit}): $${skuSurcharge.toLocaleString('es-CL')} CLP neto
 - Recargo por unidades adicionales (sobre ${cfg.unitsLimit}): $${unitsSurcharge.toLocaleString('es-CL')} CLP neto
@@ -18751,7 +18765,7 @@ ${extraLines ? extraLines + '\n' : ''}- Subtotal Neto Estimado: $${netTotal.toLo
 - IVA (19%): $${iva.toLocaleString('es-CL')} CLP
 - TOTAL BRUTO ESTIMADO A PAGAR: $${brutoTotal.toLocaleString('es-CL')} CLP
 
-Esta cantidad deberá ser transferida a la cuenta bancaria de STOCKA de forma previa o en el mismo acto de retiro de la mercadería, siendo condición sine qua non para autorizar la salida física del inventario de las bodegas.
+El monto definitivo de salida variará según las unidades y SKUs que efectivamente sean preparados para retiro, posterior al procesamiento de cualquier orden pendiente, en proceso y futura. Esta cantidad deberá ser transferida a la cuenta bancaria de STOCKA de forma previa o en el mismo acto de retiro de la mercadería, siendo condición sine qua non para autorizar la salida física del inventario de las bodegas.
 
 QUINTA: LIBERACIÓN MUTUA DE RESPONSABILIDADES Y PACTO DE INDEMNIDAD
 Con la firma de este convenio de término, las partes se otorgan recíproco y definitivo finiquito respecto de todas y cada una de las obligaciones emanadas del contrato de prestación de servicios logísticos, declarando que nada se adeudan por concepto de indemnizaciones, perjuicios, multas o prestaciones pendientes de ninguna naturaleza. El CLIENTE se compromete a mantener indemne a STOCKA por cualquier reclamo de terceros derivado de los productos retirados, vicios ocultos de fabricación, o uso indebido de los mismos posterior a la entrega.
@@ -18857,19 +18871,19 @@ function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTot
 
         <p class="no-indent">
           <strong><u>TERCERA</u>: RECONCILIACIÓN FÍSICA DE INVENTARIO Y LIBERACIÓN DE RESPONSABILIDAD</strong><br>
-          Las partes acuerdan que con fecha previa o simultánea al retiro definitivo, se realizará un conteo físico completo de las mercaderías del CLIENTE custodiadas por STOCKA. De acuerdo con el sistema informático WMS, el stock registrado asciende a:
+          Las partes acuerdan que con fecha previa o simultánea al retiro definitivo, se realizará un conteo físico en bodega de las mercaderías del CLIENTE custodiadas por STOCKA. De acuerdo con el sistema informático WMS, el stock registrado a la fecha (correspondiente a una fotografía del momento, sujeta a variación por pedidos en procesamiento, órdenes en curso o unidades en tránsito) asciende a:
         </p>
         <ul style="padding-left: 3rem; margin-bottom: 1.25rem; list-style-type: disc;">
           <li><strong>Unidades Totales:</strong> ${totalUnits} unidades.</li>
           <li><strong>SKUs con Stock:</strong> ${totalSKUs} ítems.</li>
         </ul>
         <p class="no-indent">
-          Cualquier diferencia, merma o daño verificado en este proceso presencial será resuelto de conformidad a las tolerancias de merma técnica establecidas en el contrato general de servicios. Una vez firmado el recibo de retiro a conformidad por parte del transportista o representante del CLIENTE el día de la entrega, se entenderá que el inventario fue entregado en perfectas condiciones y cuadraje. STOCKA quedará liberada de toda responsabilidad de custodia, pérdida, daño parcial o total de la mercadería, asumiendo el CLIENTE todo riesgo posterior.
+          Cualquier diferencia, merma o daño verificado en este conteo físico en bodega será resuelto de conformidad a las tolerancias de merma técnica establecidas en el contrato general de servicios. Una vez firmado el recibo de retiro a conformidad por parte del transportista o representante del CLIENTE el día de la entrega, se entenderá que el inventario fue entregado en perfectas condiciones y cuadraje. STOCKA quedará liberada de toda responsabilidad de custodia, pérdida, daño parcial o total de la mercadería, asumiendo el CLIENTE todo riesgo posterior.
         </p>
 
         <p class="no-indent">
           <strong><u>CUARTA</u>: TARIFA DE PREPARACIÓN DE RETIRO (OUTBOUND FEE DE SALIDA)</strong><br>
-          De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza bajo la siguiente estructura:
+          De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza referencialmente bajo la siguiente estructura:
         </p>
         <ul style="padding-left: 3rem; margin-bottom: 1.25rem; list-style-type: disc;">
           <li><strong>Tarifa Fija Base de Preparación:</strong> $${cfg.baseFee.toLocaleString('es-CL')} CLP neto</li>
@@ -18881,7 +18895,7 @@ function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTot
           <li><strong>TOTAL BRUTO ESTIMADO A PAGAR:</strong> $${brutoTotal.toLocaleString('es-CL')} CLP</li>
         </ul>
         <p class="no-indent">
-          Esta cantidad deberá ser transferida a la cuenta bancaria de STOCKA de forma previa o en el mismo acto de retiro de la mercadería, siendo condición sine qua non para autorizar la salida física del inventario de las bodegas.
+          El monto definitivo de salida variará según las unidades y SKUs que efectivamente sean preparados para retiro, posterior al procesamiento de cualquier orden pendiente, en proceso y futura. Esta cantidad deberá ser transferida a la cuenta bancaria de STOCKA de forma previa o en el mismo acto de retiro de la mercadería, siendo condición sine qua non para autorizar la salida física del inventario de las bodegas.
         </p>
 
         <p class="no-indent">
@@ -19152,7 +19166,7 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
 
         <h2 class="section-title">2. Resumen y Listado de Inventario Registrado</h2>
         <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
-          Resumen total de existencias en el WMS a la fecha (sujeto a cuadraje físico presencial en bodega previo al retiro):
+          Resumen de existencias en el WMS al momento de la consulta (fotografía del momento sujeta a variación por pedidos en procesamiento, órdenes en curso, unidades en tránsito y conteo físico en bodega previo al retiro):
         </p>
         <table class="data-table">
           <thead>
@@ -19203,7 +19217,7 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
           ${outboundPagado ? `<span style="background:#d1fae5;color:#065f46;font-size:0.72rem;font-weight:700;padding:2px 10px;border-radius:99px;margin-left:0.75rem;vertical-align:middle;">✔ PAGADO</span>` : `<span style="background:#fef3c7;color:#92400e;font-size:0.72rem;font-weight:700;padding:2px 10px;border-radius:99px;margin-left:0.75rem;vertical-align:middle;">PENDIENTE DE PAGO</span>`}
         </h2>
         <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
-          Costo del retiro físico (preparación, entrega de stock y cargos/ajustes asociados):
+          Costo referencial del retiro físico (sujeto a variación según lo que efectivamente sea preparado posterior al procesamiento de órdenes pendientes, en proceso y futuras):
         </p>
         <div class="cost-box" ${outboundPagado ? 'style="opacity:0.7;"' : ''}>
           <div class="cost-row">
@@ -29552,7 +29566,7 @@ window.getPremiumPaymentStatusBadgeHtml = function(statusText) {
 };
 
 window.getFulfillmentSplitDocsHtml = function(r) {
-  const isInteractive = (r.desglose_fulfillment && (r.desglose_fulfillment.toLowerCase() === 'publicado' || r.desglose_fulfillment.toLowerCase() === 'enviado')) ||
+  const isInteractive = (r.desglose_fulfillment && ['publicado', 'enviado', 'aprobado'].includes(r.desglose_fulfillment.toLowerCase())) ||
     (r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json')));
 
   if (!isInteractive) {

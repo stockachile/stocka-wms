@@ -573,11 +573,13 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
     if (defaultWh) warehouseId = defaultWh.id;
   }
 
-  // 3. Registrar ítems en order_items
+  // 3. Registrar ítems en order_items (pre-expandiendo packs y consolidando cantidades por product_id)
+  const expectedQuantities = new Map<string, number>();
+
   for (const [sku, qty] of Object.entries(itemQuantities)) {
     let { data: product } = await supabase
       .from("products")
-      .select("id")
+      .select("id, is_pack")
       .eq("sku", sku)
       .eq("comercio", comercio)
       .maybeSingle();
@@ -603,7 +605,7 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
           price: productPrice,
           description: "Creado automáticamente desde webhook de WooCommerce"
         }])
-        .select("id")
+        .select("id, is_pack")
         .single();
 
       if (!prodErr && newProd) {
@@ -615,19 +617,43 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
     }
 
     if (product && warehouseId) {
+      if (product.is_pack) {
+        const { data: packMembers } = await supabase
+          .from("product_pack_items")
+          .select("member_product_id, quantity")
+          .eq("pack_product_id", product.id);
+
+        if (packMembers && packMembers.length > 0) {
+          for (const pm of packMembers) {
+            const currentQty = expectedQuantities.get(pm.member_product_id) || 0;
+            expectedQuantities.set(pm.member_product_id, currentQty + (Number(pm.quantity || 1) * Number(qty)));
+          }
+        } else {
+          const currentQty = expectedQuantities.get(product.id) || 0;
+          expectedQuantities.set(product.id, currentQty + Number(qty));
+        }
+      } else {
+        const currentQty = expectedQuantities.get(product.id) || 0;
+        expectedQuantities.set(product.id, currentQty + Number(qty));
+      }
+    }
+  }
+
+  for (const [prodId, totalQty] of expectedQuantities.entries()) {
+    if (warehouseId) {
       const { error: itemErr } = await supabase
         .from("order_items")
         .insert([{
           order_id: newOrder.id,
-          product_id: product.id,
+          product_id: prodId,
           warehouse_id: warehouseId,
-          quantity: qty
+          quantity: totalQty
         }]);
 
       if (itemErr) {
-        console.error(`   ❌ Error al registrar ítem SKU ${sku} para la orden:`, itemErr.message);
+        console.error(`   ❌ Error al registrar ítem (product_id ${prodId}) para la orden:`, itemErr.message);
       } else {
-        console.log(`   + Registrado ítem: SKU ${sku} x ${qty}`);
+        console.log(`   + Registrado ítem consolidado: product_id ${prodId} x ${totalQty}`);
       }
     }
   }
@@ -802,10 +828,11 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
         const existing = existingMap.get(prodId);
 
         if (existing) {
-          if (existing.quantity !== totalQty || (warehouseId && existing.warehouse_id !== warehouseId)) {
+          const targetWarehouseId = existing.warehouse_id || warehouseId;
+          if (existing.quantity !== totalQty || (!existing.warehouse_id && warehouseId)) {
             await supabase.from("order_items").update({
               quantity: totalQty,
-              warehouse_id: warehouseId || existing.warehouse_id
+              warehouse_id: targetWarehouseId
             }).eq("id", existing.id);
           }
         } else {

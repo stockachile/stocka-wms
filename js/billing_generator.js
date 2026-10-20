@@ -1799,10 +1799,10 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 
       if (bRec) {
         savedRecordStatus = bRec.desglose_fulfillment;
-        const isPublishedStatus = (bRec.desglose_fulfillment === 'Enviado' || bRec.desglose_fulfillment === 'Publicado');
+        const isPublishedStatus = (bRec.desglose_fulfillment === 'Enviado' || bRec.desglose_fulfillment === 'Publicado' || bRec.desglose_fulfillment === 'Aprobado');
         if (isPublishedStatus) {
           billingState.isPublished = true;
-          savedRecordStatus = 'Publicado';
+          savedRecordStatus = bRec.desglose_fulfillment === 'Aprobado' ? 'Aprobado' : 'Publicado';
         } else if (bRec.desglose_fulfillment === 'Creado') {
           billingState.isPublished = false;
           billingState.isSaved = true;
@@ -6381,16 +6381,19 @@ export async function loadAndRenderPeriodOverview(options = {}) {
       const rawPago = String(r?.pago_fulfillment || 'Por solicitar').trim();
       const rawFactura = String(r?.factura_fulfillment || 'Esperando').trim();
       const totalFulfillment = Math.round(Number(r?.total_fulfillment) || Number(localDraft?.totals?.totalGross) || 0);
-      const abonoFulfillment = Math.round(Number(r?.abono_fulfillment) || Number(localDraft?.totals?.totalAbonos) || 0);
+      const isSettledByStatus = rawPago.toLowerCase() === 'recibido' || rawPago.toLowerCase() === 'aprobado' || rawDesglose.toLowerCase() === 'aprobado';
+      const abonoFulfillment = isSettledByStatus
+        ? totalFulfillment
+        : Math.round(Number(r?.abono_fulfillment) || Number(localDraft?.totals?.totalAbonos) || 0);
       const saldoFulfillment = Math.max(0, totalFulfillment - abonoFulfillment);
       const hasSnapshotLink = Boolean(r?.fulfillment_link || localDraft);
 
-      // Clasificar estado del desglose: 'issued' (Emitido/Enviado), 'draft' (Creado/Borrador), 'exempt' (No se factura / Sin movimientos), 'pending' (Por Generar)
+      // Clasificar estado del desglose: 'issued' (Emitido/Enviado/Aprobado), 'draft' (Creado/Borrador), 'exempt' (No se factura / Sin movimientos), 'pending' (Por Generar)
       let statusCategory = 'pending';
       let statusLabel = 'Por Generar';
-      if (rawDesglose === 'Enviado' || rawDesglose === 'Publicado') {
+      if (rawDesglose === 'Enviado' || rawDesglose === 'Publicado' || rawDesglose === 'Aprobado') {
         statusCategory = 'issued';
-        statusLabel = 'Emitido / Publicado';
+        statusLabel = rawDesglose === 'Aprobado' ? 'Aprobado' : 'Emitido / Publicado';
       } else if (rawDesglose === 'Creado') {
         statusCategory = 'draft';
         statusLabel = 'Borrador Guardado';

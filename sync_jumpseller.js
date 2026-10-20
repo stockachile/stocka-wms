@@ -147,19 +147,43 @@ async function syncMerchantJumpseller(integration) {
     return;
   }
 
-  // B. Obtener bodega por defecto para el cliente
+  // B. Obtener bodega por defecto para el cliente (priorizando comercios_adicional_config)
   let warehouseId = null;
-  const { data: whRel, error: whErr } = await supabase
-    .from('merchants_warehouses')
-    .select('warehouse_id')
-    .eq('merchant_id', integration.merchant_id)
-    .maybeSingle();
-
-  if (whErr) {
-    console.error('❌ Error al obtener bodega por defecto:', whErr.message);
+  if (integration.comercio) {
+    const { data: cacWh } = await supabase
+      .from('comercios_adicional_config')
+      .select('default_warehouse_id, comercio_id')
+      .eq('comercio', integration.comercio)
+      .maybeSingle();
+    if (cacWh?.default_warehouse_id) {
+      warehouseId = cacWh.default_warehouse_id;
+    } else if (cacWh?.comercio_id) {
+      const { data: whByComercioId } = await supabase
+        .from('merchants_warehouses')
+        .select('warehouse_id')
+        .eq('merchant_id', cacWh.comercio_id)
+        .limit(1)
+        .maybeSingle();
+      if (whByComercioId?.warehouse_id) {
+        warehouseId = whByComercioId.warehouse_id;
+      }
+    }
   }
-  
-  warehouseId = whRel?.warehouse_id;
+
+  if (!warehouseId) {
+    const { data: whRel, error: whErr } = await supabase
+      .from('merchants_warehouses')
+      .select('warehouse_id')
+      .eq('merchant_id', integration.merchant_id)
+      .limit(1)
+      .maybeSingle();
+
+    if (whErr) {
+      console.error('❌ Error al obtener bodega por defecto:', whErr.message);
+    }
+    warehouseId = whRel?.warehouse_id;
+  }
+
   if (!warehouseId) {
     const { data: defaultWh } = await supabase.from('warehouses').select('id').limit(1).maybeSingle();
     if (defaultWh) {
@@ -392,6 +416,12 @@ async function syncOrders(integration, headers, warehouseId) {
 
     for (const item of ordersList) {
       const o = item.order;
+      const appCode = String(o.source?.created_from_app_code || '').toLowerCase();
+      if (appCode === 'mercadolibre') {
+        console.log(`⏭️ Ignorando pedido Jumpseller #JS-${o.id} (proviene de la app de Mercado Libre).`);
+        continue;
+      }
+
       let orderNumber = `#JS-${o.id}`;
 
       // 1. Quitar prefijo de origen si coincide
@@ -415,13 +445,23 @@ async function syncOrders(integration, headers, warehouseId) {
       const isCancelled = ['Canceled', 'Abandoned', 'Open'].includes(statusName);
       const isActive = !isDelivered && !isCancelled;
 
-      // Verificar si el pedido ya existe en el WMS
+      // Verificar si el pedido ya existe en el WMS (incluyendo variantes ingresadas manualmente sin #JS-)
+      const rawIdStr = String(o.id);
+      const candidateNumbers = [...new Set([
+        orderNumber,
+        finalOrderNumber,
+        rawIdStr,
+        `#${rawIdStr}`,
+        ...(siglaComercio ? [`${siglaComercio}${rawIdStr}`, `${siglaComercio}#${rawIdStr}`] : [])
+      ])];
+
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id, status, estado_wms, raw_jumpseller_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
+        .select('id, external_order_number, external_platform, origen, created_at, status, estado_wms, raw_jumpseller_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
         .eq('comercio', integration.comercio)
-        .in('external_order_number', [orderNumber, finalOrderNumber])
-        .eq('external_platform', 'Jumpseller')
+        .in('external_order_number', candidateNumbers)
+        .in('external_platform', ['Jumpseller', 'Manual'])
+        .limit(1)
         .maybeSingle();
 
       // Mapear campos planos de la orden y cantidades de items
@@ -540,6 +580,14 @@ async function syncOrders(integration, headers, warehouseId) {
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
         const orderDataToUpdate = { ...orderDataToSave };
 
+        // Si el pedido fue ingresado previamente con otro formato de número (ej. B4L1688 o Manual), preservar su numeración y fecha
+        if (existingOrder.external_order_number && existingOrder.external_order_number !== finalOrderNumber) {
+          orderDataToUpdate.external_order_number = existingOrder.external_order_number;
+          orderDataToUpdate.external_platform = existingOrder.external_platform || 'Jumpseller';
+          orderDataToUpdate.origen = existingOrder.origen || 'Jumpseller';
+          orderDataToUpdate.created_at = existingOrder.created_at;
+        }
+
         if (isWmsItemsEdited) {
           delete orderDataToUpdate.sku;
           delete orderDataToUpdate.item;
@@ -554,6 +602,13 @@ async function syncOrders(integration, headers, warehouseId) {
           delete orderDataToUpdate.shipping_address;
           delete orderDataToUpdate.shipping_city;
           delete orderDataToUpdate.shipping_complement;
+        }
+
+        const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').toLowerCase();
+        if (isCancelled && existingOrder.status === 'para procesar' && currentWmsState === 'en procesamiento') {
+          orderDataToUpdate.status = 'cancelado';
+          orderDataToUpdate.estado_wms = 'Cancelado';
+          console.log(`🚫 Pedido local ${finalOrderNumber} marcado como cancelado (estado Jumpseller: ${statusName}).`);
         }
 
         orderDataToUpdate.raw_jumpseller_data = {
@@ -571,8 +626,8 @@ async function syncOrders(integration, headers, warehouseId) {
         console.log(`📝 Actualizado pedido local ${orderNumber}`);
         localOrderId = existingOrder.id;
 
-        // Auto-recuperación (Healer): Validar si ya tiene ítems guardados (solo si no fue editado en WMS)
-        if (!isWmsItemsEdited) {
+        // Auto-recuperación (Healer): Validar si ya tiene ítems guardados (solo si no fue editado en WMS y sigue activo)
+        if (!isWmsItemsEdited && !isCancelled) {
           const { data: existingItems, error: itemsCheckErr } = await supabase
             .from('order_items')
             .select('id')

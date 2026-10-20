@@ -1036,10 +1036,21 @@
 
     if (col.key === 'numero_pedido') {
       const orderIdStr = String(order.id || '');
+      const adminNote = typeof window.getOrderAdminNote === 'function' 
+        ? window.getOrderAdminNote(order) 
+        : (order.admin_notes || order._adminNotes || '');
+      const hasNote = Boolean(adminNote && String(adminNote).trim());
+      const safeNote = String(adminNote || '').replace(/"/g, '&quot;');
+
       return `
         <div class="excel-cell-content" style="font-family: monospace; font-weight: 700; color: var(--color-primary, #6366f1); white-space: nowrap; font-size: 0.76rem; display: flex; align-items: center; justify-content: space-between; gap: 0.25rem; width: 100%; cursor: pointer;" title="Abrir Ficha Completa del Pedido (#${rawVal})" onclick="if(window.openWmsOrderModal){window.openWmsOrderModal('${orderIdStr}'); event.stopPropagation();}">
           <span style="text-decoration: underline; text-underline-offset: 2px;">${rawVal}</span>
-          <i class="ri-external-link-line" style="font-size: 0.75rem; opacity: 0.65; flex-shrink: 0;" title="Abrir Ficha de Pedido"></i>
+          <div style="display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;">
+            <button type="button" onclick="event.stopPropagation(); if(window.openOrderAdminNoteModal){window.openOrderAdminNoteModal('${orderIdStr}');}" class="btn-order-admin-note-trigger" data-order-id="${orderIdStr}" style="background: none; border: none; padding: 0 1px; cursor: pointer; color: ${hasNote ? '#4f46e5' : 'rgba(148, 163, 184, 0.65)'}; font-size: 0.82rem; display: inline-flex; align-items: center; transition: color 0.15s ease;" title="${hasNote ? `Nota Interna Admin: ${safeNote} (Clic para ver/editar)` : 'Añadir Nota Interna Admin'}">
+              <i class="${hasNote ? 'ri-lock-2-fill' : 'ri-lock-2-line'}"></i>
+            </button>
+            <i class="ri-external-link-line" style="font-size: 0.75rem; opacity: 0.65;" title="Abrir Ficha de Pedido"></i>
+          </div>
         </div>
       `;
     }
@@ -2689,7 +2700,7 @@
             const orderNumber = String(ord.external_order_number || ord.id);
             if (pSb) {
               pSb.from('active_orders')
-                .update({ contact_data_t: cu.value || '' })
+                .update({ contact_data_t: String(cu.value || '').slice(0, 255) })
                 .eq('order_number', orderNumber)
                 .then(res => {
                   if (res.error) console.warn('Aviso sincronización Picker active_orders:', res.error);
@@ -2896,7 +2907,10 @@
     'agenda': 'agenda',
     'operador': 'operador',
     'sucursal_pickeo': 'sucursal_pickeo',
-    'estado_ruta_optiroute': 'estado_ruta_optiroute'
+    'estado_ruta_optiroute': 'estado_ruta_optiroute',
+    'admin_notes': 'admin_notes',
+    'internal_notes': 'admin_notes',
+    '_adminNotes': 'admin_notes'
   };
 
   window.refreshAgendasOrderCell = function(orderId, colKey, newValue) {
@@ -2960,6 +2974,9 @@
             }
           });
         }
+      } else if (targetColKey === 'admin_notes') {
+        ord.admin_notes = newValue;
+        ord._adminNotes = newValue;
       }
       delete ord._wmsTags;
     });
@@ -3021,6 +3038,27 @@
         if (covDef) {
           const rIndex = parseInt(covCell.getAttribute('data-row-index'), 10) || 0;
           covCell.innerHTML = renderCellHtml(activeOrder, covDef, rIndex);
+        }
+      }
+    }
+
+    // Si es admin_notes, actualizar la celda de numero_pedido para refrescar el candado y tooltip
+    if (targetColKey === 'admin_notes' || colKey === 'admin_notes') {
+      let numCell = document.querySelector(`.excel-cell[data-order-id="${idStr}"][data-col-key="numero_pedido"]`);
+      if (!numCell) {
+        const numCells = document.querySelectorAll(`.excel-cell[data-col-key="numero_pedido"]`);
+        for (let nc of numCells) {
+          if (String(nc.getAttribute('data-order-id')) === idStr) {
+            numCell = nc;
+            break;
+          }
+        }
+      }
+      if (numCell && activeOrder) {
+        const numDef = COLUMN_DEFS.find(c => c.key === 'numero_pedido');
+        if (numDef) {
+          const rIndex = parseInt(numCell.getAttribute('data-row-index'), 10) || 0;
+          numCell.innerHTML = renderCellHtml(activeOrder, numDef, rIndex);
         }
       }
     }
