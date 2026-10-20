@@ -7816,13 +7816,58 @@ async function renderAdminOrders() {
         });
       }
 
+      let rawLineItemsSum = 0;
+      const sumRawItems = (items, platform = '') => {
+        if (!Array.isArray(items)) return;
+        items.forEach(item => {
+          if (platform === 'shopify') {
+            const cq = item.current_quantity !== undefined && item.current_quantity !== null
+              ? Number(item.current_quantity)
+              : Number(item.quantity ?? 1);
+            if (cq > 0) rawLineItemsSum += cq;
+          } else if (platform === 'jumpseller') {
+            rawLineItemsSum += Number(item.qty ?? item.quantity ?? 1) || 0;
+          } else {
+            rawLineItemsSum += Number(item.quantity ?? item.qty ?? 1) || 0;
+          }
+        });
+      };
+
+      if (order.raw_shopify_data?.line_items) {
+        sumRawItems(order.raw_shopify_data.line_items, 'shopify');
+      } else if (order.raw_woocommerce_data?.line_items) {
+        sumRawItems(order.raw_woocommerce_data.line_items, 'woocommerce');
+      } else if (order.raw_meli_data) {
+        const meliOrders = Array.isArray(order.raw_meli_data) ? order.raw_meli_data : [order.raw_meli_data];
+        meliOrders.forEach(mo => {
+          if (mo && mo.order_items) sumRawItems(mo.order_items, 'meli');
+        });
+      } else if (order.raw_jumpseller_data?.products) {
+        sumRawItems(order.raw_jumpseller_data.products, 'jumpseller');
+      } else if (order.raw_paris_data?.items) {
+        sumRawItems(order.raw_paris_data.items, 'paris');
+      } else if (order.raw_ripley_data?.order_lines) {
+        sumRawItems(order.raw_ripley_data.order_lines, 'ripley');
+      } else if (order.raw_falabella_data?.items) {
+        sumRawItems(order.raw_falabella_data.items, 'falabella');
+      } else if (order.raw_tiendanube_data?.products) {
+        sumRawItems(order.raw_tiendanube_data.products, 'tiendanube');
+      }
+
       const isManuallyEdited = !!(
         order.wms_items_edited ||
         order.raw_woocommerce_data?.wms_items_edited ||
         order.raw_shopify_data?.wms_items_edited
       );
 
-      const expectedItemsSum = Math.max(0, headerQty + expectedExtraPackUnits + giftUnits - eliminatedUnits);
+      // En Shopify (sync_shopify.js), order.cantidad (headerQty) ya viene actualizado con las unidades físicas
+      // tras expandir los packs, mientras que en WooCommerce/otros viene con la suma original sin expandir (rawLineItemsSum).
+      // Al usar rawLineItemsSum + expectedExtraPackUnits evitamos sumar dos veces las unidades extra del pack.
+      const expectedWithPacksFromRaw = rawLineItemsSum > 0
+        ? (rawLineItemsSum + expectedExtraPackUnits)
+        : (activeItemsSum === headerQty ? headerQty : headerQty + expectedExtraPackUnits);
+      const expectedBaseWithPacks = Math.max(headerQty, expectedWithPacksFromRaw);
+      const expectedItemsSum = Math.max(0, expectedBaseWithPacks + giftUnits - eliminatedUnits);
       const minExpectedBase = Math.max(0, headerQty - eliminatedUnits);
 
       let hasMismatch = false;
