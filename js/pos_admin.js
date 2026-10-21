@@ -2248,15 +2248,24 @@ window.loadPosCommerceCatalog = async function(commerceName) {
     const hasStockTracking = Boolean(window.posSelectedCommerceConfig?.inventario_seguimiento);
     const isCatalogConfigured = Boolean(window.posSelectedCommerceConfig?.onboarding_checklist?.catalog_ready);
 
-    // 2. Obtener productos del catálogo con su inventario en Matriz Ñuñoa e imagen
-    const { data: products, error: prodErr } = await supabase
-      .from('products')
-      .select('id, sku, name, price, image_url, is_pack, is_virtual, inventory(quantity, committed_quantity, reserved_quantity, warehouse_id)')
-      .eq('comercio', commerceName)
-      .neq('status', 'archived')
-      .order('name');
-
-    if (prodErr) throw prodErr;
+    // 2. Obtener productos del catálogo con su inventario en Matriz Ñuñoa e imagen (sin límite de 1.000 filas)
+    let products = [];
+    if (typeof window.fetchAllSupabaseRows === 'function') {
+      products = await window.fetchAllSupabaseRows(
+        'products',
+        'id, sku, name, price, image_url, is_pack, is_virtual, inventory(quantity, committed_quantity, reserved_quantity, warehouse_id)',
+        q => q.eq('comercio', commerceName).neq('status', 'archived').order('name')
+      );
+    } else {
+      const { data: pData, error: prodErr } = await supabase
+        .from('products')
+        .select('id, sku, name, price, image_url, is_pack, is_virtual, inventory(quantity, committed_quantity, reserved_quantity, warehouse_id)')
+        .eq('comercio', commerceName)
+        .neq('status', 'archived')
+        .order('name');
+      if (prodErr) throw prodErr;
+      products = pData || [];
+    }
 
     const rawProds = (products || []).filter(p => !p.is_pack && !p.is_virtual);
 

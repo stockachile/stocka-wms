@@ -69036,7 +69036,7 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     // 1. Obtener los datos frescos de la orden
     const { data: order, error: orderErr } = await supabase
       .from('orders')
-      .select('id, external_order_number, tracking_number, tracking_url, courier, raw_lightdata_data, estado_wms, comercio, categoria_entrega, agenda, origen, external_platform, shipping_method, tags, raw_shopify_data')
+      .select('id, external_order_number, tracking_number, tracking_url, courier, raw_lightdata_data, estado_wms, comercio, categoria_entrega, agenda, origen, external_platform, shipping_method, raw_shopify_data')
       .eq('id', orderId)
       .maybeSingle();
 
@@ -69643,7 +69643,7 @@ window.openWmsOrderModal = async function(orderId) {
   const orderNumber = String(order.external_order_number || order.id || '').trim();
   const comercio = String(order.comercio || 'Stocka').trim();
   const canalVentas = String(order.origen || order.external_platform || 'Manual').trim();
-  const currentStatus = order.estado_wms || (order.status === 'preparado' ? 'Preparado' : (order.status === 'en preparación' ? 'En preparación' : 'Para procesar'));
+  const currentStatus = order.estado_wms || (order.status === 'preparado' ? 'Pickeado' : (order.status === 'en preparación' ? 'En preparación' : 'En procesamiento'));
   const currentComuna = String(order.shipping_city || order.comuna || '').trim();
   const currentAddress = String(order.shipping_address || '').trim();
   const currentComplement = String(order.shipping_complement || '').trim();
@@ -69848,11 +69848,13 @@ window.openWmsOrderModal = async function(orderId) {
           <div class="wms-modal-field">
             <label class="wms-modal-label">Estado WMS</label>
             <select id="wms-modal-estado-wms" class="wms-input-ctrl">
-              <option value="Para procesar" ${currentStatus === 'Para procesar' || currentStatus === 'En procesamiento' ? 'selected' : ''}>Para procesar</option>
+              <option value="En procesamiento" ${currentStatus === 'Para procesar' || currentStatus === 'En procesamiento' ? 'selected' : ''}>En procesamiento (Para procesar)</option>
               <option value="En preparación" ${currentStatus === 'En preparación' ? 'selected' : ''}>En preparación</option>
-              <option value="Preparado" ${currentStatus === 'Preparado' || currentStatus === 'Pickeado' ? 'selected' : ''}>Preparado / Pickeado</option>
+              <option value="Pickeado" ${currentStatus === 'Preparado' || currentStatus === 'Pickeado' ? 'selected' : ''}>Pickeado (Preparado)</option>
               <option value="Despachado" ${currentStatus === 'Despachado' ? 'selected' : ''}>Despachado</option>
+              <option value="Incidencia" ${currentStatus === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
               <option value="Cancelado" ${currentStatus === 'Cancelado' ? 'selected' : ''}>Cancelado</option>
+              <option value="Archivado" ${currentStatus === 'Archivado' ? 'selected' : ''}>Archivado</option>
             </select>
           </div>
           <div class="wms-modal-field">
@@ -70046,7 +70048,7 @@ window.openWmsOrderModal = async function(orderId) {
       const address = document.getElementById('wms-modal-address')?.value.trim() || '';
       const complement = document.getElementById('wms-modal-complement')?.value.trim() || '';
       const city = document.getElementById('wms-modal-city')?.value.trim() || '';
-      const estado_wms = document.getElementById('wms-modal-estado-wms')?.value || 'Para procesar';
+      const estado_wms = document.getElementById('wms-modal-estado-wms')?.value || 'En procesamiento';
       const categoria = document.getElementById('wms-modal-categoria')?.value || 'NORMAL';
       const agendaInput = document.getElementById('wms-modal-agenda')?.value.trim() || '';
       const operadorInput = document.getElementById('wms-modal-operador')?.value.trim() || '';
@@ -70136,6 +70138,24 @@ window.openWmsOrderModal = async function(orderId) {
                    (order?.raw_meli_data ? 'raw_meli_data' :
                    (order?.raw_walmart_data ? 'raw_walmart_data' : null))))))));
 
+    let sanitizedEstadoWms = formValues.estado_wms || 'En procesamiento';
+    const normStWms = String(sanitizedEstadoWms).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (normStWms.includes('procesar') || normStWms.includes('procesamiento')) {
+      sanitizedEstadoWms = 'En procesamiento';
+    } else if (normStWms.includes('preparacion')) {
+      sanitizedEstadoWms = 'En preparación';
+    } else if (normStWms.includes('preparado') || normStWms.includes('pickeado')) {
+      sanitizedEstadoWms = 'Pickeado';
+    } else if (normStWms.includes('despachado')) {
+      sanitizedEstadoWms = 'Despachado';
+    } else if (normStWms.includes('incidencia')) {
+      sanitizedEstadoWms = 'Incidencia';
+    } else if (normStWms.includes('cancelado')) {
+      sanitizedEstadoWms = 'Cancelado';
+    } else if (normStWms.includes('archivado')) {
+      sanitizedEstadoWms = 'Archivado';
+    }
+
     const isModalRetiro = String(formValues.categoria || '').toUpperCase().trim() === 'RETIRO';
     const updatePayload = {
       customer_name: formValues.name || null,
@@ -70144,7 +70164,7 @@ window.openWmsOrderModal = async function(orderId) {
       shipping_address: formValues.address || null,
       shipping_complement: formValues.complement || null,
       shipping_city: formValues.city || null,
-      estado_wms: formValues.estado_wms,
+      estado_wms: sanitizedEstadoWms,
       categoria_entrega: formValues.categoria,
       agenda: isModalRetiro ? 'RETIRO' : (formValues.agenda || null),
       operador: isModalRetiro ? 'SUCURSAL ÑUÑOA' : (formValues.operador || null),
@@ -70163,12 +70183,13 @@ window.openWmsOrderModal = async function(orderId) {
     }
 
     // Sincronizar columna status estándar
-    const normSt = String(formValues.estado_wms || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const normSt = String(sanitizedEstadoWms).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     if (normSt.includes('cancelado')) updatePayload.status = 'cancelado';
     else if (normSt.includes('procesamiento') || normSt.includes('procesar')) updatePayload.status = 'para procesar';
     else if (normSt.includes('preparacion')) updatePayload.status = 'en preparación';
     else if (normSt.includes('pickeado') || normSt.includes('preparado')) updatePayload.status = 'preparado';
     else if (normSt.includes('despachado')) updatePayload.status = 'despachado';
+    else if (normSt.includes('archivado')) updatePayload.status = 'archivado';
 
     if (rawKey && formValues.note !== undefined) {
       const updatedRaw = {
@@ -70280,7 +70301,7 @@ window.openWmsOrderModal = async function(orderId) {
       window.refreshAgendasOrderCell(orderId, 'direccion', formValues.address);
       window.refreshAgendasOrderCell(orderId, 'complemento', formValues.complement);
       window.refreshAgendasOrderCell(orderId, 'comuna', formValues.city);
-      window.refreshAgendasOrderCell(orderId, 'estado_wms', formValues.estado_wms);
+      window.refreshAgendasOrderCell(orderId, 'estado_wms', sanitizedEstadoWms);
       window.refreshAgendasOrderCell(orderId, 'categoria_entrega', formValues.categoria);
       window.refreshAgendasOrderCell(orderId, 'agenda', formValues.agenda);
       window.refreshAgendasOrderCell(orderId, 'operador', formValues.operador);
@@ -75566,46 +75587,221 @@ window.applyColFilter = function(columnKey) {
   applyWmsFiltersAndRender();
 };
 
+window.editOrderCommerceCatalogCache = window.editOrderCommerceCatalogCache || {};
+window.activeEditCatalogPromise = null;
+window.isEditCatalogLoading = false;
+
+window.mapProductWithInventoryStats = function(p) {
+  const invList = Array.isArray(p.inventory) ? p.inventory : [];
+  let physical = 0;
+  let committed = 0;
+  let reserved = 0;
+  const byWarehouse = {};
+  invList.forEach(inv => {
+    const wid = inv.warehouse_id || 'unknown';
+    const q = Number(inv.quantity) || 0;
+    const c = Number(inv.committed_quantity) || 0;
+    const r = Number(inv.reserved_quantity) || 0;
+    physical += q;
+    committed += c;
+    reserved += r;
+    if (!byWarehouse[wid]) {
+      byWarehouse[wid] = { physical: 0, committed: 0, reserved: 0, available: 0 };
+    }
+    byWarehouse[wid].physical += q;
+    byWarehouse[wid].committed += c;
+    byWarehouse[wid].reserved += r;
+    byWarehouse[wid].available = byWarehouse[wid].physical - byWarehouse[wid].committed - byWarehouse[wid].reserved;
+  });
+  return {
+    ...p,
+    physicalStock: physical,
+    committedStock: committed,
+    reservedStock: reserved,
+    availableStock: physical - committed - reserved,
+    stockByWarehouse: byWarehouse
+  };
+};
+
+window.loadEditOrderCommerceCatalog = async function(commerce, forceRefresh = false) {
+  if (!commerce) return [];
+  const cacheEntry = window.editOrderCommerceCatalogCache[commerce];
+  const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutos
+  if (!forceRefresh && cacheEntry && Array.isArray(cacheEntry.products) && (Date.now() - cacheEntry.timestamp < CACHE_TTL_MS)) {
+    window.tempCommerceProducts = cacheEntry.products;
+    window.isEditCatalogLoading = false;
+    return cacheEntry.products;
+  }
+
+  window.isEditCatalogLoading = true;
+  const selectCols = 'id, sku, name, price, is_virtual, status, image_url, inventory(warehouse_id, quantity, committed_quantity, reserved_quantity)';
+
+  const loadPromise = (async () => {
+    try {
+      // Consultar páginas 0..999 y 1000..1999 en paralelo para reducir el tiempo de red a la mitad
+      const [page0, page1] = await Promise.all([
+        supabase.from('products').select(selectCols).eq('comercio', commerce).neq('status', 'archived').order('name').range(0, 999),
+        supabase.from('products').select(selectCols).eq('comercio', commerce).neq('status', 'archived').order('name').range(1000, 1999)
+      ]);
+
+      let rawList = [];
+      if (!page0.error && !page1.error) {
+        rawList = [...(page0.data || []), ...(page1.data || [])];
+        // Si el comercio supera los 2.000 productos, traer el resto
+        if ((page1.data || []).length === 1000) {
+          let from = 2000;
+          while (true) {
+            const { data: extraData, error: extraErr } = await supabase
+              .from('products')
+              .select(selectCols)
+              .eq('comercio', commerce)
+              .neq('status', 'archived')
+              .order('name')
+              .range(from, from + 999);
+            if (extraErr || !extraData || extraData.length === 0) break;
+            rawList.push(...extraData);
+            if (extraData.length < 1000) break;
+            from += 1000;
+          }
+        }
+      } else if (typeof window.fetchAllSupabaseRows === 'function') {
+        rawList = await window.fetchAllSupabaseRows(
+          'products',
+          selectCols,
+          q => q.eq('comercio', commerce).neq('status', 'archived').order('name')
+        );
+      }
+
+      const commerceProducts = (rawList || [])
+        .filter(p => p.status !== 'archived')
+        .map(p => window.mapProductWithInventoryStats(p));
+
+      window.tempCommerceProducts = commerceProducts;
+      window.editOrderCommerceCatalogCache[commerce] = {
+        products: commerceProducts,
+        timestamp: Date.now()
+      };
+      window.isEditCatalogLoading = false;
+
+      // Actualizar contador y desplegable en vivo si el modal sigue abierto
+      const countEl = document.getElementById('swal-edit-catalog-count');
+      if (countEl) {
+        countEl.textContent = `(${commerceProducts.length} productos en catálogo)`;
+      }
+      const dropdownList = document.getElementById('swal-add-item-dropdown-list');
+      if (dropdownList && dropdownList.style.display === 'block') {
+        window.filterEditOrderModalProducts();
+      }
+      window.updateEditOrderProductStockAlert();
+
+      // Enriquecer imágenes faltantes desde synced_products en segundo plano sin bloquear el buscador
+      const missingImgSkus = Array.from(new Set(
+        commerceProducts.filter(p => !p.image_url && p.sku).map(p => p.sku.trim()).filter(Boolean)
+      ));
+      if (missingImgSkus.length > 0) {
+        (async () => {
+          try {
+            const syncedImgMap = {};
+            const imgBatches = [];
+            for (let i = 0; i < missingImgSkus.length; i += 200) {
+              imgBatches.push(
+                supabase
+                  .from('synced_products')
+                  .select('sku, image_url')
+                  .eq('comercio', commerce)
+                  .not('image_url', 'is', null)
+                  .in('sku', missingImgSkus.slice(i, i + 200))
+              );
+            }
+            const imgResList = await Promise.all(imgBatches);
+            imgResList.forEach(res => {
+              (res.data || []).forEach(sp => {
+                if (sp.sku && sp.image_url) {
+                  syncedImgMap[sp.sku.trim().toLowerCase()] = sp.image_url;
+                }
+              });
+            });
+            commerceProducts.forEach(p => {
+              if (!p.image_url && p.sku) {
+                const foundImg = syncedImgMap[p.sku.trim().toLowerCase()];
+                if (foundImg) p.image_url = foundImg;
+              }
+            });
+            if (dropdownList && dropdownList.style.display === 'block') {
+              window.filterEditOrderModalProducts();
+            }
+          } catch (e) {
+            console.warn('[loadEditOrderCommerceCatalog] Error enriqueciendo fotos:', e);
+          }
+        })();
+      }
+
+      return commerceProducts;
+    } catch (err) {
+      console.warn('[loadEditOrderCommerceCatalog] Error cargando catálogo:', err);
+      window.isEditCatalogLoading = false;
+      return window.tempCommerceProducts || [];
+    }
+  })();
+
+  window.activeEditCatalogPromise = loadPromise;
+  return loadPromise;
+};
+
 window.openEditOrderItemsModal = async function(orderId) {
   Swal.fire({
-    title: 'Cargando datos...',
+    title: 'Cargando pedido...',
     allowOutsideClick: false,
     didOpen: () => { Swal.showLoading(); }
   });
 
   try {
-    const { data: order, error: orderErr } = await supabase
-      .from('orders')
-      .select('id, external_order_number, comercio, sucursal_pickeo, estado_wms, status, stock_descontado')
-      .eq('id', orderId)
-      .single();
+    // Si ya conocemos el pedido en memoria (Torre de Control), iniciar la precarga del catálogo en el milisegundo 0
+    const cachedOrderInMemory = (window.loadedOrders || []).find(o => o.id === orderId);
+    if (cachedOrderInMemory?.comercio) {
+      window.loadEditOrderCommerceCatalog(cachedOrderInMemory.comercio);
+    }
 
-    if (orderErr) throw orderErr;
+    // Ejecutar las consultas necesarias para abrir el modal en paralelo (1 solo viaje de red de ~100ms)
+    const needWarehouses = !Array.isArray(window.tempWarehouses) || window.tempWarehouses.length === 0;
+    const [orderRes, itemsRes, whRes] = await Promise.all([
+      cachedOrderInMemory
+        ? Promise.resolve({ data: cachedOrderInMemory, error: null })
+        : supabase
+            .from('orders')
+            .select('id, external_order_number, comercio, sucursal_pickeo, estado_wms, status, stock_descontado')
+            .eq('id', orderId)
+            .single(),
+      supabase
+        .from('order_items')
+        .select('*, products(id, sku, name, price, is_virtual, image_url, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, inventory(warehouse_id, quantity, committed_quantity, reserved_quantity))')
+        .eq('order_id', orderId),
+      needWarehouses
+        ? supabase.from('warehouses').select('id, name').order('name')
+        : Promise.resolve({ data: window.tempWarehouses, error: null })
+    ]);
 
-    const { data: orderItems, error: itemsErr } = await supabase
-      .from('order_items')
-      .select('*, products(id, sku, name, price, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict)')
-      .eq('order_id', orderId);
+    if (orderRes.error) throw orderRes.error;
+    if (itemsRes.error) throw itemsRes.error;
+    if (whRes.error) throw whRes.error;
 
-    if (itemsErr) throw itemsErr;
+    const order = orderRes.data;
+    const orderItems = itemsRes.data || [];
+    window.tempWarehouses = whRes.data || [];
 
-    const { data: warehouses, error: whErr } = await supabase
-      .from('warehouses')
-      .select('id, name')
-      .order('name');
-
-    if (whErr) throw whErr;
-    window.tempWarehouses = warehouses || [];
-
-    const { data: commerceProducts, error: prodErr } = await supabase
-      .from('products')
-      .select('id, sku, name, price, is_virtual')
-      .eq('comercio', order.comercio)
-      .order('name');
-
-    if (prodErr) throw prodErr;
-
-    window.tempCommerceProducts = commerceProducts || [];
+    // Si aún no había caché de catálogo para este comercio, iniciarlo en segundo plano sin bloquear el modal
+    const cachedCatalog = window.editOrderCommerceCatalogCache?.[order.comercio]?.products;
+    if (cachedCatalog && cachedCatalog.length > 0) {
+      window.tempCommerceProducts = cachedCatalog;
+    } else {
+      // Sembrar temporalmente con los productos propios del pedido para que sus badges de stock se vean desde el frame 1
+      window.tempCommerceProducts = orderItems
+        .filter(item => item.products)
+        .map(item => window.mapProductWithInventoryStats(item.products));
+      if (!cachedOrderInMemory?.comercio) {
+        window.loadEditOrderCommerceCatalog(order.comercio);
+      }
+    }
 
     const isDispatched = (order.estado_wms === 'Despachado') || (order.stock_descontado === true);
     window.tempEditOrderData = {
@@ -75614,19 +75810,25 @@ window.openEditOrderItemsModal = async function(orderId) {
     };
     window.tempEditAdjustDispatchedStock = false;
 
-    window.tempEditOrderItems = orderItems.map(item => ({
-      id: item.id,
-      product_id: item.product_id,
-      sku: item.products?.sku || 'S/SKU',
-      name: item.products?.name || 'Desconocido',
-      price: item.products?.price || 0,
-      is_virtual: !!item.products?.is_virtual,
-      quantity: item.quantity,
-      warehouse_id: item.warehouse_id
-    }));
+    const prodByIdMap = new Map((window.tempCommerceProducts || []).map(p => [p.id, p]));
+    window.tempEditOrderItems = orderItems.map(item => {
+      const catProd = prodByIdMap.get(item.product_id);
+      return {
+        id: item.id,
+        product_id: item.product_id,
+        sku: item.products?.sku || catProd?.sku || 'S/SKU',
+        name: item.products?.name || catProd?.name || 'Desconocido',
+        price: item.products?.price ?? catProd?.price ?? 0,
+        image_url: item.products?.image_url || catProd?.image_url || '',
+        is_virtual: !!(item.products?.is_virtual ?? catProd?.is_virtual),
+        quantity: item.quantity,
+        warehouse_id: item.warehouse_id
+      };
+    });
 
     window.originalEditOrderItems = JSON.parse(JSON.stringify(window.tempEditOrderItems));
 
+    // Renderizar el modal de inmediato (~100ms) sin esperar la descarga completa del catálogo
     window.renderEditOrderItemsModal(orderId, order.comercio);
 
   } catch (err) {
@@ -75644,9 +75846,10 @@ window.findProductInCommerce = function(rawQuery) {
   let prod = commerceProducts.find(p => (p.sku || '').trim().toLowerCase() === q);
   if (prod) return prod;
 
-  // 2. Coincidencia si el usuario seleccionó del datalist "SKU - Nombre" o empezó con SKU
+  // 2. Coincidencia si el usuario seleccionó del listado "SKU - Nombre ($Precio)" o empezó con SKU
   prod = commerceProducts.find(p => {
     const s = (p.sku || '').trim().toLowerCase();
+    if (!s) return false;
     const full = `${s} - ${(p.name || '').trim().toLowerCase()}`;
     return full === q || q.startsWith(s + ' -') || q.startsWith(s + ' ');
   });
@@ -75657,20 +75860,29 @@ window.findProductInCommerce = function(rawQuery) {
   if (prod) return prod;
 
   // 4. Coincidencia si contiene el SKU o Nombre (si es único)
-  const partials = commerceProducts.filter(p => 
-    (p.sku || '').trim().toLowerCase().includes(q) || 
-    (p.name || '').trim().toLowerCase().includes(q)
-  );
+  const tokens = q.split(/\s+/).filter(Boolean);
+  const partials = commerceProducts.filter(p => {
+    const s = (p.sku || '').trim().toLowerCase();
+    const n = (p.name || '').trim().toLowerCase();
+    return tokens.every(t => s.includes(t) || n.includes(t));
+  });
   if (partials.length === 1) return partials[0];
 
   return null;
 };
 
-window.tryAddTempEditItem = function(orderId, commerce, rawSku, rawQty) {
+window.tryAddTempEditItem = function(orderId, commerce, rawSku, rawQty, explicitProductId = null) {
   const qty = parseInt(rawQty, 10);
   if (isNaN(qty) || qty < 1) return false;
 
-  const product = window.findProductInCommerce(rawSku);
+  const commerceProducts = window.tempCommerceProducts || [];
+  let product = null;
+  if (explicitProductId) {
+    product = commerceProducts.find(p => p.id === explicitProductId) || null;
+  }
+  if (!product) {
+    product = window.findProductInCommerce(rawSku);
+  }
   if (!product) return false;
 
   const existingIdx = window.tempEditOrderItems.findIndex(item => item.product_id === product.id);
@@ -75694,6 +75906,7 @@ window.tryAddTempEditItem = function(orderId, commerce, rawSku, rawQty) {
       sku: product.sku,
       name: product.name,
       price: product.price || 0,
+      image_url: product.image_url || '',
       is_virtual: !!product.is_virtual,
       quantity: qty,
       warehouse_id: origMatch?.warehouse_id || defaultWarehouseId
@@ -75948,8 +76161,341 @@ window.refreshDispatchedEditImpactPreview = function() {
   }
 };
 
+window.renderEditItemStockBadgeHtml = function(productId, warehouseId, isVirtual) {
+  if (isVirtual) {
+    return `<span style="background: #e0e7ff; color: #4338ca; padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 0.7rem;">Virtual</span>`;
+  }
+  const prod = (window.tempCommerceProducts || []).find(p => p.id === productId);
+  if (!prod) return '';
+
+  const whStock = (warehouseId && prod.stockByWarehouse && prod.stockByWarehouse[warehouseId])
+    ? prod.stockByWarehouse[warehouseId]
+    : null;
+
+  const phys = whStock ? whStock.physical : (prod.physicalStock || 0);
+  const res = whStock ? whStock.reserved : (prod.reservedStock || 0);
+  const comm = whStock ? whStock.committed : (prod.committedStock || 0);
+  const avail = whStock ? whStock.available : (prod.availableStock || 0);
+  const isOut = avail <= 0;
+
+  return `
+    <span style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.7rem; padding: 1px 6px; border-radius: 4px; background: ${isOut ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)'}; border: 1px solid ${isOut ? 'rgba(239, 68, 68, 0.25)' : 'rgba(16, 185, 129, 0.25)'}; color: ${isOut ? '#dc2626' : '#059669'}; font-weight: 600;" title="Stock en bodega seleccionada (o global si no registra movimiento): Físico ${phys} | Mesa ${res} | Comprometido ${comm} | Disponible ${avail}">
+      <i class="${isOut ? 'ri-alert-line' : 'ri-checkbox-circle-line'}"></i> Disp: ${avail} <span style="opacity: 0.75; font-weight: 500;">(Fís:${phys} · Mesa:${res} · Comp:${comm})</span>
+    </span>
+  `;
+};
+
+window.refreshEditOrderModalTotals = function() {
+  const items = window.tempEditOrderItems || [];
+  const totalQty = items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
+  const totalVal = items.reduce((sum, i) => sum + ((Number(i.quantity) || 0) * (Number(i.price) || 0)), 0);
+  const qtyEl = document.getElementById('swal-edit-total-qty');
+  const valEl = document.getElementById('swal-edit-total-val');
+  if (qtyEl) qtyEl.textContent = totalQty;
+  if (valEl && typeof window.formatCLP === 'function') valEl.textContent = window.formatCLP(totalVal);
+};
+
+window.filterEditOrderModalProducts = function() {
+  const searchInput = document.getElementById('swal-add-item-sku');
+  const dropdownList = document.getElementById('swal-add-item-dropdown-list');
+  const clearBtn = document.getElementById('swal-clear-item-sku-btn');
+  if (!dropdownList) return;
+
+  const rawSearch = searchInput ? searchInput.value : '';
+  const searchTerm = rawSearch.toLowerCase().trim();
+  if (clearBtn) {
+    clearBtn.style.display = rawSearch.length > 0 ? 'inline-flex' : 'none';
+  }
+
+  const products = window.tempCommerceProducts || [];
+  const escapeFn = window.escapeHtml || (s => String(s || '').replace(/"/g, '&quot;'));
+
+  if (window.isEditCatalogLoading && products.length <= (window.tempEditOrderItems?.length || 0)) {
+    dropdownList.innerHTML = `
+      <div style="padding: 0.85rem; text-align: center; color: var(--color-text-muted); font-size: 0.82rem; font-style: italic;">
+        <i class="ri-loader-4-line ri-spin" style="display: inline-block; margin-right: 0.35rem;"></i> Cargando catálogo del comercio...
+      </div>
+    `;
+    return;
+  }
+
+  // Si el texto coincide con el formato "SKU - Nombre ($Precio)" de un producto ya seleccionado, extraer el SKU para no ocultar resultados
+  const prodIdInput = document.getElementById('swal-add-item-product-id');
+  const selectedProd = prodIdInput?.value ? products.find(p => p.id === prodIdInput.value) : null;
+  let effectiveTerm = searchTerm;
+  if (selectedProd) {
+    const selectedDisplay = `${selectedProd.sku} - ${selectedProd.name}`.toLowerCase().trim();
+    if (searchTerm === selectedDisplay || searchTerm.startsWith(selectedDisplay + ' (')) {
+      effectiveTerm = (selectedProd.sku || '').toLowerCase().trim();
+    }
+  }
+
+  const tokens = effectiveTerm.split(/\s+/).filter(Boolean);
+  let filtered = products;
+  if (tokens.length > 0) {
+    filtered = products.filter(p => {
+      const sku = (p.sku || '').toLowerCase();
+      const name = (p.name || '').toLowerCase();
+      return tokens.every(t => sku.includes(t) || name.includes(t));
+    });
+
+    // Ordenar priorizando coincidencia exacta de SKU, luego prefijo de SKU, luego inclusión en SKU
+    filtered = filtered.slice().sort((a, b) => {
+      const aSku = (a.sku || '').toLowerCase().trim();
+      const bSku = (b.sku || '').toLowerCase().trim();
+      const aExact = aSku === effectiveTerm ? 0 : (aSku.startsWith(effectiveTerm) ? 1 : (aSku.includes(effectiveTerm) ? 2 : 3));
+      const bExact = bSku === effectiveTerm ? 0 : (bSku.startsWith(effectiveTerm) ? 1 : (bSku.includes(effectiveTerm) ? 2 : 3));
+      if (aExact !== bExact) return aExact - bExact;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+  }
+
+  if (filtered.length === 0) {
+    if (window.isEditCatalogLoading) {
+      dropdownList.innerHTML = `
+        <div style="padding: 0.85rem; text-align: center; color: var(--color-text-muted); font-size: 0.82rem; font-style: italic;">
+          <i class="ri-loader-4-line ri-spin" style="display: inline-block; margin-right: 0.35rem;"></i> Buscando "${escapeFn(rawSearch.trim())}" en catálogo...
+        </div>
+      `;
+      return;
+    }
+    dropdownList.innerHTML = `
+      <div style="padding: 0.85rem; text-align: center; color: var(--color-text-muted); font-size: 0.82rem; font-style: italic;">
+        No se encontraron productos para "${escapeFn(rawSearch.trim())}" en este comercio (${products.length} en catálogo).
+      </div>
+    `;
+    return;
+  }
+
+  const maxRender = 60;
+  const visibleItems = filtered.slice(0, maxRender);
+  let html = '';
+
+  visibleItems.forEach(p => {
+    const displayVal = `${p.sku} - ${p.name} (${window.formatCLP(p.price || 0)})`;
+    const phys = p.physicalStock !== undefined ? p.physicalStock : 0;
+    const comm = p.committedStock !== undefined ? p.committedStock : 0;
+    const res = p.reservedStock !== undefined ? p.reservedStock : 0;
+    const avail = p.availableStock !== undefined ? p.availableStock : 0;
+    const isOutOfStock = avail <= 0;
+
+    let availBadge = '';
+    if (p.is_virtual) {
+      availBadge = `<span style="background: #e0e7ff; color: #4338ca; border: 1px solid #c7d2fe; padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;">Virtual</span>`;
+    } else if (isOutOfStock) {
+      availBadge = `<span style="background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;"><i class="ri-alert-line"></i> Disp: ${avail} und.</span>`;
+    } else {
+      availBadge = `<span style="background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25); padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;"><i class="ri-checkbox-circle-line"></i> Disp: ${avail} und.</span>`;
+    }
+
+    html += `
+      <div class="swal-edit-product-option" data-id="${escapeFn(p.id)}" data-display="${escapeFn(displayVal)}" onclick="window.selectEditOrderModalProduct('${escapeFn(p.id)}')" style="padding: 0.55rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.25rem;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        <div style="display: flex; gap: 0.65rem; align-items: center;">
+          <div style="width: 36px; height: 36px; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); flex-shrink: 0; overflow: hidden;">
+            ${p.image_url ? `
+              <img src="${escapeFn(p.image_url)}" loading="lazy" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;" onerror="this.outerHTML='<i class=\\'ri-image-line\\' style=\\'font-size:1.1rem;\\'></i>'">
+            ` : `<i class="ri-image-line" style="font-size: 1.1rem;"></i>`}
+          </div>
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem;">
+              <span style="font-weight: 700; color: var(--color-primary); font-size: 0.85rem;">
+                ${escapeFn(p.sku)}
+                ${p.is_virtual ? '<span style="font-size:0.65rem; background:#e0e7ff; color:#4338ca; padding:1px 5px; border-radius:4px; font-weight:700; margin-left:4px;">Virtual</span>' : ''}
+              </span>
+              <span style="color: var(--color-text-muted); font-weight: 600; font-size: 0.8rem;">${window.formatCLP(p.price || 0)}</span>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeFn(p.name)}">
+              ${escapeFn(p.name)}
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.35rem; font-size: 0.72rem; margin-top: 0.15rem; background: var(--color-surface-hover, rgba(0,0,0,0.02)); padding: 0.25rem 0.4rem; border-radius: 4px; border: 1px dashed var(--color-border);">
+          <div style="display: flex; gap: 0.6rem; color: var(--color-text-muted); align-items: center; font-size: 0.72rem;">
+            <span title="Stock físico total en bodega" style="display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-box-3-line" style="color: var(--color-primary); font-size: 0.85rem;"></i> Fís: <strong style="color: var(--color-text-main);">${phys}</strong></span>
+            <span style="opacity: 0.35;">|</span>
+            <span title="Stock en mesa de empaque o preparación" style="display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-archive-drawer-line" style="color: #f59e0b; font-size: 0.85rem;"></i> Mesa: <strong style="color: #d97706;">${res}</strong></span>
+            <span style="opacity: 0.35;">|</span>
+            <span title="Stock asignado a pedidos en procesamiento" style="display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-time-line" style="color: var(--color-accent, #3b82f6); font-size: 0.85rem;"></i> Comp: <strong style="color: var(--color-accent, #3b82f6);">${comm}</strong></span>
+          </div>
+          <div>
+            ${availBadge}
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  if (filtered.length > maxRender) {
+    html += `
+      <div style="padding: 0.45rem 0.75rem; text-align: center; font-size: 0.73rem; color: var(--color-text-muted); background: var(--color-bg); font-style: italic;">
+        Mostrando ${maxRender} de ${filtered.length} productos coincidentes — escribe más letras del SKU o nombre para acotar...
+      </div>
+    `;
+  }
+
+  dropdownList.innerHTML = html;
+};
+
+window.selectEditOrderModalProduct = function(productId) {
+  const products = window.tempCommerceProducts || [];
+  const product = products.find(p => p.id === productId);
+  if (!product) return;
+
+  const prodIdInput = document.getElementById('swal-add-item-product-id');
+  const skuInput = document.getElementById('swal-add-item-sku');
+  const dropdownList = document.getElementById('swal-add-item-dropdown-list');
+  const clearBtn = document.getElementById('swal-clear-item-sku-btn');
+
+  if (prodIdInput) prodIdInput.value = product.id;
+  if (skuInput) skuInput.value = `${product.sku} - ${product.name}`;
+  if (dropdownList) dropdownList.style.display = 'none';
+  if (clearBtn) clearBtn.style.display = 'inline-flex';
+
+  window.updateEditOrderProductStockAlert();
+};
+
+window.clearEditOrderModalProductSearch = function() {
+  const prodIdInput = document.getElementById('swal-add-item-product-id');
+  const skuInput = document.getElementById('swal-add-item-sku');
+  const dropdownList = document.getElementById('swal-add-item-dropdown-list');
+  const alertBox = document.getElementById('swal-selected-product-stock-alert');
+  const clearBtn = document.getElementById('swal-clear-item-sku-btn');
+
+  if (prodIdInput) prodIdInput.value = '';
+  if (skuInput) {
+    skuInput.value = '';
+    skuInput.focus();
+  }
+  if (clearBtn) clearBtn.style.display = 'none';
+  if (alertBox) {
+    alertBox.style.display = 'none';
+    alertBox.innerHTML = '';
+  }
+  if (dropdownList) {
+    window.filterEditOrderModalProducts();
+    dropdownList.style.display = 'block';
+  }
+};
+
+window.updateEditOrderProductStockAlert = function() {
+  const container = document.getElementById('swal-selected-product-stock-alert');
+  if (!container) return;
+
+  const prodIdInput = document.getElementById('swal-add-item-product-id');
+  const skuInput = document.getElementById('swal-add-item-sku');
+  const qtyInput = document.getElementById('swal-add-item-qty');
+  const requestedQty = Math.max(1, parseInt(qtyInput?.value, 10) || 1);
+
+  const products = window.tempCommerceProducts || [];
+  let product = null;
+  if (prodIdInput && prodIdInput.value) {
+    product = products.find(p => p.id === prodIdInput.value) || null;
+  }
+  if (!product && skuInput && skuInput.value.trim()) {
+    product = window.findProductInCommerce(skuInput.value.trim());
+  }
+
+  if (!product) {
+    container.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+
+  const escapeFn = window.escapeHtml || (s => String(s || '').replace(/"/g, '&quot;'));
+  const existingItem = (window.tempEditOrderItems || []).find(i => i.product_id === product.id);
+  const currentInOrder = existingItem ? (Number(existingItem.quantity) || 0) : 0;
+  const totalRequested = requestedQty + currentInOrder;
+
+  const phys = product.physicalStock !== undefined ? product.physicalStock : 0;
+  const comm = product.committedStock !== undefined ? product.committedStock : 0;
+  const res = product.reservedStock !== undefined ? product.reservedStock : 0;
+  const avail = product.availableStock !== undefined ? product.availableStock : 0;
+
+  const imgHtml = product.image_url
+    ? `<img src="${escapeFn(product.image_url)}" alt="" style="width: 40px; height: 40px; object-fit: cover; border-radius: 6px; border: 1px solid var(--color-border); flex-shrink: 0;" onerror="this.style.display='none'">`
+    : `<div style="width: 40px; height: 40px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); flex-shrink: 0;"><i class="ri-image-line" style="font-size: 1.1rem;"></i></div>`;
+
+  if (product.is_virtual) {
+    container.style.display = 'block';
+    container.innerHTML = `
+      <div style="margin-top: 0.6rem; background: rgba(79, 70, 229, 0.08); border: 1px solid rgba(79, 70, 229, 0.3); border-radius: var(--radius-sm); padding: 0.5rem 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.78rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          ${imgHtml}
+          <div>
+            <div style="font-weight: 700; color: #4338ca;">${escapeFn(product.sku)} — Producto Virtual</div>
+            <div style="font-size: 0.74rem; color: var(--color-text-muted);">${escapeFn(product.name)} (${window.formatCLP(product.price || 0)})</div>
+          </div>
+        </div>
+        <span style="background: #e0e7ff; color: #4338ca; padding: 2px 8px; border-radius: 10px; font-weight: 700; font-size: 0.72rem;">Virtual</span>
+      </div>
+    `;
+    return;
+  }
+
+  const isDeficit = totalRequested > avail;
+  const deficitQty = Math.max(0, totalRequested - avail);
+
+  if (isDeficit) {
+    container.style.display = 'block';
+    container.innerHTML = `
+      <div style="margin-top: 0.6rem; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-sm); padding: 0.6rem 0.75rem; display: flex; flex-direction: column; gap: 0.4rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            ${imgHtml}
+            <div>
+              <span style="font-weight: 700; color: #ef4444; font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-error-warning-line"></i> Stock disponible insuficiente para ${escapeFn(product.sku)}
+              </span>
+              <span style="font-size: 0.74rem; color: var(--color-text-muted); display: block;">${escapeFn(product.name)} · ${window.formatCLP(product.price || 0)}</span>
+            </div>
+          </div>
+          <span style="font-size: 0.73rem; font-weight: 700; background: #ef4444; color: white; padding: 2px 8px; border-radius: 12px;">
+            Faltante: ${deficitQty} und.
+          </span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.6rem; font-size: 0.75rem; color: var(--color-text-main); background: var(--color-surface); padding: 0.4rem 0.6rem; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.2);">
+          <span><i class="ri-box-3-line" style="color: var(--color-primary);"></i> <strong>Físico:</strong> ${phys}</span>
+          <span style="color: var(--color-border);">|</span>
+          <span><i class="ri-archive-drawer-line" style="color: #f59e0b;"></i> <strong>En Mesa:</strong> ${res}</span>
+          <span style="color: var(--color-border);">|</span>
+          <span><i class="ri-time-line" style="color: var(--color-accent, #3b82f6);"></i> <strong>Comprometido:</strong> ${comm}</span>
+          <span style="color: var(--color-border);">|</span>
+          <span style="color: #ef4444; font-weight: 700;"><i class="ri-alert-line"></i> <strong>Disponible:</strong> ${avail} und.</span>
+        </div>
+      </div>
+    `;
+  } else {
+    container.style.display = 'block';
+    container.innerHTML = `
+      <div style="margin-top: 0.6rem; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 0.5rem 0.75rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 0.76rem;">
+        <div style="display: flex; align-items: center; gap: 0.55rem; color: var(--color-text-main);">
+          ${imgHtml}
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+              <span style="color: #10b981; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Stock OK (${escapeFn(product.sku)}):</span>
+              <span><i class="ri-box-3-line" style="color: var(--color-primary);"></i> Fís: <strong>${phys}</strong></span>
+              <span style="color: var(--color-border);">|</span>
+              <span><i class="ri-archive-drawer-line" style="color: #f59e0b;"></i> Mesa: <strong>${res}</strong></span>
+              <span style="color: var(--color-border);">|</span>
+              <span><i class="ri-time-line" style="color: var(--color-accent, #3b82f6);"></i> Comp: <strong>${comm}</strong></span>
+            </div>
+            <div style="font-size: 0.73rem; color: var(--color-text-muted); margin-top: 0.1rem;">${escapeFn(product.name)} · ${window.formatCLP(product.price || 0)}</div>
+          </div>
+        </div>
+        <div>
+          <span style="color: #10b981; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-checkbox-circle-line"></i> Disp: ${avail} und.</span>
+        </div>
+      </div>
+    `;
+  }
+};
+
 window.renderEditOrderItemsModal = function(orderId, commerce, existingComment = '') {
+  const escapeFn = window.escapeHtml || (s => String(s || '').replace(/"/g, '&quot;'));
   let rowsHtml = '';
+  let totalQty = 0;
+  let totalVal = 0;
+
   if (window.tempEditOrderItems.length === 0) {
     rowsHtml = `
       <tr>
@@ -75960,30 +76506,55 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
     `;
   } else {
     window.tempEditOrderItems.forEach((item, index) => {
+      totalQty += Number(item.quantity) || 0;
+      totalVal += (Number(item.quantity) || 0) * (Number(item.price) || 0);
+
       const warehouseOptions = (window.tempWarehouses || []).map(w => `
         <option value="${w.id}" ${item.warehouse_id === w.id ? 'selected' : ''}>${w.name}</option>
       `).join('');
 
+      const itemThumbHtml = `
+        <div style="width: 38px; height: 38px; border-radius: 5px; border: 1px solid var(--color-border); background: var(--color-bg); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); flex-shrink: 0; overflow: hidden;">
+          ${item.image_url ? `
+            <img src="${escapeFn(item.image_url)}" loading="lazy" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;" onerror="this.outerHTML='<i class=\\'ri-image-line\\' style=\\'font-size:1.05rem;\\'></i>'">
+          ` : `<i class="ri-image-line" style="font-size: 1.05rem;"></i>`}
+        </div>
+      `;
+
       rowsHtml += `
         <tr style="border-bottom: 1px solid var(--color-border);">
-          <td style="padding: 0.5rem; text-align: left;">
-            <strong>${item.sku}</strong> ${item.is_virtual ? '<span style="font-size:0.65rem; background:#e0e7ff; color:#4338ca; padding:1px 5px; border-radius:4px; font-weight:700;">Virtual</span>' : ''}<br>
-            <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 0.25rem;">${item.name}</span>
-            <div style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.75rem;">
-              <span style="color: var(--color-text-muted);">Bodega:</span>
-              <select onchange="window.updateTempEditItemWarehouse(${index}, this.value)" style="padding: 0.15rem 0.35rem; font-size: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); font-weight: 500;">
-                ${warehouseOptions}
-              </select>
+          <td style="padding: 0.55rem 0.5rem; text-align: left;">
+            <div style="display: flex; align-items: flex-start; gap: 0.6rem;">
+              ${itemThumbHtml}
+              <div style="flex: 1; min-width: 0;">
+                <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                  <strong style="color: var(--color-text-main);">${escapeFn(item.sku)}</strong>
+                  ${item.is_virtual ? '<span style="font-size:0.65rem; background:#e0e7ff; color:#4338ca; padding:1px 5px; border-radius:4px; font-weight:700;">Virtual</span>' : ''}
+                  <span style="font-size: 0.73rem; color: var(--color-text-muted);">(${window.formatCLP(item.price || 0)} c/u)</span>
+                </div>
+                <span style="font-size: 0.76rem; color: var(--color-text-muted); display: block; margin-bottom: 0.3rem;">${escapeFn(item.name)}</span>
+                <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; font-size: 0.75rem;">
+                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <span style="color: var(--color-text-muted);">Bodega:</span>
+                    <select onchange="window.updateTempEditItemWarehouse(${index}, this.value)" style="padding: 0.15rem 0.35rem; font-size: 0.74rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); font-weight: 500;">
+                      ${warehouseOptions}
+                    </select>
+                  </div>
+                  <span id="swal-edit-item-stock-badge-${index}">
+                    ${window.renderEditItemStockBadgeHtml(item.product_id, item.warehouse_id, item.is_virtual)}
+                  </span>
+                </div>
+              </div>
             </div>
           </td>
-          <td style="padding: 0.5rem;">
-            <input type="number" value="${item.quantity}" min="1" oninput="window.updateTempEditItemQuantity(${index}, this.value)" onchange="window.updateTempEditItemQuantity(${index}, this.value)" style="width: 60px; padding: 0.25rem; font-size: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); text-align: center; background: var(--color-surface); color: var(--color-text-main);" />
+          <td style="padding: 0.5rem; text-align: center;">
+            <input type="number" value="${item.quantity}" min="1" oninput="window.updateTempEditItemQuantity(${index}, this.value)" onchange="window.updateTempEditItemQuantity(${index}, this.value)" style="width: 64px; padding: 0.25rem; font-size: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); text-align: center; background: var(--color-surface); color: var(--color-text-main); font-weight: 600;" />
           </td>
-          <td style="padding: 0.5rem; text-align: right;" id="swal-edit-item-subtotal-${index}">
+          <td style="padding: 0.5rem; text-align: right; font-weight: 600;" id="swal-edit-item-subtotal-${index}">
             ${window.formatCLP(item.price * item.quantity)}
           </td>
           <td style="padding: 0.5rem; text-align: center;">
-            <button onclick="window.removeTempEditItem(${index}, '${orderId}', '${commerce}')" class="btn btn-outline" style="padding: 0.25rem 0.4rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;"><i class="ri-delete-bin-line"></i></button>
+            <button onclick="window.removeTempEditItem(${index}, '${orderId}', '${escapeFn(commerce)}')" class="btn btn-outline" style="padding: 0.25rem 0.4rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;" title="Eliminar producto del pedido"><i class="ri-delete-bin-line"></i></button>
           </td>
         </tr>
       `;
@@ -75991,7 +76562,9 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
   }
 
   const commerceProducts = window.tempCommerceProducts || [];
-  const escapeFn = window.escapeHtml || (s => String(s || '').replace(/"/g, '&quot;'));
+  const catalogCountLabel = window.isEditCatalogLoading
+    ? '(cargando catálogo...)'
+    : `(${commerceProducts.length} productos en catálogo)`;
   const isDispatched = !!(window.tempEditOrderData && window.tempEditOrderData.isDispatched);
   const isChecked = !!window.tempEditAdjustDispatchedStock;
   const orderNumberDisplay = window.tempEditOrderData?.external_order_number || orderId;
@@ -76024,18 +76597,18 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
   ` : '';
 
   const htmlContent = `
-    <div style="text-align: left; max-height: 72vh; overflow-y: auto; padding-right: 2px;">
+    <div id="swal-edit-order-modal-wrapper" style="text-align: left; max-height: 75vh; overflow-y: auto; padding-right: 4px;">
       ${dispatchedTopBannerHtml}
       <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.85rem;">
-        Modifica las cantidades o elimina ítems. Utiliza el buscador de abajo para agregar nuevos productos de la tienda <strong>${commerce}</strong>.
+        Modifica las cantidades o elimina ítems. Utiliza el buscador de abajo para agregar nuevos productos de la tienda <strong>${escapeFn(commerce)}</strong> <span id="swal-edit-catalog-count" style="font-size: 0.75rem; opacity: 0.85;">${catalogCountLabel}</span>.
       </p>
       
-      <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 1rem;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 0.5rem;">
         <thead>
           <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-align: left;">
             <th style="padding: 0.5rem;">Producto</th>
-            <th style="padding: 0.5rem; width: 80px;">Cant</th>
-            <th style="padding: 0.5rem; text-align: right; width: 100px;">Subtotal</th>
+            <th style="padding: 0.5rem; width: 80px; text-align: center;">Cant</th>
+            <th style="padding: 0.5rem; text-align: right; width: 105px;">Subtotal</th>
             <th style="padding: 0.5rem; text-align: center; width: 50px;">Acción</th>
           </tr>
         </thead>
@@ -76044,27 +76617,42 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
         </tbody>
       </table>
 
-      <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.1rem;">
-        <h5 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: var(--color-primary); font-weight: 700;">Agregar Producto</h5>
-        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-          <div style="flex-grow: 1; min-width: 180px;">
-            <input type="text" id="swal-add-item-sku" list="swal-products-datalist" placeholder="Escribe SKU o Nombre del producto..." style="width: 100%; padding: 0.35rem; font-size: 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
-            <datalist id="swal-products-datalist">
-              ${commerceProducts.map(p => `<option value="${p.sku}">${p.sku} - ${p.name}</option>`).join('')}
-            </datalist>
-          </div>
-          <div style="width: 70px;">
-            <input type="number" id="swal-add-item-qty" value="1" min="1" style="width: 100%; padding: 0.35rem; font-size: 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); text-align: center; background: var(--color-surface); color: var(--color-text-main);">
-          </div>
-          <button onclick="window.addTempEditItem('${orderId}', '${commerce}')" type="button" class="btn btn-primary" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; cursor: pointer; color: white;"><i class="ri-add-line"></i> Agregar</button>
+      <div style="display: flex; justify-content: flex-end; gap: 1.5rem; font-size: 0.83rem; font-weight: 700; color: var(--color-text-main); padding: 0.35rem 0.5rem 0.75rem 0.5rem; margin-bottom: 0.5rem; border-bottom: 1px solid var(--color-border);">
+        <span>Total Unidades: <span id="swal-edit-total-qty" style="color: var(--color-primary);">${totalQty}</span></span>
+        <span>Total Pedido: <span id="swal-edit-total-val" style="color: var(--color-primary);">${window.formatCLP(totalVal)}</span></span>
+      </div>
+
+      <div id="swal-edit-add-product-box" style="background: var(--color-bg); padding: 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.1rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; gap: 0.5rem;">
+          <h5 style="margin: 0; font-size: 0.85rem; color: var(--color-primary); font-weight: 700; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-search-eye-line"></i> Agregar Producto
+          </h5>
+          <span style="font-size: 0.72rem; color: var(--color-text-muted);">Busca por SKU o nombre con fotos y stock en vivo</span>
         </div>
+        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+          <div style="flex-grow: 1; min-width: 220px; position: relative;">
+            <input type="hidden" id="swal-add-item-product-id" value="">
+            <input type="text" id="swal-add-item-sku" placeholder="🔍 Escribe SKU o nombre para buscar..." autocomplete="off" style="width: 100%; padding: 0.45rem 2rem 0.45rem 0.65rem; font-size: 0.83rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); box-sizing: border-box;">
+            <button type="button" id="swal-clear-item-sku-btn" onclick="window.clearEditOrderModalProductSearch()" title="Limpiar búsqueda" style="display: none; position: absolute; right: 0.4rem; top: 50%; transform: translateY(-50%); background: transparent; border: none; color: var(--color-text-muted); cursor: pointer; padding: 0.15rem; font-size: 1rem; align-items: center; justify-content: center;">
+              <i class="ri-close-circle-fill"></i>
+            </button>
+          </div>
+          <div style="width: 76px;">
+            <input type="number" id="swal-add-item-qty" value="1" min="1" title="Cantidad a agregar" style="width: 100%; padding: 0.45rem 0.35rem; font-size: 0.83rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); text-align: center; background: var(--color-surface); color: var(--color-text-main); font-weight: 600; box-sizing: border-box;">
+          </div>
+          <button onclick="window.addTempEditItem('${orderId}', '${escapeFn(commerce)}')" type="button" class="btn btn-primary" style="padding: 0.45rem 0.85rem; font-size: 0.83rem; cursor: pointer; color: white; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; height: 35px;"><i class="ri-add-line"></i> Agregar</button>
+        </div>
+
+        <div id="swal-add-item-dropdown-list" style="display: none; max-height: 240px; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-md); margin-top: 0.45rem;"></div>
+
+        <div id="swal-selected-product-stock-alert" style="display: none;"></div>
       </div>
 
       ${dispatchedStockControlHtml}
 
       <div class="form-group" style="margin-bottom: 0.5rem;">
         <label class="form-label" style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: block; margin-bottom: 0.25rem;">Motivo / Comentario de la Modificación <span style="color: var(--color-danger);">*</span></label>
-        <textarea id="swal-edit-items-comment" placeholder="Ej: Reemplazo de SKU agotado por alternativa solicitada por el cliente..." style="width: 100%; height: 60px; font-size: 0.8rem; padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);" required>${escapeFn(existingComment)}</textarea>
+        <textarea id="swal-edit-items-comment" placeholder="Ej: Reemplazo de SKU agotado por alternativa solicitada por el cliente..." style="width: 100%; height: 60px; font-size: 0.8rem; padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); box-sizing: border-box;" required>${escapeFn(existingComment)}</textarea>
       </div>
     </div>
   `;
@@ -76072,19 +76660,72 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
   Swal.fire({
     title: 'Editar Ítems del Pedido',
     html: htmlContent,
-    width: '650px',
+    width: '720px',
     showCancelButton: true,
     confirmButtonText: '<i class="ri-save-line"></i> Guardar Cambios',
     cancelButtonText: 'Cancelar',
     allowOutsideClick: false,
-    preConfirm: () => {
-      // Auto-agregar si el usuario escribió un producto pero no presionó el botón Agregar
+    didOpen: () => {
       const skuInput = document.getElementById('swal-add-item-sku');
+      const prodIdInput = document.getElementById('swal-add-item-product-id');
+      const qtyInput = document.getElementById('swal-add-item-qty');
+      const dropdownList = document.getElementById('swal-add-item-dropdown-list');
+      const addBox = document.getElementById('swal-edit-add-product-box');
+      const wrapper = document.getElementById('swal-edit-order-modal-wrapper');
+
+      if (skuInput && dropdownList) {
+        skuInput.addEventListener('focus', () => {
+          window.filterEditOrderModalProducts();
+          dropdownList.style.display = 'block';
+        });
+        skuInput.addEventListener('input', () => {
+          if (prodIdInput) prodIdInput.value = '';
+          window.filterEditOrderModalProducts();
+          dropdownList.style.display = 'block';
+          window.updateEditOrderProductStockAlert();
+        });
+        skuInput.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') {
+            ev.preventDefault();
+            window.addTempEditItem(orderId, commerce);
+          } else if (ev.key === 'Escape') {
+            dropdownList.style.display = 'none';
+          }
+        });
+      }
+
+      if (qtyInput) {
+        qtyInput.addEventListener('input', () => window.updateEditOrderProductStockAlert());
+        qtyInput.addEventListener('change', () => window.updateEditOrderProductStockAlert());
+        qtyInput.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') {
+            ev.preventDefault();
+            window.addTempEditItem(orderId, commerce);
+          }
+        });
+      }
+
+      if (wrapper && dropdownList && addBox) {
+        wrapper.addEventListener('click', (ev) => {
+          if (!addBox.contains(ev.target)) {
+            dropdownList.style.display = 'none';
+          }
+        });
+      }
+    },
+    preConfirm: async () => {
+      // Auto-agregar si el usuario escribió o seleccionó un producto pero no presionó el botón Agregar
+      const skuInput = document.getElementById('swal-add-item-sku');
+      const prodIdInput = document.getElementById('swal-add-item-product-id');
       const qtyInput = document.getElementById('swal-add-item-qty');
       if (skuInput && skuInput.value.trim()) {
+        if (window.isEditCatalogLoading && window.activeEditCatalogPromise) {
+          await window.activeEditCatalogPromise;
+        }
         const rawSku = skuInput.value.trim();
         const rawQty = qtyInput ? qtyInput.value : 1;
-        const success = window.tryAddTempEditItem(orderId, commerce, rawSku, rawQty);
+        const explicitProdId = prodIdInput?.value || null;
+        const success = window.tryAddTempEditItem(orderId, commerce, rawSku, rawQty, explicitProdId);
         if (!success) {
           Swal.showValidationMessage(`El producto "${rawSku}" no fue encontrado en ${commerce}. Selecciona un SKU válido del listado desplegable.`);
           return false;
@@ -76119,12 +76760,19 @@ window.updateTempEditItemQuantity = function(index, val) {
   if (subtotalCell && typeof window.formatCLP === 'function') {
     subtotalCell.textContent = window.formatCLP((window.tempEditOrderItems[index].price || 0) * qty);
   }
+  window.refreshEditOrderModalTotals();
+  window.updateEditOrderProductStockAlert();
   window.refreshDispatchedEditImpactPreview();
 };
 
 window.updateTempEditItemWarehouse = function(index, val) {
   if (!window.tempEditOrderItems[index]) return;
   window.tempEditOrderItems[index].warehouse_id = val || null;
+  const item = window.tempEditOrderItems[index];
+  const badgeEl = document.getElementById(`swal-edit-item-stock-badge-${index}`);
+  if (badgeEl && typeof window.renderEditItemStockBadgeHtml === 'function') {
+    badgeEl.innerHTML = window.renderEditItemStockBadgeHtml(item.product_id, item.warehouse_id, item.is_virtual);
+  }
   window.refreshDispatchedEditImpactPreview();
 };
 
@@ -76136,25 +76784,31 @@ window.removeTempEditItem = function(index, orderId, commerce) {
   window.renderEditOrderItemsModal(orderId, commerce, commentVal);
 };
 
-window.addTempEditItem = function(orderId, commerce) {
+window.addTempEditItem = async function(orderId, commerce) {
   const skuInput = document.getElementById('swal-add-item-sku');
+  const prodIdInput = document.getElementById('swal-add-item-product-id');
   const qtyInput = document.getElementById('swal-add-item-qty');
   if (!skuInput || !qtyInput) return;
 
   const rawSku = skuInput.value.trim();
+  const explicitProdId = prodIdInput?.value || null;
   const rawQty = qtyInput.value.trim();
 
-  if (!rawSku) {
-    alert('Por favor escribe o selecciona un SKU.');
+  if (!rawSku && !explicitProdId) {
+    alert('Por favor escribe o selecciona un producto de la lista.');
     return;
+  }
+
+  if (window.isEditCatalogLoading && window.activeEditCatalogPromise) {
+    await window.activeEditCatalogPromise;
   }
 
   const adjustStockCb = document.getElementById('swal-edit-items-adjust-stock');
   if (adjustStockCb) window.tempEditAdjustDispatchedStock = !!adjustStockCb.checked;
 
-  const success = window.tryAddTempEditItem(orderId, commerce, rawSku, rawQty);
+  const success = window.tryAddTempEditItem(orderId, commerce, rawSku, rawQty, explicitProdId);
   if (!success) {
-    alert(`Producto "${rawSku}" no encontrado en ${commerce}. Por favor selecciona un SKU válido de la lista desplegable.`);
+    alert(`Producto "${rawSku}" no encontrado en ${commerce}. Por favor selecciona un producto válido del listado desplegable.`);
     return;
   }
 
@@ -76588,6 +77242,11 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
       
       if (reloadedItems) {
         order.order_items = reloadedItems;
+      }
+
+      // Invalidar caché del catálogo del comercio para que una próxima edición refleje el nuevo stock comprometido/físico
+      if (window.editOrderCommerceCatalogCache && order.commerce) {
+        delete window.editOrderCommerceCatalogCache[order.commerce];
       }
 
       // Si se ajustó stock físico en un pedido despachado, refrescar caché de inventario en memoria
@@ -99008,12 +99667,22 @@ window.loadAdminNewOrderProducts = async function(selectedCommerce) {
   }
 
   try {
-    let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status, image_url').order('name');
-    if (selectedCommerce) {
-      query = query.eq('comercio', selectedCommerce);
+    let products = [];
+    if (typeof window.fetchAllSupabaseRows === 'function') {
+      products = await window.fetchAllSupabaseRows(
+        'products',
+        'id, name, sku, price, volumen, weight, status, image_url',
+        q => selectedCommerce ? q.eq('comercio', selectedCommerce).order('name') : q.order('name')
+      );
+    } else {
+      let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status, image_url').order('name');
+      if (selectedCommerce) {
+        query = query.eq('comercio', selectedCommerce);
+      }
+      const { data: pData, error } = await query;
+      if (error) throw error;
+      products = pData || [];
     }
-    const { data: products, error } = await query;
-    if (error) throw error;
 
     const productsList = (products || [])
       .filter(p => p.status !== 'archived')
@@ -99021,6 +99690,36 @@ window.loadAdminNewOrderProducts = async function(selectedCommerce) {
         ...p,
         peso: p.weight
       }));
+
+    if (selectedCommerce && productsList.length > 0) {
+      const missingImgSkus = Array.from(new Set(
+        productsList.filter(p => !p.image_url && p.sku).map(p => p.sku.trim()).filter(Boolean)
+      ));
+      if (missingImgSkus.length > 0) {
+        try {
+          const syncedImgMap = {};
+          for (let i = 0; i < missingImgSkus.length; i += 200) {
+            const { data: spImgs } = await supabase
+              .from('synced_products')
+              .select('sku, image_url')
+              .eq('comercio', selectedCommerce)
+              .not('image_url', 'is', null)
+              .in('sku', missingImgSkus.slice(i, i + 200));
+            (spImgs || []).forEach(sp => {
+              if (sp.sku && sp.image_url) syncedImgMap[sp.sku.trim().toLowerCase()] = sp.image_url;
+            });
+          }
+          productsList.forEach(p => {
+            if (!p.image_url && p.sku) {
+              const foundImg = syncedImgMap[p.sku.trim().toLowerCase()];
+              if (foundImg) p.image_url = foundImg;
+            }
+          });
+        } catch (imgErr) {
+          console.warn('[loadAdminNewOrderProducts] Fallback imágenes synced_products:', imgErr);
+        }
+      }
+    }
 
     if (productsList.length > 0) {
       const productIds = productsList.map(p => p.id);
