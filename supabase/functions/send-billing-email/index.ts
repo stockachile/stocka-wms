@@ -1540,6 +1540,23 @@ serve(async (req) => {
       emailTitle = 'Propuesta y Servicios Fulfillment 360';
 
       const customIntroMessage = payload.customMessage || payload.notes || '';
+      const customMessageHtml = payload.customMessageHtml || (customIntroMessage ? customIntroMessage.replace(/\n/g, '<br>') : '');
+      const centerMode = payload.centerMode || 'cards'; // 'cards' | 'custom_replace' | 'both'
+      const customBoxStyle = payload.customBoxStyle || 'card'; // 'card' | 'clean' | 'highlight'
+      const customBoxTitle = (payload.customBoxTitle || '').trim();
+      const includeSecondIntro = payload.includeSecondIntro !== false;
+
+      const showCustomBlock = Boolean(customMessageHtml && (centerMode === 'custom_replace' || centerMode === 'both' || centerMode === 'cards'));
+      const showFourCards = centerMode !== 'custom_replace';
+      const secondIntroPunct = centerMode === 'custom_replace' ? '.' : ':';
+
+      let customContainerStyle = 'background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #5e17eb; border-radius: 10px; padding: 16px 18px; margin-bottom: 22px; font-size: 14px; color: #334155; line-height: 1.6;';
+      if (customBoxStyle === 'clean') {
+        customContainerStyle = 'background: transparent; border: none; padding: 2px 0; margin-bottom: 22px; font-size: 14px; color: #334155; line-height: 1.65;';
+      } else if (customBoxStyle === 'highlight') {
+        customContainerStyle = 'background-color: #f5f3ff; border: 1px solid #ddd6fe; border-left: 4px solid #5e17eb; border-radius: 10px; padding: 16px 18px; margin-bottom: 22px; font-size: 14px; color: #312e81; line-height: 1.6;';
+      }
+
       const fulfillmentDocUrl = payload.fulfillmentUrl || 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_fulfillment_360_1787715943297.pdf';
       const despachosDocUrl = payload.despachosUrl || 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_despachos_rm_1787715973435.pdf';
       const courierFolderUrl = payload.courierFolderUrl || 'https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH';
@@ -1585,18 +1602,19 @@ serve(async (req) => {
       <div style="font-size: 16px; font-weight: 600; color: #0f172a; margin-bottom: 12px;">${displayGreeting}</div>
       
       <p style="font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 18px;">
-        Muchas gracias por tu interés en los servicios de <strong>Fulfillment 360 de STOCKA</strong>. Te escribe <strong>Felipe Trujillo</strong>, Socio Fundador de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 700; text-decoration: underline;">Stocka.cl</a>.
+        Muchas gracias por tu interés en los servicios de <strong>Fulfillment 360 de STOCKA</strong>. Te escribe <strong>Felipe Trujillo</strong>, Socio Fundador de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 700; text-decoration: underline;">Stocka.cl</a>.${includeSecondIntro ? `
         <br><br>
-        En Stocka somos un partner logístico especializado en potenciar marcas online mediante un modelo de servicio <strong>integral, ágil y 100% escalable</strong>, diseñado para que puedas delegar la logística y concentrarte en el crecimiento de tus ventas:
+        En Stocka somos un partner logístico especializado en potenciar marcas online mediante un modelo de servicio <strong>integral, ágil y 100% escalable</strong>, diseñado para que puedas delegar la logística y concentrarte en el crecimiento de tus ventas${secondIntroPunct}` : ''}
       </p>
 
-      ${customIntroMessage ? `
-        <div style="background-color: #f5f3ff; border: 1px solid #ddd6fe; border-left: 4px solid #5e17eb; border-radius: 8px; padding: 14px 16px; margin-bottom: 20px; font-size: 13.5px; color: #4338ca; line-height: 1.5;">
-          <strong>Mensaje personalizado:</strong><br>
-          ${customIntroMessage.replace(/\n/g, '<br>')}
+      ${showCustomBlock ? `
+        <div style="${customContainerStyle}">
+          ${customBoxTitle ? `<div style="font-weight: 700; font-size: 15px; color: #5e17eb; margin-bottom: 8px;">${customBoxTitle}</div>` : ''}
+          <div>${customMessageHtml}</div>
         </div>
       ` : ''}
 
+      ${showFourCards ? `
       <!-- 4 PILARES CLAVE (ESTILO TARJETAS KPI DE COTIZACIÓN) -->
       <div style="display: table; width: 100%; margin-bottom: 10px;">
         <div style="display: table-cell; width: 50%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px 0 0 8px; border-right: none; padding: 14px 16px; vertical-align: top;">
@@ -1619,6 +1637,7 @@ serve(async (req) => {
           <div style="font-size: 12px; color: #64748b; line-height: 1.45;">Sincronización en tiempo real con Shopify, MeLi, WooCommerce, Jumpseller y control de inventario total.</div>
         </div>
       </div>
+      ` : ''}
 
       <!-- PRESENTACIONES Y MATERIAL OFICIAL ADJUNTO (IDÉNTICO A COTIZACIÓN) -->
       <div style="margin: 22px 0 20px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 20px;">

@@ -244,6 +244,9 @@ async function renderPosAdmin() {
         <button id="btn-open-create-pos-sale" onclick="window.openCreatePosSaleModal()" class="btn btn-primary" style="background-color: var(--color-primary); color: white; display: flex; align-items: center; gap: 0.35rem; font-weight: 600; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2); cursor: pointer;">
           <i class="ri-shopping-cart-2-line"></i> Registrar Venta
         </button>
+        <button id="btn-pos-branch-exchange-receipt" onclick="window.openQuickBranchExchangeReceiptModal()" class="btn btn-primary" style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; display: flex; align-items: center; gap: 0.35rem; font-weight: 700; box-shadow: 0 2px 6px rgba(79, 70, 229, 0.25); cursor: pointer;" title="Crear o imprimir comprobante de cambio o recepción realizado en Sucursal Ñuñoa">
+          <i class="ri-file-list-3-line"></i> Comprobante Cambio Sucursal
+        </button>
         <button id="btn-pos-export-csv" class="btn btn-outline" style="background-color: transparent; color: #10b981; border-color: #10b981; display: flex; align-items: center; gap: 0.25rem;">
           <i class="ri-file-text-line"></i> CSV
         </button>

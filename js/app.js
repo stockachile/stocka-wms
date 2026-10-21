@@ -7727,6 +7727,7 @@ async function renderWarehouses() {
 window.fetchInventoryForClientOrders = async function(orders) {
   window.clientOrdersInventoryMap = window.clientOrdersInventoryMap || {};
   window.clientProductTotalStockMap = window.clientProductTotalStockMap || {};
+  window.clientProductInventoryMetricsMap = window.clientProductInventoryMetricsMap || {};
   window._clientFetchedProdIds = window._clientFetchedProdIds || new Set();
   if (!orders || orders.length === 0) return;
 
@@ -7754,7 +7755,7 @@ window.fetchInventoryForClientOrders = async function(orders) {
       chunkPromises.push(
         supabase
           .from('inventory')
-          .select('product_id, warehouse_id, quantity')
+          .select('product_id, warehouse_id, quantity, committed_quantity, reserved_quantity')
           .in('product_id', chunk)
           .then(({ data: invData, error: invErr }) => {
             if (invErr) {
@@ -7764,15 +7765,27 @@ window.fetchInventoryForClientOrders = async function(orders) {
             const foundProdIds = new Set();
             if (invData && invData.length > 0) {
               invData.forEach(inv => {
-                const qty = Number(inv.quantity) || 0;
+                const phys = Number(inv.quantity) || 0;
+                const comm = Number(inv.committed_quantity) || 0;
+                const resv = Number(inv.reserved_quantity) || 0;
+                const qty = Math.max(0, phys - resv);
                 window.clientOrdersInventoryMap[`${inv.product_id}_${inv.warehouse_id}`] = qty;
                 window.clientProductTotalStockMap[inv.product_id] = (window.clientProductTotalStockMap[inv.product_id] || 0) + qty;
+                if (!window.clientProductInventoryMetricsMap[inv.product_id]) {
+                  window.clientProductInventoryMetricsMap[inv.product_id] = { physical: 0, committed: 0, reserved: 0 };
+                }
+                window.clientProductInventoryMetricsMap[inv.product_id].physical += phys;
+                window.clientProductInventoryMetricsMap[inv.product_id].committed += comm;
+                window.clientProductInventoryMetricsMap[inv.product_id].reserved += resv;
                 foundProdIds.add(inv.product_id);
               });
             }
             chunk.forEach(pId => {
               if (window.clientProductTotalStockMap[pId] === undefined) {
                 window.clientProductTotalStockMap[pId] = 0;
+              }
+              if (!window.clientProductInventoryMetricsMap[pId]) {
+                window.clientProductInventoryMetricsMap[pId] = { physical: 0, committed: 0, reserved: 0 };
               }
               if (!foundProdIds.has(pId)) {
                 window.clientOrdersInventoryMap[`${pId}_untracked`] = 0;
@@ -8398,6 +8411,11 @@ window.buildClientShipmentsIndex = function(shipments) {
 // Helper de alto rendimiento para obtener el estado del courier/despacho (con caché y mapa O(1))
 window.getClientOrderShipmentGlobalStatus = function(order) {
   if (!order) return null;
+  if (String(order.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') {
+    order._clientShipmentStatus = null;
+    order._clientShipmentVersion = window._clientShipmentsVersion;
+    return null;
+  }
   if (order._clientShipmentStatus && order._clientShipmentVersion === window._clientShipmentsVersion) {
     return order._clientShipmentStatus;
   }
@@ -8947,23 +8965,21 @@ window.getOrderNoteText = function(order) {
     '';
 };
 
-// Helper para alertar si un pedido no tiene stock suficiente
+// Helper para alertar si un pedido no tiene stock suficiente o tiene sobredemanda (Físico < Comprometido + En Mesa)
 window.checkClientOrderStockAlert = function(order) {
-  if (!order) return { hasStockAlert: false, stockAlertDetails: [] };
+  if (!order) return { hasStockAlert: false, stockAlertDetails: [], hasOverdemandAlert: false, overdemandDetails: [], overdemandSkus: [] };
 
   // 1. Estado explícito 'sin stock'
   const statusLower = (order.status || '').toLowerCase().trim();
   const wmsLower = (order.estado_wms || '').toLowerCase().trim();
-  if (statusLower === 'sin stock' || wmsLower === 'sin stock') {
-    return { hasStockAlert: true, stockAlertDetails: ['Estado: Sin stock'] };
-  }
+  const isExplicitSinStock = statusLower === 'sin stock' || wmsLower === 'sin stock';
 
   // 2. Pedidos terminales o despachados no alertan
-  const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes(statusLower) || 
+  const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado', 'cancelado'].includes(statusLower) || 
     ['despachado', 'cancelado', 'archivado'].includes(wmsLower) ||
     !!order.stock_descontado;
   if (isOrderTerminalOrShipped) {
-    return { hasStockAlert: false, stockAlertDetails: [] };
+    return { hasStockAlert: false, stockAlertDetails: [], hasOverdemandAlert: false, overdemandDetails: [], overdemandSkus: [] };
   }
 
   // 3. Revisar seguimiento de inventario del comercio
@@ -8973,14 +8989,14 @@ window.checkClientOrderStockAlert = function(order) {
 
   // Si el comercio tiene configurado explícitamente inventario_seguimiento: false, no mostrar alerta
   if (config && config.inventario_seguimiento === false) {
-    return { hasStockAlert: false, stockAlertDetails: [] };
+    return { hasStockAlert: isExplicitSinStock, stockAlertDetails: isExplicitSinStock ? ['Estado: Sin stock'] : [], hasOverdemandAlert: false, overdemandDetails: [], overdemandSkus: [] };
   }
 
   // Si existe regla de corte de fecha/pedido (inventario_inicio_pedidos)
   if (config && config.inventario_seguimiento && window.shouldProcessOrderStockLocal) {
     const isLocalProcessed = window.shouldProcessOrderStockLocal(order, config, window.clientLoadedOrders || window.loadedOrders);
     if (!isLocalProcessed) {
-      return { hasStockAlert: false, stockAlertDetails: [] };
+      return { hasStockAlert: isExplicitSinStock, stockAlertDetails: isExplicitSinStock ? ['Estado: Sin stock'] : [], hasOverdemandAlert: false, overdemandDetails: [], overdemandSkus: [] };
     }
   }
 
@@ -8991,12 +9007,17 @@ window.checkClientOrderStockAlert = function(order) {
   );
 
   if (itemsToCheck.length === 0) {
-    return { hasStockAlert: false, stockAlertDetails: [] };
+    return { hasStockAlert: isExplicitSinStock, stockAlertDetails: isExplicitSinStock ? ['Estado: Sin stock'] : [], hasOverdemandAlert: false, overdemandDetails: [], overdemandSkus: [] };
   }
 
   const invMap = window.clientOrdersInventoryMap || window.loadedOrdersInventoryMap || {};
-  let hasStockAlert = false;
-  const stockAlertDetails = [];
+  const metricsMap = window.clientProductInventoryMetricsMap || window.loadedProductInventoryMetricsMap || {};
+  let hasStockAlert = isExplicitSinStock;
+  const stockAlertDetails = isExplicitSinStock ? ['Estado: Sin stock'] : [];
+  let hasOverdemandAlert = false;
+  const overdemandDetails = [];
+  const overdemandSkus = [];
+  const seenOverdemandProdIds = new Set();
 
   itemsToCheck.forEach(item => {
     const prodId = item.product_id || item.products?.id;
@@ -9025,9 +9046,28 @@ window.checkClientOrderStockAlert = function(order) {
       const faltan = reqQty - totalAvailable;
       stockAlertDetails.push(`${item.products?.sku || item.products?.name || 'Sin SKU'} (Faltan ${faltan > 0 ? faltan : 1} un. / disp. ${totalAvailable})`);
     }
+
+    // Alerta de SOBREDEMANDA STOCK: Total Unidades Físicas < (Comprometidas + En Mesa)
+    if (!seenOverdemandProdIds.has(prodId)) {
+      const m = metricsMap[prodId] || invMap[`__metrics_${prodId}`];
+      if (m) {
+        const physicalTotal = Number(m.physical) || 0;
+        const committedTotal = Number(m.committed) || 0;
+        const reservedTotal = Number(m.reserved) || 0;
+        const demandedTotal = committedTotal + reservedTotal;
+        if (physicalTotal < demandedTotal) {
+          seenOverdemandProdIds.add(prodId);
+          hasOverdemandAlert = true;
+          const skuStr = item.products?.sku || item.products?.name || 'Sin SKU';
+          const deficit = demandedTotal - physicalTotal;
+          overdemandSkus.push(skuStr);
+          overdemandDetails.push(`${skuStr}: Físico ${physicalTotal} < Comp.+Mesa ${demandedTotal} (Comp: ${committedTotal} + Mesa: ${reservedTotal}, Déficit: -${deficit} un.)`);
+        }
+      }
+    }
   });
 
-  return { hasStockAlert, stockAlertDetails };
+  return { hasStockAlert, stockAlertDetails, hasOverdemandAlert, overdemandDetails, overdemandSkus };
 };
 
 // Control de versión para invalidación instantánea de caché de etiquetas
@@ -9123,10 +9163,13 @@ window.getClientOrderTags = function(order) {
     tags.add('CON NOTA');
   }
 
-  // 8. Falta de Stock
+  // 8. Falta de Stock y Sobredemanda de Stock (Físico < Comprometido + En Mesa)
   const stockAlert = window.checkClientOrderStockAlert ? window.checkClientOrderStockAlert(order) : null;
   if (stockAlert && stockAlert.hasStockAlert) {
     tags.add('SIN STOCK');
+  }
+  if (stockAlert && stockAlert.hasOverdemandAlert) {
+    tags.add('SOBREDEMANDA STOCK');
   }
 
   // 9. Fulfillment Status (Shopify)
@@ -9147,8 +9190,8 @@ window.getClientOrderTags = function(order) {
     tags.add('CANCELADO');
   }
 
-  // 11. Etiqueta Generada
-  if (order.label_url || order.tracking_number || order.label_base64) {
+  // 11. Etiqueta Generada (Nunca en pedidos RETIRO)
+  if ((order.label_url || order.tracking_number || order.label_base64) && catDelivery !== 'RETIRO') {
     tags.add('Etiqueta');
   }
 
@@ -9207,6 +9250,7 @@ window.updateClientOrderTagFilterOptions = function(arg1, arg2, arg3) {
     { key: 'Etiqueta', label: 'Etiqueta Generada' },
     { key: 'Exportado', label: 'Exportado' },
     { key: 'CON NOTA', label: 'Con Nota' },
+    { key: 'SOBREDEMANDA STOCK', label: 'Sobredemanda Stock (Físico < Comp.+Mesa)' },
     { key: 'SIN STOCK', label: 'Sin Stock' }
   ];
 
@@ -9347,6 +9391,7 @@ window.filterByOrderTag = window.filterByOrderTag || window.filterByClientOrderT
 async function renderOrders() {
   window.clientOrdersInventoryMap = {}; // Limpiar caché al cargar/renderizar pedidos
   window.clientProductTotalStockMap = {};
+  window.clientProductInventoryMetricsMap = {};
   window._clientFetchedProdIds = new Set();
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = getObserverBanner() + `
@@ -9518,9 +9563,10 @@ async function renderOrders() {
     window.clientLoadedOrders = orders || [];
     window._clientTagsVersion = (window._clientTagsVersion || 0) + 1;
 
-    // 2. Extraer referencias de pedidos para despachos unificados
+    // 2. Extraer referencias de pedidos para despachos unificados (Omitir pedidos RETIRO)
     const allRefsSet = new Set();
     (orders || []).forEach(o => {
+      if (String(o.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') return;
       if (o.external_order_number) {
         const ext = String(o.external_order_number).trim();
         allRefsSet.add(ext);
@@ -9641,9 +9687,10 @@ async function renderOrders() {
         if (histError) throw histError;
 
         if (histOrders && histOrders.length > 0) {
-          // Extraer referencias del historial
+          // Extraer referencias del historial (Omitir pedidos RETIRO)
           const allHistRefsSet = new Set();
           histOrders.forEach(o => {
+            if (String(o.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') return;
             if (o.external_order_number) {
               const ext = String(o.external_order_number).trim();
               allHistRefsSet.add(ext);
@@ -10309,13 +10356,18 @@ window.applyClientWmsFiltersAndRender = function() {
                              orderOperadorUpper.includes('RECIBELO') || orderOperadorUpper.includes('RECÍBELO') || 
                              orderOperadorUpper.includes('WELIVERY');
 
-    let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
+    const isClientRetiroOrder = String(order.categoria_entrega || '').toUpperCase().trim() === 'RETIRO';
+    let trackingHtml = isClientRetiroOrder
+      ? `<span style="color: #854d0e; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-store-2-line"></i> Retiro en Sucursal (Sin courier)</span>`
+      : `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     
-    if (order.label_base64 && !isIgnoredCourier) {
-      labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;"><i class="ri-download-2-line"></i> Descargar</button>`;
-    } else if (order.label_url && !isIgnoredCourier) {
-      labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-weight: 600; text-decoration: none; border-radius: var(--radius-sm); transition: all 0.2s;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
+    if (!isClientRetiroOrder) {
+      if (order.label_base64 && !isIgnoredCourier) {
+        labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;"><i class="ri-download-2-line"></i> Descargar</button>`;
+      } else if (order.label_url && !isIgnoredCourier) {
+        labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-weight: 600; text-decoration: none; border-radius: var(--radius-sm); transition: all 0.2s;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
+      }
     }
 
     let trackBadgeBg = '#f1f5f9';
@@ -10584,16 +10636,26 @@ window.applyClientWmsFiltersAndRender = function() {
               ? ` (Asignada: ${item.warehouseName} con ${Number(invMap[origItem.product_id + '_' + item.warehouseId]) || 0} un.)` 
               : '';
 
+            const itemMetrics = prodId ? (window.clientProductInventoryMetricsMap?.[prodId] || window.loadedProductInventoryMetricsMap?.[prodId]) : null;
+            const isItemOverdemand = !!(itemMetrics && (Number(itemMetrics.physical) || 0) < ((Number(itemMetrics.committed) || 0) + (Number(itemMetrics.reserved) || 0)));
+            if (isItemOverdemand && !isGlobalInsufficient) {
+              rowStyle += ' background-color: rgba(244, 63, 94, 0.06);';
+            }
+            const overdemandItemHtml = isItemOverdemand
+              ? `<span style="display: inline-flex; align-items: center; gap: 0.15rem; font-size: 0.65rem; font-weight: 800; color: #be123c; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 4px; padding: 0.08rem 0.3rem; margin-top: 0.1rem; cursor: help;" title="SOBREDEMANDA STOCK: Físico Total (${itemMetrics.physical} un.) es menor a Comprometido (${itemMetrics.committed} un.) + En Mesa (${itemMetrics.reserved} un.) = ${Number(itemMetrics.committed) + Number(itemMetrics.reserved)} un."><i class="ri-scales-3-line"></i> Fís:${itemMetrics.physical} &lt; C+M:${Number(itemMetrics.committed) + Number(itemMetrics.reserved)}</span>`
+              : '';
+
             stockCellHtml = `
               <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.18rem; min-width: 44px; line-height: 1.2;">
-                <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; font-size: 0.82rem; color: ${globalColor}; cursor: help;" title="Stock global (todas las bodegas): ${globalStock} un. (Requerido: ${item.quantity})">
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; font-size: 0.82rem; color: ${globalColor}; cursor: help;" title="Stock disponible global (todas las bodegas): ${globalStock} un. (Requerido: ${item.quantity})">
                   <i class="ri-global-line" style="font-size: 0.88rem;"></i>
                   <span>${globalStock}</span>
                 </span>
-                <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; font-size: 0.78rem; color: ${defaultColor}; cursor: help;" title="Stock en ${defaultWhName} (bodega por defecto): ${defaultStock} un.${assignedInfo}">
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; font-size: 0.78rem; color: ${defaultColor}; cursor: help;" title="Stock disponible en ${defaultWhName} (bodega por defecto): ${defaultStock} un.${assignedInfo}">
                   <i class="ri-store-2-line" style="font-size: 0.82rem;"></i>
                   <span>${defaultStock}</span>
                 </span>
+                ${overdemandItemHtml}
               </div>
             `;
           }
@@ -10859,12 +10921,18 @@ window.applyClientWmsFiltersAndRender = function() {
       noteBadgeHtml = `<span class="badge wms-order-tag-badge ${isNoteActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('CON NOTA', event)" style="background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isNoteActive ? 'outline: 2px solid #92400e; box-shadow: 0 0 6px rgba(146,64,14,0.4);' : ''}" title="Nota: ${(orderNote || '').replace(/"/g, '&quot;')} (Clic para filtrar)"><i class="ri-chat-3-line" style="color: #92400e;"></i> CON NOTA</span>`;
     }
 
-    // 7. Tag de Falta de Stock
+    // 7. Tag de Falta de Stock y Sobredemanda de Stock (Físico < Comprometido + En Mesa)
     let stockAlertBadgeHtml = '';
+    let overdemandBadgeHtml = '';
     const stockAlert = window.checkClientOrderStockAlert ? window.checkClientOrderStockAlert(order) : null;
     if (stockAlert && stockAlert.hasStockAlert) {
       const isStockActive = selectedTag === 'SIN STOCK';
       stockAlertBadgeHtml = `<span class="badge wms-order-tag-badge ${isStockActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('SIN STOCK', event)" style="background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isStockActive ? 'outline: 2px solid #b91c1c; box-shadow: 0 0 6px rgba(185,28,28,0.4);' : ''}" title="Falta stock: ${stockAlert.stockAlertDetails.join(', ')} (Clic para filtrar)"><i class="ri-alert-line" style="color: #b91c1c;"></i> SIN STOCK</span>`;
+    }
+    if (stockAlert && stockAlert.hasOverdemandAlert) {
+      const isOverdemandActive = selectedTag === 'SOBREDEMANDA STOCK';
+      const overdemandTooltip = (stockAlert.overdemandDetails || []).join(' | ').replace(/"/g, '&quot;');
+      overdemandBadgeHtml = `<span class="badge wms-order-tag-badge ${isOverdemandActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('SOBREDEMANDA STOCK', event)" style="background-color: #fff1f2; color: #be123c; border: 1.5px solid #f43f5e; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; box-shadow: 0 1px 3px rgba(244, 63, 94, 0.22); ${isOverdemandActive ? 'outline: 2px solid #be123c; box-shadow: 0 0 6px rgba(190,18,60,0.55);' : ''}" title="SOBREDEMANDA DE STOCK (Unidades Físicas < Comprometidas + En Mesa): ${overdemandTooltip} — Revisa qué pedido procesar y cuál dejar en espera (Clic para filtrar todos los pedidos afectados)"><i class="ri-scales-3-line" style="color: #e11d48; font-size: 0.78rem;"></i> SOBREDEMANDA STOCK</span>`;
     }
 
     // 8. Tag de Fulfillment (Shopify)
@@ -10895,9 +10963,9 @@ window.applyClientWmsFiltersAndRender = function() {
       cancelBadgeHtml = `<span class="badge wms-order-tag-badge ${isCancActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('CANCELADO', event)" style="background-color: #fee2e2; color: #991b1b; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCancActive ? 'outline: 2px solid #991b1b; box-shadow: 0 0 6px rgba(153,27,27,0.4);' : ''}" title="Cancelado (Clic para filtrar)"><i class="ri-close-circle-line" style="color: #991b1b;"></i> CANCELADO</span>`;
     }
 
-    // 10. Tag de Etiqueta Generada
+    // 10. Tag de Etiqueta Generada (Nunca en pedidos RETIRO)
     let labelBadgeHtml = '';
-    if (order.label_url || order.tracking_number || order.label_base64) {
+    if (!isClientRetiroOrder && (order.label_url || order.tracking_number || order.label_base64)) {
       const isLabelActive = selectedTag === 'Etiqueta';
       labelBadgeHtml = `<span class="badge wms-order-tag-badge ${isLabelActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('Etiqueta', event)" style="background-color: rgba(113, 23, 235, 0.12); color: #7117eb; border: 1px solid rgba(113, 23, 235, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isLabelActive ? 'outline: 2px solid #7117eb; box-shadow: 0 0 6px rgba(113,23,235,0.5);' : ''}" title="Etiqueta Generada (Clic para filtrar)"><i class="ri-qr-code-line" style="color: #7117eb;"></i> Etiqueta</span>`;
     }
@@ -11151,7 +11219,7 @@ window.applyClientWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.15s;">
         <td colspan="11" style="padding: 0rem 0.75rem 0.5rem 5.6rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${customPlatformTagsHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
+            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${customPlatformTagsHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>
@@ -19731,6 +19799,9 @@ window.renderReturns = async function() {
         </p>
       </div>
       <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+        <button id="btn-quick-branch-receipt" onclick="window.openQuickBranchExchangeReceiptModal()" class="btn btn-primary" style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; display: flex; align-items: center; gap: 0.35rem; font-weight: 700; box-shadow: 0 3px 8px rgba(79, 70, 229, 0.25);" title="Crear o imprimir Comprobante de Cambio o Recepción en Sucursal Ñuñoa">
+          <i class="ri-file-list-3-line"></i> Comprobante Sucursal
+        </button>
         <button id="btn-create-order-return" class="btn btn-primary" style="background-color: var(--color-danger, #ef4444); color: white; display: flex; align-items: center; gap: 0.25rem; font-weight: 600;" title="Crear pedido de devolución con destinatario, courier y orden WMS">
           <i class="ri-shopping-bag-3-line"></i> Pedido Devolución
         </button>
@@ -19960,6 +20031,7 @@ async function fetchAndRenderReturnsData() {
             <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${r.cantidad_total}</strong></td>
             <td style="white-space: nowrap;">
               <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.6rem; font-size: 0.8rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.25rem;"></i> Detalle</button>
+              <button class="btn btn-outline" onclick="window.openQuickBranchExchangeReceiptModal('${safeData}')" style="padding: 0.25rem 0.6rem; font-size: 0.8rem; border-color: #6366f1; color: #4f46e5; background: rgba(99, 102, 241, 0.06); margin-left: 0.25rem; font-weight: 600;" title="Generar Comprobante de Cambio / Recepción en Sucursal"><i class="ri-file-list-3-line"></i> Comprobante</button>
               ${r.tipo_movimiento === 'CAMBIO' ? `
                 <button class="btn btn-outline" onclick="window.printSingleExchangeLabel('${safeData}')" style="padding: 0.25rem 0.6rem; font-size: 0.8rem; border-color: var(--color-success); color: var(--color-success); background: var(--color-surface); margin-left: 0.25rem;" title="Imprimir Etiqueta de Cambio"><i class="ri-printer-line"></i> Etiqueta</button>
               ` : ''}
@@ -20205,13 +20277,16 @@ window.openReturnsDetail = function(dataStr) {
           ${data.comentarios}
         </div>` : ''}
 
-        ${data.tipo_movimiento === 'CAMBIO' ? `
-          <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--color-border);">
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--color-border);">
+          <button type="button" class="btn btn-primary" onclick="document.getElementById('modal-generic-info')?.remove(); window.openQuickBranchExchangeReceiptModal('${dataStr}')" style="background: #4f46e5; border-color: #4f46e5; font-size: 0.88rem; display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 1rem;">
+            <i class="ri-file-list-3-line" style="font-size: 1.05rem;"></i> Comprobante Sucursal (PDF / Imprimir)
+          </button>
+          ${data.tipo_movimiento === 'CAMBIO' ? `
             <button type="button" class="btn btn-primary" onclick="window.printSingleExchangeLabel('${dataStr}')" style="background: #059669; border-color: #059669; font-size: 0.88rem; display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 1rem;">
               <i class="ri-printer-line" style="font-size: 1.05rem;"></i> Imprimir Etiqueta de Cambio
             </button>
-          </div>
-        ` : ''}
+          ` : ''}
+        </div>
       </div>
     `;
 
@@ -22535,7 +22610,7 @@ async function handleRloFormSubmit(e) {
     } else {
       finalTransporte = 'Envío Regiones' + (courier ? ` (${courier})` : '');
     }
-    const finalSucursal = comuna || 'Punto Físico Ñuñoa';
+    const finalSucursal = modoEntrega === 'sucursal' ? 'Punto Físico Ñuñoa' : (comuna || 'Punto Físico Ñuñoa');
     
     let costoEnvio = 0;
     if (modoEntrega === 'domicilio_rm' && responsablePago === 'comercio') {

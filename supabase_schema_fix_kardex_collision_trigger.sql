@@ -17,6 +17,8 @@ DECLARE
   v_new_wms TEXT;
   v_is_virtual BOOLEAN;
   v_order_num TEXT;
+  v_was_eligible BOOLEAN;
+  v_is_eligible BOOLEAN;
 BEGIN
   -- Validar si el pedido califica para procesamiento de stock según reglas de corte
   IF NOT public.should_process_order_stock(NEW.id) THEN
@@ -26,6 +28,9 @@ BEGIN
   v_old_wms := COALESCE(OLD.estado_wms, 'En procesamiento');
   v_new_wms := COALESCE(NEW.estado_wms, 'En procesamiento');
   v_order_num := COALESCE(NEW.external_order_number, NEW.id::text);
+
+  v_was_eligible := public.is_order_stock_eligible(OLD);
+  v_is_eligible := public.is_order_stock_eligible(NEW);
 
   -- =========================================================================
   -- CASO 1: El pedido pasa a DESPACHADO (Únicamente cuando estado_wms = 'Despachado')
@@ -71,7 +76,7 @@ BEGIN
             UPDATE public.inventory 
             SET reserved_quantity = GREATEST(0, reserved_quantity - item.quantity)
             WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
-          ELSIF v_old_wms = 'En procesamiento' THEN
+          ELSIF v_old_wms = 'En procesamiento' AND v_was_eligible THEN
             UPDATE public.inventory 
             SET committed_quantity = GREATEST(0, committed_quantity - item.quantity)
             WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
@@ -107,11 +112,11 @@ BEGIN
             SET quantity = GREATEST(0, quantity - item.quantity)
             WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
 
-          -- Si venía directo de procesamiento: libera de comprometido y descuenta físico
+          -- Si venía directo de procesamiento: libera de comprometido (si correspondía) y descuenta físico
           ELSE
             UPDATE public.inventory 
             SET quantity = GREATEST(0, quantity - item.quantity),
-                committed_quantity = GREATEST(0, committed_quantity - item.quantity)
+                committed_quantity = CASE WHEN v_was_eligible THEN GREATEST(0, committed_quantity - item.quantity) ELSE committed_quantity END
             WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
           END IF;
           
@@ -135,12 +140,12 @@ BEGIN
     FOR item IN SELECT * FROM public.order_items WHERE order_id = NEW.id LOOP
       SELECT COALESCE(is_virtual, false) INTO v_is_virtual FROM public.products WHERE id = item.product_id;
       IF NOT v_is_virtual AND item.warehouse_id IS NOT NULL THEN
-        IF v_old_wms = 'En procesamiento' THEN
+        IF v_old_wms = 'En procesamiento' AND v_was_eligible THEN
           UPDATE public.inventory 
           SET committed_quantity = GREATEST(0, committed_quantity - item.quantity),
               reserved_quantity = reserved_quantity + item.quantity
           WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
-        ELSIF v_old_wms IN ('Cancelado', 'Archivado') THEN
+        ELSE
           UPDATE public.inventory 
           SET reserved_quantity = reserved_quantity + item.quantity
           WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
@@ -159,10 +164,11 @@ BEGIN
       IF NOT v_is_virtual AND item.warehouse_id IS NOT NULL THEN
         IF v_old_wms IN ('En preparación', 'Pickeado') THEN
           UPDATE public.inventory 
-          SET reserved_quantity = GREATEST(0, reserved_quantity - item.quantity),
-              committed_quantity = committed_quantity + item.quantity
+          SET reserved_quantity = GREATEST(0, reserved_quantity - item.quantity)
           WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
-        ELSIF v_old_wms IN ('Archivado', 'Cancelado') THEN
+        END IF;
+
+        IF v_is_eligible THEN
           UPDATE public.inventory 
           SET committed_quantity = committed_quantity + item.quantity
           WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
@@ -171,10 +177,10 @@ BEGIN
     END LOOP;
 
   -- =========================================================================
-  -- CASO 4: El pedido se CANCELA o ARCHIVA en WMS (Liberación total de compromisos/reservas sin afectar físico)
+  -- CASO 4: El pedido se CANCELA o ARCHIVA en WMS (o se cancela en status de plataforma)
   -- =========================================================================
-  ELSIF v_new_wms IN ('Cancelado', 'Archivado') 
-        AND v_old_wms NOT IN ('Cancelado', 'Archivado', 'Despachado') THEN
+  ELSIF (v_new_wms IN ('Cancelado', 'Archivado') AND v_old_wms NOT IN ('Cancelado', 'Archivado', 'Despachado'))
+        OR (LOWER(COALESCE(NEW.status, '')) = 'cancelado' AND LOWER(COALESCE(OLD.status, '')) != 'cancelado') THEN
     
     FOR item IN SELECT * FROM public.order_items WHERE order_id = NEW.id LOOP
       SELECT COALESCE(is_virtual, false) INTO v_is_virtual FROM public.products WHERE id = item.product_id;
@@ -183,7 +189,7 @@ BEGIN
           UPDATE public.inventory 
           SET reserved_quantity = GREATEST(0, reserved_quantity - item.quantity)
           WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
-        ELSE
+        ELSIF v_was_eligible THEN
           UPDATE public.inventory 
           SET committed_quantity = GREATEST(0, committed_quantity - item.quantity)
           WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
@@ -191,16 +197,50 @@ BEGIN
       END IF;
     END LOOP;
 
+  -- =========================================================================
+  -- CASO 5: Transición de Elegibilidad de Stock en Estante ('En procesamiento')
+  -- (Ej: Pago confirmado de pendiente -> pagado, o pedido cancelado / reembolsado)
+  -- =========================================================================
+  ELSIF v_new_wms = 'En procesamiento' AND v_old_wms = 'En procesamiento' THEN
+    -- A) Si antes NO comprometía y AHORA SÍ compromete (pago y pedido confirmados):
+    IF NOT v_was_eligible AND v_is_eligible THEN
+      FOR item IN SELECT * FROM public.order_items WHERE order_id = NEW.id LOOP
+        SELECT COALESCE(is_virtual, false) INTO v_is_virtual FROM public.products WHERE id = item.product_id;
+        IF NOT v_is_virtual AND item.warehouse_id IS NOT NULL THEN
+          UPDATE public.inventory 
+          SET committed_quantity = committed_quantity + item.quantity
+          WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
+        END IF;
+      END LOOP;
+
+    -- B) Si antes SÍ comprometía y AHORA YA NO compromete (pasó a pendiente, reembolsado, o cancelado):
+    ELSIF v_was_eligible AND NOT v_is_eligible THEN
+      FOR item IN SELECT * FROM public.order_items WHERE order_id = NEW.id LOOP
+        SELECT COALESCE(is_virtual, false) INTO v_is_virtual FROM public.products WHERE id = item.product_id;
+        IF NOT v_is_virtual AND item.warehouse_id IS NOT NULL THEN
+          UPDATE public.inventory 
+          SET committed_quantity = GREATEST(0, committed_quantity - item.quantity)
+          WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
+        END IF;
+      END LOOP;
+    END IF;
+
   END IF;
   
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Reasegurar trigger sobre orders
+-- Eliminar TODOS los triggers legados/duplicados sobre orders para evitar doble o triple ejecución
 DROP TRIGGER IF EXISTS on_order_wms_status_change ON public.orders;
+DROP TRIGGER IF EXISTS on_order_status_change ON public.orders;
+DROP TRIGGER IF EXISTS on_order_status_update ON public.orders;
+DROP TRIGGER IF EXISTS on_order_stock_change ON public.orders;
 
-CREATE TRIGGER on_order_wms_status_change
-  BEFORE UPDATE OF estado_wms ON public.orders
+CREATE TRIGGER on_order_stock_change
+  BEFORE UPDATE OF estado_wms, payment_status, status, raw_shopify_data ON public.orders
   FOR EACH ROW
   EXECUTE FUNCTION public.handle_order_status_change();
+
+-- Recalcular stock comprometido y en mesa inmediatamente para sanear cualquier desfase previo
+SELECT public.recalculate_committed_stock();

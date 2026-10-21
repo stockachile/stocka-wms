@@ -827,10 +827,88 @@
     },
 
     /**
+     * Muestra la alerta y recomendación previa a exportar el inventario cuando moduleType === 'inventory'
+     */
+    async confirmInventoryExportWarning(options = {}) {
+      if (options.moduleType !== 'inventory') return true;
+      if (typeof Swal === 'undefined') return true;
+
+      let allRows = [];
+      try {
+        if (typeof options.getAllData === 'function') {
+          allRows = options.getAllData() || [];
+        } else if (typeof options.getFilteredData === 'function') {
+          allRows = options.getFilteredData() || [];
+        }
+      } catch (e) {
+        allRows = [];
+      }
+
+      let totalCommitted = 0;
+      let totalReserved = 0;
+      let skusInMovement = 0;
+      allRows.forEach(r => {
+        const c = Number(r.committed ?? r.committed_quantity ?? 0) || 0;
+        const m = Number(r.reserved ?? r.reserved_quantity ?? 0) || 0;
+        totalCommitted += c;
+        totalReserved += m;
+        if (c > 0 || m > 0) skusInMovement++;
+      });
+
+      const liveMetricsHtml = (totalCommitted > 0 || totalReserved > 0)
+        ? `
+          <div style="margin: 0.75rem 0; padding: 0.65rem 0.8rem; background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 6px; font-size: 0.82rem; color: #92400e;">
+            <div style="font-weight: 700; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-pulse-line" style="font-size: 1rem; color: #d97706;"></i> Estado en vivo detectado en tu inventario (${skusInMovement} SKU${skusInMovement === 1 ? '' : 's'} con flujo activo):
+            </div>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.2rem;">
+              <span>• <strong>En procesamiento (Comprometido):</strong> ${totalCommitted} un.</span>
+              <span>• <strong>En mesón de preparación (En Mesa):</strong> ${totalReserved} un.</span>
+            </div>
+          </div>
+        `
+        : '';
+
+      const res = await Swal.fire({
+        icon: 'warning',
+        title: 'Importante antes de Exportar Inventario',
+        width: '620px',
+        html: `
+          <div style="text-align: left; font-size: 0.88rem; line-height: 1.55; color: var(--color-text-main, #1e293b);">
+            <p style="margin-top: 0;">
+              Ten en consideración que al exportar tus datos de inventario pueden existir <strong>unidades en procesamiento</strong>, <strong>en mesón de preparación</strong> o <strong>en camino a ser procesadas por couriers (centros de distribución)</strong>, lo cual altera las unidades físicamente disponibles en bodega en este instante.
+            </p>
+            ${liveMetricsHtml}
+            <div style="background: rgba(37, 99, 235, 0.06); border: 1px solid rgba(37, 99, 235, 0.22); border-left: 4px solid #2563eb; padding: 0.7rem 0.85rem; border-radius: 6px; margin-top: 0.65rem;">
+              <strong style="color: #1d4ed8; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem;">
+                <i class="ri-customer-service-2-line"></i> Recomendación Stocka:
+              </strong>
+              <span style="font-size: 0.84rem; color: #334155;">
+                Previo a realizar una exportación para cuadratura o auditoría, te sugerimos <strong>contactar con nuestro equipo</strong> para validar que no existan unidades en procesamiento y así obtener la información más precisa del momento, conociendo igualmente los <strong>pedidos que queden pendientes de procesamiento</strong> puesto que los pedidos que van ingresando comprometen stock al instante.
+              </span>
+            </div>
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: '<i class="ri-download-2-line"></i> Entendido, continuar con la exportación',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#2563eb',
+        cancelButtonColor: '#64748b',
+        focusConfirm: true
+      });
+
+      return !!res.isConfirmed;
+    },
+
+    /**
      * Ejecuta una exportación rápida con preset Simple o Full
      */
-    executeQuickExport(options, format, mode) {
+    async executeQuickExport(options, format, mode) {
       const moduleType = options.moduleType;
+      if (moduleType === 'inventory') {
+        const confirmed = await this.confirmInventoryExportWarning(options);
+        if (!confirmed) return;
+      }
       const schema = moduleType === 'inventory' ? INVENTORY_SCHEMA : CATALOG_SCHEMA;
       const commerce = options.getCommerce ? options.getCommerce() : 'comercio';
 
@@ -887,8 +965,12 @@
     /**
      * Abre el modal interactivo de exportación personalizada ("A pedido del usuario")
      */
-    openCustomExportModal(options) {
+    async openCustomExportModal(options) {
       const moduleType = options.moduleType;
+      if (moduleType === 'inventory') {
+        const confirmed = await this.confirmInventoryExportWarning(options);
+        if (!confirmed) return;
+      }
       const schema = moduleType === 'inventory' ? INVENTORY_SCHEMA : CATALOG_SCHEMA;
       const commerce = options.getCommerce ? options.getCommerce() : 'comercio';
 
@@ -928,6 +1010,11 @@
           </div>
 
           <div class="wms-custom-export-body">
+            ${moduleType === 'inventory' ? `
+              <div style="background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; padding: 0.65rem 0.8rem; border-radius: 6px; font-size: 0.78rem; color: #92400e; line-height: 1.4;">
+                <strong><i class="ri-error-warning-line"></i> Nota sobre precisión de stock:</strong> Al exportar pueden existir unidades en procesamiento, en mesón de preparación o en tránsito hacia couriers/centros de distribución, además de pedidos entrantes que comprometen stock al instante. Contacta a nuestro equipo si requieres validar el cierre de procesamiento previo a tu cuadratura.
+              </div>
+            ` : ''}
             <!-- 1. Formato de Salida -->
             <div>
               <label style="display: block; font-weight: 700; font-size: 0.88rem; margin-bottom: 0.5rem; color: var(--color-text-main);">
@@ -1150,6 +1237,7 @@
 
   // Exponer globalmente en window
   window.WmsExportManager = WmsExportManager;
+  window.exportManager = WmsExportManager;
   document.addEventListener('DOMContentLoaded', () => WmsExportManager.init());
   WmsExportManager.init();
 })();

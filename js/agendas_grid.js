@@ -2657,6 +2657,22 @@
         } else {
           const payload = {};
           payload[grp.field] = grp.value || null;
+          if (grp.field === 'categoria_entrega' && String(grp.value || '').toUpperCase().trim() === 'RETIRO') {
+            payload.agenda = 'RETIRO';
+            payload.operador = 'SUCURSAL ÑUÑOA';
+            payload.courier = null;
+            payload.tracking_number = null;
+            payload.tracking_url = null;
+            payload.label_url = null;
+            payload.label_base64 = null;
+            payload.enviame_delivery_id = null;
+            payload.enviame_status = null;
+            payload.raw_lightdata_data = null;
+            payload.lightdata_status = null;
+          } else if (grp.field === 'categoria_entrega' && String(grp.value || '').toUpperCase().trim() === 'SHOP POINT (POS)') {
+            payload.agenda = 'COMPRA EN BODEGA';
+            payload.operador = 'SUCURSAL ÑUÑOA';
+          }
           if (grp.field === 'estado_wms') {
             const normG = String(grp.value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
             if (normG.includes('cancelado')) payload.status = 'cancelado';
@@ -2949,6 +2965,21 @@
       } else if (targetColKey === 'categoria_entrega') {
         ord.categoria_entrega = newValue;
         ord.categoria = newValue;
+        delete ord._wmsEffectiveCat;
+        delete ord._wmsShipmentGlobalStatus;
+        if (String(newValue || '').toUpperCase().trim() === 'RETIRO') {
+          ord.agenda = 'RETIRO';
+          ord.operador = 'SUCURSAL ÑUÑOA';
+          ord.courier = null;
+          ord.tracking_number = null;
+          ord.tracking_url = null;
+          ord.label_url = null;
+          ord.label_base64 = null;
+          ord.enviame_delivery_id = null;
+          ord.enviame_status = null;
+          ord.raw_lightdata_data = null;
+          ord.lightdata_status = null;
+        }
       } else if (targetColKey === 'estado_wms') {
         ord.estado_wms = newValue;
         const normVal = String(newValue || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');

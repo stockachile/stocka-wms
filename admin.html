@@ -12,13 +12,13 @@
   <link rel="apple-touch-icon" href="./favicon.png">
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
   <link rel="stylesheet" href="./css/style.css?v=1.0.4">
-  <link rel="stylesheet" href="./css/layout.css?v=1.1.4">
+  <link rel="stylesheet" href="./css/layout.css?v=1.2.0">
   <link rel="stylesheet" href="./css/inventory_count.css?v=1.0.6">
   <link rel="stylesheet" href="./css/agendas_grid.css?v=1.0.0">
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <!-- Quill Rich Text Editor CDN -->
   <link href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" rel="stylesheet">
-  <script src="./js/theme.js?v=1.1.3"></script>
+  <script src="./js/theme.js?v=1.2.0"></script>
   <style>
     @keyframes pulse-warning {
       0% {
@@ -657,157 +657,470 @@
 
     <!-- Main Content -->
     <div class="main-content">
-      <!-- Header -->
-      <header class="top-header">
-        <div class="header-title">
-          <h2 id="view-title">Dashboard</h2>
+      <!-- Header Admin Renovado (Propuesta v2) -->
+      <header class="top-header admin-header-v2">
+
+        <!-- ZONA IZQUIERDA: Contexto del Módulo + Breadcrumb Dinámico -->
+        <div class="header-title admin-header-context">
+          <div class="admin-view-icon-box" id="admin-view-icon-box" title="Módulo activo">
+            <i id="admin-view-icon" class="ri-dashboard-line"></i>
+          </div>
+          <div class="admin-title-stack">
+            <div class="admin-breadcrumb-row">
+              <span id="admin-breadcrumb-group" class="admin-bc-group">Panel Principal</span>
+              <i class="ri-arrow-right-s-line admin-bc-sep"></i>
+              <span class="admin-live-pill" id="admin-context-pill">
+                <span class="live-dot"></span>
+                <span id="admin-context-status">Operativo</span>
+              </span>
+            </div>
+            <h2 id="view-title">Dashboard</h2>
+          </div>
         </div>
-        <div class="header-actions">
 
-          <!-- UF del día -->
-          <div id="uf-chip" class="uf-chip" title="Valor UF del día">
-            <i class="ri-funds-line uf-icon"></i>
-            <span class="uf-label">UF</span>
-            <span id="uf-value">—</span>
-          </div>
-
-          <!-- Fecha del día -->
-          <div class="date-chip" id="date-chip" title="Fecha actual">
-            <i class="ri-calendar-line"></i>
-            <span id="date-day-num" class="date-day"></span>
-            <span id="date-rest" class="date-rest"></span>
-          </div>
-
-          <div class="header-divider"></div>
-
-          <!-- Calculadora Admin -->
-          <div class="admin-calc-container" id="admin-calc-container">
-            <button id="admin-calc-btn" class="header-icon-btn" type="button" title="Calculadora Admin" aria-label="Calculadora Admin">
-              <i class="ri-calculator-line"></i>
+        <!-- ZONA CENTRAL: Buscador Omnicanal (Ctrl+K) + Acciones Rápidas -->
+        <div class="admin-header-center">
+          <!-- Command Bar / Buscador Global -->
+          <div class="admin-cmd-container" id="admin-cmd-container">
+            <button type="button" id="admin-cmd-btn" class="admin-cmd-trigger" title="Buscar módulo, pedido, SKU o comercio (Ctrl + K)">
+              <i class="ri-search-2-line cmd-search-icon"></i>
+              <span class="cmd-placeholder">Buscar módulo, #pedido, SKU o comercio...</span>
+              <kbd class="cmd-kbd">Ctrl K</kbd>
             </button>
-            <div id="admin-calc-dropdown" class="admin-calc-dropdown" style="display: none;">
-              <div class="admin-calc-header">
-                <div class="admin-calc-title">
-                  <i class="ri-calculator-line"></i>
-                  <span>Calculadora Admin</span>
-                </div>
-                <div class="admin-calc-header-actions">
-                  <button type="button" id="admin-calc-history-btn" class="admin-calc-hdr-btn" title="Historial de cálculos">
-                    <i class="ri-history-line"></i>
-                  </button>
-                  <button type="button" id="admin-calc-pin-btn" class="admin-calc-hdr-btn" title="Fijar abierta al hacer clic fuera">
-                    <i class="ri-pushpin-2-line"></i>
-                  </button>
-                  <button type="button" id="admin-calc-close-btn" class="admin-calc-hdr-btn" title="Cerrar (Esc)">
-                    <i class="ri-close-line"></i>
-                  </button>
-                </div>
+
+            <!-- Dropdown Command Palette -->
+            <div id="admin-cmd-dropdown" class="admin-cmd-dropdown" style="display: none;">
+              <div class="admin-cmd-input-wrap">
+                <i class="ri-search-eye-line"></i>
+                <input type="text" id="admin-cmd-input" class="admin-cmd-input" placeholder="Escribe un módulo, #pedido, SKU, guía o comercio..." autocomplete="off">
+                <button type="button" id="admin-cmd-clear" class="admin-cmd-clear-btn" style="display: none;" title="Limpiar">
+                  <i class="ri-close-circle-fill"></i>
+                </button>
               </div>
-
-              <!-- Historial Desplegable -->
-              <div id="admin-calc-history-panel" class="admin-calc-history-panel" style="display: none;">
-                <div class="admin-calc-history-header">
-                  <span>Historial reciente</span>
-                  <button type="button" id="admin-calc-history-clear" class="admin-calc-history-clear">Limpiar</button>
-                </div>
-                <div id="admin-calc-history-list">
-                  <div style="text-align: center; padding: 0.5rem; color: var(--color-text-muted); font-size: 0.75rem;">Sin cálculos recientes</div>
-                </div>
+              <div id="admin-cmd-results" class="admin-cmd-results">
+                <!-- Resultados inyectados dinámicamente -->
               </div>
-
-              <!-- Pantalla -->
-              <div class="admin-calc-screen">
-                <div id="admin-calc-expression" class="admin-calc-expression"></div>
-                <div class="admin-calc-main-row">
-                  <button type="button" id="admin-calc-copy-btn" class="admin-calc-copy-btn" title="Copiar resultado">
-                    <i class="ri-file-copy-line"></i>
-                  </button>
-                  <div id="admin-calc-display" class="admin-calc-display">0</div>
-                </div>
-              </div>
-
-              <!-- Accesos Rápidos IVA / UF -->
-              <div class="admin-calc-quick-bar">
-                <button type="button" class="admin-calc-quick-btn" data-calc-quick="add-iva" title="Sumar IVA 19% (Neto → Bruto)">+IVA 19%</button>
-                <button type="button" class="admin-calc-quick-btn" data-calc-quick="sub-iva" title="Quitar IVA 19% (Bruto → Neto)">-IVA 19%</button>
-                <button type="button" class="admin-calc-quick-btn uf-btn" data-calc-quick="uf-to-clp" title="Convertir UF a CLP usando UF del día">UF → $</button>
-                <button type="button" class="admin-calc-quick-btn uf-btn" data-calc-quick="clp-to-uf" title="Convertir CLP a UF usando UF del día">$ → UF</button>
-              </div>
-
-              <!-- Teclado -->
-              <div class="admin-calc-keypad">
-                <button type="button" class="admin-calc-key key-clear" data-calc-action="clear" title="Limpiar todo (C)">C</button>
-                <button type="button" class="admin-calc-key" data-calc-action="backspace" title="Borrar dígito (Backspace)"><i class="ri-delete-back-2-line"></i></button>
-                <button type="button" class="admin-calc-key key-op" data-calc-action="percent" title="Porcentaje (%)">%</button>
-                <button type="button" class="admin-calc-key key-op" data-calc-op="/" title="Dividir (/)">÷</button>
-
-                <button type="button" class="admin-calc-key key-num" data-calc-num="7">7</button>
-                <button type="button" class="admin-calc-key key-num" data-calc-num="8">8</button>
-                <button type="button" class="admin-calc-key key-num" data-calc-num="9">9</button>
-                <button type="button" class="admin-calc-key key-op" data-calc-op="*" title="Multiplicar (*)">×</button>
-
-                <button type="button" class="admin-calc-key key-num" data-calc-num="4">4</button>
-                <button type="button" class="admin-calc-key key-num" data-calc-num="5">5</button>
-                <button type="button" class="admin-calc-key key-num" data-calc-num="6">6</button>
-                <button type="button" class="admin-calc-key key-op" data-calc-op="-" title="Restar (-)">−</button>
-
-                <button type="button" class="admin-calc-key key-num" data-calc-num="1">1</button>
-                <button type="button" class="admin-calc-key key-num" data-calc-num="2">2</button>
-                <button type="button" class="admin-calc-key key-num" data-calc-num="3">3</button>
-                <button type="button" class="admin-calc-key key-op" data-calc-op="+" title="Sumar (+)">+</button>
-
-                <button type="button" class="admin-calc-key" data-calc-action="negate" title="Cambiar signo (±)">±</button>
-                <button type="button" class="admin-calc-key key-num" data-calc-num="0">0</button>
-                <button type="button" class="admin-calc-key key-num" data-calc-action="decimal" title="Decimal (,)">,</button>
-                <button type="button" class="admin-calc-key key-eq" data-calc-action="equals" title="Igual (Enter)">=</button>
+              <div class="admin-cmd-footer">
+                <span><kbd>↑</kbd> <kbd>↓</kbd> navegar</span>
+                <span><kbd>Enter</kbd> abrir</span>
+                <span><kbd>Esc</kbd> cerrar</span>
               </div>
             </div>
           </div>
 
-          <!-- Notificaciones -->
-          <div class="notification-container" style="position: relative;">
-            <button id="notification-btn" class="header-icon-btn" aria-label="Notificaciones">
-              <i class="ri-notification-3-line"></i>
-              <span id="notification-badge" style="display: none; position: absolute; top: 2px; right: 2px; background-color: var(--color-danger); color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 0.6rem; font-weight: bold; align-items: center; justify-content: center;">0</span>
+          <!-- Botón + Acción Rápida -->
+          <div class="admin-quick-container" id="admin-quick-container">
+            <button type="button" id="admin-quick-btn" class="admin-quick-trigger" title="Acciones operativas frecuentes">
+              <i class="ri-flashlight-fill quick-bolt-icon"></i>
+              <span class="quick-btn-label">Acción Rápida</span>
+              <i class="ri-arrow-down-s-line quick-chevron"></i>
             </button>
-            <div id="notification-dropdown" class="notification-dropdown" style="display: none; position: absolute; top: 120%; right: 0; width: 340px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 100;">
-              <div style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); font-weight: 600; display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem;">
-                <span><i class="ri-notification-3-line" style="margin-right: 0.4rem; color: var(--color-primary);"></i>Notificaciones</span>
-                <button id="mark-all-read-btn" style="background: none; border: none; color: var(--color-primary); font-size: 0.75rem; cursor: pointer; display: none;">Marcar todas leídas</button>
+
+            <div id="admin-quick-dropdown" class="admin-header-popover admin-quick-dropdown" style="display: none;">
+              <div class="popover-section-title">
+                <i class="ri-flashlight-line"></i> Accesos Directos Operativos
               </div>
-              <div id="notification-list" style="max-height: 300px; overflow-y: auto;">
-                <div style="padding: 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem;">No tienes notificaciones.</div>
+              <div class="admin-quick-grid">
+                <button type="button" class="admin-quick-card" data-admin-nav="orders_admin">
+                  <span class="quick-card-icon icon-blue"><i class="ri-box-3-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>Gestor de Pedidos</strong>
+                    <small>Procesar, preparar y despachar</small>
+                  </span>
+                </button>
+                <button type="button" class="admin-quick-card" data-admin-nav="declarations_admin">
+                  <span class="quick-card-icon icon-purple"><i class="ri-inbox-archive-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>Recepcionar Stock</strong>
+                    <small>Validar ingresos en bodega</small>
+                  </span>
+                </button>
+                <button type="button" class="admin-quick-card" data-admin-nav="inventory_count">
+                  <span class="quick-card-icon icon-emerald"><i class="ri-qr-scan-2-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>Conteo Móvil QR</strong>
+                    <small>Auditoría rápida con teléfono</small>
+                  </span>
+                </button>
+                <button type="button" class="admin-quick-card" data-admin-nav="cotizador_admin">
+                  <span class="quick-card-icon icon-amber"><i class="ri-calculator-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>Cotizador de Envíos</strong>
+                    <small>Simular tarifas multi-courier</small>
+                  </span>
+                </button>
+                <button type="button" class="admin-quick-card" data-admin-nav="label_generator">
+                  <span class="quick-card-icon icon-indigo"><i class="ri-printer-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>Generar Etiquetas</strong>
+                    <small>Códigos de barra y bultos</small>
+                  </span>
+                </button>
+                <button type="button" class="admin-quick-card" data-admin-nav="pos_admin">
+                  <span class="quick-card-icon icon-rose"><i class="ri-shopping-cart-2-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>Punto de Ventas (POS)</strong>
+                    <small>Registrar venta presencial</small>
+                  </span>
+                </button>
               </div>
-              <div style="border-top: 1px solid var(--color-border); text-align: center; background: var(--color-bg); border-radius: 0 0 var(--radius-md) var(--radius-md);">
-                <a href="#" class="nav-item" data-view="inbox" style="display: block; padding: 0.75rem; font-size: 0.8rem; color: var(--color-primary); text-decoration: none; font-weight: 500;">
-                  Ver todas las notificaciones <i class="ri-arrow-right-line" style="vertical-align: middle;"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- ZONA DERECHA: UF/Fecha + Pulso Sync + Dock de Herramientas + Perfil -->
+        <div class="header-actions admin-header-right">
+
+          <!-- 1. Cápsula Económica y Fecha Unificada -->
+          <div class="admin-meta-capsule">
+            <!-- UF del día (Clic para copiar) -->
+            <div id="uf-chip" class="uf-chip admin-uf-interactive" title="Valor UF del día · Clic para copiar al portapapeles" role="button" tabindex="0">
+              <span class="uf-status-dot"></span>
+              <i class="ri-funds-line uf-icon"></i>
+              <span class="uf-label">UF</span>
+              <span id="uf-value">—</span>
+              <i class="ri-file-copy-line uf-copy-icon" id="uf-copy-icon"></i>
+            </div>
+
+            <!-- Fecha del día -->
+            <div class="date-chip" id="date-chip" title="Fecha actual del sistema">
+              <i class="ri-calendar-event-line"></i>
+              <span id="date-day-num" class="date-day"></span>
+              <span id="date-rest" class="date-rest"></span>
+            </div>
+          </div>
+
+          <!-- 2. Pulso de Sincronización & Monitores -->
+          <div class="admin-sync-container" id="admin-sync-container">
+            <button type="button" id="admin-sync-btn" class="admin-sync-pill status-success" title="Estado de Sincronización (Mercado Libre, Etiquetas e Integraciones)">
+              <span class="sync-pulse-wrap">
+                <span class="sync-pulse-ring"></span>
+                <span class="sync-pulse-dot"></span>
+              </span>
+              <span class="sync-pill-text" id="admin-sync-text">Sync OK</span>
+              <span id="admin-sync-badge" class="sync-pill-badge" style="display: none;">0</span>
+            </button>
+
+            <div id="admin-sync-dropdown" class="admin-header-popover admin-sync-dropdown" style="display: none;">
+              <div class="popover-header-bar">
+                <div class="popover-header-title">
+                  <i class="ri-radar-line" style="color: #10b981;"></i>
+                  <span>Monitores y Sincronización</span>
+                </div>
+                <span id="admin-sync-status-tag" class="sync-status-tag tag-ok">En línea</span>
+              </div>
+
+              <div class="admin-sync-list">
+                <!-- Mercado Libre Live -->
+                <div class="admin-sync-item">
+                  <div class="sync-item-left">
+                    <span class="sync-platform-icon meli-bg">
+                      <img src="img/mercadolibre.png" alt="MeLi" style="width: 18px; height: 18px; object-fit: contain;" onerror="this.outerHTML='<i class=\'ri-shopping-bag-3-fill\' style=\'color:#eab308;\'></i>'">
+                    </span>
+                    <div>
+                      <div class="sync-item-title">Mercado Libre Live</div>
+                      <div class="sync-item-sub" id="header-meli-sync-sub">Monitor de pedidos y tiendas</div>
+                    </div>
+                  </div>
+                  <div class="sync-item-actions">
+                    <button type="button" class="sync-mini-btn" id="header-open-meli-panel-btn" title="Abrir monitor detallado">
+                      Panel <i class="ri-external-link-line"></i>
+                    </button>
+                    <button type="button" class="sync-mini-btn btn-primary-soft" id="header-trigger-meli-sync-btn" title="Forzar sincronización ahora">
+                      <i class="ri-refresh-line"></i> Sync
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Monitor de Etiquetas GitHub -->
+                <div class="admin-sync-item">
+                  <div class="sync-item-left">
+                    <span class="sync-platform-icon gh-bg">
+                      <i class="ri-qr-code-line"></i>
+                    </span>
+                    <div>
+                      <div class="sync-item-title">Emisión de Etiquetas</div>
+                      <div class="sync-item-sub" id="header-wms-sync-sub">Cola de workflows (GitHub)</div>
+                    </div>
+                  </div>
+                  <div class="sync-item-actions">
+                    <button type="button" class="sync-mini-btn" id="header-open-wms-panel-btn">
+                      Ver Cola <i class="ri-pulse-line"></i>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Estado General de Integraciones -->
+                <div class="admin-sync-item">
+                  <div class="sync-item-left">
+                    <span class="sync-platform-icon int-bg">
+                      <i class="ri-plug-2-line"></i>
+                    </span>
+                    <div>
+                      <div class="sync-item-title">Shopify, Falabella & Couriers</div>
+                      <div class="sync-item-sub">Webhooks y credenciales API</div>
+                    </div>
+                  </div>
+                  <div class="sync-item-actions">
+                    <button type="button" class="sync-mini-btn" data-admin-nav="integrations">
+                      Configurar <i class="ri-arrow-right-s-line"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="popover-footer-toggle">
+                <label class="floating-toggle-label">
+                  <input type="checkbox" id="toggle-hide-floating-monitors">
+                  <span>Ocultar botones flotantes en esquina inferior</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="header-divider"></div>
+
+          <!-- 3. Dock Unificado de Herramientas Admin -->
+          <div class="admin-tool-dock">
+
+            <!-- 3A. Calculadora Admin -->
+            <div class="admin-calc-container" id="admin-calc-container">
+              <button id="admin-calc-btn" class="header-icon-btn dock-icon-btn" type="button" title="Calculadora Financiera Admin (IVA / UF)" aria-label="Calculadora Admin">
+                <i class="ri-calculator-line"></i>
+              </button>
+              <div id="admin-calc-dropdown" class="admin-calc-dropdown" style="display: none;">
+                <div class="admin-calc-header">
+                  <div class="admin-calc-title">
+                    <i class="ri-calculator-line"></i>
+                    <span>Calculadora Admin</span>
+                  </div>
+                  <div class="admin-calc-header-actions">
+                    <button type="button" id="admin-calc-history-btn" class="admin-calc-hdr-btn" title="Historial de cálculos">
+                      <i class="ri-history-line"></i>
+                    </button>
+                    <button type="button" id="admin-calc-pin-btn" class="admin-calc-hdr-btn" title="Fijar abierta al hacer clic fuera">
+                      <i class="ri-pushpin-2-line"></i>
+                    </button>
+                    <button type="button" id="admin-calc-close-btn" class="admin-calc-hdr-btn" title="Cerrar (Esc)">
+                      <i class="ri-close-line"></i>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Historial Desplegable -->
+                <div id="admin-calc-history-panel" class="admin-calc-history-panel" style="display: none;">
+                  <div class="admin-calc-history-header">
+                    <span>Historial reciente</span>
+                    <button type="button" id="admin-calc-history-clear" class="admin-calc-history-clear">Limpiar</button>
+                  </div>
+                  <div id="admin-calc-history-list">
+                    <div style="text-align: center; padding: 0.5rem; color: var(--color-text-muted); font-size: 0.75rem;">Sin cálculos recientes</div>
+                  </div>
+                </div>
+
+                <!-- Pantalla -->
+                <div class="admin-calc-screen">
+                  <div id="admin-calc-expression" class="admin-calc-expression"></div>
+                  <div class="admin-calc-main-row">
+                    <button type="button" id="admin-calc-copy-btn" class="admin-calc-copy-btn" title="Copiar resultado">
+                      <i class="ri-file-copy-line"></i>
+                    </button>
+                    <div id="admin-calc-display" class="admin-calc-display">0</div>
+                  </div>
+                </div>
+
+                <!-- Accesos Rápidos IVA / UF -->
+                <div class="admin-calc-quick-bar">
+                  <button type="button" class="admin-calc-quick-btn" data-calc-quick="add-iva" title="Sumar IVA 19% (Neto → Bruto)">+IVA 19%</button>
+                  <button type="button" class="admin-calc-quick-btn" data-calc-quick="sub-iva" title="Quitar IVA 19% (Bruto → Neto)">-IVA 19%</button>
+                  <button type="button" class="admin-calc-quick-btn uf-btn" data-calc-quick="uf-to-clp" title="Convertir UF a CLP usando UF del día">UF → $</button>
+                  <button type="button" class="admin-calc-quick-btn uf-btn" data-calc-quick="clp-to-uf" title="Convertir CLP a UF usando UF del día">$ → UF</button>
+                </div>
+
+                <!-- Teclado -->
+                <div class="admin-calc-keypad">
+                  <button type="button" class="admin-calc-key key-clear" data-calc-action="clear" title="Limpiar todo (C)">C</button>
+                  <button type="button" class="admin-calc-key" data-calc-action="backspace" title="Borrar dígito (Backspace)"><i class="ri-delete-back-2-line"></i></button>
+                  <button type="button" class="admin-calc-key key-op" data-calc-action="percent" title="Porcentaje (%)">%</button>
+                  <button type="button" class="admin-calc-key key-op" data-calc-op="/" title="Dividir (/)">÷</button>
+
+                  <button type="button" class="admin-calc-key key-num" data-calc-num="7">7</button>
+                  <button type="button" class="admin-calc-key key-num" data-calc-num="8">8</button>
+                  <button type="button" class="admin-calc-key key-num" data-calc-num="9">9</button>
+                  <button type="button" class="admin-calc-key key-op" data-calc-op="*" title="Multiplicar (*)">×</button>
+
+                  <button type="button" class="admin-calc-key key-num" data-calc-num="4">4</button>
+                  <button type="button" class="admin-calc-key key-num" data-calc-num="5">5</button>
+                  <button type="button" class="admin-calc-key key-num" data-calc-num="6">6</button>
+                  <button type="button" class="admin-calc-key key-op" data-calc-op="-" title="Restar (-)">−</button>
+
+                  <button type="button" class="admin-calc-key key-num" data-calc-num="1">1</button>
+                  <button type="button" class="admin-calc-key key-num" data-calc-num="2">2</button>
+                  <button type="button" class="admin-calc-key key-num" data-calc-num="3">3</button>
+                  <button type="button" class="admin-calc-key key-op" data-calc-op="+" title="Sumar (+)">+</button>
+
+                  <button type="button" class="admin-calc-key" data-calc-action="negate" title="Cambiar signo (±)">±</button>
+                  <button type="button" class="admin-calc-key key-num" data-calc-num="0">0</button>
+                  <button type="button" class="admin-calc-key key-num" data-calc-action="decimal" title="Decimal (,)">,</button>
+                  <button type="button" class="admin-calc-key key-eq" data-calc-action="equals" title="Igual (Enter)">=</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3B. Radar de Atención Operativa (Incidencias, Ingresos, Tickets, Onboarding) -->
+            <div class="admin-ops-container" id="admin-ops-container">
+              <button type="button" id="admin-ops-btn" class="header-icon-btn dock-icon-btn ops-radar-btn" title="Radar de Atención Operativa (Pendientes)" aria-label="Atención Operativa">
+                <i class="ri-alarm-warning-line"></i>
+                <span id="admin-ops-badge" class="dock-badge badge-amber" style="display: none;">0</span>
+              </button>
+
+              <div id="admin-ops-dropdown" class="admin-header-popover admin-ops-dropdown" style="display: none;">
+                <div class="popover-header-bar">
+                  <div class="popover-header-title">
+                    <i class="ri-alarm-warning-fill" style="color: #f59e0b;"></i>
+                    <span>Atención Operativa</span>
+                  </div>
+                  <span id="admin-ops-total-label" class="ops-total-pill">Al día</span>
+                </div>
+                <div class="admin-ops-list" id="admin-ops-list">
+                  <button type="button" class="admin-ops-item" data-admin-nav="incidencias_admin">
+                    <span class="ops-item-icon ops-danger"><i class="ri-alert-line"></i></span>
+                    <span class="ops-item-label">Incidencias Pendientes</span>
+                    <span class="ops-item-count" data-ops-count="incidencias">0</span>
+                  </button>
+                  <button type="button" class="admin-ops-item" data-admin-nav="declarations_admin">
+                    <span class="ops-item-icon ops-primary"><i class="ri-inbox-archive-line"></i></span>
+                    <span class="ops-item-label">Ingresos de Stock por Recibir</span>
+                    <span class="ops-item-count" data-ops-count="declarations">0</span>
+                  </button>
+                  <button type="button" class="admin-ops-item" data-admin-nav="tickets_admin">
+                    <span class="ops-item-icon ops-purple"><i class="ri-customer-service-2-line"></i></span>
+                    <span class="ops-item-label">Tickets de Soporte Activos</span>
+                    <span class="ops-item-count" data-ops-count="tickets">0</span>
+                  </button>
+                  <button type="button" class="admin-ops-item" data-admin-nav="onboarding_admin">
+                    <span class="ops-item-icon ops-emerald"><i class="ri-git-pull-request-line"></i></span>
+                    <span class="ops-item-label">Solicitudes de Alta (Onboarding)</span>
+                    <span class="ops-item-count" data-ops-count="onboarding">0</span>
+                  </button>
+                  <button type="button" class="admin-ops-item" data-admin-nav="billing_admin">
+                    <span class="ops-item-icon ops-amber"><i class="ri-bill-line"></i></span>
+                    <span class="ops-item-label">Pagos / Comprobantes por Validar</span>
+                    <span class="ops-item-count" data-ops-count="billing">0</span>
+                  </button>
+                  <button type="button" class="admin-ops-item" data-admin-nav="leads_admin">
+                    <span class="ops-item-icon ops-blue"><i class="ri-user-search-line"></i></span>
+                    <span class="ops-item-label">Leads Nuevos sin Contactar</span>
+                    <span class="ops-item-count" data-ops-count="leads">0</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3C. Centro Unificado de Notificaciones + Inbox -->
+            <div class="notification-container" style="position: relative;">
+              <button id="notification-btn" class="header-icon-btn dock-icon-btn" aria-label="Notificaciones y Bandeja" title="Notificaciones y Bandeja de Entrada">
+                <i class="ri-notification-3-line"></i>
+                <span id="notification-badge" class="dock-badge badge-danger" style="display: none;">0</span>
+              </button>
+              <div id="notification-dropdown" class="notification-dropdown admin-notif-popover" style="display: none;">
+                <div class="notif-popover-header">
+                  <div class="notif-popover-title">
+                    <i class="ri-notification-badge-line"></i>
+                    <span>Centro de Avisos</span>
+                  </div>
+                  <button id="mark-all-read-btn" class="notif-mark-read-btn" style="display: none;">Marcar leídas</button>
+                </div>
+
+                <!-- Accesos rápidos a Inbox y Gestión de Avisos -->
+                <div class="notif-quick-channels">
+                  <a href="#" class="nav-item notif-channel-pill" data-view="inbox" title="Abrir Mi Bandeja de Entrada">
+                    <i class="ri-inbox-archive-line"></i>
+                    <span>Mi Inbox</span>
+                  </a>
+                  <button type="button" class="notif-channel-pill" data-admin-nav="notifications_admin" title="Publicar o gestionar avisos a comercios">
+                    <i class="ri-megaphone-line"></i>
+                    <span>Emitir Aviso</span>
+                  </button>
+                </div>
+
+                <div id="notification-list" class="admin-notif-list" style="max-height: 290px; overflow-y: auto;">
+                  <div style="padding: 1.25rem; text-align: center; color: var(--color-text-muted); font-size: 0.82rem;">No tienes notificaciones.</div>
+                </div>
+                <div class="notif-popover-footer">
+                  <a href="#" class="nav-item notif-view-all-link" data-view="inbox">
+                    Ver bandeja completa de mensajes <i class="ri-arrow-right-line"></i>
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3D. Botón Compacto de Tema (Claro / Oscuro) en el Dock -->
+            <button class="theme-toggle-btn admin-dock-theme-btn" type="button" aria-label="Cambiar tema" title="Cambiar entre modo claro y oscuro">
+              <i class="ri-sun-line sun-icon"></i>
+              <i class="ri-moon-clear-line moon-icon"></i>
+            </button>
+
+          </div>
+
+          <div class="header-divider"></div>
+
+          <!-- 4. Cápsula Interactiva de Perfil Admin -->
+          <div class="admin-profile-container" id="admin-profile-container">
+            <button type="button" id="admin-profile-btn" class="header-user admin-profile-trigger" title="Menú de Cuenta y Accesos Admin">
+              <div class="avatar admin-avatar-ring" id="admin-header-avatar">
+                <span id="admin-avatar-initials">ST</span>
+                <span class="avatar-online-dot"></span>
+              </div>
+              <div class="admin-user-meta">
+                <div class="admin-user-top-line">
+                  <span id="user-email">Cargando...</span>
+                  <span class="admin-role-pill">ADMIN</span>
+                </div>
+                <span class="admin-user-subline" id="admin-user-subline">Centro de Control</span>
+              </div>
+              <i class="ri-arrow-down-s-line admin-profile-chevron"></i>
+            </button>
+
+            <!-- Menú Desplegable de Perfil Admin -->
+            <div id="admin-profile-dropdown" class="admin-header-popover admin-profile-dropdown" style="display: none;">
+              <div class="profile-dropdown-card">
+                <div class="avatar admin-avatar-ring avatar-lg">
+                  <span id="admin-dropdown-initials">ST</span>
+                </div>
+                <div class="profile-dropdown-info">
+                  <div class="profile-dropdown-name" id="admin-dropdown-name">Administrador</div>
+                  <div class="profile-dropdown-email" id="admin-dropdown-email">admin@stocka.cl</div>
+                  <span class="profile-dropdown-badge"><i class="ri-shield-star-line"></i> Super Admin WMS</span>
+                </div>
+              </div>
+
+              <div class="profile-dropdown-menu">
+                <a href="#" class="nav-item admin-profile-menu-item" data-view="profile">
+                  <i class="ri-user-settings-line"></i>
+                  <span>Mi Perfil y Contraseña</span>
                 </a>
+                <a href="#" class="nav-item admin-profile-menu-item" data-view="inbox">
+                  <i class="ri-inbox-line"></i>
+                  <span>Mi Bandeja de Entrada</span>
+                </a>
+                <button type="button" class="admin-profile-menu-item" data-admin-nav="users_admin">
+                  <i class="ri-team-line"></i>
+                  <span>Gestionar Usuarios y Roles</span>
+                </button>
+                <button type="button" class="admin-profile-menu-item" data-admin-nav="documentation_admin">
+                  <i class="ri-folder-shield-2-line"></i>
+                  <span>Documentación Interna</span>
+                </button>
+              </div>
+
+              <div class="profile-dropdown-footer">
+                <button type="button" id="admin-header-logout-btn" class="admin-profile-logout-btn">
+                  <i class="ri-logout-box-r-line"></i>
+                  <span>Cerrar Sesión</span>
+                </button>
               </div>
             </div>
-          </div>
-
-          <!-- Inbox -->
-          <a href="#" class="nav-item header-icon-btn" data-view="inbox" title="Mi Inbox">
-            <i class="ri-inbox-line"></i>
-          </a>
-
-          <!-- Perfil -->
-          <a href="#" class="nav-item header-icon-btn" data-view="profile" title="Mi Perfil">
-            <i class="ri-user-settings-line"></i>
-          </a>
-
-          <!-- Modo oscuro -->
-          <button class="theme-toggle-btn" aria-label="Cambiar tema">
-            <i class="ri-sun-line sun-icon"></i>
-            <i class="ri-moon-line moon-icon"></i>
-          </button>
-
-          <div class="header-divider"></div>
-
-          <!-- Usuario -->
-          <div class="header-user">
-            <span id="user-email">Cargando...</span>
-            <div class="avatar"></div>
           </div>
 
         </div>
@@ -4550,7 +4863,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-  <script type="module" src="./js/label_generator.js"></script>
+  <script type="module" src="./js/label_generator.js?v=1.2.1"></script>
   <!-- Quill Rich Text Editor JS -->
   <script src="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.min.js"></script>
   <!-- Supabase CDN -->
@@ -4568,12 +4881,12 @@
   <script type="module" src="./js/picking_requests.js?v=1.0.3"></script>
   <script src="./js/agendas_grid.js?v=1.0.2"></script>
   <script src="./js/db-cache.js?v=1.0.0"></script>
-  <script type="module" src="./js/admin.js?v=1.5.13"></script>
+  <script type="module" src="./js/admin.js?v=1.5.15"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.5"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
   <script type="module" src="./js/billing_generator.js?v=1.3.7"></script>
   <script src="./js/manifests.js?v=1.0.1"></script>
-  <script type="module" src="./js/pos_admin.js?v=1.0.10"></script>
+  <script type="module" src="./js/pos_admin.js?v=1.0.11"></script>
   <script type="module" src="./js/inventory_count.js?v=1.0.9"></script>
   <script src="./js/inventory_locations.js?v=1.0.7"></script>
 

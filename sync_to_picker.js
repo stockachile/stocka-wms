@@ -349,6 +349,7 @@ async function run() {
         shipping_method,
         courier,
         tracking_number,
+        categoria_entrega,
         estado_wms,
         agenda,
         sucursal_pickeo,
@@ -530,15 +531,15 @@ async function run() {
       const agendaUpper = String(wmsOrder.agenda || '').toUpperCase().trim();
 
       const isStk = agendaUpper === 'STK';
-      const isRetiro = agendaUpper === 'RETIRO';
+      const isRetiro = agendaUpper === 'RETIRO' || String(wmsOrder.categoria_entrega || '').toUpperCase().trim() === 'RETIRO';
       const isBodegaCompra = agendaUpper === 'COMPRA EN BODEGA';
       const isPorPagar = opUpper.includes('POR PAGAR') || curUpper.includes('POR PAGAR') || shipMethodUpper.includes('POR PAGAR');
       const isSucursal = opUpper.includes('SUCURSAL') || curUpper.includes('SUCURSAL');
 
-      const resolvedTrack = resolveOrderTracking(wmsOrder);
+      const resolvedTrack = isRetiro ? null : resolveOrderTracking(wmsOrder);
 
-      // Backfill tracking_number en WMS si se resolvió desde raw_shopify_data
-      if (resolvedTrack && (!wmsOrder.tracking_number || String(wmsOrder.tracking_number).trim().toLowerCase() === 'no informado')) {
+      // Backfill tracking_number en WMS si se resolvió desde raw_shopify_data (NUNCA para pedidos RETIRO)
+      if (!isRetiro && resolvedTrack && (!wmsOrder.tracking_number || String(wmsOrder.tracking_number).trim().toLowerCase() === 'no informado')) {
         wmsClient.from('orders').update({ tracking_number: resolvedTrack }).eq('id', wmsOrder.id).then(() => {}).catch(() => {});
         wmsOrder.tracking_number = resolvedTrack;
       }

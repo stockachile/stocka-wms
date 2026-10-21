@@ -1251,6 +1251,7 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
 window.resetWmsInventoryMap = function() {
   window.loadedOrdersInventoryMap = {};
   window.loadedProductTotalInventoryMap = {};
+  window.loadedProductInventoryMetricsMap = {};
   if (window.loadedQueriedProductIds) {
     window.loadedQueriedProductIds.clear();
   } else {
@@ -1258,9 +1259,30 @@ window.resetWmsInventoryMap = function() {
   }
 };
 
+window.hydrateWmsInventoryMetricsFromMap = function(invMap) {
+  window.loadedProductTotalInventoryMap = window.loadedProductTotalInventoryMap || {};
+  window.loadedProductInventoryMetricsMap = window.loadedProductInventoryMetricsMap || {};
+  if (!invMap || typeof invMap !== 'object') return;
+  Object.keys(invMap).forEach(key => {
+    if (key.startsWith('__metrics_')) {
+      const prodId = key.replace('__metrics_', '');
+      const m = invMap[key];
+      if (prodId && m && typeof m === 'object') {
+        window.loadedProductInventoryMetricsMap[prodId] = {
+          physical: Number(m.physical) || 0,
+          committed: Number(m.committed) || 0,
+          reserved: Number(m.reserved) || 0
+        };
+        window.loadedProductTotalInventoryMap[prodId] = Number(m.physical) || 0;
+      }
+    }
+  });
+};
+
 window.fetchInventoryForOrders = async function(orders, force = false) {
   window.loadedOrdersInventoryMap = window.loadedOrdersInventoryMap || {};
   window.loadedProductTotalInventoryMap = window.loadedProductTotalInventoryMap || {};
+  window.loadedProductInventoryMetricsMap = window.loadedProductInventoryMetricsMap || {};
   window.loadedQueriedProductIds = window.loadedQueriedProductIds || new Set();
   if (!orders || orders.length === 0) return;
 
@@ -1301,21 +1323,32 @@ window.fetchInventoryForOrders = async function(orders, force = false) {
     await Promise.all(chunks.map(async (chunk) => {
       chunk.forEach(id => {
         window.loadedQueriedProductIds.add(id);
-        if (window.loadedProductTotalInventoryMap[id] === undefined) {
+        if (flagResetOrInitProductMetrics(id, force)) {
           window.loadedProductTotalInventoryMap[id] = 0;
+          window.loadedProductInventoryMetricsMap[id] = { physical: 0, committed: 0, reserved: 0 };
         }
       });
       const { data: invData, error: invErr } = await supabase
         .from('inventory')
-        .select('product_id, warehouse_id, quantity')
+        .select('product_id, warehouse_id, quantity, committed_quantity, reserved_quantity')
         .in('product_id', chunk);
 
       if (invErr) {
         console.error('Error fetching inventory chunk for order stock check:', invErr);
       } else if (invData) {
         invData.forEach(inv => {
-          window.loadedOrdersInventoryMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
-          window.loadedProductTotalInventoryMap[inv.product_id] = (window.loadedProductTotalInventoryMap[inv.product_id] || 0) + (inv.quantity || 0);
+          const qty = Number(inv.quantity) || 0;
+          const comm = Number(inv.committed_quantity) || 0;
+          const res = Number(inv.reserved_quantity) || 0;
+          window.loadedOrdersInventoryMap[`${inv.product_id}_${inv.warehouse_id}`] = qty;
+          window.loadedProductTotalInventoryMap[inv.product_id] = (window.loadedProductTotalInventoryMap[inv.product_id] || 0) + qty;
+          if (!window.loadedProductInventoryMetricsMap[inv.product_id]) {
+            window.loadedProductInventoryMetricsMap[inv.product_id] = { physical: 0, committed: 0, reserved: 0 };
+          }
+          window.loadedProductInventoryMetricsMap[inv.product_id].physical += qty;
+          window.loadedProductInventoryMetricsMap[inv.product_id].committed += comm;
+          window.loadedProductInventoryMetricsMap[inv.product_id].reserved += res;
+          window.loadedOrdersInventoryMap[`__metrics_${inv.product_id}`] = window.loadedProductInventoryMetricsMap[inv.product_id];
         });
       }
     }));
@@ -1323,6 +1356,10 @@ window.fetchInventoryForOrders = async function(orders, force = false) {
     console.error('Error fetching inventory for order stock check:', e);
   }
 };
+
+function flagResetOrInitProductMetrics(id, force) {
+  return force || window.loadedProductTotalInventoryMap[id] === undefined || !window.loadedProductInventoryMetricsMap[id];
+}
 
 window.agendaOptions = ['RM', 'STK', 'RM-STK', 'REGION', 'RETIRO', 'FLEX', 'CENTRO DE ENVIOS', 'FALABELLA', 'PARIS', 'RIPLEY', 'WALMART', 'COLINA', 'PENDIENTE', 'CANCELA', 'COMPRA EN BODEGA'];
 window.operadorOptions = ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS', 'ENVIAME', 'STOCKA X', 'ALPHA', 'SUCURSAL ÑUÑOA', 'FALABELLA', 'MERCADOLIBRE', 'RIPLEY'];
@@ -1635,12 +1672,36 @@ window.updateWmsOrderField = async function(orderId, field, value) {
     updatePayload[field] = value || null;
 
     const order = window.loadedOrders ? window.loadedOrders.find(o => o.id === orderId) : null;
+    const currentCat = order
+      ? (typeof window.getOrderEffectiveCategoriaEntrega === 'function' ? window.getOrderEffectiveCategoriaEntrega(order) : String(order.categoria_entrega || '').toUpperCase().trim())
+      : '';
+
+    // Bloquear asignación de courier o tracking si el pedido tiene categoría RETIRO
+    if (['courier', 'tracking_number', 'tracking_url', 'label_url'].includes(field) && value && currentCat === 'RETIRO') {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Acción bloqueada por Categoría RETIRO',
+        html: `Los pedidos con categoría <strong>RETIRO</strong> no pueden tener asignación de courier ni tracking.<br><br>Si necesitas asignar transporte a este pedido, cambia primero su categoría a <strong>DISTRIBUCIÓN</strong> o <strong>LOGÍSTICA INVERSA</strong>.`,
+        confirmButtonColor: '#eab308'
+      });
+      applyWmsFiltersAndRender();
+      return;
+    }
 
     // Manejo especial en caliente de cambio de categoría
     if (field === 'categoria_entrega') {
       if (value === 'RETIRO') {
         updatePayload.agenda = 'RETIRO';
         updatePayload.operador = 'SUCURSAL ÑUÑOA';
+        updatePayload.courier = null;
+        updatePayload.tracking_number = null;
+        updatePayload.tracking_url = null;
+        updatePayload.label_url = null;
+        updatePayload.label_base64 = null;
+        updatePayload.enviame_delivery_id = null;
+        updatePayload.enviame_status = null;
+        updatePayload.raw_lightdata_data = null;
+        updatePayload.lightdata_status = null;
       } else if (value === 'SHOP POINT (POS)' || value === 'SHOP POINT' || value === 'POS') {
         updatePayload.agenda = 'COMPRA EN BODEGA';
         updatePayload.operador = 'SUCURSAL ÑUÑOA';
@@ -1659,6 +1720,9 @@ window.updateWmsOrderField = async function(orderId, field, value) {
 
     if (order) {
       delete order._wmsTags;
+      delete order._wmsEffectiveCat;
+      delete order._wmsShipmentGlobalStatus;
+      delete order._wmsDeliveryTypeInfo;
       Object.assign(order, updatePayload);
 
       const fieldsToPropagate = ['agenda', 'sucursal_pickeo', 'operador', 'fecha_procesamiento', 'tracking_number', 'categoria_entrega'];
@@ -2879,6 +2943,23 @@ window.resyncEnviameOrder = async function(orderId) {
     return;
   }
 
+  const effCat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+    ? window.getOrderEffectiveCategoriaEntrega(order)
+    : String(order.categoria_entrega || '').toUpperCase().trim();
+  if (effCat === 'RETIRO') {
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Pedido con categoría RETIRO',
+        html: `El pedido <strong>${order.external_order_number || order.id}</strong> tiene categoría <strong>RETIRO</strong>, por lo que tiene bloqueada la asignación de courier y tracking.<br><br>Si deseas procesarlo por courier, cambia primero su categoría a <strong>DISTRIBUCIÓN</strong> o <strong>LOGÍSTICA INVERSA</strong>.`,
+        confirmButtonColor: '#eab308'
+      });
+    } else {
+      alert('Los pedidos con categoría RETIRO no pueden tener courier ni tracking asignado.');
+    }
+    return;
+  }
+
   const btn = document.getElementById(`btn-resync-enviame-${orderId}`);
   const origBtnHtml = btn ? btn.innerHTML : '';
   if (btn) {
@@ -3457,11 +3538,26 @@ window.pollForLightDataTracking = function(orderIds, maxWaitSeconds = 90) {
 
 // Función global para solicitar la generación de la etiqueta LightData vía Edge Function
 window.generarEtiquetaLightData = async function(orderId, btn) {
+  const order = (window.loadedOrders || []).find(o => o.id === orderId);
+  const effCat = order
+    ? (typeof window.getOrderEffectiveCategoriaEntrega === 'function' ? window.getOrderEffectiveCategoriaEntrega(order) : String(order.categoria_entrega || '').toUpperCase().trim())
+    : '';
+  if (effCat === 'RETIRO') {
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Acción bloqueada por Categoría RETIRO',
+        html: `El pedido <strong>${order?.external_order_number || orderId}</strong> tiene categoría <strong>RETIRO</strong> y no puede generar etiqueta de courier ni recibir tracking.<br><br>Cambia primero su categoría a <strong>DISTRIBUCIÓN</strong> o <strong>LOGÍSTICA INVERSA</strong> si necesitas despacharlo.`,
+        confirmButtonColor: '#eab308'
+      });
+    }
+    return;
+  }
+
   // Validación previa de fono y comuna
   const isValid = await window.validateAndFixOrdersForLabeling([orderId]);
   if (!isValid) return;
 
-  const order = (window.loadedOrders || []).find(o => o.id === orderId);
   const defaultSucursal = order?.sucursal_pickeo || 'Sucursal La Reina';
 
   const { value: formValues, isConfirmed } = await Swal.fire({
@@ -4100,6 +4196,13 @@ window.bulkExportAlphaExcel = async function(btn = null) {
     // 2. Si se solicitó actualizar en la base de datos de Supabase y WMS
     if (confirmResult.updateWms) {
       for (const ord of selectedOrders) {
+        const ordCat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+          ? window.getOrderEffectiveCategoriaEntrega(ord)
+          : String(ord.categoria_entrega || '').toUpperCase().trim();
+        if (ordCat === 'RETIRO') {
+          console.warn(`[Alpha Export] Omitiendo asignación de courier/tracking para pedido RETIRO ${ord.external_order_number || ord.id}`);
+          continue;
+        }
         const effSucursal = (confirmResult.sucursal === 'keep_existing')
           ? (ord.sucursal_pickeo || 'Sucursal La Reina')
           : confirmResult.sucursal;
@@ -4274,6 +4377,10 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
   if (ids.length === 0) {
     // Si no hay pedidos seleccionados, consultar si desea sincronizar todos los pedidos con operador ALPHA pendientes de tracking
     const alphaPendingOrders = (window.loadedOrders || []).filter(o => {
+      const ordCat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+        ? window.getOrderEffectiveCategoriaEntrega(o)
+        : String(o.categoria_entrega || '').toUpperCase().trim();
+      if (ordCat === 'RETIRO') return false;
       const isAlpha = (o.operador === 'ALPHA' || o.courier === 'LIGHTDATA' || o.courier === 'PENDIENTE_LIGHTDATA');
       const trk = String(o.tracking_number || '').trim().toUpperCase();
       const hasValidTracking = trk !== '' && trk !== 'NO INFORMADO' && trk !== 'NULL' && trk !== 'UNDEFINED' && !trk.includes('RECIBELO') && !trk.includes('WELIVERY');
@@ -4309,8 +4416,31 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
     ids = alphaPendingOrders.map(o => o.id);
   }
 
-  const selectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
-  if (selectedOrders.length === 0) return;
+  const rawSelectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
+  if (rawSelectedOrders.length === 0) return;
+
+  const retiroOrders = rawSelectedOrders.filter(o => {
+    const ordCat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+      ? window.getOrderEffectiveCategoriaEntrega(o)
+      : String(o.categoria_entrega || '').toUpperCase().trim();
+    return ordCat === 'RETIRO';
+  });
+  const selectedOrders = rawSelectedOrders.filter(o => {
+    const ordCat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+      ? window.getOrderEffectiveCategoriaEntrega(o)
+      : String(o.categoria_entrega || '').toUpperCase().trim();
+    return ordCat !== 'RETIRO';
+  });
+
+  if (selectedOrders.length === 0) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Acción bloqueada (Pedido RETIRO)',
+      html: `Los pedidos con categoría <strong>RETIRO</strong> no pueden tener courier ni tracking asignado.<br><br>Si necesitas sincronizar tracking desde LightData, cambia primero su categoría a <strong>DISTRIBUCIÓN</strong> o <strong>LOGÍSTICA INVERSA</strong>.`,
+      confirmButtonColor: '#eab308'
+    });
+    return;
+  }
 
   const originalHtml = btn ? btn.innerHTML : '';
   if (btn) {
@@ -6067,7 +6197,11 @@ window.extractOrderReferencesForShipments = function(ordersList) {
     const ld = o.raw_lightdata_data;
     const hasLd = !!(ld && (ld.id || ld.did || ld.tracking));
 
-    // Si es venta presencial POS sin tracking ni courier, omitir búsqueda en envíos
+    // Si es venta presencial POS sin tracking ni courier, o es RETIRO, omitir búsqueda en envíos
+    const isRetiroOrder = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+      ? window.getOrderEffectiveCategoriaEntrega(o) === 'RETIRO'
+      : String(o?.categoria_entrega || '').toUpperCase().trim() === 'RETIRO';
+    if (isRetiroOrder) return;
     if (isPosOrder(o) && !hasTrk && !hasLd) return;
 
     if (o.external_order_number) {
@@ -7546,6 +7680,9 @@ async function renderAdminOrders() {
         window.loadedShipments = cachedWindow.shipments || [];
         if (cachedWindow.inventoryMap && typeof cachedWindow.inventoryMap === 'object') {
           window.loadedOrdersInventoryMap = Object.assign({}, cachedWindow.inventoryMap);
+          if (typeof window.hydrateWmsInventoryMetricsFromMap === 'function') {
+            window.hydrateWmsInventoryMetricsFromMap(window.loadedOrdersInventoryMap);
+          }
         }
         if (typeof window.buildWmsShipmentsByRefMap === 'function') {
           window.buildWmsShipmentsByRefMap(window.loadedShipments);
@@ -7909,6 +8046,15 @@ async function renderAdminOrders() {
     window.getOrderShipmentGlobalStatus = function(order) {
       if (!order) return null;
       if (order._wmsShipmentGlobalStatus !== undefined) return order._wmsShipmentGlobalStatus;
+
+      // REGLA RETIRO: Los pedidos con categoría RETIRO nunca deben tener courier ni tracking ni despacho asociado
+      const effCat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+        ? window.getOrderEffectiveCategoriaEntrega(order)
+        : String(order.categoria_entrega || '').toUpperCase().trim();
+      if (effCat === 'RETIRO') {
+        order._wmsShipmentGlobalStatus = null;
+        return null;
+      }
 
       const rawShopify = order.raw_shopify_data;
       const isReturned = (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at)) && 
@@ -8459,7 +8605,7 @@ async function renderAdminOrders() {
     };
 
     window.checkOrderStockAlert = function(order) {
-      if (!order) return { hasStockAlert: false, stockAlertDetails: [] };
+      if (!order) return { hasStockAlert: false, stockAlertDetails: [], hasOverdemandAlert: false, overdemandDetails: [], overdemandSkus: [] };
       if (order._wmsStockAlert !== undefined) return order._wmsStockAlert;
 
       const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
@@ -8468,12 +8614,18 @@ async function renderAdminOrders() {
 
       let hasStockAlert = false;
       let stockAlertDetails = [];
-      const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms) || !!order.stock_descontado;
+      let hasOverdemandAlert = false;
+      let overdemandDetails = [];
+      let overdemandSkus = [];
+
+      const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado', 'cancelado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms) || !!order.stock_descontado;
       if (shouldProcessStock && !isOrderTerminalOrShipped) {
         const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual && (!window.isOrderItemEliminated || !window.isOrderItemEliminated(order, item)));
         if (itemsToCheck.length > 0) {
           const invMap = window.loadedOrdersInventoryMap || {};
           const totalInvMap = window.loadedProductTotalInventoryMap || null;
+          const metricsMap = window.loadedProductInventoryMetricsMap || {};
+          const seenOverdemandProdIds = new Set();
 
           itemsToCheck.forEach(item => {
             let totalAvailableQty = 0;
@@ -8490,10 +8642,29 @@ async function renderAdminOrders() {
               hasStockAlert = true;
               stockAlertDetails.push(`${item.products?.sku || 'Sin SKU'} (Faltan ${item.quantity - totalAvailableQty} un.)`);
             }
+
+            // Alerta de SOBREDEMANDA STOCK: Total Unidades Físicas < (Comprometidas + En Mesa)
+            if (item.product_id && !seenOverdemandProdIds.has(item.product_id)) {
+              const m = metricsMap[item.product_id] || invMap[`__metrics_${item.product_id}`];
+              if (m) {
+                const physicalTotal = Number(m.physical) || 0;
+                const committedTotal = Number(m.committed) || 0;
+                const reservedTotal = Number(m.reserved) || 0;
+                const demandedTotal = committedTotal + reservedTotal;
+                if (physicalTotal < demandedTotal) {
+                  seenOverdemandProdIds.add(item.product_id);
+                  hasOverdemandAlert = true;
+                  const skuStr = item.products?.sku || 'Sin SKU';
+                  const deficit = demandedTotal - physicalTotal;
+                  overdemandSkus.push(skuStr);
+                  overdemandDetails.push(`${skuStr}: Físico ${physicalTotal} < Comp.+Mesa ${demandedTotal} (Comp: ${committedTotal} + Mesa: ${reservedTotal}, Déficit: -${deficit} un.)`);
+                }
+              }
+            }
           });
         }
       }
-      const result = { hasStockAlert, stockAlertDetails };
+      const result = { hasStockAlert, stockAlertDetails, hasOverdemandAlert, overdemandDetails, overdemandSkus };
       order._wmsStockAlert = result;
       return result;
     };
@@ -9050,8 +9221,8 @@ async function renderAdminOrders() {
         tags.add('REEMBOLSADO');
       }
 
-      // 7. Etiqueta Generada
-      if (order.label_url || order.tracking_number) {
+      // 7. Etiqueta Generada (Nunca en pedidos RETIRO)
+      if ((order.label_url || order.tracking_number) && catDelivery !== 'RETIRO') {
         tags.add('Etiqueta');
       }
 
@@ -9067,10 +9238,13 @@ async function renderAdminOrders() {
         tags.add('CON NOTA INTERNA');
       }
 
-      // 9. Sin Stock
+      // 9. Sin Stock y Sobredemanda de Stock (Físico < Comprometido + En Mesa)
       const stockAlert = window.checkOrderStockAlert(order);
       if (stockAlert && stockAlert.hasStockAlert) {
         tags.add('SIN STOCK');
+      }
+      if (stockAlert && stockAlert.hasOverdemandAlert) {
+        tags.add('SOBREDEMANDA STOCK');
       }
 
       // 10. Fulfillment (Shopify)
@@ -9177,6 +9351,7 @@ async function renderAdminOrders() {
         { key: 'CON NOTA INTERNA', label: 'CON NOTA INTERNA (Admin)', icon: '🔒' },
         { key: 'Etiqueta', label: 'Etiqueta Generada', icon: '🏷️' },
         { key: 'Exportado', label: 'Exportado a Shopify', icon: '✔️' },
+        { key: 'SOBREDEMANDA STOCK', label: 'SOBREDEMANDA STOCK (Físico < Comp.+Mesa)', icon: '⚖️' },
         { key: 'SIN STOCK', label: 'SIN STOCK', icon: '🚨' }
       ];
 
@@ -10315,6 +10490,9 @@ async function renderAdminOrders() {
             window.loadedShipments = cachedWindow.shipments || [];
             if (cachedWindow.inventoryMap && typeof cachedWindow.inventoryMap === 'object') {
               window.loadedOrdersInventoryMap = Object.assign({}, cachedWindow.inventoryMap);
+              if (typeof window.hydrateWmsInventoryMetricsFromMap === 'function') {
+                window.hydrateWmsInventoryMetricsFromMap(window.loadedOrdersInventoryMap);
+              }
             }
             if (typeof window.buildWmsShipmentsByRefMap === 'function') {
               window.buildWmsShipmentsByRefMap(window.loadedShipments);
@@ -10488,6 +10666,9 @@ async function renderAdminOrders() {
               window.loadedShipments = cachedWindow.shipments || [];
               if (cachedWindow.inventoryMap && typeof cachedWindow.inventoryMap === 'object') {
                 window.loadedOrdersInventoryMap = Object.assign({}, cachedWindow.inventoryMap);
+                if (typeof window.hydrateWmsInventoryMetricsFromMap === 'function') {
+                  window.hydrateWmsInventoryMetricsFromMap(window.loadedOrdersInventoryMap);
+                }
               }
               if (typeof window.buildWmsShipmentsByRefMap === 'function') {
                 window.buildWmsShipmentsByRefMap(window.loadedShipments);
@@ -11335,13 +11516,20 @@ window.applyWmsFiltersAndRender = function() {
     const shouldProcessStock = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders) : isStockTrackingActive;
     const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms) || !!order.stock_descontado;
 
-    const stockAlert = window.checkOrderStockAlert ? window.checkOrderStockAlert(order) : { hasStockAlert: false, stockAlertDetails: [] };
+    const stockAlert = window.checkOrderStockAlert ? window.checkOrderStockAlert(order) : { hasStockAlert: false, stockAlertDetails: [], hasOverdemandAlert: false, overdemandDetails: [], overdemandSkus: [] };
     const hasStockAlert = stockAlert.hasStockAlert;
-    const stockAlertDetails = stockAlert.stockAlertDetails;
+    const stockAlertDetails = stockAlert.stockAlertDetails || [];
+    const hasOverdemandAlert = !!stockAlert.hasOverdemandAlert;
+    const overdemandDetails = stockAlert.overdemandDetails || [];
 
     const isStockActive = selectedTag === 'SIN STOCK';
     const stockAlertBadgeHtml = hasStockAlert
       ? `<span class="badge wms-order-tag-badge ${isStockActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('SIN STOCK', event)" style="background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isStockActive ? 'outline: 2px solid #b91c1c; box-shadow: 0 0 6px rgba(185,28,28,0.5);' : ''}" title="Falta stock: ${stockAlertDetails.join(', ')} (Clic para filtrar)"><i class="ri-alert-line"></i> SIN STOCK</span>`
+      : '';
+
+    const isOverdemandActive = selectedTag === 'SOBREDEMANDA STOCK';
+    const overdemandBadgeHtml = hasOverdemandAlert
+      ? `<span class="badge wms-order-tag-badge ${isOverdemandActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('SOBREDEMANDA STOCK', event)" style="background-color: #fff1f2; color: #be123c; border: 1.5px solid #f43f5e; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; box-shadow: 0 1px 3px rgba(244, 63, 94, 0.22); ${isOverdemandActive ? 'outline: 2px solid #be123c; box-shadow: 0 0 6px rgba(190,18,60,0.55);' : ''}" title="SOBREDEMANDA DE STOCK (Unidades Físicas < Comprometidas + En Mesa): ${overdemandDetails.join(' | ').replace(/"/g, '&quot;')} — Revisa qué pedido procesar y cuál dejar en espera (Clic para filtrar todos los pedidos afectados)"><i class="ri-scales-3-line" style="font-size: 0.78rem; color: #e11d48;"></i> SOBREDEMANDA STOCK</span>`
       : '';
 
     const isExportActive = selectedTag === 'Exportado';
@@ -11473,8 +11661,13 @@ window.applyWmsFiltersAndRender = function() {
       }
     }
 
+    const isRetiroOrder = catDelivery === 'RETIRO';
+    if (isRetiroOrder) {
+      shipmentBadgeHtml = '';
+    }
+
     let labelBadgeHtml = '';
-    if (order.label_url || order.tracking_number) {
+    if (!isRetiroOrder && (order.label_url || order.tracking_number)) {
       const isLabelActive = selectedTag === 'Etiqueta';
       labelBadgeHtml = `<span class="badge wms-order-tag-badge ${isLabelActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('Etiqueta', event)" style="background-color: rgba(113, 23, 235, 0.12); color: #7117eb; border: 1px solid rgba(113, 23, 235, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isLabelActive ? 'outline: 2px solid #7117eb; box-shadow: 0 0 6px rgba(113,23,235,0.5);' : ''}" title="Etiqueta Generada (Clic para filtrar)"><i class="ri-qr-code-line"></i> Etiqueta</span>`;
     }
@@ -11505,7 +11698,7 @@ window.applyWmsFiltersAndRender = function() {
                              !!order.raw_walmart_data
                            ));
 
-    const isAlphaOrder = !isVirtualOrder && (
+    const isAlphaOrder = !isRetiroOrder && !isVirtualOrder && (
                          orderCourierUpper === 'LIGHTDATA' || 
                          orderCourierUpper === 'PENDIENTE_LIGHTDATA' || 
                          (orderShipments.length > 0 && orderShipments[0].source_table === 'lightdata_envios') ||
@@ -11534,20 +11727,22 @@ window.applyWmsFiltersAndRender = function() {
     let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     
-    if (order.label_url && !isIgnoredCourier) {
-      labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-weight: 600; width: 100%; height: 100%; text-decoration: none;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
-    } else if (isAlphaOrder && alphaDid) {
-      labelHtml = `<button id="btn-download-${order.id}" onclick="window.downloadOrderLabel('${order.id}', '${order.external_order_number || ''}')" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; width: 100%; height: 100%;"><i class="ri-download-2-line"></i> Descargar</button>`;
-    } else if (order.tracking_number && !isIgnoredCourier) {
-      labelHtml = `<button id="btn-download-${order.id}" onclick="window.downloadOrderLabel('${order.id}', '${order.external_order_number || ''}')" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; width: 100%; height: 100%;"><i class="ri-download-2-line"></i> Descargar</button>`;
-    } else if (isAlphaOrder || isIgnoredCourier) {
-      labelHtml = `<button onclick="window.generarEtiquetaLightData('${order.id}', this)" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; border-color: #7117eb; color: #7117eb; background: rgba(113, 23, 235, 0.05); width: 100%; height: 100%;"><i class="ri-add-circle-line"></i> Crear Etiqueta</button>`;
+    if (!isRetiroOrder) {
+      if (order.label_url && !isIgnoredCourier) {
+        labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-weight: 600; width: 100%; height: 100%; text-decoration: none;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
+      } else if (isAlphaOrder && alphaDid) {
+        labelHtml = `<button id="btn-download-${order.id}" onclick="window.downloadOrderLabel('${order.id}', '${order.external_order_number || ''}')" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; width: 100%; height: 100%;"><i class="ri-download-2-line"></i> Descargar</button>`;
+      } else if (order.tracking_number && !isIgnoredCourier) {
+        labelHtml = `<button id="btn-download-${order.id}" onclick="window.downloadOrderLabel('${order.id}', '${order.external_order_number || ''}')" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; width: 100%; height: 100%;"><i class="ri-download-2-line"></i> Descargar</button>`;
+      } else if (isAlphaOrder || isIgnoredCourier) {
+        labelHtml = `<button onclick="window.generarEtiquetaLightData('${order.id}', this)" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; border-color: #7117eb; color: #7117eb; background: rgba(113, 23, 235, 0.05); width: 100%; height: 100%;"><i class="ri-add-circle-line"></i> Crear Etiqueta</button>`;
+      }
     }
 
     let courier_destino = '';
     let comuna_destino = '';
-    let trackingNum = isAlphaOrder ? alphaDid : (isIgnoredCourier ? null : order.tracking_number);
-    let trackingUrl = isAlphaOrder && alphaDid ? (order.tracking_url || `https://alphagroup.lightdata.com.ar/tracking.php?token=${alphaDid}d54df4s8a88`) : (isIgnoredCourier ? null : order.tracking_url);
+    let trackingNum = isRetiroOrder ? null : (isAlphaOrder ? alphaDid : (isIgnoredCourier ? null : order.tracking_number));
+    let trackingUrl = isRetiroOrder ? null : (isAlphaOrder && alphaDid ? (order.tracking_url || `https://alphagroup.lightdata.com.ar/tracking.php?token=${alphaDid}d54df4s8a88`) : (isIgnoredCourier ? null : order.tracking_url));
 
     if (orderShipments.length > 0) {
       const shipment = orderShipments[0];
@@ -11779,7 +11974,14 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     // Fila compacta de Courier y Tracking para la celda de Estado WMS/Origen
-    const hasValidTrack = trackingNum && 
+    if (isRetiroOrder) {
+      courierName = 'No aplica (Retiro)';
+      trackingNum = null;
+      trackingUrl = null;
+      trackingHtml = `<span style="color: #854d0e; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-store-2-line"></i> No aplica (Categoría RETIRO)</span>`;
+    }
+
+    const hasValidTrack = !isRetiroOrder && trackingNum && 
       trackingNum !== 'N/A' && 
       trackingNum !== '-' && 
       trackingNum !== 'null' && 
@@ -11787,12 +11989,19 @@ window.applyWmsFiltersAndRender = function() {
       trackingNum !== order.id && 
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(trackingNum).trim());
 
-    const hasRealCourier = courierName && courierName !== 'Courier' && courierName !== 'CARRIER EXTERNO';
-    const displayCourier = hasRealCourier ? courierName : (order.operador && !isIgnoredCourier && order.operador !== 'STOCKA' ? order.operador : null);
-    const hasValidTrackUrl = trackingUrl && trackingUrl !== 'N/A' && (trackingUrl.startsWith('http://') || trackingUrl.startsWith('https://'));
+    const hasRealCourier = !isRetiroOrder && courierName && courierName !== 'Courier' && courierName !== 'CARRIER EXTERNO' && courierName !== 'No aplica (Retiro)';
+    const displayCourier = isRetiroOrder ? null : (hasRealCourier ? courierName : (order.operador && !isIgnoredCourier && order.operador !== 'STOCKA' && order.operador !== 'SUCURSAL ÑUÑOA' ? order.operador : null));
+    const hasValidTrackUrl = !isRetiroOrder && trackingUrl && trackingUrl !== 'N/A' && (trackingUrl.startsWith('http://') || trackingUrl.startsWith('https://'));
 
     let courierTrackingRowHtml = '';
-    if (displayCourier && hasValidTrack) {
+    if (isRetiroOrder) {
+      courierTrackingRowHtml = `
+        <div style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.65rem; color: #854d0e; margin-top: 0.05rem; line-height: 1.2;" title="Pedido con categoría RETIRO: bloqueado para asignación de courier o tracking">
+          <i class="ri-store-2-line" style="font-size: 0.72rem; color: #ca8a04; flex-shrink: 0;"></i>
+          <span style="font-weight: 600;">Retiro en Sucursal (Sin courier)</span>
+        </div>
+      `;
+    } else if (displayCourier && hasValidTrack) {
       const trackElem = hasValidTrackUrl
         ? `<a href="${trackingUrl}" target="_blank" onclick="event.stopPropagation();" style="color: #2563eb; font-family: monospace; font-size: 0.68rem; font-weight: 600; text-decoration: underline; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; display: inline-block; vertical-align: middle;" title="Seguimiento: ${trackingNum} (Clic para abrir rastreo)">${trackingNum}</a>`
         : `<span onclick="event.stopPropagation(); if(navigator.clipboard){navigator.clipboard.writeText('${trackingNum}'); if(window.Swal) window.Swal.fire({toast:true,position:'top-end',icon:'success',title:'Tracking copiado',showConfirmButton:false,timer:1200}); else if(window.showToast) window.showToast('Tracking copiado: ${trackingNum}', 'success');}" style="font-family: monospace; font-size: 0.68rem; font-weight: 600; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; display: inline-block; vertical-align: middle; cursor: copy;" title="Tracking: ${trackingNum} (Clic para copiar)">${trackingNum}</span>`;
@@ -12245,16 +12454,26 @@ window.applyWmsFiltersAndRender = function() {
               ? ` (Asignada: ${item.warehouseName} con ${Number(invMap[origItem.product_id + '_' + item.warehouseId]) || 0} un.)` 
               : '';
 
+            const itemMetrics = prodId ? (window.loadedProductInventoryMetricsMap?.[prodId] || invMap[`__metrics_${prodId}`]) : null;
+            const isItemOverdemand = !!(itemMetrics && (Number(itemMetrics.physical) || 0) < ((Number(itemMetrics.committed) || 0) + (Number(itemMetrics.reserved) || 0)));
+            if (isItemOverdemand && !isGlobalInsufficient) {
+              rowStyle += ' background-color: rgba(244, 63, 94, 0.06);';
+            }
+            const overdemandItemHtml = isItemOverdemand
+              ? `<span style="display: inline-flex; align-items: center; gap: 0.15rem; font-size: 0.65rem; font-weight: 800; color: #be123c; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 4px; padding: 0.08rem 0.3rem; margin-top: 0.1rem; cursor: help;" title="SOBREDEMANDA STOCK: Físico Total (${itemMetrics.physical} un.) es menor a Comprometido (${itemMetrics.committed} un.) + En Mesa (${itemMetrics.reserved} un.) = ${Number(itemMetrics.committed) + Number(itemMetrics.reserved)} un."><i class="ri-scales-3-line"></i> Fís:${itemMetrics.physical} &lt; C+M:${Number(itemMetrics.committed) + Number(itemMetrics.reserved)}</span>`
+              : '';
+
             stockCellHtml = `
               <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.18rem; min-width: 44px; line-height: 1.2;">
-                <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; font-size: 0.82rem; color: ${globalColor}; cursor: help;" title="Stock global (todas las bodegas): ${globalStock} un. (Requerido: ${item.quantity})">
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; font-size: 0.82rem; color: ${globalColor}; cursor: help;" title="Stock disponible global (todas las bodegas): ${globalStock} un. (Requerido: ${item.quantity})">
                   <i class="ri-global-line" style="font-size: 0.88rem;"></i>
                   <span>${globalStock}</span>
                 </span>
-                <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; font-size: 0.78rem; color: ${defaultColor}; cursor: help;" title="Stock en ${defaultWhName} (bodega por defecto): ${defaultStock} un.${assignedInfo}">
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; font-size: 0.78rem; color: ${defaultColor}; cursor: help;" title="Stock disponible en ${defaultWhName} (bodega por defecto): ${defaultStock} un.${assignedInfo}">
                   <i class="ri-store-2-line" style="font-size: 0.82rem;"></i>
                   <span>${defaultStock}</span>
                 </span>
+                ${overdemandItemHtml}
               </div>
             `;
           }
@@ -12729,7 +12948,7 @@ window.applyWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.2s;">
         <td colspan="13" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${qtyMismatchBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${adminNoteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
+            ${categoryBadgeHtml}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${qtyMismatchBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${adminNoteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>
@@ -13030,6 +13249,7 @@ window.applyWmsFiltersAndRender = function() {
                     <button onclick="window.showShippingLabelModal('${order.id}')" class="btn btn-outline btn-sm" style="width: 100%; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: var(--color-primary); color: var(--color-primary); transition: all 0.2s;">
                       <i class="ri-printer-line"></i> Etiqueta Stocka
                     </button>
+                    <button onclick="window.openQuickBranchExchangeReceiptModal('${(order.external_order_number || order.id || '').replace(/'/g, "\\'")}')" class="btn btn-outline btn-sm" style="width: 100%; margin-top: 0.35rem; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: #7c3aed; color: #7c3aed; background: rgba(124, 58, 237, 0.05); transition: all 0.2s;" title="Generar o imprimir comprobante de cambio / devolución realizado en Sucursal Ñuñoa para este pedido"><i class="ri-file-list-3-line"></i> Comprobante Cambio Sucursal</button>
                     <button onclick="window.wmsCreateManifestFromSingleOrder('${order.id}')" class="btn btn-outline btn-sm" style="width: 100%; margin-top: 0.35rem; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: #2563eb; color: #2563eb; background: rgba(37, 99, 235, 0.04); transition: all 0.2s;" title="Generar manifiesto de retiro para este pedido">
                       <i class="ri-file-paper-2-line"></i> Crear Manifiesto
                     </button>
@@ -15618,7 +15838,26 @@ window.wmsCreateManifestFromSelected = function () {
     return;
   }
 
-  const selectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
+  const rawSelectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
+  const selectedOrders = rawSelectedOrders.filter(o => {
+    const ordCat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+      ? window.getOrderEffectiveCategoriaEntrega(o)
+      : String(o.categoria_entrega || '').toUpperCase().trim();
+    return ordCat !== 'RETIRO';
+  });
+  if (rawSelectedOrders.length > 0 && selectedOrders.length === 0) {
+    if (window.Swal) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Acción bloqueada (Pedido RETIRO)',
+        html: 'Los pedidos con categoría <strong>RETIRO</strong> no se entregan a couriers externos y no pueden incluirse en un manifiesto de courier.<br><br>Si necesitas despacharlo por courier, cambia primero su categoría a <strong>DISTRIBUCIÓN</strong> o <strong>LOGÍSTICA INVERSA</strong>.',
+        confirmButtonColor: '#eab308'
+      });
+    } else {
+      alert('Los pedidos con categoría RETIRO no pueden incluirse en un manifiesto de courier.');
+    }
+    return;
+  }
   if (typeof window.openCreateManifestModal === 'function') {
     window.openCreateManifestModal(selectedOrders.length > 0 ? selectedOrders : ids);
   } else {
@@ -15652,6 +15891,24 @@ window.wmsOpenCreateManifestModal = function () {
 
 window.wmsCreateManifestFromSingleOrder = function (orderId) {
   const order = (window.loadedOrders || []).find(o => o.id === orderId);
+  if (order) {
+    const ordCat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+      ? window.getOrderEffectiveCategoriaEntrega(order)
+      : String(order.categoria_entrega || '').toUpperCase().trim();
+    if (ordCat === 'RETIRO') {
+      if (window.Swal) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Acción bloqueada (Pedido RETIRO)',
+          html: 'Este pedido tiene categoría <strong>RETIRO</strong> y no puede asociarse a un manifiesto de courier.<br><br>Cambia su categoría a <strong>DISTRIBUCIÓN</strong> o <strong>LOGÍSTICA INVERSA</strong> si requieres enviarlo por courier.',
+          confirmButtonColor: '#eab308'
+        });
+      } else {
+        alert('Este pedido tiene categoría RETIRO y no puede asociarse a un manifiesto de courier.');
+      }
+      return;
+    }
+  }
   if (typeof window.openCreateManifestModal === 'function') {
     window.openCreateManifestModal(order ? [order] : [orderId]);
   } else {
@@ -23515,11 +23772,19 @@ function updateAdminInventorySortingIndicators() {
   });
 }
 
-function exportAdminInventoryToCsv() {
+async function exportAdminInventoryToCsv() {
   const rows = applyAdminInventoryFiltersAndSort(true);
   if (rows.length === 0) {
     alert('No hay registros de inventario para exportar.');
     return;
+  }
+
+  if (window.exportManager && typeof window.exportManager.confirmInventoryExportWarning === 'function') {
+    const confirmed = await window.exportManager.confirmInventoryExportWarning({
+      moduleType: 'inventory',
+      getAllData: () => rows
+    });
+    if (!confirmed) return;
   }
 
   const csvHeaders = [
@@ -58710,6 +58975,206 @@ async function refreshDashboardData() {
   }
 }
 
+async function renderProfile() {
+  const appContent = document.getElementById('app-content');
+  if (!appContent) return;
+
+  appContent.innerHTML = `<div style="padding: 3rem; text-align: center; color: var(--color-text-muted);"><i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: var(--color-primary);"></i><div style="margin-top: 0.5rem;">Cargando perfil de administrador...</div></div>`;
+
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('No se pudo obtener la sesión del usuario.');
+
+    const { data: profile, error: profErr } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    if (profErr) throw profErr;
+
+    const fullName = profile?.full_name || '';
+    const companyName = profile?.company_name || 'STOCKA';
+    const phone = profile?.phone || '';
+    const contactEmail = profile?.contact_email || user.email || '';
+    const avatarUrl = profile?.avatar_url || '';
+    const initials = (fullName || companyName || user.email || 'AD')
+      .split(/[\s._@-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map(s => s[0].toUpperCase())
+      .join('');
+
+    appContent.innerHTML = `
+      <div style="max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 1.5rem;">
+        <div class="card" style="margin-bottom: 0; overflow: hidden;">
+          <div style="padding: 1.5rem 1.75rem; background: linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(94, 23, 235, 0.08) 100%); border-bottom: 1px solid var(--color-border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+            <div style="display: flex; align-items: center; gap: 1.15rem;">
+              <div id="admin-profile-avatar-preview" style="width: 68px; height: 68px; border-radius: 50%; background: ${avatarUrl ? `url('${avatarUrl}') center/cover no-repeat` : 'linear-gradient(135deg, #2563eb 0%, #5e17eb 100%)'}; color: #fff; font-size: 1.4rem; font-weight: 800; display: flex; align-items: center; justify-content: center; border: 3px solid var(--color-surface); box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
+                ${avatarUrl ? '' : initials}
+              </div>
+              <div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                  <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">${fullName || companyName || 'Administrador'}</h3>
+                  <span style="font-size: 0.7rem; font-weight: 800; padding: 0.18rem 0.55rem; border-radius: 99px; background: rgba(94, 23, 235, 0.15); color: #7c3aed; border: 1px solid rgba(94, 23, 235, 0.3);">
+                    <i class="ri-shield-star-line"></i> SUPER ADMIN WMS
+                  </span>
+                </div>
+                <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.2rem;">${user.email} · ${companyName}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card-body" style="padding: 1.5rem 1.75rem;">
+            <h4 style="margin: 0 0 1rem 0; font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.45rem; color: var(--color-text-main);">
+              <i class="ri-user-settings-line" style="color: var(--color-primary);"></i> Datos de la Cuenta
+            </h4>
+            <div id="admin-profile-alert"></div>
+            <form id="form-admin-edit-profile">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-weight: 600;">Nombre Visible</label>
+                  <input type="text" id="admin-prof-name" class="form-input" value="${fullName}" placeholder="Ej. Stocka Admin" required>
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-weight: 600;">Organización / Empresa</label>
+                  <input type="text" id="admin-prof-company" class="form-input" value="${companyName}" placeholder="Ej. STOCKA">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-weight: 600;">Teléfono de Contacto</label>
+                  <input type="text" id="admin-prof-phone" class="form-input" value="${phone}" placeholder="+56 9 1234 5678">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-weight: 600;">Correo de Contacto</label>
+                  <input type="email" id="admin-prof-email" class="form-input" value="${contactEmail}" placeholder="correo@stocka.cl">
+                </div>
+              </div>
+              <div class="form-group" style="margin-bottom: 1.25rem;">
+                <label class="form-label" style="font-weight: 600;">URL de Avatar (Opcional)</label>
+                <input type="url" id="admin-prof-avatar" class="form-input" value="${avatarUrl}" placeholder="https://...">
+              </div>
+              <div style="display: flex; justify-content: flex-end;">
+                <button type="submit" id="btn-save-admin-prof" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-save-line"></i> Guardar Datos de Perfil
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom: 0;">
+          <div class="card-body" style="padding: 1.5rem 1.75rem;">
+            <h4 style="margin: 0 0 0.35rem 0; font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.45rem; color: var(--color-text-main);">
+              <i class="ri-lock-password-line" style="color: var(--color-primary);"></i> Seguridad y Contraseña
+            </h4>
+            <p style="margin: 0 0 1.15rem 0; font-size: 0.82rem; color: var(--color-text-muted);">Actualiza la contraseña de acceso de tu cuenta de administrador.</p>
+            <div id="admin-password-alert"></div>
+            <form id="form-admin-change-password">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-weight: 600;">Nueva Contraseña</label>
+                  <input type="password" id="admin-new-pass" class="form-input" minlength="6" placeholder="Mínimo 6 caracteres" required>
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-weight: 600;">Confirmar Nueva Contraseña</label>
+                  <input type="password" id="admin-confirm-pass" class="form-input" minlength="6" placeholder="Repite la nueva contraseña" required>
+                </div>
+              </div>
+              <div style="display: flex; justify-content: flex-end;">
+                <button type="submit" id="btn-save-admin-pass" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600;">
+                  <i class="ri-key-2-line"></i> Actualizar Contraseña
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const profForm = document.getElementById('form-admin-edit-profile');
+    if (profForm) {
+      profForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const saveBtn = document.getElementById('btn-save-admin-prof');
+        const alertBox = document.getElementById('admin-profile-alert');
+        const newName = document.getElementById('admin-prof-name').value.trim();
+        const newComp = document.getElementById('admin-prof-company').value.trim();
+        const newPhone = document.getElementById('admin-prof-phone').value.trim();
+        const newEmail = document.getElementById('admin-prof-email').value.trim();
+        const newAvatar = document.getElementById('admin-prof-avatar').value.trim();
+
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
+
+        try {
+          const { error: updErr } = await supabase
+            .from('profiles')
+            .update({
+              full_name: newName,
+              company_name: newComp,
+              phone: newPhone,
+              contact_email: newEmail,
+              avatar_url: newAvatar
+            })
+            .eq('id', user.id);
+
+          if (updErr) throw updErr;
+
+          const userEmailSpan = document.getElementById('user-email');
+          if (userEmailSpan) {
+            userEmailSpan.textContent = newName || newComp || user.email;
+          }
+
+          alertBox.innerHTML = `<div class="alert alert-success" style="display: block; margin-bottom: 1rem;">¡Perfil actualizado correctamente!</div>`;
+          setTimeout(() => { alertBox.innerHTML = ''; }, 4000);
+        } catch (err) {
+          alertBox.innerHTML = `<div class="alert alert-danger" style="display: block; margin-bottom: 1rem;">Error al guardar: ${err.message}</div>`;
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Datos de Perfil';
+        }
+      });
+    }
+
+    const passForm = document.getElementById('form-admin-change-password');
+    if (passForm) {
+      passForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const passBtn = document.getElementById('btn-save-admin-pass');
+        const alertBox = document.getElementById('admin-password-alert');
+        const p1 = document.getElementById('admin-new-pass').value;
+        const p2 = document.getElementById('admin-confirm-pass').value;
+
+        if (p1 !== p2) {
+          alertBox.innerHTML = `<div class="alert alert-danger" style="display: block; margin-bottom: 1rem;">Las contraseñas no coinciden.</div>`;
+          return;
+        }
+
+        passBtn.disabled = true;
+        passBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Actualizando...';
+
+        try {
+          const { error: pwErr } = await supabase.auth.updateUser({ password: p1 });
+          if (pwErr) throw pwErr;
+          passForm.reset();
+          alertBox.innerHTML = `<div class="alert alert-success" style="display: block; margin-bottom: 1rem;">¡Contraseña actualizada exitosamente!</div>`;
+          setTimeout(() => { alertBox.innerHTML = ''; }, 4000);
+        } catch (err) {
+          alertBox.innerHTML = `<div class="alert alert-danger" style="display: block; margin-bottom: 1rem;">Error al actualizar contraseña: ${err.message}</div>`;
+        } finally {
+          passBtn.disabled = false;
+          passBtn.innerHTML = '<i class="ri-key-2-line"></i> Actualizar Contraseña';
+        }
+      });
+    }
+  } catch (err) {
+    console.error('Error en renderProfile Admin:', err);
+    appContent.innerHTML = `<div class="card" style="padding: 2rem; text-align: center; color: var(--color-danger);">Error al cargar perfil: ${err.message}</div>`;
+  }
+}
+
+window.renderProfile = renderProfile;
+
 async function renderInboxPage() {
   const appContent = document.getElementById('app-content');
   if (!appContent) return;
@@ -58743,6 +59208,7 @@ async function loadInboxData() {
   if (!list) return;
 
   try {
+    const currentMerchantId = window.currentAdminUser?.id || (await supabase.auth.getUser())?.data?.user?.id;
     if (!currentMerchantId) return;
     
     // Fetch user's read records
@@ -68570,7 +69036,7 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     // 1. Obtener los datos frescos de la orden
     const { data: order, error: orderErr } = await supabase
       .from('orders')
-      .select('id, external_order_number, tracking_number, tracking_url, courier, raw_lightdata_data, estado_wms, comercio')
+      .select('id, external_order_number, tracking_number, tracking_url, courier, raw_lightdata_data, estado_wms, comercio, categoria_entrega, agenda, origen, external_platform, shipping_method, tags, raw_shopify_data')
       .eq('id', orderId)
       .maybeSingle();
 
@@ -68582,6 +69048,20 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     const localOrder = window.loadedOrders.find(o => o.id === orderId);
     if (localOrder) {
       Object.assign(localOrder, order);
+    }
+
+    const effectiveCat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+      ? window.getOrderEffectiveCategoriaEntrega(localOrder || order)
+      : String(order.categoria_entrega || '').toUpperCase().trim();
+
+    if (effectiveCat === 'RETIRO') {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Asignación Bloqueada (Pedido RETIRO)',
+        html: `El pedido <strong>${order.external_order_number || order.id}</strong> tiene la categoría <strong>RETIRO</strong>.<br><br>Por regla de negocio e inventario, los pedidos de <strong>RETIRO</strong> nunca deben tener asignación de courier ni tracking.<br><br>Si necesitas despacharlo mediante un courier, primero cambia su categoría a <strong>DISTRIBUCIÓN</strong> o <strong>LOGÍSTICA INVERSA</strong>.`,
+        confirmButtonColor: '#eab308'
+      });
+      return;
     }
 
     // 2. Buscar envíos en envios_unificados usando todas las referencias posibles
@@ -69170,10 +69650,13 @@ window.openWmsOrderModal = async function(orderId) {
   const currentSucursal = order.sucursal_pickeo || 'Sucursal Ñuñoa';
   const currentAgenda = String(order.agenda || '').trim();
   const currentOperador = String(order.operador || '').trim();
-  const currentCourier = String(order.courier || order.shipping_method || '').trim();
-  const currentTracking = String(order.tracking_number || '').trim();
-  const currentTrackingUrl = String(order.tracking_url || '').trim();
-  const currentCategoria = String(order.categoria_entrega || order.categoria || 'NORMAL').trim().toUpperCase();
+  const currentCategoria = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+    ? window.getOrderEffectiveCategoriaEntrega(order)
+    : String(order.categoria_entrega || order.categoria || 'DISTRIBUCIÓN').trim().toUpperCase();
+  const isInitialRetiro = currentCategoria === 'RETIRO';
+  const currentCourier = isInitialRetiro ? '' : String(order.courier || '').trim();
+  const currentTracking = isInitialRetiro ? '' : String(order.tracking_number || '').trim();
+  const currentTrackingUrl = isInitialRetiro ? '' : String(order.tracking_url || '').trim();
 
   // Bodega stock actual
   const existingItems = order.order_items || [];
@@ -69375,11 +69858,10 @@ window.openWmsOrderModal = async function(orderId) {
           <div class="wms-modal-field">
             <label class="wms-modal-label">Categoría de Entrega</label>
             <select id="wms-modal-categoria" class="wms-input-ctrl">
-              <option value="NORMAL" ${currentCategoria === 'NORMAL' ? 'selected' : ''}>NORMAL</option>
-              <option value="PRIORITARIO" ${currentCategoria === 'PRIORITARIO' ? 'selected' : ''}>PRIORITARIO</option>
-              <option value="EXPRESS" ${currentCategoria === 'EXPRESS' ? 'selected' : ''}>EXPRESS</option>
-              <option value="SAME DAY" ${currentCategoria === 'SAME DAY' ? 'selected' : ''}>SAME DAY</option>
-              <option value="PROGRAMADO" ${currentCategoria === 'PROGRAMADO' ? 'selected' : ''}>PROGRAMADO</option>
+              <option value="DISTRIBUCIÓN" ${currentCategoria === 'DISTRIBUCIÓN' || currentCategoria === 'DISTRIBUCION' || currentCategoria === 'NORMAL' ? 'selected' : ''}>DISTRIBUCIÓN</option>
+              <option value="RETIRO" ${currentCategoria === 'RETIRO' ? 'selected' : ''}>RETIRO</option>
+              <option value="LOGÍSTICA INVERSA" ${currentCategoria === 'LOGÍSTICA INVERSA' || currentCategoria === 'LOGISTICA INVERSA' ? 'selected' : ''}>LOGÍSTICA INVERSA</option>
+              <option value="SHOP POINT (POS)" ${currentCategoria === 'SHOP POINT (POS)' || currentCategoria === 'SHOP POINT' || currentCategoria === 'POS' ? 'selected' : ''}>SHOP POINT (POS)</option>
             </select>
           </div>
           <div class="wms-modal-field">
@@ -69424,17 +69906,20 @@ window.openWmsOrderModal = async function(orderId) {
           <div class="wms-modal-card-title">
             <i class="ri-truck-line"></i> Transporte y Seguimiento
           </div>
+          <div id="wms-modal-retiro-lock-banner" style="display: ${isInitialRetiro ? 'block' : 'none'}; background: #fef9c3; border: 1px solid #facc15; color: #854d0e; padding: 0.45rem 0.6rem; border-radius: 6px; font-size: 0.74rem; font-weight: 600; margin-bottom: 0.5rem;">
+            <i class="ri-lock-line"></i> Los pedidos con categoría <strong>RETIRO</strong> no permiten asignación de courier ni tracking. Cambia la categoría a Distribución o Logística Inversa para habilitar estos campos.
+          </div>
           <div class="wms-modal-field">
             <label class="wms-modal-label">Courier de Entrega</label>
-            <input type="text" id="wms-modal-courier" class="wms-input-ctrl" value="${window.escapeHtml ? window.escapeHtml(currentCourier) : currentCourier}" placeholder="Ej: STARKEN, BLUEXPRESS, CHILEXPRESS...">
+            <input type="text" id="wms-modal-courier" class="wms-input-ctrl" value="${window.escapeHtml ? window.escapeHtml(currentCourier) : currentCourier}" placeholder="Ej: STARKEN, BLUEXPRESS, CHILEXPRESS..." ${isInitialRetiro ? 'disabled style="background:#f1f5f9; cursor:not-allowed; opacity:0.65;"' : ''}>
           </div>
           <div class="wms-modal-field">
             <label class="wms-modal-label">N° de Seguimiento / Tracking</label>
-            <input type="text" id="wms-modal-tracking" class="wms-input-ctrl" value="${window.escapeHtml ? window.escapeHtml(currentTracking) : currentTracking}" placeholder="N° de seguimiento del courier">
+            <input type="text" id="wms-modal-tracking" class="wms-input-ctrl" value="${window.escapeHtml ? window.escapeHtml(currentTracking) : currentTracking}" placeholder="N° de seguimiento del courier" ${isInitialRetiro ? 'disabled style="background:#f1f5f9; cursor:not-allowed; opacity:0.65;"' : ''}>
           </div>
           <div class="wms-modal-field">
             <label class="wms-modal-label">URL de Seguimiento</label>
-            <input type="url" id="wms-modal-tracking-url" class="wms-input-ctrl" value="${window.escapeHtml ? window.escapeHtml(currentTrackingUrl) : currentTrackingUrl}" placeholder="https://tracking.courier.cl/...">
+            <input type="url" id="wms-modal-tracking-url" class="wms-input-ctrl" value="${window.escapeHtml ? window.escapeHtml(currentTrackingUrl) : currentTrackingUrl}" placeholder="https://tracking.courier.cl/..." ${isInitialRetiro ? 'disabled style="background:#f1f5f9; cursor:not-allowed; opacity:0.65;"' : ''}>
           </div>
           <div class="wms-modal-field" style="margin-top: 0.6rem;">
             <div class="wms-modal-card-title" style="margin-bottom: 0.35rem; color: #4338ca; display: flex; align-items: center; justify-content: space-between;">
@@ -69516,6 +70001,42 @@ window.openWmsOrderModal = async function(orderId) {
       const opInput = document.getElementById('wms-modal-operador');
       if (opInput && opInput.value && typeof window.validateOptionLiveInput === 'function') {
         window.validateOptionLiveInput(opInput, 'operador');
+      }
+
+      const catSelectEl = document.getElementById('wms-modal-categoria');
+      const courierInputEl = document.getElementById('wms-modal-courier');
+      const trackingInputEl = document.getElementById('wms-modal-tracking');
+      const trackingUrlInputEl = document.getElementById('wms-modal-tracking-url');
+      const retiroBannerEl = document.getElementById('wms-modal-retiro-lock-banner');
+      if (catSelectEl) {
+        catSelectEl.addEventListener('change', () => {
+          const isRet = catSelectEl.value === 'RETIRO';
+          if (retiroBannerEl) retiroBannerEl.style.display = isRet ? 'block' : 'none';
+          [courierInputEl, trackingInputEl, trackingUrlInputEl].forEach(el => {
+            if (!el) return;
+            el.disabled = isRet;
+            if (isRet) {
+              el.value = '';
+              el.style.background = '#f1f5f9';
+              el.style.cursor = 'not-allowed';
+              el.style.opacity = '0.65';
+            } else {
+              el.style.background = 'var(--color-surface, #ffffff)';
+              el.style.cursor = '';
+              el.style.opacity = '1';
+            }
+          });
+          if (isRet) {
+            if (agInput) {
+              agInput.value = 'RETIRO';
+              if (typeof window.validateOptionLiveInput === 'function') window.validateOptionLiveInput(agInput, 'agenda');
+            }
+            if (opInput) {
+              opInput.value = 'SUCURSAL ÑUÑOA';
+              if (typeof window.validateOptionLiveInput === 'function') window.validateOptionLiveInput(opInput, 'operador');
+            }
+          }
+        });
       }
     },
     preConfirm: () => {
@@ -69615,6 +70136,7 @@ window.openWmsOrderModal = async function(orderId) {
                    (order?.raw_meli_data ? 'raw_meli_data' :
                    (order?.raw_walmart_data ? 'raw_walmart_data' : null))))))));
 
+    const isModalRetiro = String(formValues.categoria || '').toUpperCase().trim() === 'RETIRO';
     const updatePayload = {
       customer_name: formValues.name || null,
       customer_email: formValues.email || null,
@@ -69624,13 +70146,21 @@ window.openWmsOrderModal = async function(orderId) {
       shipping_city: formValues.city || null,
       estado_wms: formValues.estado_wms,
       categoria_entrega: formValues.categoria,
-      agenda: formValues.agenda || null,
-      operador: formValues.operador || null,
+      agenda: isModalRetiro ? 'RETIRO' : (formValues.agenda || null),
+      operador: isModalRetiro ? 'SUCURSAL ÑUÑOA' : (formValues.operador || null),
       sucursal_pickeo: formValues.sucursal,
-      courier: formValues.courier || null,
-      tracking_number: formValues.tracking || null,
-      tracking_url: formValues.tracking_url || null
+      courier: isModalRetiro ? null : (formValues.courier || null),
+      tracking_number: isModalRetiro ? null : (formValues.tracking || null),
+      tracking_url: isModalRetiro ? null : (formValues.tracking_url || null)
     };
+    if (isModalRetiro) {
+      updatePayload.label_url = null;
+      updatePayload.label_base64 = null;
+      updatePayload.enviame_delivery_id = null;
+      updatePayload.enviame_status = null;
+      updatePayload.raw_lightdata_data = null;
+      updatePayload.lightdata_status = null;
+    }
 
     // Sincronizar columna status estándar
     const normSt = String(formValues.estado_wms || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -73531,6 +74061,15 @@ window.bulkSetWmsOrderCategoria = async function() {
     if (isRetiro) {
       updatePayload.agenda = 'RETIRO';
       updatePayload.operador = 'SUCURSAL ÑUÑOA';
+      updatePayload.courier = null;
+      updatePayload.tracking_number = null;
+      updatePayload.tracking_url = null;
+      updatePayload.label_url = null;
+      updatePayload.label_base64 = null;
+      updatePayload.enviame_delivery_id = null;
+      updatePayload.enviame_status = null;
+      updatePayload.raw_lightdata_data = null;
+      updatePayload.lightdata_status = null;
     } else if (isShopPoint) {
       updatePayload.agenda = 'COMPRA EN BODEGA';
       updatePayload.operador = 'SUCURSAL ÑUÑOA';
@@ -73560,9 +74099,21 @@ window.bulkSetWmsOrderCategoria = async function() {
     for (const order of (window.loadedOrders || [])) {
       if (idSet.has(order.id)) {
         order.categoria_entrega = formValues.categoria_entrega;
+        delete order._wmsEffectiveCat;
+        delete order._wmsShipmentGlobalStatus;
+        delete order._wmsTags;
         if (isRetiro) {
           order.agenda = 'RETIRO';
           order.operador = 'SUCURSAL ÑUÑOA';
+          order.courier = null;
+          order.tracking_number = null;
+          order.tracking_url = null;
+          order.label_url = null;
+          order.label_base64 = null;
+          order.enviame_delivery_id = null;
+          order.enviame_status = null;
+          order.raw_lightdata_data = null;
+          order.lightdata_status = null;
         } else if (isShopPoint) {
           order.agenda = 'COMPRA EN BODEGA';
           order.operador = 'SUCURSAL ÑUÑOA';
@@ -80960,6 +81511,10 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
   const defaultSubject = defaultData.subject || 'Información y Presentación de Servicios de Fulfillment - Stocka';
   const defaultMeeting = defaultData.meetingUrl || 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5';
   const defaultCustomMsg = defaultData.customMessage || '';
+  const defaultCenterMode = defaultData.centerMode || 'cards'; // 'cards' | 'custom_replace' | 'both'
+  const defaultCustomBoxStyle = defaultData.customBoxStyle || 'card'; // 'card' | 'clean' | 'highlight'
+  const defaultCustomBoxTitle = defaultData.customBoxTitle !== undefined ? defaultData.customBoxTitle : '';
+  const defaultIncludeSecondIntro = defaultData.includeSecondIntro !== false;
 
   const defaultFulfillmentUrl = defaultData.fulfillmentUrl || pricingConfig?.presentations?.fulfillment_url || 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_fulfillment_360_1787715943297.pdf';
   const defaultDespachosUrl = defaultData.despachosUrl || pricingConfig?.presentations?.despachos_rm_url || 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_despachos_rm_1787715973435.pdf';
@@ -80967,237 +81522,424 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
   const defaultCotizadorUrl = defaultData.cotizadorUrl || pricingConfig?.presentations?.cotizador_url || 'https://wms.stocka.cl/cotizaciones.html';
 
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 760px; width: 95%; max-height: 92vh; display: flex; flex-direction: column; padding: 0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-xl);">
+    <div class="modal-content" style="max-width: 1440px !important; width: 96vw !important; height: 92vh; max-height: 94vh; display: flex; flex-direction: column; padding: 0; border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-xl);">
+      <style>
+        #info-input-custom-editor:empty:before {
+          content: attr(data-placeholder);
+          color: #94a3b8;
+          pointer-events: none;
+          display: block;
+        }
+        #info-input-custom-editor ul, #lead-info-preview-custom-text ul {
+          margin: 6px 0 8px 0;
+          padding-left: 20px;
+          list-style-type: disc;
+        }
+        #info-input-custom-editor ol, #lead-info-preview-custom-text ol {
+          margin: 6px 0 8px 0;
+          padding-left: 20px;
+          list-style-type: decimal;
+        }
+        #info-input-custom-editor li, #lead-info-preview-custom-text li {
+          margin-bottom: 4px;
+        }
+        #info-input-custom-editor p, #lead-info-preview-custom-text p {
+          margin: 0 0 6px 0;
+        }
+        .lead-rte-btn {
+          background: var(--color-surface);
+          border: 1px solid var(--color-border);
+          border-radius: 5px;
+          padding: 4px 8px;
+          font-size: 0.76rem;
+          color: var(--color-text-main);
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 3px;
+          transition: all 0.15s ease;
+          white-space: nowrap;
+        }
+        .lead-rte-btn:hover {
+          background: rgba(94, 23, 235, 0.08);
+          border-color: rgba(94, 23, 235, 0.35);
+          color: #5e17eb;
+        }
+        .lead-info-split-layout {
+          display: grid;
+          grid-template-columns: 1.12fr 0.88fr;
+          flex: 1;
+          min-height: 0;
+          overflow: hidden;
+          background: var(--color-surface);
+        }
+        .lead-info-left-pane {
+          overflow-y: auto;
+          padding: 1.15rem 1.4rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.95rem;
+          border-right: 1px solid var(--color-border);
+        }
+        .lead-info-right-pane {
+          overflow-y: auto;
+          padding: 1.15rem 1.35rem;
+          background: var(--color-bg);
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+        }
+        @media (max-width: 1080px) {
+          .lead-info-split-layout {
+            grid-template-columns: 1fr;
+            overflow-y: auto;
+          }
+          .lead-info-left-pane {
+            overflow-y: visible;
+            border-right: none;
+            border-bottom: 1px solid var(--color-border);
+          }
+          .lead-info-right-pane {
+            overflow-y: visible;
+          }
+        }
+      </style>
       
       <!-- Modal Header -->
-      <div class="modal-header" style="background: linear-gradient(135deg, #1e40af, #3b82f6); color: white; padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+      <div class="modal-header" style="background: linear-gradient(135deg, #1e40af, #3b82f6); color: white; padding: 0.95rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
         <div style="display: flex; align-items: center; gap: 0.75rem;">
-          <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(255,255,255,0.18); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.35rem; flex-shrink: 0;">
+          <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(255,255,255,0.18); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0;">
             <i class="ri-mail-star-line"></i>
           </div>
           <div>
-            <h3 style="margin: 0; font-size: 1.18rem; font-weight: 700; color: white;">Enviar Información Comercial y Presentación</h3>
-            <p style="margin: 2px 0 0 0; font-size: 0.78rem; color: rgba(255,255,255,0.88);">Presentación oficial de Fulfillment, cotizador online y agendamiento de reunión</p>
+            <h3 style="margin: 0; font-size: 1.12rem; font-weight: 700; color: white;">Enviar Información Comercial y Presentación</h3>
+            <p style="margin: 1px 0 0 0; font-size: 0.76rem; color: rgba(255,255,255,0.88);">Presentación oficial de Fulfillment, respuesta personalizada con formato, cotizador online y agendamiento de reunión</p>
           </div>
         </div>
         <button type="button" class="modal-close" id="btn-close-send-lead-info" style="color: white; font-size: 1.4rem; background: transparent; border: none; cursor: pointer;">&times;</button>
       </div>
 
-      <!-- Modal Body Form -->
-      <form id="form-send-lead-info" style="display: flex; flex-direction: column; flex: 1; overflow: hidden; margin: 0;">
-        <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; background: var(--color-surface);">
+      <!-- Modal Body Form (2 Columnas: Editor a la Izquierda + Vista Previa en Vivo a la Derecha) -->
+      <form id="form-send-lead-info" style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; margin: 0;">
+        <div class="lead-info-split-layout">
           
-          <div id="lead-info-modal-alert" class="alert alert-danger" style="display: none; padding: 0.75rem 1rem; font-size: 0.85rem; border-radius: var(--radius-sm);"></div>
+          <!-- COLUMNA IZQUIERDA: DATOS, EDITOR CON FORMATO Y DOCUMENTOS -->
+          <div class="lead-info-left-pane">
+            <div id="lead-info-modal-alert" class="alert alert-danger" style="display: none; padding: 0.65rem 0.9rem; font-size: 0.82rem; border-radius: var(--radius-sm);"></div>
 
-          <!-- Destinatario Principal -->
-          <div class="form-group" style="margin: 0;">
-            <label class="form-label" for="info-input-email" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between;">
-              <span>Correo Destinatario Principal (Para) <span style="color: var(--color-danger);">*</span></span>
-              <span style="font-weight: normal; font-size: 0.75rem; color: var(--color-text-muted);">Requerido</span>
-            </label>
-            <div style="position: relative;">
-              <i class="ri-mail-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-              <input type="email" id="info-input-email" class="form-input" required placeholder="ej: contacto@mitienda.cl" value="${defaultEmail}" style="padding-left: 2.25rem;">
-            </div>
-          </div>
-
-          <!-- Grid: Nombre Contacto y Nombre Comercio -->
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-            <div class="form-group" style="margin: 0;">
-              <label class="form-label" for="info-input-contact" style="font-weight: 600; font-size: 0.85rem;">
-                Nombre del Contacto (Saludo)
-              </label>
-              <div style="position: relative;">
-                <i class="ri-user-smile-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-                <input type="text" id="info-input-contact" class="form-input" placeholder="ej: Melissa" value="${defaultContact}" style="padding-left: 2.25rem;">
-              </div>
-              <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">
-                Aparecerá en el saludo: "¡Hola Melissa! 👋"
-              </span>
-            </div>
-
-            <div class="form-group" style="margin: 0;">
-              <label class="form-label" for="info-input-commerce" style="font-weight: 600; font-size: 0.85rem;">
-                Nombre del Comercio / Empresa
-              </label>
-              <div style="position: relative;">
-                <i class="ri-store-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-                <input type="text" id="info-input-commerce" class="form-input" placeholder="ej: Mi Tienda Online" value="${defaultCommerce}" style="padding-left: 2.25rem;">
-              </div>
-              <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">
-                Empresa o marca del lead
-              </span>
-            </div>
-          </div>
-
-          <!-- Asunto y Copia (CC) -->
-          <div style="display: grid; grid-template-columns: 1.3fr 1fr; gap: 1rem;">
-            <div class="form-group" style="margin: 0;">
-              <label class="form-label" for="info-input-subject" style="font-weight: 600; font-size: 0.85rem;">
-                Asunto del Correo
-              </label>
-              <div style="position: relative;">
-                <i class="ri-edit-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-                <input type="text" id="info-input-subject" class="form-input" value="${defaultSubject}" style="padding-left: 2.25rem;">
-              </div>
-            </div>
-
-            <div class="form-group" style="margin: 0;">
-              <label class="form-label" for="info-input-cc" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between;">
-                <span>Enviar Copia a (CC)</span>
-                <span style="font-weight: normal; font-size: 0.75rem; color: var(--color-text-muted);">Opcional</span>
-              </label>
-              <div style="position: relative;">
-                <i class="ri-user-shared-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-                <input type="text" id="info-input-cc" class="form-input" placeholder="ej: socio@tienda.cl" value="${defaultCc}" style="padding-left: 2.25rem;">
-              </div>
-            </div>
-          </div>
-
-          <!-- Enlace de Agendamiento de Reunión -->
-          <div class="form-group" style="margin: 0;">
-            <label class="form-label" for="info-input-meeting" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between;">
-              <span><i class="ri-calendar-event-line" style="color: #2563eb;"></i> Enlace para Agendar Reunión Virtual (Google Meet)</span>
-              <span style="font-size: 0.75rem; color: var(--color-text-muted);">Hubspot Meetings / Meet</span>
-            </label>
-            <div style="position: relative;">
-              <i class="ri-video-chat-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-              <input type="url" id="info-input-meeting" class="form-input" value="${defaultMeeting}" style="padding-left: 2.25rem; font-size: 0.82rem;">
-            </div>
-            <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">
-              El prospecto podrá hacer clic directamente en el correo para reservar 20-30 min en tu calendario.
-            </span>
-          </div>
-
-          <!-- Mensaje Personalizado Adicional (Opcional) -->
-          <div class="form-group" style="margin: 0;">
-            <label class="form-label" for="info-input-custom-msg" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between;">
-              <span>Mensaje o Nota Personalizada Adicional</span>
-              <span style="font-weight: normal; font-size: 0.75rem; color: var(--color-text-muted);">Opcional</span>
-            </label>
-            <textarea id="info-input-custom-msg" class="form-input" rows="2" placeholder="ej: Revisé tu tienda y veo que tienen un catálogo con alta rotación en RM, por lo que nuestras tarifas Same Day calzarán perfecto..." style="resize: vertical; font-size: 0.83rem;">${defaultCustomMsg}</textarea>
-          </div>
-
-          <!-- Documentos y Enlaces que se Adjuntan / Incluyen en el Correo -->
-          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 1rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem;">
-              <div style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
-                <i class="ri-attachment-2" style="color: #2563eb;"></i>
-                Recursos y Documentos Oficiales incluidos en el Correo:
-              </div>
-              <button type="button" id="btn-toggle-custom-docs" class="btn btn-outline btn-sm" style="padding: 0.2rem 0.55rem; font-size: 0.72rem; color: #5e17eb; border-color: rgba(94, 23, 235, 0.3);">
-                <i class="ri-settings-4-line"></i> Modificar Enlaces
-              </button>
-            </div>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;" id="lead-info-docs-badges-grid">
-              <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.45rem 0.65rem; font-size: 0.78rem;">
-                <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 1.1rem; flex-shrink: 0;"></i>
-                  <span style="font-weight: 600; color: var(--color-text-main);">Presentación Fulfillment 360°</span>
-                </div>
-                <a id="link-preview-doc-fulfillment" href="${defaultFulfillmentUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver PDF"><i class="ri-external-link-line"></i></a>
-              </div>
-
-              <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.45rem 0.65rem; font-size: 0.78rem;">
-                <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 1.1rem; flex-shrink: 0;"></i>
-                  <span style="font-weight: 600; color: var(--color-text-main);">Alternativas Despachos RM</span>
-                </div>
-                <a id="link-preview-doc-despachos" href="${defaultDespachosUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver PDF"><i class="ri-external-link-line"></i></a>
-              </div>
-
-              <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.45rem 0.65rem; font-size: 0.78rem;">
-                <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  <i class="ri-folder-shared-line" style="color: #3b82f6; font-size: 1.1rem; flex-shrink: 0;"></i>
-                  <span style="font-weight: 600; color: var(--color-text-main);">Carpeta Tarifas Courier Chile</span>
-                </div>
-                <a id="link-preview-doc-courier" href="${defaultCourierFolderUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver Carpeta"><i class="ri-external-link-line"></i></a>
-              </div>
-
-              <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.45rem 0.65rem; font-size: 0.78rem;">
-                <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  <i class="ri-calculator-line" style="color: #10b981; font-size: 1.1rem; flex-shrink: 0;"></i>
-                  <span style="font-weight: 600; color: var(--color-text-main);">Cotizador Online en Vivo</span>
-                </div>
-                <a id="link-preview-doc-cotizador" href="${defaultCotizadorUrl}" target="_blank" style="color: #10b981; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver Cotizador"><i class="ri-external-link-line"></i></a>
-              </div>
-            </div>
-
-            <!-- Panel Expandible de Personalización de Enlaces -->
-            <div id="panel-custom-docs-urls" style="display: none; margin-top: 0.85rem; padding-top: 0.85rem; border-top: 1px dashed var(--color-border);">
-              <div style="font-size: 0.78rem; font-weight: 700; color: #5e17eb; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.35rem;">
-                <i class="ri-edit-2-line"></i> Personalizar URLs para este correo:
-              </div>
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
-                <div class="form-group" style="margin: 0;">
-                  <label class="form-label" style="font-size: 0.72rem;">1. Presentación Fulfillment (PDF):</label>
-                  <input type="url" id="info-input-fulfillment-url" class="form-input" value="${defaultFulfillmentUrl}" style="font-size: 0.76rem; padding: 0.35rem 0.5rem;">
-                </div>
-                <div class="form-group" style="margin: 0;">
-                  <label class="form-label" style="font-size: 0.72rem;">2. Presentación Despachos RM (PDF):</label>
-                  <input type="url" id="info-input-despachos-url" class="form-input" value="${defaultDespachosUrl}" style="font-size: 0.76rem; padding: 0.35rem 0.5rem;">
-                </div>
-                <div class="form-group" style="margin: 0;">
-                  <label class="form-label" style="font-size: 0.72rem;">3. Carpeta Tarifas Courier (Google Drive):</label>
-                  <input type="url" id="info-input-courier-url" class="form-input" value="${defaultCourierFolderUrl}" style="font-size: 0.76rem; padding: 0.35rem 0.5rem;">
-                </div>
-                <div class="form-group" style="margin: 0;">
-                  <label class="form-label" style="font-size: 0.72rem;">4. Cotizador Online (Stocka.cl):</label>
-                  <input type="url" id="info-input-cotizador-url" class="form-input" value="${defaultCotizadorUrl}" style="font-size: 0.76rem; padding: 0.35rem 0.5rem;">
+            <!-- Fila 1: Destinatario, Nombre Contacto y Nombre Comercio (3 Columnas) -->
+            <div style="display: grid; grid-template-columns: 1.25fr 0.95fr 1fr; gap: 0.75rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" for="info-input-email" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; display: flex; justify-content: space-between;">
+                  <span>Correo Destinatario (Para) <span style="color: var(--color-danger);">*</span></span>
+                </label>
+                <div style="position: relative;">
+                  <i class="ri-mail-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
+                  <input type="email" id="info-input-email" class="form-input" required placeholder="ej: contacto@mitienda.cl" value="${defaultEmail}" style="padding-left: 2rem; font-size: 0.82rem; height: 36px;">
                 </div>
               </div>
 
-              <div style="margin-top: 0.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.5rem 0.75rem;">
-                <span style="font-size: 0.72rem; color: var(--color-text-muted);">
-                  ⚙️ Para subir nuevos archivos PDF o cambiar las URLs de forma permanente para todo el sistema:
-                </span>
-                <button type="button" id="btn-goto-pricing-settings" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.25rem 0.65rem; color: #2563eb; border-color: #2563eb;">
-                  <i class="ri-external-link-line"></i> Abrir Tarifario y Presentaciones
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" for="info-input-contact" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; display: flex; justify-content: space-between;">
+                  <span>Nombre Contacto (Saludo)</span>
+                </label>
+                <div style="position: relative;">
+                  <i class="ri-user-smile-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
+                  <input type="text" id="info-input-contact" class="form-input" placeholder="ej: Melissa" value="${defaultContact}" style="padding-left: 2rem; font-size: 0.82rem; height: 36px;">
+                </div>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" for="info-input-commerce" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; display: flex; justify-content: space-between;">
+                  <span>Comercio / Empresa</span>
+                </label>
+                <div style="position: relative;">
+                  <i class="ri-store-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
+                  <input type="text" id="info-input-commerce" class="form-input" placeholder="ej: Mi Tienda Online" value="${defaultCommerce}" style="padding-left: 2rem; font-size: 0.82rem; height: 36px;">
+                </div>
+              </div>
+            </div>
+
+            <!-- Fila 2: Asunto, CC y Enlace de Reunión (3 Columnas) -->
+            <div style="display: grid; grid-template-columns: 1.3fr 0.75fr 1.15fr; gap: 0.75rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" for="info-input-subject" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem;">
+                  Asunto del Correo
+                </label>
+                <div style="position: relative;">
+                  <i class="ri-edit-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
+                  <input type="text" id="info-input-subject" class="form-input" value="${defaultSubject}" style="padding-left: 2rem; font-size: 0.82rem; height: 36px;">
+                </div>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" for="info-input-cc" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; display: flex; justify-content: space-between;">
+                  <span>Copia (CC)</span>
+                  <span style="font-weight: normal; font-size: 0.7rem; color: var(--color-text-muted);">Opcional</span>
+                </label>
+                <div style="position: relative;">
+                  <i class="ri-user-shared-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
+                  <input type="text" id="info-input-cc" class="form-input" placeholder="socio@tienda.cl" value="${defaultCc}" style="padding-left: 2rem; font-size: 0.82rem; height: 36px;">
+                </div>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" for="info-input-meeting" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; display: flex; justify-content: space-between;">
+                  <span><i class="ri-video-chat-line" style="color: #2563eb;"></i> Link Agendar Reunión (Meet)</span>
+                </label>
+                <div style="position: relative;">
+                  <i class="ri-calendar-event-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
+                  <input type="url" id="info-input-meeting" class="form-input" value="${defaultMeeting}" style="padding-left: 2rem; font-size: 0.78rem; height: 36px;">
+                </div>
+              </div>
+            </div>
+
+            <!-- Zona Central del Correo: Selector de Modo + Editor con Formato -->
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.9rem 1rem; display: flex; flex-direction: column; flex: 1;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.6rem;">
+                <label class="form-label" style="margin: 0; font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-layout-masonry-line" style="color: #5e17eb; font-size: 1.05rem;"></i>
+                  Zona Central del Correo (Bloques de Información vs Respuesta Personalizada)
+                </label>
+                <span style="font-size: 0.72rem; color: var(--color-text-muted);">Mantiene intacta la línea gráfica del correo</span>
+              </div>
+
+              <!-- Selector de Modo (3 opciones) -->
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 0.65rem;" id="lead-info-center-mode-group">
+                <button type="button" data-center-mode="cards" class="lead-info-mode-btn" style="text-align: left; padding: 0.5rem 0.65rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; border: 1.5px solid #5e17eb; background: rgba(94, 23, 235, 0.07); color: var(--color-text-main);">
+                  <div style="font-weight: 700; font-size: 0.78rem; color: #5e17eb; display: flex; align-items: center; gap: 0.3rem;">
+                    <i class="ri-grid-fill"></i> 4 Bloques en Tarjetas
+                  </div>
+                  <div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; line-height: 1.25;">
+                    Diseño estándar con las 4 tarjetas de servicio
+                  </div>
+                </button>
+
+                <button type="button" data-center-mode="custom_replace" class="lead-info-mode-btn" style="text-align: left; padding: 0.5rem 0.65rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; border: 1.5px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+                  <div style="font-weight: 700; font-size: 0.78rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
+                    <i class="ri-quill-pen-fill" style="color: #2563eb;"></i> Reemplazar por Texto
+                  </div>
+                  <div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; line-height: 1.25;">
+                    Sustituye las 4 tarjetas por tu respuesta con formato
+                  </div>
+                </button>
+
+                <button type="button" data-center-mode="both" class="lead-info-mode-btn" style="text-align: left; padding: 0.5rem 0.65rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; border: 1.5px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+                  <div style="font-weight: 700; font-size: 0.78rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
+                    <i class="ri-layout-row-fill" style="color: #10b981;"></i> Texto + 4 Tarjetas
+                  </div>
+                  <div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; line-height: 1.25;">
+                    Muestra tu respuesta y debajo las 4 tarjetas
+                  </div>
                 </button>
               </div>
-            </div>
-            
-            <p style="margin: 0.5rem 0 0 0; font-size: 0.72rem; color: var(--color-text-muted); line-height: 1.4;">
-              💡 <em>Las presentaciones PDF se descargan y adjuntan automáticamente en el correo enviado vía Brevo API, y los enlaces directos se incluyen en el cuerpo del correo.</em>
-            </p>
-          </div>
 
-          <!-- Vista Previa en Vivo (Live Preview Accordion) -->
-          <details open style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem 1rem; font-size: 0.82rem;">
-            <summary style="font-weight: 700; color: var(--color-text-main); cursor: pointer; display: flex; align-items: center; gap: 0.4rem; user-select: none;">
-              <i class="ri-eye-line" style="color: #5e17eb;"></i> Vista Previa en Vivo del Correo (Línea Gráfica Oficial)
-            </summary>
-            
-            <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border);">
-              <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 0.85rem; line-height: 1.6; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-                
-                <!-- Header Dark Idéntico a Cotización -->
-                <div style="background: #0f172a; padding: 24px 20px; text-align: center; color: #ffffff;">
-                  <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo" style="height: 38px; margin-bottom: 8px; display: inline-block;">
-                  <div style="font-size: 1.15rem; font-weight: 700; color: #ffffff; letter-spacing: 0.5px; margin: 0;">Propuesta y Servicios Fulfillment 360</div>
-                  <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Soluciones Integrales de Almacenamiento, Preparación y Despacho para Ecommerce</div>
+              <!-- Controles de Estilo, Párrafo Introductorio y Título Opcional en Grid Compacto -->
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.55rem;">
+                <div style="display: flex; align-items: center; gap: 0.45rem; padding: 0.35rem 0.6rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 7px;">
+                  <span style="font-size: 0.73rem; font-weight: 600; color: var(--color-text-muted); white-space: nowrap;">Diseño bloque:</span>
+                  <select id="info-input-custom-box-style" class="form-input" style="font-size: 0.74rem; padding: 0.2rem 0.4rem; flex: 1; height: 28px;">
+                    <option value="card" ${defaultCustomBoxStyle === 'card' ? 'selected' : ''}>🗂️ Tarjeta Corporativa Stocka (Borde y acento morado)</option>
+                    <option value="clean" ${defaultCustomBoxStyle === 'clean' ? 'selected' : ''}>📝 Texto Fluido Integrado (Sin recuadro, directo)</option>
+                    <option value="highlight" ${defaultCustomBoxStyle === 'highlight' ? 'selected' : ''}>💜 Recuadro Destacado Suave (Fondo lavanda)</option>
+                  </select>
                 </div>
 
-                <div style="padding: 24px 20px;">
-                  <!-- Saludo -->
-                  <div id="lead-info-preview-greeting" style="font-size: 1rem; font-weight: 600; color: #0f172a; margin-bottom: 0.65rem;">
-                    ¡Hola${defaultContact ? `, <strong>${defaultContact}</strong>` : ''}! 👋
+                <div style="display: flex; align-items: center; padding: 0.35rem 0.6rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 7px;">
+                  <label style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.73rem; color: var(--color-text-main); cursor: pointer; user-select: none; margin: 0;">
+                    <input type="checkbox" id="info-input-include-second-intro" ${defaultIncludeSecondIntro ? 'checked' : ''} style="accent-color: #5e17eb; cursor: pointer;">
+                    <span>Incluir 2° párrafo introductorio (<em>"En Stocka somos un partner..."</em>)</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Título opcional del bloque -->
+              <div style="display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.55rem;">
+                <input type="text" id="info-input-custom-box-title" class="form-input" placeholder="Título opcional del bloque (ej: 💬 Respuesta a tus consultas — o déjalo vacío)" value="${defaultCustomBoxTitle}" style="flex: 1; font-size: 0.76rem; padding: 0.3rem 0.6rem; height: 32px;">
+                <button type="button" class="lead-rte-btn" id="btn-preset-title-consultas" title="Usar título sugerido" style="font-size: 0.71rem; height: 32px; padding: 0 0.6rem;">
+                  💬 "Respuesta a tus consultas:"
+                </button>
+                <button type="button" class="lead-rte-btn" id="btn-clear-box-title" title="Dejar sin título" style="font-size: 0.71rem; height: 32px; padding: 0 0.55rem; color: var(--color-text-muted);">
+                  Sin título
+                </button>
+              </div>
+
+              <!-- Barra de Herramientas de Formato (Rich Text) + Editor más amplio -->
+              <div style="border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; background: #ffffff; display: flex; flex-direction: column; flex: 1;">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.3rem; padding: 0.4rem 0.6rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border);">
+                  <div style="display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap;">
+                    <button type="button" class="lead-rte-btn" data-rte-cmd="bold" title="Negrita (Ctrl+B)">
+                      <i class="ri-bold"></i>
+                    </button>
+                    <button type="button" class="lead-rte-btn" data-rte-cmd="italic" title="Cursiva (Ctrl+I)">
+                      <i class="ri-italic"></i>
+                    </button>
+                    <button type="button" class="lead-rte-btn" data-rte-cmd="underline" title="Subrayado (Ctrl+U)">
+                      <i class="ri-underline"></i>
+                    </button>
+                    <span style="width: 1px; height: 16px; background: var(--color-border); margin: 0 2px;"></span>
+                    <button type="button" class="lead-rte-btn" data-rte-cmd="insertUnorderedList" title="Lista con viñetas">
+                      <i class="ri-list-unordered"></i> Viñetas
+                    </button>
+                    <button type="button" class="lead-rte-btn" data-rte-cmd="insertOrderedList" title="Lista numerada">
+                      <i class="ri-list-ordered"></i> Numerada
+                    </button>
+                    <span style="width: 1px; height: 16px; background: var(--color-border); margin: 0 2px;"></span>
+                    <button type="button" class="lead-rte-btn" data-rte-color="#5e17eb" title="Color Morado Stocka">
+                      <span style="width: 9px; height: 9px; border-radius: 50%; background: #5e17eb; display: inline-block;"></span> Morado
+                    </button>
+                    <button type="button" class="lead-rte-btn" data-rte-color="#2563eb" title="Color Azul">
+                      <span style="width: 9px; height: 9px; border-radius: 50%; background: #2563eb; display: inline-block;"></span> Azul
+                    </button>
+                    <button type="button" class="lead-rte-btn" data-rte-color="#0f172a" title="Color Texto Normal">
+                      <span style="width: 9px; height: 9px; border-radius: 50%; background: #0f172a; display: inline-block;"></span> Oscuro
+                    </button>
+                    <button type="button" class="lead-rte-btn" id="btn-rte-link" title="Insertar Enlace">
+                      <i class="ri-link"></i>
+                    </button>
+                    <button type="button" class="lead-rte-btn" data-rte-cmd="removeFormat" title="Quitar formato del texto seleccionado">
+                      <i class="ri-format-clear"></i>
+                    </button>
                   </div>
 
-                  <p style="margin: 0 0 0.75rem 0; color: #475569; font-size: 0.85rem;">
-                    Muchas gracias por tu interés en los servicios de <strong>Fulfillment 360 de STOCKA</strong>. Te escribe <strong>Felipe Trujillo</strong>, Socio Fundador de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 700; text-decoration: underline;">Stocka.cl</a>.
-                    <br><br>
-                    En Stocka somos un partner logístico especializado en potenciar marcas online mediante un modelo de servicio <strong>integral, ágil y 100% escalable</strong>, diseñado para que puedas delegar la logística y concentrarte en el crecimiento de tus ventas:
-                  </p>
+                  <button type="button" class="lead-rte-btn" id="btn-insert-qa-template" style="color: #5e17eb; border-color: rgba(94, 23, 235, 0.3); background: rgba(94, 23, 235, 0.05); font-weight: 600; font-size: 0.72rem;" title="Insertar estructura de ejemplo para responder consultas">
+                    <i class="ri-magic-line"></i> Insertar Plantilla Respuesta
+                  </button>
+                </div>
 
-                  <!-- Mensaje personalizado condicional -->
-                  <div id="lead-info-preview-custom-box" style="display: ${defaultCustomMsg ? 'block' : 'none'}; background-color: #f5f3ff; border: 1px solid #ddd6fe; border-left: 4px solid #5e17eb; border-radius: 8px; padding: 12px 14px; margin-bottom: 1rem; font-size: 0.82rem; color: #4338ca;">
-                    <strong>Mensaje personalizado:</strong><br>
-                    <span id="lead-info-preview-custom-text">${defaultCustomMsg}</span>
+                <!-- Editor ContentEditable -->
+                <div id="info-input-custom-editor" contenteditable="true" data-placeholder="Escribe aquí tu mensaje con formato respondiendo las consultas específicas del lead (puedes usar negritas, viñetas, numeración y colores)..." style="min-height: 155px; max-height: 290px; flex: 1; overflow-y: auto; padding: 0.75rem 0.9rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 0.85rem; line-height: 1.6; color: #0f172a; background: #ffffff; outline: none;">${defaultCustomMsg ? defaultCustomMsg.replace(/\n/g, '<br>') : ''}</div>
+                <textarea id="info-input-custom-msg" style="display: none;">${defaultCustomMsg}</textarea>
+              </div>
+
+              <div id="lead-info-mode-helper-note" style="margin-top: 0.4rem; font-size: 0.72rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-information-line" style="color: #5e17eb;"></i>
+                <span id="lead-info-mode-helper-text">En modo <strong>4 Bloques en Tarjetas</strong>, este mensaje es opcional y se mostrará arriba de las 4 tarjetas solo si escribes algo.</span>
+              </div>
+            </div>
+
+            <!-- Documentos y Enlaces que se Adjuntan / Incluyen en el Correo -->
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.75rem 1rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <div style="font-weight: 700; font-size: 0.8rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-attachment-2" style="color: #2563eb;"></i>
+                  Recursos y Documentos Oficiales incluidos en el Correo:
+                </div>
+                <button type="button" id="btn-toggle-custom-docs" class="btn btn-outline btn-sm" style="padding: 0.18rem 0.55rem; font-size: 0.71rem; color: #5e17eb; border-color: rgba(94, 23, 235, 0.3);">
+                  <i class="ri-settings-4-line"></i> Modificar Enlaces
+                </button>
+              </div>
+              
+              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem;" id="lead-info-docs-badges-grid">
+                <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.73rem;">
+                  <div style="display: flex; align-items: center; gap: 0.3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 1rem; flex-shrink: 0;"></i>
+                    <span style="font-weight: 600; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis;">Fulfillment 360°</span>
                   </div>
+                  <a id="link-preview-doc-fulfillment" href="${defaultFulfillmentUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver PDF"><i class="ri-external-link-line"></i></a>
+                </div>
 
-                  <!-- 4 Pilares Clave (Estilo Tarjetas KPI como Cotización) -->
+                <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.73rem;">
+                  <div style="display: flex; align-items: center; gap: 0.3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 1rem; flex-shrink: 0;"></i>
+                    <span style="font-weight: 600; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis;">Despachos RM</span>
+                  </div>
+                  <a id="link-preview-doc-despachos" href="${defaultDespachosUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver PDF"><i class="ri-external-link-line"></i></a>
+                </div>
+
+                <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.73rem;">
+                  <div style="display: flex; align-items: center; gap: 0.3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <i class="ri-folder-shared-line" style="color: #3b82f6; font-size: 1rem; flex-shrink: 0;"></i>
+                    <span style="font-weight: 600; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis;">Tarifas Courier</span>
+                  </div>
+                  <a id="link-preview-doc-courier" href="${defaultCourierFolderUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver Carpeta"><i class="ri-external-link-line"></i></a>
+                </div>
+
+                <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.73rem;">
+                  <div style="display: flex; align-items: center; gap: 0.3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <i class="ri-calculator-line" style="color: #10b981; font-size: 1rem; flex-shrink: 0;"></i>
+                    <span style="font-weight: 600; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis;">Cotizador Vivo</span>
+                  </div>
+                  <a id="link-preview-doc-cotizador" href="${defaultCotizadorUrl}" target="_blank" style="color: #10b981; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver Cotizador"><i class="ri-external-link-line"></i></a>
+                </div>
+              </div>
+
+              <!-- Panel Expandible de Personalización de Enlaces -->
+              <div id="panel-custom-docs-urls" style="display: none; margin-top: 0.7rem; padding-top: 0.7rem; border-top: 1px dashed var(--color-border);">
+                <div style="font-size: 0.76rem; font-weight: 700; color: #5e17eb; margin-bottom: 0.45rem; display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-edit-2-line"></i> Personalizar URLs para este correo:
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem;">
+                  <div class="form-group" style="margin: 0;">
+                    <label class="form-label" style="font-size: 0.7rem;">1. Presentación Fulfillment (PDF):</label>
+                    <input type="url" id="info-input-fulfillment-url" class="form-input" value="${defaultFulfillmentUrl}" style="font-size: 0.74rem; padding: 0.3rem 0.5rem;">
+                  </div>
+                  <div class="form-group" style="margin: 0;">
+                    <label class="form-label" style="font-size: 0.7rem;">2. Presentación Despachos RM (PDF):</label>
+                    <input type="url" id="info-input-despachos-url" class="form-input" value="${defaultDespachosUrl}" style="font-size: 0.74rem; padding: 0.3rem 0.5rem;">
+                  </div>
+                  <div class="form-group" style="margin: 0;">
+                    <label class="form-label" style="font-size: 0.7rem;">3. Carpeta Tarifas Courier (Google Drive):</label>
+                    <input type="url" id="info-input-courier-url" class="form-input" value="${defaultCourierFolderUrl}" style="font-size: 0.74rem; padding: 0.3rem 0.5rem;">
+                  </div>
+                  <div class="form-group" style="margin: 0;">
+                    <label class="form-label" style="font-size: 0.7rem;">4. Cotizador Online (Stocka.cl):</label>
+                    <input type="url" id="info-input-cotizador-url" class="form-input" value="${defaultCotizadorUrl}" style="font-size: 0.74rem; padding: 0.3rem 0.5rem;">
+                  </div>
+                </div>
+
+                <div style="margin-top: 0.6rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.45rem 0.65rem;">
+                  <span style="font-size: 0.71rem; color: var(--color-text-muted);">
+                    ⚙️ Para cambiar archivos PDF o URLs permanentes:
+                  </span>
+                  <button type="button" id="btn-goto-pricing-settings" class="btn btn-outline btn-sm" style="font-size: 0.71rem; padding: 0.2rem 0.6rem; color: #2563eb; border-color: #2563eb;">
+                    <i class="ri-external-link-line"></i> Abrir Tarifario y Presentaciones
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- COLUMNA DERECHA: VISTA PREVIA EN VIVO DEL CORREO SIEMPRE VISIBLE -->
+          <div class="lead-info-right-pane">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px dashed var(--color-border);">
+              <div style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-eye-line" style="color: #5e17eb; font-size: 1rem;"></i>
+                Vista Previa en Vivo del Correo
+              </div>
+              <span style="font-size: 0.71rem; font-weight: 600; color: #5e17eb; background: rgba(94, 23, 235, 0.08); padding: 2px 8px; border-radius: 12px; border: 1px solid rgba(94, 23, 235, 0.2);">
+                Se actualiza mientras escribes
+              </span>
+            </div>
+
+            <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 0.85rem; line-height: 1.6; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+              
+              <!-- Header Dark Idéntico a Cotización -->
+              <div style="background: #0f172a; padding: 22px 20px; text-align: center; color: #ffffff;">
+                <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo" style="height: 36px; margin-bottom: 8px; display: inline-block;">
+                <div style="font-size: 1.1rem; font-weight: 700; color: #ffffff; letter-spacing: 0.5px; margin: 0;">Propuesta y Servicios Fulfillment 360</div>
+                <div style="font-size: 0.74rem; color: #94a3b8; margin-top: 4px;">Soluciones Integrales de Almacenamiento, Preparación y Despacho para Ecommerce</div>
+              </div>
+
+              <div style="padding: 22px 20px;">
+                <!-- Saludo -->
+                <div id="lead-info-preview-greeting" style="font-size: 0.98rem; font-weight: 600; color: #0f172a; margin-bottom: 0.6rem;">
+                  ¡Hola${defaultContact ? `, <strong>${defaultContact}</strong>` : ''}! 👋
+                </div>
+
+                <p style="margin: 0 0 0.85rem 0; color: #475569; font-size: 0.84rem; line-height: 1.6;">
+                  Muchas gracias por tu interés en los servicios de <strong>Fulfillment 360 de STOCKA</strong>. Te escribe <strong>Felipe Trujillo</strong>, Socio Fundador de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 700; text-decoration: underline;">Stocka.cl</a>.<span id="lead-info-preview-intro-p2" style="display: ${defaultIncludeSecondIntro ? 'inline' : 'none'};"><br><br>En Stocka somos un partner logístico especializado en potenciar marcas online mediante un modelo de servicio <strong>integral, ágil y 100% escalable</strong>, diseñado para que puedas delegar la logística y concentrarte en el crecimiento de tus ventas<span id="lead-info-preview-intro-punct">:</span></span>
+                </p>
+
+                <!-- Bloque de Mensaje Personalizado / Respuesta con Formato -->
+                <div id="lead-info-preview-custom-box" style="display: none; background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #5e17eb; border-radius: 10px; padding: 14px 16px; margin-bottom: 1.1rem; font-size: 0.84rem; color: #334155; line-height: 1.6;">
+                  <div id="lead-info-preview-custom-title" style="display: none; font-weight: 700; font-size: 0.88rem; color: #5e17eb; margin-bottom: 6px;"></div>
+                  <div id="lead-info-preview-custom-text"></div>
+                </div>
+
+                <!-- 4 Pilares Clave (Estilo Tarjetas KPI como Cotización) -->
+                <div id="lead-info-preview-cards-container">
                   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
                     <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
                       <div style="font-size: 0.82rem; font-weight: 700; color: #5e17eb; margin-bottom: 2px;">📦 Almacenamiento Inteligente</div>
@@ -81209,7 +81951,7 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
                     </div>
                   </div>
 
-                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 1.25rem;">
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 1.15rem;">
                     <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
                       <div style="font-size: 0.82rem; font-weight: 700; color: #5e17eb; margin-bottom: 2px;">🚚 Same Day RM & Todo Chile</div>
                       <div style="font-size: 0.74rem; color: #64748b; line-height: 1.4;">Entregas el mismo día en Santiago (incluyendo Mercado Libre Flex) y convenios a todo Chile.</div>
@@ -81219,94 +81961,94 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
                       <div style="font-size: 0.74rem; color: #64748b; line-height: 1.4;">Sincronización automática con Shopify, MeLi, WooCommerce, Jumpseller y stock en tiempo real.</div>
                     </div>
                   </div>
+                </div>
 
-                  <!-- Presentaciones y Documentación Oficial -->
-                  <div style="margin: 1rem 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
-                    <div style="font-weight: 700; font-size: 0.85rem; color: #0f172a; margin-bottom: 4px;">
-                      📚 Presentaciones Oficiales y Documentación Adjunta:
-                    </div>
-                    <p style="font-size: 0.75rem; color: #64748b; margin: 0 0 10px 0;">
-                      Documentos en formato PDF adjuntos al correo con enlaces directos para abrirlos:
-                    </p>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
-                      <a id="preview-link-fulfillment" href="${defaultFulfillmentUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; text-decoration: none; color: #0f172a; font-size: 0.75rem; font-weight: 700; text-align: center;">
-                        📦 <span style="color: #5e17eb;">Presentación Fulfillment 360</span> (PDF) ↗
-                      </a>
-                      <a id="preview-link-despachos" href="${defaultDespachosUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; text-decoration: none; color: #0f172a; font-size: 0.75rem; font-weight: 700; text-align: center;">
-                        🚚 <span style="color: #2563eb;">Presentación Despachos RM</span> (PDF) ↗
-                      </a>
-                    </div>
-                    <a id="preview-link-courier" href="${defaultCourierFolderUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; text-decoration: none; color: #0f172a; font-size: 0.75rem; font-weight: 700; text-align: center;">
-                      🌐 <span style="color: #7c3aed;">Carpeta Online de Tarifarios Courier (Todo Chile)</span> ↗
+                <!-- Presentaciones y Documentación Oficial -->
+                <div style="margin: 0.9rem 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
+                  <div style="font-weight: 700; font-size: 0.84rem; color: #0f172a; margin-bottom: 4px;">
+                    📚 Presentaciones Oficiales y Documentación Adjunta:
+                  </div>
+                  <p style="font-size: 0.74rem; color: #64748b; margin: 0 0 10px 0;">
+                    Documentos en formato PDF adjuntos al correo con enlaces directos para abrirlos:
+                  </p>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+                    <a id="preview-link-fulfillment" href="${defaultFulfillmentUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; text-decoration: none; color: #0f172a; font-size: 0.74rem; font-weight: 700; text-align: center;">
+                      📦 <span style="color: #5e17eb;">Presentación Fulfillment 360</span> (PDF) ↗
+                    </a>
+                    <a id="preview-link-despachos" href="${defaultDespachosUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; text-decoration: none; color: #0f172a; font-size: 0.74rem; font-weight: 700; text-align: center;">
+                      🚚 <span style="color: #2563eb;">Presentación Despachos RM</span> (PDF) ↗
                     </a>
                   </div>
-
-                  <!-- Caja Cotizador -->
-                  <div style="margin: 1rem 0; background: #f8fafc; border: 1.5px dashed #cbd5e1; border-radius: 10px; padding: 14px 16px; text-align: center;">
-                    <div style="font-weight: 700; font-size: 0.85rem; color: #0f172a; margin-bottom: 3px;">
-                      🧮 ¿Quieres simular tu cotización en menos de 1 minuto?
-                    </div>
-                    <p style="font-size: 0.75rem; color: #64748b; margin: 0 0 10px 0;">
-                      Ingresa tus estimaciones de pedidos mensuales y volumen para obtener un desglose detallado:
-                    </p>
-                    <a id="preview-link-cotizador" href="${defaultCotizadorUrl}" target="_blank" style="display: inline-block; background: #ffffff; color: #5e17eb !important; border: 1.5px solid #5e17eb; text-decoration: none; padding: 7px 16px; border-radius: 6px; font-weight: 700; font-size: 0.78rem; box-shadow: 0 2px 4px rgba(94, 23, 235, 0.06);">
-                      🔄 Simular Cotización Online en Stocka.cl ↗
-                    </a>
-                  </div>
-
-                  <!-- Caja Agendamiento Reunión Virtual (Google Meet) -->
-                  <div style="margin: 1rem 0; background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); border-left: 4px solid #5e17eb;">
-                    <div style="margin-bottom: 6px;">
-                      <span style="display: inline-block; font-size: 0.7rem; font-weight: 700; color: #5e17eb; background: rgba(94, 23, 235, 0.08); padding: 2px 8px; border-radius: 20px; border: 1px solid rgba(94, 23, 235, 0.2); margin-right: 6px;">
-                        ⏱ 20–30 min.
-                      </span>
-                      <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">
-                        📹 Reunión vía Google Meet
-                      </span>
-                    </div>
-
-                    <div style="font-size: 0.95rem; font-weight: 800; color: #0f172a; margin-bottom: 4px;">
-                      Agenda una reunión para conocernos mejor
-                    </div>
-                    
-                    <p style="font-size: 0.78rem; color: #475569; margin: 0 0 10px 0; line-height: 1.4;">
-                      Te recomendamos antes revisar nuestra presentación de servicios, así podremos conversar con mayor profundidad en lo que necesitas para tu comercio.
-                    </p>
-
-                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
-                      <img src="https://wms.stocka.cl/images/felipe_avatar.png" alt="Felipe de Stocka.cl" width="36" height="36" style="border-radius: 50%; border: 2px solid #5e17eb; display: block;">
-                      <div>
-                        <div style="font-size: 0.8rem; font-weight: 700; color: #0f172a;">Felipe de Stocka.cl</div>
-                        <div style="font-size: 0.7rem; color: #64748b;">Socio Fundador / Asesoría Comercial 1 a 1</div>
-                      </div>
-                    </div>
-
-                    <a id="lead-info-preview-meeting-btn" href="${defaultMeeting}" target="_blank" style="display: block; background: #5e17eb; color: #ffffff !important; text-decoration: none; text-align: center; padding: 10px 16px; border-radius: 6px; font-weight: 700; font-size: 0.85rem; box-shadow: 0 4px 12px rgba(94,23,235,0.25);">
-                      👉 Programar una reunión vía Meet ↗
-                    </a>
-                  </div>
-
-                  <!-- Botón WhatsApp Directo -->
-                  <a href="https://wa.me/56939247487" target="_blank" style="display: block; background: #25d366; color: #ffffff !important; text-decoration: none; text-align: center; padding: 10px 16px; border-radius: 6px; font-weight: 700; font-size: 0.82rem; margin-top: 10px;">
-                    💬 Coordinar Asesoría Comercial por WhatsApp (+56 9 3924 7487)
+                  <a id="preview-link-courier" href="${defaultCourierFolderUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; text-decoration: none; color: #0f172a; font-size: 0.74rem; font-weight: 700; text-align: center;">
+                    🌐 <span style="color: #7c3aed;">Carpeta Online de Tarifarios Courier (Todo Chile)</span> ↗
                   </a>
                 </div>
 
-                <!-- Footer Oficial Stocka -->
-                <div style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 16px 20px; text-align: center; font-size: 0.72rem; color: #64748b; line-height: 1.5;">
-                  <strong>STOCKA SpA</strong> • Soluciones Integrales de Fulfillment y Bodegaje en Chile<br>
-                  Sitio web: <a href="https://stocka.cl" style="color: #5e17eb;">stocka.cl</a> • Portal WMS: <a href="https://wms.stocka.cl" style="color: #5e17eb;">wms.stocka.cl</a><br>
-                  Email: <a href="mailto:contacto@stocka.cl" style="color: #5e17eb;">contacto@stocka.cl</a> • WhatsApp: +56 9 3924 7487
+                <!-- Caja Cotizador -->
+                <div style="margin: 0.9rem 0; background: #f8fafc; border: 1.5px dashed #cbd5e1; border-radius: 10px; padding: 14px 16px; text-align: center;">
+                  <div style="font-weight: 700; font-size: 0.84rem; color: #0f172a; margin-bottom: 3px;">
+                    🧮 ¿Quieres simular tu cotización en menos de 1 minuto?
+                  </div>
+                  <p style="font-size: 0.74rem; color: #64748b; margin: 0 0 10px 0;">
+                    Ingresa tus estimaciones de pedidos mensuales y volumen para obtener un desglose detallado:
+                  </p>
+                  <a id="preview-link-cotizador" href="${defaultCotizadorUrl}" target="_blank" style="display: inline-block; background: #ffffff; color: #5e17eb !important; border: 1.5px solid #5e17eb; text-decoration: none; padding: 7px 16px; border-radius: 6px; font-weight: 700; font-size: 0.76rem; box-shadow: 0 2px 4px rgba(94, 23, 235, 0.06);">
+                    🔄 Simular Cotización Online en Stocka.cl ↗
+                  </a>
                 </div>
 
+                <!-- Caja Agendamiento Reunión Virtual (Google Meet) -->
+                <div style="margin: 0.9rem 0; background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); border-left: 4px solid #5e17eb;">
+                  <div style="margin-bottom: 6px;">
+                    <span style="display: inline-block; font-size: 0.68rem; font-weight: 700; color: #5e17eb; background: rgba(94, 23, 235, 0.08); padding: 2px 8px; border-radius: 20px; border: 1px solid rgba(94, 23, 235, 0.2); margin-right: 6px;">
+                      ⏱ 20–30 min.
+                    </span>
+                    <span style="font-size: 0.74rem; color: #64748b; font-weight: 600;">
+                      📹 Reunión vía Google Meet
+                    </span>
+                  </div>
+
+                  <div style="font-size: 0.92rem; font-weight: 800; color: #0f172a; margin-bottom: 4px;">
+                    Agenda una reunión para conocernos mejor
+                  </div>
+                  
+                  <p style="font-size: 0.76rem; color: #475569; margin: 0 0 10px 0; line-height: 1.4;">
+                    Te recomendamos antes revisar nuestra presentación de servicios, así podremos conversar con mayor profundidad en lo que necesitas para tu comercio.
+                  </p>
+
+                  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                    <img src="https://wms.stocka.cl/images/felipe_avatar.png" alt="Felipe de Stocka.cl" width="36" height="36" style="border-radius: 50%; border: 2px solid #5e17eb; display: block;">
+                    <div>
+                      <div style="font-size: 0.78rem; font-weight: 700; color: #0f172a;">Felipe de Stocka.cl</div>
+                      <div style="font-size: 0.69rem; color: #64748b;">Socio Fundador / Asesoría Comercial 1 a 1</div>
+                    </div>
+                  </div>
+
+                  <a id="lead-info-preview-meeting-btn" href="${defaultMeeting}" target="_blank" style="display: block; background: #5e17eb; color: #ffffff !important; text-decoration: none; text-align: center; padding: 9px 16px; border-radius: 6px; font-weight: 700; font-size: 0.82rem; box-shadow: 0 4px 12px rgba(94,23,235,0.25);">
+                    👉 Programar una reunión vía Meet ↗
+                  </a>
+                </div>
+
+                <!-- Botón WhatsApp Directo -->
+                <a href="https://wa.me/56939247487" target="_blank" style="display: block; background: #25d366; color: #ffffff !important; text-decoration: none; text-align: center; padding: 9px 16px; border-radius: 6px; font-weight: 700; font-size: 0.8rem; margin-top: 10px;">
+                  💬 Coordinar Asesoría Comercial por WhatsApp (+56 9 3924 7487)
+                </a>
               </div>
+
+              <!-- Footer Oficial Stocka -->
+              <div style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 14px 20px; text-align: center; font-size: 0.7rem; color: #64748b; line-height: 1.5;">
+                <strong>STOCKA SpA</strong> • Soluciones Integrales de Fulfillment y Bodegaje en Chile<br>
+                Sitio web: <a href="https://stocka.cl" style="color: #5e17eb;">stocka.cl</a> • Portal WMS: <a href="https://wms.stocka.cl" style="color: #5e17eb;">wms.stocka.cl</a><br>
+                Email: <a href="mailto:contacto@stocka.cl" style="color: #5e17eb;">contacto@stocka.cl</a> • WhatsApp: +56 9 3924 7487
+              </div>
+
             </div>
-          </details>
+          </div>
 
         </div>
 
         <!-- Modal Footer -->
-        <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-surface);">
+        <div class="modal-footer" style="padding: 0.85rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-surface); flex-shrink: 0;">
           <button type="button" class="btn btn-outline" id="btn-cancel-send-lead-info">Cancelar</button>
           <button type="submit" class="btn btn-primary" id="btn-submit-send-lead-info" style="background: linear-gradient(135deg, #1e40af, #2563eb); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1.25rem; font-weight: 600;">
             <i class="ri-send-plane-fill"></i> Enviar Presentación Comercial
@@ -81358,20 +82100,240 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
     }
   });
 
-  const customMsgInput = document.getElementById('info-input-custom-msg');
+  // =========================================================================
+  // LÓGICA DEL MODO CENTRAL Y EDITOR DE TEXTO CON FORMATO (RICH TEXT)
+  // =========================================================================
+  let currentCenterMode = defaultCenterMode; // 'cards' | 'custom_replace' | 'both'
+  const customEditor = document.getElementById('info-input-custom-editor');
+  const customMsgHidden = document.getElementById('info-input-custom-msg');
   const customBox = document.getElementById('lead-info-preview-custom-box');
+  const customTitlePreview = document.getElementById('lead-info-preview-custom-title');
   const customText = document.getElementById('lead-info-preview-custom-text');
-  customMsgInput?.addEventListener('input', () => {
-    const val = customMsgInput.value.trim();
-    if (customBox && customText) {
-      if (val) {
-        customText.textContent = val;
-        customBox.style.display = 'block';
+  const cardsContainerPreview = document.getElementById('lead-info-preview-cards-container');
+  const introP2Preview = document.getElementById('lead-info-preview-intro-p2');
+  const introPunctPreview = document.getElementById('lead-info-preview-intro-punct');
+  const boxStyleSelect = document.getElementById('info-input-custom-box-style');
+  const boxTitleInput = document.getElementById('info-input-custom-box-title');
+  const includeSecondIntroCheckbox = document.getElementById('info-input-include-second-intro');
+  const helperTextEl = document.getElementById('lead-info-mode-helper-text');
+  const modeButtons = modal.querySelectorAll('.lead-info-mode-btn');
+
+  const sanitizeAndStyleEmailHtml = (rawHtml) => {
+    if (!rawHtml) return '';
+    const temp = document.createElement('div');
+    temp.innerHTML = rawHtml;
+
+    temp.querySelectorAll('script, style, iframe, object, embed').forEach(el => el.remove());
+    temp.querySelectorAll('ul').forEach(ul => {
+      ul.setAttribute('style', 'margin: 6px 0 10px 0; padding-left: 20px; list-style-type: disc;');
+    });
+    temp.querySelectorAll('ol').forEach(ol => {
+      ol.setAttribute('style', 'margin: 6px 0 10px 0; padding-left: 20px; list-style-type: decimal;');
+    });
+    temp.querySelectorAll('li').forEach(li => {
+      li.setAttribute('style', 'margin-bottom: 4px; line-height: 1.55;');
+    });
+    temp.querySelectorAll('p').forEach(p => {
+      p.setAttribute('style', 'margin: 0 0 8px 0; line-height: 1.6;');
+    });
+    temp.querySelectorAll('a').forEach(a => {
+      a.setAttribute('style', 'color: #5e17eb; font-weight: 600; text-decoration: underline;');
+      a.setAttribute('target', '_blank');
+    });
+
+    return temp.innerHTML.trim();
+  };
+
+  const getEditorPlainText = () => {
+    if (!customEditor) return '';
+    return (customEditor.innerText || customEditor.textContent || '').trim();
+  };
+
+  const updateCenterPreview = () => {
+    const plainText = getEditorPlainText();
+    const styledHtml = sanitizeAndStyleEmailHtml(customEditor ? customEditor.innerHTML : '');
+    if (customMsgHidden) customMsgHidden.value = plainText;
+
+    const boxStyle = boxStyleSelect ? boxStyleSelect.value : 'card';
+    const titleVal = boxTitleInput ? boxTitleInput.value.trim() : '';
+    const includeP2 = includeSecondIntroCheckbox ? includeSecondIntroCheckbox.checked : true;
+
+    // Actualizar visibilidad y puntuación del 2° párrafo introductorio
+    if (introP2Preview) {
+      introP2Preview.style.display = includeP2 ? 'inline' : 'none';
+    }
+    if (introPunctPreview) {
+      introPunctPreview.textContent = (currentCenterMode === 'custom_replace' && boxStyle === 'clean') ? '.' : (currentCenterMode === 'custom_replace' ? '.' : ':');
+    }
+
+    // Aplicar estilo visual al contenedor del mensaje personalizado en la vista previa
+    if (customBox) {
+      if (boxStyle === 'clean') {
+        customBox.style.cssText = 'background: transparent; border: none; border-radius: 0; padding: 2px 0; margin-bottom: 1.1rem; font-size: 0.85rem; color: #334155; line-height: 1.65;';
+      } else if (boxStyle === 'highlight') {
+        customBox.style.cssText = 'background-color: #f5f3ff; border: 1px solid #ddd6fe; border-left: 4px solid #5e17eb; border-radius: 10px; padding: 14px 16px; margin-bottom: 1.1rem; font-size: 0.84rem; color: #312e81; line-height: 1.6;';
       } else {
-        customBox.style.display = 'none';
+        // 'card' (Tarjeta Corporativa Stocka)
+        customBox.style.cssText = 'background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #5e17eb; border-radius: 10px; padding: 14px 16px; margin-bottom: 1.1rem; font-size: 0.84rem; color: #334155; line-height: 1.6;';
       }
     }
+
+    // Título opcional del bloque
+    if (customTitlePreview) {
+      if (titleVal) {
+        customTitlePreview.textContent = titleVal;
+        customTitlePreview.style.display = 'block';
+      } else {
+        customTitlePreview.style.display = 'none';
+      }
+    }
+
+    // Mostrar / ocultar tarjetas y bloque personalizado según el modo elegido
+    if (currentCenterMode === 'cards') {
+      if (cardsContainerPreview) cardsContainerPreview.style.display = 'block';
+      if (customBox && customText) {
+        if (plainText) {
+          customText.innerHTML = styledHtml;
+          customBox.style.display = 'block';
+        } else {
+          customBox.style.display = 'none';
+        }
+      }
+      if (helperTextEl) {
+        helperTextEl.innerHTML = 'En modo <strong>4 Bloques en Tarjetas</strong>, el correo muestra las 4 tarjetas de servicio (y si escribes un mensaje arriba, se incluirá como nota destacada).';
+      }
+    } else if (currentCenterMode === 'custom_replace') {
+      if (cardsContainerPreview) cardsContainerPreview.style.display = 'none';
+      if (customBox && customText) {
+        customBox.style.display = 'block';
+        if (plainText) {
+          customText.innerHTML = styledHtml;
+        } else {
+          customText.innerHTML = '<span style="color: #94a3b8; font-style: italic;">✍️ Escribe tu mensaje con formato arriba para reemplazar los 4 bloques y responder las consultas del lead...</span>';
+        }
+      }
+      if (helperTextEl) {
+        helperTextEl.innerHTML = 'En modo <strong>Reemplazar por Texto</strong>, se ocultan las 4 tarjetas y tu mensaje con formato ocupa la zona central manteniendo el diseño del correo.';
+      }
+    } else if (currentCenterMode === 'both') {
+      if (cardsContainerPreview) cardsContainerPreview.style.display = 'block';
+      if (customBox && customText) {
+        customBox.style.display = 'block';
+        if (plainText) {
+          customText.innerHTML = styledHtml;
+        } else {
+          customText.innerHTML = '<span style="color: #94a3b8; font-style: italic;">✍️ Escribe tu mensaje personalizado arriba; se mostrará aquí y debajo irán las 4 tarjetas...</span>';
+        }
+      }
+      if (helperTextEl) {
+        helperTextEl.innerHTML = 'En modo <strong>Texto + 4 Tarjetas</strong>, se muestra primero tu bloque de respuesta con formato y justo debajo los 4 bloques de servicios.';
+      }
+    }
+  };
+
+  const setCenterMode = (mode) => {
+    currentCenterMode = mode;
+    modeButtons.forEach(btn => {
+      const btnMode = btn.getAttribute('data-center-mode');
+      const titleDiv = btn.querySelector('div:first-child');
+      if (btnMode === mode) {
+        btn.style.border = '1.5px solid #5e17eb';
+        btn.style.background = 'rgba(94, 23, 235, 0.07)';
+        if (titleDiv) titleDiv.style.color = '#5e17eb';
+      } else {
+        btn.style.border = '1.5px solid var(--color-border)';
+        btn.style.background = 'var(--color-surface)';
+        if (titleDiv) titleDiv.style.color = 'var(--color-text-main)';
+      }
+    });
+    updateCenterPreview();
+  };
+
+  modeButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetMode = btn.getAttribute('data-center-mode') || 'cards';
+      setCenterMode(targetMode);
+      if (targetMode === 'custom_replace' || targetMode === 'both') {
+        customEditor?.focus();
+      }
+    });
   });
+
+  // Comandos de barra de herramientas Rich Text
+  modal.querySelectorAll('[data-rte-cmd]').forEach(btn => {
+    btn.addEventListener('mousedown', (e) => e.preventDefault());
+    btn.addEventListener('click', () => {
+      const cmd = btn.getAttribute('data-rte-cmd');
+      customEditor?.focus();
+      document.execCommand(cmd, false, null);
+      updateCenterPreview();
+    });
+  });
+
+  modal.querySelectorAll('[data-rte-color]').forEach(btn => {
+    btn.addEventListener('mousedown', (e) => e.preventDefault());
+    btn.addEventListener('click', () => {
+      const color = btn.getAttribute('data-rte-color');
+      customEditor?.focus();
+      document.execCommand('foreColor', false, color);
+      updateCenterPreview();
+    });
+  });
+
+  document.getElementById('btn-rte-link')?.addEventListener('mousedown', (e) => e.preventDefault());
+  document.getElementById('btn-rte-link')?.addEventListener('click', () => {
+    const url = prompt('Ingresa la URL del enlace (ej: https://stocka.cl):', 'https://');
+    if (url && url !== 'https://') {
+      customEditor?.focus();
+      document.execCommand('createLink', false, url.trim());
+      updateCenterPreview();
+    }
+  });
+
+  // Botón para insertar plantilla rápida de respuesta a consultas
+  document.getElementById('btn-insert-qa-template')?.addEventListener('click', () => {
+    if (!customEditor) return;
+    if (currentCenterMode === 'cards') {
+      setCenterMode('custom_replace');
+    }
+    const templateHtml = `
+      <p>Respecto a las consultas que nos comentaste sobre la operación logística para tu tienda, te detallo cómo trabajamos en <strong>Stocka</strong>:</p>
+      <ul>
+        <li><strong style="color: #5e17eb;">Recepción y Almacenamiento:</strong> Recibimos tu mercadería, la inventariamos en nuestro WMS en tiempo real y solo pagas por los m³ efectivamente utilizados.</li>
+        <li><strong style="color: #5e17eb;">Preparación y Despachos (Pick & Pack):</strong> Conectamos tu tienda online para procesar los pedidos automáticamente el mismo día, con despachos <strong>Same Day en RM</strong> y couriers a todo Chile.</li>
+        <li><strong style="color: #5e17eb;">Tarifas y Flexibilidad:</strong> No exigimos contratos de permanencia forzosa ni mínimos desmedidos, adaptándonos al volumen de tu ecommerce.</li>
+      </ul>
+      <p>Quedo muy atento a tus comentarios o cualquier duda adicional que tengas.</p>
+    `.trim();
+
+    if (!getEditorPlainText() || confirm('¿Deseas reemplazar el texto actual del editor con la plantilla de respuesta a consultas?')) {
+      customEditor.innerHTML = templateHtml;
+      updateCenterPreview();
+      customEditor.focus();
+    }
+  });
+
+  document.getElementById('btn-preset-title-consultas')?.addEventListener('click', () => {
+    if (boxTitleInput) {
+      boxTitleInput.value = '💬 Respuesta a tus consultas:';
+      updateCenterPreview();
+    }
+  });
+
+  document.getElementById('btn-clear-box-title')?.addEventListener('click', () => {
+    if (boxTitleInput) {
+      boxTitleInput.value = '';
+      updateCenterPreview();
+    }
+  });
+
+  customEditor?.addEventListener('input', updateCenterPreview);
+  boxStyleSelect?.addEventListener('change', updateCenterPreview);
+  boxTitleInput?.addEventListener('input', updateCenterPreview);
+  includeSecondIntroCheckbox?.addEventListener('change', updateCenterPreview);
+
+  // Inicializar estado de vista previa
+  setCenterMode(defaultCenterMode);
 
   const meetingInput = document.getElementById('info-input-meeting');
   const meetingBtn = document.getElementById('lead-info-preview-meeting-btn');
@@ -81422,7 +82384,16 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
     const subject = document.getElementById('info-input-subject').value.trim() || defaultSubject;
     const cc = document.getElementById('info-input-cc').value.trim();
     const meetingUrl = document.getElementById('info-input-meeting').value.trim() || defaultMeeting;
-    const customMessage = document.getElementById('info-input-custom-msg').value.trim();
+    const customMessage = getEditorPlainText();
+    const customMessageHtml = plainTextToRichCheck(customMessage, customEditor ? customEditor.innerHTML : '');
+    const customBoxStyle = boxStyleSelect ? boxStyleSelect.value : 'card';
+    const customBoxTitle = boxTitleInput ? boxTitleInput.value.trim() : '';
+    const includeSecondIntro = includeSecondIntroCheckbox ? includeSecondIntroCheckbox.checked : true;
+
+    function plainTextToRichCheck(plain, rawHtml) {
+      if (!plain) return '';
+      return sanitizeAndStyleEmailHtml(rawHtml);
+    }
 
     const fulfillmentUrl = document.getElementById('info-input-fulfillment-url')?.value.trim() || defaultFulfillmentUrl;
     const despachosUrl = document.getElementById('info-input-despachos-url')?.value.trim() || defaultDespachosUrl;
@@ -81439,6 +82410,15 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
         alertDiv.textContent = 'Por favor ingresa un correo electrónico válido.';
         alertDiv.style.display = 'block';
       }
+      return;
+    }
+
+    if (currentCenterMode === 'custom_replace' && !customMessage) {
+      if (alertDiv) {
+        alertDiv.textContent = 'Has elegido reemplazar las 4 tarjetas por tu mensaje personalizado. Por favor escribe el mensaje en el editor o selecciona el modo "4 Bloques en Tarjetas".';
+        alertDiv.style.display = 'block';
+      }
+      customEditor?.focus();
       return;
     }
 
@@ -81465,7 +82445,12 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
           subject: subject,
           cc: cc,
           meetingUrl: meetingUrl,
+          centerMode: currentCenterMode,
           customMessage: customMessage,
+          customMessageHtml: customMessageHtml,
+          customBoxStyle: customBoxStyle,
+          customBoxTitle: customBoxTitle,
+          includeSecondIntro: includeSecondIntro,
           notes: customMessage,
           fulfillmentUrl: fulfillmentUrl,
           despachosUrl: despachosUrl,
@@ -90926,6 +91911,7 @@ window.renderAdminReturns = async function() {
       </div>
       <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
         <!-- Pedidos de logística inversa -->
+        <button id="btn-admin-quick-branch-receipt" onclick="window.openQuickBranchExchangeReceiptModal()" class="btn btn-primary" style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; display: flex; align-items: center; gap: 0.35rem; font-weight: 700; box-shadow: 0 3px 8px rgba(79, 70, 229, 0.25);" title="Crear o imprimir rápidamente un Comprobante de Cambio o Recepción realizado en Sucursal Ñuñoa (ej: GLS28151)"><i class="ri-file-list-3-line"></i> Comprobante Sucursal</button>
         <button id="btn-admin-create-order-return" class="btn btn-primary" style="background-color: var(--color-danger, #ef4444); color: white; display: flex; align-items: center; gap: 0.25rem; font-weight: 600;" title="Crear pedido de devolución con destinatario, courier y orden WMS">
           <i class="ri-shopping-bag-3-line"></i> Pedido Devolución
         </button>
@@ -91206,6 +92192,7 @@ async function fetchAndRenderAdminReturnsData() {
             <td>
               <div style="display: flex; gap: 0.35rem; align-items: center;">
                 <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.25rem;"></i> Detalle</button>
+                <button class="btn btn-outline" onclick="window.openQuickBranchExchangeReceiptModal('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: #6366f1; color: #4f46e5; background: rgba(99, 102, 241, 0.06); font-weight: 600;" title="Generar Comprobante de Cambio / Recepción en Sucursal (PDF / Impresión / Ticket 80mm)"><i class="ri-file-list-3-line"></i> Comprobante</button>
                 ${r.tipo_movimiento === 'CAMBIO' ? `
                   <button class="btn btn-outline" onclick="window.printSingleExchangeLabel('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-success, #10b981); color: var(--color-success, #10b981); background: var(--color-surface);" title="Imprimir Etiqueta de Cambio"><i class="ri-printer-line"></i> Etiqueta</button>
                 ` : ''}
@@ -94126,7 +95113,7 @@ async function handleRloFormSubmit(e) {
     } else {
       finalTransporte = 'Envío Regiones' + (courier ? ` (${courier})` : '');
     }
-    const finalSucursal = comuna || 'Punto Físico Ñuñoa';
+    const finalSucursal = modoEntrega === 'sucursal' ? 'Punto Físico Ñuñoa' : (comuna || 'Punto Físico Ñuñoa');
     
     let costoEnvio = 0;
     if (modoEntrega === 'domicilio_rm' && responsablePago === 'comercio') {
@@ -94563,6 +95550,10 @@ async function handleRloFormSubmit(e) {
     
     Swal.fire({
       title: isFinalizado ? '¡Pedido Finalizado y Registrado!' : '¡Pedido Creado!',
+      showDenyButton: true,
+      denyButtonText: '<i class="ri-file-list-3-line"></i> Crear Comprobante Sucursal',
+      denyButtonColor: '#4f46e5',
+      preDeny: () => { if (typeof window.openQuickBranchExchangeReceiptModal === 'function') window.openQuickBranchExchangeReceiptModal(refOrder); },
       text: isFinalizado ? 
         'El movimiento de logística inversa ha quedado confirmado y la orden fue generada como Despachada en el WMS, actualizando el inventario.' :
         'El pedido de logística inversa ha sido registrado exitosamente y se generó la orden correspondiente en el WMS.',
@@ -94780,6 +95771,7 @@ window.openReturnsDetail = function(dataStr) {
         footer.style.justifyContent = 'space-between';
         footer.innerHTML = `
           <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <button class="btn btn-outline" id="btn-modal-branch-receipt" style="border-color: #4f46e5; color: #4f46e5; background: rgba(79, 70, 229, 0.06); display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;"><i class="ri-file-list-3-line"></i> Comprobante Sucursal (PDF / Imprimir)</button>
             <button class="btn btn-outline" id="btn-modal-delete-return" style="border-color: var(--color-danger, #ef4444); color: var(--color-danger, #ef4444); display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
               <i class="ri-delete-bin-line"></i> Eliminar Registro
             </button>
@@ -94793,6 +95785,7 @@ window.openReturnsDetail = function(dataStr) {
         `;
         modal.querySelector('#btn-close-generic-info')?.addEventListener('click', () => modal.remove());
         modal.querySelector('#btn-ok-generic-info')?.addEventListener('click', () => modal.remove());
+        modal.querySelector('#btn-modal-branch-receipt')?.addEventListener('click', () => { modal.remove(); if (typeof window.openQuickBranchExchangeReceiptModal === 'function') window.openQuickBranchExchangeReceiptModal(data); });
         modal.querySelector('#btn-modal-delete-return')?.addEventListener('click', () => {
           modal.remove();
           window.deleteAdminReturnRecord(data.id, dataStr);

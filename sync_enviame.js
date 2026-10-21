@@ -348,7 +348,7 @@ async function processEnviameDelivery(d, context = {}) {
     // Búsqueda ESTRICTA por comercio exacto y candidatos exactos (sin ILIKE comodín)
     const { data: matchedOrders } = await supabase
       .from('orders')
-      .select('id, external_order_number, tracking_number, courier, operador, label_url, comercio')
+      .select('id, external_order_number, tracking_number, courier, operador, label_url, comercio, categoria_entrega, agenda')
       .ilike('comercio', resolved.comercio)
       .in('external_order_number', uniqueCandidates)
       .limit(1);
@@ -362,7 +362,7 @@ async function processEnviameDelivery(d, context = {}) {
   if (!targetOrder) {
     const { data: o3 } = await supabase
       .from('orders')
-      .select('id, external_order_number, tracking_number, courier, operador, label_url, comercio')
+      .select('id, external_order_number, tracking_number, courier, operador, label_url, comercio, categoria_entrega, agenda')
       .eq('enviame_delivery_id', deliveryId)
       .ilike('comercio', resolved.comercio)
       .maybeSingle();
@@ -370,6 +370,10 @@ async function processEnviameDelivery(d, context = {}) {
   }
 
   if (targetOrder) {
+    if (String(targetOrder.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') {
+      console.log(`⛔ Pedido [${targetOrder.comercio}] ${targetOrder.external_order_number} tiene categoría RETIRO: se bloquea asignación de courier/tracking desde Envíame.`);
+      return false;
+    }
     const orderUpdate = {
       enviame_delivery_id: deliveryId,
       enviame_status: statusName,

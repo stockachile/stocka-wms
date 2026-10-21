@@ -44,6 +44,11 @@ export const billingState = {
   ufValue: 40884,
   ufDate: null,
   volumeM3: 0,
+  isManualVolume: false,
+  autoVolumeM3: 0,
+  autoVolumeDaysLogged: 0,
+  autoDailyStorageLogs: [],
+  volumeSessionKey: '',
   volumeDaysLogged: 0,
   volumeDailyAverage: 0,
   dailyStorageLogs: [],
@@ -1644,6 +1649,23 @@ export async function getMonthlyStorageVolume(commerceGroup, year, month) {
   return { averageM3: 0, daysCount: 0, dailyLogs: [] };
 }
 
+// Generar serie diaria constante (línea fija en el tiempo) para cuando el Admin fija un volumen mensual manual
+export function generateConstantDailyStorageLogs(year, month, volumeM3) {
+  const y = parseInt(year, 10) || new Date().getFullYear();
+  const m = parseInt(month, 10) || (new Date().getMonth() + 1);
+  const mm = String(m).padStart(2, '0');
+  const lastDay = new Date(y, m, 0).getDate();
+  const fixedVol = parseFloat((Math.max(0, parseFloat(volumeM3) || 0)).toFixed(4));
+  const logs = [];
+  for (let d = 1; d <= lastDay; d++) {
+    logs.push({
+      date: `${y}-${mm}-${String(d).padStart(2, '0')}`,
+      volume: fixedVol
+    });
+  }
+  return logs;
+}
+
 // --- FUNCIONES AUXILIARES PARA COLUMNAS PERSONALIZADAS DE COBRO (RECARGOS PREPARACIÓN) ---
 export function calculateCustomColumnRuleAmount(col, order) {
   if (!col || !order) return 0;
@@ -1957,25 +1979,63 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   billingState.invoiceDates = customOverrides.invoiceDates || 
     (savedSnapshot && savedSnapshot.invoiceDates ? { ...defaultInvoiceDates, ...savedSnapshot.invoiceDates } : defaultInvoiceDates);
 
-  // 5. Calcular volumen de almacenamiento promedio del mes calendario (Punto B)
+  // 5. Calcular volumen de almacenamiento promedio del mes calendario (Punto B) o aplicar volumen mensual manual fijado por Admin
   const volData = await getMonthlyStorageVolume(commerceGroup, periodYear, periodMonth);
-  billingState.volumeDailyAverage = volData.averageM3;
-  billingState.volumeDaysLogged = volData.daysCount;
-  billingState.volumeM3 = customOverrides.volumeM3 !== undefined 
-    ? parseFloat(customOverrides.volumeM3) 
-    : (savedSnapshot && savedSnapshot.volumeM3 !== undefined ? parseFloat(savedSnapshot.volumeM3) : volData.averageM3);
+  billingState.autoVolumeM3 = volData.averageM3;
+  billingState.autoVolumeDaysLogged = volData.daysCount;
+  billingState.autoDailyStorageLogs = volData.dailyLogs || [];
 
-  const dailyLogs = volData.dailyLogs || [];
-  const vols = dailyLogs.map(l => l.volume).filter(v => typeof v === 'number');
-  const maxDailyVolume = vols.length > 0 ? Math.max(...vols) : billingState.volumeM3;
-  const minDailyVolume = vols.length > 0 ? Math.min(...vols) : billingState.volumeM3;
-  billingState.dailyStorageLogs = dailyLogs;
-  billingState.volumeStats = {
-    averageM3: billingState.volumeM3,
-    daysCount: billingState.volumeDaysLogged,
-    maxDailyVolume: parseFloat(maxDailyVolume.toFixed(4)),
-    minDailyVolume: parseFloat(minDailyVolume.toFixed(4))
-  };
+  const currentVolSessionKey = `${billingState.currentPeriodId}_${commerceName}`;
+  let isManualVolume = false;
+  let resolvedVolumeM3 = volData.averageM3;
+
+  if (customOverrides.forceFresh) {
+    isManualVolume = false;
+    resolvedVolumeM3 = volData.averageM3;
+  } else if (customOverrides.volumeM3 !== undefined) {
+    resolvedVolumeM3 = Math.max(0, parseFloat(customOverrides.volumeM3) || 0);
+    isManualVolume = customOverrides.isManualVolume !== undefined ? Boolean(customOverrides.isManualVolume) : true;
+  } else if (billingState.volumeSessionKey === currentVolSessionKey && billingState.isManualVolume) {
+    isManualVolume = true;
+    resolvedVolumeM3 = Math.max(0, parseFloat(billingState.volumeM3) || 0);
+  } else if (savedSnapshot && (savedSnapshot.isManualVolume === true || savedSnapshot.totals?.isManualVolume === true)) {
+    isManualVolume = true;
+    resolvedVolumeM3 = Math.max(0, parseFloat(savedSnapshot.volumeM3) || 0);
+  } else if (savedSnapshot && savedSnapshot.volumeM3 !== undefined) {
+    resolvedVolumeM3 = Math.max(0, parseFloat(savedSnapshot.volumeM3) || 0);
+    isManualVolume = Boolean(savedSnapshot.isManualVolume);
+  }
+
+  billingState.isManualVolume = isManualVolume;
+  billingState.volumeSessionKey = currentVolSessionKey;
+  billingState.volumeM3 = parseFloat(resolvedVolumeM3.toFixed(4));
+
+  if (isManualVolume) {
+    const flatLogs = generateConstantDailyStorageLogs(periodYear, periodMonth, billingState.volumeM3);
+    billingState.volumeDailyAverage = billingState.volumeM3;
+    billingState.volumeDaysLogged = flatLogs.length;
+    billingState.dailyStorageLogs = flatLogs;
+    billingState.volumeStats = {
+      averageM3: billingState.volumeM3,
+      daysCount: flatLogs.length,
+      maxDailyVolume: billingState.volumeM3,
+      minDailyVolume: billingState.volumeM3
+    };
+  } else {
+    billingState.volumeDailyAverage = volData.averageM3;
+    billingState.volumeDaysLogged = volData.daysCount;
+    const dailyLogs = volData.dailyLogs || [];
+    const vols = dailyLogs.map(l => l.volume).filter(v => typeof v === 'number');
+    const maxDailyVolume = vols.length > 0 ? Math.max(...vols) : billingState.volumeM3;
+    const minDailyVolume = vols.length > 0 ? Math.min(...vols) : billingState.volumeM3;
+    billingState.dailyStorageLogs = dailyLogs;
+    billingState.volumeStats = {
+      averageM3: billingState.volumeM3,
+      daysCount: billingState.volumeDaysLogged,
+      maxDailyVolume: parseFloat(maxDailyVolume.toFixed(4)),
+      minDailyVolume: parseFloat(minDailyVolume.toFixed(4))
+    };
+  }
 
   // 5.1 Consultar declaraciones de ingreso de stock asignadas al periodo
   let inboundDeclarationsList = [];
@@ -2772,6 +2832,8 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     storageDiscountAmount,
     storageNet: netStorageCost,
     isStorageCustom,
+    isManualVolume: billingState.isManualVolume,
+    autoVolumeM3: billingState.autoVolumeM3,
     pickPackNet: totalPickPackNet,
     shippingRmFlexCount: billableShippingOrders.length,
     shippingRmFlexNet: totalRmFlexNet,
@@ -3003,8 +3065,15 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
           <div class="stocka-metric-sub">Base: ${formatCLP(b.activeRange?.pick_pack_base || 1250)}</div>
         </div>
 
-        <div class="stocka-metric-card">
-          <div class="stocka-metric-title">Almacenamiento Mes</div>
+        <div class="stocka-metric-card" ${!isClient ? 'style="cursor: pointer;" onclick="window.openEditStorageFeeModal()" title="Haga clic para configurar volumen mensual manual, tarifa o descuento"' : ''}>
+          <div class="stocka-metric-title" style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+            <span>Almacenamiento Mes</span>
+            ${!isClient && (b.isManualVolume || t.isManualVolume) ? `
+              <span class="no-print" style="background: rgba(95, 6, 250, 0.1); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.25); font-size: 0.62rem; font-weight: 800; padding: 1px 5px; border-radius: 4px; text-transform: uppercase;">
+                Manual
+              </span>
+            ` : ''}
+          </div>
           <div class="stocka-metric-value">${formatDec(b.volumeM3, 2)} <span style="font-size: 0.8rem; font-weight: 600; color: #64748b;">m³</span></div>
           <div class="stocka-metric-sub">Tarifa: ${formatCLP(t.storageRate || b.activeRange?.storage_m3 || 48900)} / m³</div>
         </div>
@@ -3095,9 +3164,14 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
                   <div>
                     <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                       <span style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">Servicio de almacenamiento</span>
-                      ${t.isStorageCustom ? `
-                        <span style="background: rgba(95, 6, 250, 0.08); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.2); font-size: 0.68rem; font-weight: 700; padding: 1px 6px; border-radius: 4px;">
-                          Manual
+                      ${!isClient && (b.isManualVolume || t.isManualVolume) ? `
+                        <span class="no-print" style="background: rgba(95, 6, 250, 0.1); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.25); font-size: 0.68rem; font-weight: 700; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Volumen mensual indicado manualmente por Admin (Automático BD: ${formatDec(b.autoVolumeM3 ?? t.autoVolumeM3 ?? 0, 2)} m³)">
+                          <i class="ri-edit-2-line"></i> Volumen Manual
+                        </span>
+                      ` : ''}
+                      ${!isClient && t.isStorageCustom ? `
+                        <span class="no-print" style="background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.68rem; font-weight: 700; padding: 1px 6px; border-radius: 4px;">
+                          Tarifa/Dcto Manual
                         </span>
                       ` : ''}
                     </div>
@@ -4070,6 +4144,10 @@ export async function saveBillingRecordToSupabase() {
         : (b.isConglomerate ? computeConglomerateStoreBreakdown(b.orders, b) : []),
       commerceInfo: b.commerceInfo,
       invoiceDates: b.invoiceDates,
+      currentPeriodYear: b.currentPeriodYear,
+      currentPeriodMonth: b.currentPeriodMonth,
+      isManualVolume: Boolean(b.isManualVolume),
+      autoVolumeM3: b.autoVolumeM3,
       volumeM3: b.volumeM3,
       volumeDailyAverage: b.volumeDailyAverage,
       volumeDaysLogged: b.volumeDaysLogged,
@@ -4320,6 +4398,10 @@ export async function confirmAndPublishBillingToCommerce() {
         : (b.isConglomerate ? computeConglomerateStoreBreakdown(b.orders, b) : []),
       commerceInfo: b.commerceInfo,
       invoiceDates: b.invoiceDates,
+      currentPeriodYear: b.currentPeriodYear,
+      currentPeriodMonth: b.currentPeriodMonth,
+      isManualVolume: Boolean(b.isManualVolume),
+      autoVolumeM3: b.autoVolumeM3,
       volumeM3: b.volumeM3,
       volumeDailyAverage: b.volumeDailyAverage,
       volumeDaysLogged: b.volumeDaysLogged,
@@ -4678,18 +4760,33 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
     <!-- 4 Tarjetas de Almacenamiento Diario en 1 Sola Fila (Sobrio y Uniforme) -->
     <div style="margin-bottom: 0.5rem;">
       <h4 style="margin: 0 0 0.6rem 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
-        <span style="display: flex; align-items: center; gap: 0.4rem;">
-          <i class="ri-archive-line text-stocka-purple"></i> Métricas de Almacenamiento Diario
+        <span style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <span><i class="ri-archive-line text-stocka-purple"></i> Métricas de Almacenamiento Diario</span>
+          ${!b.isClientView && (b.isManualVolume || t.isManualVolume) ? `
+            <span class="no-print" style="font-size: 0.7rem; background: rgba(95, 6, 250, 0.12); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.3); padding: 2px 8px; border-radius: 6px; font-weight: 800; text-transform: none; display: inline-flex; align-items: center; gap: 4px;" title="El cliente solo ve el valor y el gráfico estándar, sin saber que es manual">
+              <i class="ri-edit-2-line"></i> Volumen Manual Fijo (Auto BD: ${formatDec(b.autoVolumeM3 ?? t.autoVolumeM3 ?? 0, 2)} m³)
+            </span>
+          ` : ''}
         </span>
-        ${isStoreFiltered ? `
-          <span style="font-size: 0.72rem; background: rgba(95,6,250,0.08); color: #5f06fa; padding: 2px 8px; border-radius: 6px; font-weight: 600; text-transform: none;">
-            <i class="ri-information-line"></i> Almacenamiento contratado a nivel holding (${escapeHtml(b.currentCommerce)})
-          </span>
-        ` : ''}
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          ${isStoreFiltered ? `
+            <span style="font-size: 0.72rem; background: rgba(95,6,250,0.08); color: #5f06fa; padding: 2px 8px; border-radius: 6px; font-weight: 600; text-transform: none;">
+              <i class="ri-information-line"></i> Almacenamiento contratado a nivel holding (${escapeHtml(b.currentCommerce)})
+            </span>
+          ` : ''}
+          ${!b.isClientView ? `
+            <button type="button" class="btn btn-xs btn-outline no-print" onclick="window.openEditStorageFeeModal()" style="font-size: 0.72rem; font-weight: 700; border-color: rgba(95, 6, 250, 0.35); color: #5f06fa; border-radius: 6px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 4px; text-transform: none; cursor: pointer;">
+              <i class="ri-pencil-line"></i> Configurar Volumen / Tarifa
+            </button>
+          ` : ''}
+        </div>
       </h4>
       <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
-          <div class="bg-kpi-title">VOLUMEN PROMEDIO DIARIO</div>
+          <div class="bg-kpi-title" style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+            <span>VOLUMEN PROMEDIO DIARIO</span>
+            ${!b.isClientView && (b.isManualVolume || t.isManualVolume) ? `<span class="no-print" style="background: rgba(95, 6, 250, 0.12); color: #5f06fa; font-size: 0.62rem; font-weight: 800; padding: 1px 5px; border-radius: 4px;">MANUAL</span>` : ''}
+          </div>
           <div class="bg-kpi-value">${formatDec(b.volumeM3, 2)} <span class="bg-kpi-unit">m³</span></div>
           <div class="bg-kpi-subtitle">Promedio mes calendario</div>
         </div>
@@ -4702,13 +4799,13 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
 
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title">PICO MÁXIMO REGISTRADO</div>
-          <div class="bg-kpi-value">${formatDec(b.volumeStats?.maxDailyVolume || b.volumeM3, 2)} <span class="bg-kpi-unit">m³</span></div>
+          <div class="bg-kpi-value">${formatDec((b.isManualVolume || t.isManualVolume) ? b.volumeM3 : (b.volumeStats?.maxDailyVolume ?? b.volumeM3), 2)} <span class="bg-kpi-unit">m³</span></div>
           <div class="bg-kpi-subtitle">Mayor ocupación en el mes</div>
         </div>
 
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title">VOLUMEN MÍNIMO REGISTRADO</div>
-          <div class="bg-kpi-value">${formatDec(b.volumeStats?.minDailyVolume || b.volumeM3, 2)} <span class="bg-kpi-unit">m³</span></div>
+          <div class="bg-kpi-value">${formatDec((b.isManualVolume || t.isManualVolume) ? b.volumeM3 : (b.volumeStats?.minDailyVolume ?? b.volumeM3), 2)} <span class="bg-kpi-unit">m³</span></div>
           <div class="bg-kpi-subtitle">Menor ocupación en el mes</div>
         </div>
       </div>
@@ -4718,13 +4815,18 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
     <div class="bg-chart-card" style="margin-bottom: 2rem;">
       <div class="bg-chart-header">
         <div>
-          <h4 class="bg-chart-title">
-            <i class="ri-line-chart-line text-stocka-purple"></i> Evolución del Volumen de Almacenamiento Diario (m³)
+          <h4 class="bg-chart-title" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span><i class="ri-line-chart-line text-stocka-purple"></i> Evolución del Volumen de Almacenamiento Diario (m³)</span>
+            ${!b.isClientView && (b.isManualVolume || t.isManualVolume) ? `
+              <span class="no-print" style="font-size: 0.68rem; background: rgba(95, 6, 250, 0.12); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.3); padding: 1px 7px; border-radius: 4px; font-weight: 800;">
+                <i class="ri-subtract-line"></i> Valor Fijo Manual (${formatDec(b.volumeM3, 2)} m³)
+              </span>
+            ` : ''}
           </h4>
           <span style="font-size: 0.75rem; color: var(--color-text-muted);">Comportamiento del cubicaje medido durante el mes facturado</span>
         </div>
         <div class="bg-tariff-badge">
-          Tarifa: ${formatCLP(b.activeRange?.storage_m3 || 48900)} / m³
+          Tarifa: ${formatCLP(t.storageRate || b.activeRange?.storage_m3 || 48900)} / m³
         </div>
       </div>
       <div style="height: 250px; position: relative;">
@@ -5032,9 +5134,18 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
   };
 
   // A. Gráfico de Evolución de Almacenamiento Diario
-  const dailyLogs = b.dailyStorageLogs && b.dailyStorageLogs.length > 0
-    ? b.dailyStorageLogs
-    : [{ date: `${b.currentPeriodYear || new Date().getFullYear()}-${String(b.currentPeriodMonth || 1).padStart(2, '0')}-01`, volume: b.volumeM3 || 0 }];
+  const isManualVol = !!(b.isManualVolume || t.isManualVolume);
+  const periodYear = b.currentPeriodYear || new Date().getFullYear();
+  const periodMonth = b.currentPeriodMonth || (new Date().getMonth() + 1);
+  const fixedVolVal = Number((parseFloat(b.volumeM3) || 0).toFixed(2));
+  const dailyLogs = isManualVol
+    ? generateConstantDailyStorageLogs(periodYear, periodMonth, fixedVolVal)
+    : (b.dailyStorageLogs && b.dailyStorageLogs.length > 0
+        ? b.dailyStorageLogs
+        : [{ date: `${periodYear}-${String(periodMonth).padStart(2, '0')}-01`, volume: fixedVolVal }]);
+
+  const maxLogVol = dailyLogs.reduce((max, l) => Math.max(max, parseFloat(l.volume) || 0), 0);
+  const ySuggestedMax = maxLogVol > 0 ? Number((maxLogVol * 1.25).toFixed(2)) : 5;
 
   const storageCanvas = container.querySelector('#chart-storage-evolution') || document.getElementById('chart-storage-evolution');
   if (storageCanvas) {
@@ -5056,7 +5167,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
           borderColor: chartPurple,
           backgroundColor: gradient,
           fill: true,
-          tension: 0.25,
+          tension: isManualVol ? 0 : 0.25,
           borderWidth: 2.5,
           pointRadius: dailyLogs.length > 20 ? 2 : 4,
           pointBackgroundColor: chartPurple,
@@ -5073,6 +5184,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
           },
           y: {
             beginAtZero: true,
+            suggestedMax: ySuggestedMax,
             grid: { color: chartGridColor },
             ticks: {
               font: { family: 'Outfit', size: 10 },
@@ -6078,6 +6190,11 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
 export function renderGeneratorEmptyCommerceState() {
   billingState.currentCommerce = '';
   billingState.orders = [];
+  billingState.isManualVolume = false;
+  billingState.autoVolumeM3 = 0;
+  billingState.autoVolumeDaysLogged = 0;
+  billingState.autoDailyStorageLogs = [];
+  billingState.volumeSessionKey = '';
   billingState.isConglomerate = false;
   billingState.conglomerateName = null;
   billingState.conglomerateChildren = [];
@@ -7322,10 +7439,22 @@ export function renderKPIsUI() {
       <div class="bg-kpi-subtitle">Pick & Pack Base: ${formatCLP(b.activeRange?.pick_pack_base || 1250)}</div>
     </div>
 
-    <div class="bg-kpi-card" style="border-left: 4px solid #10b981;">
-      <div class="bg-kpi-title"><i class="ri-archive-2-line" style="color: #10b981;"></i> ALMACENAMIENTO MES</div>
-      <div class="bg-kpi-value" style="color: #10b981;">${formatDec(b.volumeM3, 2)} <span style="font-size: 0.9rem; font-weight: 600; color: var(--color-text-muted, #94a3b8);">m³</span></div>
-      <div class="bg-kpi-subtitle">Promedio ${b.volumeDaysLogged || 0} días (${formatCLP(t.storageNet)} neto)</div>
+    <div class="bg-kpi-card" style="border-left: 4px solid #10b981; cursor: pointer; position: relative;" onclick="window.openEditStorageFeeModal()" title="Clic para configurar volumen mensual (m³), tarifa o descuento de almacenamiento">
+      <div class="bg-kpi-title" style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+        <span style="display: inline-flex; align-items: center; gap: 6px;"><i class="ri-archive-2-line" style="color: #10b981;"></i> ALMACENAMIENTO MES</span>
+        <span class="no-print" style="display: inline-flex; align-items: center; gap: 3px; font-size: 0.65rem; font-weight: 800; color: #5f06fa; background: rgba(95,6,250,0.08); border: 1px solid rgba(95,6,250,0.22); padding: 1px 6px; border-radius: 999px; text-transform: none; letter-spacing: 0;">
+          <i class="ri-edit-2-line"></i> ${b.isManualVolume ? 'Manual · Editar' : 'Editar m³'}
+        </span>
+      </div>
+      <div class="bg-kpi-value" style="color: #10b981; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+        <span>${formatDec(b.volumeM3, 2)} <span style="font-size: 0.9rem; font-weight: 600; color: var(--color-text-muted, #94a3b8);">m³</span></span>
+        ${b.isManualVolume ? `<span class="no-print" style="background: #5f06fa; color: #ffffff; font-size: 0.62rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.3px;">MANUAL</span>` : ''}
+      </div>
+      <div class="bg-kpi-subtitle">
+        ${b.isManualVolume
+          ? `<span class="no-print" style="color: #5f06fa; font-weight: 700;">Fijado manual (Auto: ${formatDec(b.autoVolumeM3 || 0, 2)} m³) · </span><span>${formatCLP(t.storageNet)} neto</span>`
+          : `Promedio ${b.volumeDaysLogged || 0} días (${formatCLP(t.storageNet)} neto)`}
+      </div>
     </div>
 
     <div class="bg-kpi-card" style="border-left: 4px solid #f59e0b;">
@@ -8504,6 +8633,7 @@ function recalculateFromCurrentState() {
     storageDiscountPct,
     storageDiscountAmount,
     storageNet: netStorageCost,
+    isManualVolume: !!b.isManualVolume,
     pickPackNet: totalPickPackNet,
     shippingRmFlexCount: billableShippingOrders.length,
     shippingRmFlexNet: totalShippingNet,
@@ -8534,6 +8664,11 @@ function recalculateFromCurrentState() {
 
   const desgloseCont = document.getElementById('bg-desglose-view-container');
   if (desgloseCont) desgloseCont.innerHTML = renderStockaDesgloseHTML();
+
+  const analyticsSubTab = document.getElementById('bg-subtab-analytics');
+  if (analyticsSubTab && analyticsSubTab.style.display !== 'none') {
+    renderBillingAnalyticsCharts();
+  }
 }
 
 // // Agregar Fila Manual de Insumos
@@ -9302,30 +9437,41 @@ window.openEditPosFeeModal = async function() {
   }
 };
 
-// Modal interactivo para asignar o editar la tarifa de almacenamiento y descuento por volumen
+// Modal interactivo para asignar o editar el volumen mensual (m³), tarifa de almacenamiento y descuento por volumen
 window.openEditStorageFeeModal = async function() {
   const b = billingState;
   const t = b.totals || {};
   const activeRange = b.activeRange || {};
   const cfg = b.pricingConfig || DEFAULT_PRICING_CONFIG;
   const volM3 = parseFloat(b.volumeM3) || 0;
+  const autoVolM3 = (b.autoVolumeM3 !== undefined && b.autoVolumeM3 !== null)
+    ? (parseFloat(b.autoVolumeM3) || 0)
+    : volM3;
+  const isManualVolCurrent = !!(b.isManualVolume || t.isManualVolume);
 
   // Tarifa por defecto según el tramo de pedidos
   const defaultRate = activeRange.storage_m3 || 48900;
   const currentRate = t.storageRate || defaultRate;
 
-  // Descuento por defecto según la regla de volumen
-  let defaultDiscountPct = 0;
-  let defaultDiscountLabel = "Sin descuento (< 10 m³)";
-  if (cfg.storage_discounts && Array.isArray(cfg.storage_discounts)) {
-    for (const d of cfg.storage_discounts) {
-      if (volM3 >= d.min && volM3 <= d.max) {
-        defaultDiscountPct = d.discount_pct;
-        defaultDiscountLabel = `${d.discount_pct}% dcto por volumen (${d.min} - ${d.max === 999999 ? '+60' : d.max} m³)`;
-        break;
+  // Función auxiliar para obtener el descuento estándar según un volumen m³ dado
+  const getDiscountForVol = (targetVol) => {
+    let pct = 0;
+    let label = "Sin descuento (< 10 m³)";
+    if (cfg.storage_discounts && Array.isArray(cfg.storage_discounts)) {
+      for (const d of cfg.storage_discounts) {
+        if (targetVol >= d.min && targetVol <= d.max) {
+          pct = d.discount_pct;
+          label = `${d.discount_pct}% dcto por volumen (${d.min} - ${d.max === 999999 ? '+60' : d.max} m³)`;
+          break;
+        }
       }
     }
-  }
+    return { pct, label };
+  };
+
+  const initialDefaultDiscount = getDiscountForVol(volM3);
+  let defaultDiscountPct = initialDefaultDiscount.pct;
+  let defaultDiscountLabel = initialDefaultDiscount.label;
 
   const currentDiscountPct = (t.storageDiscountPct !== undefined) ? t.storageDiscountPct : defaultDiscountPct;
   const currentDiscountLabel = t.storageDiscountLabel || defaultDiscountLabel;
@@ -9342,18 +9488,19 @@ window.openEditStorageFeeModal = async function() {
     : DEFAULT_PRICING_CONFIG.storage_discounts;
 
   const result = await Swal.fire({
-    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.5rem;"><i class="ri-archive-line" style="color: #5f06fa;"></i><span>Tarifa y Descuento de Almacenamiento</span></div>',
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.5rem;"><i class="ri-archive-line" style="color: #5f06fa;"></i><span>Volumen y Tarifa de Almacenamiento</span></div>',
+    width: '560px',
     html: `
       <div style="text-align: left; font-size: 0.88rem; line-height: 1.45; color: #334155;">
         <!-- Banner Informativo -->
-        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 1rem;">
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 0.95rem;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; font-size: 0.78rem;">
             <span style="color: #64748b; font-weight: 600;">Comercio:</span>
             <strong style="color: #0f172a;">${escapeHtml(b.currentCommerce)}</strong>
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; font-size: 0.78rem;">
-            <span style="color: #64748b; font-weight: 600;">Volumen Promedio Mes:</span>
-            <strong style="color: #5f06fa; font-size: 0.95rem;">${formatDec(volM3, 2)} m³</strong>
+            <span style="color: #64748b; font-weight: 600;">Volumen Calculado BD (Automático):</span>
+            <strong style="color: #0f172a;">${formatDec(autoVolM3, 2)} m³ <span style="color: #64748b; font-weight: 500;">(${b.autoVolumeDaysLogged || 0} días reg.)</span></strong>
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; font-size: 0.78rem;">
             <span style="color: #64748b; font-weight: 600;">Tarifa Estándar del Tramo:</span>
@@ -9361,15 +9508,48 @@ window.openEditStorageFeeModal = async function() {
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem;">
             <span style="color: #64748b; font-weight: 600;">Descuento Estándar por Volumen:</span>
-            <span style="color: #0f172a; font-weight: 700;">${defaultDiscountPct}% <span style="color: #64748b; font-weight: 500;">(${escapeHtml(defaultDiscountLabel)})</span></span>
+            <span id="swal-storage-banner-default-discount" style="color: #0f172a; font-weight: 700;">${defaultDiscountPct}% <span style="color: #64748b; font-weight: 500;">(${escapeHtml(defaultDiscountLabel)})</span></span>
           </div>
         </div>
 
-        <!-- 1. TARIFA BASE ($ / m³) -->
+        <!-- 1. VOLUMEN MENSUAL DE ALMACENAMIENTO (m³) -->
+        <div style="margin-bottom: 0.9rem; background: ${isManualVolCurrent ? 'rgba(95, 6, 250, 0.04)' : '#ffffff'}; border: 1.5px solid ${isManualVolCurrent ? 'rgba(95, 6, 250, 0.35)' : '#e2e8f0'}; border-radius: 8px; padding: 0.75rem 0.85rem;" id="swal-storage-vol-box">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem; gap: 6px; flex-wrap: wrap;">
+            <label style="font-size: 0.75rem; font-weight: 800; color: #475569; text-transform: uppercase; display: flex; align-items: center; gap: 5px;">
+              1. Volumen Mensual a Cobrar (m³):
+              <span id="swal-storage-vol-mode-badge" style="background: ${isManualVolCurrent ? '#5f06fa' : '#e2e8f0'}; color: ${isManualVolCurrent ? '#ffffff' : '#475569'}; font-size: 0.65rem; font-weight: 800; padding: 1px 7px; border-radius: 999px;">
+                ${isManualVolCurrent ? 'MANUAL FIJO' : 'AUTOMÁTICO BD'}
+              </span>
+            </label>
+            <button type="button" id="swal-storage-btn-reset-vol" style="background: none; border: none; color: #5f06fa; font-size: 0.72rem; font-weight: 700; cursor: pointer; text-decoration: underline; padding: 0;">
+              Usar automático BD (${formatDec(autoVolM3, 2)} m³)
+            </button>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <div style="display: flex; gap: 4px; background: #f1f5f9; padding: 3px; border-radius: 7px;">
+              <button type="button" id="swal-vol-mode-auto" style="border: none; border-radius: 5px; padding: 6px 10px; font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: all 0.15s; background: ${!isManualVolCurrent ? '#ffffff' : 'transparent'}; color: ${!isManualVolCurrent ? '#0f172a' : '#64748b'}; box-shadow: ${!isManualVolCurrent ? '0 1px 2px rgba(0,0,0,0.08)' : 'none'};">
+                Automático
+              </button>
+              <button type="button" id="swal-vol-mode-manual" style="border: none; border-radius: 5px; padding: 6px 10px; font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: all 0.15s; background: ${isManualVolCurrent ? '#5f06fa' : 'transparent'}; color: ${isManualVolCurrent ? '#ffffff' : '#64748b'}; box-shadow: ${isManualVolCurrent ? '0 1px 2px rgba(95,6,250,0.25)' : 'none'};">
+                Manual Fijo
+              </button>
+            </div>
+            <div style="flex: 1; display: flex; align-items: center; gap: 6px;">
+              <input type="number" id="swal-storage-vol-input" class="swal2-input" style="flex: 1; height: 38px; margin: 0; font-size: 0.95rem; font-weight: 800; color: #0f172a; text-align: right;" min="0" step="0.01" value="${volM3}">
+              <span style="font-weight: 800; font-size: 0.88rem; color: #475569;">m³</span>
+            </div>
+          </div>
+          <div style="font-size: 0.71rem; color: #64748b; margin-top: 0.45rem; line-height: 1.35;">
+            <i class="ri-information-line" style="color: #5f06fa;"></i>
+            Si fijas un <strong>volumen manual</strong>, el gráfico mostrará una línea constante en este valor durante el periodo. <strong>El cliente verá el formato estándar (sin aviso de cálculo manual)</strong>; solo el Admin verá la etiqueta <em>Manual</em>.
+          </div>
+        </div>
+
+        <!-- 2. TARIFA BASE ($ / m³) -->
         <div style="margin-bottom: 0.85rem;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
             <label style="font-size: 0.75rem; font-weight: 800; color: #475569; text-transform: uppercase;">
-              1. Tarifa de Almacenamiento ($ CLP / m³):
+              2. Tarifa de Almacenamiento ($ CLP / m³):
             </label>
             <button type="button" id="swal-storage-btn-reset-rate" style="background: none; border: none; color: #5f06fa; font-size: 0.72rem; font-weight: 700; cursor: pointer; text-decoration: underline; padding: 0;">
               Usar estándar (${formatCLP(defaultRate)})
@@ -9388,18 +9568,18 @@ window.openEditStorageFeeModal = async function() {
           </div>
         </div>
 
-        <!-- 2. DESCUENTO POR VOLUMEN (%) -->
+        <!-- 3. DESCUENTO POR VOLUMEN (%) -->
         <div style="margin-bottom: 0.85rem;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
             <label style="font-size: 0.75rem; font-weight: 800; color: #475569; text-transform: uppercase;">
-              2. Descuento Comercial / Volumen:
+              3. Descuento Comercial / Volumen:
             </label>
             <button type="button" id="swal-storage-btn-reset-discount" style="background: none; border: none; color: #5f06fa; font-size: 0.72rem; font-weight: 700; cursor: pointer; text-decoration: underline; padding: 0;">
-              Usar regla estándar (${defaultDiscountPct}%)
+              Usar regla estándar (<span id="swal-storage-reset-discount-pct">${defaultDiscountPct}</span>%)
             </button>
           </div>
           <select id="swal-storage-discount-mode" class="swal2-select" style="width: 100%; height: 38px; margin: 0 0 0.5rem 0; font-size: 0.85rem; font-weight: 600;">
-            <option value="default" ${currentDiscountPct === defaultDiscountPct ? 'selected' : ''}>
+            <option value="default" id="swal-storage-discount-opt-default" ${currentDiscountPct === defaultDiscountPct ? 'selected' : ''}>
               ⭐ Automático del sistema (${defaultDiscountPct}% - ${defaultDiscountLabel})
             </option>
             <option value="0" ${currentDiscountPct === 0 && defaultDiscountPct !== 0 ? 'selected' : ''}>
@@ -9423,21 +9603,21 @@ window.openEditStorageFeeModal = async function() {
           </div>
         </div>
 
-        <!-- 3. DESCRIPCIÓN / NOTA DEL DESCUENTO -->
-        <div style="margin-bottom: 1rem;">
+        <!-- 4. DESCRIPCIÓN / NOTA DEL DESCUENTO -->
+        <div style="margin-bottom: 0.95rem;">
           <label style="font-size: 0.75rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem; text-transform: uppercase;">
-            3. Glosa / Detalle que aparecerá en el desglose:
+            4. Glosa / Detalle que aparecerá en el desglose:
           </label>
           <input type="text" id="swal-storage-discount-label" class="swal2-input" style="width: 100%; height: 36px; margin: 0; font-size: 0.82rem;" value="${escapeHtml(currentDiscountLabel)}">
         </div>
 
-        <!-- 4. CUADRO REACTIVO DE CÁLCULO EN VIVO -->
+        <!-- 5. CUADRO REACTIVO DE CÁLCULO EN VIVO -->
         <div id="swal-storage-live-preview" style="background: linear-gradient(135deg, rgba(95, 6, 250, 0.05) 0%, rgba(16, 185, 129, 0.05) 100%); border: 1.5px solid rgba(95, 6, 250, 0.25); border-radius: 8px; padding: 0.75rem 0.9rem;">
           <div style="font-size: 0.72rem; font-weight: 800; color: #5f06fa; text-transform: uppercase; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 4px;">
             <i class="ri-calculator-line"></i> Cálculo en Tiempo Real:
           </div>
           <div style="display: flex; justify-content: space-between; font-size: 0.78rem; margin-bottom: 2px;">
-            <span style="color: #64748b;">Subtotal Bruto (${formatDec(volM3, 2)} m³ × <span id="prev-rate">$0</span>):</span>
+            <span style="color: #64748b;">Subtotal Bruto (<strong id="prev-vol" style="color: #0f172a;">${formatDec(volM3, 2)}</strong> m³ × <span id="prev-rate">$0</span>):</span>
             <strong id="prev-gross" style="color: #0f172a;">$0</strong>
           </div>
           <div style="display: flex; justify-content: space-between; font-size: 0.78rem; margin-bottom: 4px;">
@@ -9452,17 +9632,31 @@ window.openEditStorageFeeModal = async function() {
             <span>+ IVA (19%): <span id="prev-iva">$0</span></span>
             <span>Total con IVA: <strong id="prev-total" style="color: #0f172a;">$0</strong></span>
           </div>
+          <div id="prev-fixed-fee-hint" style="font-size: 0.72rem; margin-top: 6px; padding-top: 5px; border-top: 1px dashed rgba(95,6,250,0.2); color: #475569;"></div>
         </div>
       </div>
     `,
     didOpen: () => {
+      let isManualMode = isManualVolCurrent;
+
+      const volBox = document.getElementById('swal-storage-vol-box');
+      const volModeBadge = document.getElementById('swal-storage-vol-mode-badge');
+      const btnModeAuto = document.getElementById('swal-vol-mode-auto');
+      const btnModeManual = document.getElementById('swal-vol-mode-manual');
+      const btnResetVol = document.getElementById('swal-storage-btn-reset-vol');
+      const volInput = document.getElementById('swal-storage-vol-input');
+
       const rateInput = document.getElementById('swal-storage-rate');
       const ratePresets = document.getElementById('swal-storage-rate-presets');
       const discountSelect = document.getElementById('swal-storage-discount-mode');
+      const optDefaultDiscount = document.getElementById('swal-storage-discount-opt-default');
+      const resetDiscountPctSpan = document.getElementById('swal-storage-reset-discount-pct');
+      const bannerDefaultDiscount = document.getElementById('swal-storage-banner-default-discount');
       const customDiscountContainer = document.getElementById('swal-storage-custom-discount-container');
       const customDiscountInput = document.getElementById('swal-storage-custom-discount-pct');
       const labelInput = document.getElementById('swal-storage-discount-label');
 
+      const prevVol = document.getElementById('prev-vol');
       const prevRate = document.getElementById('prev-rate');
       const prevGross = document.getElementById('prev-gross');
       const prevPct = document.getElementById('prev-pct');
@@ -9470,26 +9664,72 @@ window.openEditStorageFeeModal = async function() {
       const prevNet = document.getElementById('prev-net');
       const prevIva = document.getElementById('prev-iva');
       const prevTotal = document.getElementById('prev-total');
+      const prevFixedFeeHint = document.getElementById('prev-fixed-fee-hint');
 
-      const updateCalculation = () => {
+      const setVolModeUI = (manual) => {
+        isManualMode = !!manual;
+        if (volBox) {
+          volBox.style.background = isManualMode ? 'rgba(95, 6, 250, 0.04)' : '#ffffff';
+          volBox.style.borderColor = isManualMode ? 'rgba(95, 6, 250, 0.35)' : '#e2e8f0';
+          volBox.dataset.manualMode = isManualMode ? '1' : '0';
+        }
+        if (volModeBadge) {
+          volModeBadge.textContent = isManualMode ? 'MANUAL FIJO' : 'AUTOMÁTICO BD';
+          volModeBadge.style.background = isManualMode ? '#5f06fa' : '#e2e8f0';
+          volModeBadge.style.color = isManualMode ? '#ffffff' : '#475569';
+        }
+        if (btnModeAuto) {
+          btnModeAuto.style.background = !isManualMode ? '#ffffff' : 'transparent';
+          btnModeAuto.style.color = !isManualMode ? '#0f172a' : '#64748b';
+          btnModeAuto.style.boxShadow = !isManualMode ? '0 1px 2px rgba(0,0,0,0.08)' : 'none';
+        }
+        if (btnModeManual) {
+          btnModeManual.style.background = isManualMode ? '#5f06fa' : 'transparent';
+          btnModeManual.style.color = isManualMode ? '#ffffff' : '#64748b';
+          btnModeManual.style.boxShadow = isManualMode ? '0 1px 2px rgba(95,6,250,0.25)' : 'none';
+        }
+      };
+
+      setVolModeUI(isManualVolCurrent);
+
+      const updateCalculation = (updateDefaultLabelIfAuto = false) => {
+        const activeVol = Math.max(0, parseFloat(volInput?.value) || 0);
+        const dynamicDefault = getDiscountForVol(activeVol);
+        defaultDiscountPct = dynamicDefault.pct;
+        defaultDiscountLabel = dynamicDefault.label;
+
+        if (optDefaultDiscount) {
+          optDefaultDiscount.textContent = `⭐ Automático del sistema (${defaultDiscountPct}% - ${defaultDiscountLabel})`;
+        }
+        if (resetDiscountPctSpan) {
+          resetDiscountPctSpan.textContent = String(defaultDiscountPct);
+        }
+        if (bannerDefaultDiscount) {
+          bannerDefaultDiscount.innerHTML = `${defaultDiscountPct}% <span style="color: #64748b; font-weight: 500;">(${escapeHtml(defaultDiscountLabel)})</span>`;
+        }
+
         const rate = parseInt(rateInput?.value, 10) || 0;
         let pct = 0;
         const mode = discountSelect?.value;
 
         if (mode === 'default') {
           pct = defaultDiscountPct;
+          if (updateDefaultLabelIfAuto && labelInput) {
+            labelInput.value = defaultDiscountLabel;
+          }
         } else if (mode === 'custom') {
           pct = parseFloat(customDiscountInput?.value) || 0;
         } else {
           pct = parseFloat(mode) || 0;
         }
 
-        const gross = Math.round(volM3 * rate);
+        const gross = Math.round(activeVol * rate);
         const discountAmount = Math.round(gross * (pct / 100));
         const net = Math.max(0, gross - discountAmount);
         const iva = Math.round(net * 0.19);
         const total = net + iva;
 
+        if (prevVol) prevVol.textContent = formatDec(activeVol, 2);
         if (prevRate) prevRate.textContent = formatCLP(rate);
         if (prevGross) prevGross.textContent = formatCLP(gross);
         if (prevPct) prevPct.textContent = `${pct}%`;
@@ -9497,7 +9737,42 @@ window.openEditStorageFeeModal = async function() {
         if (prevNet) prevNet.textContent = formatCLP(net);
         if (prevIva) prevIva.textContent = formatCLP(iva);
         if (prevTotal) prevTotal.textContent = formatCLP(total);
+
+        if (prevFixedFeeHint) {
+          const billableOrdersCount = (b.orders || []).filter(o => !o.isExcluded).length;
+          if (billableOrdersCount >= 75 || activeVol >= 1.5) {
+            prevFixedFeeHint.innerHTML = `<i class="ri-shield-check-line" style="color: #10b981;"></i> <strong>Costo Variable Mensual:</strong> <span style="color: #10b981; font-weight: 700;">EXENTO ($0)</span> (${activeVol >= 1.5 ? `volumen ≥ 1,5 m³` : `≥ 75 pedidos`})`;
+          } else if (activeVol < 1.0 && billableOrdersCount < 50) {
+            prevFixedFeeHint.innerHTML = `<i class="ri-information-line" style="color: #ef4444;"></i> <strong>Costo Variable Mensual:</strong> <span style="color: #ef4444; font-weight: 700;">1,5 UF</span> (&lt; 50 pedidos y &lt; 1,0 m³)`;
+          } else {
+            prevFixedFeeHint.innerHTML = `<i class="ri-information-line" style="color: #f59e0b;"></i> <strong>Costo Variable Mensual:</strong> <span style="color: #d97706; font-weight: 700;">0,9 UF</span> (&lt; 75 pedidos y &lt; 1,5 m³)`;
+          }
+        }
       };
+
+      btnModeAuto?.addEventListener('click', () => {
+        setVolModeUI(false);
+        if (volInput) volInput.value = autoVolM3;
+        updateCalculation(true);
+      });
+
+      btnModeManual?.addEventListener('click', () => {
+        setVolModeUI(true);
+        volInput?.focus();
+        volInput?.select();
+        updateCalculation(true);
+      });
+
+      btnResetVol?.addEventListener('click', () => {
+        setVolModeUI(false);
+        if (volInput) volInput.value = autoVolM3;
+        updateCalculation(true);
+      });
+
+      volInput?.addEventListener('input', () => {
+        setVolModeUI(true);
+        updateCalculation(true);
+      });
 
       ratePresets?.addEventListener('change', () => {
         if (ratePresets.value && rateInput) {
@@ -9564,16 +9839,23 @@ window.openEditStorageFeeModal = async function() {
     denyButtonColor: '#64748b',
     cancelButtonColor: '#94a3b8',
     preConfirm: () => {
+      const volBox = document.getElementById('swal-storage-vol-box');
+      const volInput = document.getElementById('swal-storage-vol-input');
       const rateInput = document.getElementById('swal-storage-rate');
       const discountSelect = document.getElementById('swal-storage-discount-mode');
       const customDiscountInput = document.getElementById('swal-storage-custom-discount-pct');
       const labelInput = document.getElementById('swal-storage-discount-label');
 
+      const isManualVolume = volBox?.dataset?.manualMode === '1';
+      const rawVol = Math.max(0, parseFloat(volInput?.value) || 0);
+      const volumeM3 = isManualVolume ? Number(rawVol.toFixed(2)) : autoVolM3;
+
+      const dynamicDefault = getDiscountForVol(volumeM3);
       const rate = parseInt(rateInput?.value, 10) || defaultRate;
       let pct = 0;
       const mode = discountSelect?.value;
       if (mode === 'default') {
-        pct = defaultDiscountPct;
+        pct = dynamicDefault.pct;
       } else if (mode === 'custom') {
         pct = parseFloat(customDiscountInput?.value) || 0;
       } else {
@@ -9581,18 +9863,21 @@ window.openEditStorageFeeModal = async function() {
       }
 
       const label = labelInput?.value?.trim() || (pct > 0 ? `${pct}% dcto por volumen` : 'Sin descuento');
-      const isCustom = (rate !== defaultRate || pct !== defaultDiscountPct);
+      const isCustom = (rate !== defaultRate || pct !== dynamicDefault.pct);
 
-      return { rate, discountPct: pct, discountLabel: label, isCustom };
+      return { volumeM3, isManualVolume, rate, discountPct: pct, discountLabel: label, isCustom };
     }
   });
 
   let chosenValues = null;
   if (result.isDenied) {
+    const autoDefault = getDiscountForVol(autoVolM3);
     chosenValues = {
+      volumeM3: autoVolM3,
+      isManualVolume: false,
       rate: defaultRate,
-      discountPct: defaultDiscountPct,
-      discountLabel: defaultDiscountLabel,
+      discountPct: autoDefault.pct,
+      discountLabel: autoDefault.label,
       isCustom: false
     };
   } else if (result.isConfirmed && result.value) {
@@ -9600,12 +9885,57 @@ window.openEditStorageFeeModal = async function() {
   }
 
   if (chosenValues) {
+    const newVolM3 = chosenValues.volumeM3;
+    const isManualVolume = !!chosenValues.isManualVolume;
     const rate = chosenValues.rate;
     const discountPct = chosenValues.discountPct;
     const discountLabel = chosenValues.discountLabel;
     const isCustom = chosenValues.isCustom;
 
-    const gross = Math.round(volM3 * rate);
+    b.volumeM3 = newVolM3;
+    b.isManualVolume = isManualVolume;
+    b.volumeSessionKey = `${b.currentPeriodId || ''}_${b.currentCommerce || ''}`;
+
+    const periodYear = b.currentPeriodYear || new Date().getFullYear();
+    const periodMonth = b.currentPeriodMonth || (new Date().getMonth() + 1);
+
+    if (isManualVolume) {
+      const constLogs = generateConstantDailyStorageLogs(periodYear, periodMonth, newVolM3);
+      b.dailyStorageLogs = constLogs;
+      b.volumeDaysLogged = constLogs.length;
+      b.volumeStats = {
+        averageM3: newVolM3,
+        minDailyVolume: newVolM3,
+        maxDailyVolume: newVolM3,
+        daysLogged: constLogs.length,
+        isManualVolume: true,
+        autoVolumeM3: autoVolM3
+      };
+    } else {
+      const restoredLogs = Array.isArray(b.autoDailyStorageLogs) && b.autoDailyStorageLogs.length > 0
+        ? JSON.parse(JSON.stringify(b.autoDailyStorageLogs))
+        : [];
+      b.dailyStorageLogs = restoredLogs;
+      b.volumeDaysLogged = b.autoVolumeDaysLogged || restoredLogs.length || 0;
+      let minAuto = restoredLogs.length > 0 ? Infinity : 0;
+      let maxAuto = 0;
+      for (const l of restoredLogs) {
+        const v = parseFloat(l.volume) || 0;
+        if (v < minAuto) minAuto = v;
+        if (v > maxAuto) maxAuto = v;
+      }
+      if (minAuto === Infinity) minAuto = 0;
+      b.volumeStats = {
+        averageM3: newVolM3,
+        minDailyVolume: Number(minAuto.toFixed(2)),
+        maxDailyVolume: Number(maxAuto.toFixed(2)),
+        daysLogged: b.volumeDaysLogged,
+        isManualVolume: false,
+        autoVolumeM3: autoVolM3
+      };
+    }
+
+    const gross = Math.round(newVolM3 * rate);
     const discountAmount = Math.round(gross * (discountPct / 100));
     const net = Math.max(0, gross - discountAmount);
 
@@ -9617,47 +9947,20 @@ window.openEditStorageFeeModal = async function() {
     b.totals.storageDiscountAmount = discountAmount;
     b.totals.storageNet = net;
     b.totals.isStorageCustom = isCustom;
-
-    // Recalcular totales consolidados
-    const totalSuppliesNet = (b.supplies || []).reduce((acc, s) => acc + (s.total || 0), 0);
-    const totalAdjustmentsNet = (b.adjustments || []).reduce((acc, a) => acc + (a.amount || 0), 0);
-    const totalAbonos = (b.abonos || []).reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0);
-    const inboundNet = b.totals.inboundNet || 0;
-    const fixedFeeNet = b.totals.fixedFeeNet || 0;
-    const posFeeNet = b.totals.posFeeNet || 0;
-    const meliFullNet = b.totals.meliFullNet || 0;
-
-    const totalNet = Math.round(net + b.totals.pickPackNet + b.totals.shippingRmFlexNet + inboundNet + fixedFeeNet + posFeeNet + totalSuppliesNet + totalAdjustmentsNet + meliFullNet);
-    const totalIVA = Math.round(totalNet * 0.19);
-    const totalGross = totalNet + totalIVA;
-    const totalToPay = Math.max(0, totalGross - totalAbonos);
-
-    b.totals.suppliesNet = totalSuppliesNet;
-    b.totals.totalSuppliesNet = totalSuppliesNet;
-    b.totals.adjustmentsNet = totalAdjustmentsNet;
-    b.totals.totalAdjustmentsNet = totalAdjustmentsNet;
-    b.totals.totalAbonos = totalAbonos;
-    b.totals.totalNet = totalNet;
-    b.totals.iva = totalIVA;
-    b.totals.totalGross = totalGross;
-    b.totals.totalToPay = totalToPay;
+    b.totals.isManualVolume = isManualVolume;
 
     b.isSaved = false;
 
-    renderKPIsUI();
-
-    const desgloseCont = document.getElementById('bg-desglose-view-container');
-    if (desgloseCont) desgloseCont.innerHTML = renderStockaDesgloseHTML();
-
-    if (b.isConglomerate) {
-      renderConglomerateBannerUI();
-    }
+    // Recalcular todos los totales consolidados (incluyendo Costo Variable Mensual por cambio de m³) y refrescar vistas
+    recalculateFromCurrentState();
 
     Swal.fire({
       toast: true,
       position: 'top-end',
       icon: 'success',
-      title: isCustom ? 'Tarifa y descuento de almacenamiento actualizados' : 'Almacenamiento restablecido a valores estándar',
+      title: (isManualVolume || isCustom)
+        ? `Almacenamiento actualizado (${formatDec(newVolM3, 2)} m³${isManualVolume ? ' manual' : ''})`
+        : 'Almacenamiento restablecido a cálculo automático',
       showConfirmButton: false,
       timer: 2500
     });
@@ -12052,6 +12355,38 @@ export function sanitizeSnapshotOrdersMarketplace(snapshot, config = null) {
       changed = true;
     }
   });
+
+  // Si el snapshot tiene volumen manual fijado, garantizar que dailyStorageLogs y volumeStats sean constantes a lo largo del tiempo
+  const isSnapManualVol = !!(snapshot.isManualVolume || snapshot.totals?.isManualVolume || snapshot.volumeStats?.isManualVolume);
+  if (isSnapManualVol) {
+    const fixedVol = Number((parseFloat(snapshot.volumeM3) || 0).toFixed(2));
+    let snapYear = snapshot.currentPeriodYear;
+    let snapMonth = snapshot.currentPeriodMonth;
+    if ((!snapYear || !snapMonth) && Array.isArray(snapshot.dailyStorageLogs) && snapshot.dailyStorageLogs.length > 0) {
+      const parts = String(snapshot.dailyStorageLogs[0].date || '').split('-');
+      if (parts.length >= 2) {
+        snapYear = parseInt(parts[0], 10);
+        snapMonth = parseInt(parts[1], 10);
+      }
+    }
+    snapYear = snapYear || new Date().getFullYear();
+    snapMonth = snapMonth || (new Date().getMonth() + 1);
+    const constLogs = generateConstantDailyStorageLogs(snapYear, snapMonth, fixedVol);
+    snapshot.isManualVolume = true;
+    snapshot.dailyStorageLogs = constLogs;
+    snapshot.volumeDaysLogged = constLogs.length;
+    snapshot.volumeStats = {
+      ...(snapshot.volumeStats || {}),
+      averageM3: fixedVol,
+      minDailyVolume: fixedVol,
+      maxDailyVolume: fixedVol,
+      daysLogged: constLogs.length,
+      isManualVolume: true
+    };
+    if (snapshot.totals) {
+      snapshot.totals.isManualVolume = true;
+    }
+  }
 
   // Calcular Cobro de Etiqueta FULL de MELI ($100 por producto en pedidos con agenda FULL MERCADOLIBRE)
   const billable = snapshot.orders.filter(o => !o.isExcluded);

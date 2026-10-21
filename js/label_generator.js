@@ -7898,4 +7898,1923 @@ import supabase from './supabase.js';
     return text.toString().replace(/[&<>"']/g, function (m) { return map[m]; });
   }
 
+  // =========================================================================
+  // COMPROBANTE RÁPIDO DE CAMBIO / RECEPCIÓN EN SUCURSAL (PDF / A4 / 80MM)
+  // =========================================================================
+
+  const BRANCH_RECEIPT_DEFAULT_ADDRESS = 'Campo de Deportes 405, Ñuñoa, Santiago';
+  const BRANCH_RECEIPT_DEFAULT_BRANCH = 'Sucursal Física Ñuñoa';
+
+  window.branchReceiptModalState = {
+    rlId: null,
+    wmsOrderId: null,
+    origenOrderId: null,
+    receiptType: 'CAMBIO_SUCURSAL', // 'CAMBIO_SUCURSAL' | 'RECEPCION_CAMBIO' | 'DEVOLUCION_SUCURSAL'
+    folio: '',
+    createdAt: '',
+    comercio: '',
+    referenciaPedido: '',
+    sucursal: BRANCH_RECEIPT_DEFAULT_BRANCH,
+    direccionSucursal: BRANCH_RECEIPT_DEFAULT_ADDRESS,
+    customerName: '',
+    customerPhone: '',
+    customerEmail: '',
+    customerRut: '',
+    atendidoPor: 'Mesón Sucursal Ñuñoa',
+    observaciones: '',
+    incomingItems: [], // { sku, name, qty, comment, product_id, regresar_a_inventario }
+    outgoingItems: [], // { sku, name, qty, product_id }
+    catalogProducts: [],
+    recentRecords: []
+  };
+
+  function generateBranchReceiptFolio(refPedido, rlId) {
+    const cleanRef = (refPedido || 'SUC').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 10);
+    if (rlId && typeof rlId === 'string' && rlId.length >= 4) {
+      return `CS-${cleanRef}-${rlId.substring(0, 4).toUpperCase()}`;
+    }
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    return `CS-${cleanRef}-${rand}`;
+  }
+
+  function formatDateTimeCL(isoOrDate) {
+    const d = isoOrDate ? new Date(isoOrDate) : new Date();
+    if (isNaN(d.getTime())) {
+      const now = new Date();
+      return now.toLocaleDateString('es-CL') + ' ' + now.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+    }
+    return d.toLocaleDateString('es-CL') + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function getReceiptTypeMeta(type) {
+    if (type === 'RECEPCION_CAMBIO') {
+      return {
+        title: 'COMPROBANTE DE RECEPCIÓN PARA CAMBIO EN SUCURSAL',
+        shortTitle: 'RECEPCIÓN CAMBIO SUCURSAL',
+        badgeText: 'Recepción en Sucursal (Cambio)',
+        badgeColor: '#0284c7',
+        badgeBg: '#e0f2fe',
+        description: 'Constancia oficial de recepción presencial de productos entregados por el cliente en Sucursal Stocka para gestión de cambio.'
+      };
+    }
+    if (type === 'DEVOLUCION_SUCURSAL') {
+      return {
+        title: 'COMPROBANTE DE DEVOLUCIÓN EN SUCURSAL',
+        shortTitle: 'DEVOLUCIÓN EN SUCURSAL',
+        badgeText: 'Devolución en Sucursal',
+        badgeColor: '#dc2626',
+        badgeBg: '#fee2e2',
+        description: 'Constancia oficial de recepción presencial de mercadería en devolución entregada por el cliente en Sucursal Stocka.'
+      };
+    }
+    return {
+      title: 'COMPROBANTE DE CAMBIO REALIZADO EN SUCURSAL',
+      shortTitle: 'CAMBIO EN SUCURSAL',
+      badgeText: 'Cambio Realizado en Sucursal',
+      badgeColor: '#059669',
+      badgeBg: '#d1fae5',
+      description: 'Constancia oficial de cambio de productos realizado presencialmente en Sucursal Física Stocka.'
+    };
+  }
+
+  /**
+   * Builds the A4/Letter HTML document for the Branch Exchange/Return Receipt
+   */
+  window.buildBranchExchangeReceiptHTML = function (state, forPrintOrPdf = false) {
+    const s = state || window.branchReceiptModalState;
+    const meta = getReceiptTypeMeta(s.receiptType);
+    const dateStr = formatDateTimeCL(s.createdAt);
+    const folio = s.folio || generateBranchReceiptFolio(s.referenciaPedido, s.rlId);
+
+    const rawBarcodeVal = String(s.referenciaPedido || folio).replace(/[^a-zA-Z0-9]/g, '') || 'STOCKA';
+    const barcodeSvg = (typeof window.generateBarcodeSVG === 'function')
+      ? window.generateBarcodeSVG(rawBarcodeVal, true, '10x10')
+      : '';
+
+    const incomingRows = (s.incomingItems || []).filter(i => i && (i.sku || i.name));
+    const outgoingRows = (s.outgoingItems || []).filter(i => i && (i.sku || i.name));
+    const totalInQty = incomingRows.reduce((acc, it) => acc + (parseInt(it.qty, 10) || 1), 0);
+    const totalOutQty = outgoingRows.reduce((acc, it) => acc + (parseInt(it.qty, 10) || 1), 0);
+
+    let incomingTableHtml = '';
+    if (incomingRows.length === 0) {
+      incomingTableHtml = `
+        <tr>
+          <td colspan="4" style="padding: 12px; text-align: center; color: #64748b; font-style: italic; border-bottom: 1px solid #e2e8f0;">
+            Sin productos registrados en recepción.
+          </td>
+        </tr>
+      `;
+    } else {
+      incomingTableHtml = incomingRows.map((item, idx) => `
+        <tr style="border-bottom: 1px solid #e2e8f0; background: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+          <td style="padding: 8px 10px; font-weight: 800; text-align: center; color: #0f172a; width: 10%;">${parseInt(item.qty, 10) || 1}x</td>
+          <td style="padding: 8px 10px; font-family: monospace; font-weight: 700; color: #334155; width: 24%;">${escapeHtml(item.sku || 'S/SKU')}</td>
+          <td style="padding: 8px 10px; font-weight: 600; color: #0f172a; width: 42%;">${escapeHtml(item.name || 'Producto')}</td>
+          <td style="padding: 8px 10px; color: #475569; font-size: 11px; width: 24%;">${escapeHtml(item.comment || 'Recibido en sucursal')}</td>
+        </tr>
+      `).join('');
+    }
+
+    let outgoingSectionHtml = '';
+    if (outgoingRows.length > 0) {
+      const outgoingTableRows = outgoingRows.map((item, idx) => `
+        <tr style="border-bottom: 1px solid #e2e8f0; background: ${idx % 2 === 0 ? '#ffffff' : '#f0fdf4'};">
+          <td style="padding: 8px 10px; font-weight: 800; text-align: center; color: #065f46; width: 10%;">${parseInt(item.qty, 10) || 1}x</td>
+          <td style="padding: 8px 10px; font-family: monospace; font-weight: 700; color: #065f46; width: 24%;">${escapeHtml(item.sku || 'S/SKU')}</td>
+          <td style="padding: 8px 10px; font-weight: 600; color: #0f172a; width: 66%;">${escapeHtml(item.name || 'Producto de Reemplazo')}</td>
+        </tr>
+      `).join('');
+
+      outgoingSectionHtml = `
+        <div style="margin-bottom: 18px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; background: #ecfdf5; border: 1px solid #a7f3d0; border-bottom: 2px solid #10b981; padding: 7px 12px; border-radius: 6px 6px 0 0;">
+            <span style="font-size: 12px; font-weight: 800; color: #065f46; text-transform: uppercase; letter-spacing: 0.4px;">
+              ➡️ 2. PRODUCTOS ENTREGADOS AL CLIENTE (CAMBIO / REEMPLAZO EN SUCURSAL)
+            </span>
+            <span style="font-size: 11px; font-weight: 700; color: #047857; background: #d1fae5; padding: 2px 8px; border-radius: 99px;">
+              Total Entregado: ${totalOutQty} un.
+            </span>
+          </div>
+          <table style="width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid #cbd5e1; border-top: none;">
+            <thead>
+              <tr style="background: #f8fafc; border-bottom: 1px solid #cbd5e1; text-align: left; font-size: 10.5px; color: #475569; text-transform: uppercase;">
+                <th style="padding: 6px 10px; text-align: center; width: 10%;">Cant.</th>
+                <th style="padding: 6px 10px; width: 24%;">SKU</th>
+                <th style="padding: 6px 10px; width: 66%;">Descripción del Producto Entregado</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${outgoingTableRows}
+            </tbody>
+          </table>
+        </div>
+      `;
+    } else if (s.receiptType === 'CAMBIO_SUCURSAL' || s.receiptType === 'RECEPCION_CAMBIO') {
+      outgoingSectionHtml = `
+        <div style="margin-bottom: 18px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 6px; padding: 10px 14px; font-size: 11.5px; color: #334155;">
+          <strong style="color: #0f172a; display: block; margin-bottom: 2px;">➡️ Detalle de Entrega / Reemplazo:</strong>
+          <span>Mercadería recepcionada físicamente en ${escapeHtml(s.sucursal || BRANCH_RECEIPT_DEFAULT_BRANCH)} para proceso de cambio del pedido <strong>#${escapeHtml(s.referenciaPedido || 'N/A')}</strong> (${escapeHtml(s.comercio || 'Comercio')}).</span>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="branch-receipt-sheet" style="font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #0f172a; background: #ffffff; width: 100%; max-width: 780px; margin: 0 auto; padding: ${forPrintOrPdf ? '24px 28px' : '20px'}; box-sizing: border-box; border: ${forPrintOrPdf ? 'none' : '1px solid #cbd5e1'}; border-radius: ${forPrintOrPdf ? '0' : '8px'}; line-height: 1.4;">
+        
+        <!-- Cabecera Corporativa -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #0f172a; padding-bottom: 14px; margin-bottom: 16px; gap: 16px;">
+          <div style="display: flex; align-items: center; gap: 14px;">
+            <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" alt="STOCKA" crossorigin="anonymous" style="height: 46px; width: auto; object-fit: contain;" onerror="this.style.display='none'">
+            <div>
+              <div style="font-size: 20px; font-weight: 900; letter-spacing: 0.5px; color: #0f172a; line-height: 1.1;">WMS STOCKA CHILE</div>
+              <div style="font-size: 11.5px; font-weight: 700; color: #2563eb; margin-top: 2px;">${escapeHtml(s.sucursal || BRANCH_RECEIPT_DEFAULT_BRANCH)}</div>
+              <div style="font-size: 10.5px; color: #475569;">${escapeHtml(s.direccionSucursal || BRANCH_RECEIPT_DEFAULT_ADDRESS)}</div>
+            </div>
+          </div>
+
+          <div style="text-align: right; flex-shrink: 0;">
+            <div style="display: inline-block; background: ${meta.badgeBg}; color: ${meta.badgeColor}; border: 1px solid ${meta.badgeColor}; font-size: 10.5px; font-weight: 800; padding: 3px 10px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">
+              ${escapeHtml(meta.badgeText)}
+            </div>
+            <div style="font-size: 13px; font-weight: 800; font-family: monospace; color: #0f172a;">FOLIO: ${escapeHtml(folio)}</div>
+            <div style="font-size: 11px; color: #475569; margin-top: 2px;"><strong>Fecha:</strong> ${escapeHtml(dateStr)}</div>
+          </div>
+        </div>
+
+        <!-- Título Principal y Pedido Destacado -->
+        <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #cbd5e1; border-left: 5px solid ${meta.badgeColor}; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; gap: 12px;">
+          <div style="flex: 1;">
+            <h2 style="margin: 0; font-size: 15px; font-weight: 900; color: #0f172a; letter-spacing: 0.3px;">
+              ${escapeHtml(meta.title)}
+            </h2>
+            <p style="margin: 3px 0 0 0; font-size: 11px; color: #475569;">
+              ${escapeHtml(meta.description)}
+            </p>
+          </div>
+          <div style="text-align: right; background: #ffffff; border: 1.5px solid #0f172a; border-radius: 6px; padding: 6px 14px; flex-shrink: 0;">
+            <span style="font-size: 9.5px; font-weight: 700; text-transform: uppercase; color: #64748b; display: block;">Pedido Original</span>
+            <strong style="font-size: 17px; font-weight: 900; font-family: monospace; color: #0f172a; letter-spacing: 0.5px;">#${escapeHtml(s.referenciaPedido || 'N/A')}</strong>
+          </div>
+        </div>
+
+        <!-- Bloque de Datos: Comercio/Operación y Cliente -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; font-size: 11.5px;">
+          <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 14px;">
+            <div style="font-size: 10.5px; font-weight: 800; color: #1e3a8a; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 8px; letter-spacing: 0.4px;">
+              Datos del Comercio y Sucursal
+            </div>
+            <div style="display: grid; grid-template-columns: 110px 1fr; row-gap: 4px;">
+              <span style="color: #64748b; font-weight: 600;">Comercio / Tienda:</span>
+              <strong style="color: #0f172a;">${escapeHtml(s.comercio || 'N/A')}</strong>
+              <span style="color: #64748b; font-weight: 600;">N° Pedido Ref.:</span>
+              <strong style="font-family: monospace; color: #0f172a;">#${escapeHtml(s.referenciaPedido || 'N/A')}</strong>
+              <span style="color: #64748b; font-weight: 600;">Modalidad:</span>
+              <span style="font-weight: 700; color: #059669;">Atención Presencial en Sucursal</span>
+              <span style="color: #64748b; font-weight: 600;">Atendido por:</span>
+              <span style="color: #0f172a;">${escapeHtml(s.atendidoPor || 'Mesón Sucursal Ñuñoa')}</span>
+            </div>
+          </div>
+
+          <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 14px;">
+            <div style="font-size: 10.5px; font-weight: 800; color: #1e3a8a; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 8px; letter-spacing: 0.4px;">
+              Datos del Cliente
+            </div>
+            <div style="display: grid; grid-template-columns: 95px 1fr; row-gap: 4px;">
+              <span style="color: #64748b; font-weight: 600;">Nombre:</span>
+              <strong style="color: #0f172a;">${escapeHtml(s.customerName || 'Cliente Presencial')}</strong>
+              ${s.customerRut ? `
+                <span style="color: #64748b; font-weight: 600;">RUT / DNI:</span>
+                <span style="font-family: monospace; font-weight: 700; color: #0f172a;">${escapeHtml(s.customerRut)}</span>
+              ` : ''}
+              <span style="color: #64748b; font-weight: 600;">Teléfono:</span>
+              <span style="color: #0f172a;">${escapeHtml(s.customerPhone || 'No informado')}</span>
+              <span style="color: #64748b; font-weight: 600;">Email:</span>
+              <span style="color: #0f172a; word-break: break-all;">${escapeHtml(s.customerEmail || 'No informado')}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 1. Tabla de Productos Recibidos en Sucursal (Entra) -->
+        <div style="margin-bottom: 18px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; background: #fef2f2; border: 1px solid #fecaca; border-bottom: 2px solid #ef4444; padding: 7px 12px; border-radius: 6px 6px 0 0;">
+            <span style="font-size: 12px; font-weight: 800; color: #991b1b; text-transform: uppercase; letter-spacing: 0.4px;">
+              ⬅️ 1. PRODUCTOS RECIBIDOS EN SUCURSAL (ENTREGADOS POR EL CLIENTE)
+            </span>
+            <span style="font-size: 11px; font-weight: 700; color: #b91c1c; background: #fee2e2; padding: 2px 8px; border-radius: 99px;">
+              Total Recibido: ${totalInQty} un.
+            </span>
+          </div>
+          <table style="width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid #cbd5e1; border-top: none;">
+            <thead>
+              <tr style="background: #f8fafc; border-bottom: 1px solid #cbd5e1; text-align: left; font-size: 10.5px; color: #475569; text-transform: uppercase;">
+                <th style="padding: 6px 10px; text-align: center; width: 10%;">Cant.</th>
+                <th style="padding: 6px 10px; width: 24%;">SKU</th>
+                <th style="padding: 6px 10px; width: 42%;">Producto Recibido</th>
+                <th style="padding: 6px 10px; width: 24%;">Motivo / Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${incomingTableHtml}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 2. Tabla de Productos Entregados al Cliente (Sale / Reemplazo) -->
+        ${outgoingSectionHtml}
+
+        <!-- Observaciones -->
+        ${s.observaciones ? `
+          <div style="margin-bottom: 18px; background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 6px; padding: 9px 14px; font-size: 11.5px; color: #78350f;">
+            <strong style="display: block; font-size: 10.5px; text-transform: uppercase; color: #b45309; margin-bottom: 2px;">Observaciones / Notas de Atención:</strong>
+            <div style="white-space: pre-wrap;">${escapeHtml(s.observaciones)}</div>
+          </div>
+        ` : ''}
+
+        <!-- Firmas y Código de Barras -->
+        <div style="margin-top: 26px; padding-top: 14px; border-top: 1px dashed #cbd5e1; display: grid; grid-template-columns: 1fr 1fr 170px; gap: 18px; align-items: end;">
+          <div style="text-align: center;">
+            <div style="height: 48px; border-bottom: 1.5px solid #334155; margin-bottom: 6px;"></div>
+            <div style="font-size: 11px; font-weight: 800; color: #0f172a;">FIRMA CONFORME CLIENTE</div>
+            <div style="font-size: 9.5px; color: #64748b;">${escapeHtml(s.customerName || 'Nombre y RUT')}</div>
+          </div>
+
+          <div style="text-align: center;">
+            <div style="height: 48px; border-bottom: 1.5px solid #334155; margin-bottom: 6px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 4px;">
+              <span style="font-size: 10px; font-weight: 700; color: #64748b; font-style: italic;">${escapeHtml(s.sucursal || BRANCH_RECEIPT_DEFAULT_BRANCH)}</span>
+            </div>
+            <div style="font-size: 11px; font-weight: 800; color: #0f172a;">RECEPCIÓN / ENTREGA STOCKA</div>
+            <div style="font-size: 9.5px; color: #64748b;">${escapeHtml(s.atendidoPor || 'Operador Sucursal')}</div>
+          </div>
+
+          <div style="text-align: center; background: #ffffff; padding: 4px; border: 1px solid #e2e8f0; border-radius: 4px;">
+            ${barcodeSvg ? `<div style="max-height: 48px; overflow: hidden; display: flex; justify-content: center;">${barcodeSvg}</div>` : `<div style="font-family: monospace; font-weight: 800; font-size: 12px;">${escapeHtml(rawBarcodeVal)}</div>`}
+          </div>
+        </div>
+
+        <!-- Pie de página -->
+        <div style="margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 9.5px; color: #64748b;">
+          <span>Comprobante oficial emitido por <strong>WMS STOCKA</strong> (${escapeHtml(s.sucursal || BRANCH_RECEIPT_DEFAULT_BRANCH)}).</span>
+          <span>www.stocka.cl</span>
+        </div>
+      </div>
+    `;
+  };
+
+  /**
+   * Prints the A4/Letter Comprobante in a clean print dialog
+   */
+  window.printBranchExchangeReceiptA4 = function (customState) {
+    const s = customState || window.branchReceiptModalState;
+    const htmlBody = window.buildBranchExchangeReceiptHTML(s, true);
+    const folio = s.folio || generateBranchReceiptFolio(s.referenciaPedido, s.rlId);
+
+    const printWin = window.open('', '_blank', 'width=900,height=750');
+    if (!printWin) {
+      alert('Por favor habilita las ventanas emergentes en tu navegador para imprimir el comprobante.');
+      return;
+    }
+
+    const fullHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Comprobante Sucursal ${escapeHtml(s.referenciaPedido || folio)}</title>
+        <style>
+          @page { size: A4 portrait; margin: 12mm; }
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: #ffffff;
+            color: #0f172a;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+        </style>
+      </head>
+      <body>
+        ${htmlBody}
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.focus();
+              window.print();
+            }, 350);
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWin.document.open();
+    printWin.document.write(fullHtml);
+    printWin.document.close();
+  };
+
+  /**
+   * Downloads the Comprobante as an official A4 PDF file using html2pdf
+   */
+  window.downloadBranchExchangeReceiptPDF = async function (customState) {
+    const s = customState || window.branchReceiptModalState;
+    if (typeof html2pdf === 'undefined') {
+      window.printBranchExchangeReceiptA4(s);
+      return;
+    }
+
+    const folio = s.folio || generateBranchReceiptFolio(s.referenciaPedido, s.rlId);
+    const cleanRef = (s.referenciaPedido || folio).replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.left = '-9999px';
+    container.style.top = '0';
+    container.style.width = '790px';
+    container.style.background = '#ffffff';
+    container.style.zIndex = '-1';
+    container.innerHTML = window.buildBranchExchangeReceiptHTML(s, true);
+    document.body.appendChild(container);
+
+    const targetEl = container.querySelector('.branch-receipt-sheet') || container;
+
+    try {
+      const opt = {
+        margin: [10, 10, 10, 10],
+        filename: `Comprobante_Sucursal_${cleanRef}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, scrollY: 0, scrollX: 0 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+      await html2pdf().from(targetEl).set(opt).save();
+    } catch (err) {
+      console.error('Error generando PDF de comprobante sucursal:', err);
+      alert('Error al generar PDF: ' + err.message);
+    } finally {
+      container.remove();
+    }
+  };
+
+  /**
+   * Generates a Base64-encoded PDF string of the A4 Comprobante for email attachments
+   */
+  window.generateBranchExchangeReceiptPdfBase64 = async function (customState) {
+    const s = customState || window.branchReceiptModalState;
+    if (typeof html2pdf === 'undefined') return null;
+
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.left = '-9999px';
+    container.style.top = '0';
+    container.style.width = '790px';
+    container.style.background = '#ffffff';
+    container.style.zIndex = '-1';
+    container.innerHTML = window.buildBranchExchangeReceiptHTML(s, true);
+    document.body.appendChild(container);
+
+    const targetEl = container.querySelector('.branch-receipt-sheet') || container;
+
+    try {
+      const opt = {
+        margin: [10, 10, 10, 10],
+        image: { type: 'jpeg', quality: 0.96 },
+        html2canvas: { scale: 2, useCORS: true, scrollY: 0, scrollX: 0 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+      const dataUri = await html2pdf().from(targetEl).set(opt).outputPdf('datauristring');
+      if (dataUri && typeof dataUri === 'string' && dataUri.includes('base64,')) {
+        return dataUri.split('base64,')[1];
+      }
+      return null;
+    } catch (err) {
+      console.warn('No se pudo generar adjunto PDF base64:', err);
+      return null;
+    } finally {
+      container.remove();
+    }
+  };
+
+  /**
+   * Builds an email-client-compatible HTML body for the Branch Exchange/Return Receipt
+   */
+  window.buildBranchExchangeReceiptEmailHTML = function (customState, customMessage, hasPdfAttachment) {
+    const s = customState || window.branchReceiptModalState;
+    const meta = getReceiptTypeMeta(s.receiptType);
+    const dateStr = formatDateTimeCL(s.createdAt);
+    const folio = s.folio || generateBranchReceiptFolio(s.referenciaPedido, s.rlId);
+
+    const incomingRows = (s.incomingItems || []).filter(i => i && (i.sku || i.name));
+    const outgoingRows = (s.outgoingItems || []).filter(i => i && (i.sku || i.name));
+    const totalInQty = incomingRows.reduce((acc, i) => acc + (parseInt(i.qty, 10) || 1), 0);
+    const totalOutQty = outgoingRows.reduce((acc, i) => acc + (parseInt(i.qty, 10) || 1), 0);
+
+    const incomingHtmlRows = incomingRows.length > 0
+      ? incomingRows.map((item, idx) => `
+          <tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+            <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 700; color: #0f172a;">${parseInt(item.qty, 10) || 1}</td>
+            <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-family: monospace; font-size: 12px; color: #334155;">${escapeHtml(item.sku || 'S/SKU')}</td>
+            <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #0f172a;">${escapeHtml(item.name || 'Producto')}</td>
+            <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 12px; color: #475569;">${escapeHtml(item.comment || 'Recibido conforme en sucursal')}</td>
+          </tr>
+        `).join('')
+      : `<tr><td colspan="4" style="padding: 12px; text-align: center; color: #94a3b8;">Sin productos recibidos especificados</td></tr>`;
+
+    const showOutgoing = s.receiptType === 'CAMBIO_SUCURSAL' || outgoingRows.length > 0;
+    const outgoingHtmlSection = showOutgoing ? `
+      <div style="margin-top: 20px; margin-bottom: 18px;">
+        <div style="background-color: #ecfdf5; border: 1px solid #a7f3d0; border-bottom: 2px solid #10b981; padding: 8px 12px; border-radius: 6px 6px 0 0;">
+          <strong style="font-size: 12px; color: #065f46; text-transform: uppercase; letter-spacing: 0.4px;">
+            ➡️ 2. PRODUCTOS ENTREGADOS AL CLIENTE EN SUCURSAL (CAMBIO / REEMPLAZO) — Total: ${totalOutQty} un.
+          </strong>
+        </div>
+        <table width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; font-size: 13px; border: 1px solid #cbd5e1; border-top: none;">
+          <thead>
+            <tr style="background-color: #f8fafc; border-bottom: 1px solid #cbd5e1; text-align: left; font-size: 11px; color: #475569; text-transform: uppercase;">
+              <th style="padding: 7px 10px; text-align: center; width: 12%;">Cant.</th>
+              <th style="padding: 7px 10px; width: 25%;">SKU</th>
+              <th style="padding: 7px 10px; width: 43%;">Producto Entregado</th>
+              <th style="padding: 7px 10px; width: 20%;">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${outgoingRows.length > 0 ? outgoingRows.map((item, idx) => `
+              <tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+                <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 700; color: #0f172a;">${parseInt(item.qty, 10) || 1}</td>
+                <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-family: monospace; font-size: 12px; color: #334155;">${escapeHtml(item.sku || 'S/SKU')}</td>
+                <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #0f172a;">${escapeHtml(item.name || 'Producto de reemplazo')}</td>
+                <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 12px; font-weight: 700; color: #047857;">Entregado en Sucursal</td>
+              </tr>
+            `).join('') : `
+              <tr>
+                <td colspan="4" style="padding: 12px; text-align: center; color: #64748b; font-style: italic;">
+                  Sujeo a despacho / entrega posterior por parte del comercio.
+                </td>
+              </tr>
+            `}
+          </tbody>
+        </table>
+      </div>
+    ` : '';
+
+    return `
+      <div style="font-family: 'Segoe UI', Roboto, Arial, sans-serif; background-color: #f1f5f9; padding: 24px 12px; color: #0f172a;">
+        <div style="max-width: 680px; margin: 0 auto; background-color: #ffffff; border-radius: 10px; overflow: hidden; border: 1px solid #cbd5e1; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);">
+          
+          <!-- Encabezado Corporativo -->
+          <div style="background: linear-gradient(135deg, #0f172a, #1e3a8a); color: #ffffff; padding: 22px 26px;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="vertical-align: top;">
+                  <div style="font-size: 22px; font-weight: 900; letter-spacing: 0.5px; color: #ffffff;">STOCKA CHILE</div>
+                  <div style="font-size: 12px; color: #93c5fd; font-weight: 600; margin-top: 2px;">
+                    ${escapeHtml(s.sucursal || BRANCH_RECEIPT_DEFAULT_BRANCH)} • ${escapeHtml(s.direccionSucursal || BRANCH_RECEIPT_DEFAULT_ADDRESS)}
+                  </div>
+                </td>
+                <td style="vertical-align: top; text-align: right;">
+                  <span style="display: inline-block; background-color: #ffffff; color: #1e3a8a; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 99px; text-transform: uppercase;">
+                    FOLIO: ${escapeHtml(folio)}
+                  </span>
+                  <div style="font-size: 11px; color: #cbd5e1; margin-top: 6px;">
+                    Fecha: <strong style="color: #ffffff;">${escapeHtml(dateStr)}</strong>
+                  </div>
+                </td>
+              </tr>
+            </table>
+          </div>
+
+          <div style="padding: 24px 26px;">
+            <!-- Título del Comprobante -->
+            <div style="background-color: ${meta.badgeBg}; border-left: 4px solid ${meta.accentColor}; padding: 12px 16px; border-radius: 6px; margin-bottom: 18px;">
+              <div style="font-size: 15px; font-weight: 800; color: ${meta.badgeText}; text-transform: uppercase;">
+                ${escapeHtml(meta.title)}
+              </div>
+              <div style="font-size: 12.5px; color: #334155; margin-top: 4px;">
+                ${escapeHtml(meta.description)}
+              </div>
+            </div>
+
+            <p style="font-size: 14px; line-height: 1.55; color: #1e293b; margin: 0 0 14px 0;">
+              Hola <strong>${escapeHtml(s.customerName || 'Cliente')}</strong>, adjuntamos el respaldo oficial de tu gestión presencial realizada en nuestra <strong>${escapeHtml(s.sucursal || BRANCH_RECEIPT_DEFAULT_BRANCH)}</strong> para el pedido <strong>#${escapeHtml(s.referenciaPedido || 'S/N')}</strong> de <strong>${escapeHtml(s.comercio || 'STOCKA')}</strong>.
+            </p>
+
+            ${customMessage ? `
+              <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; color: #1e3a8a;">
+                <strong>Mensaje adicional:</strong> ${escapeHtml(customMessage)}
+              </div>
+            ` : ''}
+
+            <!-- Resumen de Datos -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin-bottom: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px;">
+              <tr>
+                <td style="padding: 12px 14px; width: 50%; vertical-align: top; border-right: 1px solid #e2e8f0;">
+                  <div style="font-size: 10.5px; font-weight: 800; color: #1e3a8a; text-transform: uppercase; margin-bottom: 6px;">Datos del Pedido y Comercio</div>
+                  <div style="margin-bottom: 4px;"><span style="color: #64748b;">Comercio / Tienda:</span> <strong>${escapeHtml(s.comercio || 'Por Definir')}</strong></div>
+                  <div style="margin-bottom: 4px;"><span style="color: #64748b;">Pedido Referencia:</span> <strong style="font-family: monospace; background: #dbeafe; color: #1e40af; padding: 1px 6px; border-radius: 4px;">#${escapeHtml(s.referenciaPedido || 'S/N')}</strong></div>
+                  <div style="margin-bottom: 4px;"><span style="color: #64748b;">Sucursal:</span> <strong>${escapeHtml(s.sucursal || BRANCH_RECEIPT_DEFAULT_BRANCH)}</strong></div>
+                  <div><span style="color: #64748b;">Atendido por:</span> <span>${escapeHtml(s.atendidoPor || 'Mesón Sucursal Ñuñoa')}</span></div>
+                </td>
+                <td style="padding: 12px 14px; width: 50%; vertical-align: top;">
+                  <div style="font-size: 10.5px; font-weight: 800; color: #1e3a8a; text-transform: uppercase; margin-bottom: 6px;">Datos del Cliente</div>
+                  <div style="margin-bottom: 4px;"><span style="color: #64748b;">Nombre:</span> <strong>${escapeHtml(s.customerName || 'Cliente Presencial')}</strong></div>
+                  ${s.customerRut ? `<div style="margin-bottom: 4px;"><span style="color: #64748b;">RUT / DNI:</span> <strong style="font-family: monospace;">${escapeHtml(s.customerRut)}</strong></div>` : ''}
+                  <div style="margin-bottom: 4px;"><span style="color: #64748b;">Teléfono:</span> <span>${escapeHtml(s.customerPhone || 'No informado')}</span></div>
+                  <div><span style="color: #64748b;">Email:</span> <span>${escapeHtml(s.customerEmail || 'No informado')}</span></div>
+                </td>
+              </tr>
+            </table>
+
+            <!-- Tabla 1: Productos Recibidos -->
+            <div style="margin-bottom: 18px;">
+              <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-bottom: 2px solid #ef4444; padding: 8px 12px; border-radius: 6px 6px 0 0;">
+                <strong style="font-size: 12px; color: #991b1b; text-transform: uppercase; letter-spacing: 0.4px;">
+                  ⬅️ 1. PRODUCTOS RECIBIDOS EN SUCURSAL (ENTREGADOS POR EL CLIENTE) — Total: ${totalInQty} un.
+                </strong>
+              </div>
+              <table width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; font-size: 13px; border: 1px solid #cbd5e1; border-top: none;">
+                <thead>
+                  <tr style="background-color: #f8fafc; border-bottom: 1px solid #cbd5e1; text-align: left; font-size: 11px; color: #475569; text-transform: uppercase;">
+                    <th style="padding: 7px 10px; text-align: center; width: 12%;">Cant.</th>
+                    <th style="padding: 7px 10px; width: 24%;">SKU</th>
+                    <th style="padding: 7px 10px; width: 40%;">Producto Recibido</th>
+                    <th style="padding: 7px 10px; width: 24%;">Motivo / Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${incomingHtmlRows}
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Tabla 2: Productos Entregados (si aplica) -->
+            ${outgoingHtmlSection}
+
+            ${s.observaciones ? `
+              <div style="margin-top: 16px; background-color: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 6px; padding: 10px 14px; font-size: 12.5px; color: #78350f;">
+                <strong style="display: block; font-size: 11px; text-transform: uppercase; color: #b45309; margin-bottom: 3px;">Observaciones de Atención:</strong>
+                <div>${escapeHtml(s.observaciones)}</div>
+              </div>
+            ` : ''}
+
+            ${hasPdfAttachment ? `
+              <div style="margin-top: 18px; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 14px; font-size: 12.5px; color: #166534;">
+                📎 <strong>Comprobante PDF Adjunto:</strong> Hemos adjuntado a este correo el documento oficial en formato PDF listo para descargar o imprimir.
+              </div>
+            ` : ''}
+          </div>
+
+          <!-- Pie de Correo -->
+          <div style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 14px 26px; text-align: center; font-size: 11.5px; color: #64748b;">
+            Emitido por <strong>STOCKA Logística &amp; Fulfillment</strong> (${escapeHtml(s.sucursal || BRANCH_RECEIPT_DEFAULT_BRANCH)} - ${escapeHtml(s.direccionSucursal || BRANCH_RECEIPT_DEFAULT_ADDRESS)})<br>
+            Contacto: <a href="mailto:info@stocka.cl" style="color: #2563eb; text-decoration: none; font-weight: 600;">info@stocka.cl</a> • <a href="https://www.stocka.cl" style="color: #2563eb; text-decoration: none;">www.stocka.cl</a>
+          </div>
+        </div>
+      </div>
+    `;
+  };
+
+  /**
+   * Opens a confirmation dialog and sends the Branch Exchange/Return Receipt via Brevo (info@stocka.cl)
+   */
+  window.sendBranchExchangeReceiptEmail = async function (customState) {
+    if (!customState) {
+      syncBranchReceiptStateFromInputs();
+    }
+    const s = customState || window.branchReceiptModalState;
+    const meta = getReceiptTypeMeta(s.receiptType);
+    const folio = s.folio || generateBranchReceiptFolio(s.referenciaPedido, s.rlId);
+    const cleanRef = (s.referenciaPedido || folio).replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    // Look up optional commerce email from profiles
+    let commerceEmails = [];
+    if (s.comercio) {
+      try {
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('email, company_name')
+          .ilike('company_name', `%${s.comercio.trim()}%`)
+          .limit(5);
+        if (profs && profs.length > 0) {
+          commerceEmails = [...new Set(profs.map(p => (p.email || '').trim()).filter(Boolean))];
+        }
+      } catch (e) {}
+    }
+
+    let recipientInput = (s.customerEmail || '').trim();
+    let copyInternal = true;
+    let copyCommerce = false;
+    let attachPdf = true;
+    let customMessage = '';
+
+    if (typeof Swal !== 'undefined') {
+      const commerceCheckboxHtml = commerceEmails.length > 0 ? `
+        <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: #334155; cursor: pointer; margin-top: 0.35rem;">
+          <input type="checkbox" id="swal-br-cc-commerce" style="width: 15px; height: 15px;">
+          <span>Enviar copia al comercio <strong>${escapeHtml(s.comercio)}</strong> (<code style="font-size: 0.76rem;">${escapeHtml(commerceEmails.join(', '))}</code>)</span>
+        </label>
+      ` : '';
+
+      const { value: formValues, isConfirmed } = await Swal.fire({
+        title: 'Enviar Comprobante por Correo',
+        width: '560px',
+        html: `
+          <div style="text-align: left; display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.88rem; margin-top: 0.35rem;">
+            <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 0.6rem 0.85rem; font-size: 0.8rem; color: #1e3a8a; display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-mail-check-line" style="font-size: 1.15rem; color: #2563eb;"></i>
+              <div>
+                Remitente conectado vía Brevo: <strong>info@stocka.cl</strong><br>
+                <span style="font-size: 0.75rem; color: #475569;">Pedido <strong>#${escapeHtml(s.referenciaPedido || 'S/N')}</strong> • ${escapeHtml(s.comercio || 'STOCKA')}</span>
+              </div>
+            </div>
+
+            <div>
+              <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #334155; margin-bottom: 0.25rem;">
+                Correo(s) Destinatario (Cliente o adicional, separados por coma) *
+              </label>
+              <input type="text" id="swal-br-to-email" class="swal2-input" value="${escapeHtml(recipientInput)}" placeholder="ejemplo@correo.com, otro@correo.com" style="margin: 0; width: 100%; height: 38px; font-size: 0.88rem;">
+            </div>
+
+            <div>
+              <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #334155; margin-bottom: 0.25rem;">
+                Nota o Mensaje Opcional en el Correo
+              </label>
+              <textarea id="swal-br-custom-msg" class="swal2-textarea" rows="2" placeholder="Opcional: escribe una nota adicional para el cliente..." style="margin: 0; width: 100%; font-size: 0.82rem; min-height: 58px;"></textarea>
+            </div>
+
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.65rem 0.85rem; display: flex; flex-direction: column; gap: 0.35rem;">
+              <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; font-weight: 700; color: #0f172a; cursor: pointer;">
+                <input type="checkbox" id="swal-br-attach-pdf" checked style="width: 15px; height: 15px;">
+                <span>📎 Adjuntar Comprobante PDF Oficial (Hoja A4 - <code>Comprobante_Sucursal_${escapeHtml(cleanRef)}.pdf</code>)</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: #334155; cursor: pointer; margin-top: 0.25rem;">
+                <input type="checkbox" id="swal-br-cc-internal" checked style="width: 15px; height: 15px;">
+                <span>Enviar copia de respaldo interno a <strong>stockachile@gmail.com</strong></span>
+              </label>
+              ${commerceCheckboxHtml}
+            </div>
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: '<i class="ri-mail-send-line"></i> Enviar Ahora vía Brevo',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#2563eb',
+        focusConfirm: false,
+        preConfirm: () => {
+          const emailVal = (document.getElementById('swal-br-to-email')?.value || '').trim();
+          const ccInt = !!document.getElementById('swal-br-cc-internal')?.checked;
+          const ccCom = !!document.getElementById('swal-br-cc-commerce')?.checked;
+          if (!emailVal && !ccInt && !ccCom) {
+            Swal.showValidationMessage('Debes ingresar al menos un correo destinatario.');
+            return false;
+          }
+          return {
+            emailVal,
+            customMsg: (document.getElementById('swal-br-custom-msg')?.value || '').trim(),
+            attachPdf: !!document.getElementById('swal-br-attach-pdf')?.checked,
+            ccInt,
+            ccCom
+          };
+        }
+      });
+
+      if (!isConfirmed || !formValues) return;
+      recipientInput = formValues.emailVal;
+      customMessage = formValues.customMsg;
+      attachPdf = formValues.attachPdf;
+      copyInternal = formValues.ccInt;
+      copyCommerce = formValues.ccCom;
+    } else {
+      const prompted = prompt('Ingresa el correo destinatario para enviar el comprobante desde info@stocka.cl:', recipientInput || 'stockachile@gmail.com');
+      if (!prompted) return;
+      recipientInput = prompted.trim();
+    }
+
+    // Update customerEmail in state & input if edited
+    if (recipientInput && !s.customerEmail) {
+      s.customerEmail = recipientInput.split(',')[0].trim();
+      const emailEl = document.getElementById('br-customer-email');
+      if (emailEl) emailEl.value = s.customerEmail;
+      updateBranchReceiptLivePreviewOnly();
+    }
+
+    // Build recipient list (to)
+    const toList = [];
+    const seenEmails = new Set();
+    const addRecipient = (emailStr, nameStr) => {
+      const clean = (emailStr || '').trim().toLowerCase();
+      if (!clean || !clean.includes('@') || seenEmails.has(clean)) return;
+      seenEmails.add(clean);
+      toList.push({ email: clean, name: nameStr || clean });
+    };
+
+    if (recipientInput) {
+      recipientInput.split(/[,;]+/).forEach((em, idx) => {
+        addRecipient(em, idx === 0 ? (s.customerName || 'Cliente') : 'Destinatario');
+      });
+    }
+    if (copyCommerce && commerceEmails.length > 0) {
+      commerceEmails.forEach(em => addRecipient(em, s.comercio || 'Comercio'));
+    }
+    if (copyInternal) {
+      addRecipient('stockachile@gmail.com', 'STOCKA Chile');
+    }
+
+    if (toList.length === 0) {
+      alert('No hay correos válidos para enviar el comprobante.');
+      return;
+    }
+
+    const btnTop = document.getElementById('btn-br-top-email');
+    const btnFooter = document.getElementById('btn-br-footer-email');
+    const oldTopHtml = btnTop ? btnTop.innerHTML : '';
+    const oldFooterHtml = btnFooter ? btnFooter.innerHTML : '';
+
+    try {
+      if (btnTop) {
+        btnTop.disabled = true;
+        btnTop.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Enviando...';
+      }
+      if (btnFooter) {
+        btnFooter.disabled = true;
+        btnFooter.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Enviando Correo...';
+      }
+
+      let pdfBase64 = null;
+      if (attachPdf) {
+        pdfBase64 = await window.generateBranchExchangeReceiptPdfBase64(s);
+      }
+
+      const BREVO_API_KEY = ['xkeysib', '27c9fbab0935cd3133d9f56db07a69afc87a4edfbc40165dca119dc156ae58e1', 'NIW2n77ElvT27lPo'].join('-');
+      const subject = `📄 ${meta.title} - Pedido #${s.referenciaPedido || folio} (${s.comercio || 'STOCKA'})`;
+      const htmlContent = window.buildBranchExchangeReceiptEmailHTML(s, customMessage, !!pdfBase64);
+
+      const payload = {
+        sender: { name: 'STOCKA Sucursal Ñuñoa', email: 'info@stocka.cl' },
+        replyTo: { name: 'STOCKA Chile', email: 'info@stocka.cl' },
+        to: toList,
+        subject: subject,
+        htmlContent: htmlContent
+      };
+
+      if (pdfBase64) {
+        payload.attachment = [
+          {
+            name: `Comprobante_Sucursal_${cleanRef}.pdf`,
+            content: pdfBase64
+          }
+        ];
+      }
+
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': BREVO_API_KEY,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Brevo API (${response.status}): ${errText}`);
+      }
+
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          icon: 'success',
+          title: '¡Comprobante Enviado por Correo!',
+          html: `
+            <div style="font-size: 0.9rem; color: #334155; line-height: 1.5;">
+              Enviado exitosamente desde <strong>info@stocka.cl</strong> vía Brevo a:<br>
+              <strong style="color: #2563eb;">${toList.map(t => escapeHtml(t.email)).join(', ')}</strong>
+              ${pdfBase64 ? `<div style="margin-top: 8px; font-size: 0.8rem; color: #059669;">📎 Adjunto incluido: <code>Comprobante_Sucursal_${escapeHtml(cleanRef)}.pdf</code></div>` : ''}
+            </div>
+          `,
+          confirmButtonColor: '#2563eb'
+        });
+      } else {
+        alert('¡Comprobante enviado exitosamente desde info@stocka.cl!');
+      }
+    } catch (err) {
+      console.error('Error enviando comprobante por Brevo:', err);
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          icon: 'error',
+          title: 'Error al enviar correo',
+          text: err.message || 'No se pudo conectar con Brevo.'
+        });
+      } else {
+        alert('Error al enviar correo: ' + err.message);
+      }
+    } finally {
+      if (btnTop) {
+        btnTop.disabled = false;
+        btnTop.innerHTML = oldTopHtml;
+      }
+      if (btnFooter) {
+        btnFooter.disabled = false;
+        btnFooter.innerHTML = oldFooterHtml;
+      }
+    }
+  };
+
+  /**
+   * Prints an 80mm Thermal Receipt Ticket for the Mesón printer at Sucursal Ñuñoa
+   */
+  window.printBranchExchangeReceiptTicket80mm = function (customState) {
+    const s = customState || window.branchReceiptModalState;
+    const meta = getReceiptTypeMeta(s.receiptType);
+    const dateStr = formatDateTimeCL(s.createdAt);
+    const folio = s.folio || generateBranchReceiptFolio(s.referenciaPedido, s.rlId);
+
+    const incomingRows = (s.incomingItems || []).filter(i => i && (i.sku || i.name));
+    const outgoingRows = (s.outgoingItems || []).filter(i => i && (i.sku || i.name));
+
+    const printWindow = window.open('', '_blank', 'width=450,height=680');
+    if (!printWindow) {
+      alert('Por favor habilita las ventanas emergentes en tu navegador para imprimir.');
+      return;
+    }
+
+    const inHtml = incomingRows.length > 0
+      ? incomingRows.map(i => `
+          <tr>
+            <td style="padding: 3px 0; vertical-align: top; font-weight: bold; width: 15%;">${parseInt(i.qty, 10) || 1}x</td>
+            <td style="padding: 3px 0; vertical-align: top;">
+              <strong>${escapeHtml(i.name || 'Producto')}</strong>
+              <br><small style="font-size: 9.5px;">SKU: ${escapeHtml(i.sku || 'S/SKU')}${i.comment ? ` | ${escapeHtml(i.comment)}` : ''}</small>
+            </td>
+          </tr>
+        `).join('')
+      : `<tr><td colspan="2" style="padding: 4px 0;">Sin productos registrados</td></tr>`;
+
+    const outHtml = outgoingRows.length > 0
+      ? outgoingRows.map(i => `
+          <tr>
+            <td style="padding: 3px 0; vertical-align: top; font-weight: bold; width: 15%;">${parseInt(i.qty, 10) || 1}x</td>
+            <td style="padding: 3px 0; vertical-align: top;">
+              <strong>${escapeHtml(i.name || 'Producto Reemplazo')}</strong>
+              <br><small style="font-size: 9.5px;">SKU: ${escapeHtml(i.sku || 'S/SKU')}</small>
+            </td>
+          </tr>
+        `).join('')
+      : '';
+
+    const ticketHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Ticket ${escapeHtml(s.referenciaPedido || folio)}</title>
+        <style>
+          @page { size: 80mm auto; margin: 0; }
+          body {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 11px;
+            color: #000;
+            background: #fff;
+            margin: 0;
+            padding: 10px;
+            width: 76mm;
+            box-sizing: border-box;
+          }
+          .text-center { text-align: center; }
+          .bold { font-weight: bold; }
+          hr { border: 0; border-top: 1px dashed #000; margin: 7px 0; }
+          table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+        </style>
+      </head>
+      <body>
+        <div class="text-center">
+          <h2 style="margin: 0 0 2px 0; font-size: 15px; font-weight: 800;">STOCKA CHILE</h2>
+          <p style="margin: 0; font-size: 10px; font-weight: bold;">${escapeHtml(s.sucursal || BRANCH_RECEIPT_DEFAULT_BRANCH)}</p>
+          <p style="margin: 0; font-size: 9px;">${escapeHtml(s.direccionSucursal || BRANCH_RECEIPT_DEFAULT_ADDRESS)}</p>
+          <div style="margin-top: 5px; padding: 3px 6px; border: 1.5px solid #000; font-weight: bold; font-size: 11px;">
+            ${escapeHtml(meta.shortTitle)}
+          </div>
+        </div>
+
+        <hr>
+
+        <div style="line-height: 1.35;">
+          <div><strong>FOLIO:</strong> ${escapeHtml(folio)}</div>
+          <div><strong>PEDIDO REF:</strong> #${escapeHtml(s.referenciaPedido || 'N/A')}</div>
+          <div><strong>COMERCIO:</strong> ${escapeHtml(s.comercio || 'N/A')}</div>
+          <div><strong>FECHA:</strong> ${escapeHtml(dateStr)}</div>
+          <div><strong>CLIENTE:</strong> ${escapeHtml(s.customerName || 'Cliente Presencial')}</div>
+          ${s.customerRut ? `<div><strong>RUT:</strong> ${escapeHtml(s.customerRut)}</div>` : ''}
+          ${s.customerPhone ? `<div><strong>TEL:</strong> ${escapeHtml(s.customerPhone)}</div>` : ''}
+        </div>
+
+        <hr>
+
+        <div style="font-weight: bold; font-size: 10.5px; margin-bottom: 3px;">&lt;&lt; RECIBIDO EN SUCURSAL (ENTRA):</div>
+        <table>
+          <tbody>
+            ${inHtml}
+          </tbody>
+        </table>
+
+        ${outHtml ? `
+          <hr>
+          <div style="font-weight: bold; font-size: 10.5px; margin-bottom: 3px;">&gt;&gt; ENTREGADO AL CLIENTE (SALE):</div>
+          <table>
+            <tbody>
+              ${outHtml}
+            </tbody>
+          </table>
+        ` : ''}
+
+        ${s.observaciones ? `
+          <hr>
+          <div style="font-size: 10px;">
+            <strong>OBS:</strong> ${escapeHtml(s.observaciones)}
+          </div>
+        ` : ''}
+
+        <hr>
+
+        <div style="margin-top: 22px; text-align: center;">
+          <div style="border-top: 1px solid #000; width: 85%; margin: 0 auto 3px auto;"></div>
+          <div style="font-size: 9.5px; font-weight: bold;">FIRMA CONFORME CLIENTE</div>
+        </div>
+
+        <div class="text-center" style="font-size: 9px; margin-top: 10px; line-height: 1.3;">
+          <p style="margin: 0;">Atendido por: ${escapeHtml(s.atendidoPor || 'Mesón Ñuñoa')}</p>
+          <p style="margin: 2px 0 0 0;">Comprobante Atención Presencial Stocka</p>
+          <p style="margin: 2px 0 0 0;">www.stocka.cl</p>
+        </div>
+
+        <script>
+          window.onload = function() {
+            window.print();
+            setTimeout(function() { window.close(); }, 800);
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(ticketHtml);
+    printWindow.document.close();
+  };
+
+  /**
+   * Populates branchReceiptModalState from a reverse_logistics record and/or orders record
+   */
+  async function loadDataIntoBranchReceiptState(rlRecord, orderRecord) {
+    const st = window.branchReceiptModalState;
+
+    const currentUserEmail = (window.currentUserProfile && (window.currentUserProfile.full_name || window.currentUserProfile.email)) || 'Mesón Sucursal Ñuñoa';
+
+    if (rlRecord) {
+      st.rlId = rlRecord.id || null;
+      st.wmsOrderId = rlRecord.wms_order_id || null;
+      st.origenOrderId = rlRecord.origen_order_id || (orderRecord ? orderRecord.id : null);
+      st.comercio = rlRecord.comercio || (orderRecord ? orderRecord.comercio : '') || '';
+      st.referenciaPedido = rlRecord.referencia_pedido || (orderRecord ? orderRecord.external_order_number : '') || '';
+      st.createdAt = rlRecord.created_at || new Date().toISOString();
+      st.folio = generateBranchReceiptFolio(st.referenciaPedido, st.rlId);
+      st.customerName = rlRecord.customer_name || (orderRecord ? orderRecord.customer_name : '') || '';
+      st.customerPhone = rlRecord.customer_phone || (orderRecord ? orderRecord.customer_phone : '') || '';
+      st.customerEmail = rlRecord.customer_email || (orderRecord ? orderRecord.customer_email : '') || '';
+      st.atendidoPor = rlRecord.creado_por && rlRecord.creado_por !== 'Administrador' ? rlRecord.creado_por : currentUserEmail;
+
+      const rawComments = (rlRecord.comentarios || '').replace(/\[Concretado en Bodega\]\s*/gi, '').replace(/\[Movimiento Finalizado en Bodega\]\s*/gi, '').trim();
+      st.observaciones = rawComments;
+
+      const inc = [];
+      const out = [];
+      if (Array.isArray(rlRecord.productos)) {
+        rlRecord.productos.forEach(p => {
+          if (p.producto_devuelto) {
+            let sku = '';
+            let name = p.producto_devuelto;
+            if (p.producto_devuelto.includes(' - ')) {
+              const parts = p.producto_devuelto.split(' - ');
+              sku = parts[0].trim();
+              name = parts.slice(1).join(' - ').trim();
+            }
+            inc.push({
+              product_id: p.id_devuelto || null,
+              sku,
+              name,
+              qty: p.qty_devuelto !== undefined && p.qty_devuelto > 0 ? p.qty_devuelto : (p.cantidad || 1),
+              comment: p.comentario || '',
+              regresar_a_inventario: p.regresar_a_inventario !== false
+            });
+          }
+          if (p.producto_reemplazo) {
+            let sku = '';
+            let name = p.producto_reemplazo;
+            if (p.producto_reemplazo.includes(' - ')) {
+              const parts = p.producto_reemplazo.split(' - ');
+              sku = parts[0].trim();
+              name = parts.slice(1).join(' - ').trim();
+            }
+            out.push({
+              product_id: p.id_reemplazo || null,
+              sku,
+              name,
+              qty: p.qty_reemplazo !== undefined && p.qty_reemplazo > 0 ? p.qty_reemplazo : (p.cantidad || 1)
+            });
+          }
+        });
+      }
+
+      st.incomingItems = inc.length > 0 ? inc : [{ sku: '', name: '', qty: 1, comment: '' }];
+      st.outgoingItems = out;
+
+      // Default receiptType to CAMBIO_SUCURSAL so the user can always issue a change voucher right away
+      st.receiptType = 'CAMBIO_SUCURSAL';
+    } else if (orderRecord) {
+      st.rlId = null;
+      st.wmsOrderId = null;
+      st.origenOrderId = orderRecord.id || null;
+      st.comercio = orderRecord.comercio || '';
+      const rawExt = orderRecord.external_order_number || '';
+      st.referenciaPedido = rawExt.startsWith('LI-') ? rawExt.replace(/^LI-/, '').replace(/-[A-Z0-9]{4}$/, '') : rawExt;
+      st.createdAt = new Date().toISOString();
+      st.folio = generateBranchReceiptFolio(st.referenciaPedido, orderRecord.id);
+      st.customerName = orderRecord.customer_name || '';
+      st.customerPhone = orderRecord.customer_phone || '';
+      st.customerEmail = orderRecord.customer_email || '';
+      st.atendidoPor = currentUserEmail;
+      st.observaciones = '';
+      st.receiptType = 'CAMBIO_SUCURSAL';
+
+      const inc = [];
+      if (Array.isArray(orderRecord.order_items) && orderRecord.order_items.length > 0) {
+        orderRecord.order_items.forEach(oi => {
+          if (oi.products) {
+            inc.push({
+              product_id: oi.product_id || oi.products.id || null,
+              sku: oi.products.sku || '',
+              name: oi.products.name || '',
+              qty: oi.quantity || 1,
+              comment: 'Cambio en sucursal',
+              regresar_a_inventario: true
+            });
+          }
+        });
+      } else if (orderRecord.raw_shopify_data && Array.isArray(orderRecord.raw_shopify_data.incoming_products)) {
+        orderRecord.raw_shopify_data.incoming_products.forEach(p => {
+          inc.push({
+            product_id: null,
+            sku: p.sku || '',
+            name: p.name || '',
+            qty: p.cantidad || 1,
+            comment: '',
+            regresar_a_inventario: p.regresar_a_inventario !== false
+          });
+        });
+      } else if (orderRecord.sku || orderRecord.item) {
+        inc.push({
+          product_id: null,
+          sku: orderRecord.sku || '',
+          name: orderRecord.item || '',
+          qty: orderRecord.cantidad || 1,
+          comment: 'Cambio en sucursal',
+          regresar_a_inventario: true
+        });
+      }
+
+      st.incomingItems = inc.length > 0 ? inc : [{ sku: '', name: '', qty: 1, comment: '' }];
+      st.outgoingItems = [];
+    }
+
+    // Load catalog for this commerce so the user can easily pick replacement products
+    if (st.comercio) {
+      try {
+        const { data: prods } = await supabase
+          .from('products')
+          .select('id, sku, name, is_pack, is_virtual')
+          .eq('comercio', st.comercio)
+          .neq('status', 'archived')
+          .order('name');
+        st.catalogProducts = (prods || []).filter(p => !p.is_pack && !p.is_virtual);
+      } catch (e) {
+        st.catalogProducts = [];
+      }
+    } else {
+      st.catalogProducts = [];
+    }
+  }
+
+  /**
+   * Searches Supabase by order reference or ID and loads into modal
+   */
+  window.searchAndLoadBranchReceiptOrder = async function (searchTermInput) {
+    const inputEl = document.getElementById('br-search-order-input');
+    const term = (searchTermInput !== undefined ? String(searchTermInput) : (inputEl ? inputEl.value : '')).trim();
+    if (!term) {
+      if (typeof Swal !== 'undefined') {
+        Swal.fire('Atención', 'Ingresa un número de pedido (ej: GLS28151) para buscar.', 'warning');
+      }
+      return;
+    }
+
+    if (inputEl) inputEl.value = term;
+    const btnSearch = document.getElementById('btn-br-search-order');
+    const oldHtml = btnSearch ? btnSearch.innerHTML : '';
+    if (btnSearch) {
+      btnSearch.disabled = true;
+      btnSearch.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Buscando...';
+    }
+
+    try {
+      const cleanTerm = term.replace(/^#/, '').trim();
+      const baseTerm = cleanTerm.startsWith('LI-')
+        ? cleanTerm.replace(/^LI-/, '').replace(/-[A-Z0-9]{4}$/i, '')
+        : cleanTerm;
+
+      // 1. Buscar en reverse_logistics primero
+      let rlRecord = null;
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanTerm);
+
+      if (isUuid) {
+        const { data: rlById } = await supabase
+          .from('reverse_logistics')
+          .select('*')
+          .or(`id.eq.${cleanTerm},wms_order_id.eq.${cleanTerm},origen_order_id.eq.${cleanTerm}`)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (rlById) rlRecord = rlById;
+      }
+
+      if (!rlRecord) {
+        const { data: rlByRef } = await supabase
+          .from('reverse_logistics')
+          .select('*')
+          .ilike('referencia_pedido', `%${baseTerm}%`)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (rlByRef) rlRecord = rlByRef;
+      }
+
+      // 2. Buscar también en orders para enriquecer o como fuente principal
+      let orderRecord = null;
+      if (isUuid) {
+        const { data: ordById } = await supabase
+          .from('orders')
+          .select('*, order_items(quantity, product_id, products(id, sku, name, price))')
+          .eq('id', cleanTerm)
+          .maybeSingle();
+        if (ordById) orderRecord = ordById;
+      }
+
+      if (!orderRecord) {
+        const { data: ords } = await supabase
+          .from('orders')
+          .select('*, order_items(quantity, product_id, products(id, sku, name, price))')
+          .ilike('external_order_number', `%${baseTerm}%`)
+          .order('created_at', { ascending: false })
+          .limit(5);
+        if (ords && ords.length > 0) {
+          // Prefer original order (not LI-) for items, fallback to first
+          orderRecord = ords.find(o => !(o.external_order_number || '').startsWith('LI-')) || ords[0];
+        }
+      }
+
+      if (!rlRecord && !orderRecord) {
+        if (typeof Swal !== 'undefined') {
+          Swal.fire('No encontrado', `No se encontró ningún pedido o registro con la referencia "${term}". Puedes completar los datos manualmente abajo.`, 'info');
+        } else {
+          alert(`No se encontró ningún pedido con la referencia "${term}".`);
+        }
+        return;
+      }
+
+      await loadDataIntoBranchReceiptState(rlRecord, orderRecord);
+      renderBranchReceiptFormAndPreview();
+
+    } catch (err) {
+      console.error('Error buscando pedido para comprobante sucursal:', err);
+      if (typeof Swal !== 'undefined') {
+        Swal.fire('Error', 'No se pudo buscar el pedido: ' + err.message, 'error');
+      }
+    } finally {
+      if (btnSearch) {
+        btnSearch.disabled = false;
+        btnSearch.innerHTML = oldHtml || '<i class="ri-search-line"></i> Buscar Pedido';
+      }
+    }
+  };
+
+  function syncBranchReceiptStateFromInputs() {
+    const st = window.branchReceiptModalState;
+    const getVal = id => {
+      const el = document.getElementById(id);
+      return el ? el.value : '';
+    };
+
+    st.receiptType = getVal('br-receipt-type') || 'CAMBIO_SUCURSAL';
+    st.referenciaPedido = getVal('br-ref-pedido').trim();
+    st.comercio = getVal('br-comercio').trim();
+    st.sucursal = getVal('br-sucursal').trim() || BRANCH_RECEIPT_DEFAULT_BRANCH;
+    st.atendidoPor = getVal('br-atendido-por').trim() || 'Mesón Sucursal Ñuñoa';
+    st.customerName = getVal('br-customer-name').trim();
+    st.customerRut = getVal('br-customer-rut').trim();
+    st.customerPhone = getVal('br-customer-phone').trim();
+    st.customerEmail = getVal('br-customer-email').trim();
+    st.observaciones = getVal('br-observaciones').trim();
+    st.folio = generateBranchReceiptFolio(st.referenciaPedido, st.rlId);
+
+    // Sync incoming items
+    const inRows = document.querySelectorAll('#br-incoming-tbody tr.br-item-row');
+    const newInc = [];
+    inRows.forEach(tr => {
+      const qty = parseInt(tr.querySelector('.br-item-qty')?.value, 10) || 1;
+      const sku = (tr.querySelector('.br-item-sku')?.value || '').trim();
+      const name = (tr.querySelector('.br-item-name')?.value || '').trim();
+      const comment = (tr.querySelector('.br-item-comment')?.value || '').trim();
+      const prodId = tr.dataset.productId || null;
+      newInc.push({ product_id: prodId, qty, sku, name, comment, regresar_a_inventario: true });
+    });
+    st.incomingItems = newInc;
+
+    // Sync outgoing items
+    const outRows = document.querySelectorAll('#br-outgoing-tbody tr.br-item-row');
+    const newOut = [];
+    outRows.forEach(tr => {
+      const qty = parseInt(tr.querySelector('.br-item-qty')?.value, 10) || 1;
+      const sku = (tr.querySelector('.br-item-sku')?.value || '').trim();
+      const name = (tr.querySelector('.br-item-name')?.value || '').trim();
+      const prodId = tr.dataset.productId || null;
+      if (sku || name) {
+        newOut.push({ product_id: prodId, qty, sku, name });
+      }
+    });
+    st.outgoingItems = newOut;
+  }
+
+  function updateBranchReceiptLivePreviewOnly() {
+    syncBranchReceiptStateFromInputs();
+    const previewContainer = document.getElementById('br-live-preview-container');
+    if (previewContainer) {
+      previewContainer.innerHTML = window.buildBranchExchangeReceiptHTML(window.branchReceiptModalState, false);
+    }
+  }
+
+  function renderBranchReceiptFormAndPreview() {
+    const st = window.branchReceiptModalState;
+
+    const setVal = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.value = val || '';
+    };
+
+    setVal('br-receipt-type', st.receiptType || 'CAMBIO_SUCURSAL');
+    setVal('br-ref-pedido', st.referenciaPedido);
+    setVal('br-comercio', st.comercio);
+    setVal('br-sucursal', st.sucursal || BRANCH_RECEIPT_DEFAULT_BRANCH);
+    setVal('br-atendido-por', st.atendidoPor || 'Mesón Sucursal Ñuñoa');
+    setVal('br-customer-name', st.customerName);
+    setVal('br-customer-rut', st.customerRut);
+    setVal('br-customer-phone', st.customerPhone);
+    setVal('br-customer-email', st.customerEmail);
+    setVal('br-observaciones', st.observaciones);
+
+    // Render catalog datalist for current commerce
+    const dl = document.getElementById('br-catalog-datalist');
+    if (dl) {
+      dl.innerHTML = (st.catalogProducts || []).map(p =>
+        `<option value="${escapeHtml(p.sku)} | ${escapeHtml(p.name)}"></option>`
+      ).join('');
+    }
+
+    // Render Incoming rows
+    const inTbody = document.getElementById('br-incoming-tbody');
+    if (inTbody) {
+      const rows = (st.incomingItems && st.incomingItems.length > 0)
+        ? st.incomingItems
+        : [{ qty: 1, sku: '', name: '', comment: '' }];
+      inTbody.innerHTML = rows.map((it, idx) => `
+        <tr class="br-item-row" data-product-id="${escapeHtml(it.product_id || '')}">
+          <td style="width: 58px; padding: 4px;">
+            <input type="number" class="form-input br-item-qty" min="1" value="${parseInt(it.qty, 10) || 1}" style="padding: 0.3rem; text-align: center; font-size: 0.8rem; height: 32px;">
+          </td>
+          <td style="width: 26%; padding: 4px;">
+            <input type="text" list="br-catalog-datalist" class="form-input br-item-sku" value="${escapeHtml(it.sku || '')}" placeholder="SKU" style="padding: 0.3rem 0.45rem; font-size: 0.8rem; font-family: monospace; height: 32px;">
+          </td>
+          <td style="width: 40%; padding: 4px;">
+            <input type="text" class="form-input br-item-name" value="${escapeHtml(it.name || '')}" placeholder="Nombre del producto recibido" style="padding: 0.3rem 0.45rem; font-size: 0.8rem; height: 32px;">
+          </td>
+          <td style="width: 24%; padding: 4px;">
+            <input type="text" class="form-input br-item-comment" value="${escapeHtml(it.comment || '')}" placeholder="Motivo (ej: talla, cambio)" style="padding: 0.3rem 0.45rem; font-size: 0.8rem; height: 32px;">
+          </td>
+          <td style="width: 32px; text-align: center; padding: 4px;">
+            <button type="button" class="btn-br-del-in" data-idx="${idx}" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1rem;" title="Quitar fila">
+              <i class="ri-delete-bin-line"></i>
+            </button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    // Render Outgoing rows
+    const outTbody = document.getElementById('br-outgoing-tbody');
+    if (outTbody) {
+      const outRows = st.outgoingItems || [];
+      if (outRows.length === 0) {
+        outTbody.innerHTML = `
+          <tr>
+            <td colspan="4" style="padding: 0.65rem; text-align: center; color: var(--color-text-muted); font-size: 0.78rem; background: var(--color-bg);">
+              Sin productos de reemplazo especificados aún. Usa <strong>"Copiar 1 a 1 (Mismo Producto)"</strong> o <strong>"+ Agregar Producto Entregado"</strong> si ya se entregó el cambio físico.
+            </td>
+          </tr>
+        `;
+      } else {
+        outTbody.innerHTML = outRows.map((it, idx) => `
+          <tr class="br-item-row" data-product-id="${escapeHtml(it.product_id || '')}">
+            <td style="width: 58px; padding: 4px;">
+              <input type="number" class="form-input br-item-qty" min="1" value="${parseInt(it.qty, 10) || 1}" style="padding: 0.3rem; text-align: center; font-size: 0.8rem; height: 32px;">
+            </td>
+            <td style="width: 30%; padding: 4px;">
+              <input type="text" list="br-catalog-datalist" class="form-input br-item-sku" value="${escapeHtml(it.sku || '')}" placeholder="SKU o buscar catálogo..." style="padding: 0.3rem 0.45rem; font-size: 0.8rem; font-family: monospace; height: 32px;">
+            </td>
+            <td style="width: 58%; padding: 4px;">
+              <input type="text" class="form-input br-item-name" value="${escapeHtml(it.name || '')}" placeholder="Nombre del producto entregado al cliente" style="padding: 0.3rem 0.45rem; font-size: 0.8rem; height: 32px;">
+            </td>
+            <td style="width: 32px; text-align: center; padding: 4px;">
+              <button type="button" class="btn-br-del-out" data-idx="${idx}" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1rem;" title="Quitar fila">
+                <i class="ri-delete-bin-line"></i>
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    // Bind row input events & catalog auto-split ("SKU | Nombre")
+    document.querySelectorAll('#br-incoming-tbody tr.br-item-row, #br-outgoing-tbody tr.br-item-row').forEach(tr => {
+      const skuInput = tr.querySelector('.br-item-sku');
+      const nameInput = tr.querySelector('.br-item-name');
+      if (skuInput) {
+        skuInput.addEventListener('input', () => {
+          const val = skuInput.value;
+          if (val.includes(' | ')) {
+            const [sPart, ...nParts] = val.split(' | ');
+            skuInput.value = sPart.trim();
+            if (nameInput) nameInput.value = nParts.join(' | ').trim();
+            const foundProd = (st.catalogProducts || []).find(p => p.sku === skuInput.value);
+            if (foundProd) tr.dataset.productId = foundProd.id;
+          }
+          updateBranchReceiptLivePreviewOnly();
+        });
+      }
+      tr.querySelectorAll('input').forEach(inp => {
+        if (inp !== skuInput) {
+          inp.addEventListener('input', updateBranchReceiptLivePreviewOnly);
+        }
+      });
+    });
+
+    document.querySelectorAll('.btn-br-del-in').forEach(btn => {
+      btn.addEventListener('click', () => {
+        syncBranchReceiptStateFromInputs();
+        const idx = parseInt(btn.getAttribute('data-idx'), 10);
+        st.incomingItems.splice(idx, 1);
+        if (st.incomingItems.length === 0) st.incomingItems.push({ qty: 1, sku: '', name: '', comment: '' });
+        renderBranchReceiptFormAndPreview();
+      });
+    });
+
+    document.querySelectorAll('.btn-br-del-out').forEach(btn => {
+      btn.addEventListener('click', () => {
+        syncBranchReceiptStateFromInputs();
+        const idx = parseInt(btn.getAttribute('data-idx'), 10);
+        st.outgoingItems.splice(idx, 1);
+        renderBranchReceiptFormAndPreview();
+      });
+    });
+
+    // Update live preview
+    const previewContainer = document.getElementById('br-live-preview-container');
+    if (previewContainer) {
+      previewContainer.innerHTML = window.buildBranchExchangeReceiptHTML(st, false);
+    }
+  }
+
+  /**
+   * Saves or updates the current Branch Receipt state in reverse_logistics (optional 1-click sync)
+   */
+  window.saveBranchExchangeReceiptToDb = async function () {
+    syncBranchReceiptStateFromInputs();
+    const st = window.branchReceiptModalState;
+
+    if (!st.referenciaPedido || !st.comercio) {
+      if (typeof Swal !== 'undefined') {
+        Swal.fire('Datos requeridos', 'Ingresa al menos la Referencia del Pedido y el Comercio para guardar.', 'warning');
+      }
+      return;
+    }
+
+    const btnSaveDb = document.getElementById('btn-br-save-db');
+    const oldHtml = btnSaveDb ? btnSaveDb.innerHTML : '';
+    if (btnSaveDb) {
+      btnSaveDb.disabled = true;
+      btnSaveDb.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
+    }
+
+    try {
+      const incList = (st.incomingItems || []).filter(i => i.sku || i.name);
+      const outList = (st.outgoingItems || []).filter(i => i.sku || i.name);
+      const maxLen = Math.max(incList.length, outList.length, 1);
+      const productosPayload = [];
+
+      for (let i = 0; i < maxLen; i++) {
+        const inc = incList[i] || null;
+        const out = outList[i] || null;
+        productosPayload.push({
+          producto_devuelto: inc ? `${inc.sku ? inc.sku + ' - ' : ''}${inc.name}` : null,
+          producto_reemplazo: out ? `${out.sku ? out.sku + ' - ' : ''}${out.name}` : null,
+          cantidad: inc ? inc.qty : (out ? out.qty : 1),
+          comentario: inc ? inc.comment : null,
+          regresar_a_inventario: inc ? inc.regresar_a_inventario !== false : false,
+          id_devuelto: inc ? inc.product_id : null,
+          id_reemplazo: out ? out.product_id : null,
+          qty_devuelto: inc ? inc.qty : 0,
+          qty_reemplazo: out ? out.qty : 0
+        });
+      }
+
+      const totalQty = incList.reduce((s, p) => s + (parseInt(p.qty, 10) || 1), 0) +
+                       outList.reduce((s, p) => s + (parseInt(p.qty, 10) || 1), 0);
+
+      const tipoMov = (st.receiptType === 'DEVOLUCION_SUCURSAL' && outList.length === 0) ? 'DEVOLUCION' : 'CAMBIO';
+
+      if (st.rlId) {
+        const { error } = await supabase
+          .from('reverse_logistics')
+          .update({
+            tipo_movimiento: tipoMov,
+            comercio: st.comercio,
+            referencia_pedido: st.referenciaPedido,
+            transporte: 'Sucursal / Punto Físico Ñuñoa',
+            sucursal: 'Punto Físico Ñuñoa',
+            modo_entrega: 'sucursal',
+            customer_name: st.customerName,
+            customer_phone: st.customerPhone,
+            customer_email: st.customerEmail,
+            productos: productosPayload,
+            cantidad_total: totalQty,
+            comentarios: `[Concretado en Bodega] ${st.observaciones || ''}`.trim()
+          })
+          .eq('id', st.rlId);
+        if (error) throw error;
+      } else {
+        const { data: inserted, error } = await supabase
+          .from('reverse_logistics')
+          .insert([{
+            tipo_movimiento: tipoMov,
+            comercio: st.comercio,
+            transporte: 'Sucursal / Punto Físico Ñuñoa',
+            referencia_pedido: st.referenciaPedido,
+            referencia_transporte: 'N/A',
+            productos: productosPayload,
+            cantidad_total: totalQty,
+            comentarios: `[Concretado en Bodega] ${st.observaciones || ''}`.trim(),
+            sucursal: 'Punto Físico Ñuñoa',
+            creado_por: st.atendidoPor || 'Administrador',
+            status: 'procesado',
+            customer_name: st.customerName,
+            customer_email: st.customerEmail,
+            customer_phone: st.customerPhone,
+            shipping_address: 'Punto de Retiro Stocka Ñuñoa',
+            shipping_city: 'Ñuñoa',
+            responsable_pago: 'usuario_final',
+            modo_entrega: 'sucursal',
+            costo_envio: 0,
+            origen_order_id: st.origenOrderId || null
+          }])
+          .select()
+          .single();
+        if (error) throw error;
+        if (inserted) st.rlId = inserted.id;
+      }
+
+      if (typeof window.fetchAndRenderAdminReturnsData === 'function') {
+        window.fetchAndRenderAdminReturnsData();
+      }
+      if (typeof window.fetchAndRenderReturnsData === 'function') {
+        window.fetchAndRenderReturnsData();
+      }
+
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          title: '¡Registro Actualizado!',
+          text: `El movimiento en sucursal del pedido #${st.referenciaPedido} quedó guardado como ${tipoMov} en Logística Inversa.`,
+          icon: 'success',
+          timer: 1800,
+          showConfirmButton: false
+        });
+      }
+    } catch (err) {
+      console.error('Error guardando comprobante en reverse_logistics:', err);
+      if (typeof Swal !== 'undefined') {
+        Swal.fire('Error', 'No se pudo guardar en Logística Inversa: ' + err.message, 'error');
+      }
+    } finally {
+      if (btnSaveDb) {
+        btnSaveDb.disabled = false;
+        btnSaveDb.innerHTML = oldHtml;
+      }
+    }
+  };
+
+  /**
+   * Opens the Quick Branch Exchange Receipt Modal (from anywhere in Admin or Client Portal)
+   * @param {string|object} [dataOrRefOrId] Optional RL object, encoded JSON string, or order number (e.g. 'GLS28151')
+   */
+  window.openQuickBranchExchangeReceiptModal = async function (dataOrRefOrId) {
+    let modal = document.getElementById('modal-quick-branch-receipt');
+    if (modal) modal.remove();
+
+    modal = document.createElement('div');
+    modal.id = 'modal-quick-branch-receipt';
+    modal.className = 'modal-overlay active';
+    modal.style.zIndex = '1200';
+
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 1320px; width: 96%; max-height: 92vh; display: flex; flex-direction: column; padding: 0; overflow: hidden;">
+        <div class="modal-header" style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 0.65rem;">
+            <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(37, 99, 235, 0.12); color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 1.3rem;">
+              <i class="ri-file-list-3-line"></i>
+            </div>
+            <div>
+              <h3 style="margin: 0; font-size: 1.1rem; font-weight: 800; color: var(--color-text-main);">
+                Generador Rápido de Comprobante de Cambio / Recepción en Sucursal
+              </h3>
+              <span style="font-size: 0.78rem; color: var(--color-text-muted);">
+                Carga cualquier pedido (ej: <strong>GLS28151</strong>), ajusta los productos recibidos/entregados e imprime o descarga el PDF oficial al instante.
+              </span>
+            </div>
+          </div>
+          <button type="button" class="modal-close" id="btn-close-branch-receipt-modal" style="font-size: 1.5rem;">&times;</button>
+        </div>
+
+        <datalist id="br-catalog-datalist"></datalist>
+
+        <div class="modal-body" style="padding: 1.15rem 1.5rem; overflow-y: auto; flex: 1; display: grid; grid-template-columns: 470px 1fr; gap: 1.25rem; align-items: start; background: var(--color-bg);">
+          
+          <!-- COLUMNA IZQUIERDA: BUSCADOR Y EDITOR RÁPIDO -->
+          <div style="display: flex; flex-direction: column; gap: 0.9rem;">
+            
+            <!-- Buscador Rápido por Pedido -->
+            <div style="background: var(--color-surface); padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+              <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-search-eye-line" style="color: var(--color-primary);"></i> Buscar Pedido o Movimiento (Ej: GLS28151)
+              </label>
+              <div style="display: flex; gap: 0.45rem;">
+                <input type="text" id="br-search-order-input" class="form-input" placeholder="Escribe N° de pedido (ej: GLS28151, CRO#1931)..." style="flex: 1; height: 36px; font-size: 0.85rem;">
+                <button type="button" id="btn-br-search-order" class="btn btn-primary" style="height: 36px; padding: 0 0.95rem; font-size: 0.82rem; font-weight: 700; white-space: nowrap; display: inline-flex; align-items: center; gap: 0.3rem;">
+                  <i class="ri-search-line"></i> Cargar
+                </button>
+              </div>
+              <div id="br-recent-chips-bar" style="display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.55rem; align-items: center;">
+                <span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600;">Recientes:</span>
+                <button type="button" class="btn btn-outline btn-sm br-quick-chip" data-ref="GLS28151" style="padding: 0.12rem 0.5rem; font-size: 0.72rem; border-radius: 99px; font-family: monospace; font-weight: 700; border-color: #2563eb; color: #2563eb;">
+                  GLS28151
+                </button>
+              </div>
+            </div>
+
+            <!-- Configuración y Datos del Pedido / Cliente -->
+            <div style="background: var(--color-surface); padding: 0.95rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.65rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.75rem; font-weight: 700; margin-bottom: 0.25rem;">Tipo de Comprobante</label>
+                <select id="br-receipt-type" class="form-input" style="height: 35px; font-size: 0.82rem; font-weight: 700; color: var(--color-primary);">
+                  <option value="CAMBIO_SUCURSAL">✅ Comprobante de Cambio Realizado en Sucursal</option>
+                  <option value="RECEPCION_CAMBIO">📥 Comprobante de Recepción en Sucursal (Para Cambio)</option>
+                  <option value="DEVOLUCION_SUCURSAL">↩️ Comprobante de Devolución en Sucursal</option>
+                </select>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.74rem; margin-bottom: 0.2rem;">N° Pedido Referencia</label>
+                  <input type="text" id="br-ref-pedido" class="form-input" placeholder="Ej: GLS28151" style="height: 33px; font-size: 0.82rem; font-family: monospace; font-weight: 700;">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.74rem; margin-bottom: 0.2rem;">Comercio / Tienda</label>
+                  <input type="text" id="br-comercio" class="form-input" placeholder="Ej: JOYAS GLOSS" style="height: 33px; font-size: 0.82rem; font-weight: 600;">
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.74rem; margin-bottom: 0.2rem;">Nombre del Cliente</label>
+                  <input type="text" id="br-customer-name" class="form-input" placeholder="Nombre y Apellido" style="height: 33px; font-size: 0.82rem;">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.74rem; margin-bottom: 0.2rem;">RUT Cliente (Opcional)</label>
+                  <input type="text" id="br-customer-rut" class="form-input" placeholder="Ej: 12.345.678-9" style="height: 33px; font-size: 0.82rem;">
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.74rem; margin-bottom: 0.2rem;">Teléfono</label>
+                  <input type="text" id="br-customer-phone" class="form-input" placeholder="+569..." style="height: 33px; font-size: 0.82rem;">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.74rem; margin-bottom: 0.2rem;">Email</label>
+                  <input type="text" id="br-customer-email" class="form-input" placeholder="cliente@correo.com" style="height: 33px; font-size: 0.82rem;">
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.74rem; margin-bottom: 0.2rem;">Sucursal</label>
+                  <input type="text" id="br-sucursal" class="form-input" value="Sucursal Física Ñuñoa" style="height: 33px; font-size: 0.8rem;">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.74rem; margin-bottom: 0.2rem;">Atendido Por</label>
+                  <input type="text" id="br-atendido-por" class="form-input" value="Mesón Sucursal Ñuñoa" style="height: 33px; font-size: 0.8rem;">
+                </div>
+              </div>
+            </div>
+
+            <!-- 1. Productos que Ingresan (Recibidos en Sucursal) -->
+            <div style="background: var(--color-surface); padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <span style="font-size: 0.8rem; font-weight: 800; color: #dc2626; display: flex; align-items: center; gap: 0.3rem;">
+                  <i class="ri-login-box-line"></i> 1. Productos Recibidos del Cliente
+                </span>
+                <button type="button" id="btn-br-add-incoming" class="btn btn-outline btn-sm" style="padding: 0.18rem 0.55rem; font-size: 0.73rem; border-color: #dc2626; color: #dc2626; font-weight: 700;">
+                  + Agregar Recibido
+                </button>
+              </div>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tbody id="br-incoming-tbody"></tbody>
+              </table>
+            </div>
+
+            <!-- 2. Productos que Salen (Entregados al Cliente en Sucursal) -->
+            <div style="background: var(--color-surface); padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.35rem;">
+                <span style="font-size: 0.8rem; font-weight: 800; color: #059669; display: flex; align-items: center; gap: 0.3rem;">
+                  <i class="ri-logout-box-line"></i> 2. Productos Entregados (Reemplazo)
+                </span>
+                <div style="display: flex; gap: 0.35rem;">
+                  <button type="button" id="btn-br-copy-1to1" class="btn btn-outline btn-sm" style="padding: 0.18rem 0.55rem; font-size: 0.72rem; border-color: #2563eb; color: #2563eb; font-weight: 700;" title="Copia los mismos productos recibidos como productos de reemplazo (Cambio 1 a 1)">
+                    <i class="ri-file-copy-line"></i> Cambio 1 a 1
+                  </button>
+                  <button type="button" id="btn-br-add-outgoing" class="btn btn-outline btn-sm" style="padding: 0.18rem 0.55rem; font-size: 0.72rem; border-color: #059669; color: #059669; font-weight: 700;">
+                    + Agregar Entregado
+                  </button>
+                </div>
+              </div>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tbody id="br-outgoing-tbody"></tbody>
+              </table>
+            </div>
+
+            <!-- Observaciones -->
+            <div style="background: var(--color-surface); padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+              <label class="form-label" style="font-size: 0.75rem; font-weight: 700; margin-bottom: 0.25rem;">Observaciones en el Comprobante (Opcional)</label>
+              <textarea id="br-observaciones" class="form-input" rows="2" placeholder="Ej: Producto revisado y cambiado presencialmente en Sucursal Ñuñoa..." style="font-size: 0.8rem;"></textarea>
+            </div>
+
+          </div>
+
+          <!-- COLUMNA DERECHA: VISTA PREVIA EN VIVO DEL COMPROBANTE -->
+          <div style="display: flex; flex-direction: column; gap: 0.75rem; position: sticky; top: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; background: var(--color-surface); padding: 0.65rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+              <span style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-eye-line" style="color: var(--color-primary);"></i> Vista Previa en Vivo del Comprobante
+              </span>
+              <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
+                <button type="button" id="btn-br-top-email" class="btn btn-primary btn-sm" style="background: #7c3aed; border-color: #7c3aed; font-weight: 700; display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.35rem 0.75rem; font-size: 0.78rem;" title="Enviar comprobante por correo desde info@stocka.cl vía Brevo">
+                  <i class="ri-mail-send-line"></i> Enviar por Correo
+                </button>
+                <button type="button" id="btn-br-top-pdf" class="btn btn-primary btn-sm" style="background: #2563eb; border-color: #2563eb; font-weight: 700; display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.35rem 0.75rem; font-size: 0.78rem;">
+                  <i class="ri-file-pdf-line"></i> Descargar PDF
+                </button>
+                <button type="button" id="btn-br-top-print-a4" class="btn btn-outline btn-sm" style="border-color: #059669; color: #059669; font-weight: 700; display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.35rem 0.75rem; font-size: 0.78rem;">
+                  <i class="ri-printer-line"></i> Imprimir Hoja
+                </button>
+                <button type="button" id="btn-br-top-print-80mm" class="btn btn-outline btn-sm" style="border-color: #475569; color: var(--color-text-main); font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.35rem 0.75rem; font-size: 0.78rem;">
+                  <i class="ri-receipt-line"></i> Ticket 80mm
+                </button>
+              </div>
+            </div>
+
+            <div id="br-live-preview-container" style="background: #e2e8f0; padding: 1rem; border-radius: var(--radius-md); overflow-x: auto; max-height: 66vh; overflow-y: auto;">
+              <!-- Renderizado dinámico -->
+            </div>
+          </div>
+
+        </div>
+
+        <div class="modal-footer" style="padding: 0.9rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div>
+            <button type="button" id="btn-br-save-db" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); font-weight: 600; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.35rem;" title="Guarda o actualiza estos datos en la tabla de Logística Inversa">
+              <i class="ri-save-line"></i> Guardar / Actualizar en Logística Inversa
+            </button>
+          </div>
+          <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
+            <button type="button" class="btn btn-outline" id="btn-cancel-branch-receipt-modal" style="font-size: 0.84rem;">Cerrar</button>
+            <button type="button" id="btn-br-footer-print-80mm" class="btn btn-outline" style="border-color: #475569; color: var(--color-text-main); font-weight: 700; font-size: 0.84rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-receipt-line"></i> Imprimir Ticket 80mm
+            </button>
+            <button type="button" id="btn-br-footer-print-a4" class="btn btn-primary" style="background: #059669; border-color: #059669; color: white; font-weight: 700; font-size: 0.84rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-printer-line"></i> Imprimir Comprobante (Hoja)
+            </button>
+            <button type="button" id="btn-br-footer-pdf" class="btn btn-primary" style="background: #2563eb; border-color: #2563eb; color: white; font-weight: 700; font-size: 0.84rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-file-pdf-line"></i> Descargar Comprobante PDF
+            </button>
+            <button type="button" id="btn-br-footer-email" class="btn btn-primary" style="background: linear-gradient(135deg, #6d28d9, #4f46e5); border-color: #6d28d9; color: white; font-weight: 700; font-size: 0.84rem; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 6px rgba(109, 40, 217, 0.25);" title="Enviar Comprobante con PDF adjunto desde info@stocka.cl vía Brevo">
+              <i class="ri-mail-send-line"></i> Enviar al Correo (info@stocka.cl)
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const closeModal = () => modal.remove();
+    document.getElementById('btn-close-branch-receipt-modal')?.addEventListener('click', closeModal);
+    document.getElementById('btn-cancel-branch-receipt-modal')?.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    // Bind search button and Enter key
+    document.getElementById('btn-br-search-order')?.addEventListener('click', () => {
+      window.searchAndLoadBranchReceiptOrder();
+    });
+    document.getElementById('br-search-order-input')?.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        window.searchAndLoadBranchReceiptOrder();
+      }
+    });
+
+    // Bind general inputs to live preview
+    ['br-receipt-type', 'br-ref-pedido', 'br-comercio', 'br-customer-name', 'br-customer-rut', 'br-customer-phone', 'br-customer-email', 'br-sucursal', 'br-atendido-por', 'br-observaciones'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('input', updateBranchReceiptLivePreviewOnly);
+        el.addEventListener('change', updateBranchReceiptLivePreviewOnly);
+      }
+    });
+
+    // Bind Add Incoming / Add Outgoing / Copy 1 to 1
+    document.getElementById('btn-br-add-incoming')?.addEventListener('click', () => {
+      syncBranchReceiptStateFromInputs();
+      window.branchReceiptModalState.incomingItems.push({ qty: 1, sku: '', name: '', comment: '' });
+      renderBranchReceiptFormAndPreview();
+    });
+
+    document.getElementById('btn-br-add-outgoing')?.addEventListener('click', () => {
+      syncBranchReceiptStateFromInputs();
+      window.branchReceiptModalState.outgoingItems.push({ qty: 1, sku: '', name: '' });
+      renderBranchReceiptFormAndPreview();
+    });
+
+    document.getElementById('btn-br-copy-1to1')?.addEventListener('click', () => {
+      syncBranchReceiptStateFromInputs();
+      const inc = (window.branchReceiptModalState.incomingItems || []).filter(i => i.sku || i.name);
+      window.branchReceiptModalState.outgoingItems = inc.map(i => ({
+        product_id: i.product_id || null,
+        qty: i.qty || 1,
+        sku: i.sku || '',
+        name: i.name || ''
+      }));
+      window.branchReceiptModalState.receiptType = 'CAMBIO_SUCURSAL';
+      renderBranchReceiptFormAndPreview();
+    });
+
+    // Bind Print & PDF actions
+    const triggerPdf = () => {
+      syncBranchReceiptStateFromInputs();
+      window.downloadBranchExchangeReceiptPDF(window.branchReceiptModalState);
+    };
+    const triggerPrintA4 = () => {
+      syncBranchReceiptStateFromInputs();
+      window.printBranchExchangeReceiptA4(window.branchReceiptModalState);
+    };
+    const triggerPrint80mm = () => {
+      syncBranchReceiptStateFromInputs();
+      window.printBranchExchangeReceiptTicket80mm(window.branchReceiptModalState);
+    };
+
+    const triggerEmail = () => {
+      syncBranchReceiptStateFromInputs();
+      window.sendBranchExchangeReceiptEmail(window.branchReceiptModalState);
+    };
+
+    document.getElementById('btn-br-top-email')?.addEventListener('click', triggerEmail);
+    document.getElementById('btn-br-footer-email')?.addEventListener('click', triggerEmail);
+    document.getElementById('btn-br-top-pdf')?.addEventListener('click', triggerPdf);
+    document.getElementById('btn-br-footer-pdf')?.addEventListener('click', triggerPdf);
+    document.getElementById('btn-br-top-print-a4')?.addEventListener('click', triggerPrintA4);
+    document.getElementById('btn-br-footer-print-a4')?.addEventListener('click', triggerPrintA4);
+    document.getElementById('btn-br-top-print-80mm')?.addEventListener('click', triggerPrint80mm);
+    document.getElementById('btn-br-footer-print-80mm')?.addEventListener('click', triggerPrint80mm);
+    document.getElementById('btn-br-save-db')?.addEventListener('click', () => window.saveBranchExchangeReceiptToDb());
+
+    // Load recent chips asynchronously
+    (async () => {
+      try {
+        const { data: recentRl } = await supabase
+          .from('reverse_logistics')
+          .select('id, referencia_pedido, comercio, tipo_movimiento')
+          .order('created_at', { ascending: false })
+          .limit(6);
+        const chipsBar = document.getElementById('br-recent-chips-bar');
+        if (chipsBar && recentRl && recentRl.length > 0) {
+          const seen = new Set();
+          const unique = recentRl.filter(r => {
+            if (!r.referencia_pedido || seen.has(r.referencia_pedido)) return false;
+            seen.add(r.referencia_pedido);
+            return true;
+          });
+          chipsBar.innerHTML = `<span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600;">Recientes:</span>` +
+            unique.map(r => `
+              <button type="button" class="btn btn-outline btn-sm br-quick-chip" data-ref="${escapeHtml(r.referencia_pedido)}" style="padding: 0.12rem 0.5rem; font-size: 0.72rem; border-radius: 99px; font-family: monospace; font-weight: 700; border-color: var(--color-primary); color: var(--color-primary); cursor: pointer;">
+                ${escapeHtml(r.referencia_pedido)} <small style="font-family: sans-serif; opacity: 0.75;">(${escapeHtml(r.comercio || '')})</small>
+              </button>
+            `).join('');
+          chipsBar.querySelectorAll('.br-quick-chip').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const ref = btn.getAttribute('data-ref');
+              if (ref) window.searchAndLoadBranchReceiptOrder(ref);
+            });
+          });
+        }
+      } catch (e) {}
+    })();
+
+    // Initialize state depending on argument passed
+    if (dataOrRefOrId) {
+      if (typeof dataOrRefOrId === 'object') {
+        await loadDataIntoBranchReceiptState(dataOrRefOrId, null);
+        renderBranchReceiptFormAndPreview();
+        return;
+      }
+      if (typeof dataOrRefOrId === 'string') {
+        try {
+          const parsed = JSON.parse(decodeURIComponent(dataOrRefOrId));
+          if (parsed && typeof parsed === 'object' && (parsed.referencia_pedido || parsed.productos)) {
+            await loadDataIntoBranchReceiptState(parsed, null);
+            renderBranchReceiptFormAndPreview();
+            return;
+          }
+        } catch (e) {}
+        await window.searchAndLoadBranchReceiptOrder(dataOrRefOrId);
+        return;
+      }
+    }
+
+    // Default initial load: load GLS28151 if available or blank
+    renderBranchReceiptFormAndPreview();
+  };
+
 })();

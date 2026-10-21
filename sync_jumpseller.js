@@ -470,7 +470,8 @@ async function syncOrders(integration, headers, warehouseId) {
 
       if (o.products) {
         for (const op of o.products) {
-          let sku = op.sku || `JS-${op.product_id}${op.variant_id ? '-' + op.variant_id : ''}`;
+          const prodIdRef = op.product_id || op.id;
+          let sku = op.sku || (prodIdRef ? `JS-${prodIdRef}${op.variant_id ? '-' + op.variant_id : ''}` : 'Sin-SKU');
           sku = sku.trim().replace(/\s+/g, '');
           let mappedSku = skuMap[sku] || sku;
 
@@ -573,6 +574,7 @@ async function syncOrders(integration, headers, warehouseId) {
 
       let localOrderId = null;
       let shouldInsertItems = false;
+      let existingItemsToReconcile = null;
 
       if (existingOrder) {
         const existingRaw = existingOrder.raw_jumpseller_data || {};
@@ -626,16 +628,27 @@ async function syncOrders(integration, headers, warehouseId) {
         console.log(`📝 Actualizado pedido local ${orderNumber}`);
         localOrderId = existingOrder.id;
 
-        // Auto-recuperación (Healer): Validar si ya tiene ítems guardados (solo si no fue editado en WMS y sigue activo)
+        // Auto-recuperación (Healer): Validar si ya tiene ítems guardados o si requieren reconciliación (solo si no fue editado en WMS y sigue activo)
         if (!isWmsItemsEdited && !isCancelled) {
           const { data: existingItems, error: itemsCheckErr } = await supabase
             .from('order_items')
-            .select('id')
+            .select('id, product_id, quantity, warehouse_id, is_gift, campaign_id, tag')
             .eq('order_id', localOrderId);
 
           if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
             console.log(`ℹ️ Pedido existente ${orderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);
             shouldInsertItems = true;
+          } else if (!itemsCheckErr && existingItems && existingItems.length > 0) {
+            const rawStatus = (existingOrder.status || '').toLowerCase();
+            const rawWmsStatus = (existingOrder.estado_wms || '').toLowerCase();
+            const isClosedOrDispatched = ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawStatus) ||
+                                         ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawWmsStatus);
+            const wmsStatus = (existingOrder.estado_wms || existingOrder.status || 'En procesamiento').toLowerCase();
+            const estadosCriticos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'];
+
+            if (!isClosedOrDispatched && !estadosCriticos.includes(wmsStatus)) {
+              existingItemsToReconcile = existingItems;
+            }
           }
         }
       } else if (isActive) {
@@ -658,21 +671,24 @@ async function syncOrders(integration, headers, warehouseId) {
         console.log(`ℹ️ Pedido ${orderNumber} ignorado por estar en estado final (cancelado/entregado) y no existir en el WMS.`);
       }
 
-      // Registrar ítems en order_items
-      if (localOrderId && shouldInsertItems) {
+      // Registrar o reconciliar ítems en order_items (pre-expandiendo packs y consolidando cantidades por product_id)
+      if (localOrderId && (shouldInsertItems || existingItemsToReconcile)) {
+        const expectedQuantities = new Map();
+
         for (const [sku, qty] of Object.entries(itemQuantities)) {
           // Buscar producto en la base de datos
-           let { data: product } = await supabase
+          let { data: product } = await supabase
             .from('products')
-            .select('id')
+            .select('id, is_pack')
             .eq('sku', sku)
             .eq('comercio', integration.comercio)
             .maybeSingle();
 
           if (!product) {
             // Buscar detalle del item original usando mapeo inverso
-            const itemDetail = o.products.find(op => {
-              let opSku = op.sku || `JS-${op.product_id}${op.variant_id ? '-' + op.variant_id : ''}`;
+            const itemDetail = (o.products || []).find(op => {
+              const prodIdRef = op.product_id || op.id;
+              let opSku = op.sku || (prodIdRef ? `JS-${prodIdRef}${op.variant_id ? '-' + op.variant_id : ''}` : 'Sin-SKU');
               let cleanItemSku = opSku.trim().replace(/\s+/g, '');
               let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
               return mappedItemSku === sku;
@@ -692,7 +708,7 @@ async function syncOrders(integration, headers, warehouseId) {
                 price: productPrice,
                 description: 'Creado automáticamente desde integración de Jumpseller (al procesar pedido)'
               }])
-              .select('id')
+              .select('id, is_pack')
               .single();
 
             if (!prodErr && newProd) {
@@ -703,23 +719,95 @@ async function syncOrders(integration, headers, warehouseId) {
             }
           }
 
-          if (product && warehouseId) {
+          if (product) {
+            if (product.is_pack) {
+              const { data: packMembers } = await supabase
+                .from('product_pack_items')
+                .select('member_product_id, quantity')
+                .eq('pack_product_id', product.id);
+
+              if (packMembers && packMembers.length > 0) {
+                for (const pm of packMembers) {
+                  const currentQty = expectedQuantities.get(pm.member_product_id) || 0;
+                  expectedQuantities.set(pm.member_product_id, currentQty + (Number(pm.quantity || 1) * Number(qty)));
+                }
+              } else {
+                const currentQty = expectedQuantities.get(product.id) || 0;
+                expectedQuantities.set(product.id, currentQty + Number(qty));
+              }
+            } else {
+              const currentQty = expectedQuantities.get(product.id) || 0;
+              expectedQuantities.set(product.id, currentQty + Number(qty));
+            }
+          } else {
+            console.warn(`   ⚠️ SKU ${sku} no encontrado en base de datos. No se pudo registrar en la orden.`);
+          }
+        }
+
+        if (shouldInsertItems && warehouseId) {
+          for (const [prodId, totalQty] of expectedQuantities.entries()) {
             const { error: itemErr } = await supabase
               .from('order_items')
               .insert([{
                 order_id: localOrderId,
-                product_id: product.id,
+                product_id: prodId,
                 warehouse_id: warehouseId,
-                quantity: qty
+                quantity: totalQty
               }]);
 
             if (itemErr) {
-              console.error(`   ❌ Error al registrar ítem SKU ${sku} para la orden:`, itemErr.message);
+              console.error(`   ❌ Error al registrar ítem (product_id ${prodId}) para la orden:`, itemErr.message);
             } else {
-              console.log(`   + Registrado ítem: SKU ${sku} x ${qty} (Stock Reservado)`);
+              console.log(`   + Registrado ítem consolidado: product_id ${prodId} x ${totalQty} (Stock Reservado)`);
             }
-          } else {
-            console.warn(`   ⚠️ SKU ${sku} no encontrado en base de datos o sin bodega por defecto. No se pudo registrar en la orden.`);
+          }
+        } else if (existingItemsToReconcile && warehouseId) {
+          const existingByProduct = new Map();
+          for (const item of existingItemsToReconcile) {
+            if (item.is_gift || item.campaign_id || item.tag) continue;
+            if (!existingByProduct.has(item.product_id)) {
+              existingByProduct.set(item.product_id, []);
+            }
+            existingByProduct.get(item.product_id).push(item);
+          }
+
+          for (const [prodId, totalQty] of expectedQuantities.entries()) {
+            const rows = existingByProduct.get(prodId) || [];
+            if (rows.length > 0) {
+              const existing = rows[0];
+              const targetWarehouseId = existing.warehouse_id || warehouseId;
+              if (existing.quantity !== totalQty || (!existing.warehouse_id && warehouseId)) {
+                await supabase
+                  .from('order_items')
+                  .update({
+                    quantity: totalQty,
+                    warehouse_id: targetWarehouseId
+                  })
+                  .eq('id', existing.id);
+                console.log(`   🔄 Actualizada cantidad consolidada para product_id ${prodId}: ${existing.quantity} -> ${totalQty}`);
+              }
+              for (let k = 1; k < rows.length; k++) {
+                await supabase.from('order_items').delete().eq('id', rows[k].id);
+              }
+            } else {
+              await supabase
+                .from('order_items')
+                .insert([{
+                  order_id: localOrderId,
+                  product_id: prodId,
+                  warehouse_id: warehouseId,
+                  quantity: totalQty
+                }]);
+              console.log(`   + Agregado ítem faltante consolidado: product_id ${prodId} x ${totalQty}`);
+            }
+          }
+
+          for (const [prodId, rows] of existingByProduct.entries()) {
+            if (!expectedQuantities.has(prodId)) {
+              for (const r of rows) {
+                await supabase.from('order_items').delete().eq('id', r.id);
+              }
+            }
           }
         }
       }

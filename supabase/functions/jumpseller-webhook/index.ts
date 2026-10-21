@@ -238,7 +238,8 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
 
   if (order.products) {
     for (const op of order.products) {
-      let sku = op.sku || `JS-${op.product_id}${op.variant_id ? '-' + op.variant_id : ''}`;
+      const prodIdRef = op.product_id || op.id;
+      let sku = op.sku || (prodIdRef ? `JS-${prodIdRef}${op.variant_id ? '-' + op.variant_id : ''}` : 'Sin-SKU');
       sku = sku.trim().replace(/\s+/g, '');
       let mappedSku = skuMap[sku] || sku;
 
@@ -414,16 +415,8 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     console.log(`Pedido ${orderNumber} ingresado en WMS con éxito.`);
   }
 
-  // Insertar/Actualizar ítems con Smart Diffing
+  // Insertar/Actualizar ítems con Smart Diffing, pre-expansión de packs y protección contra concurrencia
   if (localOrderId && shouldInsertItems) {
-    const { data: existingItems } = await supabase
-      .from('order_items')
-      .select('id, product_id, quantity, warehouse_id')
-      .eq('order_id', localOrderId);
-
-    const existingMap = new Map((existingItems || []).map((i: any) => [i.product_id, i]));
-    const processedProductIds = new Set();
-
     let warehouseId: string | null = null;
     if (comercio) {
       const { data: cacWh } = await supabase
@@ -451,10 +444,12 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
       if (defaultWh) warehouseId = defaultWh.id;
     }
 
+    const expectedQuantities = new Map<string, number>();
+
     for (const [sku, qty] of Object.entries(itemQuantities)) {
       let { data: product } = await supabase
         .from('products')
-        .select('id')
+        .select('id, is_pack')
         .eq('comercio', comercio)
         .eq('sku', sku)
         .maybeSingle();
@@ -462,7 +457,8 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
       if (!product) {
         // Auto-crear producto si falta en catálogo
         const itemDetail = order.products?.find((op: any) => {
-          let opSku = op.sku || `JS-${op.product_id}${op.variant_id ? '-' + op.variant_id : ''}`;
+          const prodIdRef = op.product_id || op.id;
+          let opSku = op.sku || (prodIdRef ? `JS-${prodIdRef}${op.variant_id ? '-' + op.variant_id : ''}` : 'Sin-SKU');
           let cleanItemSku = opSku.trim().replace(/\s+/g, '');
           let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
           return mappedItemSku === sku;
@@ -470,6 +466,7 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
 
         const productName = itemDetail?.name || 'Producto Jumpseller ' + sku;
         const productPrice = Number(itemDetail?.price || 0);
+        const rawJsProdId = itemDetail ? (itemDetail.product_id || itemDetail.id) : null;
 
         const { data: newProd } = await supabase
           .from('products')
@@ -480,42 +477,104 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
             name: productName,
             price: productPrice,
             description: 'Creado automáticamente desde webhook de Jumpseller',
-            jumpseller_product_id: itemDetail ? itemDetail.product_id.toString() : null,
-            jumpseller_variant_id: itemDetail && itemDetail.variant_id ? itemDetail.variant_id.toString() : null,
+            jumpseller_product_id: rawJsProdId ? String(rawJsProdId) : null,
+            jumpseller_variant_id: itemDetail && itemDetail.variant_id ? String(itemDetail.variant_id) : null,
             raw_jumpseller_data: itemDetail || null
           }])
-          .select('id')
+          .select('id, is_pack')
           .single();
 
         product = newProd;
       }
 
-      if (product && warehouseId) {
-        processedProductIds.add(product.id);
-        const existing = existingMap.get(product.id);
+      if (product) {
+        if (product.is_pack) {
+          const { data: packMembers } = await supabase
+            .from('product_pack_items')
+            .select('member_product_id, quantity')
+            .eq('pack_product_id', product.id);
 
-        if (existing) {
-          if (existing.quantity !== (qty as number) || existing.warehouse_id !== warehouseId) {
-            await supabase.from('order_items').update({
-              quantity: qty as number,
-              warehouse_id: warehouseId
-            }).eq('id', existing.id);
+          if (packMembers && packMembers.length > 0) {
+            for (const pm of packMembers) {
+              const currentQty = expectedQuantities.get(pm.member_product_id) || 0;
+              expectedQuantities.set(pm.member_product_id, currentQty + (Number(pm.quantity || 1) * Number(qty)));
+            }
+          } else {
+            const currentQty = expectedQuantities.get(product.id) || 0;
+            expectedQuantities.set(product.id, currentQty + Number(qty));
           }
         } else {
-          await supabase.from('order_items').insert([{
-            order_id: localOrderId,
-            product_id: product.id,
-            warehouse_id: warehouseId,
-            quantity: qty as number
-          }]);
+          const currentQty = expectedQuantities.get(product.id) || 0;
+          expectedQuantities.set(product.id, currentQty + Number(qty));
         }
       }
     }
 
-    // Eliminar únicamente los ítems que ya no están en la orden
-    for (const [prodId, existingItem] of existingMap.entries()) {
-      if (!processedProductIds.has(prodId)) {
-        await supabase.from('order_items').delete().eq('id', (existingItem as any).id);
+    const { data: existingItems } = await supabase
+      .from('order_items')
+      .select('id, product_id, quantity, warehouse_id, is_gift, campaign_id, tag')
+      .eq('order_id', localOrderId);
+
+    const existingByProduct = new Map<string, any[]>();
+    for (const item of (existingItems || [])) {
+      if (item.is_gift || item.campaign_id || item.tag) continue;
+      if (!existingByProduct.has(item.product_id)) {
+        existingByProduct.set(item.product_id, []);
+      }
+      existingByProduct.get(item.product_id)!.push(item);
+    }
+
+    if (warehouseId) {
+      for (const [prodId, expQty] of expectedQuantities.entries()) {
+        const rows = existingByProduct.get(prodId) || [];
+
+        if (rows.length > 0) {
+          const primaryRow = rows[0];
+          const targetWh = primaryRow.warehouse_id || warehouseId;
+          if (primaryRow.quantity !== expQty || (!primaryRow.warehouse_id && warehouseId)) {
+            await supabase.from('order_items').update({
+              quantity: expQty,
+              warehouse_id: targetWh
+            }).eq('id', primaryRow.id);
+          }
+          if (rows.length > 1) {
+            for (let k = 1; k < rows.length; k++) {
+              await supabase.from('order_items').delete().eq('id', rows[k].id);
+            }
+          }
+        } else {
+          await supabase.from('order_items').insert([{
+            order_id: localOrderId,
+            product_id: prodId,
+            warehouse_id: warehouseId,
+            quantity: expQty
+          }]);
+          // Forzar la cantidad esperada exacta en caso de que un webhook simultáneo haya activado
+          // la suma del trigger expand_pack_order_items() en el mismo milisegundo
+          const { data: postInsertRows } = await supabase
+            .from('order_items')
+            .select('id, quantity, is_gift, campaign_id, tag')
+            .eq('order_id', localOrderId)
+            .eq('product_id', prodId);
+          const regularRows = (postInsertRows || []).filter((r: any) => !r.is_gift && !r.campaign_id && !r.tag);
+          if (regularRows.length > 0) {
+            if (regularRows[0].quantity !== expQty) {
+              await supabase.from('order_items').update({ quantity: expQty }).eq('id', regularRows[0].id);
+            }
+            for (let k = 1; k < regularRows.length; k++) {
+              await supabase.from('order_items').delete().eq('id', regularRows[k].id);
+            }
+          }
+        }
+      }
+
+      // Eliminar únicamente los ítems normales que ya no están en la orden
+      for (const [prodId, rows] of existingByProduct.entries()) {
+        if (!expectedQuantities.has(prodId)) {
+          for (const r of rows) {
+            await supabase.from('order_items').delete().eq('id', r.id);
+          }
+        }
       }
     }
     console.log(`Ítems sincronizados con éxito para la orden ${orderNumber}.`);

@@ -511,11 +511,11 @@ async function syncStarkenPro() {
       const filterStr = candidates.map(c => `"${c}"`).join(',');
       const { data: directOrders } = await supabase
         .from('orders')
-        .select('id, status, external_order_number, tracking_number, courier, starken_status, comercio')
+        .select('id, status, external_order_number, tracking_number, courier, starken_status, comercio, categoria_entrega')
         .or(`tracking_number.in.(${filterStr}),external_order_number.in.(${filterStr})`);
 
       if (directOrders && directOrders.length > 0) {
-        matchedOrder = directOrders[0];
+        matchedOrder = directOrders.find(o => String(o.categoria_entrega || '').toUpperCase().trim() !== 'RETIRO') || null;
       }
     }
 

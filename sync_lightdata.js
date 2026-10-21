@@ -321,7 +321,7 @@ async function syncLightData() {
         const candidateFilters = candidates.map(c => `"${c}"`).join(',');
         let orderQuery = supabase
           .from('orders')
-          .select('id, status, external_order_number, tracking_number, courier, operador, lightdata_status, comercio')
+          .select('id, status, external_order_number, tracking_number, courier, operador, lightdata_status, comercio, categoria_entrega, agenda')
           .or(`external_order_number.in.(${candidateFilters}),tracking_number.in.(${candidateFilters})`);
 
         if (resolvedComercio) {
@@ -333,6 +333,9 @@ async function syncLightData() {
         if (dbOrders && dbOrders.length > 0) {
           matchingOrdersCount++;
           for (const dbOrder of dbOrders) {
+            if (String(dbOrder.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') {
+              continue;
+            }
             const updatePayload = {
               lightdata_status: shipmentPayload.status,
               raw_lightdata_data: shipmentPayload

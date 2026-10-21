@@ -126,6 +126,15 @@ serve(async (req: Request) => {
     }
 
     const { merchant_id: merchantId, comercio } = clientAuth;
+    const isReadOnlyKey = apiKey.startsWith("stk_ro_");
+
+    if (isReadOnlyKey && req.method !== "GET" && req.method !== "OPTIONS") {
+      return jsonResponse({
+        success: false,
+        error: "Forbidden (Read-Only Key)",
+        message: "Esta API Key tiene permisos exclusivos de Solo Lectura (GET). No se permiten operaciones de escritura o modificación."
+      }, 403);
+    }
 
     // Actualizar asíncronamente fecha de último uso
     supabase
@@ -147,18 +156,25 @@ serve(async (req: Request) => {
         service: "WMS Stocka - Client Integration API",
         comercio: comercio,
         merchant_id: merchantId,
+        mode: isReadOnlyKey ? "read_only" : "read_write",
         status: "active",
         timestamp: new Date().toISOString(),
         endpoints: {
-          stock: "GET /stock (opcional: ?sku=XYZ)",
-          crear_pedido: "POST /orders",
-          consultar_pedido: "GET /orders/:numero_pedido"
+          stock: "GET /stock (opcional: ?sku=XYZ&since=ISO8601)",
+          listar_pedidos: "GET /orders (opcional: ?from=YYYY-MM-DD&to=YYYY-MM-DD&estado=...&plataforma=...)",
+          consultar_pedido: "GET /orders/:numero_pedido",
+          movimientos: "GET /movements (opcional: ?sku=XYZ&type=in|out&from=YYYY-MM-DD&to=YYYY-MM-DD)",
+          recepciones: "GET /receptions (opcional: ?status=...&from=YYYY-MM-DD)",
+          ...(isReadOnlyKey ? {} : {
+            crear_pedido: "POST /orders",
+            cancelar_pedido: "POST /orders/:numero_pedido/cancel"
+          })
         }
       });
     }
 
     // -------------------------------------------------------------------------
-    // RUTA: GET /stock (Consulta de stock físico y disponible)
+    // RUTA: GET /stock (Consulta de stock físico, disponible y en recepción)
     // -------------------------------------------------------------------------
     if (req.method === "GET" && path === "stock") {
       const skuFilter = url.searchParams.get("sku")?.trim() || "";
@@ -243,6 +259,36 @@ serve(async (req: Request) => {
         return jsonResponse({ success: false, error: invErr.message }, 500);
       }
 
+      // 2.5 Consultar mercadería en recepción (declaraciones de ingreso activas)
+      const inReceptionMap: Record<string, number> = {};
+      const { data: activeDecls } = await supabase
+        .from("stock_declarations")
+        .select("products_list, status")
+        .eq("comercio", comercio)
+        .in("status", [
+          "Creada",
+          "Bodega Asignada",
+          "En Recepción - Pendiente Conteo",
+          "En proceso de conteo/clasificación",
+          "Recepción Parcial"
+        ]);
+
+      if (activeDecls && Array.isArray(activeDecls)) {
+        for (const decl of activeDecls) {
+          const pList = Array.isArray(decl.products_list) ? decl.products_list : [];
+          for (const item of pList) {
+            const itemSku = String(item.sku || "").trim();
+            if (!itemSku) continue;
+            const declaredQty = Number(item.qty || 0);
+            const alreadyAdded = Number(item.qty_inventory_added || 0);
+            const pendingToReceive = Math.max(0, declaredQty - alreadyAdded);
+            if (pendingToReceive > 0) {
+              inReceptionMap[itemSku] = (inReceptionMap[itemSku] || 0) + pendingToReceive;
+            }
+          }
+        }
+      }
+
       // 3. Mapear y consolidar cantidades
       const invMap: Record<string, { physical: number; committed: number; reserved: number; updatedAt: string }> = {};
 
@@ -262,6 +308,7 @@ serve(async (req: Request) => {
       const responseData = products.map(p => {
         const inv = invMap[p.id] || { physical: 0, committed: 0, reserved: 0, updatedAt: p.created_at || "" };
         const available = Math.max(0, inv.physical - (inv.committed + inv.reserved));
+        const inReception = inReceptionMap[String(p.sku || "").trim()] || 0;
 
         return {
           sku: p.sku,
@@ -272,6 +319,7 @@ serve(async (req: Request) => {
           stock_comprometido: inv.committed,
           stock_reservado: inv.reserved,
           stock_disponible: available,
+          stock_en_recepcion: inReception,
           actualizado_al: inv.updatedAt || new Date().toISOString()
         };
       });
@@ -281,6 +329,246 @@ serve(async (req: Request) => {
         comercio: comercio,
         total: responseData.length,
         data: responseData
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // RUTA: GET /orders (Listado paginado de pedidos con filtros)
+    // -------------------------------------------------------------------------
+    if (req.method === "GET" && path === "orders" && !url.searchParams.get("numero_pedido")) {
+      const fromDate = url.searchParams.get("from")?.trim() || url.searchParams.get("desde")?.trim() || "";
+      const toDate = url.searchParams.get("to")?.trim() || url.searchParams.get("hasta")?.trim() || "";
+      const estadoFilter = url.searchParams.get("estado")?.trim().toLowerCase() || url.searchParams.get("status")?.trim().toLowerCase() || "";
+      const plataformaFilter = url.searchParams.get("plataforma")?.trim() || url.searchParams.get("platform")?.trim() || "";
+      const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10), 1000);
+      const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+
+      let ordQuery = supabase
+        .from("orders")
+        .select("id, external_order_number, external_platform, origen, status, estado_wms, courier, tracking_number, tracking_url, customer_name, shipping_city, categoria_entrega, total_value, created_at, fecha_procesamiento, item, cantidad, sku")
+        .eq("comercio", comercio)
+        .order("created_at", { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      if (fromDate) {
+        ordQuery = ordQuery.gte("created_at", fromDate);
+      }
+      if (toDate) {
+        ordQuery = ordQuery.lte("created_at", toDate);
+      }
+      if (plataformaFilter) {
+        ordQuery = ordQuery.ilike("external_platform", `%${plataformaFilter}%`);
+      }
+      if (estadoFilter) {
+        if (estadoFilter === "despachado") {
+          ordQuery = ordQuery.eq("estado_wms", "Despachado");
+        } else if (estadoFilter === "en_preparacion" || estadoFilter === "en preparación") {
+          ordQuery = ordQuery.in("estado_wms", ["En preparación", "Pickeado"]);
+        } else if (estadoFilter === "cancelado") {
+          ordQuery = ordQuery.eq("estado_wms", "Cancelado");
+        } else if (estadoFilter === "recibido" || estadoFilter === "en_procesamiento") {
+          ordQuery = ordQuery.eq("estado_wms", "En procesamiento");
+        }
+      }
+
+      const { data: ordersList, error: ordErr } = await ordQuery;
+
+      if (ordErr) {
+        return jsonResponse({ success: false, error: ordErr.message }, 500);
+      }
+
+      const mappedOrders = (ordersList || []).map(order => ({
+        order_id: order.id,
+        numero_pedido: order.external_order_number,
+        plataforma: order.external_platform || order.origen || "Manual",
+        estado: mapWmsStatus(order.estado_wms, order.status),
+        estado_wms: order.estado_wms || "En procesamiento",
+        categoria_entrega: order.categoria_entrega || "DISTRIBUCIÓN",
+        courier: order.courier || null,
+        tracking_number: order.tracking_number || null,
+        tracking_url: order.tracking_url || null,
+        cliente: order.customer_name || null,
+        ciudad: order.shipping_city || null,
+        total_unidades: order.cantidad || 0,
+        resumen_items: order.item || null,
+        sku: order.sku || null,
+        fecha_creacion: order.created_at,
+        fecha_procesamiento: order.fecha_procesamiento || null
+      }));
+
+      return jsonResponse({
+        success: true,
+        comercio: comercio,
+        total: mappedOrders.length,
+        limit,
+        offset,
+        data: mappedOrders
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // RUTA: GET /movements (Kardex de ingresos y salidas por SKU)
+    // -------------------------------------------------------------------------
+    if (req.method === "GET" && (path === "movements" || path === "kardex")) {
+      const skuFilter = url.searchParams.get("sku")?.trim() || "";
+      const typeFilter = url.searchParams.get("type")?.trim().toLowerCase() || url.searchParams.get("tipo")?.trim().toLowerCase() || "";
+      const fromDate = url.searchParams.get("from")?.trim() || url.searchParams.get("desde")?.trim() || "";
+      const toDate = url.searchParams.get("to")?.trim() || url.searchParams.get("hasta")?.trim() || "";
+      const limit = Math.min(parseInt(url.searchParams.get("limit") || "200", 10), 1000);
+      const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+
+      // 1. Obtener productos del comercio
+      let prodQuery = supabase
+        .from("products")
+        .select("id, sku, name")
+        .eq("comercio", comercio);
+
+      if (skuFilter) {
+        prodQuery = prodQuery.eq("sku", skuFilter);
+      }
+
+      const { data: prods, error: pErr } = await prodQuery;
+      if (pErr) {
+        return jsonResponse({ success: false, error: pErr.message }, 500);
+      }
+
+      if (!prods || prods.length === 0) {
+        return jsonResponse({
+          success: true,
+          comercio: comercio,
+          total: 0,
+          data: []
+        });
+      }
+
+      const prodMap: Record<string, { sku: string; name: string }> = {};
+      const pids: string[] = [];
+      for (const p of prods) {
+        prodMap[p.id] = { sku: p.sku, name: p.name };
+        pids.push(p.id);
+      }
+
+      // 2. Consultar movimientos de esos productos
+      let movQuery = supabase
+        .from("movements")
+        .select("id, product_id, warehouse_id, type, quantity, date, reference_doc, order_id")
+        .in("product_id", pids)
+        .order("date", { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      if (typeFilter === "in" || typeFilter === "ingreso") {
+        movQuery = movQuery.eq("type", "in");
+      } else if (typeFilter === "out" || typeFilter === "salida") {
+        movQuery = movQuery.eq("type", "out");
+      }
+
+      if (fromDate) {
+        movQuery = movQuery.gte("date", fromDate);
+      }
+      if (toDate) {
+        movQuery = movQuery.lte("date", toDate);
+      }
+
+      const { data: movs, error: mErr } = await movQuery;
+      if (mErr) {
+        return jsonResponse({ success: false, error: mErr.message }, 500);
+      }
+
+      const mappedMovs = (movs || []).map(m => {
+        const pInfo = prodMap[m.product_id] || { sku: "N/A", name: "Producto" };
+        return {
+          movement_id: m.id,
+          sku: pInfo.sku,
+          nombre: pInfo.name,
+          tipo: m.type, // 'in' (ingreso) | 'out' (salida)
+          cantidad: m.quantity,
+          fecha: m.date,
+          documento_referencia: m.reference_doc || null,
+          order_id: m.order_id || null
+        };
+      });
+
+      return jsonResponse({
+        success: true,
+        comercio: comercio,
+        total: mappedMovs.length,
+        limit,
+        offset,
+        data: mappedMovs
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // RUTA: GET /receptions y GET /receptions/:id (Declaraciones de Ingreso)
+    // -------------------------------------------------------------------------
+    if (req.method === "GET" && (path === "receptions" || path.startsWith("receptions/") || path === "declarations" || path.startsWith("declarations/"))) {
+      const receptionId = path.includes("/") ? decodeURIComponent(path.split("/")[1] || "").trim() : (url.searchParams.get("id")?.trim() || "");
+      const statusFilter = url.searchParams.get("status")?.trim() || url.searchParams.get("estado")?.trim() || "";
+      const fromDate = url.searchParams.get("from")?.trim() || url.searchParams.get("desde")?.trim() || "";
+      const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10), 500);
+      const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+
+      let declQuery = supabase
+        .from("stock_declarations")
+        .select("id, title, status, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, quantity_declared, quantity_received, quantity_incidents, package_count, package_type, delivery_method, carrier_info, notes, admin_notes, products_list, incidents_list, created_at, updated_at")
+        .eq("comercio", comercio)
+        .order("created_at", { ascending: false });
+
+      if (receptionId) {
+        declQuery = declQuery.eq("id", receptionId);
+      } else {
+        declQuery = declQuery.range(offset, offset + limit - 1);
+      }
+
+      if (statusFilter) {
+        declQuery = declQuery.ilike("status", `%${statusFilter}%`);
+      }
+      if (fromDate) {
+        declQuery = declQuery.gte("created_at", fromDate);
+      }
+
+      const { data: decls, error: dErr } = await declQuery;
+      if (dErr) {
+        return jsonResponse({ success: false, error: dErr.message }, 500);
+      }
+
+      const mappedDecls = (decls || []).map(d => {
+        const rawItems = Array.isArray(d.products_list) ? d.products_list : [];
+        const cleanItems = rawItems.map((it: any) => ({
+          sku: it.sku || null,
+          nombre: it.name || it.label_name || null,
+          barcode: it.barcode && it.barcode !== "N/A" ? it.barcode : null,
+          cantidad_declarada: Number(it.qty || 0),
+          cantidad_confirmada: Number(it.qty_confirmed ?? 0),
+          cantidad_ingresada_stock: Number(it.qty_inventory_added ?? 0)
+        }));
+
+        return {
+          reception_id: d.id,
+          titulo: d.title,
+          estado: d.status,
+          fecha_estimada_llegada: d.estimated_arrival_date || d.estimated_arrival_period || null,
+          tipo_bulto: d.package_type,
+          cantidad_bultos: d.package_count,
+          metodo_entrega: d.delivery_method,
+          transporte: d.carrier_info || null,
+          unidades_declaradas: d.quantity_declared || 0,
+          unidades_recibidas: d.quantity_received || 0,
+          unidades_incidencias: d.quantity_incidents || 0,
+          notas_cliente: d.notes || null,
+          notas_bodega: d.admin_notes || null,
+          incidencias: Array.isArray(d.incidents_list) ? d.incidents_list : [],
+          fecha_creacion: d.created_at,
+          fecha_actualizacion: d.updated_at,
+          items: cleanItems
+        };
+      });
+
+      return jsonResponse({
+        success: true,
+        comercio: comercio,
+        total: mappedDecls.length,
+        data: mappedDecls
       });
     }
 
