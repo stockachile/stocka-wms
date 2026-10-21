@@ -116,10 +116,13 @@ serve(async (req) => {
         return new Response("Ignored MercadoLibre order in Jumpseller", { status: 200 });
       }
 
-      const statusName = order.status; // 'Pending', 'Paid', 'Canceled', 'Abandoned', 'Open'
-      const isCancelled = ['Canceled', 'Abandoned', 'Open'].includes(statusName);
+      const statusName = order.status; // 'Pending', 'Paid', 'paid', 'Canceled', 'canceled', 'Abandoned', 'abandoned', 'Open'
+      const rawStatus = String(order.status_enum || order.status || '').toLowerCase().trim();
+      const rawStatusLabel = String(order.status || '').toLowerCase().trim();
+      const isCancelled = ['canceled', 'cancelled', 'cancelado', 'abandoned', 'abandonado', 'open'].includes(rawStatus) ||
+                          ['canceled', 'cancelled', 'cancelado', 'abandoned', 'abandonado', 'open'].includes(rawStatusLabel);
 
-      if (eventTopic === "order_canceled" || isCancelled) {
+      if (eventTopic === "order_canceled" || eventTopic === "order_abandoned" || isCancelled) {
         await handleOrderCancel(merchantId, integration.comercio, order);
       } else {
         // order_pending, order_paid, order_updated, etc.
@@ -198,9 +201,18 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     ? `${prefix}${baseOrderNumber}`
     : baseOrderNumber;
 
-  // Clasificación de estados
-  const isDelivered = order.shipment_status === 'shipped' || order.shipment_status === 'delivered';
-  const isCancelled = ['Canceled', 'Abandoned', 'Open'].includes(statusName);
+  // Clasificación de estados (insensible a mayúsculas/minúsculas e idioma)
+  const rawStatus = String(order.status_enum || order.status || '').toLowerCase().trim();
+  const rawStatusLabel = String(order.status || '').toLowerCase().trim();
+  const rawShipStatus = String(order.shipment_status_enum || order.shipment_status || '').toLowerCase().trim();
+  const rawShipLabel = String(order.shipment_status || '').toLowerCase().trim();
+
+  const isPaid = ['paid', 'pagado', 'completed', 'confirmed', 'approved'].includes(rawStatus) ||
+                 ['paid', 'pagado', 'completed', 'confirmed', 'approved'].includes(rawStatusLabel);
+  const isDelivered = ['shipped', 'delivered', 'entregado', 'despachado'].includes(rawShipStatus) ||
+                      ['shipped', 'delivered', 'entregado', 'despachado'].includes(rawShipLabel);
+  const isCancelled = ['canceled', 'cancelled', 'cancelado', 'abandoned', 'abandonado', 'open'].includes(rawStatus) ||
+                      ['canceled', 'cancelled', 'cancelado', 'abandoned', 'abandonado', 'open'].includes(rawStatusLabel);
   const isActive = !isDelivered && !isCancelled;
 
   // Cargar equivalencias de SKU
@@ -324,7 +336,7 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     external_order_number: finalOrderNumber,
     external_platform: 'Jumpseller',
     origen: 'Jumpseller',
-    payment_status: statusName === 'Paid' ? 'PAID' : 'PENDING',
+    payment_status: isPaid ? 'PAID' : 'PENDING',
     total_value: totalValue,
     customer_email: order.customer?.email || order.shipping_address?.email || order.billing_address?.email,
     customer_phone: order.customer?.phone || order.shipping_address?.phone || order.billing_address?.phone,
@@ -583,13 +595,35 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
 
 async function handleOrderCancel(merchantId: string, comercio: string, order: any) {
   const orderNumber = `#JS-${order.id}`;
+  const rawIdStr = String(order.id);
+
+  let prefix = "";
+  try {
+    const { data: configData } = await supabase
+      .from("v_comercios_config")
+      .select("sigla")
+      .eq("nombre", comercio)
+      .maybeSingle();
+
+    if (configData && configData.sigla) {
+      prefix = configData.sigla.trim().toUpperCase();
+    }
+  } catch (_err) {}
+
+  const candidateNumbers = [...new Set([
+    orderNumber,
+    rawIdStr,
+    `#${rawIdStr}`,
+    ...(prefix ? [`${prefix}${orderNumber}`, `${prefix}${rawIdStr}`, `${prefix}#${rawIdStr}`] : [])
+  ])];
 
   const { data: existingOrder } = await supabase
     .from('orders')
     .select('id, status, estado_wms')
-    .eq('merchant_id', merchantId)
-    .eq('external_order_number', orderNumber)
-    .eq('external_platform', 'Jumpseller')
+    .eq('comercio', comercio)
+    .in('external_order_number', candidateNumbers)
+    .in('external_platform', ['Jumpseller', 'Manual'])
+    .limit(1)
     .maybeSingle();
 
   if (!existingOrder) {
@@ -612,9 +646,14 @@ async function handleOrderCancel(merchantId: string, comercio: string, order: an
   }
 
   // De todos modos, actualizamos el estado del pedido a cancelado en la BD
+  const updatePayload: Record<string, any> = { status: 'cancelado', raw_jumpseller_data: order };
+  if (!estadosCriticos.includes(wmsStatus)) {
+    updatePayload.estado_wms = 'Cancelado';
+  }
+
   await supabase
     .from('orders')
-    .update({ status: 'cancelado', raw_jumpseller_data: order })
+    .update(updatePayload)
     .eq('id', existingOrder.id);
   
   console.log(`Pedido ${orderNumber} marcado como cancelado.`);

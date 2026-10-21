@@ -436,13 +436,21 @@ async function syncOrders(integration, headers, warehouseId) {
           finalOrderNumber = `${siglaComercio}${orderNumber}`;
         }
       }
-      const statusName = o.status; // 'Pending', 'Paid', 'Canceled', 'Abandoned', 'Open'
+      const statusName = o.status; // 'Pending', 'Paid', 'paid', 'Canceled', 'canceled', 'Abandoned', 'abandoned', 'Open'
+      const rawStatus = String(o.status_enum || o.status || '').toLowerCase().trim();
+      const rawStatusLabel = String(o.status || '').toLowerCase().trim();
+      const rawShipStatus = String(o.shipment_status_enum || o.shipment_status || '').toLowerCase().trim();
+      const rawShipLabel = String(o.shipment_status || '').toLowerCase().trim();
 
-      console.log(`\nProcesando pedido Jumpseller ID: ${finalOrderNumber} (Estado actual: ${statusName})`);
+      console.log(`\nProcesando pedido Jumpseller ID: ${finalOrderNumber} (Estado actual: ${statusName}, enum: ${o.status_enum || 'N/A'})`);
 
-      // Clasificación de estados
-      const isDelivered = o.shipment_status === 'shipped' || o.shipment_status === 'delivered';
-      const isCancelled = ['Canceled', 'Abandoned', 'Open'].includes(statusName);
+      // Clasificación de estados (insensible a mayúsculas/minúsculas e idioma)
+      const isPaid = ['paid', 'pagado', 'completed', 'confirmed', 'approved'].includes(rawStatus) ||
+                     ['paid', 'pagado', 'completed', 'confirmed', 'approved'].includes(rawStatusLabel);
+      const isDelivered = ['shipped', 'delivered', 'entregado', 'despachado'].includes(rawShipStatus) ||
+                          ['shipped', 'delivered', 'entregado', 'despachado'].includes(rawShipLabel);
+      const isCancelled = ['canceled', 'cancelled', 'cancelado', 'abandoned', 'abandonado', 'open'].includes(rawStatus) ||
+                          ['canceled', 'cancelled', 'cancelado', 'abandoned', 'abandonado', 'open'].includes(rawStatusLabel);
       const isActive = !isDelivered && !isCancelled;
 
       // Verificar si el pedido ya existe en el WMS (incluyendo variantes ingresadas manualmente sin #JS-)
@@ -556,7 +564,7 @@ async function syncOrders(integration, headers, warehouseId) {
         external_order_number: finalOrderNumber,
         external_platform: 'Jumpseller',
         origen: 'Jumpseller',
-        payment_status: statusName === 'Paid' ? 'PAID' : 'PENDING',
+        payment_status: isPaid ? 'PAID' : 'PENDING',
         total_value: totalValue,
         customer_email: o.customer?.email || o.shipping_address?.email || o.billing_address?.email,
         customer_phone: o.customer?.phone || o.shipping_address?.phone || o.billing_address?.phone,
