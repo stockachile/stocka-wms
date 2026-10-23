@@ -840,16 +840,27 @@ window.confirmExecuteOrderSplit = async function() {
     const childItemsName = movedItemsForChild.map(i => i.name).join(', ');
 
     // Clonar metadatos preservando raw data para trazabilidad
+    const splitCreatorName = window.currentAdminProfile?.full_name || window.currentUserProfile?.full_name || null;
+    const splitCreatorMeta = {
+      created_by_user_id: userId || null,
+      created_by_email: userEmail || null,
+      created_by_name: splitCreatorName,
+      created_by_role: (window.currentAdminProfile?.role === 'admin' || window.currentUserProfile?.role === 'admin') ? 'admin' : 'client',
+      created_from: `División de Pedido (Padre: ${parentFolio})`
+    };
+
     const clonedRawShopify = parentOrder.raw_shopify_data ? {
       ...parentOrder.raw_shopify_data,
       _is_split_child: true,
       _parent_order_id: parentOrder.id,
       _parent_order_number: parentFolio,
+      ...splitCreatorMeta,
       line_items: childLineItemsRaw
     } : {
       _is_split_child: true,
       _parent_order_id: parentOrder.id,
       _parent_order_number: parentFolio,
+      ...splitCreatorMeta,
       line_items: childLineItemsRaw
     };
 

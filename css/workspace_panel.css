@@ -1,0 +1,799 @@
+/* ==========================================================================
+   WMS STOCKA - Módulo "Mi Panel de Trabajo" & Botón Flotante Personalizable
+   Compatible con Tema Claro y Tema Oscuro (Variables semánticas Stocka)
+   ========================================================================== */
+
+.ws-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  animation: wsFadeIn 0.22s ease-out;
+}
+
+@keyframes wsFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Cabecera Principal con Barra de Progreso Diaria */
+.ws-hero-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 14px);
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  position: relative;
+  overflow: hidden;
+}
+
+.ws-hero-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 5px;
+  height: 100%;
+  background: linear-gradient(180deg, #6366f1 0%, #8b5cf6 50%, #10b981 100%);
+}
+
+.ws-hero-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: 260px;
+}
+
+.ws-hero-icon {
+  width: 50px;
+  height: 50px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.16) 0%, rgba(139, 92, 246, 0.18) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #6366f1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.55rem;
+  flex-shrink: 0;
+}
+
+.ws-hero-title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--color-text-main);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ws-hero-subtitle {
+  margin: 0.2rem 0 0 0;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+/* Bloque de Progreso Diario */
+.ws-progress-box {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  padding: 0.75rem 1.15rem;
+  border-radius: 12px;
+  flex-wrap: wrap;
+}
+
+.ws-progress-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 170px;
+}
+
+.ws-progress-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--color-text-main);
+}
+
+.ws-progress-pct {
+  color: #10b981;
+  font-weight: 800;
+}
+
+.ws-progress-track {
+  width: 100%;
+  height: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.ws-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1 0%, #10b981 100%);
+  border-radius: 999px;
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ws-kpi-pills {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ws-kpi-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 99px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-main);
+}
+
+/* Barra de Navegación Interna del Módulo */
+.ws-nav-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 0.45rem 0.65rem;
+  flex-wrap: wrap;
+}
+
+.ws-nav-left {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.ws-tab-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 0.83rem;
+  font-weight: 600;
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  transition: all 0.18s ease;
+}
+
+.ws-tab-btn:hover {
+  color: var(--color-text-main);
+  background: var(--color-bg);
+}
+
+.ws-tab-btn.active {
+  background: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+  border-color: rgba(99, 102, 241, 0.3);
+  font-weight: 700;
+}
+
+.ws-tab-badge {
+  font-size: 0.7rem;
+  padding: 0.08rem 0.45rem;
+  border-radius: 99px;
+  background: var(--color-bg);
+  color: var(--color-text-main);
+  font-weight: 800;
+}
+
+.ws-tab-btn.active .ws-tab-badge {
+  background: #6366f1;
+  color: #ffffff;
+}
+
+/* Layout de Mi Día (2 columnas en desktop) */
+.ws-day-grid {
+  display: grid;
+  grid-template-columns: 1fr 370px;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 1080px) {
+  .ws-day-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ws-panel-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 14px);
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+}
+
+.ws-panel-header {
+  padding: 0.9rem 1.2rem;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  background: var(--color-bg);
+}
+
+.ws-panel-title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--color-text-main);
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+/* Barra rápida de creación de tareas */
+.ws-quick-add-box {
+  padding: 0.95rem 1.2rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.ws-quick-add-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.ws-quick-input {
+  flex: 1;
+  min-width: 220px;
+  padding: 0.6rem 0.85rem;
+  border-radius: 9px;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-main);
+  font-size: 0.86rem;
+  transition: border-color 0.2s;
+}
+
+.ws-quick-input:focus {
+  outline: none;
+  border-color: #6366f1;
+}
+
+.ws-quick-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.76rem;
+}
+
+.ws-select-sm,
+.ws-input-sm {
+  padding: 0.35rem 0.6rem;
+  border-radius: 7px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-main);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+/* Ítems de Tarea en la Lista Diaria */
+.ws-tasks-list {
+  display: flex;
+  flex-direction: column;
+  divide-y: 1px solid var(--color-border);
+}
+
+.ws-task-item {
+  padding: 0.8rem 1.15rem;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  transition: background-color 0.15s ease;
+  background: var(--color-surface);
+}
+
+.ws-task-item:hover {
+  background: var(--color-bg);
+}
+
+.ws-task-item.is-done {
+  opacity: 0.66;
+  background: rgba(16, 185, 129, 0.03);
+}
+
+.ws-task-main-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.ws-task-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Custom Checkbox Redondo / Cuadrado Suave */
+.ws-check-btn {
+  width: 21px;
+  height: 21px;
+  border-radius: 6px;
+  border: 2px solid var(--color-border);
+  background: var(--color-bg);
+  color: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-top: 1px;
+  transition: all 0.18s ease;
+  padding: 0;
+}
+
+.ws-check-btn:hover {
+  border-color: #10b981;
+  transform: scale(1.06);
+}
+
+.ws-check-btn.checked {
+  background: #10b981;
+  border-color: #10b981;
+  color: #ffffff;
+}
+
+.ws-task-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-text-main);
+  line-height: 1.35;
+  word-break: break-word;
+  cursor: pointer;
+}
+
+.ws-task-item.is-done .ws-task-title {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
+}
+
+.ws-task-desc {
+  font-size: 0.77rem;
+  color: var(--color-text-muted);
+  margin-top: 0.18rem;
+  line-height: 1.35;
+}
+
+.ws-task-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.3rem;
+}
+
+.ws-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  padding: 0.14rem 0.48rem;
+  border-radius: 6px;
+  font-size: 0.69rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ws-badge-urgent { background: rgba(239, 68, 68, 0.14); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+.ws-badge-high   { background: rgba(245, 158, 11, 0.14); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
+.ws-badge-medium { background: rgba(59, 130, 246, 0.12); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.25); }
+.ws-badge-low    { background: rgba(107, 114, 128, 0.14); color: var(--color-text-muted); }
+.ws-badge-wa     { background: rgba(16, 185, 129, 0.14); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+.ws-badge-rec    { background: rgba(139, 92, 246, 0.13); color: #8b5cf6; border: 1px solid rgba(139, 92, 246, 0.28); }
+.ws-badge-cat    { background: var(--color-bg); color: var(--color-text-muted); border: 1px solid var(--color-border); }
+
+.ws-task-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.ws-icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ws-icon-btn:hover {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text-main);
+}
+
+.ws-icon-btn.danger:hover {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* Subtareas anidadas */
+.ws-subtasks-wrap {
+  margin-left: 1.95rem;
+  padding-left: 0.65rem;
+  border-left: 2px dashed var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.ws-subtask-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.77rem;
+  color: var(--color-text-main);
+}
+
+/* Scratchpad / Borrador Instantáneo */
+.ws-scratchpad-textarea {
+  width: 100%;
+  min-height: 155px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg);
+  color: var(--color-text-main);
+  padding: 0.75rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.ws-scratchpad-textarea:focus {
+  outline: none;
+  border-color: #6366f1;
+}
+
+/* Tablero Kanban */
+.ws-kanban-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(230px, 1fr));
+  gap: 1rem;
+  overflow-x: auto;
+  padding-bottom: 0.4rem;
+}
+
+@media (max-width: 960px) {
+  .ws-kanban-board {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .ws-kanban-board {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ws-kanban-col {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  max-height: 560px;
+}
+
+.ws-kanban-col-header {
+  padding: 0.75rem 0.95rem;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: var(--color-bg);
+  border-radius: 12px 12px 0 0;
+}
+
+.ws-kanban-col-body {
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.ws-kanban-card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  transition: transform 0.15s, border-color 0.15s;
+}
+
+.ws-kanban-card:hover {
+  transform: translateY(-2px);
+  border-color: #6366f1;
+}
+
+/* Mural de Notas */
+.ws-notes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 1rem;
+}
+
+.ws-note-card {
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
+  border-radius: 12px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.75rem;
+  transition: transform 0.15s, box-shadow 0.15s;
+  position: relative;
+}
+
+.ws-note-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.ws-note-card.color-amber   { border-top: 4px solid #f59e0b; background: rgba(245, 158, 11, 0.05); }
+.ws-note-card.color-blue    { border-top: 4px solid #3b82f6; background: rgba(59, 130, 246, 0.05); }
+.ws-note-card.color-emerald { border-top: 4px solid #10b981; background: rgba(16, 185, 129, 0.05); }
+.ws-note-card.color-purple  { border-top: 4px solid #8b5cf6; background: rgba(139, 92, 246, 0.05); }
+.ws-note-card.color-rose    { border-top: 4px solid #f43f5e; background: rgba(244, 63, 94, 0.05); }
+
+/* ==========================================================================
+   BOTÓN FLOTANTE EXPANDIBLE ("MI ESPACIO" / QUICK WORKSPACE DOCK)
+   ========================================================================== */
+.wms-workspace-fab {
+  position: fixed;
+  right: 20px;
+  bottom: 215px;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1 0%, #7c3aed 100%);
+  color: #ffffff;
+  border: 2px solid var(--color-surface);
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1002;
+  transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  outline: none;
+}
+
+body.client-workspace-mode .wms-workspace-fab {
+  bottom: 85px;
+}
+
+.wms-workspace-fab:hover {
+  transform: translateY(-3px) scale(1.05);
+  box-shadow: 0 10px 24px rgba(99, 102, 241, 0.6);
+}
+
+.wms-workspace-fab i {
+  font-size: 1.4rem;
+}
+
+.wms-workspace-fab .ws-fab-badge {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: #f59e0b;
+  color: #111827;
+  font-size: 0.7rem;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--color-surface);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
+}
+
+.wms-workspace-fab .ws-fab-badge.all-done {
+  background: #10b981;
+  color: #ffffff;
+}
+
+/* Popover Flotante Expandible */
+.wms-workspace-popover {
+  position: fixed;
+  right: 82px;
+  bottom: 24px;
+  width: 390px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 60px);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.32);
+  z-index: 1045;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  animation: wsPopoverSlide 0.2s ease-out;
+}
+
+.wms-workspace-popover.open {
+  display: flex;
+}
+
+@media (max-width: 640px) {
+  .wms-workspace-popover {
+    right: 16px;
+    left: 16px;
+    bottom: 85px;
+    width: auto;
+  }
+}
+
+@keyframes wsPopoverSlide {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.ws-pop-header {
+  padding: 0.8rem 1rem;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.ws-pop-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ws-pop-header h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.ws-pop-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.ws-pop-top-btn {
+  border: none;
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  border-radius: 7px;
+  padding: 0.28rem 0.5rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  transition: background 0.15s;
+}
+
+.ws-pop-top-btn:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+/* Barra de Pestañas de Micro-Herramientas en el Popover */
+.ws-pop-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.35rem 0.55rem 0 0.55rem;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+}
+
+.ws-pop-tab {
+  border: none;
+  border-bottom: 2.5px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.45rem 0.65rem;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  transition: all 0.15s;
+}
+
+.ws-pop-tab:hover {
+  color: var(--color-text-main);
+}
+
+.ws-pop-tab.active {
+  color: #6366f1;
+  border-bottom-color: #6366f1;
+}
+
+.ws-pop-body {
+  padding: 0.9rem;
+  overflow-y: auto;
+  max-height: 390px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  background: var(--color-surface);
+}
+
+.ws-pop-footer {
+  padding: 0.55rem 0.9rem;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}

@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (cleanShop.includes('myshopify.com')) {
         if (document.body) document.body.style.display = 'none';
         const clientId = '4d04c58f432c53fb870d1fbcad92431c';
-        const scopes = 'read_products,read_orders,write_fulfillments,read_fulfillments,write_orders';
+        const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders';
         const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
         const stateObj = {
           merchant_id: '331a14f5-f2a8-43d8-a1ee-0070e96ced31',

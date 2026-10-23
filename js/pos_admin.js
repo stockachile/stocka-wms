@@ -198,6 +198,51 @@ if (!window.resolvePosMachineColor) {
   };
 }
 
+// Listado maestro de medios de pago POS y helper de medios activos por comercio (por defecto todos activos)
+if (!window.POS_PAYMENT_METHODS_LIST) {
+  window.POS_PAYMENT_METHODS_LIST = [
+    { id: 'debito', value: 'Tarjeta de Débito', label: 'Tarjeta de Débito', subtitle: 'Redcompra POS', icon: 'ri-bank-card-line' },
+    { id: 'credito', value: 'Tarjeta de Crédito', label: 'Tarjeta de Crédito', subtitle: 'Cuotas / POS', icon: 'ri-bank-card-2-line' },
+    { id: 'efectivo', value: 'Efectivo', label: 'Efectivo', subtitle: 'Pago en caja física', icon: 'ri-money-dollar-circle-line' },
+    { id: 'transferencia', value: 'Transferencia', label: 'Transferencia', subtitle: 'Comprobante bancario', icon: 'ri-exchange-dollar-line' }
+  ];
+}
+
+if (!window.getMerchantActivePosPaymentMethods) {
+  window.getMerchantActivePosPaymentMethods = function(onboardingChecklist) {
+    const allValues = (window.POS_PAYMENT_METHODS_LIST || []).map(m => m.value);
+    const configured = onboardingChecklist?.pos_payment_methods;
+    if (Array.isArray(configured) && configured.length > 0) {
+      const valid = allValues.filter(v => configured.includes(v));
+      if (valid.length > 0) return valid;
+    }
+    return allValues;
+  };
+}
+
+window.resolvePosCommerceConfig = function(commerceName) {
+  const clean = (commerceName || document.getElementById('pos-select-commerce')?.value || '').trim();
+  if (!clean) return null;
+  if (window.posSelectedCommerceConfig && (!window.posSelectedCommerceConfig.comercio || window.posSelectedCommerceConfig.comercio.trim().toLowerCase() === clean.toLowerCase())) {
+    return window.posSelectedCommerceConfig;
+  }
+  if (window.loadedCommerceConfigsMap) {
+    const foundKey = Object.keys(window.loadedCommerceConfigsMap).find(k => k.trim().toLowerCase() === clean.toLowerCase());
+    if (foundKey) return window.loadedCommerceConfigsMap[foundKey];
+  }
+  if (window.cachedAdminMerchants) {
+    const foundM = window.cachedAdminMerchants.find(m => (m.nombre || '').trim().toLowerCase() === clean.toLowerCase());
+    if (foundM) {
+      return {
+        comercio: foundM.nombre,
+        inventario_seguimiento: Boolean(foundM.inventario_seguimiento),
+        onboarding_checklist: foundM.onboarding_checklist || {}
+      };
+    }
+  }
+  return window.posSelectedCommerceConfig || null;
+};
+
 // Helper para generar código único de venta
 window.generatePosSaleCode = function(prefix) {
   const cleanPrefix = (prefix || 'POS').replace(/[^a-zA-Z0-9]/g, '').substring(0, 4).toUpperCase();
@@ -811,7 +856,9 @@ window.openCreatePosSaleModal = async function() {
   // 4. Resetear documento a Boleta
   window.selectPosDocTipo('BOLETA');
 
-  // 5. Resetear modo de pago
+  // 5. Resetear medios de pago disponibles y selección inicial
+  window.posSelectedCommerceConfig = null;
+  window.updatePosAvailablePaymentMethods();
   window.selectPosModoPago('Tarjeta de Débito');
 
   // 6. Generar código de venta inicial
@@ -843,11 +890,14 @@ window.openCreatePosSaleModal = async function() {
       if (selected) {
         await window.loadPosCommerceCatalog(selected);
         window.regeneratePosCode();
+        window.updatePosAvailablePaymentMethods();
         window.updatePosPaymentMachineBanner();
       } else {
+        window.posSelectedCommerceConfig = null;
         if (badgesContainer) badgesContainer.innerHTML = '';
         if (tbody) tbody.innerHTML = '';
         window.calculatePosTotals();
+        window.updatePosAvailablePaymentMethods();
         window.updatePosPaymentMachineBanner();
       }
     };
@@ -1042,7 +1092,8 @@ window.goToPosStep = function(targetStep) {
       document.getElementById('pos-confirm-total').textContent = totalAmount || '$0';
       document.getElementById('pos-confirm-items-count').textContent = `${totalQty} unidades (${rows.length} producto${rows.length > 1 ? 's' : ''})`;
 
-      // Actualizar recuadro notorio de máquina de cobro asignada
+      // Actualizar opciones de pago activas para el comercio y recuadro notorio de máquina de cobro asignada
+      window.updatePosAvailablePaymentMethods();
       window.updatePosPaymentMachineBanner();
     }
   }
@@ -1298,8 +1349,67 @@ window.selectPosDocTipo = function(tipo) {
   }
 };
 
+// Actualiza las tarjetas de métodos de pago disponibles en el Paso 3 según la configuración del comercio
+window.updatePosAvailablePaymentMethods = function() {
+  const commerceName = (document.getElementById('pos-select-commerce')?.value || '').trim();
+  const config = commerceName ? window.resolvePosCommerceConfig(commerceName) : null;
+  const ob = config?.onboarding_checklist || {};
+  const activeMethods = window.getMerchantActivePosPaymentMethods(ob);
+
+  const cardsMap = {
+    'Tarjeta de Débito': 'lbl-pos-pago-debito',
+    'Tarjeta de Crédito': 'lbl-pos-pago-credito',
+    'Efectivo': 'lbl-pos-pago-efectivo',
+    'Transferencia': 'lbl-pos-pago-transferencia'
+  };
+
+  Object.entries(cardsMap).forEach(([methodName, cardId]) => {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    const isEnabled = activeMethods.includes(methodName);
+    card.style.display = isEnabled ? 'flex' : 'none';
+    card.dataset.disabled = isEnabled ? 'false' : 'true';
+  });
+
+  const hintEl = document.getElementById('pos-payment-methods-hint');
+  if (hintEl) {
+    if (!commerceName) {
+      hintEl.innerHTML = '';
+    } else if (activeMethods.length < 4) {
+      hintEl.innerHTML = `
+        <span style="display: inline-flex; align-items: center; gap: 0.3rem; background: rgba(37, 99, 235, 0.08); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.25); padding: 0.18rem 0.6rem; border-radius: 999px; font-weight: 700; font-size: 0.72rem;">
+          <i class="ri-shield-check-line"></i> Medios habilitados para ${escapeHtml(commerceName)}: ${activeMethods.map(m => escapeHtml(m)).join(', ')}
+        </span>
+      `;
+    } else {
+      hintEl.innerHTML = `
+        <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted); font-size: 0.72rem; font-weight: 600;">
+          <i class="ri-checkbox-circle-line" style="color: #10b981;"></i> Todos los medios de pago habilitados
+        </span>
+      `;
+    }
+  }
+
+  const hiddenInput = document.getElementById('pos-modo-pago');
+  const currentModo = hiddenInput?.value || 'Tarjeta de Débito';
+  if (!activeMethods.includes(currentModo) && activeMethods.length > 0) {
+    window.selectPosModoPago(activeMethods[0]);
+  } else {
+    window.selectPosModoPago(currentModo);
+  }
+};
+
 // Selector de Modo de Pago
 window.selectPosModoPago = function(modo) {
+  const commerceName = (document.getElementById('pos-select-commerce')?.value || '').trim();
+  if (commerceName) {
+    const config = window.resolvePosCommerceConfig(commerceName);
+    const activeMethods = window.getMerchantActivePosPaymentMethods(config?.onboarding_checklist || {});
+    if (!activeMethods.includes(modo) && activeMethods.length > 0) {
+      modo = activeMethods[0];
+    }
+  }
+
   const hiddenInput = document.getElementById('pos-modo-pago');
   if (hiddenInput) hiddenInput.value = modo;
 
@@ -1938,7 +2048,7 @@ window.updatePosPaymentMachineBanner = function() {
             </div>
             
             <div style="flex: 1; min-width: 0;">
-              <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.45rem;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; flex-wrap: wrap; margin-bottom: 0.45rem;">
                 <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                   <span style="background: ${dotColor}; color: ${badgeTextColor}; border: ${isLightColor ? '1px solid rgba(0,0,0,0.22)' : 'none'}; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; padding: 0.22rem 0.6rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 6px ${isLightColor ? 'rgba(0,0,0,0.12)' : dotColor + '40'};">
                     ${window.getPosMachineSvg(badgeTextColor, 13)} MÁQUINA DE PAGO OBLIGATORIA
@@ -1947,23 +2057,29 @@ window.updatePosPaymentMachineBanner = function() {
                     Cobro con Tarjeta para <span style="color: ${readableTextColor}; font-weight: 800;">${escapeHtml(commerceName)}</span>
                   </span>
                 </div>
+                ${machine.model ? `
+                  <div style="background: ${dotColor}; color: ${badgeTextColor}; border: ${isLightColor ? '2px solid rgba(0,0,0,0.28)' : '2px solid rgba(255,255,255,0.25)'}; padding: 0.3rem 0.9rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 0.45rem; box-shadow: 0 4px 12px ${isLightColor ? 'rgba(0,0,0,0.15)' : dotColor + '50'};">
+                    <span style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; opacity: 0.92;">TOMAR MÁQUINA</span>
+                    <span style="font-family: monospace; font-size: 1.35rem; font-weight: 900; letter-spacing: 1px; line-height: 1;">#${escapeHtml(machine.model)}</span>
+                  </div>
+                ` : ''}
               </div>
               
               <div style="font-size: 0.84rem; color: var(--color-text-main); margin-bottom: 0.75rem; line-height: 1.4;">
                 Para evitar errores de recaudación o abonos a cuentas erróneas, realiza el cobro exclusivamente en este equipo físico:
               </div>
               
-              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.6rem; margin-bottom: ${machine.notes ? '0.65rem' : '0'};">
-                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0,0,0,0.08); border-top: 2.5px solid ${borderAccentColor}; border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 0.65rem; margin-bottom: ${machine.notes ? '0.65rem' : '0'}; align-items: stretch;">
+                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0,0,0,0.08); border-top: 2.5px solid ${borderAccentColor}; border-radius: 8px; padding: 0.55rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); display: flex; flex-direction: column; justify-content: center;">
                   <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Marca / Proveedor</span>
-                  <strong style="font-size: 0.95rem; color: #1e293b; display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem;">
+                  <strong style="font-size: 1.05rem; color: #1e293b; display: flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem;">
                     <i class="ri-terminal-box-line" style="color: ${readableTextColor};"></i> ${escapeHtml(machine.brand || 'No asignada')}
                   </strong>
                 </div>
 
-                <div style="background: rgba(255, 255, 255, 0.95); border: 1.5px solid ${isLightColor ? readableTextColor + '55' : dotColor + '66'}; border-top: 2.5px solid ${borderAccentColor}; border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                <div style="background: rgba(255, 255, 255, 0.95); border: 1.5px solid ${isLightColor ? readableTextColor + '55' : dotColor + '66'}; border-top: 2.5px solid ${borderAccentColor}; border-radius: 8px; padding: 0.55rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); display: flex; flex-direction: column; justify-content: center;">
                   <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Color / Distintivo</span>
-                  <strong style="font-size: 0.95rem; color: #1e293b; display: flex; align-items: center; gap: 0.4rem; margin-top: 0.15rem;">
+                  <strong style="font-size: 1.05rem; color: #1e293b; display: flex; align-items: center; gap: 0.4rem; margin-top: 0.2rem;">
                     <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: ${dotColor}25; border: 1px solid ${isLightColor ? 'rgba(0,0,0,0.18)' : dotColor + '40'};">
                       ${posSvgIconMini}
                     </span>
@@ -1971,16 +2087,19 @@ window.updatePosPaymentMachineBanner = function() {
                   </strong>
                 </div>
 
-                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0,0,0,0.08); border-top: 2.5px solid ${borderAccentColor}; border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
-                  <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">N° Máquina / Terminal</span>
-                  <strong style="font-size: 0.95rem; font-family: monospace; color: ${readableTextColor}; display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem;">
-                    <i class="ri-hashtag"></i> ${escapeHtml(machine.model || 'S/N')}
+                <div style="background: linear-gradient(135deg, ${isLightColor ? 'rgba(15,23,42,0.06)' : dotColor + '20'} 0%, rgba(255, 255, 255, 0.98) 100%); border: 2.5px solid ${borderAccentColor}; border-top: 4px solid ${borderAccentColor}; border-radius: 10px; padding: 0.55rem 0.9rem; box-shadow: 0 4px 12px ${isLightColor ? 'rgba(0,0,0,0.08)' : dotColor + '28'}; display: flex; flex-direction: column; justify-content: center; position: relative;">
+                  <span style="font-size: 0.7rem; text-transform: uppercase; color: ${readableTextColor}; font-weight: 800; letter-spacing: 0.5px; display: flex; align-items: center; justify-content: space-between; gap: 0.25rem;">
+                    <span>N° Máquina / Terminal</span>
+                    <i class="ri-price-tag-3-fill" style="font-size: 0.85rem; opacity: 0.85;"></i>
+                  </span>
+                  <strong style="font-size: 1.75rem; line-height: 1.1; font-weight: 900; font-family: monospace; color: ${readableTextColor}; display: flex; align-items: center; gap: 0.15rem; margin-top: 0.15rem; letter-spacing: 1px; text-shadow: 0 1px 2px rgba(0,0,0,0.06);">
+                    <i class="ri-hashtag" style="font-size: 1.45rem; font-weight: 900;"></i>${escapeHtml(machine.model || 'S/N')}
                   </strong>
                 </div>
 
-                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0,0,0,0.08); border-top: 2.5px solid ${borderAccentColor}; border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0,0,0,0.08); border-top: 2.5px solid ${borderAccentColor}; border-radius: 8px; padding: 0.55rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); display: flex; flex-direction: column; justify-content: center;">
                   <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Propiedad</span>
-                  <strong style="font-size: 0.85rem; color: #1e293b; display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem;">
+                  <strong style="font-size: 0.9rem; color: #1e293b; display: flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem;">
                     <i class="ri-building-line" style="color: #7c3aed;"></i> ${escapeHtml(machine.owner || 'STOCKA')}
                   </strong>
                 </div>
@@ -2309,7 +2428,7 @@ window.loadPosCommerceCatalog = async function(commerceName) {
       const mColor = window.resolvePosMachineColor(machineInfo?.color, machineInfo?.color_hex);
       const mReadable = (typeof window.getPosReadableTextColor === 'function') ? window.getPosReadableTextColor(mColor) : mColor;
       const machineSnippet = (machineInfo?.brand || machineInfo?.model) 
-        ? ` (${escapeHtml(machineInfo.brand || '')}${machineInfo.color ? ' ' + escapeHtml(machineInfo.color) : ''}${machineInfo.model ? ' - ' + escapeHtml(machineInfo.model) : ''})` 
+        ? ` (${escapeHtml(machineInfo.brand || '')}${machineInfo.color ? ' ' + escapeHtml(machineInfo.color) : ''}${machineInfo.model ? ' · <strong style="font-family:monospace;font-size:0.82rem;">#' + escapeHtml(machineInfo.model) + '</strong>' : ''})` 
         : '';
 
       const posBadge = isPosActive
@@ -2317,6 +2436,11 @@ window.loadPosCommerceCatalog = async function(commerceName) {
             ${window.getPosMachineSvg(mColor, 16)} POS Activo${machineSnippet}
           </span>`
         : `<span class="badge" style="background: rgba(239, 68, 68, 0.1); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); font-size: 0.75rem;"><i class="ri-forbid-line"></i> POS Deshabilitado</span>`;
+
+      const activePaymentMethods = window.getMerchantActivePosPaymentMethods(window.posSelectedCommerceConfig?.onboarding_checklist || {});
+      const paymentBadge = (isPosActive && activePaymentMethods.length < 4)
+        ? `<span class="badge" style="background: rgba(37, 99, 235, 0.1); color: #1d4ed8; border: 1px solid rgba(37, 99, 235, 0.3); font-size: 0.75rem;"><i class="ri-bank-card-line"></i> Pagos habilitados: ${activePaymentMethods.map(m => escapeHtml(m)).join(', ')}</span>`
+        : '';
 
       const catalogBadge = (hasCatalogItems || isCatalogConfigured)
         ? `<span class="badge" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.75rem;"><i class="ri-checkbox-circle-line"></i> Catálogo Activo (${window.posCatalogProducts.length} productos)</span>`
@@ -2326,8 +2450,11 @@ window.loadPosCommerceCatalog = async function(commerceName) {
         ? `<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 0.75rem;"><i class="ri-database-2-line"></i> Seguimiento de Stock Activo (Descuenta en Ñuñoa)</span>`
         : `<span class="badge badge-neutral" style="font-size: 0.75rem;"><i class="ri-information-line"></i> Sin Seguimiento de Stock</span>`;
 
-      badgesContainer.innerHTML = `${posBadge} ${catalogBadge} ${stockBadge}`;
+      badgesContainer.innerHTML = `${posBadge} ${paymentBadge} ${catalogBadge} ${stockBadge}`;
     }
+
+    // Actualizar medios de pago disponibles según la configuración del comercio cargado
+    window.updatePosAvailablePaymentMethods();
 
     // 4. Ajustar modo manual y filas de la tabla de productos
     const manualCheckbox = document.getElementById('pos-manual-mode');
@@ -2807,6 +2934,28 @@ window.savePosSale = async function(e) {
     });
   }
 
+  // Validar que el medio de pago esté activo para el comercio
+  const activePaymentMethods = window.getMerchantActivePosPaymentMethods(window.resolvePosCommerceConfig(commerce)?.onboarding_checklist || {});
+  if (!activePaymentMethods.includes(modoPago)) {
+    Swal.fire({
+      icon: 'error',
+      title: 'Medio de Pago No Habilitado',
+      text: `El medio de pago "${modoPago}" no está habilitado para ${commerce}. Medios activos: ${activePaymentMethods.join(', ')}.`,
+      confirmButtonColor: 'var(--color-primary)'
+    });
+    window.updatePosAvailablePaymentMethods();
+    return;
+  }
+
+  const assignedPosMachine = window.resolvePosCommerceConfig(commerce)?.onboarding_checklist?.pos_machine || {};
+  const isCardSale = (modoPago === 'Tarjeta de Débito' || modoPago === 'Tarjeta de Crédito');
+  const confirmMachineHtml = (isCardSale && (assignedPosMachine.brand || assignedPosMachine.model))
+    ? `<div style="margin-top: 0.65rem; padding: 0.6rem 0.85rem; background: rgba(37, 99, 235, 0.08); border: 1.5px solid rgba(37, 99, 235, 0.35); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+         <span style="font-size: 0.82rem; font-weight: 700; color: #1e293b;">Máquina POS (${escapeHtml(assignedPosMachine.brand || 'POS')}${assignedPosMachine.color ? ' · ' + escapeHtml(assignedPosMachine.color) : ''}):</span>
+         <span style="font-family: monospace; font-size: 1.25rem; font-weight: 900; color: #1d4ed8;">#${escapeHtml(assignedPosMachine.model || 'S/N')}</span>
+       </div>`
+    : '';
+
   // Confirmación previa
   const confirmResult = await Swal.fire({
     title: '¿Confirmar y Registrar Venta?',
@@ -2817,6 +2966,7 @@ window.savePosSale = async function(e) {
         <p style="margin-bottom: 0.5rem;"><strong>Total a Cobrar:</strong> <span style="color: #10b981; font-weight: 700; font-size: 1.1rem;">${formatCLP(totalAmount)}</span></p>
         <p style="margin-bottom: 0.5rem;"><strong>Medio de Pago:</strong> ${escapeHtml(modoPago)} (${docTipo})</p>
         <p style="margin-bottom: 0.25rem;"><strong>Artículos:</strong> ${totalUnits} unidad(es)</p>
+        ${confirmMachineHtml}
       </div>
     `,
     icon: 'question',
@@ -2833,7 +2983,16 @@ window.savePosSale = async function(e) {
   btnSave.innerHTML = '<i class="ri-loader-4-line spin"></i> Procesando venta...';
 
   try {
-    const adminUser = (window.currentUserProfile && window.currentUserProfile.email) || 'Administrador WMS';
+    const posCreatorMeta = typeof window.getCurrentWmsUserCreatorMeta === 'function'
+      ? await window.getCurrentWmsUserCreatorMeta('Punto de Venta (POS) · Sucursal Ñuñoa')
+      : {
+          created_by_user_id: window.currentAdminUser?.id || window.currentUserProfile?.id || null,
+          created_by_email: window.currentAdminProfile?.email || window.currentAdminUser?.email || window.currentUserProfile?.email || 'Administrador WMS',
+          created_by_name: window.currentAdminProfile?.full_name || window.currentUserProfile?.full_name || 'Administrador WMS',
+          created_by_role: 'admin',
+          created_from: 'Punto de Venta (POS) · Sucursal Ñuñoa'
+        };
+    const adminUser = posCreatorMeta.created_by_email || posCreatorMeta.created_by_name || 'Administrador WMS';
 
     // 1. OBTENER MERCHANT_ID PARA VINCULAR EN ORDERS
     let merchantId = null;
@@ -2881,6 +3040,7 @@ window.savePosSale = async function(e) {
         payment_method: modoPago,
         document_type: docTipo,
         recorded_by: adminUser,
+        ...posCreatorMeta,
         pos_machine: (modoPago.includes('Tarjeta') || modoPago.includes('Débito') || modoPago.includes('Crédito'))
           ? (window.posSelectedCommerceConfig?.onboarding_checklist?.pos_machine || { brand: 'STOCKA POS' })
           : null

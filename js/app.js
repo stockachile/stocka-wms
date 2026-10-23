@@ -612,8 +612,8 @@ window.isOrderStockCommittedEligible = function(order) {
     return true;
   }
 
-  // Pedidos Manuales / POS generados directamente en WMS para despacho
-  if (['Manual', 'Punto de Venta'].includes(platform)) {
+  // Pedidos Manuales / POS / Logística Inversa generados directamente en WMS para despacho
+  if (['Manual', 'Punto de Venta', 'Logística Inversa', 'Logistica Inversa'].includes(platform) || order.raw_shopify_data?.is_reverse_logistics) {
     return true;
   }
 
@@ -995,7 +995,7 @@ async function init() {
         console.log('DEBUG: Detectada instalación de Shopify (Sin sesión). Redirigiendo a OAuth inmediatamente...');
         const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
         const clientId = '4d04c58f432c53fb870d1fbcad92431c';
-        const scopes = 'read_products,read_orders,write_fulfillments,read_fulfillments,write_orders';
+        const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders';
         const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
         
         const stateObj = {
@@ -1044,7 +1044,7 @@ async function init() {
       console.log('DEBUG: Detectada instalación de Shopify con sesión activa. Redirigiendo a OAuth...');
       const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
       const clientId = '4d04c58f432c53fb870d1fbcad92431c';
-      const scopes = 'read_products,read_orders,write_fulfillments,read_fulfillments,write_orders';
+      const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders';
       const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
       
       let userCommerce = 'STOCKA STORE TEST';
@@ -1177,13 +1177,36 @@ async function init() {
 
     if (profile && profile.role === 'admin') {
       console.log('DEBUG: Rol es admin. Redirigiendo a admin.html...');
-      window.location.href = 'admin.html';
+      window.location.href = 'admin.html' + (window.location.search || '');
       return;
     }
 
     // Set user info
     const user = session.user;
     currentMerchantId = user.id;
+    window.currentClientUser = user;
+    window.currentUserProfile = {
+      ...(profile || {}),
+      id: user.id,
+      email: (profile && profile.email) || user.email || '',
+      full_name: (profile && profile.full_name) || (user.user_metadata && user.user_metadata.full_name) || (profile && profile.company_name) || '',
+      role: (profile && profile.role) || userRole || 'client',
+      company_name: (profile && profile.company_name) || '',
+      comercio: (profile && profile.comercio) || currentCompany || ''
+    };
+    window.getCurrentClientUserCreatorMeta = function (sourceLabel = 'Portal Cliente') {
+      const p = window.currentUserProfile || {};
+      const u = window.currentClientUser || {};
+      const email = p.email || u.email || '';
+      const fullName = p.full_name || (u.user_metadata && u.user_metadata.full_name) || p.company_name || (email ? email.split('@')[0] : 'Cliente');
+      return {
+        created_by_user_id: p.id || u.id || currentMerchantId || null,
+        created_by_email: email || null,
+        created_by_name: fullName || 'Cliente',
+        created_by_role: p.role || 'client',
+        created_from: sourceLabel
+      };
+    };
     if (userEmailSpan) {
       const displayName = profile?.full_name || user.user_metadata?.full_name || profile?.company_name || user.email;
       userEmailSpan.textContent = displayName;
@@ -1330,6 +1353,11 @@ async function init() {
           } else if (view === 'documentation') {
             viewTitle.textContent = 'Documentación del Servicio';
             renderDocsClient();
+          } else if (view === 'workspace') {
+            viewTitle.textContent = 'Mi Panel de Trabajo';
+            if (typeof window.renderWorkspacePanel === 'function') {
+              window.renderWorkspacePanel();
+            }
           }
         });
       });
@@ -1349,6 +1377,11 @@ async function init() {
             return;
           }
           const view = item.getAttribute('data-view');
+          if (view === 'workspace') {
+            if (parentLi) parentLi.style.display = 'none';
+            item.style.display = 'none';
+            return;
+          }
           if (view === 'dashboard' || view === 'profile' || view === 'inbox') {
             if (parentLi) parentLi.style.display = '';
             else item.style.display = '';
@@ -1369,7 +1402,12 @@ async function init() {
           }
 
           const view = item.getAttribute('data-view');
-          let isAllowed = allowedModules.includes(view);
+          if (view === 'workspace') {
+            if (parentLi) parentLi.style.display = 'none';
+            item.style.display = 'none';
+            return;
+          }
+          let isAllowed = allowedModules.includes(view) || view === 'profile' || view === 'inbox' || view === 'tickets';
 
           // Compatibilidad con perfiles antiguos guardados antes de que dashboard o tracking_widget fueran configurables
           if ((view === 'dashboard' || view === 'tracking_widget') && !allowedModules.includes(view) && allowedModules.length > 5) {
@@ -1386,7 +1424,14 @@ async function init() {
           }
         });
       } else {
-        // Por defecto, si es 'all' todos los ítems están permitidos
+        // Por defecto, si es 'all' todos los ítems están permitidos (excepto workspace que está oculto para clientes)
+        navItems.forEach(item => {
+          if (item.getAttribute('data-view') === 'workspace') {
+            const parentLi = item.closest('li');
+            if (parentLi) parentLi.style.display = 'none';
+            item.style.display = 'none';
+          }
+        });
         if (navItems.length > 0) firstVisibleItem = navItems[0];
       }
       
@@ -1394,8 +1439,20 @@ async function init() {
       updateCategoryHeadersVisibility();
     }
 
-    // Initial View selection based on allowed modules for Client
-    if (firstVisibleItem) {
+    // Initial View selection based on ?order= / ?pedido= or #order= or allowed modules for Client
+    const rawClientHash = (window.location.hash || '').replace(/^#/, '').trim();
+    const clientHashOrderMatch = rawClientHash.match(/^(?:order|pedido)=(.+)$/i);
+    const initialOrderParam = (urlParams.get('order') || urlParams.get('pedido') || (clientHashOrderMatch ? decodeURIComponent(clientHashOrderMatch[1]) : '') || '').trim();
+    if (initialOrderParam) {
+      console.log('DEBUG: Cargando Página Individual de Pedido (Cliente):', initialOrderParam);
+      if (viewTitle) viewTitle.textContent = `Pedido #${initialOrderParam.slice(0, 12)}`;
+      window.currentActiveView = 'order_detail';
+      if (typeof window.renderSingleOrderPage === 'function') {
+        window.renderSingleOrderPage(initialOrderParam, { isAdmin: false });
+      } else {
+        window._pendingSingleOrderPage = { orderId: initialOrderParam, isAdmin: false };
+      }
+    } else if (firstVisibleItem) {
       const isDefaultAllowed = allowedModulesStr === 'all' || allowedModules.includes('dashboard') || (allowedModules.length > 5 && !allowedModulesStr.includes('dashboard'));
       
       if (isDefaultAllowed) {
@@ -1795,6 +1852,10 @@ window.dismissOnboardingChecklist = async function() {
 };
 
 async function renderDashboard() {
+  if (window._suppressDashboardForOrderPage || window._activeSingleOrderPageId) {
+    console.log('DEBUG: Omitiendo renderDashboard porque hay una Página de Pedido activa.');
+    return;
+  }
   window.currentActiveView = 'dashboard';
   const myRequestId = ++window.activeViewRequestId;
   const isStillOnDashboard = () => window.currentActiveView === 'dashboard' && window.activeViewRequestId === myRequestId;
@@ -5653,8 +5714,9 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
       const orderWmsStatus = (item.orders.estado_wms || '').trim();
       if (excludedStatuses.includes(orderStatus) || orderWmsStatus === 'Despachado' || orderWmsStatus === 'Cancelado' || orderWmsStatus === 'Archivado') continue;
       
-      // NUEVO: Validar que el pedido y el pago estén confirmados (pedidos con pago pendiente o no confirmados no comprometen stock)
-      if (typeof window.isOrderStockCommittedEligible === 'function' && !window.isOrderStockCommittedEligible(item.orders)) {
+      // NUEVO: Validar que el pedido y el pago estén confirmados (pedidos con pago pendiente o no confirmados no comprometen stock en estante; en mesa siempre se muestran los pedidos en preparación/pickeados)
+      const isOrderInMesa = ['en preparación', 'pickeado'].includes(orderWmsStatus.toLowerCase());
+      if (!isOrderInMesa && typeof window.isOrderStockCommittedEligible === 'function' && !window.isOrderStockCommittedEligible(item.orders)) {
         continue;
       }
       
@@ -5953,6 +6015,127 @@ function formatMovementReferenceWithIngCode(refText) {
   );
 }
 
+function escapeKardexClientHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function normalizeClientKardexBodegaName(name) {
+  if (!name) return '';
+  return String(name).trim().toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/^(cdd|bodega|sucursal|matriz)\s+/i, '')
+    .trim();
+}
+
+async function fetchClientKardexSkuLocations(productId, sku) {
+  const skuClean = String(sku || '').trim();
+  const skuUpper = skuClean.toUpperCase();
+  const skuLower = skuClean.toLowerCase();
+  const skuVariants = Array.from(new Set([skuClean, skuUpper, skuLower].filter(Boolean)));
+  let locations = [];
+
+  try {
+    if (typeof supabase !== 'undefined' && supabase && typeof supabase.from === 'function') {
+      if (skuVariants.length > 0) {
+        const { data, error } = await supabase
+          .from('product_locations')
+          .select('*')
+          .in('sku', skuVariants)
+          .order('bodega_nombre', { ascending: true });
+        if (!error && Array.isArray(data) && data.length > 0) {
+          locations = data;
+        }
+      }
+      if (locations.length === 0 && productId) {
+        const { data, error } = await supabase
+          .from('product_locations')
+          .select('*')
+          .eq('product_id', productId)
+          .order('bodega_nombre', { ascending: true });
+        if (!error && Array.isArray(data) && data.length > 0) {
+          locations = data;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Aviso consultando product_locations para Kardex cliente:', err);
+  }
+
+  return locations;
+}
+
+function getClientKardexLocationsForWarehouse(locations, warehouseName) {
+  if (!Array.isArray(locations) || locations.length === 0) return [];
+  if (!warehouseName) return locations;
+  const normTarget = normalizeClientKardexBodegaName(warehouseName);
+  return locations.filter(loc => {
+    const normLoc = normalizeClientKardexBodegaName(loc.bodega_nombre);
+    if (!normLoc || !normTarget) return false;
+    return normLoc === normTarget || normLoc.includes(normTarget) || normTarget.includes(normLoc);
+  });
+}
+
+function formatClientKardexLocationText(loc) {
+  if (!loc) return '';
+  const parts = [loc.zona, loc.espacio, loc.posicion].map(s => String(s || '').trim()).filter(Boolean);
+  const pathStr = parts.join(' > ');
+  return `${pathStr}${loc.is_zero_stock ? ' (0 Stock)' : ''}`;
+}
+
+function renderClientKardexLocationBadgesHtml(locations, activeWarehouseFilter = '') {
+  if (!Array.isArray(locations) || locations.length === 0) {
+    return `
+      <span class="badge" style="background: rgba(245, 158, 11, 0.1); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.3rem;">
+        <i class="ri-map-pin-line"></i> Sin ubicación física asignada
+      </span>
+    `;
+  }
+
+  const badgesHtml = locations.map(loc => {
+    const isZero = Boolean(loc.is_zero_stock);
+    const isHighlighted = activeWarehouseFilter && getClientKardexLocationsForWarehouse([loc], activeWarehouseFilter).length > 0;
+    const borderStyle = isZero
+      ? 'border: 1px solid rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.05);'
+      : (isHighlighted
+          ? 'border: 1.5px solid #6366f1; background: rgba(99, 102, 241, 0.08); box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);'
+          : 'border: 1px solid var(--color-border); background: var(--color-surface);');
+
+    return `
+      <div style="display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.55rem; border-radius: 6px; font-size: 0.78rem; ${borderStyle}">
+        <span style="font-weight: 700; color: #1d4ed8; display: inline-flex; align-items: center; gap: 0.2rem;">
+          <i class="ri-building-line"></i> ${escapeKardexClientHtml(loc.bodega_nombre || 'Bodega')}:
+        </span>
+        <span style="background: rgba(147, 51, 234, 0.1); color: #7e22ce; font-weight: 600; padding: 0.08rem 0.38rem; border-radius: 4px;">
+          ${escapeKardexClientHtml(loc.zona || '-')}
+        </span>
+        <i class="ri-arrow-right-s-line" style="color: var(--color-text-muted); font-size: 0.75rem;"></i>
+        <span style="background: rgba(14, 165, 233, 0.1); color: #0284c7; font-weight: 600; padding: 0.08rem 0.38rem; border-radius: 4px;">
+          ${escapeKardexClientHtml(loc.espacio || '-')}
+        </span>
+        ${loc.posicion ? `
+          <i class="ri-arrow-right-s-line" style="color: var(--color-text-muted); font-size: 0.75rem;"></i>
+          <span style="background: rgba(245, 158, 11, 0.12); color: #b45309; font-weight: 600; padding: 0.08rem 0.38rem; border-radius: 4px;">
+            ${escapeKardexClientHtml(loc.posicion)}
+          </span>
+        ` : ''}
+        ${isZero ? `
+          <span style="background: #fee2e2; color: #ef4444; border: 1px solid #fca5a5; font-size: 0.68rem; font-weight: 700; padding: 0.05rem 0.35rem; border-radius: 4px; margin-left: 0.15rem;">
+            <i class="ri-forbid-line"></i> 0 Stock
+          </span>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+
+  return `<div style="display: inline-flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">${badgesHtml}</div>`;
+}
+
 // ============================================================================
 // MODAL RÁPIDO DE PRODUCTO ("KARDEX EXPRESS" MEJORADO - CLIENTE)
 // ============================================================================
@@ -6080,22 +6263,28 @@ async function openProductMovementsModal(productId, sku, name) {
   document.body.appendChild(modal);
 
   try {
-    // 1. Obtener todos los movimientos cronológicamente para calcular saldos acumulados
-    const { data: rawMovements, error } = await supabase
-      .from('movements')
-      .select(`
-        id,
-        date,
-        type,
-        quantity,
-        reference_doc,
-        warehouse_id,
-        warehouses (id, name)
-      `)
-      .eq('product_id', productId)
-      .order('date', { ascending: true });
+    // 1. Obtener movimientos cronológicamente y ubicaciones físicas del SKU en paralelo
+    const [movsResult, initialLocations] = await Promise.all([
+      supabase
+        .from('movements')
+        .select(`
+          id,
+          date,
+          type,
+          quantity,
+          reference_doc,
+          warehouse_id,
+          warehouses (id, name)
+        `)
+        .eq('product_id', productId)
+        .order('date', { ascending: true }),
+      fetchClientKardexSkuLocations(productId, sku)
+    ]);
 
+    const { data: rawMovements, error } = movsResult;
     if (error) throw error;
+
+    const skuLocations = initialLocations || [];
 
     // 2. Extraer UUIDs de pedidos
     const extractUuid = (ref) => {
@@ -6160,37 +6349,49 @@ async function openProductMovementsModal(productId, sku, name) {
       };
     });
 
-    // Actualizar mini-KPIs del producto en la cabecera del modal
-    const miniKpisEl = document.getElementById('client-modal-sku-kpis');
-    if (miniKpisEl) {
+    const renderClientKpisAndLocationsBar = () => {
+      const miniKpisEl = document.getElementById('client-modal-sku-kpis');
+      if (!miniKpisEl) return;
+
       const saldoNeto = totalEntradas - totalSalidas;
       const saldoColor = saldoNeto >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
       const saldoSign = saldoNeto > 0 ? '+' : '';
+      const activeWh = window.activeMovsState?.filterWarehouse || '';
+      const currentLocs = window.activeMovsState?.skuLocations || skuLocations || [];
 
       miniKpisEl.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
-          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
-            <span style="color: var(--color-text-muted); font-weight: 600;">Entradas Totales:</span>
-            <strong style="color: var(--color-success);">+${totalEntradas.toLocaleString('es-CL')} uds</strong>
+        <div style="display: flex; flex-direction: column; gap: 0.55rem; width: 100%;">
+          <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+              <span style="color: var(--color-text-muted); font-weight: 600;">Entradas Totales:</span>
+              <strong style="color: var(--color-success);">+${totalEntradas.toLocaleString('es-CL')} uds</strong>
+            </div>
+            <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+              <span style="color: var(--color-text-muted); font-weight: 600;">Salidas Totales:</span>
+              <strong style="color: var(--color-danger);">-${totalSalidas.toLocaleString('es-CL')} uds</strong>
+            </div>
+            <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+              <span style="color: var(--color-text-muted); font-weight: 600;">Saldo Calculado:</span>
+              <strong style="color: ${saldoColor};">${saldoSign}${saldoNeto.toLocaleString('es-CL')} uds</strong>
+            </div>
+            <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+              <span style="color: var(--color-text-muted); font-weight: 600;">Transacciones:</span>
+              <strong style="color: var(--color-text-main);">${processedMovements.length} movs</strong>
+            </div>
           </div>
-          <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
-          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
-            <span style="color: var(--color-text-muted); font-weight: 600;">Salidas Totales:</span>
-            <strong style="color: var(--color-danger);">-${totalSalidas.toLocaleString('es-CL')} uds</strong>
-          </div>
-          <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
-          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
-            <span style="color: var(--color-text-muted); font-weight: 600;">Saldo Calculado:</span>
-            <strong style="color: ${saldoColor};">${saldoSign}${saldoNeto.toLocaleString('es-CL')} uds</strong>
-          </div>
-          <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
-          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
-            <span style="color: var(--color-text-muted); font-weight: 600;">Transacciones:</span>
-            <strong style="color: var(--color-text-main);">${processedMovements.length} movs</strong>
+
+          <div style="padding-top: 0.5rem; border-top: 1px dashed var(--color-border); display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+            <span style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-map-pin-2-fill" style="color: #6366f1; font-size: 0.95rem;"></i> Ubicación Física:
+            </span>
+            ${renderClientKardexLocationBadgesHtml(currentLocs, activeWh)}
           </div>
         </div>
       `;
-    }
+    };
 
     // 4. Poblar opciones de bodegas en el dropdown
     const availableWarehouses = [...new Set(processedMovements.map(m => m.warehouseName))].sort();
@@ -6206,6 +6407,7 @@ async function openProductMovementsModal(productId, sku, name) {
     // 6. Guardar estado del modal
     window.activeMovsState = {
       allMovements: processedMovements,
+      skuLocations: skuLocations,
       orderMap: orderMap,
       currentPage: 1,
       pageSize: 25, // 10, 25, 50, 100, 'all'
@@ -6221,6 +6423,8 @@ async function openProductMovementsModal(productId, sku, name) {
       name: name,
       productId: productId
     };
+
+    renderClientKpisAndLocationsBar();
 
     const renderModalTable = () => {
       const modalBody = document.getElementById('movements-modal-body');
@@ -6305,6 +6509,7 @@ async function openProductMovementsModal(productId, sku, name) {
       const paginated = isShowAll ? filtered : filtered.slice(startIdx, endIdx);
 
       // Render rows
+      const currentLocs = state.skuLocations || [];
       let rowsHtml = paginated.map(m => {
         const isIngreso = m.type === 'in';
         const flowBadge = isIngreso
@@ -6323,10 +6528,27 @@ async function openProductMovementsModal(productId, sku, name) {
 
         const qtyText = isIngreso ? `+${m.quantity}` : `-${m.quantity}`;
 
+        const whLocs = getClientKardexLocationsForWarehouse(currentLocs, m.warehouseName);
+        const whLocationsSubHtml = whLocs.length > 0
+          ? `<div style="margin-top: 0.22rem; display: flex; flex-direction: column; gap: 0.18rem;">
+              ${whLocs.map(loc => {
+                const isZero = Boolean(loc.is_zero_stock);
+                return `
+                  <span style="display: inline-flex; align-items: center; gap: 0.22rem; font-size: 0.71rem; font-weight: 600; color: ${isZero ? '#ef4444' : '#6366f1'}; background: ${isZero ? 'rgba(239, 68, 68, 0.08)' : 'rgba(99, 102, 241, 0.08)'}; border: 1px solid ${isZero ? 'rgba(239, 68, 68, 0.25)' : 'rgba(99, 102, 241, 0.2)'}; padding: 0.08rem 0.38rem; border-radius: 4px; width: fit-content;" title="Ubicación física registrada en ${escapeKardexClientHtml(m.warehouseName)}">
+                    <i class="ri-map-pin-2-line"></i> ${escapeKardexClientHtml(loc.zona)} › ${escapeKardexClientHtml(loc.espacio)}${loc.posicion ? ` › ${escapeKardexClientHtml(loc.posicion)}` : ''}${isZero ? ' (0 Stock)' : ''}
+                  </span>
+                `;
+              }).join('')}
+            </div>`
+          : '';
+
         return `
           <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
             <td style="padding: 0.75rem 0.8rem; font-size: 0.82rem; white-space: nowrap;">${formattedDate}</td>
-            <td style="padding: 0.75rem 0.8rem; font-weight: 600; color: var(--color-text-main);">${m.warehouseName}</td>
+            <td style="padding: 0.75rem 0.8rem; font-weight: 600; color: var(--color-text-main);">
+              <div>${m.warehouseName}</div>
+              ${whLocationsSubHtml}
+            </td>
             <td style="padding: 0.75rem 0.8rem;">${catBadge}</td>
             <td style="padding: 0.75rem 0.8rem;">${flowBadge}</td>
             <td style="padding: 0.75rem 0.8rem; text-align: center; font-size: 0.95rem; ${qtyStyle}">${qtyText}</td>
@@ -6355,16 +6577,16 @@ async function openProductMovementsModal(productId, sku, name) {
               <th class="modal-movs-sortable" data-sort="date" style="padding: 0.75rem 0.8rem; width: 17%; cursor: pointer;">
                 Fecha / Hora ${getSortIcon('date')}
               </th>
-              <th class="modal-movs-sortable" data-sort="warehouseName" style="padding: 0.75rem 0.8rem; width: 15%; cursor: pointer;">
-                Bodega ${getSortIcon('warehouseName')}
+              <th class="modal-movs-sortable" data-sort="warehouseName" style="padding: 0.75rem 0.8rem; width: 17%; cursor: pointer;">
+                Bodega / Ubicación ${getSortIcon('warehouseName')}
               </th>
-              <th class="modal-movs-sortable" data-sort="category" style="padding: 0.75rem 0.8rem; width: 15%; cursor: pointer;">
+              <th class="modal-movs-sortable" data-sort="category" style="padding: 0.75rem 0.8rem; width: 14%; cursor: pointer;">
                 Tipo ${getSortIcon('category')}
               </th>
               <th class="modal-movs-sortable" data-sort="type" style="padding: 0.75rem 0.8rem; width: 11%; cursor: pointer;">
                 Sentido ${getSortIcon('type')}
               </th>
-              <th class="modal-movs-sortable" data-sort="quantity" style="padding: 0.75rem 0.8rem; text-align: center; width: 11%; cursor: pointer;">
+              <th class="modal-movs-sortable" data-sort="quantity" style="padding: 0.75rem 0.8rem; text-align: center; width: 10%; cursor: pointer;">
                 Cantidad ${getSortIcon('quantity')}
               </th>
               <th class="modal-movs-sortable" data-sort="stockTotalAfter" style="padding: 0.75rem 0.8rem; text-align: center; width: 15%; cursor: pointer;">
@@ -6457,6 +6679,7 @@ async function openProductMovementsModal(productId, sku, name) {
       window.activeMovsState.filterFrom = document.getElementById('movs-date-from')?.value || null;
       window.activeMovsState.filterTo = document.getElementById('movs-date-to')?.value || null;
       window.activeMovsState.currentPage = 1;
+      renderClientKpisAndLocationsBar();
       renderModalTable();
     };
 
@@ -6486,6 +6709,7 @@ async function openProductMovementsModal(productId, sku, name) {
       window.activeMovsState.filterFrom = null;
       window.activeMovsState.filterTo = null;
       window.activeMovsState.currentPage = 1;
+      renderClientKpisAndLocationsBar();
       renderModalTable();
     });
 
@@ -6507,18 +6731,24 @@ async function openProductMovementsModal(productId, sku, name) {
         alert('Librería XLSX no disponible.');
         return;
       }
-      const exportRows = window.activeMovsState.allMovements.map(m => ({
-        'Fecha': m.dateStr ? new Date(m.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : '-',
-        'SKU': sku,
-        'Producto': name,
-        'Bodega': m.warehouseName,
-        'Tipo Movimiento': m.category?.label || 'Otro',
-        'Sentido': m.type === 'in' ? 'Ingreso (+)' : 'Salida (-)',
-        'Cantidad': m.type === 'in' ? m.quantity : -m.quantity,
-        'Stock Total Resultante': m.stockTotalAfter,
-        'Stock en Bodega': m.warehouseStockAfter,
-        'Referencia / Detalle': m.displayRef
-      }));
+      const currentLocs = window.activeMovsState.skuLocations || [];
+      const exportRows = window.activeMovsState.allMovements.map(m => {
+        const whLocs = getClientKardexLocationsForWarehouse(currentLocs, m.warehouseName);
+        const locStr = whLocs.map(formatClientKardexLocationText).filter(Boolean).join(' | ') || 'Sin ubicación';
+        return {
+          'Fecha': m.dateStr ? new Date(m.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : '-',
+          'SKU': sku,
+          'Producto': name,
+          'Bodega': m.warehouseName,
+          'Ubicación Física': locStr,
+          'Tipo Movimiento': m.category?.label || 'Otro',
+          'Sentido': m.type === 'in' ? 'Ingreso (+)' : 'Salida (-)',
+          'Cantidad': m.type === 'in' ? m.quantity : -m.quantity,
+          'Stock Total Resultante': m.stockTotalAfter,
+          'Stock en Bodega': m.warehouseStockAfter,
+          'Referencia / Detalle': m.displayRef
+        };
+      });
 
       const ws = XLSX.utils.json_to_sheet(exportRows);
       const wb = XLSX.utils.book_new();
@@ -6529,22 +6759,28 @@ async function openProductMovementsModal(productId, sku, name) {
     // Exportar CSV individual del producto
     document.getElementById('client-modal-export-csv')?.addEventListener('click', () => {
       const exportRows = window.activeMovsState.allMovements;
-      const headers = ['Fecha', 'SKU', 'Producto', 'Bodega', 'Tipo', 'Sentido', 'Cantidad', 'Stock Total', 'Stock Bodega', 'Referencia'];
+      const currentLocs = window.activeMovsState.skuLocations || [];
+      const headers = ['Fecha', 'SKU', 'Producto', 'Bodega', 'Ubicación Física', 'Tipo', 'Sentido', 'Cantidad', 'Stock Total', 'Stock Bodega', 'Referencia'];
       const escapeCsv = (s) => `"${String(s || '').replace(/"/g, '""')}"`;
       const csvLines = [
         headers.join(','),
-        ...exportRows.map(m => [
-          escapeCsv(m.dateStr ? new Date(m.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : '-'),
-          escapeCsv(sku),
-          escapeCsv(name),
-          escapeCsv(m.warehouseName),
-          escapeCsv(m.category?.label || 'Otro'),
-          escapeCsv(m.type === 'in' ? 'Ingreso' : 'Salida'),
-          escapeCsv(m.type === 'in' ? m.quantity : -m.quantity),
-          escapeCsv(m.stockTotalAfter),
-          escapeCsv(m.warehouseStockAfter),
-          escapeCsv(m.displayRef)
-        ].join(','))
+        ...exportRows.map(m => {
+          const whLocs = getClientKardexLocationsForWarehouse(currentLocs, m.warehouseName);
+          const locStr = whLocs.map(formatClientKardexLocationText).filter(Boolean).join(' | ') || 'Sin ubicación';
+          return [
+            escapeCsv(m.dateStr ? new Date(m.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : '-'),
+            escapeCsv(sku),
+            escapeCsv(name),
+            escapeCsv(m.warehouseName),
+            escapeCsv(locStr),
+            escapeCsv(m.category?.label || 'Otro'),
+            escapeCsv(m.type === 'in' ? 'Ingreso' : 'Salida'),
+            escapeCsv(m.type === 'in' ? m.quantity : -m.quantity),
+            escapeCsv(m.stockTotalAfter),
+            escapeCsv(m.warehouseStockAfter),
+            escapeCsv(m.displayRef)
+          ].join(',');
+        })
       ];
       const blob = new Blob(['\uFEFF' + csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -7047,6 +7283,9 @@ function buildClientMovementsTabContent() {
         <button id="btn-clear-movs-filters" class="btn btn-outline" style="height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 0 0.85rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-muted); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
           <i class="ri-refresh-line" style="margin-right: 0.25rem;"></i> Limpiar
         </button>
+
+        <!-- Banner dinámico de Ubicaciones Físicas cuando se consulta un SKU específico -->
+        <div id="client-movs-sku-locations-banner" style="display: none; width: 100%; margin-top: 0.4rem; padding: 0.7rem 1rem; background: var(--color-surface); border: 1px solid rgba(99, 102, 241, 0.28); border-left: 4px solid #6366f1; border-radius: var(--radius-md);"></div>
       </div>
 
       <div class="card-body" style="padding: 0;">
@@ -7347,6 +7586,59 @@ function applyMovementsFiltersAndSort() {
   return rows;
 }
 
+async function updateClientMovementsSkuLocationsBanner(filteredRows) {
+  const banner = document.getElementById('client-movs-sku-locations-banner');
+  if (!banner) return;
+
+  let targetProd = null;
+  if (window.movementsFilterProductId) {
+    targetProd = (window.cachedActiveProducts || []).find(p => p.id === window.movementsFilterProductId);
+    if (!targetProd && filteredRows && filteredRows.length > 0) {
+      const first = filteredRows[0];
+      targetProd = { id: first.productId, sku: first.sku, name: first.name };
+    }
+  } else if (window.movementsSearchQuery && filteredRows && filteredRows.length > 0) {
+    const uniqueSkus = [...new Set(filteredRows.map(r => r.sku).filter(Boolean))];
+    if (uniqueSkus.length === 1 && uniqueSkus[0] !== 'N/A') {
+      const first = filteredRows[0];
+      targetProd = { id: first.productId, sku: first.sku, name: first.name };
+    }
+  }
+
+  if (!targetProd || !targetProd.sku) {
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+    return;
+  }
+
+  const reqKey = `${targetProd.id || ''}_${targetProd.sku}_${window.movementsFilterWarehouse || ''}`;
+  banner.setAttribute('data-req-key', reqKey);
+  banner.style.display = 'block';
+  banner.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line spin" style="color: #6366f1;"></i> Consultando ubicaciones físicas de <strong>${escapeKardexClientHtml(targetProd.sku)}</strong>...
+    </div>
+  `;
+
+  const locs = await fetchClientKardexSkuLocations(targetProd.id, targetProd.sku);
+  if (banner.getAttribute('data-req-key') !== reqKey) return;
+
+  banner.innerHTML = `
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+        <span style="font-size: 0.83rem; font-weight: 700; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-map-pin-2-fill" style="color: #6366f1; font-size: 1rem;"></i>
+          Ubicaciones de <span style="font-family: monospace; background: rgba(99, 102, 241, 0.1); color: #4f46e5; padding: 0.1rem 0.4rem; border-radius: 4px;">${escapeKardexClientHtml(targetProd.sku)}</span>:
+        </span>
+        ${renderClientKardexLocationBadgesHtml(locs, window.movementsFilterWarehouse || '')}
+      </div>
+      <span style="font-size: 0.76rem; color: var(--color-text-muted);">
+        ${escapeKardexClientHtml(targetProd.name || '')}
+      </span>
+    </div>
+  `;
+}
+
 function renderMovementsTableBody() {
   const tbody = document.getElementById('movements-tbody');
   const pagContainer = document.getElementById('movements-pagination-container');
@@ -7354,6 +7646,8 @@ function renderMovementsTableBody() {
 
   const rows = applyMovementsFiltersAndSort();
   const totalRows = rows.length;
+
+  updateClientMovementsSkuLocationsBanner(rows);
 
   if (totalRows === 0) {
     tbody.innerHTML = `
@@ -10091,7 +10385,25 @@ window.applyClientWmsFiltersAndRender = function() {
 
     // 1. Filtro rápido de origen
     const platform = order.origen || order.external_platform || 'Manual';
-    if (selectedOrigen && platform.toLowerCase() !== selectedOrigenLower) continue;
+    const platformLow = String(platform).toLowerCase().trim();
+    const extNoUpper = String(order.external_order_number || '').trim().toUpperCase();
+    const rsData = order.raw_shopify_data || {};
+    const isEffectiveManual = platformLow === 'manual' ||
+      platformLow === 'logística inversa' ||
+      platformLow === 'logistica inversa' ||
+      platformLow === 'punto de venta' ||
+      platformLow === 'pos' ||
+      platformLow === 'shop point' ||
+      platformLow === 'shop point (pos)' ||
+      platformLow === 'stocka' ||
+      rsData.manual_order === true ||
+      rsData.is_reverse_logistics === true ||
+      rsData.is_pos_sale === true ||
+      extNoUpper.startsWith('LI-') ||
+      extNoUpper.startsWith('POS-') ||
+      extNoUpper.startsWith('VTA-');
+    const effOrigenLow = isEffectiveManual ? 'manual' : platformLow;
+    if (selectedOrigen && effOrigenLow !== selectedOrigenLower && platformLow !== selectedOrigenLower) continue;
 
     // 2. Filtro rápido de estado
     if (selectedStatus && order.status !== selectedStatus) continue;
@@ -10341,7 +10653,7 @@ window.applyClientWmsFiltersAndRender = function() {
 
     const platform = order.origen || order.external_platform || 'Manual';
     const platformColor = platform === 'Ripley' ? '#7c3aed' : (platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280'))));
-    const platformLower = platform.toLowerCase() === 'manual' ? 'stocka.cap' : platform.toLowerCase();
+    const platformLower = (platform.toLowerCase() === 'manual' || platform.toLowerCase() === 'logística inversa' || platform.toLowerCase() === 'logistica inversa' || platform.toLowerCase() === 'punto de venta' || platform.toLowerCase() === 'pos') ? 'stocka.cap' : platform.toLowerCase();
     const originHtml = `<img src="./img/${platformLower}.png" alt="${platform}" title="${platform}" style="height: 42px; max-width: 120px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;\\'>${platform}</span>';" />`;
 
     const skuStr = order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
@@ -11191,6 +11503,7 @@ window.applyClientWmsFiltersAndRender = function() {
               ${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.external_order_number || order.id, 'Número de pedido', 'Copiar número de pedido') : ''}
             </div>
             ${order.external_order_number ? `<span style="font-size:0.7rem; color:var(--color-text-muted);">${order.id.split('-')[0]}</span>` : ''}
+            ${(displayName && displayName !== 'No registrado' && displayName.trim() !== '') ? `<span style="font-size:0.72rem; color:var(--color-text-muted); font-weight:500; display:inline-flex; align-items:center; gap:0.22rem; max-width:155px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; line-height:1.2;" title="Destinatario: ${String(displayName).trim().replace(/"/g, '&quot;')}"><i class="ri-user-3-line" style="font-size:0.72rem; color:var(--color-primary); opacity:0.8; flex-shrink:0;"></i><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${String(displayName).trim()}</span></span>` : ''}
           </div>
         </td>
         <td style="padding: 0.45rem 0.75rem;">${originHtml}</td>
@@ -11231,8 +11544,11 @@ window.applyClientWmsFiltersAndRender = function() {
             
             <!-- Col 1: Datos del Cliente y Despacho -->
             <div class="order-detail-card" style="background: var(--color-surface); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-              <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
-                <i class="ri-user-line"></i> Datos de Despacho
+              <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                <span style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-user-line"></i> Datos de Despacho</span>
+                <button type="button" onclick="window.openOrderInNewTab('${order.id}', false)" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.72rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-color: rgba(99, 102, 241, 0.45); color: var(--color-primary); background: rgba(99, 102, 241, 0.06);" title="Abrir Página Dedicada del Pedido en una nueva pestaña">
+                  <i class="ri-external-link-line"></i> Página Pedido
+                </button>
               </h4>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
                 <i class="ri-user-line" title="Nombre Cliente" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0;"></i>
@@ -11345,6 +11661,63 @@ window.applyClientWmsFiltersAndRender = function() {
                   <span style="font-size: 0.825rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-hashtag" style="font-size: 0.9rem;"></i> ID Pedido:</span>
                   <span style="font-family: monospace; font-size: 0.875rem; font-weight: 700; color: var(--color-text-main); background: var(--color-surface); padding: 0.1rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border);">${order.external_order_number || '-'}</span>
                 </div>
+                ${(() => {
+                  const rs = rawShopify || {};
+                  const platLow = String(order.external_platform || order.origen || '').toLowerCase();
+                  const isManualOrder = platLow === 'manual' || platLow.includes('logística inversa') || platLow.includes('logistica inversa') || platLow.includes('punto de venta') || platLow === 'pos' || rs.manual_order === true || rs.is_reverse_logistics === true || rs.is_pos_sale === true || rs._is_split_child === true;
+                  if (!isManualOrder) return '';
+                  let cName = rs.created_by_name || rs.recorded_by || '';
+                  let cEmail = rs.created_by_email || '';
+                  let cRole = rs.created_by_role || '';
+                  let cFrom = rs.created_by_from || rs.created_from || '';
+                  if (!cName && !cEmail) {
+                    if (rs.is_reverse_logistics || platLow.includes('inversa')) {
+                      if (rs.situacion_movimiento !== undefined) {
+                        cRole = 'admin';
+                        cName = 'Equipo Admin WMS';
+                        cFrom = `Logística Inversa${rs.rl_type ? ` (${rs.rl_type})` : ''} · Panel Admin WMS`;
+                      } else {
+                        cRole = 'client';
+                        cName = (window.currentUserProfile && window.currentUserProfile.full_name) || order.comercio || 'Cliente';
+                        cEmail = (window.currentUserProfile && window.currentUserProfile.email) || '';
+                        cFrom = `Logística Inversa${rs.rl_type ? ` (${rs.rl_type})` : ''} · Portal Cliente`;
+                      }
+                    } else if (rs.admin_operational_config) {
+                      cRole = 'admin';
+                      cName = 'Equipo Admin WMS';
+                      cFrom = 'Pedido Manual · Panel Admin WMS';
+                    } else if (rs.is_pos_sale || platLow.includes('punto de venta') || platLow === 'pos') {
+                      cRole = 'admin';
+                      cName = rs.recorded_by || 'Operador POS';
+                      cFrom = 'Punto de Venta (POS)';
+                    } else {
+                      cRole = 'client';
+                      cName = (window.currentUserProfile && window.currentUserProfile.full_name) || order.comercio || 'Cliente';
+                      cEmail = (window.currentUserProfile && window.currentUserProfile.email) || '';
+                      cFrom = 'Pedido Manual · Portal Cliente';
+                    }
+                  }
+                  const isAdm = String(cRole).toLowerCase() === 'admin';
+                  const rColor = isAdm ? '#7c3aed' : '#0284c7';
+                  const rBg = isAdm ? 'rgba(124, 58, 237, 0.1)' : 'rgba(2, 132, 199, 0.1)';
+                  const rBorder = isAdm ? 'rgba(124, 58, 237, 0.25)' : 'rgba(2, 132, 199, 0.25)';
+                  const rLabel = isAdm ? 'Admin WMS' : 'Cliente / Comercio';
+                  return `
+                    <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.15rem; padding-top: 0.45rem; border-top: 1px dashed var(--color-border);">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                        <span style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">
+                          <i class="ri-user-add-line" style="font-size: 0.9rem; color: var(--color-primary);"></i> Creado por:
+                        </span>
+                        <span style="font-size: 0.68rem; font-weight: 700; padding: 0.12rem 0.45rem; border-radius: 999px; background: ${rBg}; color: ${rColor}; border: 1px solid ${rBorder};">${rLabel}</span>
+                      </div>
+                      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.45rem 0.6rem; display: flex; flex-direction: column; gap: 0.15rem;">
+                        <div style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-main);">${cName || cEmail || 'Usuario Stocka'}</div>
+                        ${cEmail ? `<div style="font-size: 0.74rem; color: var(--color-text-muted); font-family: monospace;">${cEmail}</div>` : ''}
+                        ${cFrom ? `<div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.1rem;">Vía: <strong style="color: var(--color-text-main); font-weight: 600;">${cFrom}</strong></div>` : ''}
+                      </div>
+                    </div>
+                  `;
+                })()}
                 ${originalPlatformStatusHtml}
                 ${customPlatformTagsHtml ? `
                   <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.25rem; padding-top: 0.45rem; border-top: 1px dashed var(--color-border); text-align: left;">
@@ -11609,7 +11982,12 @@ async function renderIntegrations() {
       ? (shopifyIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
       : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
 
-    const hasWriteFulfillments = shopifyIntegration?.granted_scopes && Array.isArray(shopifyIntegration.granted_scopes) && shopifyIntegration.granted_scopes.includes('write_fulfillments');
+    const hasWriteFulfillments = !!(
+      shopifyIntegration?.granted_scopes &&
+      Array.isArray(shopifyIntegration.granted_scopes) &&
+      shopifyIntegration.granted_scopes.includes('write_fulfillments') &&
+      shopifyIntegration.granted_scopes.includes('write_merchant_managed_fulfillment_orders')
+    );
     const syncTrackingEnabled = shopifyIntegration?.sync_tracking_enabled === true;
     const notifyCustomerEnabled = shopifyIntegration?.notify_customer_on_fulfillment !== false;
 
@@ -13061,7 +13439,7 @@ async function renderIntegrations() {
 
         btn.textContent = 'Redirigiendo a Shopify...';
         const clientId = '4d04c58f432c53fb870d1fbcad92431c';
-        const scopes = 'read_products,read_orders,write_fulfillments,read_fulfillments,write_orders';
+        const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders';
         const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
         
         const stateObj = {
@@ -13111,7 +13489,7 @@ async function renderIntegrations() {
       // Re-autorizar permisos de Shopify (nuevos scopes write_fulfillments, write_orders)
       document.getElementById('btn-reauth-shopify-scopes')?.addEventListener('click', () => {
         const clientId = '4d04c58f432c53fb870d1fbcad92431c';
-        const scopes = 'read_products,read_orders,write_fulfillments,read_fulfillments,write_orders';
+        const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders';
         const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
         const cleanShopUrl = shopUrl.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
         
@@ -13137,7 +13515,7 @@ async function renderIntegrations() {
         try {
           const { error } = await supabase
             .from('merchant_integrations')
-            .update({ sync_tracking_enabled: isChecked })
+            .update({ sync_tracking_enabled: isChecked, sync_intermediate_statuses: isChecked })
             .eq('comercio', window.activeIntegrationCommerce)
             .eq('platform', 'Shopify');
           if (error) throw error;
@@ -15600,12 +15978,25 @@ async function renderIntegrations() {
       const taxShippingCost = parseFloat(selectedCourierRadio.getAttribute('data-tax') || '0');
 
       // 1. Crear el Pedido Padre
+      const clientCreatorMeta = typeof window.getCurrentClientUserCreatorMeta === 'function'
+        ? window.getCurrentClientUserCreatorMeta('Pedido Manual · Portal Cliente')
+        : {
+          created_by_user_id: merchantId || null,
+          created_by_email: (window.currentUserProfile && window.currentUserProfile.email) || null,
+          created_by_name: (window.currentUserProfile && window.currentUserProfile.full_name) || currentCompany || 'Cliente',
+          created_by_role: 'client',
+          created_from: 'Pedido Manual · Portal Cliente'
+        };
       const rawShopifyData = orderNotes ? {
         note: orderNotes,
         notes: orderNotes,
         customer_note: orderNotes,
-        manual_order: true
-      } : { manual_order: true };
+        manual_order: true,
+        ...clientCreatorMeta
+      } : {
+        manual_order: true,
+        ...clientCreatorMeta
+      };
 
       const orderDataPayload = {
         merchant_id: merchantId,
@@ -22648,7 +23039,7 @@ async function handleRloFormSubmit(e) {
       cantidad_total: totalQty,
       comentarios: comments,
       sucursal: finalSucursal,
-      creado_por: (window.currentUserProfile && window.currentUserProfile.email) || (typeof session !== 'undefined' && session && session.user && session.user.email) || 'Cliente',
+      creado_por: (window.currentUserProfile && window.currentUserProfile.email) || (window.currentClientUser && window.currentClientUser.email) || (typeof session !== 'undefined' && session && session.user && session.user.email) || 'Cliente',
       status: 'pendiente',
       
       customer_name: customerName,
@@ -22696,6 +23087,15 @@ async function handleRloFormSubmit(e) {
     
     const cleanRef = refPedido ? (refPedido.startsWith('LI-') ? refPedido.substring(3) : refPedido) : 'REC';
     const finalExternalOrderNumber = `LI-${cleanRef}-${insertedRl.id.substring(0, 4).toUpperCase()}`;
+    const rlClientCreatorMeta = typeof window.getCurrentClientUserCreatorMeta === 'function'
+      ? window.getCurrentClientUserCreatorMeta(`Logística Inversa (${type}) · Portal Cliente`)
+      : {
+        created_by_user_id: merchantId || null,
+        created_by_email: (window.currentUserProfile && window.currentUserProfile.email) || (userAuth && userAuth.user && userAuth.user.email) || null,
+        created_by_name: (window.currentUserProfile && window.currentUserProfile.full_name) || commerce || 'Cliente',
+        created_by_role: 'client',
+        created_from: `Logística Inversa (${type}) · Portal Cliente`
+      };
 
     const wmsOrderPayload = {
       merchant_id: merchantId,
@@ -22725,6 +23125,7 @@ async function handleRloFormSubmit(e) {
         rl_type: type,
         rl_reference: refPedido,
         no_stock_deduction: type === 'DEVOLUCION',
+        ...rlClientCreatorMeta,
         incoming_products: incomingProducts.map(p => ({
           sku: p.sku,
           name: p.name,

@@ -111,19 +111,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Renderizar fecha del día en español
-  const dayNumEl  = document.getElementById('date-day-num');
+  // Renderizar fecha del día en español (formato compacto "23 Oct" + fecha completa en tooltip)
+  const dayNumEl   = document.getElementById('date-day-num');
   const dateRestEl = document.getElementById('date-rest');
+  const dateChipEl = document.getElementById('date-chip');
+  const ufChipMain = document.getElementById('uf-chip');
   if (dayNumEl && dateRestEl) {
     const now = new Date();
     const dayNum = now.getDate();
     const monthName = now.toLocaleDateString('es-CL', { month: 'short' });
-    const weekday  = now.toLocaleDateString('es-CL', { weekday: 'short' });
-    const year     = now.getFullYear();
-    // Capitaliza primera letra
-    const cap = s => s.charAt(0).toUpperCase() + s.slice(1).replace('.','');
-    dayNumEl.textContent  = dayNum;
-    dateRestEl.textContent = `${cap(weekday)} ${cap(monthName)} ${year}`;
+    const fullDateStr = now.toLocaleDateString('es-CL', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+    const cap = s => s.charAt(0).toUpperCase() + s.slice(1).replace('.', '');
+    dayNumEl.textContent   = dayNum;
+    dateRestEl.textContent = cap(monthName);
+    if (dateChipEl) {
+      dateChipEl.title = cap(fullDateStr);
+    }
+    if (ufChipMain) {
+      ufChipMain.title = `Valor UF del día (${cap(fullDateStr)}) · Clic para copiar al portapapeles`;
+    }
   }
 
   // Configuración de menú responsive para móviles
@@ -1142,8 +1153,26 @@ document.addEventListener('DOMContentLoaded', () => {
   // ==========================================================================
   // Controlador Interactivo para Nuevo Header Admin v2 (.admin-header-v2)
   // ==========================================================================
+  const ensureCmdGlassBackdrop = (onClose) => {
+    let bd = document.getElementById('cmd-glass-backdrop');
+    if (!bd) {
+      bd = document.createElement('div');
+      bd.id = 'cmd-glass-backdrop';
+      bd.className = 'cmd-glass-backdrop';
+      document.body.appendChild(bd);
+    }
+    if (onClose && !bd.dataset.boundClose) {
+      bd.dataset.boundClose = 'true';
+      bd.addEventListener('click', () => {
+        bd.classList.remove('active');
+        onClose();
+      });
+    }
+    return bd;
+  };
+
   const initAdminHeaderV2 = () => {
-    const header = document.querySelector('.top-header.admin-header-v2');
+    const header = document.querySelector('.top-header.admin-header-v2:not(.client-header-v2)');
     if (!header) return;
 
     const sidebar = document.querySelector('.sidebar');
@@ -1153,6 +1182,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 1. Cerrar todos los popovers del Header Admin (exclusión mutua)
     const closeAllHeaderPopovers = (exceptId = null) => {
+      if (exceptId !== 'admin-cmd-dropdown') {
+        document.getElementById('cmd-glass-backdrop')?.classList.remove('active');
+      }
       const popovers = [
         { id: 'admin-cmd-dropdown', wrap: 'admin-cmd-container', openClass: 'cmd-open' },
         { id: 'admin-quick-dropdown', wrap: 'admin-quick-container', openClass: 'open' },
@@ -1244,6 +1276,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!viewIconEl || !bcGroupEl) return;
       const activeNav = sidebar ? sidebar.querySelector('.nav-item.active') : null;
       const titleText = viewTitleEl ? viewTitleEl.textContent.trim() : '';
+      if (viewTitleEl && titleText) viewTitleEl.title = titleText;
 
       if (titleText === 'Mi Perfil') {
         viewIconEl.className = 'ri-user-settings-line';
@@ -1323,6 +1356,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const parentLi = a.closest('li');
           if (parentLi && parentLi.style.display === 'none') return;
           const view = a.getAttribute('data-view');
+          if (view === 'pending') return;
           const label = a.querySelector('.nav-text')?.textContent.trim() || a.textContent.trim();
           const icon = a.querySelector('i')?.className || 'ri-apps-line';
           const group = a.closest('.sidebar-flyout-group')?.querySelector('.group-title')?.textContent.trim() || 'Principal';
@@ -1413,6 +1447,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!cmdDropdown || !cmdContainer) return;
       cmdDropdown.style.display = 'block';
       cmdContainer.classList.add('cmd-open');
+      ensureCmdGlassBackdrop(() => closeAllHeaderPopovers()).classList.add('active');
       renderCmdResults(cmdInput ? cmdInput.value : '');
       setTimeout(() => cmdInput && cmdInput.focus(), 20);
     };
@@ -1768,6 +1803,536 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   initAdminHeaderV2();
+
+  // ==========================================================================
+  // Controlador Interactivo para Nuevo Header Cliente / Seller v2 (.client-header-v2)
+  // ==========================================================================
+  const initClientHeaderV2 = () => {
+    const header = document.querySelector('.top-header.client-header-v2');
+    if (!header) return;
+
+    const sidebar = document.querySelector('.sidebar');
+    const viewTitleEl = document.getElementById('view-title');
+    const viewIconEl = document.getElementById('client-view-icon');
+    const bcGroupEl = document.getElementById('client-breadcrumb-group');
+
+    // 1. Cerrar todos los popovers del Header Cliente (exclusión mutua)
+    const closeAllClientPopovers = (exceptId = null) => {
+      if (exceptId !== 'client-cmd-dropdown') {
+        document.getElementById('cmd-glass-backdrop')?.classList.remove('active');
+      }
+      const popovers = [
+        { id: 'client-cmd-dropdown', wrap: 'client-cmd-container', openClass: 'cmd-open' },
+        { id: 'client-quick-dropdown', wrap: 'client-quick-container', openClass: 'open' },
+        { id: 'client-help-dropdown', wrap: 'client-help-container', openClass: 'open' },
+        { id: 'client-ops-dropdown', wrap: 'client-ops-container', openClass: 'open', btn: 'client-ops-btn' },
+        { id: 'client-profile-dropdown', wrap: 'client-profile-container', openClass: 'open' },
+        { id: 'notification-dropdown', btn: 'notification-btn' }
+      ];
+
+      popovers.forEach(p => {
+        if (p.id === exceptId) return;
+        const el = document.getElementById(p.id);
+        if (el && el.style.display !== 'none') {
+          el.style.display = 'none';
+        }
+        if (p.wrap) {
+          const wrapEl = document.getElementById(p.wrap);
+          if (wrapEl) wrapEl.classList.remove(p.openClass || 'open');
+        }
+        if (p.btn) {
+          const btnEl = document.getElementById(p.btn);
+          if (btnEl) btnEl.classList.remove('is-open');
+        }
+      });
+    };
+
+    const notifBtn = document.getElementById('notification-btn');
+    if (notifBtn) {
+      notifBtn.addEventListener('click', () => closeAllClientPopovers('notification-dropdown'));
+    }
+
+    // Helper para navegar a cualquier módulo del Cliente de forma canónica
+    const navigateToClientView = (viewName, searchQuery = '') => {
+      closeAllClientPopovers();
+      if (!viewName) return;
+
+      const targetLink = (sidebar && sidebar.querySelector(`.nav-item[data-view="${viewName}"]`)) ||
+                         document.querySelector(`.nav-item[data-view="${viewName}"]`);
+      if (targetLink) {
+        targetLink.click();
+        if (searchQuery) {
+          setTimeout(() => {
+            const searchInput = document.querySelector(
+              '#app-content input[type="search"], #app-content input[placeholder*="Buscar"], #app-content input[placeholder*="buscar"], #app-content input[id*="search"]'
+            );
+            if (searchInput) {
+              searchInput.value = searchQuery;
+              searchInput.focus();
+              searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+              searchInput.dispatchEvent(new Event('keyup', { bubbles: true }));
+            }
+          }, 320);
+        }
+      }
+    };
+
+    // Delegación para botones [data-client-nav]
+    header.addEventListener('click', (e) => {
+      const navTrigger = e.target.closest('[data-client-nav]');
+      if (navTrigger) {
+        e.preventDefault();
+        e.stopPropagation();
+        const targetView = navTrigger.getAttribute('data-client-nav');
+        navigateToClientView(targetView);
+      }
+    });
+
+    // Cerrar menús al hacer clic en links .nav-item o el botón de Tour Guiado
+    header.querySelectorAll('.nav-item[data-view], #guided-tour-btn').forEach(link => {
+      link.addEventListener('click', () => {
+        setTimeout(() => closeAllClientPopovers(), 50);
+      });
+    });
+
+    // 2. Sincronizar Breadcrumb e Ícono de Módulo según la vista activa
+    const syncClientHeaderContext = () => {
+      if (!viewIconEl || !bcGroupEl) return;
+      const activeNav = sidebar ? sidebar.querySelector('.nav-item.active') : null;
+      const titleText = viewTitleEl ? viewTitleEl.textContent.trim() : '';
+      if (viewTitleEl && titleText) viewTitleEl.title = titleText;
+
+      if (titleText === 'Mi Perfil') {
+        viewIconEl.className = 'ri-user-settings-line';
+        bcGroupEl.textContent = 'Mi Cuenta';
+        return;
+      }
+      if (titleText === 'Mi Inbox') {
+        viewIconEl.className = 'ri-inbox-archive-line';
+        bcGroupEl.textContent = 'Comunicaciones';
+        return;
+      }
+      if (titleText === 'Soporte y Tickets') {
+        viewIconEl.className = 'ri-customer-service-2-line';
+        bcGroupEl.textContent = 'Asistencia Seller';
+        return;
+      }
+
+      if (activeNav) {
+        const icon = activeNav.querySelector('i');
+        if (icon && icon.className) {
+          viewIconEl.className = icon.className.replace('fav-item-icon', '').trim();
+        }
+        const flyoutGroup = activeNav.closest('.sidebar-flyout-group');
+        if (flyoutGroup) {
+          const groupTitle = flyoutGroup.querySelector('.group-title');
+          bcGroupEl.textContent = groupTitle ? groupTitle.textContent.trim() : 'Módulos';
+        } else {
+          bcGroupEl.textContent = 'Panel Principal';
+        }
+      }
+    };
+
+    if (viewTitleEl) {
+      const titleObs = new MutationObserver(syncClientHeaderContext);
+      titleObs.observe(viewTitleEl, { childList: true, characterData: true, subtree: true });
+    }
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('.nav-item')) {
+        setTimeout(syncClientHeaderContext, 40);
+      }
+    });
+    syncClientHeaderContext();
+
+    // 3. Cápsula UF Interactiva (Clic para copiar valor UF)
+    const ufChip = document.getElementById('uf-chip');
+    const ufValEl = document.getElementById('uf-value');
+    const ufCopyIcon = document.getElementById('uf-copy-icon');
+    if (ufChip && ufValEl) {
+      ufChip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const rawText = ufValEl.textContent.trim();
+        if (!rawText || rawText === '—' || rawText === '¡Copiado!') return;
+        const cleanDigits = rawText.replace(/[^0-9]/g, '');
+        navigator.clipboard.writeText(cleanDigits || rawText).then(() => {
+          const prevText = rawText;
+          ufChip.classList.add('uf-copied');
+          ufValEl.textContent = '¡Copiado!';
+          if (ufCopyIcon) ufCopyIcon.className = 'ri-check-line uf-copy-icon';
+          setTimeout(() => {
+            ufChip.classList.remove('uf-copied');
+            ufValEl.textContent = prevText;
+            if (ufCopyIcon) ufCopyIcon.className = 'ri-file-copy-line uf-copy-icon';
+          }, 1200);
+        }).catch(() => {});
+      });
+    }
+
+    // 4. Buscador Omnicanal del Comercio (Command Palette Ctrl+K)
+    const cmdContainer = document.getElementById('client-cmd-container');
+    const cmdBtn = document.getElementById('client-cmd-btn');
+    const cmdDropdown = document.getElementById('client-cmd-dropdown');
+    const cmdInput = document.getElementById('client-cmd-input');
+    const cmdClear = document.getElementById('client-cmd-clear');
+    const cmdResults = document.getElementById('client-cmd-results');
+    let selectedCmdIdx = 0;
+
+    const getClientModules = () => {
+      const list = [];
+      if (sidebar) {
+        sidebar.querySelectorAll('.sidebar-primary-list .nav-item[data-view]').forEach(a => {
+          if (a.classList.contains('hidden-ticket-nav')) return;
+          if (a.getAttribute('target') === '_blank') return;
+          const parentLi = a.closest('li');
+          if (parentLi && parentLi.style.display === 'none') return;
+          const view = a.getAttribute('data-view');
+          if (view === 'pending') return;
+          const label = a.querySelector('.nav-text')?.textContent.trim() || a.textContent.trim();
+          const icon = a.querySelector('i')?.className || 'ri-apps-line';
+          const group = a.closest('.sidebar-flyout-group')?.querySelector('.group-title')?.textContent.trim() || 'Principal';
+          list.push({ view, label, icon, group });
+        });
+      }
+      list.push(
+        { view: 'tickets', label: 'Soporte y Mis Tickets', icon: 'ri-customer-service-2-line', group: 'Asistencia Seller' },
+        { view: 'profile', label: 'Mi Perfil y Preferencias', icon: 'ri-user-settings-line', group: 'Mi Cuenta' },
+        { view: 'inbox', label: 'Mi Bandeja de Entrada (Inbox)', icon: 'ri-inbox-archive-line', group: 'Comunicaciones' }
+      );
+      const seen = new Set();
+      return list.filter(item => {
+        if (seen.has(item.view)) return false;
+        seen.add(item.view);
+        return true;
+      });
+    };
+
+    const renderClientCmdResults = (query = '') => {
+      if (!cmdResults) return;
+      const q = query.trim().toLowerCase();
+      if (cmdClear) cmdClear.style.display = q.length > 0 ? 'flex' : 'none';
+
+      const allModules = getClientModules();
+      const matched = q
+        ? allModules.filter(m => m.label.toLowerCase().includes(q) || m.group.toLowerCase().includes(q) || m.view.toLowerCase().includes(q))
+        : allModules.slice(0, 8);
+
+      let html = '';
+
+      if (q.length >= 2) {
+        const safeQ = query.trim().replace(/"/g, '&quot;');
+        html += `<div class="cmd-group-label">Búsqueda Rápida en tu Tienda</div>`;
+        html += `
+          <button type="button" class="cmd-result-item" data-cmd-view="orders" data-cmd-query="${safeQ}">
+            <span class="cmd-result-left">
+              <span class="cmd-result-icon"><i class="ri-shopping-cart-2-line"></i></span>
+              <span class="cmd-result-text">
+                <span class="cmd-result-title">Buscar "${safeQ}" en Mis Pedidos</span>
+                <span class="cmd-result-sub">Filtrar por #orden, comprador o canal de venta</span>
+              </span>
+            </span>
+            <span class="cmd-result-go">Buscar ↵</span>
+          </button>
+          <button type="button" class="cmd-result-item" data-cmd-view="shipments" data-cmd-query="${safeQ}">
+            <span class="cmd-result-left">
+              <span class="cmd-result-icon"><i class="ri-truck-line"></i></span>
+              <span class="cmd-result-text">
+                <span class="cmd-result-title">Buscar "${safeQ}" en Mis Despachos</span>
+                <span class="cmd-result-sub">Filtrar por código de seguimiento, courier o destinatario</span>
+              </span>
+            </span>
+            <span class="cmd-result-go">Buscar ↵</span>
+          </button>
+          <button type="button" class="cmd-result-item" data-cmd-view="inventory" data-cmd-query="${safeQ}">
+            <span class="cmd-result-left">
+              <span class="cmd-result-icon"><i class="ri-box-3-line"></i></span>
+              <span class="cmd-result-text">
+                <span class="cmd-result-title">Buscar "${safeQ}" en Mi Inventario</span>
+                <span class="cmd-result-sub">Filtrar por SKU o nombre de producto en bodega</span>
+              </span>
+            </span>
+            <span class="cmd-result-go">Buscar ↵</span>
+          </button>
+        `;
+      }
+
+      if (matched.length > 0) {
+        html += `<div class="cmd-group-label">${q ? 'Secciones Coincidentes' : 'Accesos Frecuentes'}</div>`;
+        matched.forEach(m => {
+          html += `
+            <button type="button" class="cmd-result-item" data-cmd-view="${m.view}">
+              <span class="cmd-result-left">
+                <span class="cmd-result-icon"><i class="${m.icon}"></i></span>
+                <span class="cmd-result-text">
+                  <span class="cmd-result-title">${m.label}</span>
+                  <span class="cmd-result-sub">${m.group}</span>
+                </span>
+              </span>
+              <span class="cmd-result-go">Ir →</span>
+            </button>
+          `;
+        });
+      } else if (q.length < 2) {
+        html += `<div style="padding: 1rem; text-align: center; font-size: 0.78rem; color: var(--color-text-muted);">Sin secciones coincidentes.</div>`;
+      }
+
+      cmdResults.innerHTML = html;
+      selectedCmdIdx = 0;
+      const items = cmdResults.querySelectorAll('.cmd-result-item');
+      if (items[0]) items[0].classList.add('is-selected');
+    };
+
+    const openClientCmdPalette = () => {
+      closeAllClientPopovers('client-cmd-dropdown');
+      if (!cmdDropdown || !cmdContainer) return;
+      cmdDropdown.style.display = 'block';
+      cmdContainer.classList.add('cmd-open');
+      ensureCmdGlassBackdrop(() => closeAllClientPopovers()).classList.add('active');
+      renderClientCmdResults(cmdInput ? cmdInput.value : '');
+      setTimeout(() => cmdInput && cmdInput.focus(), 20);
+    };
+
+    if (cmdBtn && cmdDropdown) {
+      cmdBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (cmdDropdown.style.display === 'none') openClientCmdPalette();
+        else closeAllClientPopovers();
+      });
+    }
+
+    if (cmdInput) {
+      cmdInput.addEventListener('input', () => renderClientCmdResults(cmdInput.value));
+      cmdInput.addEventListener('keydown', (e) => {
+        const items = Array.from(cmdResults.querySelectorAll('.cmd-result-item'));
+        if (!items.length) return;
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          items[selectedCmdIdx]?.classList.remove('is-selected');
+          selectedCmdIdx = (selectedCmdIdx + 1) % items.length;
+          items[selectedCmdIdx]?.classList.add('is-selected');
+          items[selectedCmdIdx]?.scrollIntoView({ block: 'nearest' });
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          items[selectedCmdIdx]?.classList.remove('is-selected');
+          selectedCmdIdx = (selectedCmdIdx - 1 + items.length) % items.length;
+          items[selectedCmdIdx]?.classList.add('is-selected');
+          items[selectedCmdIdx]?.scrollIntoView({ block: 'nearest' });
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          items[selectedCmdIdx]?.click();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          closeAllClientPopovers();
+        }
+      });
+    }
+
+    if (cmdClear && cmdInput) {
+      cmdClear.addEventListener('click', (e) => {
+        e.stopPropagation();
+        cmdInput.value = '';
+        renderClientCmdResults('');
+        cmdInput.focus();
+      });
+    }
+
+    if (cmdResults) {
+      cmdResults.addEventListener('click', (e) => {
+        const item = e.target.closest('.cmd-result-item');
+        if (!item) return;
+        e.stopPropagation();
+        const view = item.getAttribute('data-cmd-view');
+        const query = item.getAttribute('data-cmd-query') || '';
+        navigateToClientView(view, query);
+      });
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (cmdDropdown && cmdDropdown.style.display !== 'none') {
+          closeAllClientPopovers();
+        } else {
+          openClientCmdPalette();
+        }
+      }
+    });
+
+    // 5. Menú Desplegable: + Acción Rápida del Comercio
+    const quickContainer = document.getElementById('client-quick-container');
+    const quickBtn = document.getElementById('client-quick-btn');
+    const quickDropdown = document.getElementById('client-quick-dropdown');
+    if (quickBtn && quickDropdown && quickContainer) {
+      quickBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isHidden = quickDropdown.style.display === 'none';
+        closeAllClientPopovers('client-quick-dropdown');
+        quickDropdown.style.display = isHidden ? 'block' : 'none';
+        quickContainer.classList.toggle('open', isHidden);
+      });
+    }
+
+    // 5B. Menú Desplegable: Ayuda / KAM / Tour Guiado
+    const helpContainer = document.getElementById('client-help-container');
+    const helpBtn = document.getElementById('client-help-btn');
+    const helpDropdown = document.getElementById('client-help-dropdown');
+    if (helpBtn && helpDropdown && helpContainer) {
+      helpBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isHidden = helpDropdown.style.display === 'none';
+        closeAllClientPopovers('client-help-dropdown');
+        helpDropdown.style.display = isHidden ? 'block' : 'none';
+        helpContainer.classList.toggle('open', isHidden);
+      });
+    }
+
+    // 6. Radar de Estado Operativo de Mi Tienda
+    const opsContainer = document.getElementById('client-ops-container');
+    const opsBtn = document.getElementById('client-ops-btn');
+    const opsDropdown = document.getElementById('client-ops-dropdown');
+    const opsBadge = document.getElementById('client-ops-badge');
+    const opsTotalLabel = document.getElementById('client-ops-total-label');
+
+    if (opsBtn && opsDropdown && opsContainer) {
+      opsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isHidden = opsDropdown.style.display === 'none';
+        closeAllClientPopovers('client-ops-dropdown');
+        opsDropdown.style.display = isHidden ? 'block' : 'none';
+        opsContainer.classList.toggle('open', isHidden);
+        opsBtn.classList.toggle('is-open', isHidden);
+      });
+    }
+
+    const syncClientOperationalRadar = () => {
+      const readBadge = (id) => {
+        const el = document.getElementById(id);
+        if (!el || el.style.display === 'none') return 0;
+        const n = parseInt(el.textContent.trim(), 10);
+        return isNaN(n) ? 0 : n;
+      };
+
+      const counts = {
+        incidencias: readBadge('badge-incidencias'),
+        inventory: readBadge('badge-inventory-client'),
+        surveys: readBadge('badge-surveys-client')
+      };
+
+      let total = 0;
+      Object.entries(counts).forEach(([key, val]) => {
+        total += val;
+        const pill = header.querySelector(`[data-client-ops-count="${key}"]`);
+        if (pill) {
+          pill.textContent = String(val);
+          pill.classList.toggle('has-count', val > 0);
+        }
+      });
+
+      if (opsBadge) {
+        if (total > 0) {
+          opsBadge.textContent = total > 99 ? '99+' : String(total);
+          opsBadge.style.display = 'flex';
+          if (opsBtn) opsBtn.classList.add('has-pending');
+        } else {
+          opsBadge.style.display = 'none';
+          if (opsBtn) opsBtn.classList.remove('has-pending');
+        }
+      }
+
+      if (opsTotalLabel) {
+        opsTotalLabel.textContent = total > 0 ? `${total} por revisar` : 'Al día ✓';
+      }
+    };
+
+    if (sidebar) {
+      const opsObs = new MutationObserver(syncClientOperationalRadar);
+      opsObs.observe(sidebar, { attributes: true, childList: true, characterData: true, subtree: true });
+    }
+    setInterval(syncClientOperationalRadar, 4000);
+    setTimeout(syncClientOperationalRadar, 1200);
+
+    // 7. Menú de Cuenta del Comercio Interactivo + Iniciales Dinámicas
+    const profileContainer = document.getElementById('client-profile-container');
+    const profileBtn = document.getElementById('client-profile-btn');
+    const profileDropdown = document.getElementById('client-profile-dropdown');
+    const userEmailSpan = document.getElementById('user-email');
+    const avatarInitials = document.getElementById('client-avatar-initials');
+    const dropdownInitials = document.getElementById('client-dropdown-initials');
+    const dropdownName = document.getElementById('client-dropdown-name');
+    const dropdownEmail = document.getElementById('client-dropdown-email');
+    const dropdownCommerce = document.getElementById('client-dropdown-commerce');
+    const userSubline = document.getElementById('client-user-subline');
+    const rolePill = document.getElementById('client-role-pill');
+    const headerLogoutBtn = document.getElementById('client-header-logout-btn');
+
+    if (profileBtn && profileDropdown && profileContainer) {
+      profileBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isHidden = profileDropdown.style.display === 'none';
+        closeAllClientPopovers('client-profile-dropdown');
+        profileDropdown.style.display = isHidden ? 'block' : 'none';
+        profileContainer.classList.toggle('open', isHidden);
+      });
+    }
+
+    const syncClientProfileDisplay = () => {
+      if (!userEmailSpan) return;
+      const raw = userEmailSpan.textContent.trim();
+      if (!raw || raw === 'Cargando...') return;
+
+      const prof = window.currentUserProfile || {};
+      const userObj = window.currentClientUser || {};
+      const commerceStr = (prof.comercio || window.currentCompany || '').split(',')[0].trim();
+      const hasValidCommerce = commerceStr && commerceStr.toLowerCase() !== 'no asignado';
+
+      const displaySource = hasValidCommerce ? commerceStr : raw;
+      const parts = displaySource.split(/[\s._@-]+/).filter(Boolean);
+      const initials = parts.length >= 2
+        ? (parts[0][0] + parts[1][0]).toUpperCase()
+        : displaySource.slice(0, 2).toUpperCase();
+
+      if (avatarInitials) avatarInitials.textContent = initials || 'CL';
+      if (dropdownInitials) dropdownInitials.textContent = initials || 'CL';
+      if (dropdownName) dropdownName.textContent = raw;
+      if (dropdownEmail) {
+        dropdownEmail.textContent = userObj.email || prof.email || raw;
+      }
+      if (userSubline) {
+        userSubline.textContent = hasValidCommerce ? commerceStr : 'Portal Fulfillment';
+      }
+      if (dropdownCommerce) {
+        dropdownCommerce.innerHTML = `<i class="ri-store-2-line"></i> ${hasValidCommerce ? commerceStr : 'Cuenta Fulfillment'}`;
+      }
+      if (rolePill && prof.role === 'observer') {
+        rolePill.textContent = 'LECTURA';
+      }
+    };
+
+    if (userEmailSpan) {
+      const userObs = new MutationObserver(syncClientProfileDisplay);
+      userObs.observe(userEmailSpan, { childList: true, characterData: true, subtree: true });
+      syncClientProfileDisplay();
+    }
+
+    if (headerLogoutBtn) {
+      headerLogoutBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        closeAllClientPopovers();
+        const sidebarLogoutBtn = document.getElementById('logout-btn');
+        if (sidebarLogoutBtn) {
+          sidebarLogoutBtn.click();
+        }
+      });
+    }
+
+    // Cerrar cualquier popover al hacer clic fuera
+    document.addEventListener('click', (e) => {
+      if (!header.contains(e.target)) {
+        closeAllClientPopovers();
+      }
+    });
+  };
+
+  initClientHeaderV2();
 });
 
 window.getUfValueForDate = async function(dateStr) {

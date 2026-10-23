@@ -483,10 +483,14 @@
       if (typeof window.updateOrderTagFilterOptions === 'function') {
         window.updateOrderTagFilterOptions();
       }
-      if (typeof window.applyWmsFiltersAndRender === 'function') {
+      if (silent && typeof window.requestSafeWmsTableRender === 'function') {
+        window.requestSafeWmsTableRender();
+      } else if (typeof window.applyWmsFiltersAndRender === 'function') {
         window.applyWmsFiltersAndRender();
       } else if (typeof window.renderOrdersTable === 'function' && window.loadedOrders) {
-        window.renderOrdersTable();
+        if (!silent || !(typeof window.hasAnyOpenModal === 'function' && window.hasAnyOpenModal())) {
+          window.renderOrdersTable();
+        }
       }
 
       return window.optirouteActiveAssignedRefs;

@@ -75,9 +75,9 @@ BEGIN
     RETURN TRUE;
   END IF;
 
-  -- Pedidos Manuales / Punto de Venta generados directamente en WMS para despacho:
+  -- Pedidos Manuales / Punto de Venta / Logística Inversa generados directamente en WMS para despacho:
   -- Se consideran confirmados salvo que tengan un estado de pago pendiente explícito
-  IF v_platform IN ('Manual', 'Punto de Venta') THEN
+  IF v_platform IN ('Manual', 'Punto de Venta', 'Logística Inversa', 'Logistica Inversa') THEN
     RETURN TRUE;
   END IF;
 

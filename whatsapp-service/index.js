@@ -48,6 +48,12 @@ function getCalendarService() {
   return require('../services/calendar_service');
 }
 
+function getWorkspaceReminderService() {
+  const localPath = path.join(__dirname, 'services/workspace_reminder_service.js');
+  if (fs.existsSync(localPath)) return require(localPath);
+  return require('../services/workspace_reminder_service');
+}
+
 const OLD_COORDINACION_GROUP = '120363043911687615@g.us'; // Coordinación Stocka
 const OLD_GESTION_GROUP = '120363422429248666@g.us';      // Gestión Stocka
 const NOTIFICACIONES_STOX_GROUP = '120363413357945543@g.us'; // NOTIFICACIONES STOX
@@ -137,6 +143,15 @@ async function connectToWhatsApp() {
       if (text.trim().toLowerCase() === '!ping') {
         await sock.sendMessage(from, { text: '🏓 ¡Pong! Bot de Stocka WMS activo y funcionando correctamente 🚀' });
         continue;
+      }
+
+      // Comandos interactivos del Panel de Trabajo (!listo, !posponer, !tarea, !nota, !pendientes)
+      try {
+        const { handleIncomingWorkspaceCommand } = getWorkspaceReminderService();
+        const handled = await handleIncomingWorkspaceCommand(sock, from, text);
+        if (handled) continue;
+      } catch (cmdErr) {
+        console.error('[Workspace Command Error]:', cmdErr.message);
       }
 
       // Si es un chat individual (no grupo) y el día es no operativo o feriado
@@ -646,6 +661,107 @@ app.post('/test-fiestas-patrias-greeting', requireAuth, async (req, res) => {
   }
 });
 
+// 10. Endpoints del Panel de Trabajo (Recordatorios y Alertas Personales vía Stox)
+
+// 10.1 Enviar mensaje de prueba o recordatorio inmediato desde el Panel de Trabajo
+app.post('/workspace/test-reminder', requireAuth, async (req, res) => {
+  const { to, userName = 'Equipo Stocka', customText } = req.body;
+  if (!to) {
+    return res.status(400).json({ error: 'Se requiere el número de teléfono en el campo "to"' });
+  }
+  if (connectionStatus !== 'CONNECTED' || !sock) {
+    return res.status(503).json({ error: 'WhatsApp de Stox no está conectado en este momento' });
+  }
+
+  try {
+    const jid = formatJid(to);
+    const firstName = String(userName).split(' ')[0];
+    const message = customText || [
+      `🤖 *Stox | Tu Asistente Personal WMS*`,
+      `✅ *VINCULACIÓN DE RECORDATORIOS EXITOSA*`,
+      `━━━━━━━━━━━━━━━━━━━━`,
+      `¡Hola *${firstName}*! Tu número de WhatsApp quedó conectado correctamente a tu *Panel de Trabajo* de Stocka WMS.`,
+      ``,
+      `A partir de ahora recibirás aquí:`,
+      `• 🔔 Tus recordatorios programados de tareas y notas`,
+      `• ☀️ Tu resumen diario de pendientes (si lo activas)`,
+      `━━━━━━━━━━━━━━━━━━━━`,
+      `💡 *Comandos rápidos disponibles en este chat:*`,
+      `• *!tarea [texto]* → Añade una tarea a "Mi Día"`,
+      `• *!nota [texto]* → Crea una nota fijada en tu panel`,
+      `• *!pendientes* → Consulta tu checklist de hoy`,
+      `• *!listo* → Marca como completado tu último recordatorio`,
+      `• *!posponer 30* → Pospone el aviso 30 minutos`
+    ].join('\n');
+
+    const result = await sock.sendMessage(jid, { text: message });
+    res.json({ success: true, jid, messageId: result?.key?.id });
+  } catch (err) {
+    console.error('[Error en /workspace/test-reminder]:', err);
+    res.status(500).json({ error: 'Fallo al enviar prueba de recordatorio: ' + err.message });
+  }
+});
+
+// 10.2 Agendar o disparar un recordatorio de tarea/nota en Stox
+app.post('/workspace/schedule-reminder', requireAuth, async (req, res) => {
+  const {
+    id,
+    userId,
+    userName,
+    phone,
+    title,
+    description,
+    priority = 'medium',
+    category = 'operaciones',
+    linkedRef,
+    isNote = false,
+    reminderAt,
+    sendNow = false
+  } = req.body;
+
+  if (!title) {
+    return res.status(400).json({ error: 'Se requiere el título de la tarea o nota' });
+  }
+
+  try {
+    const { scheduleLocalReminderItem, buildReminderMessage } = getWorkspaceReminderService();
+
+    if (sendNow && phone && connectionStatus === 'CONNECTED' && sock) {
+      const jid = formatJid(phone);
+      const text = buildReminderMessage({
+        userName,
+        title,
+        description,
+        priority,
+        category,
+        linkedRef,
+        isNote
+      });
+      const result = await sock.sendMessage(jid, { text });
+      return res.json({ success: true, sentImmediately: true, jid, messageId: result?.key?.id });
+    }
+
+    const scheduled = scheduleLocalReminderItem({
+      id,
+      userId,
+      userName,
+      phone,
+      title,
+      description,
+      priority,
+      category,
+      linkedRef,
+      isNote,
+      reminderAt: reminderAt || new Date().toISOString()
+    });
+
+    res.json({ success: true, scheduled });
+  } catch (err) {
+    console.error('[Error en /workspace/schedule-reminder]:', err);
+    res.status(500).json({ error: 'Error agendando recordatorio: ' + err.message });
+  }
+});
+
 // Iniciar servidor
 app.listen(PORT, () => {
   console.log(`[HTTP] Servidor WhatsApp iniciado en http://localhost:${PORT}`);
@@ -666,6 +782,14 @@ app.listen(PORT, () => {
 
       // Los días Domingo, Feriados y Días Sin Operaciones no se envían alertas operativas ni se procesan retiros
       const nonWorking = await isNonWorkingDayInChile();
+
+      // A.2 Procesar recordatorios personales del Panel de Trabajo (Workspace) y Resumen Matutino vía Stox
+      try {
+        const { processDueWorkspaceReminders } = getWorkspaceReminderService();
+        await processDueWorkspaceReminders(sock, formatJid, { isNonWorking: nonWorking.isNonWorking });
+      } catch (err) {
+        console.error('[WorkspaceReminders Worker Error]:', err.message);
+      }
 
       if (!nonWorking.isNonWorking) {
         // B. Procesar retiros automáticos

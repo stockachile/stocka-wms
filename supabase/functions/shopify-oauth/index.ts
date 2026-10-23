@@ -181,7 +181,7 @@ serve(async (req) => {
       const refreshToken = tokenData.refresh_token || null;
       const grantedScopeStr = tokenData.scope || "";
       const grantedScopes = grantedScopeStr ? grantedScopeStr.split(",").map((s: string) => s.trim()) : [];
-      const hasFulfillmentScope = grantedScopes.includes("write_fulfillments");
+      const hasFulfillmentScope = grantedScopes.includes("write_fulfillments") && grantedScopes.includes("write_merchant_managed_fulfillment_orders");
 
       // Obtener el comercio exacto desde el perfil del usuario si existe
       let resolvedComercio = comercio || "Shopify Store";
@@ -227,6 +227,9 @@ serve(async (req) => {
       }
       if (hasFulfillmentScope) {
         upsertPayload.sync_tracking_enabled = true;
+        upsertPayload.sync_intermediate_statuses = true;
+        await supabase.from("shopify_fulfillment_queue").update({ status: "pending", attempts: 0, last_error: null, updated_at: new Date().toISOString() }).eq("comercio", resolvedComercio).in("status", ["needs_reauth", "failed"]);
+        await supabase.from("orders").update({ shopify_fulfillment_status: null, shopify_sync_last_error: null }).eq("comercio", resolvedComercio).eq("shopify_fulfillment_status", "error");
       }
 
       const { error: dbError } = await supabase

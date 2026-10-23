@@ -2834,17 +2834,21 @@ window.openLocationByIdForEdit = function(locId) {
   }
 };
 
-window.openSingleLocationModal = function(existingLoc = null, defaultSku = '', defaultBodega = '', defaultCommerce = '') {
+window.openSingleLocationModal = async function(existingLoc = null, defaultSku = '', defaultBodega = '', defaultCommerce = '', onSavedCallback = null) {
   try {
     const existingModal = document.getElementById('modal-single-location');
     if (existingModal) existingModal.remove();
+
+    if (!window.locationsState.warehouses || window.locationsState.warehouses.length === 0) {
+      await loadWarehouses();
+    }
 
     const isEdit = Boolean(existingLoc && existingLoc.id);
     const { warehouses, productsCatalog, activeCommerce, activeBodega } = window.locationsState;
 
     const targetCommerce = defaultCommerce || existingLoc?.comercio || activeCommerce || '';
     const initialSku = existingLoc?.sku || defaultSku || '';
-    const initialBodega = existingLoc?.bodega_nombre || defaultBodega || (activeBodega !== 'ALL' ? activeBodega : (warehouses[0]?.name || ''));
+    const initialBodega = existingLoc?.bodega_nombre || defaultBodega || (activeBodega && activeBodega !== 'ALL' ? activeBodega : (warehouses[0]?.name || 'Matriz Ñuñoa'));
     const initialZona = existingLoc?.zona || '';
     const initialEspacio = existingLoc?.espacio || '';
     const initialPosicion = existingLoc?.posicion || '';
@@ -3137,7 +3141,12 @@ window.openSingleLocationModal = function(existingLoc = null, defaultSku = '', d
         // Recargar ubicaciones y refrescar vista
         await loadProductLocations({ comercio: targetCommerce });
         const container = document.getElementById('admin-inv-tab-content');
-        renderLocationsWorkspace(container);
+        if (container) {
+          renderLocationsWorkspace(container);
+        }
+        if (typeof onSavedCallback === 'function') {
+          await onSavedCallback(payload);
+        }
       } catch (err) {
         alert('Error al guardar: ' + err.message);
         saveBtn.disabled = false;

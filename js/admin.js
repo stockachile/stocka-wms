@@ -1146,7 +1146,13 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
       .select('pedido, picker, estado, comentarios, sucursal, fecha, hora, created_at, items_summary')
       .in('pedido', searchKeys)
       .order('created_at', { ascending: false })
-      .limit(1);
+      .limit(5);
+
+    const { data: pickupRow } = await client
+      .from('sucursal_pickups')
+      .select('pedido, estado_pedido, sucursal')
+      .in('pedido', searchKeys)
+      .maybeSingle();
 
     let resolvedStatus = null;
 
@@ -1159,14 +1165,16 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
         sucursal: act.sucursal || null,
         totu: act.totu || null,
         isActive: true,
-        isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro'].includes(act.sheet_status),
+        isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(act.sheet_status),
         source: 'active_orders',
         updatedAt: act.created_at || null
       };
     }
 
     if (historyLogs && historyLogs.length > 0) {
-      const hist = historyLogs[0];
+      // Priorizar registro 'Retirado' si existe en el historial reciente
+      const retiradoLog = historyLogs.find(h => String(h.estado || '').trim().toUpperCase() === 'RETIRADO');
+      const hist = retiradoLog || historyLogs[0];
       const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(hist.estado);
       if (!resolvedStatus || isComp || !resolvedStatus.isActive) {
         resolvedStatus = {
@@ -1183,14 +1191,48 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
       }
     }
 
+    if (pickupRow && String(pickupRow.estado_pedido || '').trim().toUpperCase() === 'ENTREGADO') {
+      resolvedStatus = {
+        status: 'Retirado',
+        operator: resolvedStatus?.operator || 'Punto de Retiro',
+        observation: resolvedStatus?.observation || 'Entregado en sucursal',
+        sucursal: pickupRow.sucursal || resolvedStatus?.sucursal || null,
+        isActive: false,
+        isCompleted: true,
+        source: 'sucursal_pickups',
+        updatedAt: resolvedStatus?.updatedAt || new Date().toISOString()
+      };
+    }
+
     if (resolvedStatus) {
       searchKeys.forEach(k => {
         window.pickerStatusMap[k] = resolvedStatus;
         if (resolvedStatus.operator) window.pickerOperatorsMap[k] = resolvedStatus.operator;
       });
 
-      // Si fue completado en el Picker y en WMS estaba "En preparación", sincronizar a Pickeado
-      if (resolvedStatus.isCompleted && order && order.estado_wms === 'En preparación') {
+      const isRetirado = ['RETIRADO', 'ENTREGADO'].includes(String(resolvedStatus.status || '').trim().toUpperCase());
+
+      if (isRetirado && order && order.estado_wms !== 'Despachado' && order.estado_wms !== 'Cancelado') {
+        const { error: wmsErr } = await supabase
+          .from('orders')
+          .update({ estado_wms: 'Despachado', status: 'despachado', stock_descontado: true })
+          .eq('id', order.id);
+
+        if (!wmsErr) {
+          order.estado_wms = 'Despachado';
+          order.status = 'despachado';
+          order.stock_descontado = true;
+          delete order._wmsTags;
+          supabase.from('store_pickups').update({ estado_pedido: 'ENTREGADO' }).in('pedido', searchKeys).then(() => {}).catch(() => {});
+          if (typeof window.refreshAgendasOrderCell === 'function') {
+            window.refreshAgendasOrderCell(order.id, 'estado_wms', 'Despachado');
+          }
+          if (typeof window.triggerShopifyFulfillmentSync === 'function') {
+            window.triggerShopifyFulfillmentSync([order.id]);
+          }
+        }
+      } else if (resolvedStatus.isCompleted && order && order.estado_wms === 'En preparación') {
+        // Si fue completado en el Picker y en WMS estaba "En preparación", sincronizar a Pickeado
         const { error: wmsErr } = await supabase
           .from('orders')
           .update({ estado_wms: 'Pickeado', status: 'preparado' })
@@ -1202,6 +1244,9 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
           delete order._wmsTags;
           if (typeof window.refreshAgendasOrderCell === 'function') {
             window.refreshAgendasOrderCell(order.id, 'estado_wms', 'Pickeado');
+          }
+          if (typeof window.triggerShopifyFulfillmentSync === 'function') {
+            window.triggerShopifyFulfillmentSync([order.id]);
           }
         }
       }
@@ -1729,6 +1774,10 @@ window.updateWmsOrderField = async function(orderId, field, value) {
       if (fieldsToPropagate.includes(field) && order.estado_wms === 'En preparación') {
         await window.propagateOrderUpdateToPicker(order);
       }
+
+      if (['tracking_number', 'tracking_url', 'courier'].includes(field) && (order.external_platform === 'Shopify' || order.origen === 'Shopify') && order.estado_wms === 'Despachado') {
+        window.triggerShopifyFulfillmentSync([orderId]);
+      }
     }
 
     window.applyWmsFiltersAndRender();
@@ -1759,6 +1808,46 @@ window.updateWmsOrderField = async function(orderId, field, value) {
     console.error("Error updating order field:", err);
     Swal.fire('Error', 'No se pudo actualizar el campo: ' + err.message, 'error');
     applyWmsFiltersAndRender();
+  }
+};
+
+// Disparador asíncrono (fire-and-forget) para sincronizar en tiempo real despachos/estados hacia Shopify
+window.triggerShopifyFulfillmentSync = async function(orderIds = []) {
+  try {
+    const validIds = Array.isArray(orderIds) ? orderIds.filter(Boolean) : [];
+    const payload = validIds.length === 1 ? { order_id: validIds[0] } : { limit: Math.min(Math.max(validIds.length, 20), 50) };
+
+    const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-fulfillment-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data && Array.isArray(data.results) && data.results.length > 0 && window.loadedOrders) {
+      let anyUpdated = false;
+      for (const r of data.results) {
+        if (r.status === 'completed' && r.fulfillment_id && validIds.length === 1) {
+          const ord = window.loadedOrders.find(o => o.id === validIds[0]);
+          if (ord) {
+            ord.shopify_fulfillment_id = r.fulfillment_id;
+            ord.shopify_fulfillment_status = 'synced';
+            ord.shopify_sync_last_error = null;
+            anyUpdated = true;
+          }
+        }
+      }
+      if (anyUpdated) {
+        if (typeof window.requestSafeWmsTableRender === 'function') {
+          window.requestSafeWmsTableRender();
+        } else if (typeof window.applyWmsFiltersAndRender === 'function') {
+          window.applyWmsFiltersAndRender();
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Shopify Fulfillment Sync] Aviso en disparo en segundo plano:', err);
   }
 };
 
@@ -1954,8 +2043,8 @@ window.isOrderStockCommittedEligible = function(order) {
     return true;
   }
 
-  // Pedidos Manuales / POS generados directamente en WMS para despacho
-  if (['Manual', 'Punto de Venta'].includes(platform)) {
+  // Pedidos Manuales / POS / Logística Inversa generados directamente en WMS para despacho
+  if (['Manual', 'Punto de Venta', 'Logística Inversa', 'Logistica Inversa'].includes(platform) || order.raw_shopify_data?.is_reverse_logistics) {
     return true;
   }
 
@@ -3512,13 +3601,21 @@ window.pollForLightDataTracking = function(orderIds, maxWaitSeconds = 90) {
           }
         } catch (_) {}
 
-        if (window.applyWmsFiltersAndRender) {
+        if (typeof window.requestSafeWmsTableRender === 'function') {
+          window.requestSafeWmsTableRender();
+        } else if (window.applyWmsFiltersAndRender) {
           window.applyWmsFiltersAndRender();
         }
 
         if (pendingSet.size === 0) {
           clearInterval(intervalId);
-          if (window.Swal) {
+          if (typeof window.showStockaNotification === 'function') {
+            window.showStockaNotification({
+              type: 'success',
+              title: '¡Etiquetas Alpha y tracking asignados exitosamente!',
+              duration: 4500
+            });
+          } else if (window.Swal) {
             Swal.fire({
               toast: true,
               position: 'top-end',
@@ -4994,6 +5091,12 @@ async function init() {
     userRole = profile.role || 'admin';
     window.currentAdminProfile = profile;
     window.currentAdminUser = session.user;
+    window.currentUserProfile = {
+      ...profile,
+      id: session.user.id,
+      email: profile.email || session.user.email,
+      full_name: profile.full_name || session.user.user_metadata?.full_name || profile.company_name || null
+    };
     try {
       const serializedAdminSession = JSON.stringify({
         access_token: session.access_token,
@@ -5026,6 +5129,10 @@ async function init() {
       }
       if (!currentModules.includes('inventory_count')) {
         currentModules.push('inventory_count');
+        updated = true;
+      }
+      if (!currentModules.includes('automations_admin')) {
+        currentModules.push('automations_admin');
         updated = true;
       }
       if (updated) {
@@ -5216,6 +5323,11 @@ async function init() {
           } else if (view === 'documentation_admin') {
             viewTitle.textContent = 'Documentación del Servicio';
             renderDocsAdmin();
+          } else if (view === 'automations_admin') {
+            viewTitle.textContent = 'Centro de Automatizaciones Activas';
+            if (typeof window.renderAutomationsAdmin === 'function') {
+              window.renderAutomationsAdmin();
+            }
           } else if (view === 'cotizador_admin') {
             viewTitle.textContent = 'Cotizador de Envíos';
             renderCotizadorAdmin();
@@ -5233,6 +5345,11 @@ async function init() {
             viewTitle.textContent = 'Encuestas & Reviews';
             const appContent = document.getElementById('app-content');
             renderSurveysAdmin(appContent);
+          } else if (view === 'workspace') {
+            viewTitle.textContent = 'Mi Panel de Trabajo';
+            if (typeof window.renderWorkspacePanel === 'function') {
+              window.renderWorkspacePanel();
+            }
           }
         });
       });
@@ -5256,7 +5373,7 @@ async function init() {
           const view = item.getAttribute('data-view');
           const isAllowed = allowedModules.includes(view) ||
             (view === 'inventory_count' && (allowedModules.includes('inventory_admin') || allowedModules.length === 0)) ||
-            view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' ||
+            view === 'dashboard' || view === 'workspace' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' ||
             view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator' ||
             view === 'returns_admin' || view === 'pos_admin' || view === 'tickets_admin' ||
             view === 'movements_admin' || view === 'surveys_admin' || view === 'inventory_count';
@@ -5278,12 +5395,23 @@ async function init() {
       updateCategoryHeadersVisibility();
     }
 
-    // Initial View selection based on search param ?view= or hash #view or allowed modules
+    // Initial View selection based on search param ?order= / ?pedido= or #order= or ?view= or hash #view or allowed modules
     const urlParams = new URLSearchParams(window.location.search);
-    const initialViewParam = urlParams.get('view') || (window.location.hash || '').replace('#', '').trim();
+    const rawHash = (window.location.hash || '').replace(/^#/, '').trim();
+    const hashOrderMatch = rawHash.match(/^(?:order|pedido)=(.+)$/i);
+    const initialOrderParam = (urlParams.get('order') || urlParams.get('pedido') || (hashOrderMatch ? decodeURIComponent(hashOrderMatch[1]) : '') || '').trim();
+    const initialViewParam = urlParams.get('view') || (!hashOrderMatch ? rawHash : '');
     const hashTarget = initialViewParam ? document.querySelector(`.nav-item[data-view="${initialViewParam}"]`) : null;
 
-    if (hashTarget && hashTarget.closest('li')?.style.display !== 'none') {
+    if (initialOrderParam) {
+      console.log('DEBUG: Cargando Página Individual de Pedido desde URL:', initialOrderParam);
+      if (viewTitle) viewTitle.textContent = `Pedido #${initialOrderParam.slice(0, 12)}`;
+      if (typeof window.renderSingleOrderPage === 'function') {
+        window.renderSingleOrderPage(initialOrderParam, { isAdmin: true });
+      } else {
+        window._pendingSingleOrderPage = { orderId: initialOrderParam, isAdmin: true };
+      }
+    } else if (hashTarget && hashTarget.closest('li')?.style.display !== 'none') {
       console.log('DEBUG: Cargando vista inicial desde parámetro o hash:', initialViewParam);
       hashTarget.click();
     } else if (firstVisibleItem) {
@@ -5804,6 +5932,306 @@ window.toggleOrderRow = function(orderId) {
   }
 };
 
+window.wmsProfilesByIdMap = window.wmsProfilesByIdMap || null;
+window.wmsProfilesByEmailMap = window.wmsProfilesByEmailMap || null;
+window.wmsProfilesByCommerceMap = window.wmsProfilesByCommerceMap || null;
+window._wmsCreatorProfilesPromise = null;
+
+window.ensureWmsCreatorProfilesLoaded = async function() {
+  if (window.wmsProfilesByIdMap) return window.wmsProfilesByIdMap;
+  if (window._wmsCreatorProfilesPromise) return window._wmsCreatorProfilesPromise;
+
+  window._wmsCreatorProfilesPromise = (async () => {
+    try {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, role, full_name, email, company_name, comercio');
+      const byId = {};
+      const byEmail = {};
+      const byCommerce = {};
+      (profiles || []).forEach(p => {
+        if (!p) return;
+        if (p.id) byId[p.id] = p;
+        if (p.email) byEmail[String(p.email).trim().toLowerCase()] = p;
+        if (p.comercio && p.role !== 'admin') {
+          p.comercio.split(',').forEach(c => {
+            const norm = c.trim().toUpperCase();
+            if (norm && norm !== 'ALL' && norm !== 'NO ASIGNADO' && !byCommerce[norm]) {
+              byCommerce[norm] = p;
+            }
+          });
+        }
+      });
+      window.wmsProfilesByIdMap = byId;
+      window.wmsProfilesByEmailMap = byEmail;
+      window.wmsProfilesByCommerceMap = byCommerce;
+
+      // Actualizar contenedores ya renderizados en pantalla
+      document.querySelectorAll('[data-manual-creator-order-id]').forEach(el => {
+        const oid = el.getAttribute('data-manual-creator-order-id');
+        const ord = (window.loadedOrders || []).find(o => String(o.id) === String(oid));
+        if (ord && typeof window.renderOrderManualCreatorHtml === 'function') {
+          el.outerHTML = window.renderOrderManualCreatorHtml(ord);
+        }
+      });
+      return byId;
+    } catch (err) {
+      console.warn('[WMS] No se pudieron cargar perfiles para creador de pedidos:', err);
+      return {};
+    } finally {
+      window._wmsCreatorProfilesPromise = null;
+    }
+  })();
+
+  return window._wmsCreatorProfilesPromise;
+};
+
+window.getCurrentWmsUserCreatorMeta = async function(sourceLabel = 'Panel Admin WMS') {
+  let userId = window.currentAdminUser?.id || window.currentUserProfile?.id || null;
+  let userEmail = window.currentAdminProfile?.email || window.currentAdminUser?.email || window.currentUserProfile?.email || null;
+  let userName = window.currentAdminProfile?.full_name || window.currentUserProfile?.full_name || window.currentAdminUser?.user_metadata?.full_name || null;
+  let userRoleVal = window.currentAdminProfile?.role || window.currentUserProfile?.role || 'admin';
+
+  if (!userEmail || !userId) {
+    try {
+      const { data: sessData } = await supabase.auth.getSession();
+      const sessUser = sessData?.session?.user;
+      if (sessUser) {
+        userId = userId || sessUser.id;
+        userEmail = userEmail || sessUser.email;
+        userName = userName || sessUser.user_metadata?.full_name || sessUser.user_metadata?.name || null;
+      }
+    } catch (e) {}
+  }
+
+  if (userId && window.wmsProfilesByIdMap && window.wmsProfilesByIdMap[userId]) {
+    const prof = window.wmsProfilesByIdMap[userId];
+    userName = userName || prof.full_name || prof.company_name || null;
+    userEmail = userEmail || prof.email || null;
+    userRoleVal = prof.role || userRoleVal;
+  }
+
+  return {
+    created_by_user_id: userId || null,
+    created_by_email: userEmail || 'admin@stocka.cl',
+    created_by_name: userName || (userEmail ? userEmail.split('@')[0] : 'Administrador WMS'),
+    created_by_role: userRoleVal === 'admin' ? 'admin' : 'client',
+    created_from: sourceLabel
+  };
+};
+
+window.getOrderManualCreatorInfo = function(order) {
+  if (!order) return null;
+  const raw = (order.raw_shopify_data && typeof order.raw_shopify_data === 'object') ? order.raw_shopify_data : {};
+  const platform = String(order.origen || order.external_platform || '').trim();
+  const platformLower = platform.toLowerCase();
+
+  const isReverseLogistics = Boolean(
+    raw.is_reverse_logistics ||
+    platformLower === 'logística inversa' ||
+    platformLower === 'logistica inversa'
+  );
+  const isPosSale = Boolean(
+    raw.is_pos_sale ||
+    platformLower === 'punto de venta'
+  );
+  const isSplitChild = Boolean(
+    raw._is_split_child ||
+    order.is_split ||
+    order.parent_order_id
+  );
+  const isManualForm = Boolean(
+    raw.manual_order ||
+    platformLower === 'manual' ||
+    platformLower === 'stocka'
+  );
+  const hasExplicitCreator = Boolean(
+    raw.created_by_email ||
+    raw.created_by_user_id ||
+    raw.created_by_name
+  );
+
+  if (!isReverseLogistics && !isPosSale && !isSplitChild && !isManualForm && !hasExplicitCreator) {
+    return null;
+  }
+
+  // Disparar carga en segundo plano del mapa de perfiles si aún no existe
+  if (!window.wmsProfilesByIdMap && typeof window.ensureWmsCreatorProfilesLoaded === 'function') {
+    window.ensureWmsCreatorProfilesLoaded();
+  }
+
+  const byId = window.wmsProfilesByIdMap || {};
+  const byEmail = window.wmsProfilesByEmailMap || {};
+  const byCommerce = window.wmsProfilesByCommerceMap || {};
+
+  let creatorId = raw.created_by_user_id || order._auditCreatorUserId || null;
+  let creatorEmail = raw.created_by_email || order._auditCreatorEmail || null;
+  let creatorName = raw.created_by_name || null;
+  let creatorRole = raw.created_by_role || null; // 'admin' | 'client'
+
+  // Si viene de POS y recorded_by contiene un correo o nombre específico
+  if (raw.recorded_by && typeof raw.recorded_by === 'string') {
+    const recClean = raw.recorded_by.trim();
+    const isGenericLabel = ['administrador wms', 'administrador', 'cliente'].includes(recClean.toLowerCase());
+    if (!isGenericLabel) {
+      if (recClean.includes('@')) creatorEmail = creatorEmail || recClean;
+      else creatorName = creatorName || recClean;
+    }
+  }
+
+  // Enriquecer con tabla profiles si ya tenemos creatorId o creatorEmail
+  let explicitProf = (creatorId && byId[creatorId])
+    || (creatorEmail && byEmail[String(creatorEmail).trim().toLowerCase()])
+    || null;
+
+  if (explicitProf) {
+    creatorName = creatorName || explicitProf.full_name || explicitProf.company_name || null;
+    creatorEmail = creatorEmail || explicitProf.email || null;
+    creatorRole = creatorRole || (explicitProf.role === 'admin' ? 'admin' : 'client');
+  }
+
+  const merchantProf = (order.merchant_id && byId[order.merchant_id]) ? byId[order.merchant_id] : null;
+  const commerceKey = String(order.comercio || '').trim().toUpperCase();
+  const commerceProf = commerceKey ? byCommerce[commerceKey] : null;
+
+  // Inferencia para pedidos existentes sin metadatos explícitos
+  if (!creatorName && !creatorEmail) {
+    if (isReverseLogistics) {
+      const createdInAdmin = Boolean(raw.situacion_movimiento) || creatorRole === 'admin';
+      if (createdInAdmin) {
+        creatorRole = 'admin';
+        if (merchantProf && merchantProf.role === 'admin') {
+          creatorName = merchantProf.full_name || 'Administrador WMS';
+          creatorEmail = merchantProf.email || null;
+        } else {
+          creatorName = 'Equipo Administración WMS';
+        }
+      } else {
+        creatorRole = 'client';
+        const clientProf = (merchantProf && merchantProf.role !== 'admin') ? merchantProf : commerceProf;
+        if (clientProf) {
+          creatorName = clientProf.full_name || clientProf.company_name || order.comercio || 'Usuario Comercio';
+          creatorEmail = clientProf.email || null;
+        } else {
+          creatorName = order.comercio ? `Usuario ${order.comercio}` : 'Usuario Cliente';
+        }
+      }
+    } else if (isPosSale) {
+      creatorRole = creatorRole || 'admin';
+      creatorName = 'Operador Punto de Venta (Admin WMS)';
+    } else if (isSplitChild) {
+      creatorRole = creatorRole || 'admin';
+      creatorName = 'Administrador WMS';
+    } else {
+      // Pedido Manual (Formulario)
+      const hasAdminOpConfig = Boolean(raw.admin_operational_config);
+      if (hasAdminOpConfig || creatorRole === 'admin') {
+        creatorRole = 'admin';
+        if (merchantProf && merchantProf.role === 'admin') {
+          creatorName = merchantProf.full_name || 'Administrador WMS';
+          creatorEmail = merchantProf.email || null;
+        } else {
+          creatorName = 'Administrador WMS';
+        }
+      } else if (merchantProf && merchantProf.role === 'admin') {
+        creatorRole = 'admin';
+        creatorName = merchantProf.full_name || 'Administrador WMS';
+        creatorEmail = merchantProf.email || null;
+      } else {
+        creatorRole = 'client';
+        const clientProf = merchantProf || commerceProf;
+        if (clientProf) {
+          creatorName = clientProf.full_name || clientProf.company_name || order.comercio || 'Usuario Comercio';
+          creatorEmail = clientProf.email || null;
+        } else {
+          creatorName = order.comercio ? `Usuario ${order.comercio}` : 'Cliente / Comercio';
+        }
+      }
+    }
+  }
+
+  if (!creatorRole) {
+    creatorRole = (explicitProf?.role === 'admin' || (merchantProf?.role === 'admin' && !commerceProf)) ? 'admin' : 'client';
+  }
+
+  let sourceLabel = raw.created_from || '';
+  if (!sourceLabel) {
+    if (isReverseLogistics) {
+      const rlType = raw.rl_type ? ` (${raw.rl_type})` : '';
+      sourceLabel = creatorRole === 'admin'
+        ? `Logística Inversa${rlType} · Panel Admin`
+        : `Logística Inversa${rlType} · Portal Cliente`;
+    } else if (isPosSale) {
+      sourceLabel = 'Punto de Venta (POS) · Sucursal Ñuñoa';
+    } else if (isSplitChild) {
+      sourceLabel = raw._parent_order_number
+        ? `División de Pedido (Padre: ${raw._parent_order_number})`
+        : 'División de Pedido';
+    } else {
+      sourceLabel = creatorRole === 'admin'
+        ? 'Pedido Manual · Panel Admin WMS'
+        : 'Pedido Manual · Portal Cliente';
+    }
+  }
+
+  return {
+    userName: creatorName || (creatorEmail ? creatorEmail.split('@')[0] : 'Usuario Registrado'),
+    userEmail: creatorEmail || null,
+    role: creatorRole,
+    roleLabel: creatorRole === 'admin' ? 'Admin WMS' : 'Cliente / Comercio',
+    sourceLabel,
+    rlReference: isReverseLogistics && raw.rl_reference ? raw.rl_reference : null,
+    isCustomDate: Boolean(raw.admin_operational_config?.custom_order_date)
+  };
+};
+
+window.renderOrderManualCreatorHtml = function(order) {
+  const info = window.getOrderManualCreatorInfo ? window.getOrderManualCreatorInfo(order) : null;
+  if (!info) return '';
+
+  const esc = window.escapeHtml || (s => String(s || ''));
+  const isAdmin = info.role === 'admin';
+  const badgeBg = isAdmin ? 'rgba(99, 102, 241, 0.12)' : 'rgba(16, 185, 129, 0.12)';
+  const badgeColor = isAdmin ? '#4338ca' : '#047857';
+  const badgeBorder = isAdmin ? 'rgba(99, 102, 241, 0.3)' : 'rgba(16, 185, 129, 0.3)';
+  const badgeIcon = isAdmin ? 'ri-shield-user-line' : 'ri-store-2-line';
+
+  return `
+    <div id="wms-manual-creator-box-${order.id}" data-manual-creator-order-id="${order.id}" style="margin-top: 0.25rem; padding-top: 0.5rem; border-top: 1px dashed var(--color-border); display: flex; flex-direction: column; gap: 0.35rem; text-align: left;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; flex-wrap: wrap;">
+        <span style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-user-add-line" style="font-size: 0.9rem; color: var(--color-primary);"></i> Creado por:
+        </span>
+        <span style="background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-size: 0.68rem; font-weight: 700; padding: 0.1rem 0.42rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.2rem; letter-spacing: 0.2px;">
+          <i class="${badgeIcon}" style="font-size: 0.75rem;"></i> ${esc(info.roleLabel)}
+        </span>
+      </div>
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.45rem 0.6rem; display: flex; flex-direction: column; gap: 0.2rem;">
+        <div style="font-size: 0.83rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem; word-break: break-word;">
+          <i class="ri-user-3-fill" style="color: ${badgeColor}; font-size: 0.88rem; flex-shrink: 0;"></i>
+          <span>${esc(info.userName)}</span>
+        </div>
+        ${info.userEmail ? `
+          <div style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem; word-break: break-all;">
+            <i class="ri-mail-line" style="font-size: 0.8rem; flex-shrink: 0;"></i>
+            <span>${esc(info.userEmail)}</span>
+          </div>
+        ` : ''}
+        <div style="font-size: 0.72rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem; margin-top: 0.1rem; padding-top: 0.2rem; border-top: 1px solid var(--color-border);">
+          <i class="ri-compass-3-line" style="color: var(--color-primary); font-size: 0.8rem; flex-shrink: 0;"></i>
+          <span>Vía: <strong style="color: var(--color-text-main); font-weight: 600;">${esc(info.sourceLabel)}</strong></span>
+        </div>
+        ${info.rlReference ? `
+          <div style="font-size: 0.72rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-links-line" style="color: #7c3aed; font-size: 0.8rem; flex-shrink: 0;"></i>
+            <span>Pedido Original: <strong style="color: #7c3aed; font-family: monospace;">${esc(info.rlReference)}</strong></span>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
+};
+
 window.loadOrderAuditLogs = async function(orderId) {
   const container = document.getElementById(`wms-order-audit-timeline-${orderId}`);
   if (!container) return;
@@ -5842,6 +6270,25 @@ window.loadOrderAuditLogs = async function(orderId) {
     }
 
     const escape = window.escapeHtml || (s => String(s || ''));
+
+    // Si existe un log de creación o división, enriquecer el bloque de creador del pedido
+    const creationLog = [...logs].reverse().find(l => l && l.action && (
+      l.action.toLowerCase().includes('creación') ||
+      l.action.toLowerCase().includes('creacion') ||
+      l.action.toLowerCase().includes('división') ||
+      l.action.toLowerCase().includes('division')
+    ));
+    if (creationLog && (creationLog.user_email || creationLog.user_id)) {
+      const ordObj = (window.loadedOrders || []).find(o => String(o.id) === String(targetUuid));
+      if (ordObj) {
+        ordObj._auditCreatorEmail = ordObj._auditCreatorEmail || creationLog.user_email || null;
+        ordObj._auditCreatorUserId = ordObj._auditCreatorUserId || creationLog.user_id || null;
+        const creatorBox = document.getElementById(`wms-manual-creator-box-${targetUuid}`);
+        if (creatorBox && typeof window.renderOrderManualCreatorHtml === 'function') {
+          creatorBox.outerHTML = window.renderOrderManualCreatorHtml(ordObj);
+        }
+      }
+    }
 
     let html = `<div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">`;
     logs.forEach(log => {
@@ -10870,11 +11317,41 @@ async function renderAdminOrders() {
   }
 }
 
+window.getOrderEffectiveOrigen = function(order) {
+  if (!order) return 'Manual';
+  if (order._wmsEffectiveOrigen) return order._wmsEffectiveOrigen;
+  const raw = String(order.origen || order.external_platform || 'Manual').trim();
+  const rawLow = raw.toLowerCase();
+  const rawData = order.raw_shopify_data || {};
+  const extNo = String(order.external_order_number || '').trim().toUpperCase();
+  let res = raw || 'Manual';
+  if (
+    rawLow === 'manual' ||
+    rawLow === 'logística inversa' ||
+    rawLow === 'logistica inversa' ||
+    rawLow === 'punto de venta' ||
+    rawLow === 'pos' ||
+    rawLow === 'shop point' ||
+    rawLow === 'shop point (pos)' ||
+    rawLow === 'stocka' ||
+    rawData.manual_order === true ||
+    rawData.is_reverse_logistics === true ||
+    rawData.is_pos_sale === true ||
+    extNo.startsWith('LI-') ||
+    extNo.startsWith('POS-') ||
+    extNo.startsWith('VTA-')
+  ) {
+    res = 'Manual';
+  }
+  order._wmsEffectiveOrigen = res;
+  return res;
+};
+
 window.getWmsOrderColumnValue = function(order, columnKey) {
   if (!order) return '';
   let val = '';
   if (columnKey === 'comercio') val = order.comercio;
-  else if (columnKey === 'origen') val = order.origen || order.external_platform || 'Manual';
+  else if (columnKey === 'origen') val = window.getOrderEffectiveOrigen ? window.getOrderEffectiveOrigen(order) : (order.origen || order.external_platform || 'Manual');
   else if (columnKey === 'categoria_entrega') val = window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : (order.categoria_entrega || 'DISTRIBUCIÓN');
   else if (columnKey === 'agenda') val = order.agenda;
   else if (columnKey === 'operador') val = order.operador || '';
@@ -10948,8 +11425,9 @@ window.getWmsFilteredOrders = function(excludeColKey = null, forTab = null) {
 
     // 2. Filtros base
     const platform = order.origen || order.external_platform || 'Manual';
+    const effOrigen = window.getOrderEffectiveOrigen ? window.getOrderEffectiveOrigen(order) : platform;
     if (selectedMerchant && order.comercio !== selectedMerchant) return false;
-    if (selectedOrigen && platform.toLowerCase() !== selectedOrigenLower) return false;
+    if (selectedOrigen && effOrigen.toLowerCase() !== selectedOrigenLower && platform.toLowerCase() !== selectedOrigenLower) return false;
     if (selectedStatus && order.status !== selectedStatus) return false;
 
     const effCat = window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : (order.categoria_entrega || 'DISTRIBUCIÓN');
@@ -11083,6 +11561,7 @@ window.getWmsFilteredOrders = function(excludeColKey = null, forTab = null) {
 };
 
 window.applyWmsFiltersAndRender = function() {
+  window._pendingWmsRenderAfterModal = false;
   const orderTagSelect = document.getElementById('filter-order-tag');
   const selectedTag = orderTagSelect?.value || '';
   const categoriaSelect = document.getElementById('filter-categoria-entrega');
@@ -11439,8 +11918,9 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     const platform = order.origen || order.external_platform || 'Manual';
+    const effOrigen = window.getOrderEffectiveOrigen ? window.getOrderEffectiveOrigen(order) : platform;
     const platformColor = platform === 'Logística Inversa' ? '#0284c7' : (platform === 'Paris' ? '#e11d48' : (platform === 'Ripley' ? '#7c3aed' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'Walmart' ? '#0071ce' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : (platform === 'Tiendanube' ? '#06b6d4' : '#6b7280')))))))));
-    const platformLower = (platform.toLowerCase() === 'manual' || platform.toLowerCase() === 'logística inversa') ? 'stocka.cap' : platform.toLowerCase();
+    const platformLower = effOrigen.toLowerCase() === 'manual' ? 'stocka.cap' : platform.toLowerCase();
     const originHtml = `<img src="./img/${platformLower}.png" alt="${platform}" title="${platform}" style="height: 24px; max-width: 75px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; white-space: nowrap;\\'>${platform}</span>';" />`;
 
     const skuStr = order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
@@ -11675,9 +12155,16 @@ window.applyWmsFiltersAndRender = function() {
     const adminNoteForCol = window.getOrderAdminNote ? window.getOrderAdminNote(order) : '';
     const adminNoteLockBtn = `<button type="button" onclick="event.stopPropagation(); window.openOrderAdminNoteModal('${order.id}')" class="btn-order-admin-note-trigger" data-order-id="${order.id}" style="background: none; border: none; padding: 0 2px; margin-left: 2px; cursor: pointer; color: ${adminNoteForCol ? '#4f46e5' : '#94a3b8'}; font-size: 0.85rem; vertical-align: middle; display: inline-flex; align-items: center;" title="${adminNoteForCol ? `Nota Interna Admin: ${adminNoteForCol.replace(/"/g, '&quot;')} (Clic para ver/editar)` : 'Añadir Nota Interna Admin'}"><i class="${adminNoteForCol ? 'ri-lock-2-fill' : 'ri-lock-2-line'}"></i></button>`;
 
+    const safeCustomerRefName = (displayName && displayName !== 'No registrado' && displayName.trim() !== '')
+      ? String(displayName).trim()
+      : '';
+    const customerRefSubHtml = safeCustomerRefName
+      ? `<span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500; display: inline-flex; align-items: center; gap: 0.22rem; max-width: 155px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.2;" title="Destinatario: ${safeCustomerRefName.replace(/"/g, '&quot;')}"><i class="ri-user-3-line" style="font-size: 0.72rem; color: var(--color-primary); opacity: 0.8; flex-shrink: 0;"></i><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${safeCustomerRefName}</span></span>`
+      : '';
+
     const orderDisplayId = order.external_order_number 
-      ? `<div style="display:flex; flex-direction:column; gap:0.15rem;"><div style="display:inline-flex; align-items:center;"><span onclick="event.stopPropagation(); window.openWmsOrderModal('${order.id}');" style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; cursor: pointer; color: var(--color-primary);" title="Abrir Ficha Completa del Pedido (${order.external_order_number})">${order.external_order_number}</span>${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.external_order_number, 'Número de pedido', 'Copiar número de pedido') : ''}${adminNoteLockBtn}</div> <span style="font-size: 0.7rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span></div>` 
-      : `<div style="display:flex; flex-direction:column; gap:0.15rem;"><div style="display:inline-flex; align-items:center;"><span onclick="event.stopPropagation(); window.openWmsOrderModal('${order.id}');" style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; cursor: pointer; color: var(--color-primary);" title="Abrir Ficha Completa del Pedido (${order.id})">${order.id.split('-')[0]}</span>${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.id, 'ID de pedido', 'Copiar ID de pedido') : ''}${adminNoteLockBtn}</div></div>`;
+      ? `<div style="display:flex; flex-direction:column; gap:0.15rem;"><div style="display:inline-flex; align-items:center;"><span onclick="event.stopPropagation(); window.openWmsOrderModal('${order.id}');" style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; cursor: pointer; color: var(--color-primary);" title="Abrir Ficha Completa del Pedido (${order.external_order_number})">${order.external_order_number}</span>${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.external_order_number, 'Número de pedido', 'Copiar número de pedido') : ''}${adminNoteLockBtn}</div> <span style="font-size: 0.7rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span>${customerRefSubHtml}</div>` 
+      : `<div style="display:flex; flex-direction:column; gap:0.15rem;"><div style="display:inline-flex; align-items:center;"><span onclick="event.stopPropagation(); window.openWmsOrderModal('${order.id}');" style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; cursor: pointer; color: var(--color-primary);" title="Abrir Ficha Completa del Pedido (${order.id})">${order.id.split('-')[0]}</span>${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.id, 'ID de pedido', 'Copiar ID de pedido') : ''}${adminNoteLockBtn}</div>${customerRefSubHtml}</div>`;
 
     // Validar si el courier u operador guardado en el pedido es un operador ignorado (RECIBELO, WELIVERY)
     const orderCourierUpper = (order.courier || '').toUpperCase().trim();
@@ -12963,7 +13450,10 @@ window.applyWmsFiltersAndRender = function() {
               <div class="order-detail-card" style="background: var(--color-surface); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
                 <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
                   <span style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-user-line"></i> Datos de Despacho</span>
-                  <div style="display: flex; align-items: center; gap: 0.35rem;">
+                  <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                    <button onclick="window.openOrderInNewTab('${order.id}', true)" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-color: rgba(99, 102, 241, 0.45); color: var(--color-primary); background: rgba(99, 102, 241, 0.06);" title="Abrir Página Dedicada del Pedido en una nueva pestaña">
+                      <i class="ri-external-link-line"></i> Página Pedido
+                    </button>
                     <button onclick="window.openWmsOrderModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-color: #c084fc; color: #7e22ce; background: rgba(147, 51, 234, 0.05);" title="Abrir Ficha Completa del Pedido">
                       <i class="ri-file-user-line"></i> Ficha Completa
                     </button>
@@ -13201,6 +13691,7 @@ window.applyWmsFiltersAndRender = function() {
                     <span style="font-size: 0.825rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-hashtag" style="font-size: 0.9rem;"></i> ID Pedido:</span>
                     <span style="font-family: monospace; font-size: 0.875rem; font-weight: 700; color: var(--color-text-main); background: var(--color-surface); padding: 0.1rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border);">${order.external_order_number || '-'}</span>
                   </div>
+                  ${window.renderOrderManualCreatorHtml ? window.renderOrderManualCreatorHtml(order) : ''}
                   ${originalPlatformStatusHtml}
                   ${customPlatformTagsHtml ? `
                     <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.25rem; padding-top: 0.45rem; border-top: 1px dashed var(--color-border); text-align: left;">
@@ -13212,9 +13703,9 @@ window.applyWmsFiltersAndRender = function() {
                       </div>
                     </div>
                   ` : ''}
-                  ${(order.external_platform === 'Shopify' || order.origen === 'Shopify' || order.raw_shopify_data) ? `
+                  ${(order.external_platform === 'Shopify' || order.origen === 'Shopify' || (order.raw_shopify_data && !order.raw_shopify_data.manual_order && !order.raw_shopify_data.is_reverse_logistics && !order.raw_shopify_data.is_pos_sale)) ? `
                     <div style="margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px dashed var(--color-border);">
-                      <button id="btn-resync-shopify-${order.id}" onclick="window.resyncShopifyOrder('${order.id}')" class="btn btn-outline btn-sm" style="width: 100%; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; border-color: #96bf48; color: #446513; background: rgba(150, 191, 72, 0.08); padding: 0.35rem 0.5rem; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s;" title="Llama a la actualización del pedido directamente desde Shopify">
+                      <button id="btn-resync-shopify-${order.id}" onclick="window.resyncShopifyOrder('${order.id}')" class="btn btn-outline btn-sm" style="width: 100%; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; border-color: #96bf48; color: #446513; background: rgba(150, 191, 72, 0.08); padding: 0.35rem 0.5rem; border-radius: 4px; cursor: pointer; transition: all 0.2s;" title="Llama a la actualización del pedido directamente desde Shopify">
                         <i class="ri-refresh-line"></i> Actualizar desde Shopify
                       </button>
                     </div>
@@ -13704,7 +14195,11 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
         query = query.eq('status', selectedStatus);
       }
       if (selectedOrigen) {
-        query = query.or(`origen.ilike.%${selectedOrigen}%,external_platform.ilike.%${selectedOrigen}%`);
+        if (selectedOrigen.toLowerCase() === 'manual') {
+          query = query.or('origen.ilike.%manual%,external_platform.ilike.%manual%,origen.ilike.%inversa%,external_platform.ilike.%inversa%,origen.ilike.%punto de venta%,external_platform.ilike.%punto de venta%,external_order_number.like.LI-%,external_order_number.like.POS-%,external_order_number.like.VTA-%');
+        } else {
+          query = query.or(`origen.ilike.%${selectedOrigen}%,external_platform.ilike.%${selectedOrigen}%`);
+        }
       }
       if (selectedCategoria) {
         if (selectedCategoria === 'LOGÍSTICA INVERSA') {
@@ -15448,6 +15943,7 @@ window.applyBulkWmsStatus = async function() {
       if (typeof window.refreshAgendasOrderCell === 'function') {
         ids.forEach(id => window.refreshAgendasOrderCell(id, 'estado_wms', 'En preparación'));
       }
+      window.triggerShopifyFulfillmentSync(ids);
     } catch (err) {
       console.error(err);
       Swal.fire('Error', 'No se pudieron enviar los pedidos: ' + err.message, 'error');
@@ -15693,6 +16189,7 @@ window.applyBulkWmsStatus = async function() {
           });
         }
         applyWmsFiltersAndRender();
+        window.triggerShopifyFulfillmentSync(idsToProcess);
         return;
       } catch (err) {
         console.error(err);
@@ -17732,6 +18229,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         if (typeof window.refreshAgendasOrderCell === 'function') {
           window.refreshAgendasOrderCell(orderId, 'estado_wms', 'Despachado');
         }
+        window.triggerShopifyFulfillmentSync([orderId]);
 
         if (hadPriorMovement) {
           const docName = checkPrior.movement?.reference_doc ? ` (Referencia: <em>${checkPrior.movement.reference_doc}</em>)` : '';
@@ -17801,6 +18299,9 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       applyWmsFiltersAndRender();
       if (typeof window.refreshAgendasOrderCell === 'function') {
         window.refreshAgendasOrderCell(orderId, 'estado_wms', newWmsStatus);
+      }
+      if (newWmsStatus === 'Pickeado' || newWmsStatus === 'En preparación') {
+        window.triggerShopifyFulfillmentSync([orderId]);
       }
 
       Swal.fire({
@@ -28661,6 +29162,9 @@ function renderAdminMovementsGeneralTab() {
           </button>
         </div>
 
+        <!-- Banner dinámico de Ubicaciones Físicas cuando se consulta un SKU específico -->
+        <div id="admin-movs-sku-locations-banner" style="display: none; margin-top: 0.9rem; padding: 0.7rem 1rem; background: var(--color-surface); border: 1px solid rgba(99, 102, 241, 0.28); border-left: 4px solid #6366f1; border-radius: var(--radius-md);"></div>
+
       </div>
 
       <!-- Tabla de Movimientos Kardex General -->
@@ -28935,6 +29439,86 @@ function applyAdminMovementsFilters() {
   return rows;
 }
 
+async function updateAdminMovementsSkuLocationsBanner(filteredRows) {
+  const banner = document.getElementById('admin-movs-sku-locations-banner');
+  if (!banner) return;
+
+  const state = window.adminMovementsState || {};
+  let targetProd = null;
+
+  if (state.filterProductId) {
+    targetProd = (state.allProducts || []).find(p => p.id === state.filterProductId);
+    if (!targetProd && filteredRows && filteredRows.length > 0) {
+      const first = filteredRows[0];
+      targetProd = { id: first.productId, sku: first.sku, name: first.name, comercio: first.comercio };
+    }
+  } else if (state.searchQuery && filteredRows && filteredRows.length > 0) {
+    const uniqueSkus = [...new Set(filteredRows.map(r => r.sku).filter(Boolean))];
+    if (uniqueSkus.length === 1 && uniqueSkus[0] !== 'N/A') {
+      const first = filteredRows[0];
+      targetProd = { id: first.productId, sku: first.sku, name: first.name, comercio: first.comercio };
+    }
+  }
+
+  if (!targetProd || !targetProd.sku) {
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+    return;
+  }
+
+  const reqKey = `${targetProd.id || ''}_${targetProd.sku}_${state.filterWarehouse || ''}`;
+  banner.setAttribute('data-req-key', reqKey);
+  banner.style.display = 'block';
+  banner.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line spin" style="color: #6366f1;"></i> Consultando ubicaciones físicas de <strong>${escapeHtmlAttr(targetProd.sku)}</strong>...
+    </div>
+  `;
+
+  const locs = await fetchKardexSkuLocations(targetProd.id, targetProd.sku);
+  if (banner.getAttribute('data-req-key') !== reqKey) return;
+
+  banner.innerHTML = `
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+        <span style="font-size: 0.83rem; font-weight: 700; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-map-pin-2-fill" style="color: #6366f1; font-size: 1rem;"></i>
+          Ubicaciones de <span style="font-family: monospace; background: rgba(99, 102, 241, 0.1); color: #4f46e5; padding: 0.1rem 0.4rem; border-radius: 4px;">${escapeHtmlAttr(targetProd.sku)}</span>:
+        </span>
+        ${renderKardexLocationBadgesListHtml(locs, targetProd.sku, targetProd.comercio || state.selectedCommerce || '', state.filterWarehouse || '', true)}
+      </div>
+      <span style="font-size: 0.76rem; color: var(--color-text-muted);">
+        ${escapeHtmlAttr(targetProd.name || '')}
+      </span>
+    </div>
+  `;
+
+  banner.querySelectorAll('.btn-kardex-assign-loc').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (typeof window.openSingleLocationModal === 'function') {
+        const targetBodega = btn.getAttribute('data-bodega') || (state.availableWarehouses?.[0] || '');
+        window.openSingleLocationModal(null, targetProd.sku, targetBodega, targetProd.comercio || state.selectedCommerce || '', async () => {
+          await updateAdminMovementsSkuLocationsBanner(applyAdminMovementsFilters());
+        });
+      }
+    });
+  });
+
+  banner.querySelectorAll('.kardex-loc-pill-editable').forEach(pill => {
+    pill.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const locId = pill.getAttribute('data-loc-id');
+      const foundLoc = (locs || []).find(l => String(l.id) === String(locId));
+      if (foundLoc && typeof window.openSingleLocationModal === 'function') {
+        window.openSingleLocationModal(foundLoc, targetProd.sku, foundLoc.bodega_nombre, foundLoc.comercio || targetProd.comercio || '', async () => {
+          await updateAdminMovementsSkuLocationsBanner(applyAdminMovementsFilters());
+        });
+      }
+    });
+  });
+}
+
 function renderAdminMovementsTableBody() {
   const tbody = document.getElementById('admin-movs-tbody');
   const pagContainer = document.getElementById('admin-movs-pagination-container');
@@ -28943,6 +29527,8 @@ function renderAdminMovementsTableBody() {
   const state = window.adminMovementsState;
   const filtered = applyAdminMovementsFilters();
   const totalRows = filtered.length;
+
+  updateAdminMovementsSkuLocationsBanner(filtered);
 
   if (totalRows === 0) {
     tbody.innerHTML = `
@@ -29323,6 +29909,167 @@ function exportAdminMovementsToCsv() {
 }
 
 // ============================================================================
+// HELPERS DE UBICACIONES FÍSICAS PARA KARDEX
+// ============================================================================
+
+function normalizeKardexBodegaName(name) {
+  if (!name) return '';
+  return String(name).trim().toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/^(cdd|bodega|sucursal|matriz)\s+/i, '')
+    .trim();
+}
+
+async function fetchKardexSkuLocations(productId, sku) {
+  const skuClean = String(sku || '').trim();
+  const skuUpper = skuClean.toUpperCase();
+  const skuLower = skuClean.toLowerCase();
+  const skuVariants = Array.from(new Set([skuClean, skuUpper, skuLower].filter(Boolean)));
+  let locations = [];
+
+  // 1. Consultar product_locations en WMS Supabase
+  try {
+    if (typeof supabase !== 'undefined' && supabase && typeof supabase.from === 'function') {
+      if (skuVariants.length > 0) {
+        const { data, error } = await supabase
+          .from('product_locations')
+          .select('*')
+          .in('sku', skuVariants)
+          .order('bodega_nombre', { ascending: true });
+        if (!error && Array.isArray(data) && data.length > 0) {
+          locations = data;
+        }
+      }
+      if (locations.length === 0 && productId) {
+        const { data, error } = await supabase
+          .from('product_locations')
+          .select('*')
+          .eq('product_id', productId)
+          .order('bodega_nombre', { ascending: true });
+        if (!error && Array.isArray(data) && data.length > 0) {
+          locations = data;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Aviso consultando product_locations en WMS para Kardex:', err);
+  }
+
+  // 2. Fallback a estado local del módulo de ubicaciones si está cargado
+  if (locations.length === 0 && window.locationsState && Array.isArray(window.locationsState.locations) && window.locationsState.locations.length > 0) {
+    locations = window.locationsState.locations.filter(l =>
+      (l.sku && String(l.sku).trim().toUpperCase() === skuUpper) ||
+      (productId && l.product_id && String(l.product_id) === String(productId))
+    );
+  }
+
+  // 3. Fallback a Picker Supabase si está disponible
+  if (locations.length === 0 && typeof getPickerClient === 'function') {
+    try {
+      const pClient = getPickerClient();
+      if (pClient && skuVariants.length > 0) {
+        const { data: pData, error: pErr } = await pClient
+          .from('product_locations')
+          .select('*')
+          .in('sku', skuVariants);
+        if (!pErr && Array.isArray(pData) && pData.length > 0) {
+          locations = pData;
+        }
+      }
+    } catch (pErr) {
+      console.warn('Aviso consultando product_locations en Picker para Kardex:', pErr);
+    }
+  }
+
+  return locations;
+}
+
+function getKardexLocationsForWarehouse(locations, warehouseName) {
+  if (!Array.isArray(locations) || locations.length === 0) return [];
+  if (!warehouseName) return locations;
+  const normTarget = normalizeKardexBodegaName(warehouseName);
+  return locations.filter(loc => {
+    const normLoc = normalizeKardexBodegaName(loc.bodega_nombre);
+    if (!normLoc || !normTarget) return false;
+    return normLoc === normTarget || normLoc.includes(normTarget) || normTarget.includes(normLoc);
+  });
+}
+
+function formatKardexLocationText(loc) {
+  if (!loc) return '';
+  const parts = [loc.zona, loc.espacio, loc.posicion].map(s => String(s || '').trim()).filter(Boolean);
+  const pathStr = parts.join(' > ');
+  return `${pathStr}${loc.is_zero_stock ? ' (0 Stock)' : ''}`;
+}
+
+function renderKardexLocationBadgesListHtml(locations, sku, productComercio = '', activeWarehouseFilter = '', allowAdminEdit = true) {
+  const canEdit = allowAdminEdit && typeof window.openSingleLocationModal === 'function';
+
+  if (!Array.isArray(locations) || locations.length === 0) {
+    return `
+      <div style="display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+        <span class="badge" style="background: rgba(245, 158, 11, 0.1); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.3rem;">
+          <i class="ri-map-pin-line"></i> Sin ubicación física asignada
+        </span>
+        ${canEdit ? `
+          <button type="button" class="btn btn-outline btn-sm btn-kardex-assign-loc" data-sku="${escapeHtmlAttr(sku)}" data-bodega="${escapeHtmlAttr(activeWarehouseFilter || '')}" data-commerce="${escapeHtmlAttr(productComercio || '')}" style="height: 25px; padding: 0 0.55rem; font-size: 0.74rem; font-weight: 600; color: #6366f1; border-color: rgba(99, 102, 241, 0.35); background: rgba(99, 102, 241, 0.06); border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;" title="Asignar ubicación física a este SKU">
+            <i class="ri-add-line"></i> Asignar ubicación
+          </button>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  const badgesHtml = locations.map(loc => {
+    const isZero = Boolean(loc.is_zero_stock);
+    const isHighlighted = activeWarehouseFilter && getKardexLocationsForWarehouse([loc], activeWarehouseFilter).length > 0;
+    const borderStyle = isZero
+      ? 'border: 1px solid rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.05);'
+      : (isHighlighted
+          ? 'border: 1.5px solid #6366f1; background: rgba(99, 102, 241, 0.08); box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);'
+          : 'border: 1px solid var(--color-border); background: var(--color-surface);');
+
+    return `
+      <div class="${canEdit ? 'kardex-loc-pill-editable' : ''}" data-loc-id="${escapeHtmlAttr(loc.id || '')}" style="display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.55rem; border-radius: 6px; font-size: 0.78rem; ${borderStyle} ${canEdit ? 'cursor: pointer;' : ''}" title="${canEdit ? 'Haz clic para editar esta ubicación física' : 'Ubicación física registrada'}">
+        <span style="font-weight: 700; color: #1d4ed8; display: inline-flex; align-items: center; gap: 0.2rem;">
+          <i class="ri-building-line"></i> ${escapeHtmlAttr(loc.bodega_nombre || 'Bodega')}:
+        </span>
+        <span style="background: rgba(147, 51, 234, 0.1); color: #7e22ce; font-weight: 600; padding: 0.08rem 0.38rem; border-radius: 4px;">
+          ${escapeHtmlAttr(loc.zona || '-')}
+        </span>
+        <i class="ri-arrow-right-s-line" style="color: var(--color-text-muted); font-size: 0.75rem;"></i>
+        <span style="background: rgba(14, 165, 233, 0.1); color: #0284c7; font-weight: 600; padding: 0.08rem 0.38rem; border-radius: 4px;">
+          ${escapeHtmlAttr(loc.espacio || '-')}
+        </span>
+        ${loc.posicion ? `
+          <i class="ri-arrow-right-s-line" style="color: var(--color-text-muted); font-size: 0.75rem;"></i>
+          <span style="background: rgba(245, 158, 11, 0.12); color: #b45309; font-weight: 600; padding: 0.08rem 0.38rem; border-radius: 4px;">
+            ${escapeHtmlAttr(loc.posicion)}
+          </span>
+        ` : ''}
+        ${isZero ? `
+          <span style="background: #fee2e2; color: #ef4444; border: 1px solid #fca5a5; font-size: 0.68rem; font-weight: 700; padding: 0.05rem 0.35rem; border-radius: 4px; margin-left: 0.15rem;">
+            <i class="ri-forbid-line"></i> 0 Stock
+          </span>
+        ` : ''}
+        ${canEdit ? `<i class="ri-pencil-line" style="color: var(--color-text-muted); font-size: 0.74rem; margin-left: 0.15rem; opacity: 0.75;"></i>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div style="display: inline-flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+      ${badgesHtml}
+      ${canEdit ? `
+        <button type="button" class="btn btn-outline btn-sm btn-kardex-assign-loc" data-sku="${escapeHtmlAttr(sku)}" data-bodega="${escapeHtmlAttr(activeWarehouseFilter || '')}" data-commerce="${escapeHtmlAttr(productComercio || '')}" style="height: 25px; padding: 0 0.5rem; font-size: 0.73rem; font-weight: 600; color: #6366f1; border-color: rgba(99, 102, 241, 0.3); background: rgba(99, 102, 241, 0.05); border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;" title="Agregar otra ubicación física para este SKU">
+          <i class="ri-add-line"></i> Otra
+        </button>
+      ` : ''}
+    </div>
+  `;
+}
+
+// ============================================================================
 // MODAL RÁPIDO DE PRODUCTO ("KARDEX EXPRESS" MEJORADO)
 // ============================================================================
 
@@ -29446,22 +30193,35 @@ async function openAdminProductMovementsModal(productId, sku, name) {
   document.body.appendChild(modal);
 
   try {
-    // 1. Obtener todos los movimientos cronológicamente para calcular saldos acumulados
-    const { data: rawMovements, error } = await supabase
-      .from('movements')
-      .select(`
-        id,
-        date,
-        type,
-        quantity,
-        reference_doc,
-        warehouse_id,
-        warehouses (id, name)
-      `)
-      .eq('product_id', productId)
-      .order('date', { ascending: true });
+    // 1. Obtener movimientos cronológicamente y ubicaciones físicas del SKU en paralelo
+    const [movsResult, initialLocations, prodMetaResult] = await Promise.all([
+      supabase
+        .from('movements')
+        .select(`
+          id,
+          date,
+          type,
+          quantity,
+          reference_doc,
+          warehouse_id,
+          warehouses (id, name)
+        `)
+        .eq('product_id', productId)
+        .order('date', { ascending: true }),
+      fetchKardexSkuLocations(productId, sku),
+      productId
+        ? supabase.from('products').select('comercio').eq('id', productId).maybeSingle()
+        : Promise.resolve({ data: null })
+    ]);
 
+    const { data: rawMovements, error } = movsResult;
     if (error) throw error;
+
+    let skuLocations = initialLocations || [];
+    const productComercio = prodMetaResult?.data?.comercio
+      || window.activeAdminInventoryCommerce
+      || window.adminMovementsState?.selectedCommerce
+      || (skuLocations[0]?.comercio || '');
 
     // 2. Extraer UUIDs de pedidos
     const extractUuid = (ref) => {
@@ -29526,37 +30286,85 @@ async function openAdminProductMovementsModal(productId, sku, name) {
       };
     });
 
-    // Actualizar mini-KPIs del producto en la cabecera del modal
-    const miniKpisEl = document.getElementById('admin-modal-sku-kpis');
-    if (miniKpisEl) {
+    // Función para renderizar y enlazar la barra de KPIs + Ubicaciones Físicas del SKU
+    const renderKpisAndLocationsBar = () => {
+      const miniKpisEl = document.getElementById('admin-modal-sku-kpis');
+      if (!miniKpisEl) return;
+
       const saldoNeto = totalEntradas - totalSalidas;
       const saldoColor = saldoNeto >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
       const saldoSign = saldoNeto > 0 ? '+' : '';
+      const activeWh = window.activeAdminMovsState?.filterWarehouse || '';
+      const currentLocs = window.activeAdminMovsState?.skuLocations || skuLocations || [];
 
       miniKpisEl.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
-          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
-            <span style="color: var(--color-text-muted); font-weight: 600;">Entradas Totales:</span>
-            <strong style="color: var(--color-success);">+${totalEntradas.toLocaleString('es-CL')} uds</strong>
+        <div style="display: flex; flex-direction: column; gap: 0.55rem; width: 100%;">
+          <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+              <span style="color: var(--color-text-muted); font-weight: 600;">Entradas Totales:</span>
+              <strong style="color: var(--color-success);">+${totalEntradas.toLocaleString('es-CL')} uds</strong>
+            </div>
+            <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+              <span style="color: var(--color-text-muted); font-weight: 600;">Salidas Totales:</span>
+              <strong style="color: var(--color-danger);">-${totalSalidas.toLocaleString('es-CL')} uds</strong>
+            </div>
+            <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+              <span style="color: var(--color-text-muted); font-weight: 600;">Saldo Calculado:</span>
+              <strong style="color: ${saldoColor};">${saldoSign}${saldoNeto.toLocaleString('es-CL')} uds</strong>
+            </div>
+            <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+              <span style="color: var(--color-text-muted); font-weight: 600;">Transacciones:</span>
+              <strong style="color: var(--color-text-main);">${processedMovements.length} movs</strong>
+            </div>
           </div>
-          <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
-          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
-            <span style="color: var(--color-text-muted); font-weight: 600;">Salidas Totales:</span>
-            <strong style="color: var(--color-danger);">-${totalSalidas.toLocaleString('es-CL')} uds</strong>
-          </div>
-          <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
-          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
-            <span style="color: var(--color-text-muted); font-weight: 600;">Saldo Calculado:</span>
-            <strong style="color: ${saldoColor};">${saldoSign}${saldoNeto.toLocaleString('es-CL')} uds</strong>
-          </div>
-          <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
-          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
-            <span style="color: var(--color-text-muted); font-weight: 600;">Transacciones:</span>
-            <strong style="color: var(--color-text-main);">${processedMovements.length} movs</strong>
+
+          <div style="padding-top: 0.5rem; border-top: 1px dashed var(--color-border); display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+            <span style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-map-pin-2-fill" style="color: #6366f1; font-size: 0.95rem;"></i> Ubicación Física:
+            </span>
+            ${renderKardexLocationBadgesListHtml(currentLocs, sku, productComercio, activeWh, true)}
           </div>
         </div>
       `;
-    }
+
+      // Listeners para asignar o editar ubicación desde el propio Kardex Express
+      miniKpisEl.querySelectorAll('.btn-kardex-assign-loc').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (typeof window.openSingleLocationModal === 'function') {
+            const targetBodega = btn.getAttribute('data-bodega') || (availableWarehouses[0] || '');
+            window.openSingleLocationModal(null, sku, targetBodega, productComercio, async () => {
+              const updated = await fetchKardexSkuLocations(productId, sku);
+              skuLocations = updated;
+              if (window.activeAdminMovsState) window.activeAdminMovsState.skuLocations = updated;
+              renderKpisAndLocationsBar();
+              renderModalTable();
+            });
+          }
+        });
+      });
+
+      miniKpisEl.querySelectorAll('.kardex-loc-pill-editable').forEach(pill => {
+        pill.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const locId = pill.getAttribute('data-loc-id');
+          const currentList = window.activeAdminMovsState?.skuLocations || skuLocations || [];
+          const foundLoc = currentList.find(l => String(l.id) === String(locId));
+          if (foundLoc && typeof window.openSingleLocationModal === 'function') {
+            window.openSingleLocationModal(foundLoc, sku, foundLoc.bodega_nombre, foundLoc.comercio || productComercio, async () => {
+              const updated = await fetchKardexSkuLocations(productId, sku);
+              skuLocations = updated;
+              if (window.activeAdminMovsState) window.activeAdminMovsState.skuLocations = updated;
+              renderKpisAndLocationsBar();
+              renderModalTable();
+            });
+          }
+        });
+      });
+    };
 
     // 4. Poblar opciones de bodegas en el dropdown
     const availableWarehouses = [...new Set(processedMovements.map(m => m.warehouseName))].sort();
@@ -29572,6 +30380,8 @@ async function openAdminProductMovementsModal(productId, sku, name) {
     // 6. Guardar estado del modal
     window.activeAdminMovsState = {
       allMovements: processedMovements,
+      skuLocations: skuLocations,
+      productComercio: productComercio,
       orderMap: orderMap,
       currentPage: 1,
       pageSize: 25, // 10, 25, 50, 100, 'all'
@@ -29587,6 +30397,8 @@ async function openAdminProductMovementsModal(productId, sku, name) {
       name: name,
       productId: productId
     };
+
+    renderKpisAndLocationsBar();
 
     const renderModalTable = () => {
       const modalBody = document.getElementById('movements-modal-body-admin');
@@ -29671,6 +30483,7 @@ async function openAdminProductMovementsModal(productId, sku, name) {
       const paginated = isShowAll ? filtered : filtered.slice(startIdx, endIdx);
 
       // Render rows
+      const currentLocs = state.skuLocations || [];
       let rowsHtml = paginated.map(m => {
         const isIngreso = m.type === 'in';
         const flowBadge = isIngreso
@@ -29689,10 +30502,27 @@ async function openAdminProductMovementsModal(productId, sku, name) {
 
         const qtyText = isIngreso ? `+${m.quantity}` : `-${m.quantity}`;
 
+        const whLocs = getKardexLocationsForWarehouse(currentLocs, m.warehouseName);
+        const whLocationsSubHtml = whLocs.length > 0
+          ? `<div style="margin-top: 0.22rem; display: flex; flex-direction: column; gap: 0.18rem;">
+              ${whLocs.map(loc => {
+                const isZero = Boolean(loc.is_zero_stock);
+                return `
+                  <span style="display: inline-flex; align-items: center; gap: 0.22rem; font-size: 0.71rem; font-weight: 600; color: ${isZero ? '#ef4444' : '#6366f1'}; background: ${isZero ? 'rgba(239, 68, 68, 0.08)' : 'rgba(99, 102, 241, 0.08)'}; border: 1px solid ${isZero ? 'rgba(239, 68, 68, 0.25)' : 'rgba(99, 102, 241, 0.2)'}; padding: 0.08rem 0.38rem; border-radius: 4px; width: fit-content;" title="Ubicación física registrada en ${escapeHtmlAttr(m.warehouseName)}">
+                    <i class="ri-map-pin-2-line"></i> ${escapeHtmlAttr(loc.zona)} › ${escapeHtmlAttr(loc.espacio)}${loc.posicion ? ` › ${escapeHtmlAttr(loc.posicion)}` : ''}${isZero ? ' (0 Stock)' : ''}
+                  </span>
+                `;
+              }).join('')}
+            </div>`
+          : '';
+
         return `
           <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
             <td style="padding: 0.75rem 0.8rem; font-size: 0.82rem; white-space: nowrap;">${formattedDate}</td>
-            <td style="padding: 0.75rem 0.8rem; font-weight: 600; color: var(--color-text-main);">${m.warehouseName}</td>
+            <td style="padding: 0.75rem 0.8rem; font-weight: 600; color: var(--color-text-main);">
+              <div>${m.warehouseName}</div>
+              ${whLocationsSubHtml}
+            </td>
             <td style="padding: 0.75rem 0.8rem;">${catBadge}</td>
             <td style="padding: 0.75rem 0.8rem;">${flowBadge}</td>
             <td style="padding: 0.75rem 0.8rem; text-align: center; font-size: 0.95rem; ${qtyStyle}">${qtyText}</td>
@@ -29721,16 +30551,16 @@ async function openAdminProductMovementsModal(productId, sku, name) {
               <th class="modal-movs-sortable" data-sort="date" style="padding: 0.75rem 0.8rem; width: 17%; cursor: pointer;">
                 Fecha / Hora ${getSortIcon('date')}
               </th>
-              <th class="modal-movs-sortable" data-sort="warehouseName" style="padding: 0.75rem 0.8rem; width: 15%; cursor: pointer;">
-                Bodega ${getSortIcon('warehouseName')}
+              <th class="modal-movs-sortable" data-sort="warehouseName" style="padding: 0.75rem 0.8rem; width: 17%; cursor: pointer;">
+                Bodega / Ubicación ${getSortIcon('warehouseName')}
               </th>
-              <th class="modal-movs-sortable" data-sort="category" style="padding: 0.75rem 0.8rem; width: 15%; cursor: pointer;">
+              <th class="modal-movs-sortable" data-sort="category" style="padding: 0.75rem 0.8rem; width: 14%; cursor: pointer;">
                 Tipo ${getSortIcon('category')}
               </th>
               <th class="modal-movs-sortable" data-sort="type" style="padding: 0.75rem 0.8rem; width: 11%; cursor: pointer;">
                 Sentido ${getSortIcon('type')}
               </th>
-              <th class="modal-movs-sortable" data-sort="quantity" style="padding: 0.75rem 0.8rem; text-align: center; width: 11%; cursor: pointer;">
+              <th class="modal-movs-sortable" data-sort="quantity" style="padding: 0.75rem 0.8rem; text-align: center; width: 10%; cursor: pointer;">
                 Cantidad ${getSortIcon('quantity')}
               </th>
               <th class="modal-movs-sortable" data-sort="stockTotalAfter" style="padding: 0.75rem 0.8rem; text-align: center; width: 15%; cursor: pointer;">
@@ -29824,6 +30654,7 @@ async function openAdminProductMovementsModal(productId, sku, name) {
       window.activeAdminMovsState.filterFrom = document.getElementById('admin-movs-date-from')?.value || null;
       window.activeAdminMovsState.filterTo = document.getElementById('admin-movs-date-to')?.value || null;
       window.activeAdminMovsState.currentPage = 1;
+      renderKpisAndLocationsBar();
       renderModalTable();
     };
 
@@ -29853,6 +30684,7 @@ async function openAdminProductMovementsModal(productId, sku, name) {
       window.activeAdminMovsState.filterFrom = null;
       window.activeAdminMovsState.filterTo = null;
       window.activeAdminMovsState.currentPage = 1;
+      renderKpisAndLocationsBar();
       renderModalTable();
     });
 
@@ -29877,18 +30709,24 @@ async function openAdminProductMovementsModal(productId, sku, name) {
         alert('Librería XLSX no disponible.');
         return;
       }
-      const exportRows = window.activeAdminMovsState.allMovements.map(m => ({
-        'Fecha': m.dateStr ? new Date(m.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : '-',
-        'SKU': sku,
-        'Producto': name,
-        'Bodega': m.warehouseName,
-        'Tipo Movimiento': m.category?.label || 'Otro',
-        'Sentido': m.type === 'in' ? 'Ingreso (+)' : 'Salida (-)',
-        'Cantidad': m.type === 'in' ? m.quantity : -m.quantity,
-        'Stock Total Resultante': m.stockTotalAfter,
-        'Stock en Bodega': m.warehouseStockAfter,
-        'Referencia / Detalle': m.displayRef
-      }));
+      const currentLocs = window.activeAdminMovsState.skuLocations || [];
+      const exportRows = window.activeAdminMovsState.allMovements.map(m => {
+        const whLocs = getKardexLocationsForWarehouse(currentLocs, m.warehouseName);
+        const locStr = whLocs.map(formatKardexLocationText).filter(Boolean).join(' | ') || 'Sin ubicación';
+        return {
+          'Fecha': m.dateStr ? new Date(m.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : '-',
+          'SKU': sku,
+          'Producto': name,
+          'Bodega': m.warehouseName,
+          'Ubicación Física': locStr,
+          'Tipo Movimiento': m.category?.label || 'Otro',
+          'Sentido': m.type === 'in' ? 'Ingreso (+)' : 'Salida (-)',
+          'Cantidad': m.type === 'in' ? m.quantity : -m.quantity,
+          'Stock Total Resultante': m.stockTotalAfter,
+          'Stock en Bodega': m.warehouseStockAfter,
+          'Referencia / Detalle': m.displayRef
+        };
+      });
 
       const ws = XLSX.utils.json_to_sheet(exportRows);
       const wb = XLSX.utils.book_new();
@@ -29899,22 +30737,28 @@ async function openAdminProductMovementsModal(productId, sku, name) {
     // Exportar CSV individual del producto
     document.getElementById('admin-modal-export-csv')?.addEventListener('click', () => {
       const exportRows = window.activeAdminMovsState.allMovements;
-      const headers = ['Fecha', 'SKU', 'Producto', 'Bodega', 'Tipo', 'Sentido', 'Cantidad', 'Stock Total', 'Stock Bodega', 'Referencia'];
+      const currentLocs = window.activeAdminMovsState.skuLocations || [];
+      const headers = ['Fecha', 'SKU', 'Producto', 'Bodega', 'Ubicación Física', 'Tipo', 'Sentido', 'Cantidad', 'Stock Total', 'Stock Bodega', 'Referencia'];
       const escapeCsv = (s) => `"${String(s || '').replace(/"/g, '""')}"`;
       const csvLines = [
         headers.join(','),
-        ...exportRows.map(m => [
-          escapeCsv(m.dateStr ? new Date(m.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : '-'),
-          escapeCsv(sku),
-          escapeCsv(name),
-          escapeCsv(m.warehouseName),
-          escapeCsv(m.category?.label || 'Otro'),
-          escapeCsv(m.type === 'in' ? 'Ingreso' : 'Salida'),
-          escapeCsv(m.type === 'in' ? m.quantity : -m.quantity),
-          escapeCsv(m.stockTotalAfter),
-          escapeCsv(m.warehouseStockAfter),
-          escapeCsv(m.displayRef)
-        ].join(','))
+        ...exportRows.map(m => {
+          const whLocs = getKardexLocationsForWarehouse(currentLocs, m.warehouseName);
+          const locStr = whLocs.map(formatKardexLocationText).filter(Boolean).join(' | ') || 'Sin ubicación';
+          return [
+            escapeCsv(m.dateStr ? new Date(m.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : '-'),
+            escapeCsv(sku),
+            escapeCsv(name),
+            escapeCsv(m.warehouseName),
+            escapeCsv(locStr),
+            escapeCsv(m.category?.label || 'Otro'),
+            escapeCsv(m.type === 'in' ? 'Ingreso' : 'Salida'),
+            escapeCsv(m.type === 'in' ? m.quantity : -m.quantity),
+            escapeCsv(m.stockTotalAfter),
+            escapeCsv(m.warehouseStockAfter),
+            escapeCsv(m.displayRef)
+          ].join(',');
+        })
       ];
       const blob = new Blob(['\uFEFF' + csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -30051,8 +30895,9 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
       const orderWmsStatus = (item.orders.estado_wms || '').trim();
       if (excludedStatuses.includes(orderStatus) || orderWmsStatus === 'Despachado' || orderWmsStatus === 'Cancelado' || orderWmsStatus === 'Archivado') continue;
       
-      // NUEVO: Validar que el pedido y el pago estén confirmados (pedidos con pago pendiente o no confirmados no comprometen stock)
-      if (typeof window.isOrderStockCommittedEligible === 'function' && !window.isOrderStockCommittedEligible(item.orders)) {
+      // NUEVO: Validar que el pedido y el pago estén confirmados (pedidos con pago pendiente o no confirmados no comprometen stock en estante; en mesa siempre se muestran los pedidos en preparación/pickeados)
+      const isOrderInMesa = ['en preparación', 'pickeado'].includes(orderWmsStatus.toLowerCase());
+      if (!isOrderInMesa && typeof window.isOrderStockCommittedEligible === 'function' && !window.isOrderStockCommittedEligible(item.orders)) {
         continue;
       }
       
@@ -33880,7 +34725,7 @@ window.buildQuoteCardHtml = function(q, idx, lead) {
       
       <!-- Encabezado de la Tarjeta de Cotización -->
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.4rem;">
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
           <strong style="color: #10b981; font-size: 0.95rem; display: flex; align-items: center; gap: 0.35rem;">
             <i class="ri-calculator-fill"></i> Cotización #${idx + 1}
           </strong>
@@ -33888,7 +34733,14 @@ window.buildQuoteCardHtml = function(q, idx, lead) {
             <i class="ri-checkbox-circle-line"></i> ${sim ? 'Simulación Cotizador 360' : 'Cotizador Online'}
           </span>
         </div>
-        <span style="color: var(--color-text-muted); font-size: 0.75rem;">Fecha: ${qDate}</span>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span style="color: var(--color-text-muted); font-size: 0.75rem;">Fecha: ${qDate}</span>
+          ${lead?.email ? `
+            <button type="button" class="btn btn-outline btn-sm" onclick="if(document.getElementById('modal-lead-detail')) document.getElementById('modal-lead-detail').remove(); window.openSendLeadInfoModal({ emailMode: 'quote', email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name || '')}', commerceName: '${encodeURIComponent(lead.company || '')}', quoteParams: { monthlyOrders: ${Number(orders) || 150}, storageVolumeM3: ${Number(vol) || 3}, shipmentsSameDay: ${parseInt(String(sameDay || '0').replace(/\D/g, ''), 10) || 0}, shipmentsCourier: ${parseInt(String(regiones || '0').replace(/\D/g, ''), 10) || 0}, hasVitrinaService: ${Boolean(vitrina)}, hasPosService: ${Boolean(pos)} } })" style="padding: 0.22rem 0.55rem; font-size: 0.72rem; font-weight: 700; color: #059669; border-color: rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.06); display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-mail-check-line"></i> Enviar Cotización por Correo
+            </button>
+          ` : ''}
+        </div>
       </div>
 
       <!-- Tarjetas KPIs Ejecutivas (4 Bloques) -->
@@ -34460,8 +35312,11 @@ window.renderLeadsAdmin = async function(forceReload = false) {
         </td>
         <td style="padding: 0.9rem 1rem; text-align: right;">
           <div style="display: flex; gap: 0.35rem; justify-content: flex-end; flex-wrap: wrap;">
-            <button type="button" class="btn btn-outline btn-sm" onclick="window.openSendLeadInfoModal({ email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" title="Enviar Información y Presentación Comercial" style="padding: 0.35rem 0.55rem; color: #2563eb; border-color: rgba(37, 99, 235, 0.3); background: rgba(37, 99, 235, 0.04); font-weight: 600; font-size: 0.78rem; display: flex; align-items: center; gap: 0.25rem;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.openSendLeadInfoModal({ emailMode: 'presentation', email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" title="Enviar Información y Presentación Comercial" style="padding: 0.35rem 0.55rem; color: #2563eb; border-color: rgba(37, 99, 235, 0.3); background: rgba(37, 99, 235, 0.04); font-weight: 600; font-size: 0.78rem; display: flex; align-items: center; gap: 0.25rem;">
               <i class="ri-mail-star-line"></i> Info
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.openSendLeadInfoModal({ emailMode: 'quote', email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" title="Enviar Correo con Cotización y Comentarios con Formato" style="padding: 0.35rem 0.55rem; color: #059669; border-color: rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.05); font-weight: 600; font-size: 0.78rem; display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-calculator-line"></i> Cotizar
             </button>
             <button type="button" class="btn btn-outline btn-sm" onclick="window.openSendE1Modal({ email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" title="Enviar Correo E1 (Instrucciones de Onboarding)" style="padding: 0.35rem 0.55rem; color: #7c3aed; border-color: rgba(124, 58, 237, 0.3); background: rgba(124, 58, 237, 0.04); font-weight: 600; font-size: 0.78rem; display: flex; align-items: center; gap: 0.25rem;">
               <i class="ri-mail-send-line"></i> E1
@@ -34514,10 +35369,13 @@ window.renderLeadsAdmin = async function(forceReload = false) {
           <button class="btn btn-outline" onclick="window.renderLeadsAdmin(true)" title="Recargar datos" style="display: flex; align-items: center; gap: 0.35rem; padding: 0.55rem 0.9rem;">
             <i class="ri-refresh-line"></i> Actualizar
           </button>
-          <button class="btn btn-primary" onclick="window.openSendLeadInfoModal()" style="background: linear-gradient(135deg, #2563eb, #3b82f6); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.55rem 1.15rem; font-weight: 600; box-shadow: var(--shadow-sm);">
+          <button class="btn btn-primary" onclick="window.openSendLeadInfoModal({ emailMode: 'presentation' })" style="background: linear-gradient(135deg, #2563eb, #3b82f6); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.55rem 1.1rem; font-weight: 600; box-shadow: var(--shadow-sm);">
             <i class="ri-mail-star-fill"></i> Enviar Presentación Comercial
           </button>
-          <button class="btn btn-primary" onclick="window.openSendE1Modal()" style="background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.55rem 1.15rem; font-weight: 600; box-shadow: var(--shadow-sm);">
+          <button class="btn btn-primary" onclick="window.openSendLeadInfoModal({ emailMode: 'quote' })" style="background: linear-gradient(135deg, #059669, #10b981); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.55rem 1.1rem; font-weight: 600; box-shadow: var(--shadow-sm);">
+            <i class="ri-calculator-fill"></i> Enviar Correo con Cotización
+          </button>
+          <button class="btn btn-primary" onclick="window.openSendE1Modal()" style="background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.55rem 1.1rem; font-weight: 600; box-shadow: var(--shadow-sm);">
             <i class="ri-mail-send-fill"></i> Enviar Instrucciones E1
           </button>
         </div>
@@ -35087,8 +35945,11 @@ ${rawQuoteText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
         </div>
         <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
           <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-lead-detail').remove()">Cerrar</button>
-          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-lead-detail').remove(); window.openSendLeadInfoModal({ email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" style="color: #2563eb; border-color: rgba(37, 99, 235, 0.4); background: rgba(37, 99, 235, 0.05); font-weight: 600; display: flex; align-items: center; gap: 0.35rem;">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-lead-detail').remove(); window.openSendLeadInfoModal({ emailMode: 'presentation', email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" style="color: #2563eb; border-color: rgba(37, 99, 235, 0.4); background: rgba(37, 99, 235, 0.05); font-weight: 600; display: flex; align-items: center; gap: 0.35rem;">
             <i class="ri-mail-star-line"></i> Enviar Info Comercial
+          </button>
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-lead-detail').remove(); window.openSendLeadInfoModal({ emailMode: 'quote', email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" style="color: #059669; border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.06); font-weight: 600; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-calculator-line"></i> Enviar Cotización
           </button>
           <button type="button" class="btn btn-primary" onclick="document.getElementById('modal-lead-detail').remove(); window.openSendE1Modal({ email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" style="background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; font-weight: 600;">
             <i class="ri-mail-send-fill"></i> Enviar Correo E1
@@ -35335,6 +36196,7 @@ const ADMIN_MODULES = [
   { id: 'warehouses_admin', label: 'Gestionar Bodegas' },
   { id: 'visibility_rules_admin', label: 'Reglas de Visibilidad' },
   { id: 'integrations', label: 'Integraciones' },
+  { id: 'automations_admin', label: 'Automatizaciones' },
   { id: 'tickets_admin', label: 'Gestión de Tickets' },
   { id: 'incidencias_admin', label: 'Gestión de Incidencias' },
   { id: 'surveys_admin', label: 'Encuestas & Reviews' },
@@ -36764,6 +37626,10 @@ window.syncPlatformDirect = async function(platform, comercio, btnElement) {
 };
 
 async function renderAdminDashboard() {
+  if (window._suppressDashboardForOrderPage || window._activeSingleOrderPageId) {
+    console.log('DEBUG: Omitiendo renderAdminDashboard porque hay una Página de Pedido activa.');
+    return;
+  }
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `
     <p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: inline-block; animation: spin 1s linear infinite;"></i> Cargando dashboard...</p>
@@ -36777,6 +37643,7 @@ async function renderAdminDashboard() {
       .order('nombre', { ascending: true });
 
     if (comerciosErr) throw comerciosErr;
+    if (window._suppressDashboardForOrderPage || window._activeSingleOrderPageId) return;
 
     // 2. Renderizar contenedor base
     appContent.innerHTML = `
@@ -36897,7 +37764,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
         .from('orders')
         .select('id, external_order_number, comercio, customer_name, customer_phone, origen, external_platform, status, estado_wms, created_at, shipping_method, operador, cantidad, sku, item')
         .gte('created_at', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString())
-        .or('origen.ilike.%manual%,external_platform.ilike.%manual%')
+        .or('origen.ilike.%manual%,external_platform.ilike.%manual%,origen.ilike.%inversa%,external_platform.ilike.%inversa%,external_order_number.like.LI-%')
         .ilike('estado_wms', '%procesamiento%')
         .not('status', 'in', '("cancelado","anulado")')
         .order('created_at', { ascending: false })
@@ -62951,11 +63818,17 @@ async function renderMerchantsAdmin() {
 
         const isPosActive = c.onboarding_checklist?.pos_active === true;
         const posMachine = c.onboarding_checklist?.pos_machine;
+        const activePosPayments = (typeof window.getMerchantActivePosPaymentMethods === 'function')
+          ? window.getMerchantActivePosPaymentMethods(c.onboarding_checklist)
+          : ['Tarjeta de Débito', 'Tarjeta de Crédito', 'Efectivo', 'Transferencia'];
         const machineDesc = (isPosActive && (posMachine?.brand || posMachine?.model))
-          ? `<span title="Máquina de pago POS asignada" style="font-size: 0.7rem; color: var(--color-text-muted); display: block; margin-top: 0.15rem;"><i class="ri-bank-card-line" style="color: var(--color-primary);"></i> ${window.escapeHtml(posMachine.brand || '')}${posMachine.color ? ` (${window.escapeHtml(posMachine.color)})` : ''}${posMachine.model ? ` #${window.escapeHtml(posMachine.model)}` : ''}</span>`
+          ? `<span title="Máquina de pago POS asignada" style="font-size: 0.7rem; color: var(--color-text-muted); display: block; margin-top: 0.15rem;"><i class="ri-bank-card-line" style="color: var(--color-primary);"></i> ${window.escapeHtml(posMachine.brand || '')}${posMachine.color ? ` (${window.escapeHtml(posMachine.color)})` : ''}${posMachine.model ? ` <strong style="font-family: monospace; color: var(--color-primary);">#${window.escapeHtml(posMachine.model)}</strong>` : ''}</span>`
+          : '';
+        const paymentsDesc = (isPosActive && activePosPayments.length < 4)
+          ? `<span title="Medios de pago habilitados: ${activePosPayments.join(', ')}" style="font-size: 0.68rem; color: #2563eb; display: block; margin-top: 0.1rem; font-weight: 600;"><i class="ri-shield-check-line"></i> Pagos: ${activePosPayments.map(m => m.replace('Tarjeta de ', 'T. ')).join(', ')}</span>`
           : '';
         const posPill = isPosActive 
-          ? `<div><span class="badge-status enabled" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantPosQuick('${c.nombre.replace(/'/g, "\\'")}', false)" title="Clic para desactivar Punto de Venta en este comercio"><i class="ri-store-3-line"></i> POS Activo</span>${machineDesc}</div>`
+          ? `<div><span class="badge-status enabled" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantPosQuick('${c.nombre.replace(/'/g, "\\'")}', false)" title="Clic para desactivar Punto de Venta en este comercio"><i class="ri-store-3-line"></i> POS Activo</span>${machineDesc}${paymentsDesc}</div>`
           : `<div><span class="badge-status disabled" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantPosQuick('${c.nombre.replace(/'/g, "\\'")}', true)" title="Clic para activar Punto de Venta en este comercio"><i class="ri-forbid-line"></i> Sin POS</span></div>`;
 
         return `
@@ -63295,6 +64168,9 @@ window.toggleMerchantPosQuick = async function(comercioName, enable) {
 
     const checklist = cacData?.onboarding_checklist || {};
     checklist.pos_active = enable;
+    if (enable && (!Array.isArray(checklist.pos_payment_methods) || checklist.pos_payment_methods.length === 0)) {
+      checklist.pos_payment_methods = ['Tarjeta de Débito', 'Tarjeta de Crédito', 'Efectivo', 'Transferencia'];
+    }
 
     const dbComercioName = cacData?.comercio || comercioName;
     const { error } = await supabase
@@ -65173,6 +66049,82 @@ window.setupPosColorSelector = function(prefix) {
   updateFromInput();
 };
 
+if (!window.POS_PAYMENT_METHODS_LIST) {
+  window.POS_PAYMENT_METHODS_LIST = [
+    { id: 'debito', value: 'Tarjeta de Débito', label: 'Tarjeta de Débito', subtitle: 'Redcompra POS', icon: 'ri-bank-card-line' },
+    { id: 'credito', value: 'Tarjeta de Crédito', label: 'Tarjeta de Crédito', subtitle: 'Cuotas / POS', icon: 'ri-bank-card-2-line' },
+    { id: 'efectivo', value: 'Efectivo', label: 'Efectivo', subtitle: 'Pago en caja física', icon: 'ri-money-dollar-circle-line' },
+    { id: 'transferencia', value: 'Transferencia', label: 'Transferencia', subtitle: 'Comprobante bancario', icon: 'ri-exchange-dollar-line' }
+  ];
+}
+
+if (!window.getMerchantActivePosPaymentMethods) {
+  window.getMerchantActivePosPaymentMethods = function(onboardingChecklist) {
+    const allValues = (window.POS_PAYMENT_METHODS_LIST || []).map(m => m.value);
+    const configured = onboardingChecklist?.pos_payment_methods;
+    if (Array.isArray(configured) && configured.length > 0) {
+      const valid = allValues.filter(v => configured.includes(v));
+      if (valid.length > 0) return valid;
+    }
+    return allValues;
+  };
+}
+
+window.renderMerchantPosPaymentMethodsHtml = function(prefix, onboardingChecklist) {
+  const activeMethods = window.getMerchantActivePosPaymentMethods(onboardingChecklist);
+  return `
+    <div id="${prefix}-pos-payment-methods-wrapper" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 0.6rem;">
+      ${(window.POS_PAYMENT_METHODS_LIST || []).map(m => {
+        const isChecked = activeMethods.includes(m.value);
+        return `
+          <label class="${prefix}-pos-pm-card" style="display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.75rem; border-radius: 8px; cursor: pointer; user-select: none; transition: all 0.15s ease; border: ${isChecked ? '1.5px solid var(--color-primary, #2563eb)' : '1px solid var(--color-border)'}; background: ${isChecked ? 'rgba(37, 99, 235, 0.06)' : 'var(--color-surface)'};">
+            <input type="checkbox" class="${prefix}-pos-payment-method" value="${m.value}" ${isChecked ? 'checked' : ''} style="width: 16px; height: 16px; accent-color: var(--color-primary, #2563eb); cursor: pointer; flex-shrink: 0;">
+            <i class="${m.icon}" style="font-size: 1.25rem; color: ${isChecked ? 'var(--color-primary, #2563eb)' : 'var(--color-text-muted)'}; flex-shrink: 0;"></i>
+            <div style="min-width: 0; flex: 1;">
+              <div class="pm-title" style="font-weight: 700; font-size: 0.78rem; color: ${isChecked ? 'var(--color-text-main)' : 'var(--color-text-muted)'}; line-height: 1.2;">${m.label}</div>
+              <div style="font-size: 0.68rem; color: var(--color-text-muted); line-height: 1.2; margin-top: 2px;">${m.subtitle}</div>
+            </div>
+          </label>
+        `;
+      }).join('')}
+    </div>
+  `;
+};
+
+window.setupPosPaymentMethodsSelector = function(prefix) {
+  const wrapper = document.getElementById(`${prefix}-pos-payment-methods-wrapper`);
+  if (!wrapper) return;
+  const updateVisuals = () => {
+    wrapper.querySelectorAll(`.${prefix}-pos-pm-card`).forEach(card => {
+      const cb = card.querySelector(`.${prefix}-pos-payment-method`);
+      const icon = card.querySelector('i');
+      const title = card.querySelector('.pm-title');
+      const isChecked = Boolean(cb?.checked);
+      card.style.border = isChecked ? '1.5px solid var(--color-primary, #2563eb)' : '1px solid var(--color-border)';
+      card.style.background = isChecked ? 'rgba(37, 99, 235, 0.06)' : 'var(--color-surface)';
+      if (icon) icon.style.color = isChecked ? 'var(--color-primary, #2563eb)' : 'var(--color-text-muted)';
+      if (title) title.style.color = isChecked ? 'var(--color-text-main)' : 'var(--color-text-muted)';
+    });
+  };
+  wrapper.querySelectorAll(`.${prefix}-pos-payment-method`).forEach(cb => {
+    cb.addEventListener('change', updateVisuals);
+  });
+  updateVisuals();
+};
+
+window.setMerchantPosPaymentMethodsPreset = function(prefix, mode) {
+  const wrapper = document.getElementById(`${prefix}-pos-payment-methods-wrapper`);
+  if (!wrapper) return;
+  wrapper.querySelectorAll(`.${prefix}-pos-payment-method`).forEach(cb => {
+    if (mode === 'all') {
+      cb.checked = true;
+    } else if (mode === 'cards') {
+      cb.checked = (cb.value === 'Tarjeta de Débito' || cb.value === 'Tarjeta de Crédito');
+    }
+    cb.dispatchEvent(new Event('change'));
+  });
+};
+
 // Modal de Creación de Comercio
 window.showMerchantCreateModal = function() {
   const modalId = 'modal-create-merchant';
@@ -65395,6 +66347,22 @@ window.showMerchantCreateModal = function() {
           </div>
 
           <div id="merchant-create-pos-details-container" style="display: none; margin-top: 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.85rem 1rem; background: var(--color-bg);">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.35rem;">
+              <h4 style="margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-secure-payment-line" style="color: var(--color-primary);"></i> Medios de Pago Habilitados en POS
+              </h4>
+              <div style="display: flex; gap: 0.35rem;">
+                <button type="button" onclick="window.setMerchantPosPaymentMethodsPreset('merchant-create', 'all')" style="font-size: 0.68rem; padding: 2px 7px; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: pointer; font-weight: 600;">Todos</button>
+                <button type="button" onclick="window.setMerchantPosPaymentMethodsPreset('merchant-create', 'cards')" style="font-size: 0.68rem; padding: 2px 7px; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-primary); cursor: pointer; font-weight: 600;">Solo Tarjetas</button>
+              </div>
+            </div>
+            <p style="font-size: 0.72rem; color: var(--color-text-muted); margin: 0 0 0.6rem 0; line-height: 1.3;">
+              Selecciona los medios de pago que aparecerán disponibles al crear una venta en el POS para este comercio.
+            </p>
+            ${window.renderMerchantPosPaymentMethodsHtml('merchant-create', null)}
+
+            <hr style="border: 0; border-top: 1px dashed var(--color-border); margin: 0.85rem 0;">
+
             <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
               <i class="ri-bank-card-line" style="color: var(--color-primary);"></i> Máquina de Pago Asignada para Ventas POS
             </h4>
@@ -65586,6 +66554,7 @@ window.showMerchantCreateModal = function() {
 
   document.body.appendChild(modal);
   window.setupPosColorSelector('merchant-create');
+  window.setupPosPaymentMethodsSelector('merchant-create');
 
   // Gestión de contactos en creación de comercio
   const pendingCreateContacts = [];
@@ -65815,6 +66784,10 @@ window.showMerchantCreateModal = function() {
             stock_declared: false,
             dismissed: false,
             pos_active: document.getElementById('merchant-create-pos-active')?.checked === true,
+            pos_payment_methods: (() => {
+              const checked = Array.from(document.querySelectorAll('#form-create-merchant .merchant-create-pos-payment-method:checked')).map(cb => cb.value);
+              return checked.length > 0 ? checked : ['Tarjeta de Débito', 'Tarjeta de Crédito', 'Efectivo', 'Transferencia'];
+            })(),
             pos_machine: {
               brand: document.getElementById('merchant-create-pos-brand')?.value.trim() || '',
               color: document.getElementById('merchant-create-pos-color')?.value.trim() || '',
@@ -66673,6 +67646,31 @@ window.showMerchantEditModal = async function(comercioName) {
 
             <!-- Detalles del POS en 2 Columnas -->
             <div id="merchant-edit-pos-details-container" style="display: ${commerce.onboarding_checklist?.pos_active === true ? 'block' : 'none'};">
+              
+              <!-- Medios de Pago Habilitados en POS -->
+              <div class="merchant-section-card" style="margin: 0 0 1rem 0;">
+                <div class="merchant-card-title" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                  <div>
+                    <span class="title-text">
+                      <i class="ri-secure-payment-line" style="color: var(--color-primary); font-size: 1.1rem;"></i>
+                      Medios de Pago Habilitados en Punto de Venta (POS)
+                    </span>
+                    <p style="font-size: 0.72rem; color: var(--color-text-muted); margin: 0.2rem 0 0 0; font-weight: normal;">
+                      Selecciona qué medios de pago aparecerán disponibles al crear una venta para este comercio (por defecto todos activos).
+                    </p>
+                  </div>
+                  <div style="display: flex; gap: 0.4rem;">
+                    <button type="button" onclick="window.setMerchantPosPaymentMethodsPreset('merchant-edit', 'all')" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.25rem 0.6rem; border-color: var(--color-border); color: var(--color-text-main);">
+                      <i class="ri-checkbox-multiple-line"></i> Activar Todos
+                    </button>
+                    <button type="button" onclick="window.setMerchantPosPaymentMethodsPreset('merchant-edit', 'cards')" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.25rem 0.6rem; border-color: rgba(37,99,235,0.35); color: var(--color-primary);">
+                      <i class="ri-bank-card-line"></i> Solo Tarjetas
+                    </button>
+                  </div>
+                </div>
+                ${window.renderMerchantPosPaymentMethodsHtml('merchant-edit', commerce.onboarding_checklist)}
+              </div>
+
               <div class="merchant-grid-2">
                 
                 <!-- Columna 1: Máquina POS -->
@@ -66887,6 +67885,7 @@ window.showMerchantEditModal = async function(comercioName) {
   }
 
   window.setupPosColorSelector('merchant-edit');
+  window.setupPosPaymentMethodsSelector('merchant-edit');
 
   // Inicializar lista y eventos de Contactos del Comercio en Modal de Edición
   window.renderMerchantEditContactsList(comercioName);
@@ -67266,6 +68265,23 @@ window.showMerchantEditModal = async function(comercioName) {
 
     const posActiveInput = document.getElementById('merchant-edit-pos-active');
     const newPosActive = posActiveInput ? posActiveInput.checked : false;
+    const selectedPosPaymentMethods = Array.from(document.querySelectorAll('#form-edit-merchant .merchant-edit-pos-payment-method:checked')).map(cb => cb.value);
+    if (newPosActive && selectedPosPaymentMethods.length === 0) {
+      if (typeof window.switchMerchantEditTab === 'function') {
+        window.switchMerchantEditTab('pos');
+      }
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ri-save-3-line"></i> Guardar Cambios';
+      alertContainer.innerHTML = `
+        <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid var(--color-danger); color: var(--color-danger); padding: 0.45rem 0.75rem; border-radius: var(--radius-sm); font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem;">
+          <i class="ri-error-warning-line"></i> <span>Debes seleccionar al menos un medio de pago habilitado para el Punto de Venta.</span>
+        </div>
+      `;
+      return;
+    }
+    const newPosPaymentMethods = selectedPosPaymentMethods.length > 0
+      ? selectedPosPaymentMethods
+      : ['Tarjeta de Débito', 'Tarjeta de Crédito', 'Efectivo', 'Transferencia'];
     const newPosBrand = document.getElementById('merchant-edit-pos-brand')?.value.trim() || '';
     const newPosColor = document.getElementById('merchant-edit-pos-color')?.value.trim() || '';
     const newPosColorHex = document.getElementById('merchant-edit-pos-color')?.getAttribute('data-color-hex') || document.getElementById('merchant-edit-pos-color-picker')?.value || '';
@@ -67288,6 +68304,7 @@ window.showMerchantEditModal = async function(comercioName) {
       catalog_ready: !!(newCatalogReady || newInventory),
       shipping_configured: isValidEnviame,
       pos_active: newPosActive,
+      pos_payment_methods: newPosPaymentMethods,
       pos_machine: {
         brand: newPosBrand,
         color: newPosColor,
@@ -74375,11 +75392,12 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
   const sourceOrders = Array.isArray(targetOrders) ? targetOrders : (window.loadedOrders || []);
   if (!sourceOrders || sourceOrders.length === 0) return;
 
-  const prepOrders = sourceOrders.filter(o => o && o.estado_wms === 'En preparación');
-  if (prepOrders.length === 0) return;
+  // Incluir tanto pedidos 'En preparación' (para pasar a Pickeado o Despachado) como 'Pickeado' (para pasar a Despachado cuando se retiran)
+  const candidateOrders = sourceOrders.filter(o => o && (o.estado_wms === 'En preparación' || o.estado_wms === 'Pickeado'));
+  if (candidateOrders.length === 0) return;
 
   const searchKeysSet = new Set();
-  prepOrders.forEach(o => {
+  candidateOrders.forEach(o => {
     if (o.external_order_number) window.normalizeOrderKeys(o.external_order_number).forEach(k => searchKeysSet.add(k));
     if (o.id) window.normalizeOrderKeys(o.id).forEach(k => searchKeysSet.add(k));
   });
@@ -74388,14 +75406,16 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
 
   try {
     const completedStatuses = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'];
+    const isDeliveredPickerStatus = (st) => ['RETIRADO', 'ENTREGADO'].includes(String(st || '').trim().toUpperCase());
 
     const chunkSize = 120;
     const logs = [];
     const activeCompleted = [];
+    const deliveredPickups = [];
 
     for (let i = 0; i < orderNumbers.length; i += chunkSize) {
       const chunk = orderNumbers.slice(i, i + chunkSize);
-      const [logRes, actRes] = await Promise.all([
+      const [logRes, actRes, pickRes] = await Promise.all([
         pickerSupabase
           .from('history_logs')
           .select('pedido, estado, picker')
@@ -74405,7 +75425,12 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
           .from('active_orders')
           .select('order_number, sheet_status, operator')
           .in('order_number', chunk)
-          .in('sheet_status', completedStatuses)
+          .in('sheet_status', completedStatuses),
+        pickerSupabase
+          .from('sucursal_pickups')
+          .select('pedido, estado_pedido')
+          .in('pedido', chunk)
+          .eq('estado_pedido', 'ENTREGADO')
       ]);
 
       if (logRes?.error) {
@@ -74419,22 +75444,35 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
       } else if (actRes?.data && actRes.data.length > 0) {
         activeCompleted.push(...actRes.data);
       }
+
+      if (!pickRes?.error && pickRes?.data && pickRes.data.length > 0) {
+        deliveredPickups.push(...pickRes.data);
+      }
     }
 
     const hasLogs = logs.length > 0;
     const hasActive = activeCompleted.length > 0;
+    const hasDeliveredPickups = deliveredPickups.length > 0;
 
-    if (hasLogs || hasActive) {
+    if (hasLogs || hasActive || hasDeliveredPickups) {
       const completedKeysSet = new Set();
       const statusMetaMap = new Map();
+
+      const setOrUpgradeMeta = (key, newStatus, newOperator) => {
+        completedKeysSet.add(key);
+        const existing = statusMetaMap.get(key);
+        if (!existing || (isDeliveredPickerStatus(newStatus) && !isDeliveredPickerStatus(existing.status))) {
+          statusMetaMap.set(key, {
+            status: newStatus || 'Completado',
+            operator: newOperator || existing?.operator || null
+          });
+        }
+      };
 
       if (hasLogs) {
         logs.forEach(l => {
           window.normalizeOrderKeys(l.pedido).forEach(k => {
-            completedKeysSet.add(k);
-            if (!statusMetaMap.has(k)) {
-              statusMetaMap.set(k, { status: l.estado || 'Completado', operator: l.picker || null });
-            }
+            setOrUpgradeMeta(k, l.estado || 'Completado', l.picker || null);
           });
         });
       }
@@ -74442,77 +75480,174 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
       if (hasActive) {
         activeCompleted.forEach(a => {
           window.normalizeOrderKeys(a.order_number).forEach(k => {
-            completedKeysSet.add(k);
-            if (!statusMetaMap.has(k)) {
-              statusMetaMap.set(k, { status: a.sheet_status || 'Completado', operator: a.operator || null });
-            }
+            setOrUpgradeMeta(k, a.sheet_status || 'Completado', a.operator || null);
           });
         });
       }
 
-      const ordersToUpdate = prepOrders.filter(o => {
+      if (hasDeliveredPickups) {
+        deliveredPickups.forEach(p => {
+          window.normalizeOrderKeys(p.pedido).forEach(k => {
+            setOrUpgradeMeta(k, 'Retirado', 'Punto de Retiro');
+          });
+        });
+      }
+
+      const resolveMetaForOrder = (o) => {
         const extNorm = o.external_order_number ? String(o.external_order_number).trim().toUpperCase() : '';
         const idNorm = o.id ? String(o.id).trim().toUpperCase() : '';
-        return completedKeysSet.has(extNorm) || 
-               completedKeysSet.has('#' + extNorm.replace(/^#/, '')) || 
-               completedKeysSet.has(extNorm.replace(/^#/, '')) ||
-               completedKeysSet.has(idNorm);
+        const keysToTry = [
+          extNorm,
+          '#' + extNorm.replace(/^#/, ''),
+          extNorm.replace(/^#/, ''),
+          idNorm
+        ].filter(Boolean);
+        let bestMeta = null;
+        for (const k of keysToTry) {
+          if (statusMetaMap.has(k)) {
+            const m = statusMetaMap.get(k);
+            if (!bestMeta || (isDeliveredPickerStatus(m.status) && !isDeliveredPickerStatus(bestMeta.status))) {
+              bestMeta = m;
+            }
+          }
+        }
+        return bestMeta;
+      };
+
+      const ordersToPickeado = [];
+      const ordersToDespachado = [];
+
+      candidateOrders.forEach(o => {
+        const meta = resolveMetaForOrder(o);
+        if (!meta) return;
+
+        // Actualizar pickerStatusMap en memoria para que el badge de Picker refleje el estado real
+        const stObj = {
+          status: meta.status,
+          operator: meta.operator,
+          isCompleted: true,
+          isActive: false,
+          source: 'picker_sync'
+        };
+        window.normalizeOrderKeys(o.external_order_number || o.id).forEach(k => {
+          window.pickerStatusMap[k] = stObj;
+          if (meta.operator) window.pickerOperatorsMap[k] = meta.operator;
+        });
+
+        if (isDeliveredPickerStatus(meta.status) && o.estado_wms !== 'Despachado') {
+          ordersToDespachado.push({ order: o, meta });
+        } else if (!isDeliveredPickerStatus(meta.status) && o.estado_wms === 'En preparación') {
+          ordersToPickeado.push({ order: o, meta });
+        }
       });
 
-      if (ordersToUpdate.length > 0) {
-        const ids = ordersToUpdate.map(o => o.id);
-        const updateChunkSize = 60;
-        
+      const updateChunkSize = 60;
+      const syncedShopifyIds = [];
+
+      // 1. Procesar pedidos que pasan a 'Pickeado'
+      if (ordersToPickeado.length > 0) {
+        const ids = ordersToPickeado.map(x => x.order.id);
         for (let i = 0; i < ids.length; i += updateChunkSize) {
           const chunkIds = ids.slice(i, i + updateChunkSize);
           const { error: wmsErr } = await supabase
             .from('orders')
             .update({ estado_wms: 'Pickeado', status: 'preparado' })
             .in('id', chunkIds);
-
           if (wmsErr) throw wmsErr;
         }
 
-        ordersToUpdate.forEach(o => {
+        ordersToPickeado.forEach(({ order: o }) => {
           o.estado_wms = 'Pickeado';
           o.status = 'preparado';
           delete o._wmsTags;
           delete o._wmsSearchIndex;
+          syncedShopifyIds.push(o.id);
+          if (typeof window.refreshAgendasOrderCell === 'function') {
+            window.refreshAgendasOrderCell(o.id, 'estado_wms', 'Pickeado');
+          }
+        });
+      }
 
-          const extNorm = o.external_order_number ? String(o.external_order_number).trim().toUpperCase() : '';
-          const idNorm = o.id ? String(o.id).trim().toUpperCase() : '';
-          const meta = statusMetaMap.get(extNorm) || statusMetaMap.get(idNorm) || { status: 'Completado', operator: null };
-
-          const stObj = {
-            status: meta.status,
-            operator: meta.operator,
-            isCompleted: true,
-            isActive: false,
-            source: 'picker_sync'
-          };
-          window.normalizeOrderKeys(o.external_order_number || o.id).forEach(k => {
-            window.pickerStatusMap[k] = stObj;
-            if (meta.operator) window.pickerOperatorsMap[k] = meta.operator;
-          });
+      // 2. Procesar pedidos marcados como 'Retirado' / 'ENTREGADO' -> pasan automáticamente a 'Despachado'
+      if (ordersToDespachado.length > 0) {
+        const ids = ordersToDespachado.map(x => x.order.id);
+        const pickupOrderKeys = [];
+        ordersToDespachado.forEach(({ order: o }) => {
+          if (o.external_order_number) {
+            const raw = String(o.external_order_number).trim();
+            pickupOrderKeys.push(raw, '#' + raw.replace(/^#/, ''), raw.replace(/^#/, ''));
+          }
         });
 
-        const orderNames = ordersToUpdate.map(o => o.external_order_number || o.id).slice(0, 3).join(', ') + (ordersToUpdate.length > 3 ? ' y otros' : '');
-        const toast = Swal.mixin({
-          toast: true,
-          position: 'top-end',
-          showConfirmButton: false,
-          timer: 5000,
-          timerProgressBar: true
-        });
-        toast.fire({
-          icon: 'success',
-          title: `¡${ordersToUpdate.length} pedido(s) finalizados desde el Picker!`,
-          html: `<div style="font-size: 0.825rem; margin-top: 0.25rem; color: var(--color-text-muted);">Pedidos: <strong>${orderNames}</strong> cambiados a 'Pickeado'.</div>`
-        });
+        for (let i = 0; i < ids.length; i += updateChunkSize) {
+          const chunkIds = ids.slice(i, i + updateChunkSize);
+          const { error: wmsErr } = await supabase
+            .from('orders')
+            .update({ estado_wms: 'Despachado', status: 'despachado', stock_descontado: true })
+            .in('id', chunkIds);
+          if (wmsErr) throw wmsErr;
+        }
 
-        applyWmsFiltersAndRender();
-        if (typeof window.refreshAgendasOrderCell === 'function') {
-          ordersToUpdate.forEach(o => window.refreshAgendasOrderCell(o.id, 'estado_wms', 'Pickeado'));
+        if (pickupOrderKeys.length > 0) {
+          supabase
+            .from('store_pickups')
+            .update({ estado_pedido: 'ENTREGADO' })
+            .in('pedido', Array.from(new Set(pickupOrderKeys)))
+            .then(() => {})
+            .catch(() => {});
+        }
+
+        ordersToDespachado.forEach(({ order: o }) => {
+          o.estado_wms = 'Despachado';
+          o.status = 'despachado';
+          o.stock_descontado = true;
+          delete o._wmsTags;
+          delete o._wmsSearchIndex;
+          syncedShopifyIds.push(o.id);
+          if (typeof window.refreshAgendasOrderCell === 'function') {
+            window.refreshAgendasOrderCell(o.id, 'estado_wms', 'Despachado');
+          }
+        });
+      }
+
+      // 3. Notificaciones y sincronización en tiempo real con Shopify
+      const totalUpdated = ordersToPickeado.length + ordersToDespachado.length;
+      if (totalUpdated > 0) {
+        if (typeof window.triggerShopifyFulfillmentSync === 'function' && syncedShopifyIds.length > 0) {
+          window.triggerShopifyFulfillmentSync(syncedShopifyIds);
+        }
+
+        if (ordersToDespachado.length > 0 && ordersToPickeado.length === 0) {
+          const orderNames = ordersToDespachado.map(x => x.order.external_order_number || x.order.id).slice(0, 3).join(', ') + (ordersToDespachado.length > 3 ? ' y otros' : '');
+          const notifTitle = `¡${ordersToDespachado.length} pedido(s) retirado(s) en Picker!`;
+          const notifHtml = `<div style="font-size: 0.825rem; margin-top: 0.25rem; color: var(--color-text-muted);">Pedidos: <strong>${orderNames}</strong> cambiados automáticamente a 'Despachado'.</div>`;
+          if (typeof window.showStockaNotification === 'function') {
+            window.showStockaNotification({
+              type: 'success',
+              title: notifTitle,
+              html: notifHtml,
+              duration: 5000
+            });
+          }
+        } else {
+          const allUpdatedOrders = [...ordersToPickeado.map(x => x.order), ...ordersToDespachado.map(x => x.order)];
+          const orderNames = allUpdatedOrders.map(o => o.external_order_number || o.id).slice(0, 3).join(', ') + (allUpdatedOrders.length > 3 ? ' y otros' : '');
+          const notifTitle = `¡${totalUpdated} pedido(s) sincronizados desde el Picker!`;
+          const notifHtml = `<div style="font-size: 0.825rem; margin-top: 0.25rem; color: var(--color-text-muted);">Pedidos: <strong>${orderNames}</strong> actualizados (${ordersToPickeado.length} Pickeado, ${ordersToDespachado.length} Despachado).</div>`;
+          if (typeof window.showStockaNotification === 'function') {
+            window.showStockaNotification({
+              type: 'success',
+              title: notifTitle,
+              html: notifHtml,
+              duration: 5000
+            });
+          }
+        }
+
+        if (typeof window.requestSafeWmsTableRender === 'function') {
+          window.requestSafeWmsTableRender();
+        } else {
+          applyWmsFiltersAndRender();
         }
       }
     }
@@ -82144,16 +83279,26 @@ function showOnboardingObservationsModal(req) {
 // LEAD INFO / COMMERCIAL PRESENTATION EMAIL SENDER
 // =========================================================================
 
+window.openSendQuoteEmailModal = function(defaultData = {}) {
+  return window.openSendLeadInfoModal({ ...defaultData, emailMode: 'quote' });
+};
+
 window.openSendLeadInfoModal = async function(defaultData = {}) {
   // Remover modal previo si existe
   const oldModal = document.getElementById('modal-send-lead-info');
   if (oldModal) oldModal.remove();
 
-  // Cargar configuración vigente de presentaciones y documentos
+  // Cargar configuración vigente de tarifas, presentaciones y calculador
   let pricingConfig = null;
+  let calcQuotationFn = null;
+  let fmtClpFn = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('es-CL');
   try {
-    const { loadPricingConfig } = await import('./pricing_manager.js');
-    pricingConfig = await loadPricingConfig(supabase);
+    const pricingMod = await import('./pricing_manager.js');
+    pricingConfig = await pricingMod.loadPricingConfig(supabase);
+    calcQuotationFn = pricingMod.calculateQuotation;
+    if (typeof pricingMod.formatCLP === 'function') {
+      fmtClpFn = pricingMod.formatCLP;
+    }
   } catch (e) {
     console.warn("Aviso cargando pricingConfig para modal de lead info:", e);
   }
@@ -82163,11 +83308,16 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
   modal.id = 'modal-send-lead-info';
   modal.style.zIndex = '2100';
 
+  const defaultEmailMode = defaultData.emailMode === 'quote' ? 'quote' : 'presentation'; // 'presentation' | 'quote'
   const defaultEmail = defaultData.email ? decodeURIComponent(defaultData.email) : '';
   const defaultContact = defaultData.contactName ? decodeURIComponent(defaultData.contactName) : (defaultData.contact ? decodeURIComponent(defaultData.contact) : '');
   const defaultCommerce = defaultData.commerceName ? decodeURIComponent(defaultData.commerceName) : (defaultData.commerce ? decodeURIComponent(defaultData.commerce) : '');
   const defaultCc = defaultData.cc ? decodeURIComponent(defaultData.cc) : '';
-  const defaultSubject = defaultData.subject || 'Información y Presentación de Servicios de Fulfillment - Stocka';
+
+  const presentationDefaultSubject = `Información y Presentación de Servicios de Fulfillment - Stocka${defaultCommerce ? ' - ' + defaultCommerce : ''}`;
+  const quoteDefaultSubject = `Cotización de Servicios de Fulfillment - STOCKA${defaultCommerce ? ' - ' + defaultCommerce : ''}`;
+  const defaultSubject = defaultData.subject || (defaultEmailMode === 'quote' ? quoteDefaultSubject : presentationDefaultSubject);
+
   const defaultMeeting = defaultData.meetingUrl || 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5';
   const defaultCustomMsg = defaultData.customMessage || '';
   const defaultCenterMode = defaultData.centerMode || 'cards'; // 'cards' | 'custom_replace' | 'both'
@@ -82179,6 +83329,80 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
   const defaultDespachosUrl = defaultData.despachosUrl || pricingConfig?.presentations?.despachos_rm_url || 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_despachos_rm_1787715973435.pdf';
   const defaultCourierFolderUrl = defaultData.courierFolderUrl || pricingConfig?.presentations?.courier_folder_url || 'https://docs.google.com/spreadsheets/d/1WlGXFbtgc3v-opuld8sqrSnpmQ1LGPvKWWRyRg5zGVs/edit?gid=0#gid=0';
   const defaultCotizadorUrl = defaultData.cotizadorUrl || pricingConfig?.presentations?.cotizador_url || 'https://wms.stocka.cl/cotizaciones.html';
+
+  // Detectar parámetros de simulación previos del lead si existen
+  const extractLeadQuoteDefaults = (targetEmail) => {
+    const base = {
+      monthlyOrders: 150,
+      storageVolumeM3: 3,
+      skuPerOrder: 1,
+      unitsPerOrder: 2,
+      shipmentsSameDay: 0,
+      shipmentsCourier: 0,
+      regionalWeightBracket: '0.5_3',
+      pickupsExpress: 0,
+      isProtectedSale: false,
+      isMarketplaceCollect: false,
+      hasOver100SkuCatalogue: false,
+      hasPosService: false,
+      hasVitrinaService: false,
+      fromLeadSimulation: false
+    };
+    if (defaultData.quoteParams && typeof defaultData.quoteParams === 'object') {
+      return { ...base, ...defaultData.quoteParams, fromLeadSimulation: true };
+    }
+    if (!targetEmail || !Array.isArray(window.cachedUnifiedLeads)) return base;
+    const foundLead = window.cachedUnifiedLeads.find(l => (l.email || '').toLowerCase() === targetEmail.toLowerCase());
+    if (!foundLead) return base;
+
+    const latestQuote = Array.isArray(foundLead.quotes) && foundLead.quotes.length > 0 ? foundLead.quotes[0] : null;
+    const qData = latestQuote?.quote_data || null;
+    const sim = foundLead.sim_data || latestQuote?._simData || (latestQuote?.notes ? window.parseLeadSimulationData?.(latestQuote.notes) : null);
+
+    if (qData && qData.pickPack) {
+      return {
+        ...base,
+        monthlyOrders: Number(qData.pickPack.monthlyOrders) || Number(latestQuote.monthly_orders) || 150,
+        storageVolumeM3: Number(qData.storage?.volumeM3) || Number(latestQuote.estimated_volume) || 3,
+        skuPerOrder: Number(qData.pickPack.skuPerOrder) || 1,
+        unitsPerOrder: Number(qData.pickPack.unitsPerOrder) || 2,
+        shipmentsSameDay: Number(qData.shipping?.shipmentsSameDay ?? qData.shipping?.sameDayCount) || 0,
+        shipmentsCourier: Number(qData.shipping?.shipmentsCourier ?? qData.shipping?.courierCount) || 0,
+        regionalWeightBracket: qData.shipping?.regionalWeightBracketId || qData.shipping?.regionalBracketId || '0.5_3',
+        pickupsExpress: Number(qData.shipping?.pickupsExpress ?? qData.shipping?.pickupCount) || 0,
+        isProtectedSale: Boolean(qData.pickPack?.isProtectedSale || qData.rawInputs?.isProtectedSale),
+        isMarketplaceCollect: Boolean((qData.pickPack?.surcharges?.marketplace > 0) || qData.rawInputs?.isMarketplaceCollect),
+        hasOver100SkuCatalogue: Boolean((qData.pickPack?.surcharges?.catalogue > 0) || qData.rawInputs?.hasOver100SkuCatalogue),
+        hasPosService: Boolean(qData.extras?.services?.hasPosService ?? qData.extras?.hasPosService),
+        hasVitrinaService: Boolean(qData.extras?.services?.hasVitrinaService ?? qData.extras?.hasVitrinaService),
+        fromLeadSimulation: true
+      };
+    }
+
+    if (sim || latestQuote) {
+      const parseNum = (v) => {
+        if (typeof v === 'number') return v;
+        if (!v) return 0;
+        const m = String(v).match(/(\d+)/);
+        return m ? parseInt(m[1], 10) : 0;
+      };
+      const ordersVal = Number(latestQuote?.monthly_orders) || Number(sim?.ordersNum) || 150;
+      const volVal = Number(latestQuote?.estimated_volume) || Number(sim?.volNum) || 3;
+      return {
+        ...base,
+        monthlyOrders: ordersVal,
+        storageVolumeM3: volVal,
+        shipmentsSameDay: parseNum(sim?.sameDay),
+        shipmentsCourier: parseNum(sim?.regiones),
+        hasPosService: Boolean(sim?.pos),
+        hasVitrinaService: Boolean(sim?.vitrina),
+        fromLeadSimulation: Boolean(sim?.isQuoteSimulation || latestQuote)
+      };
+    }
+    return base;
+  };
+
+  const initialQuoteParams = extractLeadQuoteDefaults(defaultEmail);
 
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 1440px !important; width: 96vw !important; height: 92vh; max-height: 94vh; display: flex; flex-direction: column; padding: 0; border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-xl);">
@@ -82228,26 +83452,76 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
         .lead-info-split-layout {
           display: grid;
           grid-template-columns: 1.12fr 0.88fr;
+          grid-template-rows: minmax(0, 1fr);
           flex: 1;
           min-height: 0;
+          height: 100%;
           overflow: hidden;
           background: var(--color-surface);
         }
         .lead-info-left-pane {
+          min-height: 0;
+          height: 100%;
           overflow-y: auto;
-          padding: 1.15rem 1.4rem;
+          overflow-x: hidden;
+          padding: 1.1rem 1.4rem;
           display: flex;
           flex-direction: column;
-          gap: 0.95rem;
+          gap: 0.85rem;
           border-right: 1px solid var(--color-border);
+          scrollbar-gutter: stable;
+        }
+        .lead-info-left-pane > * {
+          flex-shrink: 0;
         }
         .lead-info-right-pane {
-          overflow-y: auto;
-          padding: 1.15rem 1.35rem;
+          min-height: 0;
+          height: 100%;
+          overflow-y: scroll;
+          overflow-x: hidden;
+          padding: 1.1rem 1.35rem 2rem 1.35rem;
           background: var(--color-bg);
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
+          display: block;
+          scrollbar-gutter: stable;
+        }
+        .lead-info-left-pane::-webkit-scrollbar,
+        .lead-info-right-pane::-webkit-scrollbar {
+          width: 8px;
+        }
+        .lead-info-left-pane::-webkit-scrollbar-track,
+        .lead-info-right-pane::-webkit-scrollbar-track {
+          background: rgba(148, 163, 184, 0.12);
+          border-radius: 6px;
+        }
+        .lead-info-left-pane::-webkit-scrollbar-thumb,
+        .lead-info-right-pane::-webkit-scrollbar-thumb {
+          background: rgba(100, 116, 139, 0.45);
+          border-radius: 6px;
+        }
+        .lead-info-left-pane::-webkit-scrollbar-thumb:hover,
+        .lead-info-right-pane::-webkit-scrollbar-thumb:hover {
+          background: rgba(94, 23, 235, 0.65);
+        }
+        .quote-calc-mini-input {
+          width: 100%;
+          height: 32px;
+          padding: 0.25rem 0.5rem;
+          font-size: 0.8rem;
+          font-weight: 600;
+          border: 1px solid var(--color-border);
+          border-radius: 6px;
+          background: var(--color-surface);
+          color: var(--color-text-main);
+        }
+        .quote-calc-mini-label {
+          font-size: 0.7rem;
+          font-weight: 600;
+          color: var(--color-text-muted);
+          margin-bottom: 2px;
+          display: block;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         @media (max-width: 1080px) {
           .lead-info-split-layout {
@@ -82266,167 +83540,282 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
       </style>
       
       <!-- Modal Header -->
-      <div class="modal-header" style="background: linear-gradient(135deg, #1e40af, #3b82f6); color: white; padding: 0.95rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+      <div id="lead-info-modal-header" class="modal-header" style="background: ${defaultEmailMode === 'quote' ? 'linear-gradient(135deg, #065f46, #10b981)' : 'linear-gradient(135deg, #1e40af, #3b82f6)'}; color: white; padding: 0.85rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; transition: background 0.25s ease;">
         <div style="display: flex; align-items: center; gap: 0.75rem;">
           <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(255,255,255,0.18); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0;">
-            <i class="ri-mail-star-line"></i>
+            <i id="lead-info-header-icon" class="${defaultEmailMode === 'quote' ? 'ri-calculator-fill' : 'ri-mail-star-line'}"></i>
           </div>
           <div>
-            <h3 style="margin: 0; font-size: 1.12rem; font-weight: 700; color: white;">Enviar Información Comercial y Presentación</h3>
-            <p style="margin: 1px 0 0 0; font-size: 0.76rem; color: rgba(255,255,255,0.88);">Presentación oficial de Fulfillment, respuesta personalizada con formato, cotizador online y agendamiento de reunión</p>
+            <h3 id="lead-info-header-title" style="margin: 0; font-size: 1.1rem; font-weight: 700; color: white;">
+              ${defaultEmailMode === 'quote' ? 'Enviar Correo con Cotización Fulfillment 360' : 'Enviar Información Comercial y Presentación'}
+            </h3>
+            <p id="lead-info-header-subtitle" style="margin: 1px 0 0 0; font-size: 0.75rem; color: rgba(255,255,255,0.9);">
+              ${defaultEmailMode === 'quote' ? 'Desglose tarifario en CLP + UF, comentarios personalizados con formato, presentaciones PDF y link a reunión' : 'Presentación oficial de Fulfillment, respuesta personalizada con formato, cotizador online y agendamiento de reunión'}
+            </p>
           </div>
         </div>
-        <button type="button" class="modal-close" id="btn-close-send-lead-info" style="color: white; font-size: 1.4rem; background: transparent; border: none; cursor: pointer;">&times;</button>
+
+        <!-- Selector Superior Rápido: Presentación vs Cotización -->
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <div style="display: inline-flex; background: rgba(15, 23, 42, 0.28); padding: 3px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.22);">
+            <button type="button" class="lead-email-type-tab" data-email-mode="presentation" style="border: none; padding: 0.38rem 0.85rem; border-radius: 7px; font-size: 0.78rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; transition: all 0.15s; ${defaultEmailMode === 'presentation' ? 'background: #ffffff; color: #1e40af; box-shadow: 0 2px 6px rgba(0,0,0,0.15);' : 'background: transparent; color: rgba(255,255,255,0.9);'}">
+              <i class="ri-mail-star-line"></i> Presentación Comercial
+            </button>
+            <button type="button" class="lead-email-type-tab" data-email-mode="quote" style="border: none; padding: 0.38rem 0.85rem; border-radius: 7px; font-size: 0.78rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; transition: all 0.15s; ${defaultEmailMode === 'quote' ? 'background: #ffffff; color: #065f46; box-shadow: 0 2px 6px rgba(0,0,0,0.15);' : 'background: transparent; color: rgba(255,255,255,0.9);'}">
+              <i class="ri-calculator-fill"></i> Correo con Cotización
+            </button>
+          </div>
+          <button type="button" class="modal-close" id="btn-close-send-lead-info" style="color: white; font-size: 1.4rem; background: transparent; border: none; cursor: pointer; margin-left: 0.25rem;">&times;</button>
+        </div>
       </div>
 
       <!-- Modal Body Form (2 Columnas: Editor a la Izquierda + Vista Previa en Vivo a la Derecha) -->
       <form id="form-send-lead-info" style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; margin: 0;">
         <div class="lead-info-split-layout">
           
-          <!-- COLUMNA IZQUIERDA: DATOS, EDITOR CON FORMATO Y DOCUMENTOS -->
+          <!-- COLUMNA IZQUIERDA: DATOS, COTIZADOR, EDITOR CON FORMATO Y DOCUMENTOS -->
           <div class="lead-info-left-pane">
             <div id="lead-info-modal-alert" class="alert alert-danger" style="display: none; padding: 0.65rem 0.9rem; font-size: 0.82rem; border-radius: var(--radius-sm);"></div>
 
             <!-- Fila 1: Destinatario, Nombre Contacto y Nombre Comercio (3 Columnas) -->
-            <div style="display: grid; grid-template-columns: 1.25fr 0.95fr 1fr; gap: 0.75rem;">
+            <div style="display: grid; grid-template-columns: 1.25fr 0.95fr 1fr; gap: 0.7rem;">
               <div class="form-group" style="margin: 0;">
-                <label class="form-label" for="info-input-email" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; display: flex; justify-content: space-between;">
+                <label class="form-label" for="info-input-email" style="font-weight: 600; font-size: 0.78rem; margin-bottom: 0.2rem; display: flex; justify-content: space-between;">
                   <span>Correo Destinatario (Para) <span style="color: var(--color-danger);">*</span></span>
                 </label>
                 <div style="position: relative;">
                   <i class="ri-mail-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
-                  <input type="email" id="info-input-email" class="form-input" required placeholder="ej: contacto@mitienda.cl" value="${defaultEmail}" style="padding-left: 2rem; font-size: 0.82rem; height: 36px;">
+                  <input type="email" id="info-input-email" class="form-input" required placeholder="ej: contacto@mitienda.cl" value="${defaultEmail}" style="padding-left: 2rem; font-size: 0.81rem; height: 34px;">
                 </div>
               </div>
 
               <div class="form-group" style="margin: 0;">
-                <label class="form-label" for="info-input-contact" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; display: flex; justify-content: space-between;">
+                <label class="form-label" for="info-input-contact" style="font-weight: 600; font-size: 0.78rem; margin-bottom: 0.2rem; display: flex; justify-content: space-between;">
                   <span>Nombre Contacto (Saludo)</span>
                 </label>
                 <div style="position: relative;">
                   <i class="ri-user-smile-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
-                  <input type="text" id="info-input-contact" class="form-input" placeholder="ej: Melissa" value="${defaultContact}" style="padding-left: 2rem; font-size: 0.82rem; height: 36px;">
+                  <input type="text" id="info-input-contact" class="form-input" placeholder="ej: Melissa" value="${defaultContact}" style="padding-left: 2rem; font-size: 0.81rem; height: 34px;">
                 </div>
               </div>
 
               <div class="form-group" style="margin: 0;">
-                <label class="form-label" for="info-input-commerce" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; display: flex; justify-content: space-between;">
+                <label class="form-label" for="info-input-commerce" style="font-weight: 600; font-size: 0.78rem; margin-bottom: 0.2rem; display: flex; justify-content: space-between;">
                   <span>Comercio / Empresa</span>
                 </label>
                 <div style="position: relative;">
                   <i class="ri-store-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
-                  <input type="text" id="info-input-commerce" class="form-input" placeholder="ej: Mi Tienda Online" value="${defaultCommerce}" style="padding-left: 2rem; font-size: 0.82rem; height: 36px;">
+                  <input type="text" id="info-input-commerce" class="form-input" placeholder="ej: Mi Tienda Online" value="${defaultCommerce}" style="padding-left: 2rem; font-size: 0.81rem; height: 34px;">
                 </div>
               </div>
             </div>
 
             <!-- Fila 2: Asunto, CC y Enlace de Reunión (3 Columnas) -->
-            <div style="display: grid; grid-template-columns: 1.3fr 0.75fr 1.15fr; gap: 0.75rem;">
+            <div style="display: grid; grid-template-columns: 1.3fr 0.75fr 1.15fr; gap: 0.7rem;">
               <div class="form-group" style="margin: 0;">
-                <label class="form-label" for="info-input-subject" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem;">
+                <label class="form-label" for="info-input-subject" style="font-weight: 600; font-size: 0.78rem; margin-bottom: 0.2rem;">
                   Asunto del Correo
                 </label>
                 <div style="position: relative;">
                   <i class="ri-edit-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
-                  <input type="text" id="info-input-subject" class="form-input" value="${defaultSubject}" style="padding-left: 2rem; font-size: 0.82rem; height: 36px;">
+                  <input type="text" id="info-input-subject" class="form-input" value="${defaultSubject}" style="padding-left: 2rem; font-size: 0.81rem; height: 34px;">
                 </div>
               </div>
 
               <div class="form-group" style="margin: 0;">
-                <label class="form-label" for="info-input-cc" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; display: flex; justify-content: space-between;">
+                <label class="form-label" for="info-input-cc" style="font-weight: 600; font-size: 0.78rem; margin-bottom: 0.2rem; display: flex; justify-content: space-between;">
                   <span>Copia (CC)</span>
-                  <span style="font-weight: normal; font-size: 0.7rem; color: var(--color-text-muted);">Opcional</span>
+                  <span style="font-weight: normal; font-size: 0.68rem; color: var(--color-text-muted);">Opcional</span>
                 </label>
                 <div style="position: relative;">
                   <i class="ri-user-shared-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
-                  <input type="text" id="info-input-cc" class="form-input" placeholder="socio@tienda.cl" value="${defaultCc}" style="padding-left: 2rem; font-size: 0.82rem; height: 36px;">
+                  <input type="text" id="info-input-cc" class="form-input" placeholder="socio@tienda.cl" value="${defaultCc}" style="padding-left: 2rem; font-size: 0.81rem; height: 34px;">
                 </div>
               </div>
 
               <div class="form-group" style="margin: 0;">
-                <label class="form-label" for="info-input-meeting" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; display: flex; justify-content: space-between;">
+                <label class="form-label" for="info-input-meeting" style="font-weight: 600; font-size: 0.78rem; margin-bottom: 0.2rem; display: flex; justify-content: space-between;">
                   <span><i class="ri-video-chat-line" style="color: #2563eb;"></i> Link Agendar Reunión (Meet)</span>
                 </label>
                 <div style="position: relative;">
                   <i class="ri-calendar-event-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
-                  <input type="url" id="info-input-meeting" class="form-input" value="${defaultMeeting}" style="padding-left: 2rem; font-size: 0.78rem; height: 36px;">
+                  <input type="url" id="info-input-meeting" class="form-input" value="${defaultMeeting}" style="padding-left: 2rem; font-size: 0.77rem; height: 34px;">
                 </div>
               </div>
             </div>
 
-            <!-- Zona Central del Correo: Selector de Modo + Editor con Formato -->
-            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.9rem 1rem; display: flex; flex-direction: column; flex: 1;">
+            <!-- PANEL CALCULADORA DE COTIZACIÓN EN VIVO (Visible cuando emailMode === 'quote') -->
+            <div id="lead-quote-calc-panel" style="display: ${defaultEmailMode === 'quote' ? 'block' : 'none'}; background: linear-gradient(180deg, rgba(16, 185, 129, 0.06) 0%, var(--color-bg) 100%); border: 1.5px solid rgba(16, 185, 129, 0.35); border-radius: 10px; padding: 0.8rem 0.95rem;">
               <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.6rem;">
-                <label class="form-label" style="margin: 0; font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
-                  <i class="ri-layout-masonry-line" style="color: #5e17eb; font-size: 1.05rem;"></i>
-                  Zona Central del Correo (Bloques de Información vs Respuesta Personalizada)
-                </label>
-                <span style="font-size: 0.72rem; color: var(--color-text-muted);">Mantiene intacta la línea gráfica del correo</span>
+                <div style="display: flex; align-items: center; gap: 0.45rem;">
+                  <span style="width: 26px; height: 26px; border-radius: 6px; background: rgba(16, 185, 129, 0.15); color: #059669; display: inline-flex; align-items: center; justify-content: center; font-size: 0.95rem;">
+                    <i class="ri-calculator-fill"></i>
+                  </span>
+                  <div>
+                    <div style="font-weight: 700; font-size: 0.84rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                      Parámetros de la Cotización a Enviar
+                      <span id="quote-lead-sim-badge" style="display: ${initialQuoteParams.fromLeadSimulation ? 'inline-flex' : 'none'}; align-items: center; gap: 3px; font-size: 0.68rem; font-weight: 700; background: rgba(37, 99, 235, 0.1); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.25); padding: 1px 6px; border-radius: 10px;">
+                        <i class="ri-magic-line"></i> Cargado desde simulación del lead
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Resumen Rápido en Vivo -->
+                <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.25rem 0.65rem; border-radius: 8px;">
+                  <span id="quote-calc-live-range" style="font-size: 0.71rem; font-weight: 700; color: #5e17eb; background: rgba(94, 23, 235, 0.08); padding: 2px 6px; border-radius: 4px;">Tramo 150</span>
+                  <span style="font-size: 0.78rem; font-weight: 800; color: #059669;" id="quote-calc-live-net">$0 + IVA</span>
+                  <span style="font-size: 0.7rem; color: var(--color-text-muted);" id="quote-calc-live-uf">(~ 0.00 UF)</span>
+                </div>
               </div>
 
-              <!-- Selector de Modo (3 opciones) -->
-              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 0.65rem;" id="lead-info-center-mode-group">
-                <button type="button" data-center-mode="cards" class="lead-info-mode-btn" style="text-align: left; padding: 0.5rem 0.65rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; border: 1.5px solid #5e17eb; background: rgba(94, 23, 235, 0.07); color: var(--color-text-main);">
-                  <div style="font-weight: 700; font-size: 0.78rem; color: #5e17eb; display: flex; align-items: center; gap: 0.3rem;">
+              <!-- Fila 1 de Inputs Numéricos (4 columnas) -->
+              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.55rem; margin-bottom: 0.55rem;">
+                <div>
+                  <label class="quote-calc-mini-label" for="quote-input-orders">📦 Pedidos / Mes</label>
+                  <input type="number" id="quote-input-orders" class="quote-calc-mini-input" min="1" max="50000" step="1" value="${initialQuoteParams.monthlyOrders}">
+                </div>
+                <div>
+                  <label class="quote-calc-mini-label" for="quote-input-m3">📐 Bodegaje (m³)</label>
+                  <input type="number" id="quote-input-m3" class="quote-calc-mini-input" min="0.5" max="2000" step="0.5" value="${initialQuoteParams.storageVolumeM3}">
+                </div>
+                <div>
+                  <label class="quote-calc-mini-label" for="quote-input-skus">🏷️ SKUs / Pedido</label>
+                  <input type="number" id="quote-input-skus" class="quote-calc-mini-input" min="1" max="50" step="1" value="${initialQuoteParams.skuPerOrder}">
+                </div>
+                <div>
+                  <label class="quote-calc-mini-label" for="quote-input-units">🔢 Unid. / Pedido</label>
+                  <input type="number" id="quote-input-units" class="quote-calc-mini-input" min="1" max="200" step="1" value="${initialQuoteParams.unitsPerOrder}">
+                </div>
+              </div>
+
+              <!-- Fila 2 de Inputs de Despacho (4 columnas) -->
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1.25fr 0.85fr; gap: 0.55rem; margin-bottom: 0.55rem;">
+                <div>
+                  <label class="quote-calc-mini-label" for="quote-input-sameday">🚚 Same Day RM / Mes</label>
+                  <input type="number" id="quote-input-sameday" class="quote-calc-mini-input" min="0" max="50000" step="1" value="${initialQuoteParams.shipmentsSameDay}">
+                </div>
+                <div>
+                  <label class="quote-calc-mini-label" for="quote-input-courier">✈️ Regiones / Mes</label>
+                  <input type="number" id="quote-input-courier" class="quote-calc-mini-input" min="0" max="50000" step="1" value="${initialQuoteParams.shipmentsCourier}">
+                </div>
+                <div>
+                  <label class="quote-calc-mini-label" for="quote-input-weight">⚖️ Tramo Peso Regiones</label>
+                  <select id="quote-input-weight" class="quote-calc-mini-input" style="padding: 0.15rem 0.4rem;">
+                    <option value="0.5_3" ${initialQuoteParams.regionalWeightBracket === '0.5_3' ? 'selected' : ''}>0.5 a 3 Kg ($5.190)</option>
+                    <option value="3_6" ${initialQuoteParams.regionalWeightBracket === '3_6' ? 'selected' : ''}>3 a 6 Kg ($6.990)</option>
+                    <option value="6_10" ${initialQuoteParams.regionalWeightBracket === '6_10' ? 'selected' : ''}>6 a 10 Kg ($9.790)</option>
+                    <option value="10_15" ${initialQuoteParams.regionalWeightBracket === '10_15' ? 'selected' : ''}>10 a 15 Kg ($12.190)</option>
+                    <option value="15_20" ${initialQuoteParams.regionalWeightBracket === '15_20' ? 'selected' : ''}>15 a 20 Kg ($14.490)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="quote-calc-mini-label" for="quote-input-pickups">⚡ Retiros Express</label>
+                  <input type="number" id="quote-input-pickups" class="quote-calc-mini-input" min="0" max="5000" step="1" value="${initialQuoteParams.pickupsExpress}">
+                </div>
+              </div>
+
+              <!-- Fila 3: Servicios Adicionales y Condiciones -->
+              <div style="display: flex; flex-wrap: wrap; gap: 0.65rem; padding-top: 0.45rem; border-top: 1px dashed rgba(16, 185, 129, 0.3); font-size: 0.73rem; color: var(--color-text-main);">
+                <label style="display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; user-select: none;">
+                  <input type="checkbox" id="quote-check-pos" ${initialQuoteParams.hasPosService ? 'checked' : ''} style="accent-color: #059669;">
+                  <span>🏪 Punto de Venta POS (+1 UF)</span>
+                </label>
+                <label style="display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; user-select: none;">
+                  <input type="checkbox" id="quote-check-vitrina" ${initialQuoteParams.hasVitrinaService ? 'checked' : ''} style="accent-color: #059669;">
+                  <span>✨ Vitrina Showroom (+1.5 UF)</span>
+                </label>
+                <label style="display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; user-select: none;">
+                  <input type="checkbox" id="quote-check-protected" ${initialQuoteParams.isProtectedSale ? 'checked' : ''} style="accent-color: #059669;">
+                  <span>🛡️ Venta Protegida (+0.5 UF)</span>
+                </label>
+                <label style="display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; user-select: none;">
+                  <input type="checkbox" id="quote-check-marketplace" ${initialQuoteParams.isMarketplaceCollect ? 'checked' : ''} style="accent-color: #059669;">
+                  <span>🛒 Colecta Marketplace</span>
+                </label>
+                <label style="display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; user-select: none;">
+                  <input type="checkbox" id="quote-check-over100sku" ${initialQuoteParams.hasOver100SkuCatalogue ? 'checked' : ''} style="accent-color: #059669;">
+                  <span>📚 Catálogo &gt; 100 SKUs (+0.5 UF)</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Zona Central del Correo: Selector de Modo + Editor con Formato -->
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.85rem 1rem; display: flex; flex-direction: column; flex: 1;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.55rem;">
+                <label class="form-label" style="margin: 0; font-weight: 700; font-size: 0.84rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-layout-masonry-line" style="color: #5e17eb; font-size: 1.05rem;"></i>
+                  <span id="lead-info-editor-section-title">Zona Central y Comentarios con Formato (Respuesta Personalizada)</span>
+                </label>
+                <span style="font-size: 0.71rem; color: var(--color-text-muted);">Mantiene intacta la línea gráfica del correo</span>
+              </div>
+
+              <!-- Selector de Modo (3 opciones adaptables a Presentación o Cotización) -->
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 0.6rem;" id="lead-info-center-mode-group">
+                <button type="button" data-center-mode="cards" class="lead-info-mode-btn" style="text-align: left; padding: 0.45rem 0.65rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; border: 1.5px solid #5e17eb; background: rgba(94, 23, 235, 0.07); color: var(--color-text-main);">
+                  <div id="mode-btn-cards-title" style="font-weight: 700; font-size: 0.77rem; color: #5e17eb; display: flex; align-items: center; gap: 0.3rem;">
                     <i class="ri-grid-fill"></i> 4 Bloques en Tarjetas
                   </div>
-                  <div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; line-height: 1.25;">
+                  <div id="mode-btn-cards-desc" style="font-size: 0.67rem; color: var(--color-text-muted); margin-top: 2px; line-height: 1.25;">
                     Diseño estándar con las 4 tarjetas de servicio
                   </div>
                 </button>
 
-                <button type="button" data-center-mode="custom_replace" class="lead-info-mode-btn" style="text-align: left; padding: 0.5rem 0.65rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; border: 1.5px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
-                  <div style="font-weight: 700; font-size: 0.78rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
+                <button type="button" data-center-mode="custom_replace" class="lead-info-mode-btn" style="text-align: left; padding: 0.45rem 0.65rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; border: 1.5px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+                  <div id="mode-btn-replace-title" style="font-weight: 700; font-size: 0.77rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
                     <i class="ri-quill-pen-fill" style="color: #2563eb;"></i> Reemplazar por Texto
                   </div>
-                  <div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; line-height: 1.25;">
+                  <div id="mode-btn-replace-desc" style="font-size: 0.67rem; color: var(--color-text-muted); margin-top: 2px; line-height: 1.25;">
                     Sustituye las 4 tarjetas por tu respuesta con formato
                   </div>
                 </button>
 
-                <button type="button" data-center-mode="both" class="lead-info-mode-btn" style="text-align: left; padding: 0.5rem 0.65rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; border: 1.5px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
-                  <div style="font-weight: 700; font-size: 0.78rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
+                <button type="button" data-center-mode="both" class="lead-info-mode-btn" style="text-align: left; padding: 0.45rem 0.65rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; border: 1.5px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+                  <div id="mode-btn-both-title" style="font-weight: 700; font-size: 0.77rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
                     <i class="ri-layout-row-fill" style="color: #10b981;"></i> Texto + 4 Tarjetas
                   </div>
-                  <div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; line-height: 1.25;">
+                  <div id="mode-btn-both-desc" style="font-size: 0.67rem; color: var(--color-text-muted); margin-top: 2px; line-height: 1.25;">
                     Muestra tu respuesta y debajo las 4 tarjetas
                   </div>
                 </button>
               </div>
 
               <!-- Controles de Estilo, Párrafo Introductorio y Título Opcional en Grid Compacto -->
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.55rem;">
-                <div style="display: flex; align-items: center; gap: 0.45rem; padding: 0.35rem 0.6rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 7px;">
-                  <span style="font-size: 0.73rem; font-weight: 600; color: var(--color-text-muted); white-space: nowrap;">Diseño bloque:</span>
-                  <select id="info-input-custom-box-style" class="form-input" style="font-size: 0.74rem; padding: 0.2rem 0.4rem; flex: 1; height: 28px;">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.45rem; padding: 0.3rem 0.6rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 7px;">
+                  <span style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); white-space: nowrap;">Diseño bloque:</span>
+                  <select id="info-input-custom-box-style" class="form-input" style="font-size: 0.73rem; padding: 0.18rem 0.4rem; flex: 1; height: 27px;">
                     <option value="card" ${defaultCustomBoxStyle === 'card' ? 'selected' : ''}>🗂️ Tarjeta Corporativa Stocka (Borde y acento morado)</option>
                     <option value="clean" ${defaultCustomBoxStyle === 'clean' ? 'selected' : ''}>📝 Texto Fluido Integrado (Sin recuadro, directo)</option>
                     <option value="highlight" ${defaultCustomBoxStyle === 'highlight' ? 'selected' : ''}>💜 Recuadro Destacado Suave (Fondo lavanda)</option>
                   </select>
                 </div>
 
-                <div style="display: flex; align-items: center; padding: 0.35rem 0.6rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 7px;">
-                  <label style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.73rem; color: var(--color-text-main); cursor: pointer; user-select: none; margin: 0;">
+                <div style="display: flex; align-items: center; padding: 0.3rem 0.6rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 7px;">
+                  <label style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; color: var(--color-text-main); cursor: pointer; user-select: none; margin: 0;">
                     <input type="checkbox" id="info-input-include-second-intro" ${defaultIncludeSecondIntro ? 'checked' : ''} style="accent-color: #5e17eb; cursor: pointer;">
-                    <span>Incluir 2° párrafo introductorio (<em>"En Stocka somos un partner..."</em>)</span>
+                    <span id="lead-info-second-intro-label">Incluir 2° párrafo introductorio</span>
                   </label>
                 </div>
               </div>
 
               <!-- Título opcional del bloque -->
-              <div style="display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.55rem;">
-                <input type="text" id="info-input-custom-box-title" class="form-input" placeholder="Título opcional del bloque (ej: 💬 Respuesta a tus consultas — o déjalo vacío)" value="${defaultCustomBoxTitle}" style="flex: 1; font-size: 0.76rem; padding: 0.3rem 0.6rem; height: 32px;">
-                <button type="button" class="lead-rte-btn" id="btn-preset-title-consultas" title="Usar título sugerido" style="font-size: 0.71rem; height: 32px; padding: 0 0.6rem;">
+              <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.5rem;">
+                <input type="text" id="info-input-custom-box-title" class="form-input" placeholder="Título opcional del bloque (ej: 💬 Comentarios sobre tu cotización / Respuesta a tus consultas)" value="${defaultCustomBoxTitle}" style="flex: 1; font-size: 0.75rem; padding: 0.25rem 0.6rem; height: 30px;">
+                <button type="button" class="lead-rte-btn" id="btn-preset-title-consultas" title="Usar título sugerido" style="font-size: 0.7rem; height: 30px; padding: 0 0.55rem;">
                   💬 "Respuesta a tus consultas:"
                 </button>
-                <button type="button" class="lead-rte-btn" id="btn-clear-box-title" title="Dejar sin título" style="font-size: 0.71rem; height: 32px; padding: 0 0.55rem; color: var(--color-text-muted);">
+                <button type="button" class="lead-rte-btn" id="btn-preset-title-cotizacion" title="Usar título de observaciones de cotización" style="font-size: 0.7rem; height: 30px; padding: 0 0.55rem;">
+                  📌 "Consideraciones de tu propuesta:"
+                </button>
+                <button type="button" class="lead-rte-btn" id="btn-clear-box-title" title="Dejar sin título" style="font-size: 0.7rem; height: 30px; padding: 0 0.5rem; color: var(--color-text-muted);">
                   Sin título
                 </button>
               </div>
 
               <!-- Barra de Herramientas de Formato (Rich Text) + Editor más amplio -->
               <div style="border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; background: #ffffff; display: flex; flex-direction: column; flex: 1;">
-                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.3rem; padding: 0.4rem 0.6rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border);">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.3rem; padding: 0.35rem 0.6rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border);">
                   <div style="display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap;">
                     <button type="button" class="lead-rte-btn" data-rte-cmd="bold" title="Negrita (Ctrl+B)">
                       <i class="ri-bold"></i>
@@ -82451,6 +83840,9 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
                     <button type="button" class="lead-rte-btn" data-rte-color="#2563eb" title="Color Azul">
                       <span style="width: 9px; height: 9px; border-radius: 50%; background: #2563eb; display: inline-block;"></span> Azul
                     </button>
+                    <button type="button" class="lead-rte-btn" data-rte-color="#059669" title="Color Verde">
+                      <span style="width: 9px; height: 9px; border-radius: 50%; background: #059669; display: inline-block;"></span> Verde
+                    </button>
                     <button type="button" class="lead-rte-btn" data-rte-color="#0f172a" title="Color Texto Normal">
                       <span style="width: 9px; height: 9px; border-radius: 50%; background: #0f172a; display: inline-block;"></span> Oscuro
                     </button>
@@ -82462,62 +83854,62 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
                     </button>
                   </div>
 
-                  <button type="button" class="lead-rte-btn" id="btn-insert-qa-template" style="color: #5e17eb; border-color: rgba(94, 23, 235, 0.3); background: rgba(94, 23, 235, 0.05); font-weight: 600; font-size: 0.72rem;" title="Insertar estructura de ejemplo para responder consultas">
-                    <i class="ri-magic-line"></i> Insertar Plantilla Respuesta
+                  <button type="button" class="lead-rte-btn" id="btn-insert-qa-template" style="color: #5e17eb; border-color: rgba(94, 23, 235, 0.3); background: rgba(94, 23, 235, 0.05); font-weight: 600; font-size: 0.71rem;" title="Insertar estructura de ejemplo con formato">
+                    <i class="ri-magic-line"></i> Insertar Plantilla con Formato
                   </button>
                 </div>
 
                 <!-- Editor ContentEditable -->
-                <div id="info-input-custom-editor" contenteditable="true" data-placeholder="Escribe aquí tu mensaje con formato respondiendo las consultas específicas del lead (puedes usar negritas, viñetas, numeración y colores)..." style="min-height: 155px; max-height: 290px; flex: 1; overflow-y: auto; padding: 0.75rem 0.9rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 0.85rem; line-height: 1.6; color: #0f172a; background: #ffffff; outline: none;">${defaultCustomMsg ? defaultCustomMsg.replace(/\n/g, '<br>') : ''}</div>
+                <div id="info-input-custom-editor" contenteditable="true" data-placeholder="Escribe aquí tus comentarios o respuestas con formato (puedes usar negritas, viñetas, numeración y colores)..." style="min-height: 125px; max-height: 240px; flex: 1; overflow-y: auto; padding: 0.7rem 0.85rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 0.84rem; line-height: 1.55; color: #0f172a; background: #ffffff; outline: none;">${defaultCustomMsg ? defaultCustomMsg.replace(/\n/g, '<br>') : ''}</div>
                 <textarea id="info-input-custom-msg" style="display: none;">${defaultCustomMsg}</textarea>
               </div>
 
-              <div id="lead-info-mode-helper-note" style="margin-top: 0.4rem; font-size: 0.72rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.3rem;">
+              <div id="lead-info-mode-helper-note" style="margin-top: 0.35rem; font-size: 0.71rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.3rem;">
                 <i class="ri-information-line" style="color: #5e17eb;"></i>
-                <span id="lead-info-mode-helper-text">En modo <strong>4 Bloques en Tarjetas</strong>, este mensaje es opcional y se mostrará arriba de las 4 tarjetas solo si escribes algo.</span>
+                <span id="lead-info-mode-helper-text">Puedes incluir comentarios con formato arriba de los bloques o reemplazar las tarjetas superiores.</span>
               </div>
             </div>
 
             <!-- Documentos y Enlaces que se Adjuntan / Incluyen en el Correo -->
-            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.75rem 1rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                <div style="font-weight: 700; font-size: 0.8rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.7rem 0.95rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+                <div style="font-weight: 700; font-size: 0.78rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
                   <i class="ri-attachment-2" style="color: #2563eb;"></i>
                   Recursos y Documentos Oficiales incluidos en el Correo:
                 </div>
-                <button type="button" id="btn-toggle-custom-docs" class="btn btn-outline btn-sm" style="padding: 0.18rem 0.55rem; font-size: 0.71rem; color: #5e17eb; border-color: rgba(94, 23, 235, 0.3);">
+                <button type="button" id="btn-toggle-custom-docs" class="btn btn-outline btn-sm" style="padding: 0.16rem 0.5rem; font-size: 0.7rem; color: #5e17eb; border-color: rgba(94, 23, 235, 0.3);">
                   <i class="ri-settings-4-line"></i> Modificar Enlaces
                 </button>
               </div>
               
               <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem;" id="lead-info-docs-badges-grid">
-                <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.73rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.3rem 0.5rem; font-size: 0.72rem;">
                   <div style="display: flex; align-items: center; gap: 0.3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                    <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 1rem; flex-shrink: 0;"></i>
+                    <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 0.95rem; flex-shrink: 0;"></i>
                     <span style="font-weight: 600; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis;">Fulfillment 360°</span>
                   </div>
                   <a id="link-preview-doc-fulfillment" href="${defaultFulfillmentUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver PDF"><i class="ri-external-link-line"></i></a>
                 </div>
 
-                <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.73rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.3rem 0.5rem; font-size: 0.72rem;">
                   <div style="display: flex; align-items: center; gap: 0.3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                    <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 1rem; flex-shrink: 0;"></i>
+                    <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 0.95rem; flex-shrink: 0;"></i>
                     <span style="font-weight: 600; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis;">Despachos RM</span>
                   </div>
                   <a id="link-preview-doc-despachos" href="${defaultDespachosUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver PDF"><i class="ri-external-link-line"></i></a>
                 </div>
 
-                <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.73rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.3rem 0.5rem; font-size: 0.72rem;">
                   <div style="display: flex; align-items: center; gap: 0.3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                    <i class="ri-folder-shared-line" style="color: #3b82f6; font-size: 1rem; flex-shrink: 0;"></i>
+                    <i class="ri-folder-shared-line" style="color: #3b82f6; font-size: 0.95rem; flex-shrink: 0;"></i>
                     <span style="font-weight: 600; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis;">Tarifas Courier</span>
                   </div>
                   <a id="link-preview-doc-courier" href="${defaultCourierFolderUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver Carpeta"><i class="ri-external-link-line"></i></a>
                 </div>
 
-                <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.73rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.3rem 0.5rem; font-size: 0.72rem;">
                   <div style="display: flex; align-items: center; gap: 0.3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                    <i class="ri-calculator-line" style="color: #10b981; font-size: 1rem; flex-shrink: 0;"></i>
+                    <i class="ri-calculator-line" style="color: #10b981; font-size: 0.95rem; flex-shrink: 0;"></i>
                     <span style="font-weight: 600; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis;">Cotizador Vivo</span>
                   </div>
                   <a id="link-preview-doc-cotizador" href="${defaultCotizadorUrl}" target="_blank" style="color: #10b981; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver Cotizador"><i class="ri-external-link-line"></i></a>
@@ -82525,34 +83917,34 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
               </div>
 
               <!-- Panel Expandible de Personalización de Enlaces -->
-              <div id="panel-custom-docs-urls" style="display: none; margin-top: 0.7rem; padding-top: 0.7rem; border-top: 1px dashed var(--color-border);">
-                <div style="font-size: 0.76rem; font-weight: 700; color: #5e17eb; margin-bottom: 0.45rem; display: flex; align-items: center; gap: 0.35rem;">
+              <div id="panel-custom-docs-urls" style="display: none; margin-top: 0.65rem; padding-top: 0.65rem; border-top: 1px dashed var(--color-border);">
+                <div style="font-size: 0.75rem; font-weight: 700; color: #5e17eb; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.35rem;">
                   <i class="ri-edit-2-line"></i> Personalizar URLs para este correo:
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
                   <div class="form-group" style="margin: 0;">
                     <label class="form-label" style="font-size: 0.7rem;">1. Presentación Fulfillment (PDF):</label>
-                    <input type="url" id="info-input-fulfillment-url" class="form-input" value="${defaultFulfillmentUrl}" style="font-size: 0.74rem; padding: 0.3rem 0.5rem;">
+                    <input type="url" id="info-input-fulfillment-url" class="form-input" value="${defaultFulfillmentUrl}" style="font-size: 0.73rem; padding: 0.25rem 0.5rem;">
                   </div>
                   <div class="form-group" style="margin: 0;">
                     <label class="form-label" style="font-size: 0.7rem;">2. Presentación Despachos RM (PDF):</label>
-                    <input type="url" id="info-input-despachos-url" class="form-input" value="${defaultDespachosUrl}" style="font-size: 0.74rem; padding: 0.3rem 0.5rem;">
+                    <input type="url" id="info-input-despachos-url" class="form-input" value="${defaultDespachosUrl}" style="font-size: 0.73rem; padding: 0.25rem 0.5rem;">
                   </div>
                   <div class="form-group" style="margin: 0;">
                     <label class="form-label" style="font-size: 0.7rem;">3. Carpeta Tarifas Courier (Google Drive):</label>
-                    <input type="url" id="info-input-courier-url" class="form-input" value="${defaultCourierFolderUrl}" style="font-size: 0.74rem; padding: 0.3rem 0.5rem;">
+                    <input type="url" id="info-input-courier-url" class="form-input" value="${defaultCourierFolderUrl}" style="font-size: 0.73rem; padding: 0.25rem 0.5rem;">
                   </div>
                   <div class="form-group" style="margin: 0;">
                     <label class="form-label" style="font-size: 0.7rem;">4. Cotizador Online (Stocka.cl):</label>
-                    <input type="url" id="info-input-cotizador-url" class="form-input" value="${defaultCotizadorUrl}" style="font-size: 0.74rem; padding: 0.3rem 0.5rem;">
+                    <input type="url" id="info-input-cotizador-url" class="form-input" value="${defaultCotizadorUrl}" style="font-size: 0.73rem; padding: 0.25rem 0.5rem;">
                   </div>
                 </div>
 
-                <div style="margin-top: 0.6rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.45rem 0.65rem;">
-                  <span style="font-size: 0.71rem; color: var(--color-text-muted);">
+                <div style="margin-top: 0.55rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.4rem 0.6rem;">
+                  <span style="font-size: 0.7rem; color: var(--color-text-muted);">
                     ⚙️ Para cambiar archivos PDF o URLs permanentes:
                   </span>
-                  <button type="button" id="btn-goto-pricing-settings" class="btn btn-outline btn-sm" style="font-size: 0.71rem; padding: 0.2rem 0.6rem; color: #2563eb; border-color: #2563eb;">
+                  <button type="button" id="btn-goto-pricing-settings" class="btn btn-outline btn-sm" style="font-size: 0.7rem; padding: 0.18rem 0.55rem; color: #2563eb; border-color: #2563eb;">
                     <i class="ri-external-link-line"></i> Abrir Tarifario y Presentaciones
                   </button>
                 </div>
@@ -82562,23 +83954,27 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
 
           <!-- COLUMNA DERECHA: VISTA PREVIA EN VIVO DEL CORREO SIEMPRE VISIBLE -->
           <div class="lead-info-right-pane">
-            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px dashed var(--color-border);">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.55rem; margin-bottom: 0.75rem; border-bottom: 1px dashed var(--color-border); position: sticky; top: -1.1rem; background: var(--color-bg); z-index: 5; padding-top: 0.25rem;">
               <div style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
                 <i class="ri-eye-line" style="color: #5e17eb; font-size: 1rem;"></i>
                 Vista Previa en Vivo del Correo
               </div>
-              <span style="font-size: 0.71rem; font-weight: 600; color: #5e17eb; background: rgba(94, 23, 235, 0.08); padding: 2px 8px; border-radius: 12px; border: 1px solid rgba(94, 23, 235, 0.2);">
+              <span id="lead-info-preview-mode-pill" style="font-size: 0.71rem; font-weight: 700; color: #5e17eb; background: rgba(94, 23, 235, 0.08); padding: 2px 8px; border-radius: 12px; border: 1px solid rgba(94, 23, 235, 0.2);">
                 Se actualiza mientras escribes
               </span>
             </div>
 
-            <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 0.85rem; line-height: 1.6; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+            <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 12px; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 0.85rem; line-height: 1.6; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
               
-              <!-- Header Dark Idéntico a Cotización -->
-              <div style="background: #0f172a; padding: 22px 20px; text-align: center; color: #ffffff;">
+              <!-- Header Dark Oficial Stocka -->
+              <div style="background: #0f172a; padding: 22px 20px; text-align: center; color: #ffffff; border-radius: 11px 11px 0 0;">
                 <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo" style="height: 36px; margin-bottom: 8px; display: inline-block;">
-                <div style="font-size: 1.1rem; font-weight: 700; color: #ffffff; letter-spacing: 0.5px; margin: 0;">Propuesta y Servicios Fulfillment 360</div>
-                <div style="font-size: 0.74rem; color: #94a3b8; margin-top: 4px;">Soluciones Integrales de Almacenamiento, Preparación y Despacho para Ecommerce</div>
+                <div id="lead-preview-email-header-title" style="font-size: 1.1rem; font-weight: 700; color: #ffffff; letter-spacing: 0.5px; margin: 0;">
+                  ${defaultEmailMode === 'quote' ? 'Cotización de Servicios Fulfillment 360' : 'Propuesta y Servicios Fulfillment 360'}
+                </div>
+                <div id="lead-preview-email-header-subtitle" style="font-size: 0.74rem; color: #94a3b8; margin-top: 4px;">
+                  ${defaultEmailMode === 'quote' ? 'Propuesta Comercial Estimada • Valores expresados en Pesos Chilenos (CLP)' : 'Soluciones Integrales de Almacenamiento, Preparación y Despacho para Ecommerce'}
+                </div>
               </div>
 
               <div style="padding: 22px 20px;">
@@ -82587,8 +83983,8 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
                   ¡Hola${defaultContact ? `, <strong>${defaultContact}</strong>` : ''}! 👋
                 </div>
 
-                <p style="margin: 0 0 0.85rem 0; color: #475569; font-size: 0.84rem; line-height: 1.6;">
-                  Muchas gracias por tu interés en los servicios de <strong>Fulfillment 360 de STOCKA</strong>. Te escribe <strong>Felipe Trujillo</strong>, Socio Fundador de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 700; text-decoration: underline;">Stocka.cl</a>.<span id="lead-info-preview-intro-p2" style="display: ${defaultIncludeSecondIntro ? 'inline' : 'none'};"><br><br>En Stocka somos un partner logístico especializado en potenciar marcas online mediante un modelo de servicio <strong>integral, ágil y 100% escalable</strong>, diseñado para que puedas delegar la logística y concentrarte en el crecimiento de tus ventas<span id="lead-info-preview-intro-punct">:</span></span>
+                <p id="lead-info-preview-intro-p" style="margin: 0 0 0.85rem 0; color: #475569; font-size: 0.84rem; line-height: 1.6;">
+                  <span id="lead-info-preview-intro-p1">Muchas gracias por tu interés en los servicios de <strong>Fulfillment 360 de STOCKA</strong>. Te escribe <strong>Felipe Trujillo</strong>, Socio Fundador de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 700; text-decoration: underline;">Stocka.cl</a>.</span><span id="lead-info-preview-intro-p2" style="display: ${defaultIncludeSecondIntro ? 'inline' : 'none'};"><br><br><span id="lead-info-preview-intro-p2-body">En Stocka somos un partner logístico especializado en potenciar marcas online mediante un modelo de servicio <strong>integral, ágil y 100% escalable</strong>, diseñado para que puedas delegar la logística y concentrarte en el crecimiento de tus ventas</span><span id="lead-info-preview-intro-punct">:</span></span>
                 </p>
 
                 <!-- Bloque de Mensaje Personalizado / Respuesta con Formato -->
@@ -82597,7 +83993,7 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
                   <div id="lead-info-preview-custom-text"></div>
                 </div>
 
-                <!-- 4 Pilares Clave (Estilo Tarjetas KPI como Cotización) -->
+                <!-- MODO PRESENTACIÓN: 4 Pilares Clave (Estilo Tarjetas KPI) -->
                 <div id="lead-info-preview-cards-container">
                   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
                     <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
@@ -82620,6 +84016,13 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
                       <div style="font-size: 0.74rem; color: #64748b; line-height: 1.4;">Sincronización automática con Shopify, MeLi, WooCommerce, Jumpseller y stock en tiempo real.</div>
                     </div>
                   </div>
+                </div>
+
+                <!-- MODO COTIZACIÓN: KPIs + Tabla de Desglose + Caja de Totales + Nota Packaging -->
+                <div id="lead-quote-preview-container" style="display: none;">
+                  <div id="lead-quote-preview-kpi-cards" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.9rem;"></div>
+                  <div id="lead-quote-preview-table-wrapper"></div>
+                  <div id="lead-quote-preview-totals-wrapper"></div>
                 </div>
 
                 <!-- Presentaciones y Documentación Oficial -->
@@ -82645,10 +84048,10 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
 
                 <!-- Caja Cotizador -->
                 <div style="margin: 0.9rem 0; background: #f8fafc; border: 1.5px dashed #cbd5e1; border-radius: 10px; padding: 14px 16px; text-align: center;">
-                  <div style="font-weight: 700; font-size: 0.84rem; color: #0f172a; margin-bottom: 3px;">
+                  <div id="preview-cotizador-box-title" style="font-weight: 700; font-size: 0.84rem; color: #0f172a; margin-bottom: 3px;">
                     🧮 ¿Quieres simular tu cotización en menos de 1 minuto?
                   </div>
-                  <p style="font-size: 0.74rem; color: #64748b; margin: 0 0 10px 0;">
+                  <p id="preview-cotizador-box-desc" style="font-size: 0.74rem; color: #64748b; margin: 0 0 10px 0;">
                     Ingresa tus estimaciones de pedidos mensuales y volumen para obtener un desglose detallado:
                   </p>
                   <a id="preview-link-cotizador" href="${defaultCotizadorUrl}" target="_blank" style="display: inline-block; background: #ffffff; color: #5e17eb !important; border: 1.5px solid #5e17eb; text-decoration: none; padding: 7px 16px; border-radius: 6px; font-weight: 700; font-size: 0.76rem; box-shadow: 0 2px 4px rgba(94, 23, 235, 0.06);">
@@ -82688,6 +84091,19 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
                   </a>
                 </div>
 
+                <!-- CTA Onboarding (visible en modo Cotización) -->
+                <div id="lead-quote-preview-onboarding-cta" style="display: none; margin: 0.9rem 0; background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%); border: 2px solid #8b5cf6; border-radius: 10px; padding: 14px 16px; text-align: center;">
+                  <div style="font-size: 0.86rem; font-weight: 800; color: #4c1d95; margin-bottom: 4px;">
+                    🚀 ¿Listo para comenzar a operar con STOCKA?
+                  </div>
+                  <p style="font-size: 0.73rem; color: #5b21b6; margin: 0 0 10px 0; line-height: 1.4;">
+                    Completa tus datos de empresa en nuestro formulario oficial de alta (toma menos de 2 minutos) para activar tu cuenta WMS:
+                  </p>
+                  <a href="https://wms.stocka.cl/#onboarding" target="_blank" style="display: inline-block; background: #5e17eb; color: #ffffff !important; text-decoration: none; padding: 8px 18px; border-radius: 7px; font-weight: 700; font-size: 0.78rem;">
+                    ✨ Iniciar Solicitud de Alta / Onboarding Online →
+                  </a>
+                </div>
+
                 <!-- Botón WhatsApp Directo -->
                 <a href="https://wa.me/56939247487" target="_blank" style="display: block; background: #25d366; color: #ffffff !important; text-decoration: none; text-align: center; padding: 9px 16px; border-radius: 6px; font-weight: 700; font-size: 0.8rem; margin-top: 10px;">
                   💬 Coordinar Asesoría Comercial por WhatsApp (+56 9 3924 7487)
@@ -82707,11 +84123,17 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
         </div>
 
         <!-- Modal Footer -->
-        <div class="modal-footer" style="padding: 0.85rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-surface); flex-shrink: 0;">
-          <button type="button" class="btn btn-outline" id="btn-cancel-send-lead-info">Cancelar</button>
-          <button type="submit" class="btn btn-primary" id="btn-submit-send-lead-info" style="background: linear-gradient(135deg, #1e40af, #2563eb); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1.25rem; font-weight: 600;">
-            <i class="ri-send-plane-fill"></i> Enviar Presentación Comercial
-          </button>
+        <div class="modal-footer" style="padding: 0.8rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; background: var(--color-surface); flex-shrink: 0;">
+          <div style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-shield-check-line" style="color: #10b981; font-size: 0.95rem;"></i>
+            <span id="lead-info-footer-helper">Se enviará con copia oculta de respaldo y seguimiento de aperturas en Central de Leads.</span>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <button type="button" class="btn btn-outline" id="btn-cancel-send-lead-info">Cancelar</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-send-lead-info" style="background: ${defaultEmailMode === 'quote' ? 'linear-gradient(135deg, #059669, #10b981)' : 'linear-gradient(135deg, #1e40af, #2563eb)'}; border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1.3rem; font-weight: 700;">
+              <i class="ri-send-plane-fill"></i> <span id="btn-submit-send-lead-text">${defaultEmailMode === 'quote' ? 'Enviar Correo con Cotización' : 'Enviar Presentación Comercial'}</span>
+            </button>
+          </div>
         </div>
       </form>
     </div>
@@ -82749,9 +84171,13 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
     }
   });
 
-  // Actualización dinámica de la vista previa en vivo al escribir
+  // Actualización dinámica de saludo y asunto según contacto y comercio
+  const emailInput = document.getElementById('info-input-email');
   const contactInput = document.getElementById('info-input-contact');
+  const commerceInput = document.getElementById('info-input-commerce');
+  const subjectInput = document.getElementById('info-input-subject');
   const greetingPreview = document.getElementById('lead-info-preview-greeting');
+
   contactInput?.addEventListener('input', () => {
     const val = contactInput.value.trim();
     if (greetingPreview) {
@@ -82760,22 +84186,102 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
   });
 
   // =========================================================================
-  // LÓGICA DEL MODO CENTRAL Y EDITOR DE TEXTO CON FORMATO (RICH TEXT)
+  // ESTADO Y LÓGICA: MODO DE CORREO (PRESENTACIÓN vs COTIZACIÓN) + EDITOR RICH TEXT
   // =========================================================================
+  let currentEmailMode = defaultEmailMode; // 'presentation' | 'quote'
   let currentCenterMode = defaultCenterMode; // 'cards' | 'custom_replace' | 'both'
+  let currentQuoteResult = null;
+
   const customEditor = document.getElementById('info-input-custom-editor');
   const customMsgHidden = document.getElementById('info-input-custom-msg');
   const customBox = document.getElementById('lead-info-preview-custom-box');
   const customTitlePreview = document.getElementById('lead-info-preview-custom-title');
   const customText = document.getElementById('lead-info-preview-custom-text');
   const cardsContainerPreview = document.getElementById('lead-info-preview-cards-container');
+  const quoteContainerPreview = document.getElementById('lead-quote-preview-container');
+  const quoteKpiCardsPreview = document.getElementById('lead-quote-preview-kpi-cards');
+  const quoteTableWrapperPreview = document.getElementById('lead-quote-preview-table-wrapper');
+  const quoteTotalsWrapperPreview = document.getElementById('lead-quote-preview-totals-wrapper');
+  const quoteOnboardingCtaPreview = document.getElementById('lead-quote-preview-onboarding-cta');
+
+  const introP1Preview = document.getElementById('lead-info-preview-intro-p1');
   const introP2Preview = document.getElementById('lead-info-preview-intro-p2');
+  const introP2BodyPreview = document.getElementById('lead-info-preview-intro-p2-body');
   const introPunctPreview = document.getElementById('lead-info-preview-intro-punct');
   const boxStyleSelect = document.getElementById('info-input-custom-box-style');
   const boxTitleInput = document.getElementById('info-input-custom-box-title');
   const includeSecondIntroCheckbox = document.getElementById('info-input-include-second-intro');
   const helperTextEl = document.getElementById('lead-info-mode-helper-text');
   const modeButtons = modal.querySelectorAll('.lead-info-mode-btn');
+  const emailTypeTabs = modal.querySelectorAll('.lead-email-type-tab');
+
+  // Referencias de inputs de la calculadora de cotización
+  const qOrdersEl = document.getElementById('quote-input-orders');
+  const qM3El = document.getElementById('quote-input-m3');
+  const qSkusEl = document.getElementById('quote-input-skus');
+  const qUnitsEl = document.getElementById('quote-input-units');
+  const qSameDayEl = document.getElementById('quote-input-sameday');
+  const qCourierEl = document.getElementById('quote-input-courier');
+  const qWeightEl = document.getElementById('quote-input-weight');
+  const qPickupsEl = document.getElementById('quote-input-pickups');
+  const qPosEl = document.getElementById('quote-check-pos');
+  const qVitrinaEl = document.getElementById('quote-check-vitrina');
+  const qProtectedEl = document.getElementById('quote-check-protected');
+  const qMarketplaceEl = document.getElementById('quote-check-marketplace');
+  const qOver100SkuEl = document.getElementById('quote-check-over100sku');
+
+  const getQuoteInputsFromDom = () => ({
+    monthlyOrders: Math.max(1, parseInt(qOrdersEl?.value, 10) || 150),
+    storageVolumeM3: Math.max(0.5, parseFloat(qM3El?.value) || 3),
+    skuPerOrder: Math.max(1, parseInt(qSkusEl?.value, 10) || 1),
+    unitsPerOrder: Math.max(1, parseInt(qUnitsEl?.value, 10) || 2),
+    shipmentsSameDay: Math.max(0, parseInt(qSameDayEl?.value, 10) || 0),
+    shipmentsCourier: Math.max(0, parseInt(qCourierEl?.value, 10) || 0),
+    regionalWeightBracket: qWeightEl?.value || '0.5_3',
+    pickupsExpress: Math.max(0, parseInt(qPickupsEl?.value, 10) || 0),
+    hasPosService: Boolean(qPosEl?.checked),
+    hasVitrinaService: Boolean(qVitrinaEl?.checked),
+    isProtectedSale: Boolean(qProtectedEl?.checked),
+    isMarketplaceCollect: Boolean(qMarketplaceEl?.checked),
+    hasOver100SkuCatalogue: Boolean(qOver100SkuEl?.checked)
+  });
+
+  // Si el usuario escribe un email que existe en cachedUnifiedLeads, precargar su simulación
+  emailInput?.addEventListener('change', () => {
+    const typedEmail = emailInput.value.trim();
+    if (!typedEmail) return;
+    const found = Array.isArray(window.cachedUnifiedLeads)
+      ? window.cachedUnifiedLeads.find(l => (l.email || '').toLowerCase() === typedEmail.toLowerCase())
+      : null;
+    if (found) {
+      if (contactInput && !contactInput.value.trim() && found.name && found.name !== 'Sin Nombre') {
+        contactInput.value = found.name;
+        contactInput.dispatchEvent(new Event('input'));
+      }
+      if (commerceInput && !commerceInput.value.trim() && found.company && found.company !== 'Por definir') {
+        commerceInput.value = found.company;
+      }
+      const simDefaults = extractLeadQuoteDefaults(typedEmail);
+      if (simDefaults.fromLeadSimulation) {
+        if (qOrdersEl) qOrdersEl.value = simDefaults.monthlyOrders;
+        if (qM3El) qM3El.value = simDefaults.storageVolumeM3;
+        if (qSkusEl) qSkusEl.value = simDefaults.skuPerOrder;
+        if (qUnitsEl) qUnitsEl.value = simDefaults.unitsPerOrder;
+        if (qSameDayEl) qSameDayEl.value = simDefaults.shipmentsSameDay;
+        if (qCourierEl) qCourierEl.value = simDefaults.shipmentsCourier;
+        if (qWeightEl) qWeightEl.value = simDefaults.regionalWeightBracket;
+        if (qPickupsEl) qPickupsEl.value = simDefaults.pickupsExpress;
+        if (qPosEl) qPosEl.checked = simDefaults.hasPosService;
+        if (qVitrinaEl) qVitrinaEl.checked = simDefaults.hasVitrinaService;
+        if (qProtectedEl) qProtectedEl.checked = simDefaults.isProtectedSale;
+        if (qMarketplaceEl) qMarketplaceEl.checked = simDefaults.isMarketplaceCollect;
+        if (qOver100SkuEl) qOver100SkuEl.checked = simDefaults.hasOver100SkuCatalogue;
+        const badge = document.getElementById('quote-lead-sim-badge');
+        if (badge) badge.style.display = 'inline-flex';
+        recalculateAndRenderQuote();
+      }
+    }
+  });
 
   const sanitizeAndStyleEmailHtml = (rawHtml) => {
     if (!rawHtml) return '';
@@ -82808,6 +84314,218 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
     return (customEditor.innerText || customEditor.textContent || '').trim();
   };
 
+  const recalculateAndRenderQuote = () => {
+    if (typeof calcQuotationFn !== 'function') return;
+    const qInputs = getQuoteInputsFromDom();
+    const qRes = calcQuotationFn(qInputs, pricingConfig);
+
+    const ufVal = Number(qRes.ufValue) || 38500;
+    const { activeRange, storage, pickPack, fixedFee, shipping, extras, totals } = qRes;
+
+    const netMonthlyCLP = Number(totals?.netMonthly) || 0;
+    const netMonthlyUF = netMonthlyCLP / ufVal;
+    const storageNetCLP = Number(storage?.netCost ?? storage?.subtotalCLP) || 0;
+    const storageBaseRateCLP = Number(storage?.baseRatePerM3) || 19990;
+    const storageDiscountPct = Number(storage?.discountPct) || 0;
+    const pickPackUnitCLP = Number(pickPack?.unitCost ?? pickPack?.costPerOrderCLP) || 0;
+    const pickPackTotalCLP = Number(pickPack?.totalCost ?? pickPack?.subtotalCLP) || 0;
+    const avgNetPerOrderCLP = Number(totals?.costPerOrderNet ?? totals?.averageNetPerOrder) || 0;
+
+    currentQuoteResult = {
+      ...qRes,
+      ufValue: ufVal,
+      rawInputs: qInputs,
+      totals: {
+        ...totals,
+        netMonthlyUF,
+        averageNetPerOrder: avgNetPerOrderCLP,
+        costPerOrderNet: avgNetPerOrderCLP
+      }
+    };
+
+    // Actualizar resumen rápido en la barra de la calculadora
+    const liveRangeEl = document.getElementById('quote-calc-live-range');
+    const liveNetEl = document.getElementById('quote-calc-live-net');
+    const liveUfEl = document.getElementById('quote-calc-live-uf');
+    if (liveRangeEl) liveRangeEl.textContent = activeRange?.label || 'Tramo';
+    if (liveNetEl) liveNetEl.textContent = `${fmtClpFn(netMonthlyCLP)} + IVA`;
+    if (liveUfEl) liveUfEl.textContent = `(~ ${netMonthlyUF.toFixed(2)} UF)`;
+
+    // 1. Renderizar las 2 tarjetas KPI superiores de Cotización (idénticas a generateQuoteEmailHtml)
+    if (quoteKpiCardsPreview) {
+      quoteKpiCardsPreview.innerHTML = `
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px; text-align: center;">
+          <div style="font-size: 0.68rem; text-transform: uppercase; color: #64748b; font-weight: 700;">Ventas Mensuales</div>
+          <div style="font-size: 1.05rem; font-weight: 800; color: #5e17eb; margin: 2px 0;">${pickPack.monthlyOrders} pedidos</div>
+          <div style="font-size: 0.7rem; color: #64748b;">Rango ${activeRange?.id || ''} (${activeRange?.label || ''})</div>
+        </div>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px; text-align: center;">
+          <div style="font-size: 0.68rem; text-transform: uppercase; color: #64748b; font-weight: 700;">Almacenamiento Estimado</div>
+          <div style="font-size: 1.05rem; font-weight: 800; color: #5e17eb; margin: 2px 0;">${storage.volumeM3} m³</div>
+          <div style="font-size: 0.7rem; color: ${storageDiscountPct > 0 ? '#10b981' : '#64748b'}; font-weight: 600;">
+            ${storageDiscountPct > 0 ? `🎉 ${storageDiscountPct}% Dcto. por Volumen` : `Tarifa: ${fmtClpFn(storageBaseRateCLP)} / m³`}
+          </div>
+        </div>
+      `;
+    }
+
+    // 2. Construir filas de la tabla de desglose
+    const extraSkusCount = Math.max(0, (Number(pickPack.skuPerOrder) || 1) - 1);
+    const extraUnitsCount = Math.max(0, (Number(pickPack.unitsPerOrder) || 2) - 2);
+    let rowsHtml = `
+      <tr>
+        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem;">
+          <strong>📦 Almacenamiento en Bodega</strong>
+          <div style="font-size: 0.71rem; color: #64748b; margin-top: 2px;">${storage.volumeM3} m³ × ${fmtClpFn(storageBaseRateCLP)} ${storageDiscountPct > 0 ? `<span style="color: #10b981; font-weight: 600;">(-${storageDiscountPct}% dcto.)</span>` : ''}</div>
+        </td>
+        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem; text-align: right; font-weight: 700;">${fmtClpFn(storageNetCLP)}</td>
+      </tr>
+      <tr>
+        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem;">
+          <strong>🏷️ Preparación de Pedidos (Pick & Pack)</strong>
+          <div style="font-size: 0.71rem; color: #64748b; margin-top: 2px;">
+            ${pickPack.monthlyOrders} pedidos procesados × ${fmtClpFn(pickPackUnitCLP)} / pedido
+            ${(extraSkusCount > 0 || extraUnitsCount > 0) ? `<br><span style="font-size: 0.67rem; color: #64748b;">Incluye ${pickPack.skuPerOrder} SKU y ${pickPack.unitsPerOrder} unid. promedio por pedido</span>` : ''}
+          </div>
+        </td>
+        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem; text-align: right; font-weight: 700;">${fmtClpFn(pickPackTotalCLP)}</td>
+      </tr>
+      <tr>
+        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem;">
+          <strong>🛡️ Costo Variable Mensual de Servicio</strong>
+          <div style="font-size: 0.71rem; color: #64748b; margin-top: 2px;">${fixedFee?.reason || 'Condición operativa mensual'}</div>
+        </td>
+        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem; text-align: right; font-weight: 700; color: ${fixedFee?.isExempt ? '#10b981' : '#0f172a'};">
+          ${fixedFee?.isExempt ? '$0 (Exento)' : fmtClpFn(fixedFee?.clp || 0)}
+        </td>
+      </tr>
+    `;
+
+    const sameDayCount = Number(shipping?.shipmentsSameDay) || 0;
+    const sameDayCost = Number(shipping?.costShipmentsSameDay) || 0;
+    if (sameDayCount > 0) {
+      rowsHtml += `
+        <tr>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem;">
+            <strong>🚚 Despachos Same Day RM</strong>
+            <div style="font-size: 0.71rem; color: #64748b; margin-top: 2px;">${sameDayCount} envíos RM × ${fmtClpFn(Math.round(sameDayCost / sameDayCount))}</div>
+          </td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem; text-align: right; font-weight: 700;">${fmtClpFn(sameDayCost)}</td>
+        </tr>
+      `;
+    }
+
+    const courierCount = Number(shipping?.shipmentsCourier) || 0;
+    const courierCost = Number(shipping?.costCourierTotal) || 0;
+    if (courierCount > 0) {
+      const weightLabel = shipping?.activeWeightBracket?.label || '0.5 a 3 Kg';
+      const unitRate = Number(shipping?.unitRegionalShipmentRate) || Math.round(courierCost / courierCount);
+      rowsHtml += `
+        <tr>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem;">
+            <strong>✈️ Despachos Courier Regiones</strong>
+            <div style="font-size: 0.71rem; color: #64748b; margin-top: 2px;">${courierCount} envíos (${weightLabel}) × ${fmtClpFn(unitRate)}</div>
+          </td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem; text-align: right; font-weight: 700;">${fmtClpFn(courierCost)}</td>
+        </tr>
+      `;
+    }
+
+    const pickupCount = Number(shipping?.pickupsExpress) || 0;
+    const pickupCost = Number(shipping?.costPickupsExpress) || 0;
+    if (pickupCount > 0) {
+      rowsHtml += `
+        <tr>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem;">
+            <strong>⚡ Retiros Express en Bodega</strong>
+            <div style="font-size: 0.71rem; color: #64748b; margin-top: 2px;">${pickupCount} retiros × ${fmtClpFn(Math.round(pickupCost / pickupCount))}</div>
+          </td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem; text-align: right; font-weight: 700;">${fmtClpFn(pickupCost)}</td>
+        </tr>
+      `;
+    }
+
+    if (extras?.services?.hasPosService) {
+      rowsHtml += `
+        <tr>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem;">
+            <strong>🏪 Servicio Punto de Venta (POS)</strong>
+            <div style="font-size: 0.71rem; color: #64748b; margin-top: 2px;">Módulo POS activo en sucursal Stocka</div>
+          </td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem; text-align: right; font-weight: 700;">${fmtClpFn(extras.services.costPos)}</td>
+        </tr>
+      `;
+    }
+
+    if (extras?.services?.hasVitrinaService) {
+      rowsHtml += `
+        <tr>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem;">
+            <strong>✨ Servicio Vitrina / Showroom</strong>
+            <div style="font-size: 0.71rem; color: #64748b; margin-top: 2px;">Exhibición comercial en sucursal Stocka</div>
+          </td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem; text-align: right; font-weight: 700;">${fmtClpFn(extras.services.costVitrina)}</td>
+        </tr>
+      `;
+    }
+
+    if (quoteTableWrapperPreview) {
+      quoteTableWrapperPreview.innerHTML = `
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 0.9rem;">
+          <thead>
+            <tr>
+              <th style="background: #f1f5f9; color: #475569; font-size: 0.68rem; text-transform: uppercase; padding: 8px 10px; text-align: left; border-bottom: 2px solid #cbd5e1;">Concepto de Servicio</th>
+              <th style="background: #f1f5f9; color: #475569; font-size: 0.68rem; text-transform: uppercase; padding: 8px 10px; text-align: right; border-bottom: 2px solid #cbd5e1;">Costo Neto (CLP)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      `;
+    }
+
+    if (quoteTotalsWrapperPreview) {
+      quoteTotalsWrapperPreview.innerHTML = `
+        <div style="background: linear-gradient(135deg, rgba(94, 23, 235, 0.06), rgba(37, 99, 235, 0.06)); border: 1px solid rgba(94, 23, 235, 0.22); border-radius: 10px; padding: 14px 16px; margin-bottom: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 0.82rem; color: #334155;">
+            <span>Subtotal Neto Mensual:</span>
+            <strong style="color: #0f172a;">${fmtClpFn(netMonthlyCLP)} + IVA <span style="font-size: 0.72rem; font-weight: 600; color: #64748b;">(~ ${netMonthlyUF.toFixed(2)} UF)</span></strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.78rem; color: #475569;">
+            <span>IVA (19%):</span>
+            <strong>${fmtClpFn(totals.ivaMonthly)}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: baseline; border-top: 1px solid rgba(94, 23, 235, 0.2); padding-top: 8px; margin-top: 6px;">
+            <span style="font-weight: 700; color: #0f172a; font-size: 0.88rem;">Total Mensual Estimado:</span>
+            <span style="font-size: 1.15rem; font-weight: 800; color: #5e17eb;">${fmtClpFn(totals.grossMonthly)} <span style="font-size: 0.7rem; font-weight: normal; color: #64748b;">(IVA Inc.)</span></span>
+          </div>
+          <div style="margin-top: 8px; padding-top: 7px; border-top: 1px dashed rgba(94, 23, 235, 0.2); font-size: 0.78rem; color: #5e17eb; font-weight: 700; text-align: center;">
+            🎯 Costo Promedio Estimado Todo Incluido: ${fmtClpFn(avgNetPerOrderCLP)} + IVA / pedido
+          </div>
+        </div>
+
+        <div style="margin: 0.75rem 0; background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 10px 12px; font-size: 0.73rem; color: #92400e; line-height: 1.45;">
+          <strong style="color: #78350f; display: block; margin-bottom: 2px;">📦 Nota sobre Insumos de Embalaje (Packaging):</strong>
+          Los valores de Pick & Pack incluyen el proceso operativo y etiquetado. Los materiales de embalaje (cajas, bolsas, film o relleno) pueden ser aportados por el cliente o suministrados por Stocka según consumo real.
+        </div>
+      `;
+    }
+
+    // Actualizar enlace del simulador con los parámetros de la cotización si estamos en modo quote
+    const baseCotizador = document.getElementById('info-input-cotizador-url')?.value.trim() || defaultCotizadorUrl;
+    const previewLinkCotizador = document.getElementById('preview-link-cotizador');
+    if (previewLinkCotizador) {
+      if (currentEmailMode === 'quote') {
+        const sep = baseCotizador.includes('?') ? '&' : '?';
+        const simUrl = `${baseCotizador}${sep}pedidos=${pickPack.monthlyOrders}&volumen=${storage.volumeM3}`;
+        previewLinkCotizador.setAttribute('href', simUrl);
+      } else {
+        previewLinkCotizador.setAttribute('href', baseCotizador);
+      }
+    }
+  };
+
   const updateCenterPreview = () => {
     const plainText = getEditorPlainText();
     const styledHtml = sanitizeAndStyleEmailHtml(customEditor ? customEditor.innerHTML : '');
@@ -82817,12 +84535,26 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
     const titleVal = boxTitleInput ? boxTitleInput.value.trim() : '';
     const includeP2 = includeSecondIntroCheckbox ? includeSecondIntroCheckbox.checked : true;
 
-    // Actualizar visibilidad y puntuación del 2° párrafo introductorio
+    // Actualizar textos introductorios según modo Presentación vs Cotización
+    if (introP1Preview) {
+      if (currentEmailMode === 'quote') {
+        introP1Preview.innerHTML = `Muchas gracias por cotizar los servicios de <strong>Fulfillment 360 de STOCKA</strong>. Te escribe <strong>Felipe Trujillo</strong>, Socio Fundador de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 700; text-decoration: underline;">Stocka.cl</a>.`;
+      } else {
+        introP1Preview.innerHTML = `Muchas gracias por tu interés en los servicios de <strong>Fulfillment 360 de STOCKA</strong>. Te escribe <strong>Felipe Trujillo</strong>, Socio Fundador de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 700; text-decoration: underline;">Stocka.cl</a>.`;
+      }
+    }
+    if (introP2BodyPreview) {
+      if (currentEmailMode === 'quote') {
+        introP2BodyPreview.innerHTML = `A continuación te presentamos el detalle de tu propuesta comercial estimada de acuerdo con los volúmenes y servicios configurados para tu operación`;
+      } else {
+        introP2BodyPreview.innerHTML = `En Stocka somos un partner logístico especializado en potenciar marcas online mediante un modelo de servicio <strong>integral, ágil y 100% escalable</strong>, diseñado para que puedas delegar la logística y concentrarte en el crecimiento de tus ventas`;
+      }
+    }
     if (introP2Preview) {
       introP2Preview.style.display = includeP2 ? 'inline' : 'none';
     }
     if (introPunctPreview) {
-      introPunctPreview.textContent = (currentCenterMode === 'custom_replace' && boxStyle === 'clean') ? '.' : (currentCenterMode === 'custom_replace' ? '.' : ':');
+      introPunctPreview.textContent = (currentCenterMode === 'custom_replace' && boxStyle === 'clean') ? '.' : ':';
     }
 
     // Aplicar estilo visual al contenedor del mensaje personalizado en la vista previa
@@ -82832,7 +84564,6 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
       } else if (boxStyle === 'highlight') {
         customBox.style.cssText = 'background-color: #f5f3ff; border: 1px solid #ddd6fe; border-left: 4px solid #5e17eb; border-radius: 10px; padding: 14px 16px; margin-bottom: 1.1rem; font-size: 0.84rem; color: #312e81; line-height: 1.6;';
       } else {
-        // 'card' (Tarjeta Corporativa Stocka)
         customBox.style.cssText = 'background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #5e17eb; border-radius: 10px; padding: 14px 16px; margin-bottom: 1.1rem; font-size: 0.84rem; color: #334155; line-height: 1.6;';
       }
     }
@@ -82847,45 +84578,87 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
       }
     }
 
-    // Mostrar / ocultar tarjetas y bloque personalizado según el modo elegido
-    if (currentCenterMode === 'cards') {
-      if (cardsContainerPreview) cardsContainerPreview.style.display = 'block';
-      if (customBox && customText) {
-        if (plainText) {
-          customText.innerHTML = styledHtml;
+    if (currentEmailMode === 'presentation') {
+      if (quoteContainerPreview) quoteContainerPreview.style.display = 'none';
+      if (quoteOnboardingCtaPreview) quoteOnboardingCtaPreview.style.display = 'none';
+
+      if (currentCenterMode === 'cards') {
+        if (cardsContainerPreview) cardsContainerPreview.style.display = 'block';
+        if (customBox && customText) {
+          if (plainText) {
+            customText.innerHTML = styledHtml;
+            customBox.style.display = 'block';
+          } else {
+            customBox.style.display = 'none';
+          }
+        }
+        if (helperTextEl) {
+          helperTextEl.innerHTML = 'En modo <strong>4 Bloques en Tarjetas</strong>, el correo muestra las 4 tarjetas de servicio (y si escribes un mensaje arriba, se incluirá como nota destacada).';
+        }
+      } else if (currentCenterMode === 'custom_replace') {
+        if (cardsContainerPreview) cardsContainerPreview.style.display = 'none';
+        if (customBox && customText) {
           customBox.style.display = 'block';
-        } else {
-          customBox.style.display = 'none';
+          customText.innerHTML = plainText
+            ? styledHtml
+            : '<span style="color: #94a3b8; font-style: italic;">✍️ Escribe tu mensaje con formato arriba para reemplazar los 4 bloques y responder las consultas del lead...</span>';
+        }
+        if (helperTextEl) {
+          helperTextEl.innerHTML = 'En modo <strong>Reemplazar por Texto</strong>, se ocultan las 4 tarjetas y tu mensaje con formato ocupa la zona central manteniendo el diseño del correo.';
+        }
+      } else if (currentCenterMode === 'both') {
+        if (cardsContainerPreview) cardsContainerPreview.style.display = 'block';
+        if (customBox && customText) {
+          customBox.style.display = 'block';
+          customText.innerHTML = plainText
+            ? styledHtml
+            : '<span style="color: #94a3b8; font-style: italic;">✍️ Escribe tu mensaje personalizado arriba; se mostrará aquí y debajo irán las 4 tarjetas...</span>';
+        }
+        if (helperTextEl) {
+          helperTextEl.innerHTML = 'En modo <strong>Texto + 4 Tarjetas</strong>, se muestra primero tu bloque de respuesta con formato y justo debajo los 4 bloques de servicios.';
         }
       }
-      if (helperTextEl) {
-        helperTextEl.innerHTML = 'En modo <strong>4 Bloques en Tarjetas</strong>, el correo muestra las 4 tarjetas de servicio (y si escribes un mensaje arriba, se incluirá como nota destacada).';
-      }
-    } else if (currentCenterMode === 'custom_replace') {
+    } else {
+      // MODO COTIZACIÓN
       if (cardsContainerPreview) cardsContainerPreview.style.display = 'none';
-      if (customBox && customText) {
-        customBox.style.display = 'block';
-        if (plainText) {
-          customText.innerHTML = styledHtml;
-        } else {
-          customText.innerHTML = '<span style="color: #94a3b8; font-style: italic;">✍️ Escribe tu mensaje con formato arriba para reemplazar los 4 bloques y responder las consultas del lead...</span>';
+      if (quoteContainerPreview) quoteContainerPreview.style.display = 'block';
+      if (quoteOnboardingCtaPreview) quoteOnboardingCtaPreview.style.display = 'block';
+
+      if (currentCenterMode === 'cards') {
+        if (quoteKpiCardsPreview) quoteKpiCardsPreview.style.display = 'grid';
+        if (customBox && customText) {
+          if (plainText) {
+            customText.innerHTML = styledHtml;
+            customBox.style.display = 'block';
+          } else {
+            customBox.style.display = 'none';
+          }
         }
-      }
-      if (helperTextEl) {
-        helperTextEl.innerHTML = 'En modo <strong>Reemplazar por Texto</strong>, se ocultan las 4 tarjetas y tu mensaje con formato ocupa la zona central manteniendo el diseño del correo.';
-      }
-    } else if (currentCenterMode === 'both') {
-      if (cardsContainerPreview) cardsContainerPreview.style.display = 'block';
-      if (customBox && customText) {
-        customBox.style.display = 'block';
-        if (plainText) {
-          customText.innerHTML = styledHtml;
-        } else {
-          customText.innerHTML = '<span style="color: #94a3b8; font-style: italic;">✍️ Escribe tu mensaje personalizado arriba; se mostrará aquí y debajo irán las 4 tarjetas...</span>';
+        if (helperTextEl) {
+          helperTextEl.innerHTML = 'En modo <strong>Cotización Estándar</strong>, se envía el desglose completo y, si escribes comentarios con formato en el editor, se incluyen arriba de la tabla.';
         }
-      }
-      if (helperTextEl) {
-        helperTextEl.innerHTML = 'En modo <strong>Texto + 4 Tarjetas</strong>, se muestra primero tu bloque de respuesta con formato y justo debajo los 4 bloques de servicios.';
+      } else if (currentCenterMode === 'custom_replace') {
+        if (quoteKpiCardsPreview) quoteKpiCardsPreview.style.display = 'none';
+        if (customBox && customText) {
+          customBox.style.display = 'block';
+          customText.innerHTML = plainText
+            ? styledHtml
+            : '<span style="color: #94a3b8; font-style: italic;">✍️ Escribe tus comentarios o respuestas con formato arriba; reemplazarán las tarjetas KPI superiores justo antes de la tabla de cotización...</span>';
+        }
+        if (helperTextEl) {
+          helperTextEl.innerHTML = 'En modo <strong>Reemplazar KPIs por Texto</strong>, tu comentario con formato reemplaza las tarjetas superiores y debajo va la tabla detallada de cotización.';
+        }
+      } else if (currentCenterMode === 'both') {
+        if (quoteKpiCardsPreview) quoteKpiCardsPreview.style.display = 'grid';
+        if (customBox && customText) {
+          customBox.style.display = 'block';
+          customText.innerHTML = plainText
+            ? styledHtml
+            : '<span style="color: #94a3b8; font-style: italic;">✍️ Escribe tus comentarios con formato arriba; se destacarán al inicio seguidos por los KPIs y la tabla de cotización...</span>';
+        }
+        if (helperTextEl) {
+          helperTextEl.innerHTML = 'En modo <strong>Comentarios + Cotización Completa</strong>, se muestra primero tu bloque con formato y debajo los KPIs y la tabla tarifaria.';
+        }
       }
     }
   };
@@ -82907,6 +84680,150 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
     });
     updateCenterPreview();
   };
+
+  const setEmailMode = (emailMode) => {
+    currentEmailMode = emailMode === 'quote' ? 'quote' : 'presentation';
+    const isQuote = currentEmailMode === 'quote';
+
+    // Actualizar estilos de las pestañas superiores
+    emailTypeTabs.forEach(tab => {
+      const tabMode = tab.getAttribute('data-email-mode');
+      if (tabMode === currentEmailMode) {
+        tab.style.background = '#ffffff';
+        tab.style.color = isQuote ? '#065f46' : '#1e40af';
+        tab.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
+      } else {
+        tab.style.background = 'transparent';
+        tab.style.color = 'rgba(255,255,255,0.9)';
+        tab.style.boxShadow = 'none';
+      }
+    });
+
+    // Actualizar Header del Modal y Botón Submit
+    const modalHeader = document.getElementById('lead-info-modal-header');
+    const headerIcon = document.getElementById('lead-info-header-icon');
+    const headerTitle = document.getElementById('lead-info-header-title');
+    const headerSubtitle = document.getElementById('lead-info-header-subtitle');
+    const submitBtn = document.getElementById('btn-submit-send-lead-info');
+    const submitBtnText = document.getElementById('btn-submit-send-lead-text');
+    const quoteCalcPanel = document.getElementById('lead-quote-calc-panel');
+
+    if (modalHeader) {
+      modalHeader.style.background = isQuote
+        ? 'linear-gradient(135deg, #065f46, #10b981)'
+        : 'linear-gradient(135deg, #1e40af, #3b82f6)';
+    }
+    if (headerIcon) headerIcon.className = isQuote ? 'ri-calculator-fill' : 'ri-mail-star-line';
+    if (headerTitle) {
+      headerTitle.textContent = isQuote
+        ? 'Enviar Correo con Cotización Fulfillment 360'
+        : 'Enviar Información Comercial y Presentación';
+    }
+    if (headerSubtitle) {
+      headerSubtitle.textContent = isQuote
+        ? 'Desglose tarifario en CLP + UF, comentarios personalizados con formato, presentaciones PDF y link a reunión'
+        : 'Presentación oficial de Fulfillment, respuesta personalizada con formato, cotizador online y agendamiento de reunión';
+    }
+    if (submitBtn) {
+      submitBtn.style.background = isQuote
+        ? 'linear-gradient(135deg, #059669, #10b981)'
+        : 'linear-gradient(135deg, #1e40af, #2563eb)';
+    }
+    if (submitBtnText) {
+      submitBtnText.textContent = isQuote ? 'Enviar Correo con Cotización' : 'Enviar Presentación Comercial';
+    }
+    if (quoteCalcPanel) {
+      quoteCalcPanel.style.display = isQuote ? 'block' : 'none';
+    }
+
+    // Actualizar Asunto automáticamente si no fue personalizado manualmente a otra cosa
+    if (subjectInput) {
+      const comm = commerceInput?.value.trim() || defaultCommerce;
+      const commSuffix = comm ? ` - ${comm}` : '';
+      const curSubj = subjectInput.value.trim();
+      if (isQuote && (curSubj.startsWith('Información y Presentación') || !curSubj)) {
+        subjectInput.value = `Cotización de Servicios de Fulfillment - STOCKA${commSuffix}`;
+      } else if (!isQuote && (curSubj.startsWith('Cotización de Servicios') || !curSubj)) {
+        subjectInput.value = `Información y Presentación de Servicios de Fulfillment - Stocka${commSuffix}`;
+      }
+    }
+
+    // Actualizar etiquetas de los 3 botones de modo central según Presentación vs Cotización
+    const btnCardsTitle = document.getElementById('mode-btn-cards-title');
+    const btnCardsDesc = document.getElementById('mode-btn-cards-desc');
+    const btnReplaceTitle = document.getElementById('mode-btn-replace-title');
+    const btnReplaceDesc = document.getElementById('mode-btn-replace-desc');
+    const btnBothTitle = document.getElementById('mode-btn-both-title');
+    const btnBothDesc = document.getElementById('mode-btn-both-desc');
+
+    if (isQuote) {
+      if (btnCardsTitle) btnCardsTitle.innerHTML = '<i class="ri-table-line"></i> Cotización Estándar';
+      if (btnCardsDesc) btnCardsDesc.textContent = 'KPIs + Tabla de Desglose (+ comentarios si escribes)';
+      if (btnReplaceTitle) btnReplaceTitle.innerHTML = '<i class="ri-quill-pen-fill" style="color: #2563eb;"></i> Texto + Tabla Cotización';
+      if (btnReplaceDesc) btnReplaceDesc.textContent = 'Sustituye las tarjetas KPI por tus comentarios con formato';
+      if (btnBothTitle) btnBothTitle.innerHTML = '<i class="ri-layout-row-fill" style="color: #10b981;"></i> Comentarios + Todo';
+      if (btnBothDesc) btnBothDesc.textContent = 'Destaca tus comentarios arriba + KPIs + Tabla completa';
+    } else {
+      if (btnCardsTitle) btnCardsTitle.innerHTML = '<i class="ri-grid-fill"></i> 4 Bloques en Tarjetas';
+      if (btnCardsDesc) btnCardsDesc.textContent = 'Diseño estándar con las 4 tarjetas de servicio';
+      if (btnReplaceTitle) btnReplaceTitle.innerHTML = '<i class="ri-quill-pen-fill" style="color: #2563eb;"></i> Reemplazar por Texto';
+      if (btnReplaceDesc) btnReplaceDesc.textContent = 'Sustituye las 4 tarjetas por tu respuesta con formato';
+      if (btnBothTitle) btnBothTitle.innerHTML = '<i class="ri-layout-row-fill" style="color: #10b981;"></i> Texto + 4 Tarjetas';
+      if (btnBothDesc) btnBothDesc.textContent = 'Muestra tu respuesta y debajo las 4 tarjetas';
+    }
+
+    // Actualizar títulos del Header de la Vista Previa y Caja Simulador
+    const previewHeaderTitle = document.getElementById('lead-preview-email-header-title');
+    const previewHeaderSubtitle = document.getElementById('lead-preview-email-header-subtitle');
+    const previewCotizadorTitle = document.getElementById('preview-cotizador-box-title');
+    const previewCotizadorDesc = document.getElementById('preview-cotizador-box-desc');
+    const previewLinkCotizador = document.getElementById('preview-link-cotizador');
+
+    if (previewHeaderTitle) {
+      previewHeaderTitle.textContent = isQuote
+        ? 'Cotización de Servicios Fulfillment 360'
+        : 'Propuesta y Servicios Fulfillment 360';
+    }
+    if (previewHeaderSubtitle) {
+      previewHeaderSubtitle.textContent = isQuote
+        ? 'Propuesta Comercial Estimada • Valores expresados en Pesos Chilenos (CLP)'
+        : 'Soluciones Integrales de Almacenamiento, Preparación y Despacho para Ecommerce';
+    }
+    if (previewCotizadorTitle) {
+      previewCotizadorTitle.textContent = isQuote
+        ? '🧮 ¿Quieres simular con otras cantidades de pedidos o m³?'
+        : '🧮 ¿Quieres simular tu cotización en menos de 1 minuto?';
+    }
+    if (previewCotizadorDesc) {
+      previewCotizadorDesc.textContent = isQuote
+        ? 'Haz clic abajo para abrir esta misma cotización en nuestro simulador en línea y ajustar cualquier variable:'
+        : 'Ingresa tus estimaciones de pedidos mensuales y volumen para obtener un desglose detallado:';
+    }
+    if (previewLinkCotizador) {
+      previewLinkCotizador.textContent = isQuote
+        ? '🔄 Volver a Simular / Ajustar Cantidades Online ↗'
+        : '🔄 Simular Cotización Online en Stocka.cl ↗';
+    }
+
+    recalculateAndRenderQuote();
+    setCenterMode(currentCenterMode);
+  };
+
+  emailTypeTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const targetEmailMode = tab.getAttribute('data-email-mode') || 'presentation';
+      setEmailMode(targetEmailMode);
+    });
+  });
+
+  // Listeners para recalcular la cotización en tiempo real al cambiar cualquier input
+  [qOrdersEl, qM3El, qSkusEl, qUnitsEl, qSameDayEl, qCourierEl, qWeightEl, qPickupsEl].forEach(el => {
+    el?.addEventListener('input', recalculateAndRenderQuote);
+    el?.addEventListener('change', recalculateAndRenderQuote);
+  });
+  [qPosEl, qVitrinaEl, qProtectedEl, qMarketplaceEl, qOver100SkuEl].forEach(el => {
+    el?.addEventListener('change', recalculateAndRenderQuote);
+  });
 
   modeButtons.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -82949,23 +84866,36 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
     }
   });
 
-  // Botón para insertar plantilla rápida de respuesta a consultas
+  // Botón para insertar plantilla rápida con formato (adaptada a Presentación o Cotización)
   document.getElementById('btn-insert-qa-template')?.addEventListener('click', () => {
     if (!customEditor) return;
-    if (currentCenterMode === 'cards') {
+    if (currentCenterMode === 'cards' && currentEmailMode === 'presentation') {
       setCenterMode('custom_replace');
+    } else if (currentCenterMode === 'cards' && currentEmailMode === 'quote') {
+      setCenterMode('both');
     }
-    const templateHtml = `
-      <p>Respecto a las consultas que nos comentaste sobre la operación logística para tu tienda, te detallo cómo trabajamos en <strong>Stocka</strong>:</p>
-      <ul>
-        <li><strong style="color: #5e17eb;">Recepción y Almacenamiento:</strong> Recibimos tu mercadería, la inventariamos en nuestro WMS en tiempo real y solo pagas por los m³ efectivamente utilizados.</li>
-        <li><strong style="color: #5e17eb;">Preparación y Despachos (Pick & Pack):</strong> Conectamos tu tienda online para procesar los pedidos automáticamente el mismo día, con despachos <strong>Same Day en RM</strong> y couriers a todo Chile.</li>
-        <li><strong style="color: #5e17eb;">Tarifas y Flexibilidad:</strong> No exigimos contratos de permanencia forzosa ni mínimos desmedidos, adaptándonos al volumen de tu ecommerce.</li>
-      </ul>
-      <p>Quedo muy atento a tus comentarios o cualquier duda adicional que tengas.</p>
-    `.trim();
 
-    if (!getEditorPlainText() || confirm('¿Deseas reemplazar el texto actual del editor con la plantilla de respuesta a consultas?')) {
+    const templateHtml = currentEmailMode === 'quote'
+      ? `
+        <p>Junto con saludarte, te comparto el detalle de la cotización para tu operación y aprovecho de responder tus consultas sobre el servicio de <strong>Stocka</strong>:</p>
+        <ul>
+          <li><strong style="color: #5e17eb;">Flexibilidad de Almacenaje:</strong> El cobro de bodega se calcula proporcionalmente a los <strong>m³ efectivamente utilizados</strong> por tu inventario, sin cobros fijos sobredimensionados.</li>
+          <li><strong style="color: #5e17eb;">Integración y Preparación Ágil:</strong> Conectamos tu ecommerce sin costo de integración para procesar tus pedidos el mismo día (con horarios de corte extendidos para <strong>Same Day RM</strong> y couriers a regiones).</li>
+          <li><strong style="color: #059669;">Escalabilidad por Tramos:</strong> A medida que tus pedidos mensuales crecen, la tarifa unitaria de Pick & Pack disminuye automáticamente de tramo.</li>
+        </ul>
+        <p>Quedo muy atento a tus comentarios o si deseas que revisemos juntos los números en una breve reunión.</p>
+      `.trim()
+      : `
+        <p>Respecto a las consultas que nos comentaste sobre la operación logística para tu tienda, te detallo cómo trabajamos en <strong>Stocka</strong>:</p>
+        <ul>
+          <li><strong style="color: #5e17eb;">Recepción y Almacenamiento:</strong> Recibimos tu mercadería, la inventariamos en nuestro WMS en tiempo real y solo pagas por los m³ efectivamente utilizados.</li>
+          <li><strong style="color: #5e17eb;">Preparación y Despachos (Pick & Pack):</strong> Conectamos tu tienda online para procesar los pedidos automáticamente el mismo día, con despachos <strong>Same Day en RM</strong> y couriers a todo Chile.</li>
+          <li><strong style="color: #5e17eb;">Tarifas y Flexibilidad:</strong> No exigimos contratos de permanencia forzosa ni mínimos desmedidos, adaptándonos al volumen de tu ecommerce.</li>
+        </ul>
+        <p>Quedo muy atento a tus comentarios o cualquier duda adicional que tengas.</p>
+      `.trim();
+
+    if (!getEditorPlainText() || confirm('¿Deseas reemplazar el texto actual del editor con la plantilla con formato?')) {
       customEditor.innerHTML = templateHtml;
       updateCenterPreview();
       customEditor.focus();
@@ -82975,6 +84905,13 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
   document.getElementById('btn-preset-title-consultas')?.addEventListener('click', () => {
     if (boxTitleInput) {
       boxTitleInput.value = '💬 Respuesta a tus consultas:';
+      updateCenterPreview();
+    }
+  });
+
+  document.getElementById('btn-preset-title-cotizacion')?.addEventListener('click', () => {
+    if (boxTitleInput) {
+      boxTitleInput.value = '📌 Consideraciones y comentarios sobre tu cotización:';
       updateCenterPreview();
     }
   });
@@ -82991,7 +84928,8 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
   boxTitleInput?.addEventListener('input', updateCenterPreview);
   includeSecondIntroCheckbox?.addEventListener('change', updateCenterPreview);
 
-  // Inicializar estado de vista previa
+  // Inicializar estado de vista previa y cotizador
+  setEmailMode(defaultEmailMode);
   setCenterMode(defaultCenterMode);
 
   const meetingInput = document.getElementById('info-input-meeting');
@@ -83029,18 +84967,19 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
   inputCotizadorUrl?.addEventListener('input', () => {
     const val = inputCotizadorUrl.value.trim() || defaultCotizadorUrl;
     document.getElementById('link-preview-doc-cotizador')?.setAttribute('href', val);
-    document.getElementById('preview-link-cotizador')?.setAttribute('href', val);
+    recalculateAndRenderQuote();
   });
 
-  // Manejador del envío del formulario de información comercial
+  // Manejador del envío del formulario de información comercial / cotización
   const form = document.getElementById('form-send-lead-info');
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
 
+    const isQuoteMode = currentEmailMode === 'quote';
     const email = document.getElementById('info-input-email').value.trim();
     const contactName = document.getElementById('info-input-contact').value.trim();
     const commerceName = document.getElementById('info-input-commerce').value.trim();
-    const subject = document.getElementById('info-input-subject').value.trim() || defaultSubject;
+    const subject = document.getElementById('info-input-subject').value.trim() || (isQuoteMode ? quoteDefaultSubject : presentationDefaultSubject);
     const cc = document.getElementById('info-input-cc').value.trim();
     const meetingUrl = document.getElementById('info-input-meeting').value.trim() || defaultMeeting;
     const customMessage = getEditorPlainText();
@@ -83074,15 +85013,23 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
 
     if (currentCenterMode === 'custom_replace' && !customMessage) {
       if (alertDiv) {
-        alertDiv.textContent = 'Has elegido reemplazar las 4 tarjetas por tu mensaje personalizado. Por favor escribe el mensaje en el editor o selecciona el modo "4 Bloques en Tarjetas".';
+        alertDiv.textContent = isQuoteMode
+          ? 'Has elegido incluir texto reemplazando las tarjetas superiores. Por favor escribe tus comentarios en el editor o selecciona "Cotización Estándar".'
+          : 'Has elegido reemplazar las 4 tarjetas por tu mensaje personalizado. Por favor escribe el mensaje en el editor o selecciona el modo "4 Bloques en Tarjetas".';
         alertDiv.style.display = 'block';
       }
       customEditor?.focus();
       return;
     }
 
+    if (isQuoteMode) {
+      recalculateAndRenderQuote();
+    }
+
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<i class="ri-loader-4-line spin"></i> Enviando Presentación y Adjuntos...';
+    submitBtn.innerHTML = isQuoteMode
+      ? '<i class="ri-loader-4-line spin"></i> Enviando Cotización y Adjuntos...'
+      : '<i class="ri-loader-4-line spin"></i> Enviando Presentación y Adjuntos...';
 
     try {
       const { data: { session }, error: sessionErr } = await supabase.auth.getSession();
@@ -83098,6 +85045,8 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
         },
         body: JSON.stringify({
           emailType: 'lead_info_fulfillment',
+          emailMode: currentEmailMode,
+          quoteData: isQuoteMode ? currentQuoteResult : null,
           emails: [email],
           contactName: contactName,
           commerceName: commerceName || 'Comercio',
@@ -83123,6 +85072,10 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
         throw new Error(errJson?.error || `Error en el servidor: HTTP ${res.status}`);
       }
 
+      const notesSummary = isQuoteMode && currentQuoteResult
+        ? `[COTIZACIÓN ENVIADA: ${currentQuoteResult.pickPack.monthlyOrders} ped/mes | ${currentQuoteResult.storage.volumeM3} m³ | Neto: ${fmtClpFn(currentQuoteResult.totals.netMonthly)} + IVA] ${customMessage || ''}`.trim()
+        : customMessage;
+
       // 1. Guardar log persistente en localStorage
       const logItem = {
         id: 'local_info_' + Date.now(),
@@ -83133,7 +85086,7 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
         subject: subject,
         sent_at: new Date().toISOString(),
         status: 'delivered',
-        notes: customMessage
+        notes: notesSummary
       };
 
       try {
@@ -83153,7 +85106,7 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
           cc_emails: cc,
           subject: subject,
           status: 'delivered',
-          notes: customMessage,
+          notes: notesSummary,
           sent_at: new Date().toISOString()
         }]);
       } catch (logErr) {
@@ -83166,11 +85119,35 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
         if (matchedProfiles && matchedProfiles.length > 0) {
           for (const p of matchedProfiles) {
             const sentArr = Array.isArray(p.lead_emails_sent) ? [...p.lead_emails_sent] : [];
-            sentArr.push({ type: 'INFO_COMERCIAL', sent_at: new Date().toISOString(), subject });
+            sentArr.push({
+              type: isQuoteMode ? 'COTIZACION_COMERCIAL' : 'INFO_COMERCIAL',
+              sent_at: new Date().toISOString(),
+              subject
+            });
             const nextStatus = (p.lead_status === 'convertido' || p.lead_status === 'onboarding' || p.lead_status === 'e1_enviado') ? p.lead_status : 'contactado';
             await supabase.from('profiles').update({ lead_emails_sent: sentArr, lead_status: nextStatus }).eq('id', p.id);
           }
-        } else {
+        }
+
+        if (isQuoteMode && currentQuoteResult) {
+          const quoteLeadPayload = {
+            email: email,
+            contact_name: contactName,
+            company_name: commerceName,
+            monthly_orders: currentQuoteResult.pickPack.monthlyOrders,
+            estimated_volume: currentQuoteResult.storage.volumeM3,
+            estimated_monthly_net: currentQuoteResult.totals.netMonthly,
+            quote_data: currentQuoteResult,
+            status: 'contactado',
+            notes: notesSummary,
+            created_at: new Date().toISOString()
+          };
+          try {
+            await supabase.from('quote_leads').insert([quoteLeadPayload]);
+          } catch (qInsErr) {
+            console.warn('Aviso registrando cotización en quote_leads:', qInsErr);
+          }
+        } else if (!matchedProfiles || matchedProfiles.length === 0) {
           const { data: matchedQuotes } = await supabase.from('quote_leads').select('id').ilike('email', email);
           if (matchedQuotes && matchedQuotes.length > 0) {
             await supabase.from('quote_leads').update({ status: 'contactado' }).ilike('email', email);
@@ -83180,7 +85157,7 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
               contact_name: contactName,
               company_name: commerceName,
               status: 'contactado',
-              notes: customMessage,
+              notes: notesSummary,
               created_at: new Date().toISOString()
             };
             try {
@@ -83198,7 +85175,7 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
           }
         }
       } catch (syncErr) {
-        console.warn('Aviso sincronizando lead tras envío de presentación:', syncErr);
+        console.warn('Aviso sincronizando lead tras envío de correo comercial:', syncErr);
       }
 
       window.cachedUnifiedLeads = null;
@@ -83214,30 +85191,32 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
 
       if (typeof Swal !== 'undefined') {
         Swal.fire({
-          title: '¡Información Comercial Enviada!',
+          title: isQuoteMode ? '¡Cotización Enviada con Éxito!' : '¡Información Comercial Enviada!',
           html: `
             <div style="text-align: left; font-size: 0.9rem; color: #334155; line-height: 1.5;">
-              <p>El correo con la <strong>Presentación de Servicios de Fulfillment</strong> y recursos adjuntos fue enviado con éxito.</p>
+              <p>${isQuoteMode
+                ? 'El correo con la <strong>Cotización de Servicios Fulfillment 360</strong>, comentarios con formato y recursos adjuntos fue enviado con éxito.'
+                : 'El correo con la <strong>Presentación de Servicios de Fulfillment</strong> y recursos adjuntos fue enviado con éxito.'}</p>
               <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.75rem; margin-top: 0.5rem; font-size: 0.82rem;">
                 <div><strong>Destinatario:</strong> ${email}</div>
                 ${contactName ? `<div><strong>Contacto:</strong> ${contactName}</div>` : ''}
                 ${commerceName ? `<div><strong>Comercio:</strong> ${commerceName}</div>` : ''}
                 ${cc ? `<div><strong>Copia (CC):</strong> ${cc}</div>` : ''}
-                <div style="margin-top: 0.35rem; color: #2563eb;"><strong>Incluye:</strong> Presentaciones PDF oficiales, cotizador y enlace a reunión.</div>
+                ${isQuoteMode && currentQuoteResult ? `<div style="margin-top: 0.35rem; color: #059669;"><strong>Cotización:</strong> ${currentQuoteResult.pickPack.monthlyOrders} ped/mes • ${currentQuoteResult.storage.volumeM3} m³ • Total Neto: ${fmtClpFn(currentQuoteResult.totals.netMonthly)} + IVA</div>` : `<div style="margin-top: 0.35rem; color: #2563eb;"><strong>Incluye:</strong> Presentaciones PDF oficiales, cotizador y enlace a reunión.</div>`}
               </div>
             </div>
           `,
           icon: 'success',
-          confirmButtonColor: '#2563eb'
+          confirmButtonColor: isQuoteMode ? '#059669' : '#2563eb'
         });
       } else {
-        alert(`¡Correo de Presentación enviado con éxito a ${email}!`);
+        alert(`¡Correo enviado con éxito a ${email}!`);
       }
 
     } catch (err) {
-      console.error('Error al enviar correo de presentación comercial:', err);
+      console.error('Error al enviar correo comercial:', err);
       submitBtn.disabled = false;
-      submitBtn.innerHTML = '<i class="ri-send-plane-fill"></i> Enviar Presentación Comercial';
+      submitBtn.innerHTML = `<i class="ri-send-plane-fill"></i> <span id="btn-submit-send-lead-text">${currentEmailMode === 'quote' ? 'Enviar Correo con Cotización' : 'Enviar Presentación Comercial'}</span>`;
       if (alertDiv) {
         alertDiv.textContent = `Error al enviar correo: ${err.message}`;
         alertDiv.style.display = 'block';
@@ -92032,9 +94011,13 @@ window.updateWmsMonitorUI = async function() {
         // Refrescar la tabla WMS de forma automática solo si no interfiere con el trabajo actual
         if (isSuccess && typeof window.applyWmsFiltersAndRender === 'function') {
           const hasSelections = window.wmsSelectedOrderIds && window.wmsSelectedOrderIds.size > 0;
-          const hasOpenModal = !!document.querySelector('.modal-overlay.active, .modal.show, [id^="modal-"][style*="display: flex"], [id^="modal-"][style*="display: block"]');
-          if (!hasSelections && !hasOpenModal) {
-            window.applyWmsFiltersAndRender();
+          if (!hasSelections) {
+            if (typeof window.requestSafeWmsTableRender === 'function') {
+              window.requestSafeWmsTableRender();
+            } else {
+              const hasOpenModal = !!document.querySelector('.swal2-container, .modal-overlay.active, .modal.show, [id^="modal-"][style*="display: flex"], [id^="modal-"][style*="display: block"]');
+              if (!hasOpenModal) window.applyWmsFiltersAndRender();
+            }
           }
         }
       }
@@ -92373,9 +94356,13 @@ window.updateMeliMonitorUI = async function() {
 
       if (isSuccess && typeof window.applyWmsFiltersAndRender === 'function') {
         const hasSelections = window.wmsSelectedOrderIds && window.wmsSelectedOrderIds.size > 0;
-        const hasOpenModal = !!document.querySelector('.modal-overlay.active, .modal.show, [id^="modal-"][style*="display: flex"], [id^="modal-"][style*="display: block"]');
-        if (!hasSelections && !hasOpenModal) {
-          window.applyWmsFiltersAndRender();
+        if (!hasSelections) {
+          if (typeof window.requestSafeWmsTableRender === 'function') {
+            window.requestSafeWmsTableRender();
+          } else {
+            const hasOpenModal = !!document.querySelector('.swal2-container, .modal-overlay.active, .modal.show, [id^="modal-"][style*="display: flex"], [id^="modal-"][style*="display: block"]');
+            if (!hasOpenModal) window.applyWmsFiltersAndRender();
+          }
         }
       }
     }
@@ -93552,10 +95539,10 @@ document.addEventListener('DOMContentLoaded', () => {
           
         if (updateErr) throw updateErr;
 
-        // Sincronizar el pedido del WMS en orders
+        // Sincronizar el pedido del WMS en orders (al confirmar recepción/cambio y descontar stock físico, el pedido queda Despachado para no duplicar reserva en mesa)
         if (linkedOrderId) {
-          const newStatus = type === 'CAMBIO' ? 'en preparación' : 'entregado';
-          const newWmsState = type === 'CAMBIO' ? 'En preparación' : 'Despachado';
+          const newStatus = 'despachado';
+          const newWmsState = 'Despachado';
           
           const updatePayload = { 
             status: newStatus,
@@ -95800,6 +97787,16 @@ async function handleRloFormSubmit(e) {
       }
     }
     
+    const creatorMetaRl = typeof window.getCurrentWmsUserCreatorMeta === 'function'
+      ? await window.getCurrentWmsUserCreatorMeta(`Logística Inversa (${type}) · Panel Admin`)
+      : {
+          created_by_user_id: window.currentAdminUser?.id || window.currentUserProfile?.id || null,
+          created_by_email: window.currentAdminProfile?.email || window.currentAdminUser?.email || window.currentUserProfile?.email || 'Administrador',
+          created_by_name: window.currentAdminProfile?.full_name || window.currentUserProfile?.full_name || 'Administrador WMS',
+          created_by_role: 'admin',
+          created_from: `Logística Inversa (${type}) · Panel Admin`
+        };
+
     const newRecord = {
       tipo_movimiento: type,
       comercio: commerce,
@@ -95810,7 +97807,7 @@ async function handleRloFormSubmit(e) {
       cantidad_total: totalQty,
       comentarios: (isFinalizado ? '[Concretado en Bodega] ' : '') + comments,
       sucursal: finalSucursal,
-      creado_por: (window.currentUserProfile && window.currentUserProfile.email) || 'Administrador',
+      creado_por: creatorMetaRl.created_by_email || creatorMetaRl.created_by_name || 'Administrador',
       status: isFinalizado ? 'procesado' : 'pendiente',
       
       customer_name: customerName,
@@ -95887,6 +97884,7 @@ async function handleRloFormSubmit(e) {
         rl_reference: refPedido,
         situacion_movimiento: situacion,
         no_stock_deduction: type === 'DEVOLUCION',
+        ...creatorMetaRl,
         incoming_products: incomingProducts.map(p => ({
           sku: p.sku,
           name: p.name,
@@ -101936,12 +103934,26 @@ setTimeout(() => {
       }
 
       // 2. Insertar Order (inicialmente en 'En procesamiento' para que los triggers de inventario y Kardex procesen order_items limpiamente)
+      const creatorMetaManual = typeof window.getCurrentWmsUserCreatorMeta === 'function'
+        ? await window.getCurrentWmsUserCreatorMeta('Pedido Manual · Panel Admin WMS')
+        : {
+            created_by_user_id: window.currentAdminUser?.id || window.currentUserProfile?.id || null,
+            created_by_email: window.currentAdminProfile?.email || window.currentAdminUser?.email || window.currentUserProfile?.email || 'admin@stocka.cl',
+            created_by_name: window.currentAdminProfile?.full_name || window.currentUserProfile?.full_name || 'Administrador WMS',
+            created_by_role: 'admin',
+            created_from: 'Pedido Manual · Panel Admin WMS'
+          };
+
       const rawShopifyData = orderNotes ? {
         note: orderNotes,
         notes: orderNotes,
         customer_note: orderNotes,
-        manual_order: true
-      } : { manual_order: true };
+        manual_order: true,
+        ...creatorMetaManual
+      } : {
+        manual_order: true,
+        ...creatorMetaManual
+      };
 
       if (customShippingMeta) {
         rawShopifyData.custom_shipping = customShippingMeta;
@@ -102302,3 +104314,582 @@ setTimeout(() => {
 
 
 
+
+// =============================================================================
+// MÓDULO: CENTRO DE AUTOMATIZACIONES ACTIVAS (automations_admin)
+// =============================================================================
+
+window.AUTOMATIONS_CATALOG = [
+  {
+    id: 'auto-picker-to-pickeado',
+    title: 'Picker → WMS: Pedido Completado pasa a Pickeado',
+    category: 'picker_wms',
+    categoryLabel: 'Picker ↔ WMS',
+    badgeColor: '#7c3aed',
+    badgeBg: 'rgba(124, 58, 237, 0.12)',
+    icon: 'ri-checkbox-circle-line',
+    mode: 'Tiempo Real (Polling 30s + Worker)',
+    status: 'active',
+    trigger: 'Operario finaliza el armado del pedido en App Picker (`history_logs.estado` o `active_orders.sheet_status` en `Completado`, `Completado-Asistido` o `Listo para retiro`).',
+    condition: 'El pedido se encuentra en estado `En preparación` en Stocka WMS.',
+    action: 'Cambia automáticamente el pedido en WMS a `estado_wms = "Pickeado"` (`status = "preparado"`), asigna el operario de picking y guarda la etiqueta escaneada.',
+    techSource: 'js/admin.js (`window.syncPickerStatusToWms`) & `sync_to_picker.js`'
+  },
+  {
+    id: 'auto-picker-retirado-to-despachado',
+    title: 'Picker → WMS: Pedido Retirado pasa automáticamente a Despachado',
+    category: 'picker_wms',
+    categoryLabel: 'Picker ↔ WMS',
+    badgeColor: '#059669',
+    badgeBg: 'rgba(5, 150, 105, 0.12)',
+    icon: 'ri-hand-coin-line',
+    mode: 'Tiempo Real (Polling 30s + Worker)',
+    status: 'active',
+    trigger: 'El pedido se marca como `Retirado` en App Picker (`history_logs` / `active_orders`) o como `ENTREGADO` en Punto de Retiro (`sucursal_pickups`).',
+    condition: 'El pedido está en `En preparación` o `Pickeado` en Stocka WMS.',
+    action: 'Cambia automáticamente el pedido en WMS a `estado_wms = "Despachado"` (`status = "despachado"`, `stock_descontado = true`), actualiza `store_pickups` a `ENTREGADO` y dispara el cierre del pedido en Shopify.',
+    techSource: 'js/admin.js (`window.syncPickerStatusToWms`) & `sync_to_picker.js` (`syncPickedRetiroOrdersToDespachado`)'
+  },
+  {
+    id: 'auto-shopify-ready-for-pickup',
+    title: 'WMS → Shopify: Pedido de Retiro Pickeado pasa a "Listo para retirar"',
+    category: 'wms_shopify',
+    categoryLabel: 'WMS ↔ Shopify',
+    badgeColor: '#0284c7',
+    badgeBg: 'rgba(2, 132, 199, 0.12)',
+    icon: 'ri-store-2-line',
+    mode: 'Trigger SQL + Edge Function Tiempo Real',
+    status: 'active',
+    trigger: 'Un pedido con `agenda = "RETIRO"` o `categoria_entrega = "RETIRO"` cambia a `estado_wms = "Pickeado"` en WMS.',
+    condition: 'El comercio tiene activa la sincronización inversa (`sync_tracking_enabled = true`) y estados intermedios (`sync_intermediate_statuses = true`).',
+    action: 'Encola `set_ready_for_pickup`, ejecuta la mutación GraphQL nativa de Shopify `fulfillmentOrderLineItemsPreparedForPickup` (cambiando el estado en Shopify a "Listo para retirar" y enviando aviso de retiro al comprador si el comercio usa Retiro en Tienda nativo) y añade el tag `Stocka: Listo para Retiro`.',
+    techSource: 'Trigger `trg_enqueue_shopify_fulfillment` + Edge Function `shopify-fulfillment-sync`'
+  },
+  {
+    id: 'auto-shopify-in-progress',
+    title: 'WMS → Shopify: Estado Intermedio En Preparación / Pickeado ("En curso")',
+    category: 'wms_shopify',
+    categoryLabel: 'WMS ↔ Shopify',
+    badgeColor: '#2563eb',
+    badgeBg: 'rgba(37, 99, 235, 0.12)',
+    icon: 'ri-loader-4-line',
+    mode: 'Trigger SQL + Edge Function Tiempo Real',
+    status: 'active',
+    trigger: 'Un pedido de despacho regular cambia a `En preparación` o `Pickeado` en Stocka WMS.',
+    condition: 'El comercio tiene `sync_tracking_enabled = true` y `sync_intermediate_statuses = true`.',
+    action: 'Encola `set_in_progress` y añade la etiqueta visual `Stocka: En Preparación` en el pedido dentro de Shopify.',
+    techSource: 'Trigger `trg_enqueue_shopify_fulfillment` + Edge Function `shopify-fulfillment-sync`'
+  },
+  {
+    id: 'auto-shopify-create-fulfillment',
+    title: 'WMS → Shopify: Pedido Despachado o Retirado → Preparado (Fulfilled) + Tracking',
+    category: 'wms_shopify',
+    categoryLabel: 'WMS ↔ Shopify',
+    badgeColor: '#16a34a',
+    badgeBg: 'rgba(22, 163, 74, 0.12)',
+    icon: 'ri-truck-line',
+    mode: 'Trigger SQL + Edge Function Tiempo Real',
+    status: 'active',
+    trigger: 'El pedido cambia a `estado_wms = "Despachado"` en Stocka WMS (manualmente, masivamente o automáticamente al ser `Retirado` en Picker).',
+    condition: 'El comercio tiene `sync_tracking_enabled = true` y permisos `write_merchant_managed_fulfillment_orders`.',
+    action: 'Encola `create_fulfillment`. Crea el Fulfillment en Shopify (`2024-04`), adjunta número de seguimiento, courier mapeado y link de seguimiento (o cierra sin tracking falso si es `RETIRO`), y envía la notificación nativa de Shopify al cliente final (`notify_customer = true` por defecto).',
+    techSource: 'Trigger `trg_enqueue_shopify_fulfillment` + Edge Function `shopify-fulfillment-sync`'
+  },
+  {
+    id: 'auto-shopify-update-tracking',
+    title: 'WMS → Shopify: Actualización Automática de Tracking en Pedidos ya Despachados',
+    category: 'wms_shopify',
+    categoryLabel: 'WMS ↔ Shopify',
+    badgeColor: '#d97706',
+    badgeBg: 'rgba(217, 119, 6, 0.12)',
+    icon: 'ri-refresh-line',
+    mode: 'Trigger SQL + Edge Function Tiempo Real',
+    status: 'active',
+    trigger: 'Se modifica `tracking_number`, `tracking_url` o `courier` en un pedido que ya se encuentra en estado `Despachado`.',
+    condition: 'El comercio tiene `sync_tracking_enabled = true`.',
+    action: 'Encola `update_tracking` y actualiza el número/link de seguimiento directamente en el Fulfillment de Shopify.',
+    techSource: 'Trigger `trg_enqueue_shopify_fulfillment` + Edge Function `shopify-fulfillment-sync`'
+  },
+  {
+    id: 'auto-wms-to-picker-sync',
+    title: 'WMS → Picker: Inyección de Pedidos En Preparación, PIN de Retiro y Filtro Sin Tracking',
+    category: 'picker_wms',
+    categoryLabel: 'Picker ↔ WMS',
+    badgeColor: '#9333ea',
+    badgeBg: 'rgba(147, 51, 234, 0.12)',
+    icon: 'ri-barcode-box-line',
+    mode: 'Worker Continuo + Acciones WMS',
+    status: 'active',
+    trigger: 'Un pedido pasa a `En preparación` en Stocka WMS.',
+    condition: 'Si es courier externo, verifica que tenga `tracking_number` asignado para evitar enviar pedidos sin etiqueta al operario. Si es `RETIRO`, no exige tracking.',
+    action: 'Inserta los ítems y ubicaciones físicas de bodega en `active_orders` de Picker; si es `RETIRO`, genera automáticamente el registro y PIN en `store_pickups` (WMS) y `sucursal_pickups` (Picker).',
+    techSource: '`sync_to_picker.js` & `js/admin.js`'
+  },
+  {
+    id: 'auto-wms-stock-deduction',
+    title: 'WMS → Inventario: Descuento y Reintegro Automático de Stock por Estado',
+    category: 'stock_couriers',
+    categoryLabel: 'Inventario & Logística',
+    badgeColor: '#0d9488',
+    badgeBg: 'rgba(13, 148, 136, 0.12)',
+    icon: 'ri-archive-drawer-line',
+    mode: 'Tiempo Real en Cambio de Estado',
+    status: 'active',
+    trigger: 'Cambio de `estado_wms` a `Pickeado` / `Despachado` o reversa a `Pendiente` / `Cancelado` / `Devolución`.',
+    condition: 'Evalúa la bandera `stock_descontado` del pedido para evitar dobles descuentos.',
+    action: 'Descuenta o reintegra automáticamente las unidades físicas en la bodega asignada y registra la auditoría en `inventory_movements`.',
+    techSource: 'js/admin.js (`updateWmsOrderField`, `applyBulkWmsStatus`, `deductOrderStock`)'
+  }
+];
+
+window.automationsSelectedCategory = 'all';
+
+window.renderAutomationsAdmin = async function() {
+  const appContent = document.getElementById('app-content');
+  if (!appContent) return;
+
+  appContent.innerHTML = `
+    <div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem;">
+      <div style="display: flex; align-items: center; justify-content: center; padding: 3rem; color: var(--color-text-muted);">
+        <i class="ri-loader-4-line ri-spin" style="font-size: 1.8rem; margin-right: 0.75rem; color: var(--color-primary);"></i>
+        <span>Cargando estado en vivo de automatizaciones, integraciones y cola de eventos...</span>
+      </div>
+    </div>
+  `;
+
+  try {
+    const [integrationsRes, queueRecentRes, queueStatsRes] = await Promise.all([
+      supabase
+        .from('merchant_integrations')
+        .select('id, comercio, platform, shop_url, is_active, sync_tracking_enabled, sync_intermediate_statuses, notify_customer_on_fulfillment, granted_scopes, updated_at')
+        .eq('platform', 'Shopify')
+        .eq('is_active', true)
+        .order('comercio', { ascending: true }),
+      supabase
+        .from('shopify_fulfillment_queue')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(25),
+      supabase
+        .from('shopify_fulfillment_queue')
+        .select('status')
+    ]);
+
+    const integrations = integrationsRes.data || [];
+    const recentQueue = queueRecentRes.data || [];
+    const allQueueStatuses = queueStatsRes.data || [];
+
+    const activeSyncStoresCount = integrations.filter(i => i.sync_tracking_enabled === true).length;
+    const completedCount = allQueueStatuses.filter(q => q.status === 'completed').length;
+    const pendingCount = allQueueStatuses.filter(q => q.status === 'pending' || q.status === 'processing').length;
+    const reauthCount = allQueueStatuses.filter(q => q.status === 'needs_reauth').length;
+    const failedCount = allQueueStatuses.filter(q => q.status === 'failed').length;
+
+    window._automationsCache = {
+      integrations,
+      recentQueue,
+      stats: {
+        totalAutomations: window.AUTOMATIONS_CATALOG.length,
+        activeSyncStoresCount,
+        totalShopifyStores: integrations.length,
+        completedCount,
+        pendingCount,
+        reauthCount,
+        failedCount
+      }
+    };
+
+    window.drawAutomationsAdminView();
+  } catch (err) {
+    console.error('Error cargando módulo de automatizaciones:', err);
+    appContent.innerHTML = `
+      <div class="card" style="padding: 2rem; text-align: center; color: #dc2626;">
+        <i class="ri-error-warning-line" style="font-size: 2rem;"></i>
+        <p style="margin-top: 0.5rem;">Error al cargar el Centro de Automatizaciones: ${err.message}</p>
+        <button class="btn btn-primary" onclick="window.renderAutomationsAdmin()" style="margin-top: 1rem;">Reintentar</button>
+      </div>
+    `;
+  }
+};
+
+window.drawAutomationsAdminView = function() {
+  const appContent = document.getElementById('app-content');
+  if (!appContent || !window._automationsCache) return;
+
+  const { integrations, recentQueue, stats } = window._automationsCache;
+  const selectedCat = window.automationsSelectedCategory || 'all';
+  const searchVal = (window.automationsSearchQuery || '').trim().toLowerCase();
+
+  const filteredCatalog = window.AUTOMATIONS_CATALOG.filter(item => {
+    if (selectedCat !== 'all' && item.category !== selectedCat) return false;
+    if (searchVal) {
+      const hay = `${item.title} ${item.trigger} ${item.condition} ${item.action} ${item.techSource}`.toLowerCase();
+      return hay.includes(searchVal);
+    }
+    return true;
+  });
+
+  const actionTypeBadge = (actionType) => {
+    if (actionType === 'set_ready_for_pickup') {
+      return `<span style="background: rgba(2, 132, 199, 0.12); color: #0284c7; padding: 3px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 700;"><i class="ri-store-2-line"></i> Listo para Retiro</span>`;
+    }
+    if (actionType === 'create_fulfillment') {
+      return `<span style="background: rgba(22, 163, 74, 0.12); color: #16a34a; padding: 3px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 700;"><i class="ri-truck-line"></i> Crear Fulfillment</span>`;
+    }
+    if (actionType === 'set_in_progress') {
+      return `<span style="background: rgba(37, 99, 235, 0.12); color: #2563eb; padding: 3px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 700;"><i class="ri-loader-4-line"></i> En Preparación</span>`;
+    }
+    if (actionType === 'update_tracking') {
+      return `<span style="background: rgba(217, 119, 6, 0.12); color: #d97706; padding: 3px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 700;"><i class="ri-refresh-line"></i> Actualizar Tracking</span>`;
+    }
+    return `<span style="background: #f1f5f9; color: #475569; padding: 3px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 600;">${actionType || '-'}</span>`;
+  };
+
+  const queueStatusBadge = (st) => {
+    if (st === 'completed') {
+      return `<span style="background: rgba(22, 163, 74, 0.14); color: #15803d; padding: 3px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 700;">✓ Completado</span>`;
+    }
+    if (st === 'pending' || st === 'processing') {
+      return `<span style="background: rgba(234, 179, 8, 0.16); color: #b45309; padding: 3px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 700;">⏳ ${st === 'processing' ? 'Procesando' : 'Pendiente'}</span>`;
+    }
+    if (st === 'needs_reauth') {
+      return `<span style="background: rgba(249, 115, 22, 0.15); color: #c2410c; padding: 3px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 700;">🔒 Requiere Permisos</span>`;
+    }
+    return `<span style="background: rgba(220, 38, 38, 0.14); color: #b91c1c; padding: 3px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 700;">✕ Error</span>`;
+  };
+
+  appContent.innerHTML = `
+    <div style="padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1.5rem;">
+      <!-- Cabecera y Acciones Manuales -->
+      <div class="card" style="padding: 1.35rem 1.5rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; border-left: 4px solid #7c3aed;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <i class="ri-robot-2-line" style="font-size: 1.5rem; color: #7c3aed;"></i>
+            <h2 style="margin: 0; font-size: 1.2rem; font-weight: 800; color: var(--color-text);">Centro de Automatizaciones Activas</h2>
+            <span style="background: rgba(22, 163, 74, 0.14); color: #15803d; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 700;">● Motor Activo</span>
+          </div>
+          <p style="margin: 0.35rem 0 0 0; font-size: 0.86rem; color: var(--color-text-muted);">
+            Visualiza, consulta y controla todas las reglas automáticas que conectan <strong>App Picker</strong>, <strong>Stocka WMS</strong> y <strong>Shopify</strong> en tiempo real.
+          </p>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.6rem;">
+          <button class="btn btn-outline" onclick="window.runManualPickerSyncFromAutomations()" style="font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-loop-left-line"></i> Sincronizar Picker → WMS Ahora
+          </button>
+          <button class="btn btn-primary" onclick="window.runManualShopifyQueueFromAutomations()" style="font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-flashlight-line"></i> Procesar Cola Shopify Ahora
+          </button>
+          <button class="btn btn-outline" onclick="window.renderAutomationsAdmin()" style="font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-refresh-line"></i> Actualizar
+          </button>
+        </div>
+      </div>
+
+      <!-- Tarjetas KPI -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem;">
+        <div class="card" style="padding: 1.1rem 1.25rem; display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(124, 58, 237, 0.12); color: #7c3aed; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
+            <i class="ri-cpu-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600;">Reglas Automatizadas</div>
+            <div style="font-size: 1.45rem; font-weight: 800; color: var(--color-text);">${stats.totalAutomations} <span style="font-size: 0.8rem; color: #16a34a; font-weight: 600;">Activas</span></div>
+          </div>
+        </div>
+
+        <div class="card" style="padding: 1.1rem 1.25rem; display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(2, 132, 199, 0.12); color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
+            <i class="ri-shopping-bag-3-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600;">Tiendas Shopify c/ Retorno Activo</div>
+            <div style="font-size: 1.45rem; font-weight: 800; color: var(--color-text);">${stats.activeSyncStoresCount} <span style="font-size: 0.82rem; color: var(--color-text-muted); font-weight: 500;">/ ${stats.totalShopifyStores}</span></div>
+          </div>
+        </div>
+
+        <div class="card" style="padding: 1.1rem 1.25rem; display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(22, 163, 74, 0.12); color: #16a34a; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
+            <i class="ri-check-double-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600;">Eventos Shopify Completados</div>
+            <div style="font-size: 1.45rem; font-weight: 800; color: #16a34a;">${stats.completedCount}</div>
+          </div>
+        </div>
+
+        <div class="card" style="padding: 1.1rem 1.25rem; display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(234, 179, 8, 0.14); color: #b45309; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
+            <i class="ri-time-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600;">En Cola / Error / Reauth</div>
+            <div style="font-size: 1.25rem; font-weight: 800; color: var(--color-text);">
+              <span title="Pendientes">${stats.pendingCount} pend.</span> · 
+              <span style="color: ${stats.failedCount > 0 ? '#dc2626' : 'var(--color-text-muted)'};" title="Fallidos">${stats.failedCount} err.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filtros y Catálogo de Reglas de Automatización -->
+      <div class="card" style="padding: 1.35rem 1.5rem;">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.2rem;">
+          <div>
+            <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--color-text);">1. Reglas y Flujos Automatizados del Sistema</h3>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.82rem; color: var(--color-text-muted);">Consulta cómo opera cada automatización: qué evento la dispara, bajo qué condición se ejecuta y qué acción realiza.</p>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;">
+            <input
+              type="text"
+              placeholder="Buscar regla, estado, tabla..."
+              value="${(window.automationsSearchQuery || '').replace(/"/g, '&quot;')}"
+              oninput="window.automationsSearchQuery = this.value; window.drawAutomationsAdminView();"
+              style="padding: 0.45rem 0.75rem; border: 1px solid var(--color-border); border-radius: 8px; font-size: 0.82rem; min-width: 210px;"
+            />
+            <button class="btn ${selectedCat === 'all' ? 'btn-primary' : 'btn-outline'}" onclick="window.automationsSelectedCategory='all'; window.drawAutomationsAdminView();" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;">Todas (${window.AUTOMATIONS_CATALOG.length})</button>
+            <button class="btn ${selectedCat === 'picker_wms' ? 'btn-primary' : 'btn-outline'}" onclick="window.automationsSelectedCategory='picker_wms'; window.drawAutomationsAdminView();" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;">Picker ↔ WMS</button>
+            <button class="btn ${selectedCat === 'wms_shopify' ? 'btn-primary' : 'btn-outline'}" onclick="window.automationsSelectedCategory='wms_shopify'; window.drawAutomationsAdminView();" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;">WMS ↔ Shopify</button>
+            <button class="btn ${selectedCat === 'stock_couriers' ? 'btn-primary' : 'btn-outline'}" onclick="window.automationsSelectedCategory='stock_couriers'; window.drawAutomationsAdminView();" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;">Inventario & Logística</button>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 1rem;">
+          ${filteredCatalog.map(rule => `
+            <div style="border: 1px solid var(--color-border); border-radius: 12px; padding: 1.15rem; background: var(--color-surface); display: flex; flex-direction: column; gap: 0.75rem; position: relative;">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.65rem;">
+                  <div style="width: 38px; height: 38px; border-radius: 10px; background: ${rule.badgeBg}; color: ${rule.badgeColor}; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0;">
+                    <i class="${rule.icon}"></i>
+                  </div>
+                  <div>
+                    <div style="font-weight: 800; font-size: 0.93rem; color: var(--color-text); line-height: 1.25;">${rule.title}</div>
+                    <div style="display: flex; align-items: center; gap: 0.45rem; margin-top: 0.25rem;">
+                      <span style="background: ${rule.badgeBg}; color: ${rule.badgeColor}; padding: 1px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700;">${rule.categoryLabel}</span>
+                      <span style="font-size: 0.72rem; color: var(--color-text-muted);"><i class="ri-time-line"></i> ${rule.mode}</span>
+                    </div>
+                  </div>
+                </div>
+                <span style="background: rgba(22, 163, 74, 0.14); color: #15803d; padding: 2px 9px; border-radius: 999px; font-size: 0.7rem; font-weight: 800; white-space: nowrap;">ACTIVA</span>
+              </div>
+
+              <div style="background: rgba(148, 163, 184, 0.07); border-radius: 8px; padding: 0.75rem 0.85rem; font-size: 0.81rem; display: flex; flex-direction: column; gap: 0.45rem;">
+                <div><strong style="color: #7c3aed;">⚡ Disparador (Cuándo):</strong> <span style="color: var(--color-text);">${rule.trigger}</span></div>
+                <div><strong style="color: #0284c7;">🔍 Condición:</strong> <span style="color: var(--color-text);">${rule.condition}</span></div>
+                <div><strong style="color: #16a34a;">✅ Acción Automática:</strong> <span style="color: var(--color-text);">${rule.action}</span></div>
+              </div>
+
+              <div style="font-size: 0.73rem; color: var(--color-text-muted); display: flex; align-items: center; justify-content: space-between; border-top: 1px dashed var(--color-border); padding-top: 0.5rem;">
+                <span><i class="ri-code-s-slash-line"></i> Motor: <code>${rule.techSource}</code></span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- Configuración de Automatización Shopify por Comercio -->
+      <div class="card" style="padding: 1.35rem 1.5rem;">
+        <div style="margin-bottom: 1rem;">
+          <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--color-text);">2. Estado de Automatización Bidireccional por Comercio (Shopify)</h3>
+          <p style="margin: 0.2rem 0 0 0; font-size: 0.82rem; color: var(--color-text-muted);">
+            Activa o desactiva rápidamente qué comercios envían estados de preparación, "Listo para retirar", número de seguimiento y notificaciones automáticas a Shopify.
+          </p>
+        </div>
+
+        <div style="overflow-x: auto;">
+          <table class="table" style="width: 100%; border-collapse: collapse; font-size: 0.83rem;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--color-border); text-align: left;">
+                <th style="padding: 0.65rem;">Comercio</th>
+                <th style="padding: 0.65rem;">Tienda Shopify</th>
+                <th style="padding: 0.65rem;">Permisos OAuth Fulfillment</th>
+                <th style="padding: 0.65rem; text-align: center;">Retorno al Despachar / Retirar</th>
+                <th style="padding: 0.65rem; text-align: center;">"En Curso" y "Listo para Retiro"</th>
+                <th style="padding: 0.65rem; text-align: center;">Notificar Cliente (Email Shopify)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${integrations.length === 0 ? `
+                <tr><td colspan="6" style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">No hay integraciones de Shopify activas.</td></tr>
+              ` : integrations.map(int => {
+                const scopes = Array.isArray(int.granted_scopes) ? int.granted_scopes : [];
+                const hasFoPerm = scopes.includes('write_merchant_managed_fulfillment_orders') && scopes.includes('write_fulfillments');
+                return `
+                  <tr style="border-bottom: 1px solid var(--color-border);">
+                    <td style="padding: 0.65rem; font-weight: 700;">${int.comercio || '-'}</td>
+                    <td style="padding: 0.65rem; color: var(--color-text-muted);">${int.shop_url || '-'}</td>
+                    <td style="padding: 0.65rem;">
+                      ${hasFoPerm
+                        ? `<span style="background: rgba(22, 163, 74, 0.14); color: #15803d; padding: 2px 8px; border-radius: 999px; font-size: 0.73rem; font-weight: 700;">✓ Permisos Completos</span>`
+                        : `<span style="background: rgba(249, 115, 22, 0.15); color: #c2410c; padding: 2px 8px; border-radius: 999px; font-size: 0.73rem; font-weight: 700;">⚠️ Falta Reconectar OAuth</span>`
+                      }
+                    </td>
+                    <td style="padding: 0.65rem; text-align: center;">
+                      <input type="checkbox" ${int.sync_tracking_enabled ? 'checked' : ''} onchange="window.toggleAutomationMerchantFlag('${int.id}', 'sync_tracking_enabled', this.checked)" style="width: 17px; height: 17px; cursor: pointer; accent-color: #7c3aed;" />
+                    </td>
+                    <td style="padding: 0.65rem; text-align: center;">
+                      <input type="checkbox" ${int.sync_intermediate_statuses ? 'checked' : ''} onchange="window.toggleAutomationMerchantFlag('${int.id}', 'sync_intermediate_statuses', this.checked)" style="width: 17px; height: 17px; cursor: pointer; accent-color: #0284c7;" />
+                    </td>
+                    <td style="padding: 0.65rem; text-align: center;">
+                      <input type="checkbox" ${int.notify_customer_on_fulfillment !== false ? 'checked' : ''} onchange="window.toggleAutomationMerchantFlag('${int.id}', 'notify_customer_on_fulfillment', this.checked)" style="width: 17px; height: 17px; cursor: pointer; accent-color: #16a34a;" />
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Historial en Vivo de Cola de Automatización Shopify -->
+      <div class="card" style="padding: 1.35rem 1.5rem;">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem;">
+          <div>
+            <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--color-text);">3. Registro en Vivo de Ejecuciones (Cola de Sincronización Shopify)</h3>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.82rem; color: var(--color-text-muted);">Últimos 25 eventos disparados automáticamente por cambios de estado en Stocka WMS.</p>
+          </div>
+        </div>
+
+        <div style="overflow-x: auto;">
+          <table class="table" style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--color-border); text-align: left;">
+                <th style="padding: 0.6rem;">Fecha</th>
+                <th style="padding: 0.6rem;">Comercio</th>
+                <th style="padding: 0.6rem;">ID Pedido WMS</th>
+                <th style="padding: 0.6rem;">Acción Automática</th>
+                <th style="padding: 0.6rem;">Tracking / Courier</th>
+                <th style="padding: 0.6rem;">Estado</th>
+                <th style="padding: 0.6rem;">Detalle / Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${recentQueue.length === 0 ? `
+                <tr><td colspan="7" style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">Aún no hay eventos recientes en la cola de sincronización.</td></tr>
+              ` : recentQueue.map(q => {
+                const dt = q.created_at ? new Date(q.created_at).toLocaleString('es-CL') : '-';
+                return `
+                  <tr style="border-bottom: 1px solid var(--color-border);">
+                    <td style="padding: 0.6rem; white-space: nowrap; color: var(--color-text-muted);">${dt}</td>
+                    <td style="padding: 0.6rem; font-weight: 700;">${q.comercio || '-'}</td>
+                    <td style="padding: 0.6rem; font-family: monospace;">${q.order_id || '-'}</td>
+                    <td style="padding: 0.6rem;">${actionTypeBadge(q.action_type)}</td>
+                    <td style="padding: 0.6rem;">${q.tracking_number ? `<code>${q.tracking_number}</code> (${q.courier || q.operador || 'Courier'})` : '<span style="color: var(--color-text-muted);">Sin tracking (Retiro / Interno)</span>'}</td>
+                    <td style="padding: 0.6rem;">${queueStatusBadge(q.status)}</td>
+                    <td style="padding: 0.6rem; max-width: 280px;">
+                      ${q.last_error
+                        ? `<div style="color: #dc2626; font-size: 0.75rem; margin-bottom: 0.25rem;">${q.last_error}</div>`
+                        : `<span style="color: var(--color-text-muted); font-size: 0.76rem;">${q.shopify_fulfillment_id ? `Fulfillment #${q.shopify_fulfillment_id}` : 'OK'}</span>`
+                      }
+                      ${(q.status === 'failed' || q.status === 'needs_reauth' || q.status === 'pending') ? `
+                        <button class="btn btn-outline" onclick="window.retrySingleShopifyQueueItem('${q.id}')" style="padding: 2px 8px; font-size: 0.72rem;">
+                          <i class="ri-restart-line"></i> Ejecutar Ahora
+                        </button>
+                      ` : ''}
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+};
+
+window.toggleAutomationMerchantFlag = async function(integrationId, field, value) {
+  try {
+    const updateObj = { [field]: Boolean(value), updated_at: new Date().toISOString() };
+    const { error } = await supabase
+      .from('merchant_integrations')
+      .update(updateObj)
+      .eq('id', integrationId);
+
+    if (error) throw error;
+
+    if (window._automationsCache && Array.isArray(window._automationsCache.integrations)) {
+      const target = window._automationsCache.integrations.find(i => String(i.id) === String(integrationId));
+      if (target) target[field] = Boolean(value);
+      window._automationsCache.stats.activeSyncStoresCount = window._automationsCache.integrations.filter(i => i.sync_tracking_enabled === true).length;
+    }
+
+    const toast = Swal.mixin({
+      toast: true,
+      position: 'top-end',
+      showConfirmButton: false,
+      timer: 2500
+    });
+    toast.fire({
+      icon: 'success',
+      title: 'Configuración de automatización actualizada'
+    });
+  } catch (err) {
+    Swal.fire('Error', 'No se pudo actualizar la configuración: ' + err.message, 'error');
+    window.renderAutomationsAdmin();
+  }
+};
+
+window.runManualPickerSyncFromAutomations = async function() {
+  try {
+    Swal.fire({
+      title: 'Sincronizando con App Picker...',
+      text: 'Verificando pedidos completados y retirados en Picker...',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading()
+    });
+    if (typeof window.syncPickerStatusToWms === 'function') {
+      await window.syncPickerStatusToWms();
+    }
+    Swal.fire({
+      icon: 'success',
+      title: 'Sincronización Picker ↔ WMS ejecutada',
+      text: 'Se verificaron todos los pedidos en preparación y pickeados contra App Picker y Punto de Retiro.',
+      timer: 2500,
+      showConfirmButton: false
+    });
+    window.renderAutomationsAdmin();
+  } catch (err) {
+    Swal.fire('Error', err.message, 'error');
+  }
+};
+
+window.runManualShopifyQueueFromAutomations = async function() {
+  try {
+    Swal.fire({
+      title: 'Procesando Cola de Shopify...',
+      text: 'Ejecutando Edge Function shopify-fulfillment-sync...',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading()
+    });
+    const { data, error } = await supabase.functions.invoke('shopify-fulfillment-sync', {
+      body: { limit: 30 }
+    });
+    if (error) throw error;
+    Swal.fire({
+      icon: 'success',
+      title: 'Cola de Shopify Procesada',
+      text: `Se procesaron ${data?.processed || 0} evento(s) pendientes.`,
+      timer: 2500,
+      showConfirmButton: false
+    });
+    window.renderAutomationsAdmin();
+  } catch (err) {
+    Swal.fire('Error', 'No se pudo invocar shopify-fulfillment-sync: ' + err.message, 'error');
+  }
+};
+
+window.retrySingleShopifyQueueItem = async function(queueId) {
+  try {
+    await supabase
+      .from('shopify_fulfillment_queue')
+      .update({ status: 'pending', attempts: 0, last_error: null, updated_at: new Date().toISOString() })
+      .eq('id', queueId);
+
+    await supabase.functions.invoke('shopify-fulfillment-sync', {
+      body: { queue_id: queueId }
+    });
+    window.renderAutomationsAdmin();
+  } catch (err) {
+    Swal.fire('Error', 'No se pudo reintentar el registro: ' + err.message, 'error');
+  }
+};

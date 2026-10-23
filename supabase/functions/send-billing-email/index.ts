@@ -1528,16 +1528,22 @@ serve(async (req) => {
         `;
       }
     }
-    else if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info') {
+    else if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info' || emailType === 'lead_quote_fulfillment') {
+      const isQuoteMode = payload.emailMode === 'quote' || emailType === 'lead_quote_fulfillment';
+      const qData = payload.quoteData || null;
+      const fmtClp = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-CL');
+
       const contactGreeting = payload.contactName || payload.nombreContacto || payload.nombre_contacto || payload.nombre || payload.full_name || '';
       const displayGreeting = contactGreeting 
         ? `¡Hola, ${contactGreeting}! 👋` 
         : `¡Hola! 👋`;
       
       const displayCommerce = commerceName && commerceName !== 'Cliente WMS' && commerceName !== 'Comercio' ? ` - ${commerceName}` : '';
-      emailSubject = payload.subject || `Información y Propuesta Fulfillment 360 - Stocka${displayCommerce}`;
+      emailSubject = payload.subject || (isQuoteMode
+        ? `Cotización de Servicios de Fulfillment - STOCKA${displayCommerce}`
+        : `Información y Propuesta Fulfillment 360 - Stocka${displayCommerce}`);
       headerGradient = '#0f172a';
-      emailTitle = 'Propuesta y Servicios Fulfillment 360';
+      emailTitle = isQuoteMode ? 'Cotización de Servicios Fulfillment 360' : 'Propuesta y Servicios Fulfillment 360';
 
       const customIntroMessage = payload.customMessage || payload.notes || '';
       const customMessageHtml = payload.customMessageHtml || (customIntroMessage ? customIntroMessage.replace(/\n/g, '<br>') : '');
@@ -1547,8 +1553,8 @@ serve(async (req) => {
       const includeSecondIntro = payload.includeSecondIntro !== false;
 
       const showCustomBlock = Boolean(customMessageHtml && (centerMode === 'custom_replace' || centerMode === 'both' || centerMode === 'cards'));
-      const showFourCards = centerMode !== 'custom_replace';
-      const secondIntroPunct = centerMode === 'custom_replace' ? '.' : ':';
+      const showTopCards = centerMode !== 'custom_replace';
+      const secondIntroPunct = (centerMode === 'custom_replace' && customBoxStyle === 'clean') ? '.' : ':';
 
       let customContainerStyle = 'background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #5e17eb; border-radius: 10px; padding: 16px 18px; margin-bottom: 22px; font-size: 14px; color: #334155; line-height: 1.6;';
       if (customBoxStyle === 'clean') {
@@ -1560,8 +1566,183 @@ serve(async (req) => {
       const fulfillmentDocUrl = payload.fulfillmentUrl || 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_fulfillment_360_1787715943297.pdf';
       const despachosDocUrl = payload.despachosUrl || 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_despachos_rm_1787715973435.pdf';
       const courierFolderUrl = payload.courierFolderUrl || 'https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH';
-      const cotizadorUrl = payload.cotizadorUrl || 'https://wms.stocka.cl/cotizaciones.html';
+      const baseCotizadorUrl = payload.cotizadorUrl || 'https://wms.stocka.cl/cotizaciones.html';
       const meetingUrl = payload.meetingUrl || 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5';
+
+      let cotizadorUrl = baseCotizadorUrl;
+      let quoteSectionHtml = '';
+
+      if (isQuoteMode && qData && qData.storage && qData.pickPack && qData.totals) {
+        const { activeRange, storage, pickPack, fixedFee, shipping, extras, totals } = qData;
+        const ufVal = Number(qData.ufValue) || 38500;
+        const netMonthlyCLP = Number(totals?.netMonthly) || 0;
+        const netMonthlyUF = Number(totals?.netMonthlyUF) || (netMonthlyCLP / ufVal);
+        const storageNetCLP = Number(storage?.netCost ?? storage?.subtotalCLP) || 0;
+        const storageBaseRateCLP = Number(storage?.baseRatePerM3) || 19990;
+        const storageDiscountPct = Number(storage?.discountPct) || 0;
+        const pickPackUnitCLP = Number(pickPack?.unitCost ?? pickPack?.costPerOrderCLP) || 0;
+        const pickPackTotalCLP = Number(pickPack?.totalCost ?? pickPack?.subtotalCLP) || 0;
+        const avgNetPerOrderCLP = Number(totals?.costPerOrderNet ?? totals?.averageNetPerOrder) || 0;
+
+        const sep = baseCotizadorUrl.includes('?') ? '&' : '?';
+        cotizadorUrl = `${baseCotizadorUrl}${sep}pedidos=${pickPack.monthlyOrders}&volumen=${storage.volumeM3}`;
+
+        const extraSkusCount = Math.max(0, (Number(pickPack.skuPerOrder) || 1) - 1);
+        const extraUnitsCount = Math.max(0, (Number(pickPack.unitsPerOrder) || 2) - 2);
+
+        let rowsHtml = `
+          <tr>
+            <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+              <div style="font-weight: 600; color: #0f172a;">📦 Almacenamiento en Bodega</div>
+              <div style="font-size: 12px; color: #64748b; margin-top: 2px;">${storage.volumeM3} m³ × ${fmtClp(storageBaseRateCLP)} ${storageDiscountPct > 0 ? `<span style="color: #10b981; font-weight: 600;">(-${storageDiscountPct}% dcto.)</span>` : ''}</div>
+            </td>
+            <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: right; font-weight: 700;">${fmtClp(storageNetCLP)}</td>
+          </tr>
+          <tr>
+            <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+              <div style="font-weight: 600; color: #0f172a;">🏷️ Preparación de Pedidos (Pick & Pack)</div>
+              <div style="font-size: 12px; color: #64748b; margin-top: 2px;">
+                ${pickPack.monthlyOrders} pedidos procesados × ${fmtClp(pickPackUnitCLP)} / pedido
+                ${(extraSkusCount > 0 || extraUnitsCount > 0) ? `<br><span style="font-size: 11px; color: #64748b;">Incluye ${pickPack.skuPerOrder} SKU y ${pickPack.unitsPerOrder} unid. promedio por pedido</span>` : ''}
+              </div>
+            </td>
+            <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: right; font-weight: 700;">${fmtClp(pickPackTotalCLP)}</td>
+          </tr>
+          <tr>
+            <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+              <div style="font-weight: 600; color: #0f172a;">🛡️ Costo Variable Mensual de Servicio</div>
+              <div style="font-size: 12px; color: #64748b; margin-top: 2px;">${fixedFee?.reason || 'Condición operativa mensual'}</div>
+            </td>
+            <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: right; font-weight: 700; color: ${fixedFee?.isExempt ? '#10b981' : '#0f172a'};">
+              ${fixedFee?.isExempt ? '$0 (Exento)' : fmtClp(fixedFee?.clp || 0)}
+            </td>
+          </tr>
+        `;
+
+        const sameDayCount = Number(shipping?.shipmentsSameDay ?? shipping?.sameDayCount) || 0;
+        const sameDayCost = Number(shipping?.costShipmentsSameDay ?? shipping?.sameDaySubtotalCLP) || 0;
+        if (sameDayCount > 0) {
+          rowsHtml += `
+            <tr>
+              <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+                <div style="font-weight: 600; color: #0f172a;">🚚 Despachos Same Day RM</div>
+                <div style="font-size: 12px; color: #64748b; margin-top: 2px;">${sameDayCount} envíos RM × ${fmtClp(Math.round(sameDayCost / sameDayCount))}</div>
+              </td>
+              <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: right; font-weight: 700;">${fmtClp(sameDayCost)}</td>
+            </tr>
+          `;
+        }
+
+        const courierCount = Number(shipping?.shipmentsCourier ?? shipping?.courierCount) || 0;
+        const courierCost = Number(shipping?.costCourierTotal ?? shipping?.courierSubtotalCLP) || 0;
+        if (courierCount > 0) {
+          const weightLabel = shipping?.activeWeightBracket?.label || shipping?.regionalBracketLabel || '0.5 a 3 Kg';
+          const unitRate = Number(shipping?.unitRegionalShipmentRate) || Math.round(courierCost / courierCount);
+          rowsHtml += `
+            <tr>
+              <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+                <div style="font-weight: 600; color: #0f172a;">✈️ Despachos Courier Regiones</div>
+                <div style="font-size: 12px; color: #64748b; margin-top: 2px;">${courierCount} envíos (${weightLabel}) × ${fmtClp(unitRate)}</div>
+              </td>
+              <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: right; font-weight: 700;">${fmtClp(courierCost)}</td>
+            </tr>
+          `;
+        }
+
+        const pickupCount = Number(shipping?.pickupsExpress ?? shipping?.pickupCount) || 0;
+        const pickupCost = Number(shipping?.costPickupsExpress ?? shipping?.pickupSubtotalCLP) || 0;
+        if (pickupCount > 0) {
+          rowsHtml += `
+            <tr>
+              <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+                <div style="font-weight: 600; color: #0f172a;">⚡ Retiros Express en Bodega</div>
+                <div style="font-size: 12px; color: #64748b; margin-top: 2px;">${pickupCount} retiros × ${fmtClp(Math.round(pickupCost / pickupCount))}</div>
+              </td>
+              <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: right; font-weight: 700;">${fmtClp(pickupCost)}</td>
+            </tr>
+          `;
+        }
+
+        if (extras?.services?.hasPosService || extras?.hasPosService) {
+          const posCost = Number(extras?.services?.costPos ?? extras?.posSubtotalCLP) || 0;
+          rowsHtml += `
+            <tr>
+              <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+                <div style="font-weight: 600; color: #0f172a;">🏪 Servicio Punto de Venta (POS)</div>
+                <div style="font-size: 12px; color: #64748b; margin-top: 2px;">Módulo POS activo en sucursal Stocka</div>
+              </td>
+              <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: right; font-weight: 700;">${fmtClp(posCost)}</td>
+            </tr>
+          `;
+        }
+
+        if (extras?.services?.hasVitrinaService || extras?.hasVitrinaService) {
+          const vitrinaCost = Number(extras?.services?.costVitrina ?? extras?.vitrinaSubtotalCLP) || 0;
+          rowsHtml += `
+            <tr>
+              <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+                <div style="font-weight: 600; color: #0f172a;">✨ Servicio Vitrina / Showroom</div>
+                <div style="font-size: 12px; color: #64748b; margin-top: 2px;">Exhibición comercial en sucursal Stocka</div>
+              </td>
+              <td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: right; font-weight: 700;">${fmtClp(vitrinaCost)}</td>
+            </tr>
+          `;
+        }
+
+        quoteSectionHtml = `
+          ${showTopCards ? `
+          <div style="display: table; width: 100%; margin-bottom: 20px;">
+            <div style="display: table-cell; width: 50%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px 0 0 8px; border-right: none; padding: 14px 16px; text-align: center; vertical-align: top;">
+              <div style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700;">Ventas Mensuales</div>
+              <div style="font-size: 18px; font-weight: 800; color: #5e17eb; margin: 4px 0;">${pickPack.monthlyOrders} pedidos</div>
+              <div style="font-size: 11px; color: #64748b;">Rango ${activeRange?.id || ''} (${activeRange?.label || ''})</div>
+            </div>
+            <div style="display: table-cell; width: 50%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0 8px 8px 0; padding: 14px 16px; text-align: center; vertical-align: top;">
+              <div style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700;">Almacenamiento Estimado</div>
+              <div style="font-size: 18px; font-weight: 800; color: #5e17eb; margin: 4px 0;">${storage.volumeM3} m³</div>
+              <div style="font-size: 11px; color: ${storageDiscountPct > 0 ? '#10b981' : '#64748b'}; font-weight: 600;">
+                ${storageDiscountPct > 0 ? `🎉 ${storageDiscountPct}% Dcto. por Volumen` : `Tarifa: ${fmtClp(storageBaseRateCLP)} / m³`}
+              </div>
+            </div>
+          </div>
+          ` : ''}
+
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+            <thead>
+              <tr>
+                <th style="background: #f1f5f9; color: #475569; font-size: 11px; text-transform: uppercase; padding: 10px 12px; text-align: left; border-bottom: 2px solid #cbd5e1;">Concepto de Servicio</th>
+                <th style="background: #f1f5f9; color: #475569; font-size: 11px; text-transform: uppercase; padding: 10px 12px; text-align: right; border-bottom: 2px solid #cbd5e1;">Costo Neto (CLP)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+
+          <div style="background: linear-gradient(135deg, rgba(94, 23, 235, 0.06), rgba(37, 99, 235, 0.06)); border: 1px solid rgba(94, 23, 235, 0.22); border-radius: 10px; padding: 18px 20px; margin-bottom: 20px;">
+            <div style="display: table; width: 100%; font-size: 14px; margin-bottom: 4px;">
+              <span style="display: table-cell; color: #475569;">Subtotal Neto Mensual:</span>
+              <span style="display: table-cell; text-align: right; font-weight: 700; color: #0f172a;">${fmtClp(netMonthlyCLP)} + IVA <span style="font-size: 12px; font-weight: normal; color: #64748b;">(~ ${netMonthlyUF.toFixed(2)} UF)</span></span>
+            </div>
+            <div style="display: table; width: 100%; font-size: 14px; margin-bottom: 4px;">
+              <span style="display: table-cell; color: #475569;">IVA (19%):</span>
+              <span style="display: table-cell; text-align: right; font-weight: 700; color: #0f172a;">${fmtClp(totals.ivaMonthly)}</span>
+            </div>
+            <div style="display: table; width: 100%; border-top: 1px solid rgba(94, 23, 235, 0.2); padding-top: 8px; margin-top: 6px;">
+              <span style="display: table-cell; font-weight: 700; color: #0f172a; font-size: 15px;">Total Mensual Estimado:</span>
+              <span style="display: table-cell; text-align: right; font-size: 20px; font-weight: 800; color: #5e17eb;">${fmtClp(totals.grossMonthly)} <span style="font-size: 12px; font-weight: normal; color: #64748b;">(IVA Inc.)</span></span>
+            </div>
+            <div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed rgba(94, 23, 235, 0.2); font-size: 13px; color: #5e17eb; font-weight: 700; text-align: center;">
+              🎯 Costo Promedio Estimado Todo Incluido: ${fmtClp(avgNetPerOrderCLP)} + IVA / pedido
+            </div>
+          </div>
+
+          <div style="margin: 15px 0 22px 0; background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 14px 16px; font-size: 12px; color: #92400e; line-height: 1.5;">
+            <strong style="color: #78350f; display: block; margin-bottom: 4px;">📦 Nota sobre Insumos de Embalaje (Packaging):</strong>
+            Los valores de Pick & Pack incluyen el proceso operativo de preparación, embalaje y etiquetado. Los materiales o insumos de embalaje (cajas, bolsas e-commerce, film alveolar/burbuja o relleno) no están incluidos en la tarifa base, ya que pueden ser aportados directamente por el cliente o suministrados por Stocka según consumo real.
+          </div>
+        `;
+      }
 
       htmlBody = `
 <!DOCTYPE html>
@@ -1590,11 +1771,11 @@ serve(async (req) => {
 <body>
   <div class="email-container" style="max-width: 650px; margin: 20px auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #cbd5e1; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
     
-    <!-- HEADER CORPORATIVO (IDÉNTICO A COTIZACIÓN) -->
+    <!-- HEADER CORPORATIVO -->
     <div style="background: #0f172a; padding: 30px 25px; text-align: center; color: #ffffff;">
       <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo" style="height: 42px; margin-bottom: 12px; display: inline-block;">
-      <h1 style="font-size: 20px; font-weight: 700; margin: 0; color: #ffffff; letter-spacing: 0.5px;">Propuesta y Servicios Fulfillment 360</h1>
-      <div style="font-size: 13px; color: #94a3b8; margin-top: 5px;">Soluciones Integrales de Almacenamiento, Preparación y Despacho para Ecommerce</div>
+      <h1 style="font-size: 20px; font-weight: 700; margin: 0; color: #ffffff; letter-spacing: 0.5px;">${isQuoteMode ? 'Cotización de Servicios Fulfillment 360' : 'Propuesta y Servicios Fulfillment 360'}</h1>
+      <div style="font-size: 13px; color: #94a3b8; margin-top: 5px;">${isQuoteMode ? 'Propuesta Comercial Estimada • Valores expresados en Pesos Chilenos (CLP)' : 'Soluciones Integrales de Almacenamiento, Preparación y Despacho para Ecommerce'}</div>
     </div>
 
     <!-- BODY -->
@@ -1602,9 +1783,11 @@ serve(async (req) => {
       <div style="font-size: 16px; font-weight: 600; color: #0f172a; margin-bottom: 12px;">${displayGreeting}</div>
       
       <p style="font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 18px;">
-        Muchas gracias por tu interés en los servicios de <strong>Fulfillment 360 de STOCKA</strong>. Te escribe <strong>Felipe Trujillo</strong>, Socio Fundador de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 700; text-decoration: underline;">Stocka.cl</a>.${includeSecondIntro ? `
+        Muchas gracias por ${isQuoteMode ? 'cotizar los servicios de' : 'tu interés en los servicios de'} <strong>Fulfillment 360 de STOCKA</strong>. Te escribe <strong>Felipe Trujillo</strong>, Socio Fundador de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 700; text-decoration: underline;">Stocka.cl</a>.${includeSecondIntro ? `
         <br><br>
-        En Stocka somos un partner logístico especializado en potenciar marcas online mediante un modelo de servicio <strong>integral, ágil y 100% escalable</strong>, diseñado para que puedas delegar la logística y concentrarte en el crecimiento de tus ventas${secondIntroPunct}` : ''}
+        ${isQuoteMode
+          ? `A continuación te presentamos el detalle de tu propuesta comercial estimada de acuerdo con los volúmenes y servicios configurados para tu operación${secondIntroPunct}`
+          : `En Stocka somos un partner logístico especializado en potenciar marcas online mediante un modelo de servicio <strong>integral, ágil y 100% escalable</strong>, diseñado para que puedas delegar la logística y concentrarte en el crecimiento de tus ventas${secondIntroPunct}`}` : ''}
       </p>
 
       ${showCustomBlock ? `
@@ -1614,7 +1797,7 @@ serve(async (req) => {
         </div>
       ` : ''}
 
-      ${showFourCards ? `
+      ${isQuoteMode ? quoteSectionHtml : (showTopCards ? `
       <!-- 4 PILARES CLAVE (ESTILO TARJETAS KPI DE COTIZACIÓN) -->
       <div style="display: table; width: 100%; margin-bottom: 10px;">
         <div style="display: table-cell; width: 50%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px 0 0 8px; border-right: none; padding: 14px 16px; vertical-align: top;">
@@ -1637,9 +1820,9 @@ serve(async (req) => {
           <div style="font-size: 12px; color: #64748b; line-height: 1.45;">Sincronización en tiempo real con Shopify, MeLi, WooCommerce, Jumpseller y control de inventario total.</div>
         </div>
       </div>
-      ` : ''}
+      ` : '')}
 
-      <!-- PRESENTACIONES Y MATERIAL OFICIAL ADJUNTO (IDÉNTICO A COTIZACIÓN) -->
+      <!-- PRESENTACIONES Y MATERIAL OFICIAL ADJUNTO -->
       <div style="margin: 22px 0 20px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 20px;">
         <div style="font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 6px;">
           📚 Presentaciones Oficiales y Documentación Adjunta:
@@ -1664,20 +1847,22 @@ serve(async (req) => {
         </a>
       </div>
 
-      <!-- SIMULAR COTIZACIÓN ONLINE EN STOCKA (IDÉNTICO A COTIZACIÓN) -->
+      <!-- SIMULAR COTIZACIÓN ONLINE EN STOCKA -->
       <div style="margin: 20px 0 22px 0; background: #f8fafc; border: 1.5px dashed #cbd5e1; border-radius: 10px; padding: 18px 20px; text-align: center;">
         <div style="font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 5px;">
-          🧮 ¿Quieres simular tu cotización en menos de 1 minuto?
+          ${isQuoteMode ? '🧮 ¿Quieres simular con otras cantidades de pedidos o m³?' : '🧮 ¿Quieres simular tu cotización en menos de 1 minuto?'}
         </div>
         <p style="font-size: 12px; color: #64748b; margin: 0 0 14px 0; line-height: 1.45;">
-          Ingresa tus estimaciones de pedidos mensuales y volumen de bodegaje para obtener un desglose detallado e instantáneo:
+          ${isQuoteMode
+            ? 'Haz clic en el siguiente botón para abrir esta misma cotización en nuestro simulador en línea y ajustar cualquier variable:'
+            : 'Ingresa tus estimaciones de pedidos mensuales y volumen de bodegaje para obtener un desglose detallado e instantáneo:'}
         </p>
         <a href="${cotizadorUrl}" target="_blank" style="display: inline-block; background: #ffffff; color: #5e17eb !important; border: 1.5px solid #5e17eb; text-decoration: none; padding: 10px 22px; border-radius: 8px; font-weight: 700; font-size: 13px; box-shadow: 0 2px 4px rgba(94, 23, 235, 0.06);">
-          🔄 Simular Cotización Online en Stocka.cl ↗
+          ${isQuoteMode ? '🔄 Volver a Simular / Ajustar Cantidades Online ↗' : '🔄 Simular Cotización Online en Stocka.cl ↗'}
         </a>
       </div>
 
-      <!-- AGENDA UNA REUNIÓN PARA CONOCERNOS MEJOR (IDÉNTICO A COTIZACIÓN) -->
+      <!-- AGENDA UNA REUNIÓN PARA CONOCERNOS MEJOR -->
       <div style="margin: 22px 0 20px 0; background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 22px 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); border-left: 4px solid #5e17eb;">
         <div style="margin-bottom: 10px;">
           <span style="display: inline-block; font-size: 11px; font-weight: 700; color: #5e17eb; background: rgba(94, 23, 235, 0.08); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(94, 23, 235, 0.2); margin-right: 8px;">
@@ -1711,14 +1896,29 @@ serve(async (req) => {
         </a>
       </div>
 
-      <!-- BOTÓN WHATSAPP DIRECTO (IDÉNTICO A COTIZACIÓN) -->
-      <a href="https://wa.me/56939247487?text=${encodeURIComponent(`Hola Felipe, te escribo respecto a la presentación de servicios de Fulfillment de Stocka.`)}" target="_blank" style="display: block; background: #25d366; color: #ffffff !important; text-decoration: none; text-align: center; padding: 12px 20px; border-radius: 8px; font-weight: 700; font-size: 14px; margin-top: 14px;">
+      ${isQuoteMode ? `
+      <!-- CTA DIRECTO A SOLICITUD DE ALTA / ONBOARDING -->
+      <div style="margin: 22px 0 16px 0; background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%); border: 2px solid #8b5cf6; border-radius: 12px; padding: 22px 20px; text-align: center;">
+        <div style="font-size: 16px; font-weight: 800; color: #4c1d95; margin-bottom: 6px;">
+          🚀 ¿Listo para comenzar a operar con STOCKA?
+        </div>
+        <p style="font-size: 13px; color: #5b21b6; margin: 0 0 16px 0; line-height: 1.5;">
+          Si estás de acuerdo con la propuesta, puedes iniciar el proceso de alta completando los datos de tu empresa en nuestro formulario oficial (toma menos de 2 minutos):
+        </p>
+        <a href="https://wms.stocka.cl/#onboarding" target="_blank" style="display: inline-block; background: #5e17eb; color: #ffffff !important; text-decoration: none; padding: 13px 26px; border-radius: 8px; font-weight: 700; font-size: 14px; box-shadow: 0 4px 12px rgba(94, 23, 235, 0.25);">
+          ✨ Iniciar Solicitud de Alta / Onboarding Online →
+        </a>
+      </div>
+      ` : ''}
+
+      <!-- BOTÓN WHATSAPP DIRECTO -->
+      <a href="https://wa.me/56939247487?text=${encodeURIComponent(isQuoteMode && qData?.pickPack ? `Hola Felipe, revisé mi cotización de Fulfillment en Stocka (${qData.pickPack.monthlyOrders} pedidos/mes y ${qData.storage.volumeM3} m³).` : `Hola Felipe, te escribo respecto a la presentación de servicios de Fulfillment de Stocka.`)}" target="_blank" style="display: block; background: #25d366; color: #ffffff !important; text-decoration: none; text-align: center; padding: 12px 20px; border-radius: 8px; font-weight: 700; font-size: 14px; margin-top: 14px;">
         💬 Coordinar Asesoría Comercial por WhatsApp (+56 9 3924 7487)
       </a>
 
     </div>
 
-    <!-- FOOTER OFICIAL STOCKA (IDÉNTICO A COTIZACIÓN) -->
+    <!-- FOOTER OFICIAL STOCKA -->
     <div style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px 25px; text-align: center; font-size: 12px; color: #64748b; line-height: 1.5;">
       <strong>STOCKA SpA</strong> • Soluciones Integrales de Fulfillment y Bodegaje en Chile<br>
       Sitio web: <a href="https://stocka.cl" style="color: #5e17eb;">stocka.cl</a> • Portal WMS: <a href="https://wms.stocka.cl" style="color: #5e17eb;">wms.stocka.cl</a><br>
@@ -2462,7 +2662,7 @@ serve(async (req) => {
       ? ["stockachile@gmail.com"] 
       : (recipientEmails && recipientEmails.length > 0 ? recipientEmails : ["stockachile@gmail.com"]);
 
-    if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info') {
+    if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info' || emailType === 'lead_quote_fulfillment') {
       // htmlBody ya fue generado de forma autónoma e idéntica a la línea gráfica de cotizaciones
     } else if (useInfoSender) {
       // Corporativo Stocka (Purple / System / Operations)
@@ -2561,11 +2761,11 @@ serve(async (req) => {
       `;
     }
 
-    const senderEmail = (emailType === 'onboarding_enviame_instructions' || emailType === 'onboarding_e1_instructions' || emailType === 'onboarding_e1' || emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info')
+    const senderEmail = (emailType === 'onboarding_enviame_instructions' || emailType === 'onboarding_e1_instructions' || emailType === 'onboarding_e1' || emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info' || emailType === 'lead_quote_fulfillment')
       ? 'contacto@stocka.cl'
       : (useInfoSender ? 'info@stocka.cl' : 'finanzas@stocka.cl');
 
-    const senderName = (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info')
+    const senderName = (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info' || emailType === 'lead_quote_fulfillment')
       ? "Felipe Trujillo - Stocka Fulfillment"
       : (emailType === 'merchant_integration_connected' ? "WMS STOCKA Integraciones" : (emailType === 'stock_inbound_created' ? "Sistema WMS Stocka" : (useInfoSender ? "Stocka" : "Finanzas Stocka")));
 
@@ -2579,7 +2779,7 @@ serve(async (req) => {
       htmlContent: htmlBody
     };
 
-    if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info') {
+    if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info' || emailType === 'lead_quote_fulfillment') {
       brevoPayload.replyTo = { email: 'felipe.tp@stocka.cl', name: 'Felipe Trujillo' };
       brevoPayload.bcc = [
         { email: 'felipe.tp@stocka.cl', name: 'Felipe Trujillo' },
@@ -2789,8 +2989,8 @@ serve(async (req) => {
 
     const brevoData = await brevoRes.json();
 
-    // Si es lead_info_fulfillment, registrar en lead_info_email_logs y actualizar status de leads
-    if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info') {
+    // Si es lead_info_fulfillment / lead_quote_fulfillment, registrar en lead_info_email_logs y actualizar status de leads
+    if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info' || emailType === 'lead_quote_fulfillment') {
       try {
         const contactName = payload.contactName || payload.nombreContacto || payload.nombre_contacto || payload.nombre || payload.full_name || '';
         const commerceNameStr = commerceName || payload.commerceName || payload.empresa || '';
@@ -2829,7 +3029,7 @@ serve(async (req) => {
               for (const prof of matchedProfiles) {
                 const existingSent = Array.isArray(prof.lead_emails_sent) ? prof.lead_emails_sent : [];
                 const updatedSent = [...existingSent, {
-                  type: 'INFO_COMERCIAL',
+                  type: (payload.emailMode === 'quote' || emailType === 'lead_quote_fulfillment') ? 'COTIZACION_COMERCIAL' : 'INFO_COMERCIAL',
                   sent_at: new Date().toISOString(),
                   subject: emailSubject,
                   message_id: brevoData.messageId || null

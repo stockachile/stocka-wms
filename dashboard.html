@@ -8,12 +8,13 @@
   <link rel="icon" type="image/png" href="./favicon.png">
   <link rel="apple-touch-icon" href="./favicon.png">
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/style.css?v=1.0.7">
-  <link rel="stylesheet" href="./css/layout.css?v=1.1.4">
+  <link rel="stylesheet" href="./css/style.css?v=1.0.8">
+  <link rel="stylesheet" href="./css/layout.css?v=1.2.7">
   <link rel="stylesheet" href="./css/tour.css?v=1.0.0">
+  <link rel="stylesheet" href="./css/workspace_panel.css?v=1.0.0">
   <!-- Quill Styles for Rich Content Rendering -->
   <link href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" rel="stylesheet">
-  <script src="./js/theme.js?v=1.1.3"></script>
+  <script src="./js/theme.js?v=1.2.4"></script>
 
   <!-- Immediate Shopify OAuth Detection (Enforces Shopify App Store Guideline 2.3.2) -->
   <script>
@@ -88,6 +89,14 @@
               <span class="nav-text">Dashboard</span>
             </a>
           </li>
+          <!-- Panel de Trabajo oculto temporalmente para Clientes (activo solo en Admin) -->
+          <li class="sidebar-top-item" style="display: none !important;">
+            <a href="#" class="nav-item" data-view="workspace" style="display: none !important;">
+              <i class="ri-layout-masonry-line"></i>
+              <span class="nav-text">Panel de Trabajo</span>
+              <span class="menu-badge ws-sidebar-pending-badge" style="display: none; background-color: #6366f1; color: white;">0</span>
+            </a>
+          </li>
 
           <li class="sidebar-section-label"><span>Módulos</span></li>
 
@@ -129,7 +138,7 @@
               </div>
               <ul class="flyout-panel-list">
                 <li><a href="#" class="nav-item" data-view="orders"><i class="ri-shopping-cart-2-line"></i> <span class="nav-text">Pedidos</span></a></li>
-                <li><a href="#" class="nav-item" data-view="pending"><i class="ri-error-warning-line"></i> <span class="nav-text">Por Asignar</span></a></li>
+                <li class="hidden-ticket-li" style="display: none;"><a href="#" class="nav-item hidden-ticket-nav" data-view="pending"><i class="ri-error-warning-line"></i> <span class="nav-text">Por Asignar</span></a></li>
                 <li><a href="#" class="nav-item" data-view="shipments"><i class="ri-truck-line"></i> <span class="nav-text">Despachos</span></a></li>
                 <li><a href="#" class="nav-item" data-view="manifests"><i class="ri-file-paper-2-line"></i> <span class="nav-text">Centro de Manifiestos</span></a></li>
                 <li><a href="#" class="nav-item" data-view="returns"><i class="ri-arrow-go-back-line"></i> <span class="nav-text">Logística Inversa</span></a></li>
@@ -219,83 +228,340 @@
 
     <!-- Main Content -->
     <div class="main-content">
-      <!-- Header -->
-      <header class="top-header">
-        <div class="header-title">
-          <h2 id="view-title">Dashboard</h2>
+      <!-- Header Cliente / Seller Renovado (Propuesta v2) -->
+      <header class="top-header admin-header-v2 client-header-v2">
+
+        <!-- ZONA IZQUIERDA: Contexto del Módulo + Estado de Tienda -->
+        <div class="header-title admin-header-context">
+          <div class="admin-view-icon-box client-view-icon-box" id="client-view-icon-box" title="Módulo activo">
+            <i id="client-view-icon" class="ri-dashboard-line"></i>
+          </div>
+          <div class="admin-title-stack">
+            <div class="admin-breadcrumb-row">
+              <span id="client-breadcrumb-group" class="admin-bc-group">Panel Principal</span>
+              <i class="ri-arrow-right-s-line admin-bc-sep"></i>
+              <button type="button" class="client-store-sync-pill" data-client-nav="integrations" title="Fulfillment Activo · Clic para ver estado de mis integraciones e-commerce">
+                <span class="live-dot"></span>
+                <span id="client-store-sync-text">Activo</span>
+              </button>
+            </div>
+            <h2 id="view-title">Dashboard</h2>
+          </div>
         </div>
-        <div class="header-actions">
 
-          <!-- UF del día -->
-          <div id="uf-chip" class="uf-chip" title="Valor UF del día">
-            <i class="ri-funds-line uf-icon"></i>
-            <span class="uf-label">UF</span>
-            <span id="uf-value">—</span>
-          </div>
-
-          <!-- Fecha del día -->
-          <div class="date-chip" id="date-chip" title="Fecha actual">
-            <i class="ri-calendar-line"></i>
-            <span id="date-day-num" class="date-day"></span>
-            <span id="date-rest" class="date-rest"></span>
-          </div>
-
-          <!-- Tour Guiado -->
-          <button id="guided-tour-btn" class="tour-chip-btn" title="Iniciar Tour Guiado">
-            <i class="ri-compass-3-line"></i>
-            <span>Tour guiado</span>
-          </button>
-
-          <div class="header-divider"></div>
-
-          <!-- Notificaciones -->
-          <div class="notification-container" style="position: relative;">
-            <button id="notification-btn" class="header-icon-btn" aria-label="Notificaciones">
-              <i class="ri-notification-3-line"></i>
-              <span id="notification-badge" style="display: none; position: absolute; top: 2px; right: 2px; background-color: var(--color-danger); color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 0.6rem; font-weight: bold; align-items: center; justify-content: center;">0</span>
+        <!-- ZONA CENTRAL: Buscador de Pedidos/SKUs (Ctrl+K) + Menú de Acción Rápida Seller -->
+        <div class="admin-header-center client-header-center">
+          <!-- Command Bar / Buscador Rápido del Comercio -->
+          <div class="admin-cmd-container" id="client-cmd-container">
+            <button type="button" id="client-cmd-btn" class="admin-cmd-trigger" title="Buscar pedido, destinatario, tracking, SKU o módulo (Ctrl + K)">
+              <i class="ri-search-2-line cmd-search-icon"></i>
+              <span class="cmd-placeholder">Buscar pedido, cliente, tracking o SKU...</span>
+              <kbd class="cmd-kbd">Ctrl K</kbd>
             </button>
-            <div id="notification-dropdown" class="notification-dropdown" style="display: none; position: absolute; top: 120%; right: 0; width: 340px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 100;">
-              <div style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); font-weight: 600; display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem;">
-                <span><i class="ri-notification-3-line" style="margin-right: 0.4rem; color: var(--color-primary);"></i>Notificaciones</span>
-                <button id="mark-all-read-btn" style="background: none; border: none; color: var(--color-primary); font-size: 0.75rem; cursor: pointer; display: none;">Marcar todas leídas</button>
+
+            <!-- Dropdown Command Palette Cliente -->
+            <div id="client-cmd-dropdown" class="admin-cmd-dropdown" style="display: none;">
+              <div class="admin-cmd-input-wrap">
+                <i class="ri-search-eye-line"></i>
+                <input type="text" id="client-cmd-input" class="admin-cmd-input" placeholder="Escribe #pedido, cliente, tracking, SKU o sección..." autocomplete="off">
+                <button type="button" id="client-cmd-clear" class="admin-cmd-clear-btn" style="display: none;" title="Limpiar">
+                  <i class="ri-close-circle-fill"></i>
+                </button>
               </div>
-              <div id="notification-list" style="max-height: 300px; overflow-y: auto;">
-                <div style="padding: 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem;">No tienes notificaciones.</div>
+              <div id="client-cmd-results" class="admin-cmd-results">
+                <!-- Resultados inyectados dinámicamente -->
               </div>
-              <div style="border-top: 1px solid var(--color-border); text-align: center; background: var(--color-bg); border-radius: 0 0 var(--radius-md) var(--radius-md);">
-                <a href="#" class="nav-item" data-view="inbox" style="display: block; padding: 0.75rem; font-size: 0.8rem; color: var(--color-primary); text-decoration: none; font-weight: 500;">
-                  Ver todas las notificaciones <i class="ri-arrow-right-line" style="vertical-align: middle;"></i>
-                </a>
+              <div class="admin-cmd-footer">
+                <span><kbd>↑</kbd> <kbd>↓</kbd> navegar</span>
+                <span><kbd>Enter</kbd> abrir</span>
+                <span><kbd>Esc</kbd> cerrar</span>
               </div>
             </div>
           </div>
 
-          <!-- Soporte -->
-          <a href="#" class="nav-item header-icon-btn" data-view="tickets" title="Soporte">
-            <i class="ri-customer-service-2-line"></i>
-          </a>
+          <!-- Botón Unificado + Acción Rápida del Comercio -->
+          <div class="admin-quick-container client-quick-container" id="client-quick-container">
+            <button type="button" id="client-quick-btn" class="admin-quick-trigger client-quick-trigger" title="Acciones rápidas para tu tienda (Enviar Stock, Cotizar, Etiquetas y más)">
+              <i class="ri-flashlight-fill quick-bolt-icon"></i>
+              <span class="quick-btn-label">Acción Rápida</span>
+              <i class="ri-arrow-down-s-line quick-chevron"></i>
+            </button>
 
-          <!-- Inbox -->
-          <a href="#" class="nav-item header-icon-btn" data-view="inbox" title="Mi Inbox">
-            <i class="ri-inbox-line"></i>
-          </a>
+            <div id="client-quick-dropdown" class="admin-header-popover admin-quick-dropdown client-quick-dropdown" style="display: none;">
+              <div class="popover-section-title">
+                <i class="ri-flashlight-line"></i> Acciones Rápidas de tu Tienda
+              </div>
+              <div class="admin-quick-grid">
+                <button type="button" class="admin-quick-card" data-client-nav="declarations">
+                  <span class="quick-card-icon icon-purple"><i class="ri-inbox-archive-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>+ Enviar Stock</strong>
+                    <small>Declarar ingreso a bodega</small>
+                  </span>
+                </button>
+                <button type="button" class="admin-quick-card" data-client-nav="cotizador">
+                  <span class="quick-card-icon icon-blue"><i class="ri-truck-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>Cotizar Envío</strong>
+                    <small>Simular tarifas por courier</small>
+                  </span>
+                </button>
+                <button type="button" class="admin-quick-card" data-client-nav="label_generator">
+                  <span class="quick-card-icon icon-indigo"><i class="ri-printer-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>Generar Etiquetas</strong>
+                    <small>Códigos de barra y bultos</small>
+                  </span>
+                </button>
+                <button type="button" class="admin-quick-card" data-client-nav="orders">
+                  <span class="quick-card-icon icon-amber"><i class="ri-shopping-cart-2-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>Mis Pedidos</strong>
+                    <small>Ver estado y seguimiento</small>
+                  </span>
+                </button>
+                <button type="button" class="admin-quick-card" data-client-nav="tracking_widget">
+                  <span class="quick-card-icon icon-emerald"><i class="ri-radar-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>Portal de Tracking</strong>
+                    <small>Personalizar seguimiento</small>
+                  </span>
+                </button>
+                <button type="button" class="admin-quick-card" data-client-nav="tickets">
+                  <span class="quick-card-icon icon-rose"><i class="ri-customer-service-2-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>Crear Ticket / KAM</strong>
+                    <small>Soporte con tu ejecutivo</small>
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
 
-          <!-- Perfil -->
-          <a href="#" class="nav-item header-icon-btn" data-view="profile" title="Mi Perfil">
-            <i class="ri-user-settings-line"></i>
-          </a>
+        <!-- ZONA DERECHA: UF/Fecha + Ayuda/KAM + Dock Cliente + Cuenta del Comercio -->
+        <div class="header-actions admin-header-right">
 
-          <button class="theme-toggle-btn" aria-label="Cambiar tema">
-            <i class="ri-sun-line sun-icon"></i>
-            <i class="ri-moon-line moon-icon"></i>
-          </button>
+          <!-- 1. Cápsula Económica UF + Fecha -->
+          <div class="admin-meta-capsule">
+            <div id="uf-chip" class="uf-chip admin-uf-interactive" title="Valor UF referencial para tarifas de bodegaje y fulfillment · Clic para copiar" role="button" tabindex="0">
+              <span class="uf-status-dot client-uf-dot"></span>
+              <i class="ri-funds-line uf-icon"></i>
+              <span class="uf-label">UF</span>
+              <span id="uf-value">—</span>
+              <i class="ri-file-copy-line uf-copy-icon" id="uf-copy-icon"></i>
+            </div>
+
+            <div class="date-chip" id="date-chip" title="Fecha actual">
+              <i class="ri-calendar-event-line"></i>
+              <span id="date-day-num" class="date-day"></span>
+              <span id="date-rest" class="date-rest"></span>
+            </div>
+          </div>
+
+          <!-- 2. Centro Unificado de Ayuda, Soporte KAM y Tour Guiado -->
+          <div class="client-help-container" id="client-help-container">
+            <button type="button" id="client-help-btn" class="client-help-pill" title="Soporte, Contacto KAM y Tour Guiado">
+              <i class="ri-customer-service-2-line help-pill-icon"></i>
+              <span class="help-pill-text">Ayuda</span>
+              <i class="ri-arrow-down-s-line help-pill-chevron"></i>
+            </button>
+
+            <div id="client-help-dropdown" class="admin-header-popover client-help-dropdown" style="display: none;">
+              <div class="popover-header-bar">
+                <div class="popover-header-title">
+                  <i class="ri-customer-service-2-fill" style="color: #7c3aed;"></i>
+                  <span>Centro de Asistencia Seller</span>
+                </div>
+                <span class="sync-status-tag tag-ok">Soporte Activo</span>
+              </div>
+
+              <div class="client-help-list">
+                <!-- Mis Tickets de Soporte -->
+                <a href="#" class="nav-item client-help-card" data-view="tickets">
+                  <span class="quick-card-icon icon-purple"><i class="ri-customer-service-2-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>Mis Tickets de Soporte</strong>
+                    <small>Crear consulta o seguimiento con tu KAM</small>
+                  </span>
+                </a>
+
+                <!-- Tour Guiado Interactivo (Conserva #guided-tour-btn para tour.js) -->
+                <button type="button" id="guided-tour-btn" class="client-help-card">
+                  <span class="quick-card-icon icon-blue"><i class="ri-compass-3-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>Iniciar Tour Guiado</strong>
+                    <small>Recorrido interactivo paso a paso por el WMS</small>
+                  </span>
+                </button>
+
+                <!-- Portal de Tracking para Clientes -->
+                <button type="button" class="client-help-card" data-client-nav="tracking_widget">
+                  <span class="quick-card-icon icon-emerald"><i class="ri-radar-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>Portal de Tracking</strong>
+                    <small>Configura el seguimiento para tus clientes</small>
+                  </span>
+                </button>
+
+                <!-- Documentación del Servicio -->
+                <button type="button" class="client-help-card" data-client-nav="documentation">
+                  <span class="quick-card-icon icon-amber"><i class="ri-file-text-line"></i></span>
+                  <span class="quick-card-info">
+                    <strong>Documentación y Manuales</strong>
+                    <small>Guías de preparación, SLA y políticas</small>
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
 
           <div class="header-divider"></div>
 
-          <!-- Usuario -->
-          <div class="header-user">
-            <span id="user-email">Cargando...</span>
-            <div class="avatar"></div>
+          <!-- 3. Dock de Herramientas y Alertas del Comercio -->
+          <div class="admin-tool-dock client-tool-dock">
+
+            <!-- 3A. Radar de Estado Operativo de Mi Tienda -->
+            <div class="admin-ops-container" id="client-ops-container">
+              <button type="button" id="client-ops-btn" class="header-icon-btn dock-icon-btn ops-radar-btn" title="Estado Operativo de Mi Tienda (Incidencias, Conteos y Encuestas)" aria-label="Estado Operativo">
+                <i class="ri-alarm-warning-line"></i>
+                <span id="client-ops-badge" class="dock-badge badge-amber" style="display: none;">0</span>
+              </button>
+
+              <div id="client-ops-dropdown" class="admin-header-popover admin-ops-dropdown" style="display: none;">
+                <div class="popover-header-bar">
+                  <div class="popover-header-title">
+                    <i class="ri-store-2-line" style="color: #7c3aed;"></i>
+                    <span>Radar de Mi Tienda</span>
+                  </div>
+                  <span id="client-ops-total-label" class="ops-total-pill">Al día ✓</span>
+                </div>
+                <div class="admin-ops-list">
+                  <button type="button" class="admin-ops-item" data-client-nav="incidencias">
+                    <span class="ops-item-icon ops-danger"><i class="ri-alert-line"></i></span>
+                    <span class="ops-item-label">Incidencias de Envío</span>
+                    <span class="ops-item-count" data-client-ops-count="incidencias">0</span>
+                  </button>
+                  <button type="button" class="admin-ops-item" data-client-nav="inventory">
+                    <span class="ops-item-icon ops-primary"><i class="ri-box-3-line"></i></span>
+                    <span class="ops-item-label">Revisiones de Inventario</span>
+                    <span class="ops-item-count" data-client-ops-count="inventory">0</span>
+                  </button>
+                  <button type="button" class="admin-ops-item" data-client-nav="surveys">
+                    <span class="ops-item-icon ops-emerald"><i class="ri-survey-line"></i></span>
+                    <span class="ops-item-label">Encuestas Disponibles</span>
+                    <span class="ops-item-count" data-client-ops-count="surveys">0</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3B. Centro Unificado de Notificaciones + Inbox -->
+            <div class="notification-container" style="position: relative;">
+              <button id="notification-btn" class="header-icon-btn dock-icon-btn" aria-label="Notificaciones y Bandeja" title="Mis Notificaciones y Bandeja de Entrada">
+                <i class="ri-notification-3-line"></i>
+                <span id="notification-badge" class="dock-badge badge-danger" style="display: none;">0</span>
+              </button>
+              <div id="notification-dropdown" class="notification-dropdown admin-notif-popover" style="display: none;">
+                <div class="notif-popover-header">
+                  <div class="notif-popover-title">
+                    <i class="ri-notification-badge-line"></i>
+                    <span>Notificaciones de tu Tienda</span>
+                  </div>
+                  <button id="mark-all-read-btn" class="notif-mark-read-btn" style="display: none;">Marcar leídas</button>
+                </div>
+
+                <!-- Accesos rápidos a Mi Inbox y Facturación -->
+                <div class="notif-quick-channels">
+                  <a href="#" class="nav-item notif-channel-pill" data-view="inbox" title="Abrir Mi Bandeja de Entrada">
+                    <i class="ri-inbox-archive-line"></i>
+                    <span>Mi Inbox</span>
+                  </a>
+                  <button type="button" class="notif-channel-pill" data-client-nav="billing" title="Ver mi facturación y estados de pago">
+                    <i class="ri-bill-line"></i>
+                    <span>Facturación</span>
+                  </button>
+                </div>
+
+                <div id="notification-list" class="admin-notif-list" style="max-height: 290px; overflow-y: auto;">
+                  <div style="padding: 1.25rem; text-align: center; color: var(--color-text-muted); font-size: 0.82rem;">No tienes notificaciones.</div>
+                </div>
+                <div class="notif-popover-footer">
+                  <a href="#" class="nav-item notif-view-all-link" data-view="inbox">
+                    Ver todas las notificaciones <i class="ri-arrow-right-line"></i>
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3C. Botón Compacto de Tema (Claro / Oscuro) -->
+            <button class="theme-toggle-btn admin-dock-theme-btn" type="button" aria-label="Cambiar tema" title="Cambiar entre modo claro y oscuro">
+              <i class="ri-sun-line sun-icon"></i>
+              <i class="ri-moon-clear-line moon-icon"></i>
+            </button>
+
+          </div>
+
+          <div class="header-divider"></div>
+
+          <!-- 4. Cápsula Interactiva de Cuenta del Comercio -->
+          <div class="admin-profile-container" id="client-profile-container">
+            <button type="button" id="client-profile-btn" class="header-user admin-profile-trigger client-profile-trigger" title="Menú de Cuenta de tu Comercio">
+              <div class="avatar admin-avatar-ring client-avatar-ring" id="client-header-avatar">
+                <span id="client-avatar-initials">CL</span>
+                <span class="avatar-online-dot"></span>
+              </div>
+              <div class="admin-user-meta">
+                <div class="admin-user-top-line">
+                  <span id="user-email">Cargando...</span>
+                  <span class="admin-role-pill client-role-pill" id="client-role-pill">SELLER</span>
+                </div>
+                <span class="admin-user-subline" id="client-user-subline">Portal Comercio</span>
+              </div>
+              <i class="ri-arrow-down-s-line admin-profile-chevron"></i>
+            </button>
+
+            <!-- Menú Desplegable de Cuenta Cliente -->
+            <div id="client-profile-dropdown" class="admin-header-popover admin-profile-dropdown" style="display: none;">
+              <div class="profile-dropdown-card client-dropdown-card">
+                <div class="avatar admin-avatar-ring client-avatar-ring avatar-lg">
+                  <span id="client-dropdown-initials">CL</span>
+                </div>
+                <div class="profile-dropdown-info">
+                  <div class="profile-dropdown-name" id="client-dropdown-name">Mi Comercio</div>
+                  <div class="profile-dropdown-email" id="client-dropdown-email">Cargando...</div>
+                  <span class="profile-dropdown-badge client-dropdown-badge" id="client-dropdown-commerce">
+                    <i class="ri-store-2-line"></i> Cuenta Fulfillment
+                  </span>
+                </div>
+              </div>
+
+              <div class="profile-dropdown-menu">
+                <a href="#" class="nav-item admin-profile-menu-item" data-view="profile">
+                  <i class="ri-user-settings-line"></i>
+                  <span>Mi Perfil y Preferencias</span>
+                </a>
+                <a href="#" class="nav-item admin-profile-menu-item" data-view="inbox">
+                  <i class="ri-inbox-line"></i>
+                  <span>Mi Bandeja de Entrada</span>
+                </a>
+                <button type="button" class="admin-profile-menu-item" data-client-nav="billing">
+                  <i class="ri-bill-line"></i>
+                  <span>Facturación y Pagos</span>
+                </button>
+                <button type="button" class="admin-profile-menu-item" data-client-nav="integrations">
+                  <i class="ri-plug-line"></i>
+                  <span>Mis Integraciones</span>
+                </button>
+              </div>
+
+              <div class="profile-dropdown-footer">
+                <button type="button" id="client-header-logout-btn" class="admin-profile-logout-btn">
+                  <i class="ri-logout-box-r-line"></i>
+                  <span>Cerrar Sesión</span>
+                </button>
+              </div>
+            </div>
           </div>
 
         </div>
@@ -1785,15 +2051,16 @@
   <script src="./js/export_manager.js?v=1.0.0"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.5"></script>
   <script src="./js/manifests.js"></script>
-  <script src="./js/toast_notifications.js?v=1.0.0"></script>
+  <script src="./js/toast_notifications.js?v=1.0.1"></script>
   <script src="./js/inbound_notifications.js?v=1.0.4"></script>
   <script src="./js/inventory_notifications.js?v=1.0.0"></script>
   <script src="./js/integration_notifications.js?v=1.0.0"></script>
   <script type="module" src="./js/billing_generator.js?v=1.3.6"></script>
   <script type="module" src="./js/split_orders.js?v=1.0.0"></script>
   <script type="module" src="./js/picking_requests.js?v=1.0.3"></script>
-  <script type="module" src="./js/app.js?v=1.0.70"></script>
+  <script type="module" src="./js/app.js?v=1.0.74"></script>
   <script type="module" src="./js/tour.js?v=1.0.1"></script>
+  <script type="module" src="./js/order_page.js?v=1.0.7"></script>
 
   <!-- Floating Scroll to Top Button -->
   <button type="button" class="scroll-to-top-btn" id="scroll-to-top-btn" title="Volver arriba" aria-label="Volver arriba">

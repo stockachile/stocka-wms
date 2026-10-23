@@ -43,10 +43,12 @@ function mapCourierToShopify(courier, operador) {
   if (raw.includes('STARKEN')) return 'Starken';
   if (raw.includes('BLUEXPRESS') || raw.includes('BLUE EXPRESS') || raw.includes('BLUE')) return 'Blue Express';
   if (raw.includes('CORREOS')) return 'Correos de Chile';
+  if (raw.includes('RECIBELO') || raw.includes('RECÍBELO')) return 'Recíbelo';
+  if (raw.includes('SAMEDAY')) return 'Sameday';
   if (raw.includes('LIGHTDATA') || raw.includes('ALPHA')) return 'LightData';
   if (raw.includes('ENVIAME') || raw.includes('ENVÍAME')) return 'Envíame';
-  if (raw.includes('STOCKA')) return 'Stocka Logistics';
-  return 'Other';
+  if (raw.includes('STOCKA') || raw.includes('CARRIER EXTERNO')) return 'Stocka Logistics';
+  return courier && courier.trim() ? courier.trim() : 'Other';
 }
 
 async function getValidShopifyToken(integration) {
@@ -153,27 +155,53 @@ async function processQueue() {
         throw new Error(`Integración activa no encontrada para ${item.comercio}`);
       }
 
+      if (integration.sync_tracking_enabled !== true) {
+        console.log(`⏭️ Comercio ${item.comercio} tiene sync_tracking_enabled = false. Descartando item ${item.id}.`);
+        await supabase
+          .from('shopify_fulfillment_queue')
+          .delete()
+          .eq('id', item.id);
+        continue;
+      }
+
       const validToken = await getValidShopifyToken(integration);
       integration.access_token = validToken;
 
       if (integration.granted_scopes && Array.isArray(integration.granted_scopes)) {
-        if (!integration.granted_scopes.includes('write_fulfillments')) {
-          const reason = "La tienda no ha otorgado el permiso 'write_fulfillments'. Requiere re-autorización.";
-          console.warn(`⚠️ ${reason}`);
-          await supabase
-            .from('shopify_fulfillment_queue')
-            .update({ status: 'needs_reauth', last_error: reason, updated_at: new Date().toISOString() })
-            .eq('id', item.id);
-          await supabase
-            .from('orders')
-            .update({ shopify_fulfillment_status: 'error', shopify_sync_last_error: reason })
-            .eq('id', item.order_id);
-          continue;
+        if (item.action_type === 'set_in_progress') {
+          if (!integration.granted_scopes.includes('write_orders')) {
+            const reason = "La tienda no ha otorgado el permiso 'write_orders'. Requiere actualizar permisos en Shopify.";
+            console.warn(`⚠️ ${reason}`);
+            await supabase
+              .from('shopify_fulfillment_queue')
+              .update({ status: 'needs_reauth', last_error: reason, updated_at: new Date().toISOString() })
+              .eq('id', item.id);
+            continue;
+          }
+        } else {
+          const hasFoScope =
+            integration.granted_scopes.includes('write_fulfillments') &&
+            integration.granted_scopes.includes('write_merchant_managed_fulfillment_orders');
+          if (!hasFoScope) {
+            const reason = "La tienda requiere actualizar permisos en Shopify ('write_merchant_managed_fulfillment_orders').";
+            console.warn(`⚠️ ${reason}`);
+            await supabase
+              .from('shopify_fulfillment_queue')
+              .update({ status: 'needs_reauth', last_error: reason, updated_at: new Date().toISOString() })
+              .eq('id', item.id);
+            await supabase
+              .from('orders')
+              .update({ shopify_fulfillment_status: 'error', shopify_sync_last_error: reason })
+              .eq('id', item.order_id);
+            continue;
+          }
         }
       }
 
       if (item.action_type === 'set_in_progress') {
         await executeSetInProgress(item, integration);
+      } else if (item.action_type === 'set_ready_for_pickup') {
+        await executeSetReadyForPickup(item, integration);
       } else if (item.action_type === 'create_fulfillment') {
         await executeCreateFulfillment(item, integration);
       } else if (item.action_type === 'update_tracking') {
@@ -243,6 +271,90 @@ async function executeSetInProgress(item, integration) {
     .eq('id', item.id);
 }
 
+async function executeSetReadyForPickup(item, integration) {
+  const shop = integration.shop_url;
+  const token = integration.access_token;
+  const shopifyOrderId = item.shopify_order_id;
+
+  try {
+    const foUrl = `https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}/fulfillment_orders.json`;
+    const foRes = await fetch(foUrl, {
+      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
+    });
+
+    if (foRes.ok) {
+      const foData = await foRes.json();
+      const fulfillmentOrders = foData.fulfillment_orders || [];
+      const openFulfillmentOrders = fulfillmentOrders.filter(fo => fo.status === 'open' || fo.status === 'in_progress');
+
+      if (openFulfillmentOrders.length > 0) {
+        const lineItemsByFulfillmentOrder = openFulfillmentOrders.map(fo => ({
+          fulfillmentOrderId: `gid://shopify/FulfillmentOrder/${fo.id}`
+        }));
+
+        const graphqlQuery = `
+          mutation fulfillmentOrderLineItemsPreparedForPickup($input: FulfillmentOrderLineItemsPreparedForPickupInput!) {
+            fulfillmentOrderLineItemsPreparedForPickup(input: $input) {
+              userErrors {
+                field
+                message
+              }
+            }
+          }
+        `;
+
+        const gqlRes = await fetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
+          method: 'POST',
+          headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: graphqlQuery,
+            variables: { input: { lineItemsByFulfillmentOrder } }
+          })
+        });
+
+        if (gqlRes.ok) {
+          const gqlData = await gqlRes.json();
+          const userErrors = gqlData?.data?.fulfillmentOrderLineItemsPreparedForPickup?.userErrors || [];
+          if (userErrors.length > 0) {
+            console.warn(`⚠️ [ReadyForPickup] Aviso GraphQL en orden ${shopifyOrderId}:`, JSON.stringify(userErrors));
+          } else {
+            console.log(`✅ [ReadyForPickup] Orden ${shopifyOrderId} marcada nativamente como 'Listo para retirar' en Shopify.`);
+          }
+        }
+      }
+    }
+  } catch (foErr) {
+    console.warn(`Aviso en executeSetReadyForPickup para orden ${shopifyOrderId}:`, foErr.message);
+  }
+
+  try {
+    const orderRes = await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags`, {
+      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
+    });
+
+    if (orderRes.ok) {
+      const orderData = await orderRes.json();
+      const currentTags = orderData.order?.tags || '';
+      if (!currentTags.includes('Stocka: Listo para Retiro')) {
+        const newTags = currentTags ? `${currentTags}, Stocka: Listo para Retiro` : 'Stocka: Listo para Retiro';
+        await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
+          method: 'PUT',
+          headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order: { id: shopifyOrderId, tags: newTags } })
+        });
+        console.log(`Etiqueta 'Stocka: Listo para Retiro' agregada a orden ${shopifyOrderId}`);
+      }
+    }
+  } catch (tagErr) {
+    console.warn(`Aviso actualizando tags de retiro:`, tagErr.message);
+  }
+
+  await supabase
+    .from('shopify_fulfillment_queue')
+    .update({ status: 'completed', processed_at: new Date().toISOString() })
+    .eq('id', item.id);
+}
+
 async function executeCreateFulfillment(item, integration) {
   const shop = integration.shop_url;
   const token = integration.access_token;
@@ -284,20 +396,27 @@ async function executeCreateFulfillment(item, integration) {
   }
 
   const lineItemsByFulfillmentOrder = openFulfillmentOrders.map(fo => ({ fulfillment_order_id: fo.id }));
-  const companyName = mapCourierToShopify(item.courier, item.operador);
   const notifyCustomer = integration.notify_customer_on_fulfillment !== false;
+  const cleanTrack = (item.tracking_number || '').trim();
+  const hasRealTracking = cleanTrack !== '' && cleanTrack.toUpperCase() !== 'N/A' && cleanTrack.toUpperCase() !== 'NO INFORMADO';
+  const hasTrackUrl = Boolean(item.tracking_url && item.tracking_url.startsWith('http'));
 
-  const trackingInfo = { number: item.tracking_number || 'N/A', company: companyName };
-  if (item.tracking_url && item.tracking_url.startsWith('http')) {
-    trackingInfo.url = item.tracking_url;
+  const fulfillmentObj = {
+    line_items_by_fulfillment_order: lineItemsByFulfillmentOrder,
+    notify_customer: notifyCustomer
+  };
+
+  if (hasRealTracking || hasTrackUrl) {
+    const companyName = mapCourierToShopify(item.courier, item.operador);
+    const trackingInfo = { number: hasRealTracking ? cleanTrack : 'N/A', company: companyName };
+    if (hasTrackUrl) {
+      trackingInfo.url = item.tracking_url;
+    }
+    fulfillmentObj.tracking_info = trackingInfo;
   }
 
   const fulfillmentPayload = {
-    fulfillment: {
-      line_items_by_fulfillment_order: lineItemsByFulfillmentOrder,
-      tracking_info: trackingInfo,
-      notify_customer: notifyCustomer
-    }
+    fulfillment: fulfillmentObj
   };
 
   console.log(`Enviando fulfillment a Shopify para orden ${shopifyOrderId}:`, JSON.stringify(fulfillmentPayload));
@@ -335,10 +454,28 @@ async function executeCreateFulfillment(item, integration) {
 async function executeUpdateTracking(item, integration) {
   const shop = integration.shop_url;
   const token = integration.access_token;
-  const fulfillmentId = item.shopify_fulfillment_id;
+  let fulfillmentId = item.shopify_fulfillment_id;
 
   if (!fulfillmentId) {
-    throw new Error(`Falta shopify_fulfillment_id para actualizar tracking`);
+    const { data: ordData } = await supabase
+      .from('orders')
+      .select('shopify_fulfillment_id, tracking_number, tracking_url, courier, operador')
+      .eq('id', item.order_id)
+      .maybeSingle();
+    if (ordData?.shopify_fulfillment_id) {
+      fulfillmentId = ordData.shopify_fulfillment_id;
+    }
+    if (ordData) {
+      if (!item.tracking_number && ordData.tracking_number) item.tracking_number = ordData.tracking_number;
+      if (!item.tracking_url && ordData.tracking_url) item.tracking_url = ordData.tracking_url;
+      if (!item.courier && ordData.courier) item.courier = ordData.courier;
+      if (!item.operador && ordData.operador) item.operador = ordData.operador;
+    }
+  }
+
+  if (!fulfillmentId) {
+    await executeCreateFulfillment(item, integration);
+    return;
   }
 
   const companyName = mapCourierToShopify(item.courier, item.operador);
@@ -360,8 +497,15 @@ async function executeUpdateTracking(item, integration) {
     throw new Error(`Shopify API error actualizando tracking (${updateRes.status}): ${errText}`);
   }
 
+  await supabase.from('orders').update({
+    shopify_fulfillment_id: fulfillmentId,
+    shopify_fulfillment_status: 'synced',
+    shopify_sync_last_error: null
+  }).eq('id', item.order_id);
+
   await supabase.from('shopify_fulfillment_queue').update({
     status: 'completed',
+    shopify_fulfillment_id: fulfillmentId,
     processed_at: new Date().toISOString()
   }).eq('id', item.id);
 

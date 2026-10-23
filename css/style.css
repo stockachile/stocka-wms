@@ -4,15 +4,15 @@ html {
   font-size: 16px;
 }
 
-@media (min-width: 1024px) and (max-width: 1440px) {
+@media (min-width: 1024px) and (max-width: 1600px) {
   html {
-    font-size: 14px; /* Scales down all rem-based sizes on medium laptops/monitors */
+    font-size: 13.8px; /* Escala óptima para notebooks (1280px, 1366px, 1440px y 1536px FHD 125%) al 100% de zoom */
   }
 }
 
-@media (min-width: 1441px) {
+@media (min-width: 1601px) {
   html {
-    font-size: 15.5px; /* Scales back up slightly on larger desktop monitors to prevent tiny text */
+    font-size: 15.5px; /* Monitores de escritorio grandes (>1600px) */
   }
 }
 

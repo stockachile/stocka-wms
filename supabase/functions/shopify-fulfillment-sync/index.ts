@@ -109,16 +109,37 @@ serve(async (req) => {
           throw new Error(`Integración activa no encontrada para el comercio ${item.comercio}`);
         }
 
+        // Si el comercio tiene desactivada la sincronización inversa, descartar el item silenciosamente sin marcar error
+        if (integration.sync_tracking_enabled !== true) {
+          await supabase
+            .from("shopify_fulfillment_queue")
+            .delete()
+            .eq("id", item.id);
+          results.push({ id: item.id, status: "skipped_disabled", action: item.action_type });
+          continue;
+        }
+
         // Obtener token válido (renovando si tiene refresh_token)
         const validToken = await getValidShopifyToken(integration);
         integration.access_token = validToken;
 
-        // Comprobar scopes si están registrados
+        // Comprobar scopes según el tipo de acción
         if (integration.granted_scopes && Array.isArray(integration.granted_scopes)) {
-          if (!integration.granted_scopes.includes("write_fulfillments")) {
-            await markQueueNeedsReauth(item.id, item.order_id, "La tienda no ha otorgado el permiso 'write_fulfillments'. Requiere re-autorización.");
-            results.push({ id: item.id, status: "needs_reauth", error: "Missing write_fulfillments scope" });
-            continue;
+          if (item.action_type === "set_in_progress") {
+            if (!integration.granted_scopes.includes("write_orders")) {
+              await markQueueNeedsReauth(item.id, item.order_id, "La tienda no ha otorgado el permiso 'write_orders'. Requiere actualizar permisos en Shopify.");
+              results.push({ id: item.id, status: "needs_reauth", error: "Missing write_orders scope" });
+              continue;
+            }
+          } else {
+            const hasFoScope =
+              integration.granted_scopes.includes("write_fulfillments") &&
+              integration.granted_scopes.includes("write_merchant_managed_fulfillment_orders");
+            if (!hasFoScope) {
+              await markQueueNeedsReauth(item.id, item.order_id, "La tienda requiere actualizar permisos en Shopify ('write_merchant_managed_fulfillment_orders').");
+              results.push({ id: item.id, status: "needs_reauth", error: "Missing write_merchant_managed_fulfillment_orders scope" });
+              continue;
+            }
           }
         }
 
@@ -126,6 +147,9 @@ serve(async (req) => {
         if (item.action_type === "set_in_progress") {
           await handleSetInProgress(item, integration);
           results.push({ id: item.id, status: "completed", action: "set_in_progress" });
+        } else if (item.action_type === "set_ready_for_pickup") {
+          await handleSetReadyForPickup(item, integration);
+          results.push({ id: item.id, status: "completed", action: "set_ready_for_pickup" });
         } else if (item.action_type === "create_fulfillment") {
           const fulfillmentId = await handleCreateFulfillment(item, integration);
           results.push({ id: item.id, status: "completed", action: "create_fulfillment", fulfillment_id: fulfillmentId });
@@ -237,6 +261,122 @@ async function handleSetInProgress(item: any, integration: any) {
 }
 
 /**
+ * Marca un pedido de retiro como "Listo para retirar" (Ready for pickup) en Shopify
+ * usando la mutación nativa GraphQL fulfillmentOrderLineItemsPreparedForPickup y etiqueta visual
+ */
+async function handleSetReadyForPickup(item: any, integration: any) {
+  const shop = integration.shop_url;
+  const token = integration.access_token;
+  const shopifyOrderId = item.shopify_order_id;
+
+  // 1. Obtener fulfillment_orders abiertos para marcarlos como preparados para retiro
+  try {
+    const foUrl = `https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}/fulfillment_orders.json`;
+    const foRes = await fetch(foUrl, {
+      headers: {
+        "X-Shopify-Access-Token": token,
+        "Content-Type": "application/json"
+      }
+    });
+
+    if (foRes.ok) {
+      const foData = await foRes.json();
+      const fulfillmentOrders = foData.fulfillment_orders || [];
+      const openFulfillmentOrders = fulfillmentOrders.filter((fo: any) =>
+        fo.status === "open" || fo.status === "in_progress"
+      );
+
+      if (openFulfillmentOrders.length > 0) {
+        const lineItemsByFulfillmentOrder = openFulfillmentOrders.map((fo: any) => ({
+          fulfillmentOrderId: `gid://shopify/FulfillmentOrder/${fo.id}`
+        }));
+
+        const graphqlQuery = `
+          mutation fulfillmentOrderLineItemsPreparedForPickup($input: FulfillmentOrderLineItemsPreparedForPickupInput!) {
+            fulfillmentOrderLineItemsPreparedForPickup(input: $input) {
+              userErrors {
+                field
+                message
+              }
+            }
+          }
+        `;
+
+        const gqlRes = await fetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
+          method: "POST",
+          headers: {
+            "X-Shopify-Access-Token": token,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            query: graphqlQuery,
+            variables: {
+              input: {
+                lineItemsByFulfillmentOrder
+              }
+            }
+          })
+        });
+
+        if (gqlRes.ok) {
+          const gqlData = await gqlRes.json();
+          const userErrors = gqlData?.data?.fulfillmentOrderLineItemsPreparedForPickup?.userErrors || [];
+          if (userErrors.length > 0) {
+            console.warn(`[ReadyForPickup] Aviso GraphQL en orden ${shopifyOrderId} (posible retiro configurado como tarifa de envío estándar):`, JSON.stringify(userErrors));
+          } else {
+            console.log(`✅ [ReadyForPickup] Orden ${shopifyOrderId} marcada nativamente como 'Listo para retirar' en Shopify.`);
+          }
+        }
+      }
+    }
+  } catch (foErr) {
+    console.warn(`Aviso al ejecutar fulfillmentOrderLineItemsPreparedForPickup en orden ${shopifyOrderId}:`, foErr);
+  }
+
+  // 2. Agregar etiqueta visual "Stocka: Listo para Retiro" en la orden de Shopify
+  try {
+    const orderRes = await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags`, {
+      headers: {
+        "X-Shopify-Access-Token": token,
+        "Content-Type": "application/json"
+      }
+    });
+
+    if (orderRes.ok) {
+      const orderData = await orderRes.json();
+      const currentTags = orderData.order?.tags || "";
+      if (!currentTags.includes("Stocka: Listo para Retiro")) {
+        const newTags = currentTags ? `${currentTags}, Stocka: Listo para Retiro` : "Stocka: Listo para Retiro";
+        await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
+          method: "PUT",
+          headers: {
+            "X-Shopify-Access-Token": token,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            order: {
+              id: shopifyOrderId,
+              tags: newTags
+            }
+          })
+        });
+      }
+    }
+  } catch (tagErr) {
+    console.warn(`Aviso al actualizar tags de retiro en orden ${shopifyOrderId}:`, tagErr);
+  }
+
+  // 3. Marcar queue como completado
+  await supabase
+    .from("shopify_fulfillment_queue")
+    .update({
+      status: "completed",
+      processed_at: new Date().toISOString()
+    })
+    .eq("id", item.id);
+}
+
+/**
  * Crea el fulfillment en Shopify con número de seguimiento y link
  */
 async function handleCreateFulfillment(item: any, integration: any): Promise<string> {
@@ -296,25 +436,31 @@ async function handleCreateFulfillment(item: any, integration: any): Promise<str
     fulfillment_order_id: fo.id
   }));
 
-  // 3. Mapear Courier y Tracking Info
-  const companyName = mapCourierToShopify(item.courier, item.operador);
+  // 3. Mapear Courier y Tracking Info (omitir tracking_info si es pedido de retiro sin tracking)
   const notifyCustomer = integration.notify_customer_on_fulfillment !== false;
+  const cleanTrack = (item.tracking_number || "").trim();
+  const hasRealTracking = cleanTrack !== "" && cleanTrack.toUpperCase() !== "N/A" && cleanTrack.toUpperCase() !== "NO INFORMADO";
+  const hasTrackUrl = Boolean(item.tracking_url && item.tracking_url.startsWith("http"));
 
-  const trackingInfo: any = {
-    number: item.tracking_number || "N/A",
-    company: companyName
+  const fulfillmentObj: any = {
+    line_items_by_fulfillment_order: lineItemsByFulfillmentOrder,
+    notify_customer: notifyCustomer
   };
 
-  if (item.tracking_url && item.tracking_url.startsWith("http")) {
-    trackingInfo.url = item.tracking_url;
+  if (hasRealTracking || hasTrackUrl) {
+    const companyName = mapCourierToShopify(item.courier, item.operador);
+    const trackingInfo: any = {
+      number: hasRealTracking ? cleanTrack : "N/A",
+      company: companyName
+    };
+    if (hasTrackUrl) {
+      trackingInfo.url = item.tracking_url;
+    }
+    fulfillmentObj.tracking_info = trackingInfo;
   }
 
   const fulfillmentPayload = {
-    fulfillment: {
-      line_items_by_fulfillment_order: lineItemsByFulfillmentOrder,
-      tracking_info: trackingInfo,
-      notify_customer: notifyCustomer
-    }
+    fulfillment: fulfillmentObj
   };
 
   console.log(`Enviando fulfillment a Shopify para orden ${shopifyOrderId}:`, JSON.stringify(fulfillmentPayload));
@@ -367,10 +513,29 @@ async function handleCreateFulfillment(item: any, integration: any): Promise<str
 async function handleUpdateTracking(item: any, integration: any) {
   const shop = integration.shop_url;
   const token = integration.access_token;
-  const fulfillmentId = item.shopify_fulfillment_id;
+  let fulfillmentId = item.shopify_fulfillment_id;
 
   if (!fulfillmentId) {
-    throw new Error(`No se puede actualizar tracking: falta shopify_fulfillment_id para item ${item.id}`);
+    const { data: ordData } = await supabase
+      .from("orders")
+      .select("shopify_fulfillment_id, tracking_number, tracking_url, courier, operador")
+      .eq("id", item.order_id)
+      .maybeSingle();
+    if (ordData?.shopify_fulfillment_id) {
+      fulfillmentId = ordData.shopify_fulfillment_id;
+    }
+    if (ordData) {
+      if (!item.tracking_number && ordData.tracking_number) item.tracking_number = ordData.tracking_number;
+      if (!item.tracking_url && ordData.tracking_url) item.tracking_url = ordData.tracking_url;
+      if (!item.courier && ordData.courier) item.courier = ordData.courier;
+      if (!item.operador && ordData.operador) item.operador = ordData.operador;
+    }
+  }
+
+  if (!fulfillmentId) {
+    // Si aún no existe fulfillment_id, delegar a handleCreateFulfillment (que lo crea o recupera)
+    await handleCreateFulfillment(item, integration);
+    return;
   }
 
   const companyName = mapCourierToShopify(item.courier, item.operador);
@@ -407,9 +572,19 @@ async function handleUpdateTracking(item: any, integration: any) {
   }
 
   await supabase
+    .from("orders")
+    .update({
+      shopify_fulfillment_id: fulfillmentId,
+      shopify_fulfillment_status: "synced",
+      shopify_sync_last_error: null
+    })
+    .eq("id", item.order_id);
+
+  await supabase
     .from("shopify_fulfillment_queue")
     .update({
       status: "completed",
+      shopify_fulfillment_id: fulfillmentId,
       processed_at: new Date().toISOString()
     })
     .eq("id", item.id);
@@ -428,10 +603,12 @@ function mapCourierToShopify(courier: string, operador: string): string {
   if (raw.includes("STARKEN")) return "Starken";
   if (raw.includes("BLUEXPRESS") || raw.includes("BLUE EXPRESS") || raw.includes("BLUE")) return "Blue Express";
   if (raw.includes("CORREOS")) return "Correos de Chile";
+  if (raw.includes("RECIBELO") || raw.includes("RECÍBELO")) return "Recíbelo";
+  if (raw.includes("SAMEDAY")) return "Sameday";
   if (raw.includes("LIGHTDATA") || raw.includes("ALPHA")) return "LightData";
   if (raw.includes("ENVIAME") || raw.includes("ENVÍAME")) return "Envíame";
-  if (raw.includes("STOCKA")) return "Stocka Logistics";
-  return "Other";
+  if (raw.includes("STOCKA") || raw.includes("CARRIER EXTERNO")) return "Stocka Logistics";
+  return courier && courier.trim() ? courier.trim() : "Other";
 }
 
 async function markQueueNeedsReauth(queueId: string, orderId: string, reason: string) {
