@@ -78438,6 +78438,68 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
   }
 };
 
+window.renderProductVariantBadgesForPDF = function(prod, config) {
+  if (!prod) return '';
+  const opt = prod.options || {};
+  const color = prod.color || opt.color || null;
+  const talla = prod.talla || opt.talla || opt.size || null;
+  const var1 = prod.variable_1 || opt.var1 || opt.manga || null;
+  const var2 = prod.variable_2 || opt.var2 || opt.cuello || null;
+
+  if (!color && !talla && !var1 && !var2) return '';
+
+  const esc = window.escapeHtml || (s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
+  const naming = (config && config.naming) || {
+    color: 'Color',
+    talla: 'Talla',
+    var1: 'Variable 1',
+    var2: 'Variable 2'
+  };
+
+  const pillBase = 'display: inline-block; font-size: 7.5px; line-height: 1.2; padding: 1.5px 5px; border-radius: 3px; font-weight: 600; white-space: nowrap; margin: 2px 3px 0 0; vertical-align: middle; box-sizing: border-box;';
+  const parts = [];
+
+  if (color) {
+    let colorStyle = null;
+    if (typeof window.getVariantColorStyle === 'function') {
+      colorStyle = window.getVariantColorStyle(color, config, opt);
+    }
+    const dotBg = (colorStyle && colorStyle.bg) ? colorStyle.bg : '#6366f1';
+    parts.push(
+      `<span style="${pillBase} background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1;">` +
+        `<span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: ${dotBg}; border: 1px solid rgba(0,0,0,0.25); vertical-align: middle; margin-right: 3px; margin-top: -1px;"></span>` +
+        `<span style="vertical-align: middle;">${esc(naming.color || 'Color')}: <strong style="font-weight: 800;">${esc(color)}</strong></span>` +
+      `</span>`
+    );
+  }
+
+  if (talla) {
+    parts.push(
+      `<span style="${pillBase} background: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1;">` +
+        `${esc(naming.talla || 'Talla')}: <strong style="font-weight: 800;">${esc(talla)}</strong>` +
+      `</span>`
+    );
+  }
+
+  if (var1) {
+    parts.push(
+      `<span style="${pillBase} background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa;">` +
+        `${esc(naming.var1 || 'Variable 1')}: <strong style="font-weight: 800;">${esc(var1)}</strong>` +
+      `</span>`
+    );
+  }
+
+  if (var2) {
+    parts.push(
+      `<span style="${pillBase} background: #fefce8; color: #854d0e; border: 1px solid #fde047;">` +
+        `${esc(naming.var2 || 'Variable 2')}: <strong style="font-weight: 800;">${esc(var2)}</strong>` +
+      `</span>`
+    );
+  }
+
+  return `<div style="margin-top: 2px; line-height: 1.3;">${parts.join('')}</div>`;
+};
+
 window.exportDeclarationToPDF = async function(id) {
   try {
     // Buscar la declaración en la base de datos
@@ -78550,7 +78612,9 @@ window.exportDeclarationToPDF = async function(id) {
           variable_2: p.variable_2 || catProd?.variable_2,
           options: p.options || catProd?.options
         };
-        const badgesHtml = window.renderProductVariantBadges ? window.renderProductVariantBadges(prodForBadges, variantConfig, { compact: true }) : '';
+        const badgesHtml = window.renderProductVariantBadgesForPDF
+          ? window.renderProductVariantBadgesForPDF(prodForBadges, variantConfig)
+          : (window.renderProductVariantBadges ? window.renderProductVariantBadges(prodForBadges, variantConfig, { compact: true }) : '');
 
         productsHtml += `
           <tr style="border-bottom: 1px solid #cbd5e1; page-break-inside: avoid; break-inside: avoid; vertical-align: top;">
@@ -78942,7 +79006,9 @@ window.exportDeclarationOperationsPDF = async function(id) {
           ? `<div><strong>${p.largo}×${p.ancho}×${p.alto}</strong> cm</div><span style="font-size: 8px; color: #64748b;">${((p.largo*p.ancho*p.alto)/1000000).toFixed(4)} m³</span>`
           : ((p.vol || p.volumen) ? `<div>${(parseFloat(p.vol || p.volumen) || 0).toFixed(4)} m³</div>` : '<span style="color:#94a3b8; font-style:italic;">S/medidas</span>');
 
-        const badgesHtml = window.renderProductVariantBadges ? window.renderProductVariantBadges(p, variantConfig, { compact: true }) : '';
+        const badgesHtml = window.renderProductVariantBadgesForPDF
+          ? window.renderProductVariantBadgesForPDF(p, variantConfig)
+          : (window.renderProductVariantBadges ? window.renderProductVariantBadges(p, variantConfig, { compact: true }) : '');
 
         const skuCheckDefault = p.sku_check !== false;
         const barcodeCheckDefault = p.barcode_check !== false;
@@ -78956,61 +79022,60 @@ window.exportDeclarationOperationsPDF = async function(id) {
         });
 
         const barcodeTextHtml = wmsBarcodes.length > 0
-          ? `<div style="font-weight: 700; color: #0f172a; font-family: monospace; font-size: 8.5px; word-break: break-all;">${wmsBarcodes.join(' | ')}</div>`
+          ? `<div style="font-weight: 700; color: #0f172a; font-family: monospace; font-size: 8px; line-height: 1.2; word-break: break-all;">${wmsBarcodes.join(' | ')}</div>`
           : `<div style="color: #dc2626; font-style: italic; font-size: 8px; font-weight: 600;">Sin cód. en WMS</div>`;
 
         productsHtml += `
-          <tr style="border-bottom: 1px solid #e2e8f0; page-break-inside: avoid; break-inside: avoid; vertical-align: middle;">
-            <td style="padding: 5px 5px; color: #64748b; font-size: 9px; text-align: center;">${idx + 1}</td>
-            <td style="padding: 5px 5px; color: #0f172a; font-weight: 700; font-size: 9px; font-family: monospace; white-space: nowrap;">${p.sku}</td>
+          <tr style="border-bottom: 1px solid #cbd5e1; page-break-inside: avoid; break-inside: avoid; vertical-align: middle;">
+            <td style="width: 2.5%; padding: 5px 4px; color: #64748b; font-size: 8.5px; text-align: center; box-sizing: border-box;">${idx + 1}</td>
+            <td style="width: 11%; padding: 5px 5px; color: #0f172a; font-weight: 700; font-size: 8.5px; font-family: monospace; word-break: break-all; line-height: 1.2; box-sizing: border-box;">${p.sku || ''}</td>
             <!-- Columna Check SKU (por defecto marcada con check) -->
-            <td style="padding: 4px 5px; text-align: center; background: #eff6ff;">
-              <div style="display: inline-flex; align-items: center; justify-content: center; gap: 3px; font-weight: 800; font-size: 9px; color: #1d4ed8;">
-                <span style="display: inline-block; width: 13px; height: 13px; line-height: 12px; text-align: center; border: 1.5px solid #1d4ed8; border-radius: 2px; background: #ffffff; color: #1d4ed8; font-size: 9px;">${skuCheckDefault ? '✓' : '&nbsp;'}</span>
-                <span>SKU</span>
+            <td style="width: 7.5%; padding: 4px 4px; text-align: center; background: #eff6ff; box-sizing: border-box;">
+              <div style="font-weight: 800; font-size: 8.5px; color: #1d4ed8; white-space: nowrap;">
+                <span style="display: inline-block; width: 12px; height: 12px; line-height: 11px; text-align: center; border: 1.5px solid #1d4ed8; border-radius: 2px; background: #ffffff; color: #1d4ed8; font-size: 8.5px; vertical-align: middle; margin-right: 2px;">${skuCheckDefault ? '✓' : '&nbsp;'}</span><span style="vertical-align: middle;">SKU</span>
               </div>
-              <div style="font-size: 7px; color: #475569; line-height: 1.1; margin-top: 2px;">Desmarcar &rarr; Etiq. 5x2.5</div>
+              <div style="font-size: 6.8px; color: #475569; line-height: 1.1; margin-top: 2px;">Desmarcar &rarr; Etiq. 5x2.5</div>
             </td>
-            <td style="padding: 5px 5px; color: #1e293b; font-size: 9px; line-height: 1.25;">
-              <div style="font-weight: 500;">${p.name}</div>
-              ${badgesHtml ? `<div style="margin-top: 2px;">${badgesHtml}</div>` : ''}
+            <td style="width: 24%; padding: 5px 6px; color: #1e293b; font-size: 8.8px; line-height: 1.25; word-break: break-word; box-sizing: border-box;">
+              <div style="font-weight: 600; color: #0f172a;">${p.name || ''}</div>
+              ${badgesHtml || ''}
             </td>
             <!-- Columna Cód. Barras WMS + Check (por defecto marcada con check) -->
-            <td style="padding: 4px 5px; background: #f0fdf4;">
-              <div style="display: flex; align-items: center; gap: 4px;">
-                <span style="display: inline-block; width: 13px; height: 13px; line-height: 12px; text-align: center; border: 1.5px solid #15803d; border-radius: 2px; background: #ffffff; color: #15803d; font-weight: 800; font-size: 9px; flex-shrink: 0;">${barcodeCheckDefault ? '✓' : '&nbsp;'}</span>
+            <td style="width: 14%; padding: 4px 5px; background: #f0fdf4; box-sizing: border-box;">
+              <div style="display: flex; align-items: flex-start; gap: 4px;">
+                <span style="display: inline-block; width: 12px; height: 12px; line-height: 11px; text-align: center; border: 1.5px solid #15803d; border-radius: 2px; background: #ffffff; color: #15803d; font-weight: 800; font-size: 8.5px; flex-shrink: 0; margin-top: 1px;">${barcodeCheckDefault ? '✓' : '&nbsp;'}</span>
                 <div style="min-width: 0; flex: 1;">
                   ${barcodeTextHtml}
                 </div>
               </div>
-              <div style="border-bottom: 1px dotted #94a3b8; font-size: 7.5px; color: #64748b; margin-top: 3px; padding-bottom: 1px;">
-                ${p.scanned_barcode ? `Nuevo: <strong>${p.scanned_barcode}</strong>` : 'Nuevo cód: _______________'}
+              <div style="border-bottom: 1px dotted #94a3b8; font-size: 7px; color: #64748b; margin-top: 3px; padding-bottom: 1px; white-space: nowrap; overflow: hidden;">
+                ${p.scanned_barcode ? `Nuevo: <strong>${p.scanned_barcode}</strong>` : 'Nuevo cód: _____________'}
               </div>
             </td>
-            <td style="padding: 5px 5px; text-align: center; font-size: 8.5px; color: #334155; background: #f8fafc;">
+            <td style="width: 7.5%; padding: 5px 4px; text-align: center; font-size: 8px; color: #334155; background: #f8fafc; box-sizing: border-box;">
               ${dimsDeclaredText}
             </td>
-            <td style="padding: 5px 5px; text-align: center; background: #fffdf5;">
-              <div style="display: inline-flex; align-items: center; justify-content: center; gap: 2px; font-size: 8px; color: #64748b;">
-                <div style="border: 1px solid #cbd5e1; background: #ffffff; width: 24px; height: 17px; border-radius: 2px;"></div>
-                <span>×</span>
-                <div style="border: 1px solid #cbd5e1; background: #ffffff; width: 24px; height: 17px; border-radius: 2px;"></div>
-                <span>×</span>
-                <div style="border: 1px solid #cbd5e1; background: #ffffff; width: 24px; height: 17px; border-radius: 2px;"></div>
-                <span style="font-size: 7px;">cm</span>
+            <td style="width: 10.5%; padding: 5px 4px; text-align: center; background: #fffdf5; box-sizing: border-box;">
+              <div style="white-space: nowrap; font-size: 7.5px; color: #64748b;">
+                <span style="display: inline-block; border: 1px solid #cbd5e1; background: #ffffff; width: 21px; height: 15px; border-radius: 2px; vertical-align: middle;"></span>
+                <span style="vertical-align: middle;">×</span>
+                <span style="display: inline-block; border: 1px solid #cbd5e1; background: #ffffff; width: 21px; height: 15px; border-radius: 2px; vertical-align: middle;"></span>
+                <span style="vertical-align: middle;">×</span>
+                <span style="display: inline-block; border: 1px solid #cbd5e1; background: #ffffff; width: 21px; height: 15px; border-radius: 2px; vertical-align: middle;"></span>
+                <span style="font-size: 6.5px; vertical-align: middle;">cm</span>
               </div>
             </td>
-            <td style="padding: 5px 5px; color: #0f172a; text-align: right; font-weight: 700; font-size: 10px;">
+            <td style="width: 5%; padding: 5px 5px; color: #0f172a; text-align: right; font-weight: 700; font-size: 9.5px; box-sizing: border-box;">
               ${p.qty}
             </td>
-            <td style="padding: 5px 5px; text-align: center;">
-              <div style="border: 1.5px solid #64748b; background: #ffffff; width: 50px; height: 19px; border-radius: 3px; margin: 0 auto;"></div>
+            <td style="width: 5.5%; padding: 5px 4px; text-align: center; box-sizing: border-box;">
+              <div style="border: 1.5px solid #64748b; background: #ffffff; width: 42px; height: 18px; border-radius: 3px; margin: 0 auto;"></div>
             </td>
-            <td style="padding: 5px 5px; text-align: center;">
-              <div style="border: 1.5px solid #64748b; background: #ffffff; width: 15px; height: 15px; border-radius: 3px; margin: 0 auto;"></div>
+            <td style="width: 3.5%; padding: 5px 3px; text-align: center; box-sizing: border-box;">
+              <div style="border: 1.5px solid #64748b; background: #ffffff; width: 14px; height: 14px; border-radius: 3px; margin: 0 auto;"></div>
             </td>
-            <td style="padding: 5px 5px; border-left: 1px dashed #e2e8f0;">
-              <div style="border-bottom: 1px dotted #cbd5e1; height: 16px; width: 100%;"></div>
+            <td style="width: 9%; padding: 5px 5px; border-left: 1px dashed #cbd5e1; box-sizing: border-box;">
+              <div style="border-bottom: 1px dotted #94a3b8; height: 15px; width: 100%;"></div>
             </td>
           </tr>
         `;
@@ -79144,33 +79209,46 @@ window.exportDeclarationOperationsPDF = async function(id) {
           </span>
         </div>
 
-        <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 12px; text-align: left;">
+        <table style="width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 9.5px; margin-bottom: 12px; text-align: left;">
+          <colgroup>
+            <col style="width: 2.5%;">
+            <col style="width: 11%;">
+            <col style="width: 7.5%;">
+            <col style="width: 24%;">
+            <col style="width: 14%;">
+            <col style="width: 7.5%;">
+            <col style="width: 10.5%;">
+            <col style="width: 5%;">
+            <col style="width: 5.5%;">
+            <col style="width: 3.5%;">
+            <col style="width: 9%;">
+          </colgroup>
           <thead>
-            <tr style="background: #f1f5f9; border-bottom: 2px solid #cbd5e1; color: #334155; font-size: 8.5px; text-transform: uppercase;">
-              <th style="padding: 5px 5px; width: 22px; text-align: center;">#</th>
-              <th style="padding: 5px 5px; width: 95px;">SKU</th>
-              <th style="padding: 5px 5px; width: 72px; text-align: center; background: #dbeafe; color: #1e40af;">Check SKU</th>
-              <th style="padding: 5px 5px;">Descripción / Producto</th>
-              <th style="padding: 5px 5px; width: 125px; background: #dcfce7; color: #166534;">Cód. Barras WMS / Check</th>
-              <th style="padding: 5px 5px; width: 95px; text-align: center; background: #f8fafc; color: #475569;">Medidas Decl.</th>
-              <th style="padding: 5px 5px; width: 115px; text-align: center; background: #fef3c7; color: #b45309;">Medidas Físicas Reales</th>
-              <th style="padding: 5px 5px; width: 55px; text-align: right;">Cant. Decl.</th>
-              <th style="padding: 5px 5px; width: 70px; text-align: center; background: #e0f2fe; color: #0369a1;">Conteo Físico</th>
-              <th style="padding: 5px 5px; width: 35px; text-align: center; background: #dcfce7; color: #15803d;">Conf.</th>
-              <th style="padding: 5px 5px; width: 100px;">Incidencias / Ubicación</th>
+            <tr style="background: #f1f5f9; border-bottom: 2px solid #cbd5e1; color: #334155; font-size: 8px; font-weight: 800; letter-spacing: 0px;">
+              <th style="padding: 5px 4px; width: 2.5%; text-align: center; box-sizing: border-box;">#</th>
+              <th style="padding: 5px 5px; width: 11%; box-sizing: border-box;">SKU</th>
+              <th style="padding: 5px 4px; width: 7.5%; text-align: center; background: #dbeafe; color: #1e40af; box-sizing: border-box;">CHECK SKU</th>
+              <th style="padding: 5px 6px; width: 24%; box-sizing: border-box;">DESCRIPCIÓN / PRODUCTO</th>
+              <th style="padding: 5px 5px; width: 14%; background: #dcfce7; color: #166534; box-sizing: border-box;">CÓD. BARRAS WMS / CHECK</th>
+              <th style="padding: 5px 4px; width: 7.5%; text-align: center; background: #f8fafc; color: #475569; box-sizing: border-box;">MEDIDAS DECL.</th>
+              <th style="padding: 5px 4px; width: 10.5%; text-align: center; background: #fef3c7; color: #b45309; box-sizing: border-box;">MEDIDAS FÍSICAS REALES</th>
+              <th style="padding: 5px 5px; width: 5%; text-align: right; box-sizing: border-box;">CANT. DECL.</th>
+              <th style="padding: 5px 4px; width: 5.5%; text-align: center; background: #e0f2fe; color: #0369a1; box-sizing: border-box;">CONTEO FÍSICO</th>
+              <th style="padding: 5px 3px; width: 3.5%; text-align: center; background: #dcfce7; color: #15803d; box-sizing: border-box;">CONF.</th>
+              <th style="padding: 5px 5px; width: 9%; box-sizing: border-box;">INCIDENCIAS / UBICACIÓN</th>
             </tr>
           </thead>
           <tbody>
             ${productsHtml}
           </tbody>
           <tfoot>
-            <tr style="background: #f8fafc; border-top: 2px solid #94a3b8; font-weight: 700;">
-              <td colspan="7" style="padding: 6px 8px; text-align: right; text-transform: uppercase; font-size: 10px;">Total Unidades Declaradas:</td>
-              <td style="padding: 6px 8px; text-align: right; font-size: 11px; color: #0f172a;">${totalQtyCount || dec.quantity_declared}</td>
-              <td style="padding: 6px 8px; text-align: center;">
-                <div style="border: 1.5px dashed #64748b; background: #ffffff; width: 50px; height: 20px; border-radius: 3px; margin: 0 auto;"></div>
+            <tr style="background: #f8fafc; border-top: 2px solid #94a3b8; font-weight: 700; page-break-inside: avoid; break-inside: avoid;">
+              <td colspan="7" style="padding: 6px 8px; text-align: right; font-size: 9.5px; color: #334155;">TOTAL UNIDADES DECLARADAS:</td>
+              <td style="padding: 6px 5px; text-align: right; font-size: 10.5px; color: #0f172a;">${totalQtyCount || dec.quantity_declared}</td>
+              <td style="padding: 6px 4px; text-align: center;">
+                <div style="border: 1.5px dashed #64748b; background: #ffffff; width: 42px; height: 18px; border-radius: 3px; margin: 0 auto;"></div>
               </td>
-              <td colspan="2" style="padding: 6px 8px; font-size: 9px; color: #64748b;">&larr; Total Físico Recibido en Bodega</td>
+              <td colspan="2" style="padding: 6px 6px; font-size: 8.5px; color: #64748b;">&larr; Total Físico Recibido</td>
             </tr>
           </tfoot>
         </table>
@@ -79247,7 +79325,7 @@ window.exportDeclarationOperationsPDF = async function(id) {
       image:        { type: 'jpeg', quality: 0.98 },
       html2canvas:  { scale: 2, useCORS: true, scrollY: 0, scrollX: 0 },
       jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' },
-      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+      pagebreak:    { mode: ['css', 'legacy'] }
     };
 
     html2pdf().from(contentArea).set(opt).toPdf().get('pdf').then(function(pdf) {

@@ -776,72 +776,174 @@ function injectOrderSearchStyles() {
 // ============================================================================
 // 1. CONSULTA MULTICRITERIO EN SUPABASE PARA EL BUSCADOR GLOBAL
 // ============================================================================
+let _sopComerciosSiglaMapPromise = null;
+async function getCommercesBySiglaMap() {
+  if (_sopComerciosSiglaMapPromise) return _sopComerciosSiglaMapPromise;
+  _sopComerciosSiglaMapPromise = (async () => {
+    const siglaToCommerces = new Map();
+    const commerceToSigla = new Map();
+    const allSiglasSet = new Set();
+    const allCommercesSet = new Set();
+    try {
+      const { data } = await supabase.from('v_comercios_config').select('nombre, sigla');
+      if (Array.isArray(data)) {
+        data.forEach(row => {
+          const sig = String(row.sigla || '').trim().toUpperCase();
+          const nom = String(row.nombre || '').trim();
+          const nomUpper = nom.toUpperCase();
+          if (nom) allCommercesSet.add(nom);
+          if (sig) allSiglasSet.add(sig);
+          if (sig && nomUpper) {
+            if (!siglaToCommerces.has(sig)) siglaToCommerces.set(sig, new Set());
+            siglaToCommerces.get(sig).add(nomUpper);
+            commerceToSigla.set(nomUpper, sig);
+          }
+        });
+      }
+    } catch (e) {}
+    return {
+      siglaToCommerces,
+      commerceToSigla,
+      allSiglas: Array.from(allSiglasSet),
+      allCommerces: Array.from(allCommercesSet)
+    };
+  })();
+  return _sopComerciosSiglaMapPromise;
+}
+
+function parseOrderCodeParts(rawStr) {
+  const clean = String(rawStr || '').replace(/["(),]/g, '').trim();
+  const noHash = clean.replace(/^#+/, '').trim();
+  const alnumOnly = noHash.replace(/[^a-zA-Z0-9]/g, '');
+  const withoutLi = noHash.replace(/^LI[-_#]*/i, '');
+  const match = withoutLi.match(/^([A-Za-z]{2,6})[-_\s#]*(\d{2,}[A-Za-z0-9]*)$/);
+  if (match) {
+    const prefix = match[1].toUpperCase();
+    const numPart = match[2];
+    return {
+      hasPrefix: true,
+      prefix,
+      numPart,
+      compact: `${prefix}${numPart}`,
+      withHash: `${prefix}#${numPart}`,
+      withDash: `${prefix}-${numPart}`,
+      wildcardOne: `${prefix}_${numPart}`,
+      wildcardTwo: `${prefix}__${numPart}`,
+      alnumLower: `${prefix}${numPart}`.toLowerCase(),
+      numLower: numPart.toLowerCase()
+    };
+  }
+  return {
+    hasPrefix: false,
+    prefix: '',
+    numPart: noHash,
+    compact: alnumOnly,
+    withHash: '',
+    withDash: '',
+    wildcardOne: '',
+    wildcardTwo: '',
+    alnumLower: alnumOnly.toLowerCase(),
+    numLower: alnumOnly.toLowerCase()
+  };
+}
+
+/**
+ * Construye variantes exactas y rangos B-Tree (gte/lte) para consultar
+ * `orders.external_order_number` y `orders.tracking_number` usando índices B-Tree
+ * en ~180ms sin provocar `57014 statement_timeout` por full-scan ILIKE + RLS.
+ */
+function buildOrderReferenceVariants(rawStr, allSiglas = []) {
+  const clean = String(rawStr || '').replace(/["(),]/g, '').trim();
+  const noHash = clean.replace(/^#+/, '').trim();
+  const upper = noHash.toUpperCase();
+  const codeParts = parseOrderCodeParts(clean);
+
+  const extSet = new Set();
+  const trkSet = new Set();
+  const prefixRanges = [];
+
+  if (clean) extSet.add(clean);
+  if (noHash) {
+    extSet.add(noHash);
+    extSet.add(`#${noHash}`);
+    trkSet.add(noHash);
+  }
+  if (upper) {
+    extSet.add(upper);
+    extSet.add(`#${upper}`);
+    trkSet.add(upper);
+    if (!/\s/.test(upper)) {
+      prefixRanges.push({ col: 'external_order_number', prefix: upper });
+      prefixRanges.push({ col: 'external_order_number', prefix: `#${upper}` });
+      prefixRanges.push({ col: 'tracking_number', prefix: upper });
+    }
+  }
+
+  if (codeParts.hasPrefix) {
+    const p = codeParts.prefix;
+    const n = codeParts.numPart;
+    [
+      `${p}${n}`, `#${p}${n}`,
+      `${p}#${n}`, `#${p}#${n}`,
+      `${p}-${n}`, `#${p}-${n}`,
+      `${p}_${n}`, `${p} ${n}`,
+      `LI-${p}${n}`, `LI-${p}#${n}`, `LI-${p}-${n}`,
+      n, `#${n}`
+    ].forEach(v => extSet.add(v));
+    trkSet.add(`${p}${n}`);
+    trkSet.add(`${p}-${n}`);
+    trkSet.add(n);
+
+    prefixRanges.push({ col: 'external_order_number', prefix: `${p}${n}` });
+    prefixRanges.push({ col: 'external_order_number', prefix: `${p}#${n}` });
+    prefixRanges.push({ col: 'external_order_number', prefix: `${p}-${n}` });
+    prefixRanges.push({ col: 'external_order_number', prefix: `#${p}-${n}` });
+    prefixRanges.push({ col: 'tracking_number', prefix: `${p}${n}` });
+  } else if (/^\d{2,10}$/.test(noHash) && allSiglas.length > 0) {
+    allSiglas.forEach(sig => {
+      extSet.add(`${sig}${noHash}`);
+      extSet.add(`#${sig}${noHash}`);
+      extSet.add(`${sig}#${noHash}`);
+      extSet.add(`${sig}-${noHash}`);
+      extSet.add(`#${sig}-${noHash}`);
+    });
+  }
+
+  return {
+    extList: Array.from(extSet).filter(Boolean),
+    trkList: Array.from(trkSet).filter(Boolean),
+    prefixRanges
+  };
+}
+
 async function queryOrdersMultiCriteria({ query, criterion, statusFilter, dateRangeFilter, isAdmin }) {
   const rawQ = String(query || '').trim();
   if (rawQ.length < 2 && !statusFilter) return [];
 
   const cleanQ = rawQ.replace(/["(),]/g, '').trim();
-  const cleanNoHash = cleanQ.replace(/^#/, '').trim();
+  const cleanNoHash = cleanQ.replace(/^#+/, '').trim();
+  const qLower = cleanNoHash.toLowerCase();
+  const codeParts = parseOrderCodeParts(cleanQ);
+  const siglaMaps = await getCommercesBySiglaMap();
+  const allSiglas = siglaMaps.allSiglas || [];
+  const allCommerces = siglaMaps.allCommerces || [];
 
-  let extraOrderIds = [];
-  let extraOrderRefs = [];
-  const parallelLookups = [];
-
-  if (cleanQ.length >= 2 && (criterion === 'sku' || criterion === 'all')) {
-    parallelLookups.push((async () => {
-      try {
-        let prodQuery = supabase
-          .from('products')
-          .select('id')
-          .or(`sku.ilike.%${cleanQ}%,name.ilike.%${cleanQ}%,barcode.ilike.%${cleanQ}%`)
-          .limit(30);
-        if (!isAdmin) {
-          const allowed = getClientAllowedCommerces();
-          if (allowed.length > 0) prodQuery = prodQuery.in('comercio', allowed);
-        }
-        const { data: prods } = await prodQuery;
-        if (prods && prods.length > 0) {
-          const pIds = prods.map(p => p.id);
-          const { data: oItems } = await supabase
-            .from('order_items')
-            .select('order_id')
-            .in('product_id', pIds)
-            .limit(40);
-          if (oItems) {
-            oItems.forEach(oi => {
-              if (oi.order_id && !extraOrderIds.includes(oi.order_id)) {
-                extraOrderIds.push(oi.order_id);
-              }
-            });
-          }
-        }
-      } catch (e) {}
-    })());
+  const allowedCommerces = !isAdmin ? getClientAllowedCommerces() : [];
+  if (!isAdmin && allowedCommerces.length === 0 && !window.currentClientUser?.id) {
+    return [];
   }
 
-  if (cleanQ.length >= 3 && (criterion === 'tracking' || criterion === 'all')) {
-    parallelLookups.push((async () => {
-      try {
-        const { data: ships } = await supabase
-          .from('envios_unificados')
-          .select('pedido_referencia, tracking')
-          .or(`tracking.ilike.%${cleanQ}%,pedido_referencia.ilike.%${cleanNoHash}%`)
-          .limit(20);
-        if (ships) {
-          ships.forEach(s => {
-            if (s.pedido_referencia) {
-              const ref = String(s.pedido_referencia).trim();
-              if (ref && !extraOrderRefs.includes(ref)) extraOrderRefs.push(ref);
-              if (!ref.startsWith('#') && !extraOrderRefs.includes('#' + ref)) extraOrderRefs.push('#' + ref);
-            }
-          });
-        }
-      } catch (e) {}
-    })());
-  }
-
-  if (parallelLookups.length > 0) {
-    await Promise.all(parallelLookups);
+  let fromDateIso = null;
+  let fromDateMs = 0;
+  if (dateRangeFilter && dateRangeFilter !== 'all') {
+    const now = new Date();
+    const fromDate = new Date();
+    if (dateRangeFilter === '7d') fromDate.setDate(now.getDate() - 7);
+    else if (dateRangeFilter === '30d') fromDate.setDate(now.getDate() - 30);
+    else if (dateRangeFilter === '90d') fromDate.setDate(now.getDate() - 90);
+    else if (dateRangeFilter === '365d') fromDate.setDate(now.getDate() - 365);
+    fromDateIso = fromDate.toISOString();
+    fromDateMs = fromDate.getTime();
   }
 
   const selectCols = `
@@ -867,104 +969,352 @@ async function queryOrdersMultiCriteria({ query, criterion, statusFilter, dateRa
     item
   `.replace(/\s+/g, ' ').trim();
 
-  let qBuilder = supabase.from('orders').select(selectCols);
+  const applyBaseFilters = (qb) => {
+    let q = qb;
+    if (!isAdmin) {
+      if (allowedCommerces.length > 0) q = q.in('comercio', allowedCommerces);
+      else if (window.currentClientUser?.id) q = q.eq('merchant_id', window.currentClientUser.id);
+    }
+    if (statusFilter) q = q.eq('estado_wms', statusFilter);
+    if (fromDateIso) q = q.gte('created_at', fromDateIso);
+    return q;
+  };
 
-  if (!isAdmin) {
-    const allowedCommerces = getClientAllowedCommerces();
-    if (allowedCommerces.length > 0) {
-      qBuilder = qBuilder.in('comercio', allowedCommerces);
-    } else if (window.currentClientUser?.id) {
-      qBuilder = qBuilder.eq('merchant_id', window.currentClientUser.id);
-    } else {
-      return [];
+  const resultsMap = new Map();
+  const addRows = (rows) => {
+    (rows || []).forEach(r => {
+      if (!r || !r.id) return;
+      if (statusFilter && String(r.estado_wms || '') !== statusFilter) return;
+      if (fromDateMs > 0 && r.created_at && new Date(r.created_at).getTime() < fromDateMs) return;
+      if (!isAdmin && allowedCommerces.length > 0) {
+        const commUp = String(r.comercio || '').trim().toUpperCase();
+        const allowedUp = allowedCommerces.map(c => String(c || '').trim().toUpperCase());
+        if (!allowedUp.includes(commUp)) return;
+      }
+      if (!resultsMap.has(r.id)) resultsMap.set(r.id, r);
+    });
+  };
+
+  // --------------------------------------------------------------------------
+  // NIVEL 0: Búsqueda instantánea en memoria local (window.loadedOrders)
+  // --------------------------------------------------------------------------
+  if (Array.isArray(window.loadedOrders) && window.loadedOrders.length > 0) {
+    const localMatches = [];
+    for (let i = 0; i < window.loadedOrders.length; i++) {
+      const o = window.loadedOrders[i];
+      if (!o || !o.id) continue;
+      if (cleanQ.length < 2) {
+        localMatches.push(o);
+        if (localMatches.length >= 25) break;
+        continue;
+      }
+      const extStr = String(o.external_order_number || '').toLowerCase();
+      const extAlnum = extStr.replace(/[^a-z0-9]/g, '');
+      const trkStr = String(o.tracking_number || '').toLowerCase();
+      const custStr = String(o.customer_name || '').toLowerCase();
+      const emailStr = String(o.customer_email || '').toLowerCase();
+      const phoneStr = String(o.customer_phone || '').toLowerCase();
+      const cityStr = String(o.shipping_city || '').toLowerCase();
+      const addrStr = String(o.shipping_address || '').toLowerCase();
+      const skuStr = String(o.sku || '').toLowerCase();
+      const itemStr = String(o.item || '').toLowerCase();
+      const commStr = String(o.comercio || '').toLowerCase();
+
+      let matched = false;
+      if (criterion === 'order_num') {
+        matched = extStr.includes(qLower) || (codeParts.alnumLower && extAlnum.includes(codeParts.alnumLower)) || trkStr.includes(qLower);
+      } else if (criterion === 'tracking') {
+        matched = trkStr.includes(qLower) || (codeParts.alnumLower && extAlnum.includes(codeParts.alnumLower));
+      } else if (criterion === 'customer') {
+        matched = custStr.includes(qLower);
+      } else if (criterion === 'contact') {
+        matched = emailStr.includes(qLower) || phoneStr.includes(qLower);
+      } else if (criterion === 'location') {
+        matched = cityStr.includes(qLower) || addrStr.includes(qLower);
+      } else if (criterion === 'sku') {
+        matched = skuStr.includes(qLower) || itemStr.includes(qLower);
+      } else if (criterion === 'commerce') {
+        matched = commStr.includes(qLower);
+      } else {
+        matched =
+          extStr.includes(qLower) ||
+          (codeParts.alnumLower && extAlnum.includes(codeParts.alnumLower)) ||
+          trkStr.includes(qLower) ||
+          custStr.includes(qLower) ||
+          emailStr.includes(qLower) ||
+          phoneStr.includes(qLower) ||
+          cityStr.includes(qLower) ||
+          skuStr.includes(qLower) ||
+          commStr.includes(qLower);
+      }
+      if (matched) {
+        localMatches.push(o);
+        if (localMatches.length >= 25) break;
+      }
+    }
+    addRows(localMatches);
+  }
+
+  // Si solo se filtró por estado sin texto de búsqueda
+  if (cleanQ.length < 2 && statusFilter) {
+    try {
+      const { data } = await applyBaseFilters(supabase.from('orders').select(selectCols)).limit(20);
+      addRows(data);
+    } catch (e) {}
+    return Array.from(resultsMap.values()).slice(0, 8);
+  }
+
+  // --------------------------------------------------------------------------
+  // NIVEL 1: Búsqueda Indexada B-Tree en `orders` (~180ms, sin ILIKE full-scan)
+  // --------------------------------------------------------------------------
+  const tier1Tasks = [];
+
+  // 1A. Coincidencia por Comercio (usa índice idx_orders_comercio_periodo)
+  if ((criterion === 'commerce' || criterion === 'all') && isAdmin) {
+    const matchedComms = allCommerces.filter(c => c.toLowerCase().includes(qLower));
+    if (matchedComms.length > 0 && (criterion === 'commerce' || qLower.length >= 4)) {
+      tier1Tasks.push((async () => {
+        try {
+          const { data } = await applyBaseFilters(
+            supabase.from('orders').select(selectCols).in('comercio', matchedComms)
+          ).limit(18);
+          addRows(data);
+        } catch (e) {}
+      })());
     }
   }
 
-  if (statusFilter) {
-    qBuilder = qBuilder.eq('estado_wms', statusFilter);
-  }
+  // 1B. Coincidencia B-Tree por N° Pedido / Tracking / UUID (usa idx_orders_external_order_number y idx_orders_tracking_number)
+  if (criterion === 'order_num' || criterion === 'tracking' || criterion === 'all') {
+    const looksLikeCodeOrNumber = !/\s/.test(cleanNoHash) && (/\d/.test(cleanNoHash) || cleanNoHash.length <= 14);
+    if (looksLikeCodeOrNumber || criterion === 'order_num' || criterion === 'tracking') {
+      tier1Tasks.push((async () => {
+        try {
+          const variants = buildOrderReferenceVariants(cleanQ, allSiglas);
+          const orParts = [];
+          if (isUuid(cleanQ)) orParts.push(`id.eq.${cleanQ}`);
+          if (criterion !== 'tracking' && variants.extList.length > 0) {
+            const csvExt = variants.extList.slice(0, 260).map(x => `"${x.replace(/"/g, '')}"`).join(',');
+            orParts.push(`external_order_number.in.(${csvExt})`);
+          }
+          if (variants.trkList.length > 0) {
+            const csvTrk = variants.trkList.slice(0, 30).map(x => `"${x.replace(/"/g, '')}"`).join(',');
+            orParts.push(`tracking_number.in.(${csvTrk})`);
+            if (criterion === 'tracking' && variants.extList.length > 0) {
+              const csvExt = variants.extList.slice(0, 120).map(x => `"${x.replace(/"/g, '')}"`).join(',');
+              orParts.push(`external_order_number.in.(${csvExt})`);
+            }
+          }
+          variants.prefixRanges.slice(0, 8).forEach(pr => {
+            if (criterion === 'tracking' && pr.col !== 'tracking_number') return;
+            orParts.push(`and(${pr.col}.gte."${pr.prefix}",${pr.col}.lte."${pr.prefix}\uffff")`);
+          });
 
-  if (dateRangeFilter && dateRangeFilter !== 'all') {
-    const now = new Date();
-    const fromDate = new Date();
-    if (dateRangeFilter === '7d') fromDate.setDate(now.getDate() - 7);
-    else if (dateRangeFilter === '30d') fromDate.setDate(now.getDate() - 30);
-    else if (dateRangeFilter === '90d') fromDate.setDate(now.getDate() - 90);
-    else if (dateRangeFilter === '365d') fromDate.setDate(now.getDate() - 365);
-    qBuilder = qBuilder.gte('created_at', fromDate.toISOString());
-  }
+          if (orParts.length > 0) {
+            const { data } = await applyBaseFilters(
+              supabase.from('orders').select(selectCols).or(Array.from(new Set(orParts)).join(','))
+            ).limit(25);
+            addRows(data);
+          }
 
-  if (cleanQ.length >= 1) {
-    const orParts = [];
-    if (criterion === 'order_num') {
-      if (isUuid(cleanQ)) orParts.push(`id.eq.${cleanQ}`);
-      orParts.push(`external_order_number.ilike.%${cleanQ}%`);
-      if (cleanNoHash && cleanNoHash !== cleanQ) orParts.push(`external_order_number.ilike.%${cleanNoHash}%`);
-    } else if (criterion === 'tracking') {
-      orParts.push(`tracking_number.ilike.%${cleanQ}%`);
-      if (extraOrderRefs.length > 0) {
-        const csvRefs = extraOrderRefs.slice(0, 15).map(r => `"${r.replace(/"/g, '')}"`).join(',');
-        orParts.push(`external_order_number.in.(${csvRefs})`);
-      }
-    } else if (criterion === 'customer') {
-      orParts.push(`customer_name.ilike.%${cleanQ}%`);
-    } else if (criterion === 'contact') {
-      orParts.push(`customer_email.ilike.%${cleanQ}%`);
-      orParts.push(`customer_phone.ilike.%${cleanQ}%`);
-    } else if (criterion === 'location') {
-      orParts.push(`shipping_city.ilike.%${cleanQ}%`);
-      orParts.push(`shipping_address.ilike.%${cleanQ}%`);
-    } else if (criterion === 'sku') {
-      orParts.push(`sku.ilike.%${cleanQ}%`);
-      orParts.push(`item.ilike.%${cleanQ}%`);
-      if (extraOrderIds.length > 0) {
-        const csvIds = extraOrderIds.slice(0, 25).map(id => `"${id}"`).join(',');
-        orParts.push(`id.in.(${csvIds})`);
-      }
-    } else if (criterion === 'commerce') {
-      orParts.push(`comercio.ilike.%${cleanQ}%`);
-    } else {
-      if (isUuid(cleanQ)) orParts.push(`id.eq.${cleanQ}`);
-      orParts.push(`external_order_number.ilike.%${cleanQ}%`);
-      if (cleanNoHash && cleanNoHash !== cleanQ) orParts.push(`external_order_number.ilike.%${cleanNoHash}%`);
-      orParts.push(`tracking_number.ilike.%${cleanQ}%`);
-      orParts.push(`customer_name.ilike.%${cleanQ}%`);
-      orParts.push(`customer_email.ilike.%${cleanQ}%`);
-      orParts.push(`customer_phone.ilike.%${cleanQ}%`);
-      orParts.push(`shipping_city.ilike.%${cleanQ}%`);
-      orParts.push(`sku.ilike.%${cleanQ}%`);
-      if (isAdmin) orParts.push(`comercio.ilike.%${cleanQ}%`);
-      if (extraOrderIds.length > 0) {
-        const csvIds = extraOrderIds.slice(0, 20).map(id => `"${id}"`).join(',');
-        orParts.push(`id.in.(${csvIds})`);
-      }
-      if (extraOrderRefs.length > 0) {
-        const csvRefs = extraOrderRefs.slice(0, 15).map(r => `"${r.replace(/"/g, '')}"`).join(',');
-        orParts.push(`external_order_number.in.(${csvRefs})`);
-      }
-    }
-
-    if (orParts.length > 0) {
-      qBuilder = qBuilder.or(orParts.join(','));
+          // Si el usuario escribió una sigla + número (ej. GLS28107) y el comercio guarda solo el número (28107)
+          if (codeParts.hasPrefix && codeParts.numPart.length >= 3) {
+            const targetComms = Array.from(siglaMaps.siglaToCommerces.get(codeParts.prefix) || []);
+            if (targetComms.length > 0) {
+              const numVariants = [
+                codeParts.numPart,
+                `#${codeParts.numPart}`,
+                `${codeParts.prefix}${codeParts.numPart}`,
+                `${codeParts.prefix}#${codeParts.numPart}`,
+                `${codeParts.prefix}-${codeParts.numPart}`,
+                `#${codeParts.prefix}-${codeParts.numPart}`
+              ];
+              const { data: byCommNum } = await applyBaseFilters(
+                supabase
+                  .from('orders')
+                  .select(selectCols)
+                  .in('comercio', targetComms)
+                  .in('external_order_number', numVariants)
+              ).limit(15);
+              addRows(byCommNum);
+            }
+          }
+        } catch (e) {}
+      })());
     }
   }
 
-  const { data, error } = await qBuilder
-    .order('created_at', { ascending: false })
-    .limit(10);
+  if (tier1Tasks.length > 0) {
+    await Promise.all(tier1Tasks);
+  }
 
-  if (error) return [];
+  // --------------------------------------------------------------------------
+  // NIVEL 2: Búsqueda por SKU / Producto -> Comercio indexado o ID de pedido
+  // --------------------------------------------------------------------------
+  if ((criterion === 'sku' || (criterion === 'all' && resultsMap.size === 0)) && cleanQ.length >= 2) {
+    try {
+      let prodQuery = supabase
+        .from('products')
+        .select('id, sku, name, comercio')
+        .or(`sku.ilike.%${cleanQ}%,name.ilike.%${cleanQ}%,barcode.ilike.%${cleanQ}%`)
+        .limit(25);
+      if (!isAdmin && allowedCommerces.length > 0) {
+        prodQuery = prodQuery.in('comercio', allowedCommerces);
+      }
+      const { data: prods } = await prodQuery;
+      if (prods && prods.length > 0) {
+        const prodComms = Array.from(new Set(prods.map(p => String(p.comercio || '').trim()).filter(Boolean)));
+        if (prodComms.length > 0) {
+          const { data: ordByCommSku } = await applyBaseFilters(
+            supabase
+              .from('orders')
+              .select(selectCols)
+              .in('comercio', prodComms)
+              .or(`sku.ilike.%${cleanQ}%,item.ilike.%${cleanQ}%`)
+          ).limit(20);
+          addRows(ordByCommSku);
+        }
+        if (resultsMap.size === 0) {
+          const pIds = prods.map(p => p.id);
+          const { data: oItems } = await supabase
+            .from('order_items')
+            .select('order_id')
+            .in('product_id', pIds)
+            .limit(30);
+          const oIds = Array.from(new Set((oItems || []).map(oi => oi.order_id).filter(Boolean)));
+          if (oIds.length > 0) {
+            const { data: ordByIds } = await applyBaseFilters(
+              supabase.from('orders').select(selectCols).in('id', oIds.slice(0, 25))
+            ).limit(20);
+            addRows(ordByIds);
+          }
+        }
+      }
+    } catch (e) {}
+  }
 
-  const list = data || [];
-  const qLower = cleanNoHash.toLowerCase();
+  // --------------------------------------------------------------------------
+  // NIVEL 3: Búsqueda de Destinatario / Contacto / Comuna / Tracking vía `envios_unificados`
+  // y resolución B-Tree en `orders` (~1.2s total sin timeout)
+  // --------------------------------------------------------------------------
+  if (
+    criterion === 'customer' ||
+    criterion === 'contact' ||
+    criterion === 'location' ||
+    (resultsMap.size === 0 && (criterion === 'all' || criterion === 'tracking' || criterion === 'order_num'))
+  ) {
+    try {
+      let euOr = '';
+      if (criterion === 'customer') {
+        euOr = `nombre_destinatario.ilike.%${cleanQ}%`;
+      } else if (criterion === 'contact') {
+        euOr = `email_cliente_destino.ilike.%${cleanQ}%,telefono_destino.ilike.%${cleanQ}%`;
+      } else if (criterion === 'location') {
+        euOr = `comuna_destino.ilike.%${cleanQ}%,direccion_destino.ilike.%${cleanQ}%`;
+      } else if (criterion === 'tracking' || criterion === 'order_num') {
+        euOr = `tracking.ilike.%${cleanQ}%,pedido_referencia.ilike.%${cleanNoHash}%`;
+      } else {
+        if (cleanQ.includes('@')) {
+          euOr = `email_cliente_destino.ilike.%${cleanQ}%`;
+        } else if (/\s/.test(cleanQ) || /^[A-Za-zÁÉÍÓÚáéíóúÑñ\s]+$/.test(cleanQ)) {
+          euOr = `nombre_destinatario.ilike.%${cleanQ}%,comuna_destino.ilike.%${cleanQ}%,direccion_destino.ilike.%${cleanQ}%`;
+        } else {
+          euOr = `tracking.ilike.%${cleanQ}%,pedido_referencia.ilike.%${cleanNoHash}%,telefono_destino.ilike.%${cleanQ}%,nombre_destinatario.ilike.%${cleanQ}%`;
+        }
+      }
+
+      if (euOr) {
+        const { data: ships } = await supabase
+          .from('envios_unificados')
+          .select('pedido_referencia, tracking')
+          .or(euOr)
+          .limit(25);
+        if (ships && ships.length > 0) {
+          const refSet = new Set();
+          const trkSet = new Set();
+          ships.forEach(s => {
+            if (s.pedido_referencia) {
+              const v = buildOrderReferenceVariants(s.pedido_referencia, allSiglas);
+              v.extList.forEach(x => refSet.add(x));
+            }
+            if (s.tracking) {
+              trkSet.add(String(s.tracking).trim());
+            }
+          });
+          const euOrParts = [];
+          const refArr = Array.from(refSet).slice(0, 200);
+          const trkArr = Array.from(trkSet).slice(0, 30);
+          if (refArr.length > 0) {
+            const csvRefs = refArr.map(x => `"${x.replace(/"/g, '')}"`).join(',');
+            euOrParts.push(`external_order_number.in.(${csvRefs})`);
+          }
+          if (trkArr.length > 0) {
+            const csvTrks = trkArr.map(x => `"${x.replace(/"/g, '')}"`).join(',');
+            euOrParts.push(`tracking_number.in.(${csvTrks})`);
+          }
+          if (euOrParts.length > 0) {
+            const { data: ordByEu } = await applyBaseFilters(
+              supabase.from('orders').select(selectCols).or(euOrParts.join(','))
+            ).limit(20);
+            addRows(ordByEu);
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  let list = Array.from(resultsMap.values());
+  const targetCommercesForPrefix = codeParts.hasPrefix
+    ? (siglaMaps.siglaToCommerces.get(codeParts.prefix) || new Set())
+    : new Set();
+
+  const getOrderMatchScore = (ord) => {
+    const extRaw = String(ord.external_order_number || '').trim();
+    const extNoHash = extRaw.replace(/^#+/, '').trim().toLowerCase();
+    const extAlnum = extRaw.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const trkAlnum = String(ord.tracking_number || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const commUpper = String(ord.comercio || '').trim().toUpperCase();
+    const commSigla = siglaMaps.commerceToSigla.get(commUpper) || '';
+    const compositeCode = (commSigla && extAlnum && !extAlnum.startsWith(commSigla.toLowerCase()))
+      ? `${commSigla.toLowerCase()}${extAlnum}`
+      : extAlnum;
+
+    if (extNoHash === qLower || extAlnum === codeParts.alnumLower || trkAlnum === codeParts.alnumLower || compositeCode === codeParts.alnumLower) {
+      return 100;
+    }
+    if (codeParts.hasPrefix) {
+      const isPrefixCommerce = targetCommercesForPrefix.has(commUpper) || commUpper.includes(codeParts.prefix);
+      if (extAlnum.includes(codeParts.alnumLower) || trkAlnum.includes(codeParts.alnumLower)) {
+        return 90;
+      }
+      if (isPrefixCommerce && extAlnum.includes(codeParts.numLower)) {
+        return 85;
+      }
+      if (targetCommercesForPrefix.size > 0 && !isPrefixCommerce && (criterion === 'order_num' || criterion === 'tracking')) {
+        return -1;
+      }
+    }
+    const strippedPrefixNum = extRaw.replace(/^[A-Za-z]{2,6}[-_\s#]+/, '').replace(/^#+/, '').toLowerCase();
+    if (strippedPrefixNum === qLower) {
+      return 80;
+    }
+    return 10;
+  };
+
+  if (codeParts.hasPrefix && (criterion === 'order_num' || criterion === 'tracking')) {
+    const filtered = list.filter(ord => getOrderMatchScore(ord) >= 0);
+    if (filtered.length > 0 || targetCommercesForPrefix.size > 0) {
+      list = filtered;
+    }
+  }
+
   list.sort((a, b) => {
-    const aNum = String(a.external_order_number || '').replace(/^#/, '').trim().toLowerCase();
-    const bNum = String(b.external_order_number || '').replace(/^#/, '').trim().toLowerCase();
-    const aExact = aNum === qLower || String(a.tracking_number || '').toLowerCase() === qLower;
-    const bExact = bNum === qLower || String(b.tracking_number || '').toLowerCase() === qLower;
-    if (aExact && !bExact) return -1;
-    if (!aExact && bExact) return 1;
-    return 0;
+    const scoreA = getOrderMatchScore(a);
+    const scoreB = getOrderMatchScore(b);
+    if (scoreA !== scoreB) return scoreB - scoreA;
+    const tA = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tB = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return tB - tA;
   });
 
   return list.slice(0, 8);
@@ -1881,20 +2231,44 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
     }
 
     if (!orderData) {
-      const noHash = cleanRef.replace(/^#/, '').trim();
+      const codeParts = parseOrderCodeParts(cleanRef);
+      const siglaMaps = await getCommercesBySiglaMap();
+      const variants = buildOrderReferenceVariants(cleanRef, siglaMaps.allSiglas || []);
+      const refOrs = [];
+      if (variants.extList.length > 0) {
+        const csvExt = variants.extList.slice(0, 260).map(x => `"${x.replace(/"/g, '')}"`).join(',');
+        refOrs.push(`external_order_number.in.(${csvExt})`);
+      }
+      if (variants.trkList.length > 0) {
+        const csvTrk = variants.trkList.slice(0, 30).map(x => `"${x.replace(/"/g, '')}"`).join(',');
+        refOrs.push(`tracking_number.in.(${csvTrk})`);
+      }
+      variants.prefixRanges.slice(0, 8).forEach(pr => {
+        refOrs.push(`and(${pr.col}.gte."${pr.prefix}",${pr.col}.lte."${pr.prefix}\uffff")`);
+      });
+
       let q = supabase
         .from('orders')
         .select(selectStr)
-        .or(`external_order_number.eq."${cleanRef}",external_order_number.eq."#${noHash}",external_order_number.eq."${noHash}"`)
-        .order('created_at', { ascending: false })
-        .limit(1);
+        .or(Array.from(new Set(refOrs)).join(','))
+        .limit(10);
       if (!isAdmin) {
         const allowed = getClientAllowedCommerces();
         if (allowed.length > 0) q = q.in('comercio', allowed);
       }
       const { data: listData, error: listErr } = await q;
       if (listErr) throw listErr;
-      orderData = listData && listData[0] ? listData[0] : null;
+      if (listData && listData.length > 0) {
+        const targetComms = codeParts.hasPrefix ? (siglaMaps.siglaToCommerces.get(codeParts.prefix) || new Set()) : new Set();
+        orderData = listData.find(o => {
+          const extAlnum = String(o.external_order_number || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+          const trkAlnum = String(o.tracking_number || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+          const commUpper = String(o.comercio || '').trim().toUpperCase();
+          if (extAlnum === codeParts.alnumLower || trkAlnum === codeParts.alnumLower) return true;
+          if (codeParts.hasPrefix && (targetComms.has(commUpper) || commUpper.includes(codeParts.prefix)) && extAlnum.includes(codeParts.numLower)) return true;
+          return false;
+        }) || listData[0];
+      }
     }
 
     if (!orderData) {
