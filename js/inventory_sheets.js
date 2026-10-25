@@ -134,6 +134,158 @@ window.getRequestDistinctWarehouses = function(req) {
 };
 
 /**
+ * Consolida la lista de productos de una solicitud de inventario agrupando por SKU (1 sola fila por SKU)
+ * sumando el stock sistema y el conteo físico de todas las bodegas (Modo Inventario Simplificado).
+ * @param {Array} productsList - Lista original de productos (puede ser multi-bodega o ya consolidada)
+ * @returns {Array} Lista consolidada con 1 fila por SKU
+ */
+window.consolidateInventoryRequestProducts = function(productsList) {
+  if (!Array.isArray(productsList) || productsList.length === 0) return [];
+  const skuMap = new Map();
+
+  productsList.forEach(p => {
+    if (!p) return;
+    const key = String(p.id || p.sku || '').trim();
+    if (!key) return;
+
+    const sysQty = (p.system_qty !== undefined && p.system_qty !== null) ? Number(p.system_qty) || 0 : 0;
+    const hasCount = p.counted_qty !== undefined && p.counted_qty !== null && p.counted_qty !== '';
+    const countedQty = hasCount ? (Number(p.counted_qty) || 0) : null;
+    const noteStr = (p.notes || '').trim();
+
+    if (!skuMap.has(key)) {
+      skuMap.set(key, {
+        id: p.id || null,
+        sku: p.sku || '',
+        name: p.name || '',
+        barcode: p.barcode || p.codigo_barra || '',
+        warehouse_id: 'CONSOLIDATED',
+        warehouse_name: 'Total Global',
+        is_consolidated: true,
+        system_qty: sysQty,
+        counted_qty: hasCount ? countedQty : null,
+        _has_any_count: hasCount,
+        difference: null,
+        notes_list: noteStr ? [noteStr] : [],
+        warehouse_breakdown: Array.isArray(p.warehouse_breakdown) && p.warehouse_breakdown.length > 0
+          ? JSON.parse(JSON.stringify(p.warehouse_breakdown))
+          : [{
+              warehouse_id: p.warehouse_id || null,
+              warehouse_name: p.warehouse_name || 'Bodega',
+              system_qty: sysQty,
+              counted_qty: countedQty,
+              difference: p.difference !== undefined ? p.difference : null,
+              notes: noteStr
+            }]
+      });
+    } else {
+      const entry = skuMap.get(key);
+      entry.system_qty += sysQty;
+      if (!entry.barcode && (p.barcode || p.codigo_barra)) {
+        entry.barcode = p.barcode || p.codigo_barra;
+      }
+      if (hasCount) {
+        entry._has_any_count = true;
+        entry.counted_qty = (entry.counted_qty || 0) + countedQty;
+      }
+      if (noteStr && !entry.notes_list.includes(noteStr)) {
+        entry.notes_list.push(noteStr);
+      }
+      entry.warehouse_breakdown.push({
+        warehouse_id: p.warehouse_id || null,
+        warehouse_name: p.warehouse_name || 'Bodega',
+        system_qty: sysQty,
+        counted_qty: countedQty,
+        difference: p.difference !== undefined ? p.difference : null,
+        notes: noteStr
+      });
+    }
+  });
+
+  const result = Array.from(skuMap.values()).map(item => {
+    const finalCounted = item._has_any_count ? item.counted_qty : null;
+    const finalDiff = finalCounted !== null ? (finalCounted - item.system_qty) : null;
+    return {
+      id: item.id,
+      sku: item.sku,
+      name: item.name,
+      barcode: item.barcode,
+      warehouse_id: 'CONSOLIDATED',
+      warehouse_name: 'Total Global',
+      is_consolidated: true,
+      system_qty: item.system_qty,
+      counted_qty: finalCounted,
+      difference: finalDiff,
+      notes: item.notes_list.join(' | '),
+      warehouse_breakdown: item.warehouse_breakdown
+    };
+  });
+
+  result.sort((a, b) => (a.sku || '').localeCompare(b.sku || ''));
+  return result;
+};
+
+/**
+ * Extrae la información estructurada de observaciones numeradas y estado de 2da revisión
+ * almacenada en communication_history de una solicitud de inventario.
+ * @param {Object} req - Objeto de solicitud de inventario
+ * @returns {Object} { hasObservations, requiresSecondReview, reviewMode, observations, generalNotes, updatedAt, supervisor }
+ */
+window.getInventoryObservationsData = function(req) {
+  if (!req) {
+    return {
+      hasObservations: false,
+      requiresSecondReview: false,
+      reviewMode: 'none',
+      observations: [],
+      generalNotes: '',
+      updatedAt: null,
+      supervisor: ''
+    };
+  }
+
+  const history = Array.isArray(req.communication_history) ? req.communication_history : [];
+  let latestObsReport = null;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const entry = history[i];
+    if (entry && (entry.type === 'observations_report' || entry.action === 'counted_with_observations')) {
+      latestObsReport = entry;
+      break;
+    }
+  }
+
+  if (latestObsReport) {
+    const obsList = Array.isArray(latestObsReport.observations) ? latestObsReport.observations : [];
+    const reqSecond = latestObsReport.requires_second_review === true;
+    const revMode = latestObsReport.review_mode || (reqSecond ? 'requires_second_review' : (obsList.length > 0 ? 'no_second_review' : 'none'));
+    return {
+      hasObservations: obsList.length > 0 || revMode !== 'none',
+      requiresSecondReview: reqSecond,
+      reviewMode: revMode,
+      observations: obsList.map((o, idx) => ({
+        number: o.number || (idx + 1),
+        sku: o.sku || '',
+        text: o.text || '',
+        requires_recount: o.requires_recount !== undefined ? Boolean(o.requires_recount) : reqSecond
+      })),
+      generalNotes: latestObsReport.general_notes !== undefined ? latestObsReport.general_notes : (req.admin_notes || ''),
+      updatedAt: latestObsReport.created_at || req.updated_at || null,
+      supervisor: latestObsReport.supervisor || req.completed_by || ''
+    };
+  }
+
+  return {
+    hasObservations: false,
+    requiresSecondReview: false,
+    reviewMode: 'none',
+    observations: [],
+    generalNotes: req.admin_notes || '',
+    updatedAt: null,
+    supervisor: req.completed_by || ''
+  };
+};
+
+/**
  * Genera y descarga la Hoja Oficial de Toma de Inventario Físico en formato PDF
  * Diseñada específicamente con cuadrícula y espacio para conteo manual en terreno.
  * Permite emitir el documento Consolidado o individual por Bodega física.
@@ -162,9 +314,16 @@ window.generateInventoryCountPdf = async function(req, targetWarehouse = null) {
 
   let products = allProducts;
   let isFilteredWh = false;
+  let isSimplified = false;
   let filterWhName = '';
 
-  if (targetWarehouse && targetWarehouse !== 'all') {
+  if (targetWarehouse === 'simplified') {
+    products = typeof window.consolidateInventoryRequestProducts === 'function'
+      ? window.consolidateInventoryRequestProducts(allProducts)
+      : allProducts;
+    isSimplified = true;
+    filterWhName = 'Simplificado_Totales';
+  } else if (targetWarehouse && targetWarehouse !== 'all') {
     filterWhName = typeof targetWarehouse === 'string' ? targetWarehouse : (targetWarehouse.name || '');
     products = allProducts.filter(p => {
       if (typeof targetWarehouse === 'object' && targetWarehouse.id && p.warehouse_id) {
@@ -175,9 +334,15 @@ window.generateInventoryCountPdf = async function(req, targetWarehouse = null) {
     isFilteredWh = true;
   }
 
-  const warehouseName = isFilteredWh ? filterWhName : (req.warehouse_name || 'Todas las bodegas');
-  const warehouseDisplay = isFilteredWh ? `${filterWhName} (Hoja Exclusiva de Bodega)` : `${warehouseName} (Consolidado)`;
-  const sheetHeaderTitle = isFilteredWh ? `Hoja de Toma de Inventario - ${filterWhName}` : `Hoja de Toma de Inventario Físico (Consolidado)`;
+  const warehouseName = isSimplified
+    ? 'Total Global (Sin desglose por bodegas)'
+    : (isFilteredWh ? filterWhName : (req.warehouse_name || 'Todas las bodegas'));
+  const warehouseDisplay = isSimplified
+    ? 'Consolidado Simplificado (1 fila por SKU)'
+    : (isFilteredWh ? `${filterWhName} (Hoja Exclusiva de Bodega)` : `${warehouseName} (Consolidado)`);
+  const sheetHeaderTitle = isSimplified
+    ? 'Hoja de Toma de Inventario Simplificado (Totales por SKU)'
+    : (isFilteredWh ? `Hoja de Toma de Inventario - ${filterWhName}` : `Hoja de Toma de Inventario Físico (Consolidado)`);
 
   const formattedDate = req.created_at ? new Date(req.created_at).toLocaleString('es-CL', {
     day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
@@ -404,7 +569,7 @@ window.generateInventoryCountPdf = async function(req, targetWarehouse = null) {
     const printableArea = container.querySelector('#pdf-printable-area');
     const safeCommerce = comercio.replace(/[^a-zA-Z0-9_-]/g, '_');
     const safeFolio = folio.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const safeWh = isFilteredWh ? filterWhName.replace(/[^a-zA-Z0-9_-]/g, '_') : 'Consolidado';
+    const safeWh = isSimplified ? 'Simplificado_Totales' : (isFilteredWh ? filterWhName.replace(/[^a-zA-Z0-9_-]/g, '_') : 'Consolidado');
     const filename = `Hoja_Inventario_${safeFolio}_${safeWh}_${safeCommerce}.pdf`;
 
     const opt = {
@@ -413,7 +578,7 @@ window.generateInventoryCountPdf = async function(req, targetWarehouse = null) {
       image:        { type: 'jpeg', quality: 0.98 },
       html2canvas:  { scale: 2, useCORS: true, scrollY: 0, scrollX: 0, logging: false },
       jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+      pagebreak:    { mode: ['css', 'legacy'] }
     };
 
     if (typeof html2pdf !== 'undefined') {
@@ -460,9 +625,16 @@ window.generateInventoryCountExcel = async function(req, targetWarehouse = null)
 
   let products = allProducts;
   let isFilteredWh = false;
+  let isSimplified = false;
   let filterWhName = '';
 
-  if (targetWarehouse && targetWarehouse !== 'all') {
+  if (targetWarehouse === 'simplified') {
+    products = typeof window.consolidateInventoryRequestProducts === 'function'
+      ? window.consolidateInventoryRequestProducts(allProducts)
+      : allProducts;
+    isSimplified = true;
+    filterWhName = 'Simplificado_Totales';
+  } else if (targetWarehouse && targetWarehouse !== 'all') {
     filterWhName = typeof targetWarehouse === 'string' ? targetWarehouse : (targetWarehouse.name || '');
     products = allProducts.filter(p => {
       if (typeof targetWarehouse === 'object' && targetWarehouse.id && p.warehouse_id) {
@@ -473,12 +645,14 @@ window.generateInventoryCountExcel = async function(req, targetWarehouse = null)
     isFilteredWh = true;
   }
 
-  const warehouseName = isFilteredWh ? `${filterWhName} (Exclusiva)` : (req.warehouse_name || 'Todas las bodegas (Consolidado)');
+  const warehouseName = isSimplified
+    ? 'Total Global (Simplificado sin desglose)'
+    : (isFilteredWh ? `${filterWhName} (Exclusiva)` : (req.warehouse_name || 'Todas las bodegas (Consolidado)'));
   const formattedDate = req.created_at ? new Date(req.created_at).toLocaleString('es-CL') : new Date().toLocaleString('es-CL');
 
   // Construir filas del libro Excel
   const excelRows = [
-    [isFilteredWh ? `STOCKA WMS - HOJA DE CONTEO FÍSICO (${filterWhName.toUpperCase()})` : 'STOCKA WMS - HOJA DE CONTEO FÍSICO (CONSOLIDADO)'],
+    [isSimplified ? 'STOCKA WMS - HOJA DE CONTEO SIMPLIFICADO (TOTALES POR SKU)' : (isFilteredWh ? `STOCKA WMS - HOJA DE CONTEO FÍSICO (${filterWhName.toUpperCase()})` : 'STOCKA WMS - HOJA DE CONTEO FÍSICO (CONSOLIDADO)')],
     ['Folio Solicitud:', folio, '', 'Fecha Emisión:', formattedDate],
     ['Comercio:', comercio, '', 'Bodega:', warehouseName],
     ['Motivo:', reason, '', 'Prioridad:', priority],
@@ -543,11 +717,11 @@ window.generateInventoryCountExcel = async function(req, targetWarehouse = null)
     { wch: 35 }  // Observaciones
   ];
 
-  XLSX.utils.book_append_sheet(wb, ws, isFilteredWh ? filterWhName.substring(0, 31) : 'Toma Consolidada');
+  XLSX.utils.book_append_sheet(wb, ws, isSimplified ? 'Inventario Simplificado' : (isFilteredWh ? filterWhName.substring(0, 31) : 'Toma Consolidada'));
 
   const safeCommerce = comercio.replace(/[^a-zA-Z0-9_-]/g, '_');
   const safeFolio = folio.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const safeWh = isFilteredWh ? filterWhName.replace(/[^a-zA-Z0-9_-]/g, '_') : 'Consolidado';
+  const safeWh = isSimplified ? 'Simplificado_Totales' : (isFilteredWh ? filterWhName.replace(/[^a-zA-Z0-9_-]/g, '_') : 'Consolidado');
   const filename = `Planilla_Toma_Inventario_${safeFolio}_${safeWh}_${safeCommerce}.xlsx`;
 
   XLSX.writeFile(wb, filename);
@@ -601,19 +775,39 @@ window.openInventoryPdfOptionsModal = function(req, defaultFormat = 'pdf') {
           Esta solicitud incluye <strong>${totalSkus} SKUs</strong> distribuidos en <strong>${distinctWhs.length} bodegas físicas</strong>. Puedes descargar el <strong>documento consolidado</strong> o la <strong>hoja de terreno de cada bodega</strong> para enviarla directamente a su respectiva cuadrilla:
         </div>
 
+        <!-- Tarjeta Inventario Simplificado (Totales por SKU sin desglose) -->
+        <div style="background: rgba(16, 185, 129, 0.08); border: 1.5px solid #10b981; border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+          <div>
+            <div style="font-weight: 700; color: #047857; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-flashlight-fill" style="color: #10b981;"></i> Inventario Simplificado (Totales Globales por SKU)
+            </div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 3px;">
+              1 sola fila por SKU sumando el stock de todas las bodegas (sin desglose)
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.45rem;">
+            <button type="button" class="btn btn-primary btn-sm btn-download-simplified-pdf" style="background: #10b981; border-color: #10b981; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; cursor: pointer;">
+              <i class="ri-file-pdf-line"></i> PDF Simplificado
+            </button>
+            <button type="button" class="btn btn-outline btn-sm btn-download-simplified-excel" style="border-color: #059669; color: #059669; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; cursor: pointer;">
+              <i class="ri-file-excel-line"></i> Excel Simplificado
+            </button>
+          </div>
+        </div>
+
         <!-- Tarjeta Documento Consolidado -->
         <div style="background: var(--color-bg); border: 1.5px solid #6366f1; border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
           <div>
             <div style="font-weight: 700; color: #4338ca; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem;">
-              <i class="ri-file-list-3-fill"></i> Documento Consolidado (Todas las bodegas)
+              <i class="ri-file-list-3-fill"></i> Documento Multi-Bodega (Con desglose por bodegas)
             </div>
             <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 3px;">
-              Incluye las ${distinctWhs.length} bodegas completas (${totalSkus} artículos)
+              Incluye las ${distinctWhs.length} bodegas separadas (${totalSkus} filas)
             </div>
           </div>
           <div style="display: flex; gap: 0.45rem;">
             <button type="button" class="btn btn-primary btn-sm btn-download-consolidated-pdf" style="background: #6366f1; border-color: #6366f1; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; cursor: pointer;">
-              <i class="ri-file-pdf-line"></i> PDF Consolidado
+              <i class="ri-file-pdf-line"></i> PDF Multi-Bodega
             </button>
             <button type="button" class="btn btn-outline btn-sm btn-download-consolidated-excel" style="border-color: #10b981; color: #10b981; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; cursor: pointer;">
               <i class="ri-file-excel-line"></i> Excel
@@ -668,6 +862,14 @@ window.openInventoryPdfOptionsModal = function(req, defaultFormat = 'pdf') {
   document.body.appendChild(modal);
 
   // Listeners
+  modal.querySelector('.btn-download-simplified-pdf')?.addEventListener('click', () => {
+    window.generateInventoryCountPdf(req, 'simplified');
+  });
+
+  modal.querySelector('.btn-download-simplified-excel')?.addEventListener('click', () => {
+    window.generateInventoryCountExcel(req, 'simplified');
+  });
+
   modal.querySelector('.btn-download-consolidated-pdf').addEventListener('click', () => {
     window.generateInventoryCountPdf(req, 'all');
   });
@@ -766,6 +968,9 @@ window.generateInventoryReportPdf = async function(req) {
   const adminNotes = req.admin_notes || '';
   const status = req.status || 'Finalizada';
   const products = Array.isArray(req.products_list) ? req.products_list : [];
+  const obsData = typeof window.getInventoryObservationsData === 'function'
+    ? window.getInventoryObservationsData(req)
+    : { hasObservations: false, requiresSecondReview: false, observations: [], generalNotes: adminNotes };
 
   const formattedCreatedDate = req.created_at ? new Date(req.created_at).toLocaleString('es-CL', {
     day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
@@ -876,8 +1081,10 @@ window.generateInventoryReportPdf = async function(req) {
         <div style="display: flex; align-items: center; gap: 12px;">
           <img src="img/newlogotransp.png" alt="STOCKA Logo" style="height: 40px; width: auto; object-fit: contain;" onerror="this.onerror=null; this.src='https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093';">
           <div>
-            <div style="display: inline-block; background-color: #059669; color: #ffffff; padding: 2px 7px; border-radius: 3px; font-size: 7pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">
-              Acta Oficial de Auditoría y Cuadratura
+            <div style="display: inline-block; background-color: ${obsData.hasObservations && obsData.requiresSecondReview ? '#d97706' : '#059669'}; color: #ffffff; padding: 2px 7px; border-radius: 3px; font-size: 7pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">
+              ${obsData.hasObservations && obsData.requiresSecondReview
+                ? 'Informe de Conteo con Observaciones • Requiere 2da Revisión en Terreno'
+                : (obsData.hasObservations ? 'Acta de Conteo con Observaciones (Sin 2da Revisión)' : 'Acta Oficial de Auditoría y Cuadratura')}
             </div>
             <h1 style="margin: 0; font-size: 13pt; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; text-transform: uppercase;">
               Informe de Resultados de Inventario Físico
@@ -892,10 +1099,10 @@ window.generateInventoryReportPdf = async function(req) {
             ${folio}
           </div>
           <div style="font-size: 7.5pt; color: #64748b; margin-top: 3px;">
-            Cierre: <strong>${formattedCompletedDate}</strong>
+            Emisión / Cierre: <strong>${formattedCompletedDate}</strong>
           </div>
-          <div style="font-size: 7pt; color: #059669; font-weight: 700; margin-top: 1px;">
-            ESTADO: ${status.toUpperCase()}
+          <div style="font-size: 7pt; color: ${obsData.hasObservations && obsData.requiresSecondReview ? '#d97706' : '#059669'}; font-weight: 700; margin-top: 1px;">
+            ESTADO: ${obsData.hasObservations && obsData.requiresSecondReview ? 'CON OBSERVACIONES (2DA REVISIÓN)' : status.toUpperCase()}
           </div>
         </div>
       </div>
@@ -974,6 +1181,49 @@ window.generateInventoryReportPdf = async function(req) {
           <div style="font-size: 6.5pt; color: #1d4ed8;">Físico: ${totalCountedUnits} / Sist: ${totalSysUnits}</div>
         </div>
       </div>
+
+      ${obsData.hasObservations ? `
+      <!-- SECCIÓN DE OBSERVACIONES NUMERADAS Y SEGUNDA REVISIÓN EN TERRENO -->
+      <div style="background-color: ${obsData.requiresSecondReview ? '#fffbeb' : '#f0fdf4'}; border: 1.5px solid ${obsData.requiresSecondReview ? '#f59e0b' : '#10b981'}; border-radius: 6px; padding: 8px 10px; margin-bottom: 12px; page-break-inside: avoid;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid ${obsData.requiresSecondReview ? '#fde68a' : '#a7f3d0'}; padding-bottom: 5px; margin-bottom: 6px;">
+          <div style="font-weight: 800; font-size: 8.5pt; color: ${obsData.requiresSecondReview ? '#92400e' : '#065f46'}; text-transform: uppercase;">
+            📋 Observaciones del Conteo y Validación en Terreno (${obsData.observations.length})
+          </div>
+          <div style="background-color: ${obsData.requiresSecondReview ? '#d97706' : '#059669'}; color: #ffffff; padding: 2px 8px; border-radius: 4px; font-size: 7pt; font-weight: 800; text-transform: uppercase;">
+            ${obsData.requiresSecondReview ? '🔄 REQUIERE 2DA REVISIÓN EN TERRENO' : '✅ NO REQUIERE 2DA REVISIÓN'}
+          </div>
+        </div>
+        <div style="font-size: 7.3pt; color: ${obsData.requiresSecondReview ? '#78350f' : '#064e3b'}; margin-bottom: 6px; line-height: 1.35;">
+          ${obsData.requiresSecondReview
+            ? '<strong>Atención:</strong> El presente conteo registra discrepancias u observaciones que <strong>requieren una segunda revisión física en terreno</strong> para confirmar las cantidades definitivas antes del cierre final.'
+            : '<strong>Nota:</strong> Las siguientes observaciones fueron levantadas durante el conteo físico. <strong>No se requiere una segunda revisión en terreno</strong>.'}
+        </div>
+        ${obsData.observations.length > 0 ? `
+          <table style="width: 100%; border-collapse: collapse; background: #ffffff; border: 1px solid ${obsData.requiresSecondReview ? '#fde68a' : '#bbf7d0'}; font-size: 7.5pt;">
+            <thead>
+              <tr style="background-color: ${obsData.requiresSecondReview ? '#fef3c7' : '#dcfce7'}; color: #0f172a; font-weight: 700; text-transform: uppercase; font-size: 6.8pt;">
+                <th style="padding: 4px 6px; width: 28px; text-align: center; border-right: 1px solid #e2e8f0;">N°</th>
+                <th style="padding: 4px 6px; width: 90px; border-right: 1px solid #e2e8f0;">SKU / Ítem</th>
+                <th style="padding: 4px 6px; border-right: 1px solid #e2e8f0;">Detalle de la Observación</th>
+                <th style="padding: 4px 6px; width: 115px; text-align: center;">Estado Validación</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${obsData.observations.map((o, i) => `
+                <tr style="border-top: 1px solid #e2e8f0;">
+                  <td style="padding: 4px 6px; text-align: center; font-weight: 800; color: #475569; border-right: 1px solid #e2e8f0;">#${o.number || (i + 1)}</td>
+                  <td style="padding: 4px 6px; font-family: monospace; font-weight: 700; color: #0f172a; border-right: 1px solid #e2e8f0;">${o.sku || 'General'}</td>
+                  <td style="padding: 4px 6px; color: #1e293b; border-right: 1px solid #e2e8f0;">${o.text || '-'}</td>
+                  <td style="padding: 4px 6px; text-align: center; font-weight: 700; font-size: 6.8pt; color: ${o.requires_recount ? '#b45309' : '#047857'};">
+                    ${o.requires_recount ? '🔄 Validar en 2da Rev.' : '✓ Confirmado / Info'}
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : ''}
+      </div>
+      ` : ''}
 
       <!-- TABLA DETALLADA DE RESULTADOS DE CONTEO -->
       <table style="width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; font-size: 7.8pt; margin-bottom: 12px;">
@@ -1107,7 +1357,7 @@ window.generateInventoryReportPdf = async function(req) {
       image:        { type: 'jpeg', quality: 0.98 },
       html2canvas:  { scale: 2, useCORS: true, scrollY: 0, scrollX: 0, logging: false },
       jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+      pagebreak:    { mode: ['css', 'legacy'] }
     };
 
     if (typeof html2pdf !== 'undefined') {
@@ -1153,6 +1403,9 @@ window.generateInventoryReportExcel = async function(req) {
   const adminNotes = req.admin_notes || '';
   const status = req.status || 'Finalizada';
   const products = Array.isArray(req.products_list) ? req.products_list : [];
+  const obsData = typeof window.getInventoryObservationsData === 'function'
+    ? window.getInventoryObservationsData(req)
+    : { hasObservations: false, requiresSecondReview: false, observations: [], generalNotes: adminNotes };
 
   const formattedCreatedDate = req.created_at ? new Date(req.created_at).toLocaleString('es-CL') : new Date().toLocaleString('es-CL');
   const formattedCompletedDate = req.completed_at ? new Date(req.completed_at).toLocaleString('es-CL') : new Date().toLocaleString('es-CL');
@@ -1180,16 +1433,39 @@ window.generateInventoryReportExcel = async function(req) {
   const netDiffUnits = totalCountedUnits - totalSysUnits;
   const accuracyPct = products.length > 0 ? ((matchedSkus / products.length) * 100).toFixed(1) + '%' : '100.0%';
 
+  const obsRowsForExcel = [];
+  if (obsData.hasObservations) {
+    obsRowsForExcel.push(['--- OBSERVACIONES NUMERADAS Y SEGUNDA REVISIÓN ---']);
+    obsRowsForExcel.push([
+      '¿Requiere 2da Revisión en Terreno?:',
+      obsData.requiresSecondReview ? 'SÍ - REQUIERE SEGUNDA REVISIÓN EN TERRENO PARA CONFIRMAR DISCREPANCIAS' : 'NO - NO REQUIERE SEGUNDA REVISIÓN EN TERRENO',
+      '',
+      'Total Observaciones:',
+      obsData.observations.length
+    ]);
+    obsData.observations.forEach((o, idx) => {
+      obsRowsForExcel.push([
+        `Observación #${o.number || (idx + 1)}`,
+        o.sku || 'General',
+        o.text || '',
+        o.requires_recount ? 'Requiere 2da Revisión en Terreno' : 'Observación Informativa / Confirmada'
+      ]);
+    });
+    obsRowsForExcel.push([]);
+  }
+
   const excelRows = [
     ['STOCKA WMS - INFORME OFICIAL DE RESULTADOS DE INVENTARIO Y CUADRATURA'],
-    ['Folio Solicitud:', folio, '', 'Estado Auditoría:', status.toUpperCase()],
+    ['Folio Solicitud:', folio, '', 'Estado Auditoría:', obsData.hasObservations && obsData.requiresSecondReview ? 'CON OBSERVACIONES (2DA REVISIÓN PENDIENTE)' : status.toUpperCase()],
     ['Comercio:', comercio, '', 'Bodega:', warehouseName],
     ['Motivo Auditoría:', reason, '', 'Prioridad:', priority],
     ['Corte Último Pedido:', req.cutoff_order || 'Sin corte especificado (Todo en estante)', '', 'Supervisor Validación:', completedBy],
     ['Fecha Solicitud:', formattedCreatedDate, '', 'Fecha Cierre:', formattedCompletedDate],
+    ['¿Requiere 2da Revisión?:', obsData.hasObservations ? (obsData.requiresSecondReview ? 'SÍ (Validar discrepancias en terreno)' : 'NO (Sin 2da revisión)') : 'No aplica'],
     ['Observaciones Cuadratura:', adminNotes || 'Cuadratura finalizada y validada sin observaciones adicionales.'],
     ['Instrucciones Iniciales:', notes || '-'],
     [],
+    ...obsRowsForExcel,
     ['--- RESUMEN EJECUTIVO DE CUADRATURA ---'],
     ['Total SKUs Auditados:', products.length, '', 'SKUs Cuadrados (100% OK):', matchedSkus, '', 'Índice Exactitud (IRA):', accuracyPct],
     ['Unidades Stock Sistema:', totalSysUnits, '', 'Unidades Conteo Físico:', totalCountedUnits, '', 'Diferencia Neta Unidades:', netDiffUnits],
@@ -1532,7 +1808,7 @@ window.generateProductDimensionsPdf = async function(options) {
       image:        { type: 'jpeg', quality: 0.98 },
       html2canvas:  { scale: 2, useCORS: true, scrollY: 0, scrollX: 0, logging: false },
       jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' },
-      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+      pagebreak:    { mode: ['css', 'legacy'] }
     };
 
     if (typeof html2pdf !== 'undefined') {

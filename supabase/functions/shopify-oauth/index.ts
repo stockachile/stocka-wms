@@ -144,7 +144,7 @@ serve(async (req) => {
         // Validar expiración del state si incluye timestamp (ventana de 30 minutos)
         if (decodedState.timestamp && typeof decodedState.timestamp === "number") {
           const ageMs = Date.now() - decodedState.timestamp;
-          if (ageMs > 30 * 60 * 1000) {
+          if (ageMs > 7 * 24 * 60 * 60 * 1000) {
             console.warn("⚠️ State de OAuth expirado:", ageMs, "ms");
             return new Response("OAuth session expired. Please re-initiate connection from WMS dashboard.", { status: 400 });
           }
@@ -259,6 +259,13 @@ serve(async (req) => {
             try {
               await syncShopifyProducts(integrationObj);
               await syncShopifyOrders(integrationObj);
+              if (hasFulfillmentScope) {
+                await fetch(`${supabaseUrl}/functions/v1/shopify-fulfillment-sync`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "Authorization": `Bearer ${supabaseServiceKey}` },
+                  body: JSON.stringify({ limit: 50 })
+                }).catch((e) => console.warn("Aviso disparando shopify-fulfillment-sync post-OAuth:", e));
+              }
               console.log(`[OAuth Initial Sync Background] Sincronizados exitosamente productos y pedidos para ${shop}`);
             } catch (syncErr) {
               console.error("Error en sincronización inicial en background:", syncErr);

@@ -449,7 +449,7 @@
   /**
    * Genera archivo Excel (.xlsx) con SheetJS formateado y auto-ajustado
    */
-  function exportToExcel({ title, commerce, columns, rows, filename }) {
+  function exportToExcel({ title, commerce, warehouseLabel, columns, rows, filename }) {
     if (typeof XLSX === 'undefined') {
       Swal.fire('Error', 'La librería XLSX (SheetJS) no está disponible en este momento.', 'error');
       return;
@@ -461,10 +461,17 @@
     });
 
     // Construcción del bloque de encabezado ejecutivo
+    const metaRow = [
+      `Comercio: ${commerce || 'Todos los Comercios'}`,
+      `Bodega: ${warehouseLabel || 'Todas las Bodegas'}`,
+      `Fecha de Emisión: ${currentDate}`,
+      `Total Registros: ${rows.length}`
+    ];
+
     const excelAoa = [
       ['STOCKA WMS - SISTEMA DE GESTIÓN Y FULFILLMENT'],
       [`Reporte: ${title}`],
-      [`Comercio: ${commerce || 'Todos los Comercios'}`, '', `Fecha de Emisión: ${currentDate}`, '', `Total Registros: ${rows.length}`],
+      metaRow,
       [] // Fila vacía de separación
     ];
 
@@ -510,8 +517,9 @@
 
   /**
    * Genera archivo PDF oficial con html2pdf.js con diseño corporativo STOCKA
+   * Pagina explícitamente en hojas A4 individuales para evitar lienzos en blanco por límite de altura o posición off-screen.
    */
-  async function exportToPdf({ title, commerce, columns, rows, filename, orientation = 'auto' }) {
+  async function exportToPdf({ title, commerce, warehouseLabel, columns, rows, filename, orientation = 'auto' }) {
     if (typeof html2pdf === 'undefined') {
       Swal.fire('Error', 'La librería html2pdf no está disponible.', 'error');
       return;
@@ -526,7 +534,13 @@
       ? (columns.length > 6 ? 'landscape' : 'portrait')
       : orientation;
 
-    // Calcular KPIs resumen
+    const isLandscape = finalOrientation === 'landscape';
+    const pageWidthMm = isLandscape ? 297 : 210;
+    const pageHeightMm = isLandscape ? 210 : 297;
+    const pageWidthPx = isLandscape ? 1122 : 794;
+    const pageMinHeightPx = isLandscape ? 793 : 1122;
+
+    // Calcular KPIs resumen sin duplicar totalAvailable en filas desglosadas
     let totalItems = rows.length;
     let kpi1Label = 'Total Registros';
     let kpi1Val = totalItems;
@@ -539,25 +553,14 @@
       if (r.physical !== undefined) kpi2Val += Number(r.physical || 0);
       else if (r.current_stock !== undefined) kpi2Val += Number(r.current_stock || 0);
 
-      if (r.totalAvailable !== undefined) kpi3Val += Number(r.totalAvailable || 0);
+      if (r.available !== undefined) kpi3Val += Number(r.available || 0);
+      else if (r.totalAvailable !== undefined) kpi3Val += Number(r.totalAvailable || 0);
       else if (r.status === 'Activo' || r.status === 'En Stock') kpi3Val++;
     });
 
     if (rows[0] && rows[0].price !== undefined) {
       kpi3Label = 'Artículos Activos';
     }
-
-    // Crear contenedor temporal fuera de pantalla
-    const container = document.createElement('div');
-    container.id = 'wms-export-pdf-temp';
-    container.style.position = 'fixed';
-    container.style.left = '-9999px';
-    container.style.top = '0';
-    container.style.width = finalOrientation === 'landscape' ? '1120px' : '820px';
-    container.style.background = '#ffffff';
-    container.style.color = '#0f172a';
-    container.style.fontFamily = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-    container.style.padding = '20px 25px';
 
     // Generar badges de estado en HTML
     const renderCellContent = (colId, val) => {
@@ -569,7 +572,7 @@
         if (s.includes('en stock') || s.includes('activo')) { bg = '#dcfce7'; fg = '#15803d'; }
         else if (s.includes('bajo stock')) { bg = '#fef3c7'; fg = '#b45309'; }
         else if (s.includes('agotado') || s.includes('archivado')) { bg = '#fee2e2'; fg = '#b91c1c'; }
-        return `<span style="display: inline-block; padding: 2px 7px; border-radius: 9999px; font-size: 7pt; font-weight: 700; background: ${bg}; color: ${fg}; text-transform: uppercase;">${val}</span>`;
+        return `<span style="display: inline-block; padding: 2px 7px; border-radius: 9999px; font-size: 6.8pt; font-weight: 700; background: ${bg}; color: ${fg}; text-transform: uppercase; white-space: nowrap;">${val}</span>`;
       }
 
       if (colId === 'price' && typeof val === 'number') {
@@ -577,108 +580,212 @@
       }
 
       if (colId === 'sku') {
-        return `<code style="font-family: monospace; font-size: 7.8pt; font-weight: 700; color: #1e293b; background: #f8fafc; padding: 1px 4px; border-radius: 4px; border: 1px solid #e2e8f0;">${val}</code>`;
+        return `<code style="font-family: monospace; font-size: 7.5pt; font-weight: 700; color: #1e293b; background: #f8fafc; padding: 1px 4px; border-radius: 4px; border: 1px solid #e2e8f0;">${val}</code>`;
       }
 
       return String(val);
     };
 
-    // Construir tabla HTML
     const tableHeadersHtml = columns.map(c => `
-      <th style="padding: 7px 6px; text-align: left; font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #334155; border-bottom: 2px solid #cbd5e1; background: #f1f5f9;">
+      <th style="padding: 6px 6px; text-align: left; font-size: 7.2pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #334155; border-bottom: 2px solid #cbd5e1; background: #f1f5f9;">
         ${c.label}
       </th>
     `).join('');
 
-    const tableRowsHtml = rows.map((r, idx) => {
-      const bg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
-      const cells = columns.map(c => `
-        <td style="padding: 5px 6px; font-size: 7.5pt; color: #1e293b; border-bottom: 1px solid #e2e8f0; vertical-align: middle;">
-          ${renderCellContent(c.id, r[c.id])}
-        </td>
-      `).join('');
-      return `<tr style="background: ${bg}; page-break-inside: avoid;">${cells}</tr>`;
-    }).join('');
+    // Dividir filas en páginas para garantizar renderizado nítido y encabezados en cada página
+    const firstPageMaxRows = isLandscape ? 18 : 25;
+    const nextPageMaxRows = isLandscape ? 22 : 31;
+    const pageChunks = [];
 
-    container.innerHTML = `
-      <div style="width: 100%; box-sizing: border-box;">
-        <!-- Header Corporativo -->
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 14px;">
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <img src="assets/logo.png" onerror="this.src='https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350'" alt="STOCKA" style="height: 38px; object-fit: contain;">
-            <div>
-              <h2 style="margin: 0; font-size: 13pt; font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 0.02em;">${title}</h2>
-              <div style="font-size: 8pt; color: #64748b; margin-top: 2px;">STOCKA WMS • Logística y Gestión de Bodega Inteligente</div>
-            </div>
-          </div>
-          <div style="text-align: right; font-size: 7.8pt; color: #475569;">
-            <div><strong style="color: #0f172a;">Comercio:</strong> ${commerce || 'Todos'}</div>
-            <div><strong>Emisión:</strong> ${safeDate}</div>
-            <div><strong>Orientación:</strong> ${finalOrientation === 'landscape' ? 'Horizontal (Apaisada)' : 'Vertical'}</div>
-          </div>
-        </div>
+    if (rows.length === 0) {
+      pageChunks.push({ rows: [], startIdx: 0 });
+    } else {
+      let cursor = 0;
+      pageChunks.push({
+        rows: rows.slice(cursor, cursor + firstPageMaxRows),
+        startIdx: cursor
+      });
+      cursor += firstPageMaxRows;
+      while (cursor < rows.length) {
+        pageChunks.push({
+          rows: rows.slice(cursor, cursor + nextPageMaxRows),
+          startIdx: cursor
+        });
+        cursor += nextPageMaxRows;
+      }
+    }
 
+    const totalPages = pageChunks.length;
+    const whDisplay = warehouseLabel || 'Todas las Bodegas';
+
+    // Crear contenedor raíz fuera de pantalla (los hijos que se pasan a html2pdf NO tienen left: -9999px)
+    const renderRoot = document.createElement('div');
+    renderRoot.id = 'wms-export-pdf-temp-root';
+    renderRoot.style.cssText = 'position: fixed; top: -99999px; left: -99999px; z-index: -9999; background: #ffffff; color: #0f172a;';
+
+    const pagesHtml = pageChunks.map((chunk, pageIndex) => {
+      const isFirstPage = pageIndex === 0;
+      const chunkRowsHtml = chunk.rows.length > 0
+        ? chunk.rows.map((r, idx) => {
+            const globalIdx = chunk.startIdx + idx;
+            const bg = globalIdx % 2 === 0 ? '#ffffff' : '#f8fafc';
+            const cells = columns.map(c => `
+              <td style="padding: 5px 6px; font-size: 7.3pt; color: #1e293b; border-bottom: 1px solid #e2e8f0; vertical-align: middle; line-height: 1.25;">
+                ${renderCellContent(c.id, r[c.id])}
+              </td>
+            `).join('');
+            return `<tr style="background: ${bg};">${cells}</tr>`;
+          }).join('')
+        : `<tr><td colspan="${columns.length}" style="padding: 16px; text-align: center; color: #64748b; font-size: 8pt;">Sin registros para mostrar</td></tr>`;
+
+      const kpiSectionHtml = isFirstPage ? `
         <!-- Tarjetas Resumen KPIs -->
-        <div style="display: flex; gap: 12px; margin-bottom: 14px;">
+        <div style="display: flex; gap: 12px; margin-bottom: 12px;">
           <div style="flex: 1; padding: 8px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
-            <div style="font-size: 7pt; font-weight: 700; text-transform: uppercase; color: #64748b;">${kpi1Label}</div>
+            <div style="font-size: 6.8pt; font-weight: 700; text-transform: uppercase; color: #64748b;">${kpi1Label}</div>
             <div style="font-size: 11pt; font-weight: 800; color: #2563eb; margin-top: 2px;">${kpi1Val.toLocaleString('es-CL')}</div>
           </div>
           <div style="flex: 1; padding: 8px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
-            <div style="font-size: 7pt; font-weight: 700; text-transform: uppercase; color: #64748b;">${kpi2Label}</div>
+            <div style="font-size: 6.8pt; font-weight: 700; text-transform: uppercase; color: #64748b;">${kpi2Label}</div>
             <div style="font-size: 11pt; font-weight: 800; color: #10b981; margin-top: 2px;">${kpi2Val.toLocaleString('es-CL')}</div>
           </div>
           <div style="flex: 1; padding: 8px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
-            <div style="font-size: 7pt; font-weight: 700; text-transform: uppercase; color: #64748b;">${kpi3Label}</div>
+            <div style="font-size: 6.8pt; font-weight: 700; text-transform: uppercase; color: #64748b;">${kpi3Label}</div>
             <div style="font-size: 11pt; font-weight: 800; color: #6366f1; margin-top: 2px;">${kpi3Val.toLocaleString('es-CL')}</div>
           </div>
+          <div style="flex: 1; padding: 8px 12px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px;">
+            <div style="font-size: 6.8pt; font-weight: 700; text-transform: uppercase; color: #1d4ed8;">Alcance Bodega</div>
+            <div style="font-size: 9.5pt; font-weight: 800; color: #1e3a8a; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${whDisplay}</div>
+          </div>
         </div>
+      ` : '';
 
-        <!-- Tabla Principal -->
-        <table style="width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; margin-bottom: 14px;">
-          <thead>
-            <tr>${tableHeadersHtml}</tr>
-          </thead>
-          <tbody>
-            ${tableRowsHtml}
-          </tbody>
-        </table>
+      return `
+        <div class="wms-pdf-export-page" style="position: relative; width: ${pageWidthPx}px; min-height: ${pageMinHeightPx}px; background: #ffffff; color: #0f172a; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 22px 26px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between;">
+          <div style="width: 100%; box-sizing: border-box;">
+            <!-- Header Corporativo -->
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #2563eb; padding-bottom: 10px; margin-bottom: 12px;">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <img src="assets/logo.png" onerror="this.onerror=null; this.src='https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350'" alt="STOCKA" style="height: 36px; object-fit: contain;">
+                <div>
+                  <h2 style="margin: 0; font-size: 12.5pt; font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 0.02em;">${title}</h2>
+                  <div style="font-size: 7.8pt; color: #64748b; margin-top: 2px;">STOCKA WMS • Logística y Gestión de Bodega Inteligente</div>
+                </div>
+              </div>
+              <div style="text-align: right; font-size: 7.5pt; color: #475569; line-height: 1.35;">
+                <div><strong style="color: #0f172a;">Comercio:</strong> ${commerce || 'Todos'}</div>
+                <div><strong style="color: #0f172a;">Bodega:</strong> ${whDisplay}</div>
+                <div><strong>Emisión:</strong> ${safeDate}</div>
+              </div>
+            </div>
 
-        <!-- Footer -->
-        <div style="border-top: 1px solid #e2e8f0; padding-top: 8px; font-size: 7pt; color: #94a3b8; display: flex; justify-content: space-between; align-items: center;">
-          <span>STOCKA WMS • Documento oficial generado digitalmente • Validez para auditoría física y de catálogo</span>
-          <span>Página 1 de 1</span>
+            ${kpiSectionHtml}
+
+            <!-- Tabla Principal -->
+            <table style="width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; margin-bottom: 10px;">
+              <thead>
+                <tr>${tableHeadersHtml}</tr>
+              </thead>
+              <tbody>
+                ${chunkRowsHtml}
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Footer -->
+          <div style="border-top: 1px solid #e2e8f0; padding-top: 7px; font-size: 7pt; color: #94a3b8; display: flex; justify-content: space-between; align-items: center; margin-top: auto;">
+            <span>STOCKA WMS • Documento oficial generado digitalmente • Comercio: ${commerce || 'Todos'} • Bodega: ${whDisplay}</span>
+            <span style="font-weight: 700; color: #64748b;">Página ${pageIndex + 1} de ${totalPages}</span>
+          </div>
         </div>
-      </div>
-    `;
+      `;
+    }).join('');
 
-    document.body.appendChild(container);
+    renderRoot.innerHTML = pagesHtml;
+    document.body.appendChild(renderRoot);
 
     const safeFilename = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
-    const opt = {
-      margin: [7, 8, 7, 8],
-      filename: safeFilename,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, logging: false },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: finalOrientation },
-      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-    };
 
     Swal.fire({
       title: 'Generando Reporte PDF...',
-      text: 'Por favor espera un momento mientras se renderiza el documento de alta resolución...',
+      html: `<div style="font-size: 0.9rem; color: #475569;">Renderizando documento de alta resolución (<strong id="wms-export-pdf-progress">1 de ${totalPages}</strong>)...</div>`,
       allowOutsideClick: false,
       didOpen: () => { Swal.showLoading(); }
     });
 
     try {
-      await html2pdf().from(container).set(opt).save();
+      // Esperar a que carguen las imágenes del logo antes de capturar con html2canvas
+      const imgs = Array.from(renderRoot.querySelectorAll('img'));
+      if (imgs.length > 0) {
+        await new Promise(resolve => {
+          let loaded = 0;
+          let done = false;
+          const finish = () => {
+            if (!done) {
+              done = true;
+              resolve();
+            }
+          };
+          const timer = setTimeout(finish, 1500);
+          imgs.forEach(img => {
+            if (img.complete && img.naturalWidth > 0) {
+              loaded++;
+              if (loaded >= imgs.length) {
+                clearTimeout(timer);
+                finish();
+              }
+            } else {
+              img.onload = img.onerror = () => {
+                loaded++;
+                if (loaded >= imgs.length) {
+                  clearTimeout(timer);
+                  finish();
+                }
+              };
+            }
+          });
+        });
+      }
+
+      const pageEls = Array.from(renderRoot.querySelectorAll('.wms-pdf-export-page'));
+      const baseOpt = {
+        margin: 0,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          scrollY: 0,
+          scrollX: 0,
+          logging: false,
+          backgroundColor: '#ffffff'
+        },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: finalOrientation }
+      };
+
+      const dummy = document.createElement('div');
+      dummy.style.cssText = 'width: 10px; height: 10px; background: #ffffff;';
+      const pdf = await html2pdf().set(baseOpt).from(dummy).toPdf().get('pdf');
+
+      for (let i = 0; i < pageEls.length; i++) {
+        const progEl = document.getElementById('wms-export-pdf-progress');
+        if (progEl) progEl.textContent = `${i + 1} de ${pageEls.length}`;
+
+        const canvas = await html2pdf().set(baseOpt).from(pageEls[i]).toCanvas().get('canvas');
+        const imgData = canvas.toDataURL('image/jpeg', 0.98);
+        if (i > 0) {
+          pdf.addPage('a4', finalOrientation);
+        }
+        pdf.addImage(imgData, 'JPEG', 0, 0, pageWidthMm, pageHeightMm);
+      }
+
+      pdf.save(safeFilename);
       Swal.close();
     } catch (err) {
       console.error('Error generando PDF:', err);
       Swal.fire('Error', 'No se pudo generar el documento PDF: ' + err.message, 'error');
     } finally {
-      container.remove();
+      renderRoot.remove();
     }
   }
 
@@ -739,6 +846,72 @@
     },
 
     /**
+     * Obtiene la lista de bodegas disponibles para el selector de exportación
+     */
+    getAvailableWarehouses(options = {}) {
+      if (typeof options.getWarehouses === 'function') {
+        const list = options.getWarehouses();
+        if (Array.isArray(list) && list.length > 0) return list;
+      }
+      if (Array.isArray(window.allWarehousesList) && window.allWarehousesList.length > 0) {
+        return window.allWarehousesList;
+      }
+      return [];
+    },
+
+    /**
+     * Resuelve el nombre legible de la bodega según el filtro seleccionado
+     */
+    getWarehouseLabel(warehouseMode, options = {}) {
+      if (!warehouseMode || warehouseMode === 'all_flat') {
+        return 'Todas las Bodegas (Desglosado)';
+      }
+      if (warehouseMode === 'consolidated') {
+        return 'Todas las Bodegas (Consolidado)';
+      }
+      const warehouses = this.getAvailableWarehouses(options);
+      const found = warehouses.find(w => String(w.id) === String(warehouseMode) || w.name === warehouseMode);
+      return found ? found.name : String(warehouseMode);
+    },
+
+    /**
+     * Obtiene los datos de inventario filtrados por bodega específica, consolidado o desglosado
+     */
+    resolveInventoryData(options, warehouseMode = 'all_flat', scope = 'filtered', onlyWithStock = false) {
+      let rows = [];
+
+      if (typeof options.getDataByWarehouse === 'function') {
+        rows = options.getDataByWarehouse(warehouseMode, scope, onlyWithStock) || [];
+      } else {
+        if (scope === 'selected' && typeof options.getSelectedData === 'function') {
+          rows = options.getSelectedData() || [];
+        } else if (scope === 'all' && typeof options.getAllData === 'function') {
+          rows = options.getAllData() || [];
+        } else if (typeof options.getFilteredData === 'function') {
+          rows = options.getFilteredData() || [];
+        }
+
+        if (warehouseMode && warehouseMode !== 'all_flat' && warehouseMode !== 'consolidated') {
+          const whLabel = this.getWarehouseLabel(warehouseMode, options);
+          rows = rows.filter(r =>
+            String(r.warehouse_id) === String(warehouseMode) ||
+            (r.warehouse && r.warehouse.toLowerCase().trim() === whLabel.toLowerCase().trim())
+          );
+        }
+      }
+
+      if (onlyWithStock && options.moduleType === 'inventory') {
+        rows = rows.filter(r =>
+          Number(r.physical || 0) > 0 ||
+          Number(r.committed || 0) > 0 ||
+          Number(r.reserved || 0) > 0
+        );
+      }
+
+      return rows;
+    },
+
+    /**
      * Construye e inyecta el botón Dropdown de exportación en el contenedor especificado
      */
     renderDropdown(containerId, options) {
@@ -747,16 +920,33 @@
       if (!container) return;
 
       const moduleType = options.moduleType; // 'inventory' | 'catalog'
-      const schema = moduleType === 'inventory' ? INVENTORY_SCHEMA : CATALOG_SCHEMA;
+      const isInv = moduleType === 'inventory';
+
+      const warehouseSelectorBlockHtml = isInv ? `
+        <div class="wms-export-wh-filter-box" style="padding: 0.5rem 0.6rem; background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px; margin-bottom: 0.4rem;">
+          <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-primary, #2563eb); margin-bottom: 0.3rem;">
+            <i class="ri-building-2-line"></i> Bodega a Exportar
+          </label>
+          <select class="wms-export-wh-select" style="width: 100%; height: 32px; font-size: 0.8rem; font-weight: 600; padding: 0 0.45rem; border-radius: 6px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #ffffff); color: var(--color-text-main, #0f172a); cursor: pointer;">
+            <option value="all_flat">Todas las Bodegas (Desglosado)</option>
+            <option value="consolidated">Todas las Bodegas (Consolidado)</option>
+          </select>
+          <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.74rem; color: var(--color-text-muted, #64748b); margin-top: 0.35rem; cursor: pointer; user-select: none;">
+            <input type="checkbox" class="wms-export-wh-onlystock" style="width: 13px; height: 13px; accent-color: var(--color-primary, #2563eb); cursor: pointer;">
+            <span>Solo productos con unidades (&gt; 0)</span>
+          </label>
+        </div>
+      ` : '';
 
       container.innerHTML = `
         <div class="wms-export-dropdown" id="dropdown-${moduleType}-export">
           <button type="button" class="wms-export-btn" id="btn-${moduleType}-export-toggle" title="Exportar información en Excel, PDF o CSV">
             <i class="ri-download-2-line"></i>
-            <span>Exportar</span>
+            <span class="wms-export-btn-label">Exportar</span>
             <i class="ri-arrow-down-s-line"></i>
           </button>
-          <div class="wms-export-menu">
+          <div class="wms-export-menu" style="${isInv ? 'min-width: 285px;' : ''}">
+            ${warehouseSelectorBlockHtml}
             <div class="wms-export-section-title">
               <i class="ri-file-excel-2-line" style="color: #107c41;"></i> Excel (.xlsx)
             </div>
@@ -791,7 +981,7 @@
 
             <div class="wms-export-divider"></div>
             <button type="button" class="wms-export-item highlight-custom" data-action="open-custom-modal">
-              <i class="ri-equalizer-line"></i> Personalizar Columnas...
+              <i class="ri-equalizer-line"></i> Personalizar / Exportar por Bodega...
             </button>
           </div>
         </div>
@@ -799,13 +989,51 @@
 
       const dropdownEl = container.querySelector('.wms-export-dropdown');
       const toggleBtn = container.querySelector('.wms-export-btn');
+      const whSelectEl = container.querySelector('.wms-export-wh-select');
+      const onlyStockCb = container.querySelector('.wms-export-wh-onlystock');
+
+      const syncDropdownWarehouses = () => {
+        if (!isInv || !whSelectEl) return;
+        const warehouses = this.getAvailableWarehouses(options);
+        const activeViewWh = typeof options.getSelectedWarehouse === 'function' ? (options.getSelectedWarehouse() || '') : '';
+        const prevVal = whSelectEl.value;
+
+        let optsHtml = `
+          <option value="all_flat">Todas las Bodegas (Desglosado)</option>
+          <option value="consolidated">Todas las Bodegas (Consolidado)</option>
+        `;
+        if (warehouses.length > 0) {
+          optsHtml += `<optgroup label="Exportar Bodega Específica">`;
+          warehouses.forEach(w => {
+            optsHtml += `<option value="${w.id}">📍 ${w.name}</option>`;
+          });
+          optsHtml += `</optgroup>`;
+        }
+        whSelectEl.innerHTML = optsHtml;
+
+        if (activeViewWh && warehouses.some(w => String(w.id) === String(activeViewWh))) {
+          whSelectEl.value = String(activeViewWh);
+        } else if (prevVal && Array.from(whSelectEl.options).some(o => o.value === prevVal)) {
+          whSelectEl.value = prevVal;
+        } else {
+          whSelectEl.value = 'all_flat';
+        }
+      };
 
       toggleBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         const isOpen = dropdownEl.classList.contains('open');
         document.querySelectorAll('.wms-export-dropdown.open').forEach(el => el.classList.remove('open'));
-        if (!isOpen) dropdownEl.classList.add('open');
+        if (!isOpen) {
+          syncDropdownWarehouses();
+          dropdownEl.classList.add('open');
+        }
       });
+
+      const filterBox = container.querySelector('.wms-export-wh-filter-box');
+      if (filterBox) {
+        filterBox.addEventListener('click', (e) => e.stopPropagation());
+      }
 
       // Delegación de acciones de exportación rápida y modal
       const menu = container.querySelector('.wms-export-menu');
@@ -815,13 +1043,15 @@
 
         dropdownEl.classList.remove('open');
         const action = item.getAttribute('data-action');
+        const chosenWh = isInv && whSelectEl ? whSelectEl.value : 'all_flat';
+        const onlyStock = isInv && onlyStockCb ? !!onlyStockCb.checked : false;
 
         if (action === 'open-custom-modal') {
-          this.openCustomExportModal(options);
+          this.openCustomExportModal(options, chosenWh, onlyStock);
         } else if (action === 'export') {
           const format = item.getAttribute('data-format');
           const mode = item.getAttribute('data-mode'); // 'simple' | 'full'
-          this.executeQuickExport(options, format, mode);
+          this.executeQuickExport(options, format, mode, chosenWh, onlyStock);
         }
       });
     },
@@ -829,37 +1059,49 @@
     /**
      * Muestra la alerta y recomendación previa a exportar el inventario cuando moduleType === 'inventory'
      */
-    async confirmInventoryExportWarning(options = {}) {
+    async confirmInventoryExportWarning(options = {}, targetRows = null, warehouseLabel = '') {
       if (options.moduleType !== 'inventory') return true;
       if (typeof Swal === 'undefined') return true;
 
-      let allRows = [];
-      try {
-        if (typeof options.getAllData === 'function') {
-          allRows = options.getAllData() || [];
-        } else if (typeof options.getFilteredData === 'function') {
-          allRows = options.getFilteredData() || [];
+      let allRows = Array.isArray(targetRows) ? targetRows : [];
+      if (allRows.length === 0) {
+        try {
+          if (typeof options.getAllData === 'function') {
+            allRows = options.getAllData() || [];
+          } else if (typeof options.getFilteredData === 'function') {
+            allRows = options.getFilteredData() || [];
+          }
+        } catch (e) {
+          allRows = [];
         }
-      } catch (e) {
-        allRows = [];
       }
 
       let totalCommitted = 0;
       let totalReserved = 0;
-      let skusInMovement = 0;
+      const skusInMovementSet = new Set();
       allRows.forEach(r => {
         const c = Number(r.committed ?? r.committed_quantity ?? 0) || 0;
         const m = Number(r.reserved ?? r.reserved_quantity ?? 0) || 0;
         totalCommitted += c;
         totalReserved += m;
-        if (c > 0 || m > 0) skusInMovement++;
+        if (c > 0 || m > 0) {
+          skusInMovementSet.add(r.id || r.sku || Math.random());
+        }
       });
+      const skusInMovement = skusInMovementSet.size;
+
+      const whBannerHtml = warehouseLabel
+        ? `<div style="margin-bottom: 0.65rem; padding: 0.45rem 0.75rem; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; font-size: 0.83rem; color: #1e3a8a; display: flex; align-items: center; gap: 0.4rem;">
+             <i class="ri-building-2-line" style="font-size: 1rem; color: #2563eb;"></i>
+             <span>Alcance de Bodega a exportar: <strong>${warehouseLabel}</strong></span>
+           </div>`
+        : '';
 
       const liveMetricsHtml = (totalCommitted > 0 || totalReserved > 0)
         ? `
           <div style="margin: 0.75rem 0; padding: 0.65rem 0.8rem; background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 6px; font-size: 0.82rem; color: #92400e;">
             <div style="font-weight: 700; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.35rem;">
-              <i class="ri-pulse-line" style="font-size: 1rem; color: #d97706;"></i> Estado en vivo detectado en tu inventario (${skusInMovement} SKU${skusInMovement === 1 ? '' : 's'} con flujo activo):
+              <i class="ri-pulse-line" style="font-size: 1rem; color: #d97706;"></i> Estado en vivo detectado (${skusInMovement} SKU${skusInMovement === 1 ? '' : 's'} con flujo activo):
             </div>
             <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.2rem;">
               <span>• <strong>En procesamiento (Comprometido):</strong> ${totalCommitted} un.</span>
@@ -875,6 +1117,7 @@
         width: '620px',
         html: `
           <div style="text-align: left; font-size: 0.88rem; line-height: 1.55; color: var(--color-text-main, #1e293b);">
+            ${whBannerHtml}
             <p style="margin-top: 0;">
               Ten en consideración que al exportar tus datos de inventario pueden existir <strong>unidades en procesamiento</strong>, <strong>en mesón de preparación</strong> o <strong>en camino a ser procesadas por couriers (centros de distribución)</strong>, lo cual altera las unidades físicamente disponibles en bodega en este instante.
             </p>
@@ -901,29 +1144,39 @@
     },
 
     /**
-     * Ejecuta una exportación rápida con preset Simple o Full
+     * Ejecuta una exportación rápida con preset Simple o Full (soportando filtro por bodega)
      */
-    async executeQuickExport(options, format, mode) {
+    async executeQuickExport(options, format, mode, warehouseMode = 'all_flat', onlyWithStock = false) {
       const moduleType = options.moduleType;
-      if (moduleType === 'inventory') {
-        const confirmed = await this.confirmInventoryExportWarning(options);
-        if (!confirmed) return;
-      }
-      const schema = moduleType === 'inventory' ? INVENTORY_SCHEMA : CATALOG_SCHEMA;
+      const isInv = moduleType === 'inventory';
+      const schema = isInv ? INVENTORY_SCHEMA : CATALOG_SCHEMA;
       const commerce = options.getCommerce ? options.getCommerce() : 'comercio';
+      const warehouseLabel = isInv ? this.getWarehouseLabel(warehouseMode, options) : '';
 
-      // Obtener datos (por defecto los filtrados actualmente o todos)
+      // Obtener datos según bodega y filtros
       let rawData = [];
-      if (typeof options.getFilteredData === 'function') {
-        rawData = options.getFilteredData();
-      }
-      if ((!rawData || rawData.length === 0) && typeof options.getAllData === 'function') {
-        rawData = options.getAllData();
+      if (isInv) {
+        rawData = this.resolveInventoryData(options, warehouseMode, 'filtered', onlyWithStock);
+        if (!rawData || rawData.length === 0) {
+          rawData = this.resolveInventoryData(options, warehouseMode, 'all', onlyWithStock);
+        }
+      } else {
+        if (typeof options.getFilteredData === 'function') {
+          rawData = options.getFilteredData();
+        }
+        if ((!rawData || rawData.length === 0) && typeof options.getAllData === 'function') {
+          rawData = options.getAllData();
+        }
       }
 
       if (!rawData || rawData.length === 0) {
-        Swal.fire('Sin registros', 'No hay registros disponibles para exportar con los filtros actuales.', 'info');
+        Swal.fire('Sin registros', 'No hay registros disponibles para exportar con los filtros y bodega seleccionados.', 'info');
         return;
+      }
+
+      if (isInv) {
+        const confirmed = await this.confirmInventoryExportWarning(options, rawData, warehouseLabel);
+        if (!confirmed) return;
       }
 
       // Normalizar filas
@@ -934,20 +1187,30 @@
 
       const dateTag = new Date().toISOString().slice(0, 10);
       const safeCommerce = (commerce || 'comercio').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
-      const filename = `${schema.filenamePrefix}_${mode}_${safeCommerce}_${dateTag}`;
+      const isSpecificWh = isInv && warehouseMode && warehouseMode !== 'all_flat' && warehouseMode !== 'consolidated';
+      const safeWhSuffix = isSpecificWh
+        ? `_${warehouseLabel.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()}`
+        : (warehouseMode === 'consolidated' ? '_consolidado' : '');
+      const filename = `${schema.filenamePrefix}_${mode}_${safeCommerce}${safeWhSuffix}_${dateTag}`;
+
+      const reportTitle = isSpecificWh
+        ? `${schema.title} - ${warehouseLabel} (${mode === 'full' ? 'Completo' : 'Básico'})`
+        : `${schema.title} (${mode === 'full' ? 'Completo' : 'Básico'})`;
 
       if (format === 'xlsx') {
         exportToExcel({
-          title: `${schema.title} (${mode === 'full' ? 'Completo' : 'Básico'})`,
+          title: reportTitle,
           commerce,
+          warehouseLabel,
           columns,
           rows: normalizedRows,
           filename
         });
       } else if (format === 'pdf') {
         exportToPdf({
-          title: `${schema.title} (${mode === 'full' ? 'Completo' : 'Básico'})`,
+          title: reportTitle,
           commerce,
+          warehouseLabel,
           columns,
           rows: normalizedRows,
           filename,
@@ -965,14 +1228,19 @@
     /**
      * Abre el modal interactivo de exportación personalizada ("A pedido del usuario")
      */
-    async openCustomExportModal(options) {
+    async openCustomExportModal(options, preselectedWarehouseMode = null, preselectedOnlyStock = false) {
       const moduleType = options.moduleType;
-      if (moduleType === 'inventory') {
-        const confirmed = await this.confirmInventoryExportWarning(options);
+      const isInv = moduleType === 'inventory';
+      const schema = isInv ? INVENTORY_SCHEMA : CATALOG_SCHEMA;
+      const commerce = options.getCommerce ? options.getCommerce() : 'comercio';
+
+      if (isInv) {
+        const activeWh = preselectedWarehouseMode || (typeof options.getSelectedWarehouse === 'function' ? options.getSelectedWarehouse() : '') || 'all_flat';
+        const whLabel = this.getWarehouseLabel(activeWh, options);
+        const previewRows = this.resolveInventoryData(options, activeWh, 'filtered', preselectedOnlyStock);
+        const confirmed = await this.confirmInventoryExportWarning(options, previewRows, whLabel);
         if (!confirmed) return;
       }
-      const schema = moduleType === 'inventory' ? INVENTORY_SCHEMA : CATALOG_SCHEMA;
-      const commerce = options.getCommerce ? options.getCommerce() : 'comercio';
 
       let modal = document.getElementById('wms-custom-export-modal');
       if (!modal) {
@@ -982,14 +1250,10 @@
         document.body.appendChild(modal);
       }
 
-      // Conteo de registros disponibles
-      const allData = typeof options.getAllData === 'function' ? (options.getAllData() || []) : [];
-      const filteredData = typeof options.getFilteredData === 'function' ? (options.getFilteredData() || []) : [];
-      const selectedData = typeof options.getSelectedData === 'function' ? (options.getSelectedData() || []) : [];
-
-      const totalCount = allData.length;
-      const filteredCount = filteredData.length;
-      const selectedCount = selectedData.length;
+      const warehouses = isInv ? this.getAvailableWarehouses(options) : [];
+      const initialWhMode = isInv
+        ? (preselectedWarehouseMode || (typeof options.getSelectedWarehouse === 'function' && options.getSelectedWarehouse() ? String(options.getSelectedWarehouse()) : 'all_flat'))
+        : 'all_flat';
 
       // HTML de checkboxes de columnas
       const columnsCheckboxesHtml = schema.fields.map(col => `
@@ -998,6 +1262,30 @@
           <span>${col.label}</span>
         </label>
       `).join('');
+
+      const warehouseSectionHtml = isInv ? `
+        <!-- Selección de Bodega -->
+        <div style="background: rgba(37, 99, 235, 0.04); border: 1px solid rgba(37, 99, 235, 0.2); border-radius: 10px; padding: 0.85rem 1rem;">
+          <label style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; font-size: 0.88rem; margin-bottom: 0.5rem; color: var(--color-primary, #2563eb);">
+            <i class="ri-building-2-line"></i> Bodega a Exportar
+          </label>
+          <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+            <select id="custom-export-wh-select" class="form-input" style="flex: 1; min-width: 240px; height: 38px; font-size: 0.85rem; font-weight: 600; border-radius: 8px; border: 1px solid var(--color-border, #cbd5e1); padding: 0 0.75rem; background: var(--color-surface, #ffffff); color: var(--color-text-main, #0f172a); cursor: pointer;">
+              <option value="all_flat" ${initialWhMode === 'all_flat' ? 'selected' : ''}>Todas las Bodegas (Desglosado por bodega)</option>
+              <option value="consolidated" ${initialWhMode === 'consolidated' ? 'selected' : ''}>Todas las Bodegas (Consolidado total por SKU)</option>
+              ${warehouses.length > 0 ? `
+                <optgroup label="Seleccionar una Bodega Específica">
+                  ${warehouses.map(w => `<option value="${w.id}" ${String(initialWhMode) === String(w.id) ? 'selected' : ''}>📍 Bodega: ${w.name}</option>`).join('')}
+                </optgroup>
+              ` : ''}
+            </select>
+            <label style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; font-weight: 500; color: var(--color-text-main); cursor: pointer; user-select: none;">
+              <input type="checkbox" id="custom-export-wh-onlystock" ${preselectedOnlyStock ? 'checked' : ''} style="width: 15px; height: 15px; accent-color: var(--color-primary, #2563eb); cursor: pointer;">
+              <span>Solo incluir SKUs con unidades (&gt; 0) en la bodega</span>
+            </label>
+          </div>
+        </div>
+      ` : '';
 
       modal.innerHTML = `
         <div class="wms-custom-export-dialog">
@@ -1010,11 +1298,14 @@
           </div>
 
           <div class="wms-custom-export-body">
-            ${moduleType === 'inventory' ? `
+            ${isInv ? `
               <div style="background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; padding: 0.65rem 0.8rem; border-radius: 6px; font-size: 0.78rem; color: #92400e; line-height: 1.4;">
                 <strong><i class="ri-error-warning-line"></i> Nota sobre precisión de stock:</strong> Al exportar pueden existir unidades en procesamiento, en mesón de preparación o en tránsito hacia couriers/centros de distribución, además de pedidos entrantes que comprometen stock al instante. Contacta a nuestro equipo si requieres validar el cierre de procesamiento previo a tu cuadratura.
               </div>
             ` : ''}
+
+            ${warehouseSectionHtml}
+
             <!-- 1. Formato de Salida -->
             <div>
               <label style="display: block; font-weight: 700; font-size: 0.88rem; margin-bottom: 0.5rem; color: var(--color-text-main);">
@@ -1047,15 +1338,15 @@
               <div class="wms-scope-options">
                 <label class="wms-scope-label">
                   <input type="radio" name="export-scope" value="filtered" checked>
-                  <span>Filtrados actualmente (<strong>${filteredCount}</strong>)</span>
+                  <span>Filtrados actualmente (<strong id="lbl-scope-filtered-count">0</strong>)</span>
                 </label>
                 <label class="wms-scope-label">
                   <input type="radio" name="export-scope" value="all">
-                  <span>Todos del catálogo/inventario (<strong>${totalCount}</strong>)</span>
+                  <span>Todos del catálogo/inventario (<strong id="lbl-scope-all-count">0</strong>)</span>
                 </label>
-                <label class="wms-scope-label ${selectedCount === 0 ? 'disabled' : ''}" style="${selectedCount === 0 ? 'opacity: 0.5;' : ''}">
-                  <input type="radio" name="export-scope" value="selected" ${selectedCount === 0 ? 'disabled' : ''}>
-                  <span>Solo seleccionados con casilla (<strong>${selectedCount}</strong>)</span>
+                <label class="wms-scope-label" id="lbl-scope-selected-wrapper">
+                  <input type="radio" name="export-scope" value="selected" id="radio-scope-selected">
+                  <span>Solo seleccionados con casilla (<strong id="lbl-scope-selected-count">0</strong>)</span>
                 </label>
               </div>
             </div>
@@ -1113,6 +1404,58 @@
       `;
 
       modal.classList.add('active');
+
+      const whSelectModal = modal.querySelector('#custom-export-wh-select');
+      const onlyStockModal = modal.querySelector('#custom-export-wh-onlystock');
+
+      const refreshScopeCounts = () => {
+        const whMode = isInv && whSelectModal ? whSelectModal.value : 'all_flat';
+        const onlyStock = isInv && onlyStockModal ? !!onlyStockModal.checked : false;
+
+        let allData = [];
+        let filteredData = [];
+        let selectedData = [];
+
+        if (isInv) {
+          allData = this.resolveInventoryData(options, whMode, 'all', onlyStock);
+          filteredData = this.resolveInventoryData(options, whMode, 'filtered', onlyStock);
+          selectedData = this.resolveInventoryData(options, whMode, 'selected', onlyStock);
+        } else {
+          allData = typeof options.getAllData === 'function' ? (options.getAllData() || []) : [];
+          filteredData = typeof options.getFilteredData === 'function' ? (options.getFilteredData() || []) : [];
+          selectedData = typeof options.getSelectedData === 'function' ? (options.getSelectedData() || []) : [];
+        }
+
+        const lblFiltered = modal.querySelector('#lbl-scope-filtered-count');
+        const lblAll = modal.querySelector('#lbl-scope-all-count');
+        const lblSel = modal.querySelector('#lbl-scope-selected-count');
+        const selWrapper = modal.querySelector('#lbl-scope-selected-wrapper');
+        const selRadio = modal.querySelector('#radio-scope-selected');
+
+        if (lblFiltered) lblFiltered.textContent = filteredData.length;
+        if (lblAll) lblAll.textContent = allData.length;
+        if (lblSel) lblSel.textContent = selectedData.length;
+
+        if (selWrapper && selRadio) {
+          if (selectedData.length === 0) {
+            selWrapper.classList.add('disabled');
+            selWrapper.style.opacity = '0.5';
+            selRadio.disabled = true;
+            if (selRadio.checked) {
+              const filtRadio = modal.querySelector('input[name="export-scope"][value="filtered"]');
+              if (filtRadio) filtRadio.checked = true;
+            }
+          } else {
+            selWrapper.classList.remove('disabled');
+            selWrapper.style.opacity = '1';
+            selRadio.disabled = false;
+          }
+        }
+      };
+
+      refreshScopeCounts();
+      whSelectModal?.addEventListener('change', refreshScopeCounts);
+      onlyStockModal?.addEventListener('change', refreshScopeCounts);
 
       // Control de selección de formato
       let selectedFormat = 'xlsx';
@@ -1180,35 +1523,56 @@
         const selectedColIds = new Set(checkedBoxes.map(cb => cb.getAttribute('data-col-id')));
         const chosenColumns = schema.fields.filter(f => selectedColIds.has(f.id));
 
-        // Obtener filas según alcance (Scope)
         const scopeRadio = modal.querySelector('input[name="export-scope"]:checked');
         const scopeVal = scopeRadio ? scopeRadio.value : 'filtered';
+        const whMode = isInv && whSelectModal ? whSelectModal.value : 'all_flat';
+        const onlyStock = isInv && onlyStockModal ? !!onlyStockModal.checked : false;
+        const warehouseLabel = isInv ? this.getWarehouseLabel(whMode, options) : '';
 
         let targetRawData = [];
-        if (scopeVal === 'selected' && selectedData.length > 0) {
-          targetRawData = selectedData;
-        } else if (scopeVal === 'all' && allData.length > 0) {
-          targetRawData = allData;
+        if (isInv) {
+          targetRawData = this.resolveInventoryData(options, whMode, scopeVal, onlyStock);
+          if (targetRawData.length === 0 && scopeVal === 'filtered') {
+            targetRawData = this.resolveInventoryData(options, whMode, 'all', onlyStock);
+          }
         } else {
-          targetRawData = filteredData.length > 0 ? filteredData : allData;
+          const allData = typeof options.getAllData === 'function' ? (options.getAllData() || []) : [];
+          const filteredData = typeof options.getFilteredData === 'function' ? (options.getFilteredData() || []) : [];
+          const selectedData = typeof options.getSelectedData === 'function' ? (options.getSelectedData() || []) : [];
+          if (scopeVal === 'selected' && selectedData.length > 0) {
+            targetRawData = selectedData;
+          } else if (scopeVal === 'all' && allData.length > 0) {
+            targetRawData = allData;
+          } else {
+            targetRawData = filteredData.length > 0 ? filteredData : allData;
+          }
         }
 
         if (targetRawData.length === 0) {
-          Swal.fire('Sin registros', 'No se encontraron registros para el alcance seleccionado.', 'info');
+          Swal.fire('Sin registros', 'No se encontraron registros para el alcance y bodega seleccionados.', 'info');
           return;
         }
 
         const normalizedRows = targetRawData.map(r => schema.normalizeRow(r, commerce));
         const dateTag = new Date().toISOString().slice(0, 10);
         const safeCommerce = (commerce || 'comercio').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
-        const filename = `${schema.filenamePrefix}_custom_${safeCommerce}_${dateTag}`;
+        const isSpecificWh = isInv && whMode && whMode !== 'all_flat' && whMode !== 'consolidated';
+        const safeWhSuffix = isSpecificWh
+          ? `_${warehouseLabel.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()}`
+          : (whMode === 'consolidated' ? '_consolidado' : '');
+        const filename = `${schema.filenamePrefix}_custom_${safeCommerce}${safeWhSuffix}_${dateTag}`;
+
+        const reportTitle = isSpecificWh
+          ? `${schema.title} - ${warehouseLabel} (Personalizado)`
+          : `${schema.title} (Personalizado)`;
 
         closeModal();
 
         if (selectedFormat === 'xlsx') {
           exportToExcel({
-            title: `${schema.title} (Personalizado)`,
+            title: reportTitle,
             commerce,
+            warehouseLabel,
             columns: chosenColumns,
             rows: normalizedRows,
             filename
@@ -1217,8 +1581,9 @@
           const orientRadio = modal.querySelector('input[name="pdf-orientation"]:checked');
           const orientation = orientRadio ? orientRadio.value : 'auto';
           exportToPdf({
-            title: `${schema.title} (Personalizado)`,
+            title: reportTitle,
             commerce,
+            warehouseLabel,
             columns: chosenColumns,
             rows: normalizedRows,
             filename,

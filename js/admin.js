@@ -23432,6 +23432,7 @@ async function renderAdminInventoryWorkspace(commerce) {
     const selectFields = `
       id,
       sku,
+      barcode,
       name,
       comercio,
       stock_critico,
@@ -23449,6 +23450,7 @@ async function renderAdminInventoryWorkspace(commerce) {
     const selectFallback = `
       id,
       sku,
+      barcode,
       name,
       comercio,
       stock_critico,
@@ -23513,16 +23515,28 @@ async function renderAdminInventoryWorkspace(commerce) {
     window.cachedAdminInventoryProducts = products || [];
 
     workspace.innerHTML = `
+      <!-- Panel de Nivel de Inventario por Bodega -->
+      <div id="admin-warehouse-levels-panel" style="margin-bottom: 1.25rem;"></div>
+
       <div class="card">
         <div class="card-header flex justify-between items-center" style="flex-wrap: wrap; gap: 1rem; padding: 1.25rem 1.5rem;">
           <div>
-            <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">Stock Actual</h3>
+            <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+              <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">Stock Actual</h3>
+              <span id="admin-inv-active-wh-badge" style="display: none;"></span>
+            </div>
             <p style="margin: 0.15rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Visualización, control de alertas y movimientos físicos de stock para <strong>${commerce}</strong>.</p>
           </div>
           <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
             <div style="position: relative;">
               <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
               <input type="text" id="admin-inventory-search" class="form-input" placeholder="Buscar por SKU o nombre..." style="width: 240px; padding-left: 2.25rem; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.adminInventorySearchQuery || ''}">
+            </div>
+            <div>
+              <select id="admin-inventory-warehouse-filter" class="form-input" style="height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; cursor: pointer; font-weight: 600;">
+                <option value="">Todas las Bodegas (Consolidado)</option>
+                ${(window.allWarehousesList || []).map(wh => `<option value="${wh.id}" ${String(window.adminInventoryWarehouseFilter || '') === String(wh.id) ? 'selected' : ''}>Bodega: ${wh.name}</option>`).join('')}
+              </select>
             </div>
             <div>
               <select id="admin-inventory-type-filter" class="form-input" style="height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; cursor: pointer;">
@@ -23648,6 +23662,14 @@ async function renderAdminInventoryWorkspace(commerce) {
       });
     }
 
+    const whFilter = document.getElementById('admin-inventory-warehouse-filter');
+    if (whFilter) {
+      whFilter.addEventListener('change', (e) => {
+        window.adminInventoryWarehouseFilter = e.target.value;
+        renderAdminInventoryTableBody();
+      });
+    }
+
     const typeFilter = document.getElementById('admin-inventory-type-filter');
     if (typeFilter) {
       typeFilter.addEventListener('change', (e) => {
@@ -23687,18 +23709,42 @@ async function renderAdminInventoryWorkspace(commerce) {
 
     // Inicializar dropdown de exportación avanzada (Excel, PDF, CSV)
     if (window.WmsExportManager) {
-      window.WmsExportManager.renderDropdown('admin-inventory-export-container', {
+      window.adminInventoryExportOptions = {
         moduleType: 'inventory',
         getCommerce: () => commerce || window.activeAdminInventoryCommerce || 'comercio',
-        getAllData: () => applyAdminInventoryFiltersAndSort(true, true),
-        getFilteredData: () => applyAdminInventoryFiltersAndSort(true, false),
+        getWarehouses: () => window.allWarehousesList || [],
+        getSelectedWarehouse: () => window.adminInventoryWarehouseFilter || '',
+        getDataByWarehouse: (whId, scope) => {
+          const isAllFlat = !whId || whId === 'all_flat';
+          const isConsolidated = whId === 'consolidated';
+          const targetWh = (isAllFlat || isConsolidated) ? null : whId;
+          const useFlat = isAllFlat;
+          if (scope === 'selected') {
+            const checked = Array.from(document.querySelectorAll('#admin-inventory-tbody .inventory-row-checkbox:checked'));
+            const selectedIds = new Set(checked.map(cb => cb.getAttribute('data-prod-id')));
+            const allRows = applyAdminInventoryFiltersAndSort(useFlat, true, targetWh);
+            return allRows.filter(r => selectedIds.has(r.id));
+          }
+          const ignoreFilters = scope === 'all';
+          return applyAdminInventoryFiltersAndSort(useFlat, ignoreFilters, targetWh);
+        },
+        getAllData: () => {
+          const activeWh = window.adminInventoryWarehouseFilter || null;
+          return applyAdminInventoryFiltersAndSort(!activeWh, true, activeWh);
+        },
+        getFilteredData: () => {
+          const activeWh = window.adminInventoryWarehouseFilter || null;
+          return applyAdminInventoryFiltersAndSort(!activeWh, false, activeWh);
+        },
         getSelectedData: () => {
+          const activeWh = window.adminInventoryWarehouseFilter || null;
           const checked = Array.from(document.querySelectorAll('#admin-inventory-tbody .inventory-row-checkbox:checked'));
           const selectedIds = new Set(checked.map(cb => cb.getAttribute('data-prod-id')));
-          const allRows = applyAdminInventoryFiltersAndSort(true, true);
+          const allRows = applyAdminInventoryFiltersAndSort(!activeWh, true, activeWh);
           return allRows.filter(r => selectedIds.has(r.id));
         }
-      });
+      };
+      window.WmsExportManager.renderDropdown('admin-inventory-export-container', window.adminInventoryExportOptions);
     }
 
     const bulkStockBtn = document.getElementById('btn-admin-bulk-stock-assign');
@@ -23830,17 +23876,290 @@ async function renderAdminInventoryWorkspace(commerce) {
   }
 }
 
+function renderAdminWarehouseLevelsPanel() {
+  const panel = document.getElementById('admin-warehouse-levels-panel');
+  if (!panel) return;
+
+  const warehouses = window.allWarehousesList || [];
+  const products = (window.cachedAdminInventoryProducts || []).filter(p => p.status !== 'archived');
+  const activeWhId = String(window.adminInventoryWarehouseFilter || '');
+
+  // Calcular totales globales y por bodega
+  let globalPhysical = 0;
+  let globalAvailable = 0;
+  let globalShelf = 0;
+  let globalReserved = 0;
+  let globalCommitted = 0;
+  const globalSkusWithStock = new Set();
+
+  const whStatsMap = {};
+  warehouses.forEach(wh => {
+    whStatsMap[String(wh.id)] = {
+      id: wh.id,
+      name: wh.name,
+      physical: 0,
+      available: 0,
+      shelf: 0,
+      reserved: 0,
+      committed: 0,
+      skusWithStock: 0,
+      totalSkus: products.length
+    };
+  });
+
+  products.forEach(prod => {
+    const invList = prod.inventory || [];
+    let prodHasGlobalStock = false;
+
+    invList.forEach(inv => {
+      const wId = String(inv.warehouse_id || '');
+      const phys = inv.quantity || 0;
+      const comm = inv.committed_quantity || 0;
+      const res = inv.reserved_quantity || 0;
+      const avail = phys - comm - res;
+      const shelf = Math.max(0, phys - res);
+
+      globalPhysical += phys;
+      globalAvailable += avail;
+      globalShelf += shelf;
+      globalReserved += res;
+      globalCommitted += comm;
+      if (phys > 0) prodHasGlobalStock = true;
+
+      if (whStatsMap[wId]) {
+        whStatsMap[wId].physical += phys;
+        whStatsMap[wId].available += avail;
+        whStatsMap[wId].shelf += shelf;
+        whStatsMap[wId].reserved += res;
+        whStatsMap[wId].committed += comm;
+        if (phys > 0) whStatsMap[wId].skusWithStock += 1;
+      }
+    });
+
+    if (prodHasGlobalStock) globalSkusWithStock.add(prod.id);
+  });
+
+  const whStatsList = Object.values(whStatsMap);
+
+  // Actualizar badge activo en el título
+  const activeBadge = document.getElementById('admin-inv-active-wh-badge');
+  if (activeBadge) {
+    if (activeWhId && whStatsMap[activeWhId]) {
+      const whName = whStatsMap[activeWhId].name;
+      activeBadge.style.display = 'inline-flex';
+      activeBadge.innerHTML = `
+        <span style="display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(79, 70, 229, 0.12); color: var(--color-primary); border: 1px solid rgba(79, 70, 229, 0.3); padding: 0.2rem 0.65rem; border-radius: 999px; font-size: 0.8rem; font-weight: 700;">
+          <i class="ri-Filter-3-line"></i> Viendo: ${whName}
+          <button type="button" id="btn-admin-clear-wh-filter-badge" title="Volver a Todas las Bodegas" style="background: none; border: none; color: var(--color-primary); cursor: pointer; padding: 0; display: inline-flex; align-items: center; font-size: 0.95rem;">
+            <i class="ri-close-circle-fill"></i>
+          </button>
+        </span>
+      `;
+    } else {
+      activeBadge.style.display = 'none';
+      activeBadge.innerHTML = '';
+    }
+  }
+
+  const onlyWithStockFilter = window.adminInventoryWarehouseOnlyWithUnits === true;
+
+  let cardsHtml = `
+    <!-- Card Consolidado Todas las Bodegas -->
+    <div class="admin-wh-level-card" data-wh-id="" style="cursor: pointer; border-radius: var(--radius-md); padding: 0.9rem 1rem; background: ${!activeWhId ? 'linear-gradient(135deg, rgba(79, 70, 229, 0.09) 0%, rgba(59, 130, 246, 0.05) 100%)' : 'var(--color-surface)'}; border: ${!activeWhId ? '2px solid var(--color-primary)' : '1px solid var(--color-border)'}; box-shadow: ${!activeWhId ? '0 4px 12px rgba(79, 70, 229, 0.12)' : 'var(--shadow-sm)'}; transition: all 0.18s ease; display: flex; flex-direction: column; justify-content: space-between; gap: 0.6rem;">
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(79, 70, 229, 0.12); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0;">
+            <i class="ri-stack-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); line-height: 1.2;">Todas las Bodegas</div>
+            <div style="font-size: 0.72rem; color: var(--color-text-muted);">Consolidado Global (${warehouses.length} ${warehouses.length === 1 ? 'bodega' : 'bodegas'})</div>
+          </div>
+        </div>
+        ${!activeWhId ? '<span style="font-size: 0.68rem; font-weight: 700; background: var(--color-primary); color: #fff; padding: 2px 7px; border-radius: 99px; text-transform: uppercase;">Activa</span>' : ''}
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; background: var(--color-bg); padding: 0.5rem 0.6rem; border-radius: 6px; border: 1px solid var(--color-border);">
+        <div>
+          <div style="font-size: 0.65rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600;">Disp. Total</div>
+          <div style="font-size: 1.05rem; font-weight: 800; color: var(--color-success);">${globalAvailable.toLocaleString('es-CL')}</div>
+        </div>
+        <div>
+          <div style="font-size: 0.65rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600;">Físico Total</div>
+          <div style="font-size: 1.05rem; font-weight: 800; color: var(--color-text-main);">${globalPhysical.toLocaleString('es-CL')}</div>
+        </div>
+        <div>
+          <div style="font-size: 0.65rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600;">SKUs c/Stock</div>
+          <div style="font-size: 0.95rem; font-weight: 700; color: var(--color-primary);">${globalSkusWithStock.size} <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;">/ ${products.length}</span></div>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.73rem; color: var(--color-text-muted);">
+        <span>Estante: <strong style="color: var(--color-primary);">${globalShelf.toLocaleString('es-CL')}</strong> · Mesa: <strong style="color: #f59e0b;">${globalReserved.toLocaleString('es-CL')}</strong> · Comp: <strong style="color: var(--color-accent);">${globalCommitted.toLocaleString('es-CL')}</strong></span>
+      </div>
+    </div>
+  `;
+
+  whStatsList.forEach(wh => {
+    const isSelected = activeWhId === String(wh.id);
+    const pctPhysical = globalPhysical > 0 ? Math.round((wh.physical / globalPhysical) * 100) : 0;
+
+    let whIconClass = 'ri-database-2-line';
+    let whIconColor = 'var(--color-primary)';
+    const wLower = (wh.name || '').toLowerCase();
+    if (wLower.includes('central')) {
+      whIconClass = 'ri-building-2-line';
+      whIconColor = 'var(--color-primary)';
+    } else if (wLower.includes('tienda') || wLower.includes('showroom')) {
+      whIconClass = 'ri-store-3-line';
+      whIconColor = 'var(--color-accent)';
+    } else if (wLower.includes('virtual') || wLower.includes('online')) {
+      whIconClass = 'ri-cloud-line';
+      whIconColor = '#3b82f6';
+    }
+
+    cardsHtml += `
+      <div class="admin-wh-level-card" data-wh-id="${wh.id}" style="cursor: pointer; border-radius: var(--radius-md); padding: 0.9rem 1rem; background: ${isSelected ? 'linear-gradient(135deg, rgba(79, 70, 229, 0.09) 0%, rgba(59, 130, 246, 0.05) 100%)' : 'var(--color-surface)'}; border: ${isSelected ? '2px solid var(--color-primary)' : '1px solid var(--color-border)'}; box-shadow: ${isSelected ? '0 4px 12px rgba(79, 70, 229, 0.12)' : 'var(--shadow-sm)'}; transition: all 0.18s ease; display: flex; flex-direction: column; justify-content: space-between; gap: 0.55rem;">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0;">
+            <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(79, 70, 229, 0.1); color: ${whIconColor}; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0;">
+              <i class="${whIconClass}"></i>
+            </div>
+            <div style="min-width: 0;">
+              <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${wh.name}">${wh.name}</div>
+              <div style="font-size: 0.72rem; color: var(--color-text-muted);">${pctPhysical}% del stock físico total</div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.3rem; flex-shrink: 0;">
+            ${isSelected ? '<span style="font-size: 0.68rem; font-weight: 700; background: var(--color-primary); color: #fff; padding: 2px 7px; border-radius: 99px; text-transform: uppercase;">Seleccionada</span>' : ''}
+            <button type="button" class="btn-quick-export-admin-wh" data-wh-id="${wh.id}" data-wh-name="${wh.name.replace(/"/g, '&quot;')}" title="Exportar inventario de ${wh.name}" style="background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main); border-radius: 6px; padding: 0.25rem 0.45rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;">
+              <i class="ri-download-2-line" style="color: var(--color-primary);"></i> Exportar
+            </button>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; background: var(--color-bg); padding: 0.5rem 0.6rem; border-radius: 6px; border: 1px solid var(--color-border);">
+          <div>
+            <div style="font-size: 0.65rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600;">Disp. Bodega</div>
+            <div style="font-size: 1.05rem; font-weight: 800; color: ${wh.available > 0 ? 'var(--color-success)' : 'var(--color-text-muted)'};">${wh.available.toLocaleString('es-CL')}</div>
+          </div>
+          <div>
+            <div style="font-size: 0.65rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600;">Físico Bodega</div>
+            <div style="font-size: 1.05rem; font-weight: 800; color: var(--color-text-main);">${wh.physical.toLocaleString('es-CL')}</div>
+          </div>
+          <div>
+            <div style="font-size: 0.65rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600;">SKUs c/Stock</div>
+            <div style="font-size: 0.95rem; font-weight: 700; color: var(--color-primary);">${wh.skusWithStock} <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;">/ ${wh.totalSkus}</span></div>
+          </div>
+        </div>
+
+        <!-- Barra de nivel de inventario -->
+        <div style="width: 100%; height: 5px; background: var(--color-bg-alt); border-radius: 99px; overflow: hidden;">
+          <div style="width: ${Math.min(100, Math.max(0, pctPhysical))}%; height: 100%; background: var(--color-primary); border-radius: 99px; transition: width 0.3s ease;"></div>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.73rem; color: var(--color-text-muted);">
+          <span>Estante: <strong style="color: var(--color-primary);">${wh.shelf.toLocaleString('es-CL')}</strong> · Mesa: <strong style="color: #f59e0b;">${wh.reserved.toLocaleString('es-CL')}</strong> · Comp: <strong style="color: var(--color-accent);">${wh.committed.toLocaleString('es-CL')}</strong></span>
+        </div>
+      </div>
+    `;
+  });
+
+  panel.innerHTML = `
+    <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 1rem 1.25rem; box-shadow: var(--shadow-sm);">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.85rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-building-4-line" style="font-size: 1.15rem; color: var(--color-primary);"></i>
+          <span style="font-size: 0.92rem; font-weight: 700; color: var(--color-text-main);">Nivel de Inventario por Bodega</span>
+          <span style="font-size: 0.78rem; color: var(--color-text-muted);">Haz clic en una bodega para filtrar la tabla y ver solo las unidades de esa ubicación</span>
+        </div>
+        ${activeWhId ? `
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <label style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; font-weight: 600; color: var(--color-text-main); cursor: pointer; user-select: none; background: var(--color-bg-alt); padding: 0.3rem 0.65rem; border-radius: 6px; border: 1px solid var(--color-border);">
+              <input type="checkbox" id="admin-inv-wh-only-with-units" ${onlyWithStockFilter ? 'checked' : ''} style="cursor: pointer; width: 14px; height: 14px; accent-color: var(--color-primary);">
+              Ocultar SKUs en 0 en ${whStatsMap[activeWhId]?.name || 'esta bodega'}
+            </label>
+            <button type="button" id="btn-admin-reset-wh-view" class="btn btn-outline btn-sm" style="height: 30px; padding: 0 0.65rem; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-Filter-off-line"></i> Ver Todas las Bodegas
+            </button>
+          </div>
+        ` : ''}
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); gap: 0.85rem;">
+        ${cardsHtml}
+      </div>
+    </div>
+  `;
+
+  // Listeners para seleccionar bodega desde las tarjetas
+  panel.querySelectorAll('.admin-wh-level-card').forEach(card => {
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.btn-quick-export-admin-wh')) return;
+      const whId = card.getAttribute('data-wh-id') || '';
+      window.adminInventoryWarehouseFilter = whId;
+      const selectEl = document.getElementById('admin-inventory-warehouse-filter');
+      if (selectEl) selectEl.value = whId;
+      renderAdminInventoryTableBody();
+    });
+  });
+
+  // Listener para exportar directamente una bodega desde su tarjeta
+  panel.querySelectorAll('.btn-quick-export-admin-wh').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const whId = btn.getAttribute('data-wh-id');
+      if (window.WmsExportManager && window.adminInventoryExportOptions) {
+        window.WmsExportManager.openCustomExportModal(window.adminInventoryExportOptions, whId);
+      }
+    });
+  });
+
+  // Listener para checkbox de ocultar SKUs en 0 en la bodega seleccionada
+  const onlyUnitsCb = document.getElementById('admin-inv-wh-only-with-units');
+  if (onlyUnitsCb) {
+    onlyUnitsCb.addEventListener('change', (e) => {
+      window.adminInventoryWarehouseOnlyWithUnits = e.target.checked;
+      renderAdminInventoryTableBody();
+    });
+  }
+
+  // Listener para botón de limpiar filtro de bodega
+  const resetBtn = document.getElementById('btn-admin-reset-wh-view');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      window.adminInventoryWarehouseFilter = '';
+      const selectEl = document.getElementById('admin-inventory-warehouse-filter');
+      if (selectEl) selectEl.value = '';
+      renderAdminInventoryTableBody();
+    });
+  }
+
+  const badgeClearBtn = document.getElementById('btn-admin-clear-wh-filter-badge');
+  if (badgeClearBtn) {
+    badgeClearBtn.addEventListener('click', () => {
+      window.adminInventoryWarehouseFilter = '';
+      const selectEl = document.getElementById('admin-inventory-warehouse-filter');
+      if (selectEl) selectEl.value = '';
+      renderAdminInventoryTableBody();
+    });
+  }
+}
+
 function renderAdminInventoryTableBody() {
   const tbody = document.getElementById('admin-inventory-tbody');
   if (!tbody) return;
 
+  renderAdminWarehouseLevelsPanel();
+
+  const activeWhId = String(window.adminInventoryWarehouseFilter || '');
+  const isSingleWarehouseView = Boolean(activeWhId);
   const rows = applyAdminInventoryFiltersAndSort(false);
 
   if (rows.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="13" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
-          No se encontraron productos coincidentes.
+        <td colspan="15" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+          No se encontraron productos coincidentes${isSingleWarehouseView ? ' para la bodega seleccionada' : ''}.
         </td>
       </tr>
     `;
@@ -23879,12 +24198,15 @@ function renderAdminInventoryTableBody() {
       </button>
     `;
 
+    const linkWhId = isSingleWarehouseView ? activeWhId : '';
+    const linkWhName = isSingleWarehouseView ? (r.warehouse || 'Bodega Seleccionada') : 'Todas las Bodegas';
+
     const reservedHtml = r.reserved > 0
-      ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="Todas las Bodegas" data-filter-type="reserved" style="cursor: pointer; text-decoration: underline; color: #f59e0b; font-weight: 700;" title="Ver pedidos en preparación retirados a mesa">${r.reserved}</span>`
+      ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="${linkWhId}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="${linkWhName.replace(/"/g, '&quot;')}" data-filter-type="reserved" style="cursor: pointer; text-decoration: underline; color: #f59e0b; font-weight: 700;" title="Ver pedidos en preparación retirados a mesa">${r.reserved}</span>`
       : `<span style="color: var(--color-text-muted); opacity: 0.5;">0</span>`;
 
     const committedHtml = r.committed > 0
-      ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="Todas las Bodegas" data-filter-type="committed" style="cursor: pointer; text-decoration: underline; color: var(--color-accent); font-weight: 700;" title="Ver pedidos pendientes por pickear en estante">${r.committed}</span>`
+      ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="${linkWhId}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="${linkWhName.replace(/"/g, '&quot;')}" data-filter-type="committed" style="cursor: pointer; text-decoration: underline; color: var(--color-accent); font-weight: 700;" title="Ver pedidos pendientes por pickear en estante">${r.committed}</span>`
       : `<span style="color: var(--color-text-muted); opacity: 0.5;">0</span>`;
 
     const pendingHtml = r.pending > 0
@@ -23907,10 +24229,16 @@ function renderAdminInventoryTableBody() {
       };
     });
 
-    const isExpanded = window.expandedAdminInventoryProducts.has(r.id);
+    const isExpanded = !isSingleWarehouseView && window.expandedAdminInventoryProducts.has(r.id);
     
     let bodegaCellContent = '';
-    if (mappedWarehouses.length === 0) {
+    if (isSingleWarehouseView) {
+      bodegaCellContent = `
+        <span style="display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; color: var(--color-primary); background: rgba(79, 70, 229, 0.08); padding: 0.2rem 0.55rem; border-radius: 6px; font-size: 0.82rem;">
+          <i class="ri-building-2-line"></i> ${r.warehouse || 'Bodega'}
+        </span>
+      `;
+    } else if (mappedWarehouses.length === 0) {
       bodegaCellContent = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">Sin bodegas creadas</span>`;
     } else {
       bodegaCellContent = `
@@ -23921,7 +24249,11 @@ function renderAdminInventoryTableBody() {
       `;
     }
 
-    // Fila principal consolidada
+    const dispBodCell = isSingleWarehouseView
+      ? `<td style="padding: 0.55rem 0.4rem; text-align: center; color: ${r.available > 0 ? 'var(--color-primary)' : 'var(--color-text-muted)'}; font-weight: 700; font-size: 0.9rem;">${r.available}</td>`
+      : `<td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>`;
+
+    // Fila principal (consolidada o filtrada por bodega seleccionada)
     html += `
       <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; background-color: var(--color-surface);" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='var(--color-surface)'">
         <td style="padding: 0.55rem 0.5rem; text-align: center;">
@@ -23935,7 +24267,7 @@ function renderAdminInventoryTableBody() {
         <td style="padding: 0.55rem 0.4rem; text-align: center; color: #f59e0b; font-weight: 600; font-size: 0.9rem;">${reservedHtml}</td>
         <td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-accent); font-weight: 600; font-size: 0.9rem;">${committedHtml}</td>
         <td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-primary); font-weight: 600; font-size: 0.9rem;">${pendingHtml}</td>
-        <td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
+        ${dispBodCell}
         <td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-success); font-weight: 700; font-size: 0.9rem;">${r.totalAvailable}${alertIconHtml}</td>
         <td style="padding: 0.55rem 0.4rem; text-align: center; font-weight: 600; color: var(--color-text-main); font-size: 0.9rem;">${r.physical}</td>
         <td style="padding: 0.55rem 0.4rem; text-align: center;">
@@ -24107,9 +24439,15 @@ function renderAdminInventoryTableBody() {
   }
 }
 
-function applyAdminInventoryFiltersAndSort(flat = false, ignoreFilters = false) {
+function applyAdminInventoryFiltersAndSort(flat = false, ignoreFilters = false, customWarehouseFilter = undefined) {
   const products = (window.cachedAdminInventoryProducts || []).filter(p => p.status !== 'archived');
   const search = (window.adminInventorySearchQuery || '').toLowerCase().trim();
+  const activeWhId = customWarehouseFilter !== undefined
+    ? String(customWarehouseFilter || '')
+    : String(window.adminInventoryWarehouseFilter || '');
+  const activeWhObj = activeWhId
+    ? (window.allWarehousesList || []).find(w => String(w.id) === activeWhId)
+    : null;
   
   let rows = [];
   products.forEach(prod => {
@@ -24137,11 +24475,45 @@ function applyAdminInventoryFiltersAndSort(flat = false, ignoreFilters = false) 
     const pendingVal = window.adminInventoryPendingStockMap ? (window.adminInventoryPendingStockMap[prod.sku.trim()] || 0) : 0;
     const typeStr = prod.is_virtual ? 'online' : (prod.is_pack ? 'pack' : 'fisico');
 
-    if (flat) {
+    if (activeWhId) {
+      const whInv = invList.find(inv => String(inv.warehouse_id) === activeWhId);
+      const phys = whInv ? (whInv.quantity || 0) : 0;
+      const comm = whInv ? (whInv.committed_quantity || 0) : 0;
+      const res = whInv ? (whInv.reserved_quantity || 0) : 0;
+      const available = phys - comm - res;
+      const subShelf = Math.max(0, phys - res);
+      const whName = whInv?.warehouses?.name || activeWhObj?.name || 'Bodega';
+      const whStatusStr = available <= 0
+        ? 'Agotado'
+        : (available <= (prod.stock_critico || 0) ? 'Bajo Stock' : 'En Stock');
+
+      rows.push({
+        id: prod.id,
+        sku: prod.sku || '',
+        barcode: prod.barcode || '',
+        name: prod.name || '',
+        warehouse: whName,
+        warehouse_id: activeWhId,
+        physical: phys,
+        shelfPhysical: subShelf,
+        reserved: res,
+        committed: comm,
+        pending: pendingVal,
+        available: available,
+        totalAvailable: totalAvailable,
+        stock_critico: prod.stock_critico || 0,
+        status: whStatusStr,
+        inventory: invList,
+        is_virtual: prod.is_virtual,
+        is_pack: prod.is_pack,
+        product_type: typeStr
+      });
+    } else if (flat) {
       if (invList.length === 0) {
         rows.push({
           id: prod.id,
           sku: prod.sku || '',
+          barcode: prod.barcode || '',
           name: prod.name || '',
           warehouse: 'Sin asignar',
           warehouse_id: null,
@@ -24168,6 +24540,7 @@ function applyAdminInventoryFiltersAndSort(flat = false, ignoreFilters = false) 
           rows.push({
             id: prod.id,
             sku: prod.sku || '',
+            barcode: prod.barcode || '',
             name: prod.name || '',
             warehouse: inv.warehouses?.name || 'N/A',
             warehouse_id: inv.warehouse_id,
@@ -24190,8 +24563,9 @@ function applyAdminInventoryFiltersAndSort(flat = false, ignoreFilters = false) 
       rows.push({
         id: prod.id,
         sku: prod.sku || '',
+        barcode: prod.barcode || '',
         name: prod.name || '',
-        warehouse: invList.length === 0 ? 'Sin asignar' : 'Vistas de Bodega',
+        warehouse: invList.length === 0 ? 'Sin asignar' : 'Consolidado (Todas)',
         warehouse_id: null,
         physical: totalPhysical,
         shelfPhysical: shelfPhysical,
@@ -24220,6 +24594,10 @@ function applyAdminInventoryFiltersAndSort(flat = false, ignoreFilters = false) 
 
     if (window.adminInventoryTypeFilter) {
       rows = rows.filter(r => r.product_type === window.adminInventoryTypeFilter);
+    }
+
+    if (activeWhId && window.adminInventoryWarehouseOnlyWithUnits) {
+      rows = rows.filter(r => (Number(r.physical) || 0) > 0 || (Number(r.available) || 0) > 0 || (Number(r.committed) || 0) > 0 || (Number(r.reserved) || 0) > 0);
     }
 
     // Filtrar por checkboxes de status
@@ -24715,6 +25093,18 @@ function renderAdminInventoryRequestsTableBody() {
     const isFinalized = (r.status === 'Finalizada' || (r.products_list || []).some(p => p.counted_qty !== null && p.counted_qty !== undefined));
     const isClientSigned = !!(r.signed_at || r.signed_by);
     const isAdminSigned = !!(r.admin_signed_at || r.admin_signed_by);
+    const obsData = (typeof window.getInventoryObservationsData === 'function')
+      ? window.getInventoryObservationsData(r)
+      : { hasObservations: false, requiresSecondReview: false, observations: [] };
+
+    let obsStatusBadge = '';
+    if (obsData.hasObservations) {
+      if (obsData.requiresSecondReview) {
+        obsStatusBadge = `<div style="margin-top: 3px;"><span style="font-size: 0.68rem; font-weight: 700; color: #b45309; background: #fffbeb; border: 1px solid #fcd34d; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="${obsData.observations.length} observación(es) • Requiere 2da revisión en terreno"><i class="ri-search-eye-line"></i> ${obsData.observations.length} Obs. (🔄 2da Rev.)</span></div>`;
+      } else {
+        obsStatusBadge = `<div style="margin-top: 3px;"><span style="font-size: 0.68rem; font-weight: 700; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="${obsData.observations.length} observación(es) • No requiere 2da revisión"><i class="ri-file-list-3-line"></i> ${obsData.observations.length} Obs. (Sin 2da Rev.)</span></div>`;
+      }
+    }
 
     let signatureBadges = '';
     if (isFinalized) {
@@ -24758,6 +25148,7 @@ function renderAdminInventoryRequestsTableBody() {
         </td>
         <td style="padding: 1rem 1.25rem; text-align: center;">
           ${statusBadge}
+          ${obsStatusBadge}
           ${signatureBadges}
         </td>
         <td style="padding: 1rem 1.25rem; font-size: 0.85rem; color: var(--color-text-muted); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${r.requested_by || ''}">
@@ -25252,81 +25643,145 @@ async function openAdminManageInventoryRequestModal(req) {
   if (modal) modal.remove();
 
   const folio = req.folio || req.id.substring(0, 8);
-  const products = Array.isArray(req.products_list) ? JSON.parse(JSON.stringify(req.products_list)) : [];
-  const distinctWarehouses = window.getRequestDistinctWarehouses ? window.getRequestDistinctWarehouses(req) : [];
+  const rawProducts = Array.isArray(req.products_list) ? JSON.parse(JSON.stringify(req.products_list)) : [];
+
+  // Determinar si la solicitud ya viene en modo simplificado/consolidado o si tiene desglose multi-bodega
+  const isAlreadySimplified = rawProducts.length > 0 && rawProducts.every(p => p.is_consolidated || p.warehouse_id === 'CONSOLIDATED');
+
+  // Reconstruir lista detallada por bodegas (si estaba consolidada pero guardó warehouse_breakdown, podemos recuperarla)
+  let detailedProducts = [];
+  if (isAlreadySimplified) {
+    rawProducts.forEach(p => {
+      if (Array.isArray(p.warehouse_breakdown) && p.warehouse_breakdown.length > 0) {
+        p.warehouse_breakdown.forEach(wb => {
+          detailedProducts.push({
+            id: p.id,
+            sku: p.sku,
+            name: p.name,
+            barcode: p.barcode || p.codigo_barra || '',
+            warehouse_id: wb.warehouse_id || null,
+            warehouse_name: wb.warehouse_name || 'Bodega',
+            system_qty: (wb.system_qty !== undefined && wb.system_qty !== null) ? Number(wb.system_qty) || 0 : 0,
+            counted_qty: (wb.counted_qty !== undefined && wb.counted_qty !== null) ? wb.counted_qty : null,
+            difference: (wb.difference !== undefined && wb.difference !== null) ? wb.difference : null,
+            notes: wb.notes || ''
+          });
+        });
+      } else {
+        detailedProducts.push({ ...p });
+      }
+    });
+  } else {
+    detailedProducts = JSON.parse(JSON.stringify(rawProducts));
+  }
+
+  // Construir lista simplificada (1 fila por SKU sumando todas las bodegas)
+  let simplifiedProducts = isAlreadySimplified
+    ? JSON.parse(JSON.stringify(rawProducts))
+    : (typeof window.consolidateInventoryRequestProducts === 'function'
+        ? window.consolidateInventoryRequestProducts(detailedProducts)
+        : JSON.parse(JSON.stringify(rawProducts)));
+
+  let isSimplifiedMode = isAlreadySimplified;
+
+  const distinctWarehouses = window.getRequestDistinctWarehouses
+    ? window.getRequestDistinctWarehouses({ ...req, products_list: detailedProducts })
+    : [];
   const isClientSigned = !!(req.signed_at || req.signed_by);
   const isAdminSigned = !!(req.admin_signed_at || req.admin_signed_by);
+
+  const initialObsData = typeof window.getInventoryObservationsData === 'function'
+    ? window.getInventoryObservationsData(req)
+    : { hasObservations: false, requiresSecondReview: false, reviewMode: 'none', observations: [], generalNotes: req.admin_notes || '' };
+  let enumeratedObservations = Array.isArray(initialObsData.observations)
+    ? JSON.parse(JSON.stringify(initialObsData.observations))
+    : [];
+  const uniqueSkusList = Array.from(new Set(simplifiedProducts.map(p => p.sku).filter(Boolean))).sort();
 
   modal = document.createElement('div');
   modal.id = 'modal-admin-manage-inventory-request';
   modal.className = 'modal-overlay active';
   modal.style.zIndex = '9998';
 
-  const rowsHtml = products.map((p, idx) => {
-    const sysQty = (p.system_qty !== undefined && p.system_qty !== null) ? p.system_qty : 0;
-    const countedVal = (p.counted_qty !== undefined && p.counted_qty !== null) ? p.counted_qty : '';
-    const diff = (p.difference !== undefined && p.difference !== null) ? p.difference : null;
-    const noteVal = p.notes || '';
+  function buildRowsHtml(listToRender, simplifiedFlag) {
+    return listToRender.map((p, idx) => {
+      const sysQty = (p.system_qty !== undefined && p.system_qty !== null) ? p.system_qty : 0;
+      const countedVal = (p.counted_qty !== undefined && p.counted_qty !== null) ? p.counted_qty : '';
+      const diff = (p.difference !== undefined && p.difference !== null) ? p.difference : null;
+      const noteVal = p.notes || '';
 
-    let diffBadge = '<span class="diff-badge" style="color: var(--color-text-muted); font-size: 0.8rem;">-</span>';
-    if (diff !== null) {
-      if (diff === 0) {
-        diffBadge = '<span class="diff-badge badge badge-success" style="font-size: 0.75rem;">0 (Cuadrado)</span>';
-      } else if (diff > 0) {
-        diffBadge = `<span class="diff-badge badge badge-success" style="font-size: 0.75rem;">+${diff} (Sobrante)</span>`;
-      } else {
-        diffBadge = `<span class="diff-badge badge badge-danger" style="font-size: 0.75rem;">${diff} (Faltante)</span>`;
+      let diffBadge = '<span class="diff-badge" style="color: var(--color-text-muted); font-size: 0.8rem;">-</span>';
+      if (diff !== null) {
+        if (diff === 0) {
+          diffBadge = '<span class="diff-badge badge badge-success" style="font-size: 0.75rem;">0 (Cuadrado)</span>';
+        } else if (diff > 0) {
+          diffBadge = `<span class="diff-badge badge badge-success" style="font-size: 0.75rem;">+${diff} (Sobrante)</span>`;
+        } else {
+          diffBadge = `<span class="diff-badge badge badge-danger" style="font-size: 0.75rem;">${diff} (Faltante)</span>`;
+        }
       }
-    }
 
-    const barcode = p.barcode || p.codigo_barra || '';
+      const barcode = p.barcode || p.codigo_barra || '';
 
-    let whBadgeHtml = '';
-    if (p.warehouse_id) {
-      whBadgeHtml = `
-        <span class="badge" style="background: rgba(99, 102, 241, 0.1); color: #4338ca; border: 1px solid rgba(99, 102, 241, 0.25); font-weight: 700; font-size: 0.75rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;" title="Bodega: ${p.warehouse_name || 'Bodega'}">
-          <i class="ri-store-2-line"></i> ${p.warehouse_name || 'Bodega'}
-        </span>
+      let whBadgeHtml = '';
+      if (simplifiedFlag || p.is_consolidated || p.warehouse_id === 'CONSOLIDATED') {
+        const breakdownTooltip = Array.isArray(p.warehouse_breakdown) && p.warehouse_breakdown.length > 0
+          ? p.warehouse_breakdown.map(w => `${w.warehouse_name}: ${w.system_qty || 0}`).join(' • ')
+          : 'Total global consolidado sin desglose por bodegas';
+        whBadgeHtml = `
+          <span class="badge" style="background: rgba(16, 185, 129, 0.12); color: #047857; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 700; font-size: 0.73rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;" title="${breakdownTooltip}">
+            <i class="ri-global-line"></i> Total Global
+          </span>
+        `;
+      } else if (p.warehouse_id) {
+        whBadgeHtml = `
+          <span class="badge" style="background: rgba(99, 102, 241, 0.1); color: #4338ca; border: 1px solid rgba(99, 102, 241, 0.25); font-weight: 700; font-size: 0.75rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;" title="Bodega: ${p.warehouse_name || 'Bodega'}">
+            <i class="ri-store-2-line"></i> ${p.warehouse_name || 'Bodega'}
+          </span>
+        `;
+      } else {
+        const warehousesList = window.allWarehousesList || [];
+        whBadgeHtml = `
+          <select class="form-input item-wh-select" data-prod-index="${idx}" style="height: 28px; font-size: 0.75rem; padding: 2px 4px; border: 1.5px solid #f59e0b; background: #fffbeb; color: #92400e; font-weight: 600; border-radius: 4px; width: 100%;">
+            <option value="" disabled selected>⚠️ Asignar bodega...</option>
+            ${warehousesList.map(w => `<option value="${w.id}" data-name="${w.name}">${w.name}</option>`).join('')}
+          </select>
+        `;
+      }
+
+      return `
+        <tr style="border-bottom: 1px solid var(--color-border);" data-prod-index="${idx}" data-prod-id="${p.id || ''}" data-sku="${p.sku || ''}" data-sys-qty="${sysQty}" data-wh-id="${p.warehouse_id || ''}" data-wh-name="${p.warehouse_name || ''}">
+          <td style="padding: 0.5rem 0.6rem; text-align: center; color: var(--color-text-muted); font-size: 0.8rem;">${idx + 1}</td>
+          <td style="padding: 0.5rem 0.6rem; vertical-align: middle;">
+            <div style="font-weight: 700; font-family: monospace; font-size: 0.85rem; color: var(--color-text-main);">${p.sku || '-'}</div>
+            <div style="font-family: monospace; font-size: 0.75rem; color: var(--color-text-muted); margin-top: 2px;">
+              ${(barcode && barcode !== '-') ? `<span style="font-size: 0.65rem; color: #94a3b8; font-weight: 600;">CB:</span> ${barcode}` : '<span style="color: var(--color-text-muted); font-size: 0.75rem; font-style: italic;">Sin CB</span>'}
+            </div>
+          </td>
+          <td style="padding: 0.5rem 0.6rem; font-size: 0.85rem; font-weight: 500;">${p.name || 'Sin nombre'}</td>
+          <td style="padding: 0.5rem 0.6rem; text-align: center; font-size: 0.8rem;">
+            ${whBadgeHtml}
+          </td>
+          <td style="padding: 0.5rem 0.6rem; text-align: center; font-weight: 700; font-size: 0.95rem; color: var(--color-primary); background: var(--color-bg-alt);">${sysQty}</td>
+          <!-- Input Conteo Físico Real -->
+          <td style="padding: 0.4rem 0.6rem; text-align: center; width: 110px;">
+            <input type="number" class="form-input counted-qty-input" data-prod-index="${idx}" min="0" value="${countedVal}" placeholder="Conteo..." style="width: 100%; height: 32px; text-align: center; font-weight: 700; border: 1.5px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); font-size: 0.9rem;">
+          </td>
+          <!-- Badge Diferencia -->
+          <td style="padding: 0.5rem 0.6rem; text-align: center; width: 130px;" class="diff-container" data-prod-index="${idx}">
+            ${diffBadge}
+          </td>
+          <!-- Observaciones / Estado del Ítem -->
+          <td style="padding: 0.4rem 0.6rem; width: 160px;">
+            <input type="text" class="form-input item-notes-input" data-prod-index="${idx}" value="${noteVal}" placeholder="Dañado, sin etiqueta..." style="width: 100%; height: 32px; font-size: 0.8rem; padding: 0.25rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main);">
+          </td>
+        </tr>
       `;
-    } else {
-      const warehousesList = window.allWarehousesList || [];
-      whBadgeHtml = `
-        <select class="form-input item-wh-select" data-prod-index="${idx}" style="height: 28px; font-size: 0.75rem; padding: 2px 4px; border: 1.5px solid #f59e0b; background: #fffbeb; color: #92400e; font-weight: 600; border-radius: 4px; width: 100%;">
-          <option value="" disabled selected>⚠️ Asignar bodega...</option>
-          ${warehousesList.map(w => `<option value="${w.id}" data-name="${w.name}">${w.name}</option>`).join('')}
-        </select>
-      `;
-    }
+    }).join('');
+  }
 
-    return `
-      <tr style="border-bottom: 1px solid var(--color-border);" data-prod-index="${idx}" data-prod-id="${p.id || ''}" data-sys-qty="${sysQty}" data-wh-id="${p.warehouse_id || ''}" data-wh-name="${p.warehouse_name || ''}">
-        <td style="padding: 0.5rem 0.6rem; text-align: center; color: var(--color-text-muted); font-size: 0.8rem;">${idx + 1}</td>
-        <td style="padding: 0.5rem 0.6rem; vertical-align: middle;">
-          <div style="font-weight: 700; font-family: monospace; font-size: 0.85rem; color: var(--color-text-main);">${p.sku || '-'}</div>
-          <div style="font-family: monospace; font-size: 0.75rem; color: var(--color-text-muted); margin-top: 2px;">
-            ${(barcode && barcode !== '-') ? `<span style="font-size: 0.65rem; color: #94a3b8; font-weight: 600;">CB:</span> ${barcode}` : '<span style="color: var(--color-text-muted); font-size: 0.75rem; font-style: italic;">Sin CB</span>'}
-          </div>
-        </td>
-        <td style="padding: 0.5rem 0.6rem; font-size: 0.85rem; font-weight: 500;">${p.name || 'Sin nombre'}</td>
-        <td style="padding: 0.5rem 0.6rem; text-align: center; font-size: 0.8rem;">
-          ${whBadgeHtml}
-        </td>
-        <td style="padding: 0.5rem 0.6rem; text-align: center; font-weight: 700; font-size: 0.95rem; color: var(--color-primary); background: var(--color-bg-alt);">${sysQty}</td>
-        <!-- Input Conteo Físico Real -->
-        <td style="padding: 0.4rem 0.6rem; text-align: center; width: 110px;">
-          <input type="number" class="form-input counted-qty-input" data-prod-index="${idx}" min="0" value="${countedVal}" placeholder="Conteo..." style="width: 100%; height: 32px; text-align: center; font-weight: 700; border: 1.5px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); font-size: 0.9rem;">
-        </td>
-        <!-- Badge Diferencia -->
-        <td style="padding: 0.5rem 0.6rem; text-align: center; width: 130px;" class="diff-container" data-prod-index="${idx}">
-          ${diffBadge}
-        </td>
-        <!-- Observaciones / Estado del Ítem -->
-        <td style="padding: 0.4rem 0.6rem; width: 160px;">
-          <input type="text" class="form-input item-notes-input" data-prod-index="${idx}" value="${noteVal}" placeholder="Dañado, sin etiqueta..." style="width: 100%; height: 32px; font-size: 0.8rem; padding: 0.25rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main);">
-        </td>
-      </tr>
-    `;
-  }).join('');
+  const initialList = isSimplifiedMode ? simplifiedProducts : detailedProducts;
+  const rowsHtml = buildRowsHtml(initialList, isSimplifiedMode);
 
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 1050px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 92vh;">
@@ -25336,7 +25791,7 @@ async function openAdminManageInventoryRequestModal(req) {
             <i class="ri-survey-line" style="color: #6366f1;"></i> Cuadratura y Registro de Toma de Inventario <code style="color: #6366f1; font-weight: bold; margin-left: 0.5rem;">${folio}</code>
           </h3>
           <p style="margin: 0.2rem 0 0 0; font-size: 0.825rem; color: var(--color-text-muted);">
-            Comercio: <strong>${req.comercio}</strong> • Bodega: <strong>${req.warehouse_name || 'Todas las bodegas'}</strong> • Corte Pedidos: <strong style="color: #6366f1; font-family: monospace;">${req.cutoff_order || 'Sin corte especificado'}</strong> • Fecha: <strong>${new Date(req.created_at).toLocaleString('es-CL')}</strong>
+            Comercio: <strong>${req.comercio}</strong> • Bodega: <strong id="manage-req-header-wh-label">${isSimplifiedMode ? 'Total Global (Simplificado)' : (req.warehouse_name || 'Todas las bodegas')}</strong> • Corte Pedidos: <strong style="color: #6366f1; font-family: monospace;">${req.cutoff_order || 'Sin corte especificado'}</strong> • Fecha: <strong>${new Date(req.created_at).toLocaleString('es-CL')}</strong>
           </p>
         </div>
         <button type="button" class="modal-close" onclick="document.getElementById('modal-admin-manage-inventory-request').remove()">&times;</button>
@@ -25367,9 +25822,58 @@ async function openAdminManageInventoryRequestModal(req) {
 
           <div class="form-group" style="margin-bottom: 0; grid-column: 1 / -1;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
-              Observaciones de Cuadratura / Comentarios de Bodega
+              Comentario General de Bodega / Cuadratura
             </label>
-            <textarea id="manage-req-admin-notes" class="form-input" rows="2" placeholder="Detallar hallazgos de la cuadrilla, mermas detectadas, cajas sin abrir..." style="width: 100%; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.5rem 0.75rem; font-size: 0.85rem; resize: vertical;">${req.admin_notes || ''}</textarea>
+            <textarea id="manage-req-admin-notes" class="form-input" rows="2" placeholder="Comentario general del levantamiento, condiciones de estantería, recepción pendiente..." style="width: 100%; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.5rem 0.75rem; font-size: 0.85rem; resize: vertical;">${initialObsData.generalNotes || req.admin_notes || ''}</textarea>
+          </div>
+        </div>
+
+        <!-- Panel de Observaciones Numeradas y Segunda Revisión en Terreno -->
+        <div style="background: linear-gradient(180deg, rgba(245, 158, 11, 0.07) 0%, rgba(255, 255, 255, 0) 100%); border: 1.5px solid #f59e0b; border-radius: var(--radius-md); padding: 1rem 1.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.85rem;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.45rem; font-weight: 800; color: #b45309; font-size: 0.95rem;">
+                <i class="ri-search-eye-line" style="font-size: 1.2rem; color: #d97706;"></i>
+                Observaciones Numeradas del Conteo y Validación de 2da Revisión
+              </div>
+              <p style="margin: 2px 0 0 0; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.35;">
+                Enumera las discrepancias u observaciones detectadas e indica si <strong>requiere o no una segunda revisión en terreno</strong>. Al presionar <em>"Enviar con Observaciones"</em>, el cliente recibirá el conteo junto con este detalle.
+              </p>
+            </div>
+            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+              <button type="button" id="btn-auto-generate-obs-from-diff" class="btn btn-outline btn-sm" style="border-color: #d97706; color: #b45309; background: var(--color-surface); font-size: 0.76rem; font-weight: 700; padding: 0.3rem 0.65rem; display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer;" title="Generar observaciones numeradas automáticamente a partir de los SKUs con diferencia de stock o notas en la tabla">
+                <i class="ri-magic-line"></i> Sugerir desde Discrepancias
+              </button>
+              <button type="button" id="btn-add-enumerated-obs" class="btn btn-primary btn-sm" style="background: #d97706; border-color: #d97706; color: #ffffff; font-size: 0.76rem; font-weight: 700; padding: 0.3rem 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer;">
+                <i class="ri-add-line"></i> + Agregar Observación (#)
+              </button>
+            </div>
+          </div>
+
+          <!-- Selector de Segunda Revisión -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.75rem; align-items: center; background: var(--color-surface); padding: 0.7rem 0.9rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-bottom: 0.75rem;">
+            <div>
+              <label style="display: block; font-size: 0.78rem; font-weight: 800; color: var(--color-text-main); text-transform: uppercase; margin-bottom: 0.25rem;">
+                ¿Requiere Segunda Revisión en Terreno para Confirmar Discrepancias?
+              </label>
+              <select id="manage-req-second-review-select" class="form-input" style="width: 100%; height: 36px; font-size: 0.84rem; font-weight: 700; border-radius: var(--radius-sm); border: 1.5px solid #f59e0b; background: var(--color-bg); color: var(--color-text-main); cursor: pointer;">
+                <option value="requires_second_review" ${initialObsData.reviewMode === 'requires_second_review' || (initialObsData.hasObservations && initialObsData.requiresSecondReview) ? 'selected' : ''}>🔄 SÍ — Requiere 2da Revisión en Terreno (Validar discrepancias)</option>
+                <option value="no_second_review" ${initialObsData.reviewMode === 'no_second_review' || (initialObsData.hasObservations && !initialObsData.requiresSecondReview) ? 'selected' : ''}>✅ NO — No Requiere 2da Revisión (Conteo confirmado con observaciones)</option>
+                <option value="none" ${!initialObsData.hasObservations && initialObsData.reviewMode === 'none' ? 'selected' : ''}>➖ Sin reporte de observaciones especiales</option>
+              </select>
+            </div>
+            <div id="manage-req-second-review-helper" style="font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.4; padding-left: 0.25rem;">
+              <!-- Se actualiza dinámicamente -->
+            </div>
+          </div>
+
+          <datalist id="manage-req-skus-datalist">
+            ${uniqueSkusList.map(sku => `<option value="${sku}"></option>`).join('')}
+          </datalist>
+
+          <!-- Contenedor de Observaciones Numeradas -->
+          <div id="manage-req-enumerated-obs-container" style="display: flex; flex-direction: column; gap: 0.45rem;">
+            <!-- Se llena dinámicamente -->
           </div>
         </div>
 
@@ -25456,10 +25960,12 @@ async function openAdminManageInventoryRequestModal(req) {
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
             <div>
               <h4 style="margin: 0; font-size: 1rem; color: var(--color-text-main); font-weight: 700; display: flex; align-items: center; gap: 0.4rem;">
-                <i class="ri-list-check-2" style="color: #6366f1;"></i> Planilla de Conteo Físico Real (${products.length} SKUs)
+                <i class="ri-list-check-2" style="color: #6366f1;"></i> Planilla de Conteo Físico Real (<span id="manage-req-total-rows-label">${initialList.length}</span> SKUs)
               </h4>
-              <p style="margin: 2px 0 0 0; font-size: 0.775rem; color: var(--color-text-muted);">
-                ${distinctWarehouses.length > 1 ? 'Puedes filtrar por bodega para cargar el conteo de cada equipo por separado. Los datos digitados se preservan al cambiar de pestaña.' : 'Registra el conteo físico de cada ítem para calcular las diferencias de inventario.'}
+              <p id="manage-req-mode-subtitle" style="margin: 2px 0 0 0; font-size: 0.775rem; color: var(--color-text-muted);">
+                ${isSimplifiedMode
+                  ? 'Modo Simplificado Activo: Carga directamente las cantidades totales contabilizadas por SKU (sin desglose por bodegas).'
+                  : (distinctWarehouses.length > 1 ? 'Puedes cambiar a "Inventario Simplificado" para cargar totales por SKU sin desglose por bodegas, o filtrar por bodega.' : 'Registra el conteo físico de cada ítem para calcular las diferencias de inventario.')}
               </p>
             </div>
             <div id="manage-req-discrepancy-summary" style="font-size: 0.8rem; font-weight: 600;">
@@ -25467,27 +25973,78 @@ async function openAdminManageInventoryRequestModal(req) {
             </div>
           </div>
 
+          <!-- Selector de Modo (Simplificado vs Desglose por Bodegas) + Herramientas de Carga Rápida -->
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.6rem; background: linear-gradient(90deg, rgba(16, 185, 129, 0.08) 0%, rgba(99, 102, 241, 0.06) 100%); padding: 0.6rem 0.85rem; border-radius: var(--radius-md); border: 1px solid rgba(16, 185, 129, 0.3);">
+            <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+              <span style="font-size: 0.75rem; font-weight: 800; color: #047857; text-transform: uppercase; letter-spacing: 0.03em; margin-right: 0.2rem;">
+                <i class="ri-equalizer-line"></i> Modalidad de Conteo:
+              </span>
+              <button type="button" id="btn-mode-simplified" class="btn btn-sm" style="padding: 0.3rem 0.75rem; font-size: 0.8rem; font-weight: 700; border-radius: 9999px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; border: 1.5px solid #10b981; background: ${isSimplifiedMode ? '#10b981' : 'var(--color-surface)'}; color: ${isSimplifiedMode ? '#ffffff' : '#047857'};">
+                <i class="ri-flashlight-fill"></i> Inventario Simplificado (Totales por SKU: ${simplifiedProducts.length})
+              </button>
+              ${detailedProducts.length > simplifiedProducts.length ? `
+                <button type="button" id="btn-mode-detailed" class="btn btn-sm" style="padding: 0.3rem 0.75rem; font-size: 0.8rem; font-weight: 600; border-radius: 9999px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; border: 1.5px solid #6366f1; background: ${!isSimplifiedMode ? '#6366f1' : 'var(--color-surface)'}; color: ${!isSimplifiedMode ? '#ffffff' : '#4338ca'};">
+                  <i class="ri-store-2-line"></i> Desglose por Bodegas (${detailedProducts.length} filas)
+                </button>
+              ` : ''}
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+              <button type="button" id="btn-toggle-bulk-paste-counts" class="btn btn-outline btn-sm" style="padding: 0.28rem 0.65rem; font-size: 0.775rem; font-weight: 700; border-color: #6366f1; color: #4338ca; background: var(--color-surface); cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;" title="Pegar lista de SKU y cantidad contada desde Excel">
+                <i class="ri-clipboard-line"></i> Pegar Conteos (Excel/Texto)
+              </button>
+              <button type="button" id="btn-fill-empty-with-sys" class="btn btn-outline btn-sm" style="padding: 0.28rem 0.65rem; font-size: 0.775rem; font-weight: 600; border-color: #64748b; color: var(--color-text-main); background: var(--color-surface); cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;" title="Rellenar casillas vacías con el Stock Sistema">
+                <i class="ri-magic-line"></i> Vacíos = Stock Sist.
+              </button>
+            </div>
+          </div>
+
+          <!-- Panel Desplegable para Pegar Conteos Masivos -->
+          <div id="manage-req-bulk-paste-panel" style="display: none; margin-bottom: 0.75rem; background: var(--color-bg); border: 1.5px dashed #6366f1; border-radius: var(--radius-md); padding: 0.85rem 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+              <strong style="font-size: 0.85rem; color: #4338ca; display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-file-List-3-line"></i> Carga Rápida de Conteos Totales (Copiar y Pegar desde Excel)
+              </strong>
+              <button type="button" id="btn-close-bulk-paste" style="background: none; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 1rem;">&times;</button>
+            </div>
+            <p style="margin: 0 0 0.5rem 0; font-size: 0.78rem; color: var(--color-text-muted);">
+              Pega una línea por artículo con el formato <code>SKU [tabulación, coma o espacio] Cantidad</code> (ej: <code>GD001 37</code> o <code>PD005	129</code>). Se asignará automáticamente el conteo a cada SKU:
+            </p>
+            <div style="display: flex; gap: 0.6rem; align-items: stretch;">
+              <textarea id="manage-req-bulk-paste-input" class="form-input" rows="4" placeholder="GD001&#9;37&#10;GD002&#9;16&#10;GD005&#9;405&#10;PD001&#9;200" style="flex: 1; font-family: monospace; font-size: 0.82rem; padding: 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); resize: vertical;"></textarea>
+              <div style="display: flex; flex-direction: column; justify-content: space-between; gap: 0.4rem; width: 170px;">
+                <button type="button" id="btn-apply-bulk-paste" class="btn btn-primary btn-sm" style="background: #6366f1; border-color: #6366f1; font-weight: 700; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer;">
+                  <i class="ri-check-double-line" style="font-size: 1.2rem;"></i>
+                  <span>Aplicar Conteos</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- Barra de Filtro por Bodega y Buscador Rápido -->
           <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.65rem; background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-            ${distinctWarehouses.length > 1 ? `
-              <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;" id="manage-req-wh-tabs">
-                <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-right: 0.25rem;">
-                  <i class="ri-store-2-line"></i> Bodega:
-                </span>
-                <button type="button" class="btn btn-sm btn-wh-pill active" data-wh-filter="all" style="padding: 0.25rem 0.65rem; font-size: 0.775rem; font-weight: 700; border-radius: 9999px; cursor: pointer; border: 1.5px solid #6366f1; background: #6366f1; color: #ffffff;">
-                  Todas (${products.length})
-                </button>
-                ${distinctWarehouses.map(w => `
-                  <button type="button" class="btn btn-sm btn-wh-pill" data-wh-filter="${w.id || w.name}" data-wh-name="${w.name}" style="padding: 0.25rem 0.65rem; font-size: 0.775rem; font-weight: 600; border-radius: 9999px; cursor: pointer; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
-                    ${w.name} (${w.count})
+            <div id="manage-req-wh-filter-wrapper" style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+              ${(!isSimplifiedMode && distinctWarehouses.length > 1) ? `
+                <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;" id="manage-req-wh-tabs">
+                  <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-right: 0.25rem;">
+                    <i class="ri-store-2-line"></i> Bodega:
+                  </span>
+                  <button type="button" class="btn btn-sm btn-wh-pill active" data-wh-filter="all" style="padding: 0.25rem 0.65rem; font-size: 0.775rem; font-weight: 700; border-radius: 9999px; cursor: pointer; border: 1.5px solid #6366f1; background: #6366f1; color: #ffffff;">
+                    Todas (${detailedProducts.length})
                   </button>
-                `).join('')}
-              </div>
-            ` : `
-              <div style="font-size: 0.8rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem;">
-                <i class="ri-store-2-line"></i> Bodega: <strong>${req.warehouse_name || 'Central'}</strong> (${products.length} SKUs)
-              </div>
-            `}
+                  ${distinctWarehouses.map(w => `
+                    <button type="button" class="btn btn-sm btn-wh-pill" data-wh-filter="${w.id || w.name}" data-wh-name="${w.name}" style="padding: 0.25rem 0.65rem; font-size: 0.775rem; font-weight: 600; border-radius: 9999px; cursor: pointer; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+                      ${w.name} (${w.count})
+                    </button>
+                  `).join('')}
+                </div>
+              ` : `
+                <div style="font-size: 0.8rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="${isSimplifiedMode ? 'ri-global-line' : 'ri-store-2-line'}" style="color: ${isSimplifiedMode ? '#10b981' : 'inherit'};"></i>
+                  Vista: <strong>${isSimplifiedMode ? 'Consolidado Global por SKU (Sin desglose por bodegas)' : (req.warehouse_name || 'Central')}</strong> (${initialList.length} SKUs)
+                </div>
+              `}
+            </div>
 
             <div style="display: flex; align-items: center; gap: 0.4rem; flex: 1; max-width: 300px; margin-left: auto;">
               <input type="text" id="manage-req-search-filter" class="form-input" placeholder="🔍 Buscar SKU, producto o CB..." style="height: 30px; font-size: 0.8rem; padding: 0.2rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); width: 100%; background: var(--color-surface);">
@@ -25501,7 +26058,7 @@ async function openAdminManageInventoryRequestModal(req) {
                   <th style="padding: 0.6rem 0.6rem; width: 30px; text-align: center;">#</th>
                   <th style="padding: 0.6rem 0.6rem; width: 140px;">SKU / Cód. Barras</th>
                   <th style="padding: 0.6rem 0.6rem;">Producto</th>
-                  <th style="padding: 0.6rem 0.6rem; text-align: center;">Bodega</th>
+                  <th style="padding: 0.6rem 0.6rem; text-align: center;">Alcance / Bodega</th>
                   <th style="padding: 0.6rem 0.6rem; text-align: center; background: rgba(37, 99, 235, 0.1); color: var(--color-primary);">Stock Sist.</th>
                   <th style="padding: 0.6rem 0.6rem; text-align: center; width: 110px; background: rgba(16, 185, 129, 0.1); color: #065f46;">Conteo Real</th>
                   <th style="padding: 0.6rem 0.6rem; text-align: center; width: 130px;">Diferencia</th>
@@ -25536,11 +26093,15 @@ async function openAdminManageInventoryRequestModal(req) {
           </button>
         </div>
 
-        <div style="display: flex; gap: 0.75rem; align-items: center;">
+        <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
           <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-admin-manage-inventory-request').remove()">Cancelar</button>
           
           <button type="button" class="btn btn-outline" id="btn-save-manage-inv" style="border-color: #6366f1; color: #6366f1; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
             <i class="ri-save-line"></i> Guardar Avance
+          </button>
+
+          <button type="button" class="btn btn-primary" id="btn-send-with-observations-inv" style="background: #d97706; border-color: #d97706; color: #ffffff; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; cursor: pointer;" title="Guardar conteo y enviar al usuario con observaciones numeradas e indicador de 2da revisión">
+            <i class="ri-mail-send-line"></i> Enviar Conteo con Observaciones
           </button>
 
           <button type="button" class="btn btn-primary" id="btn-apply-stock-adjustment-inv" style="background: #10b981; border-color: #10b981; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;">
@@ -25556,6 +26117,235 @@ async function openAdminManageInventoryRequestModal(req) {
   let activeWhFilter = 'all';
   let activeSearchTerm = '';
 
+  function syncDomInputsToActiveArray() {
+    const targetList = isSimplifiedMode ? simplifiedProducts : detailedProducts;
+    const rows = modal.querySelectorAll('#manage-req-tbody tr');
+
+    rows.forEach(tr => {
+      const idx = parseInt(tr.getAttribute('data-prod-index'), 10);
+      const sysQty = parseInt(tr.getAttribute('data-sys-qty') || '0', 10);
+      const input = tr.querySelector('.counted-qty-input');
+      const noteInput = tr.querySelector('.item-notes-input');
+      const whSelect = tr.querySelector('.item-wh-select');
+
+      if (targetList[idx]) {
+        if (input && input.value !== '') {
+          const counted = parseInt(input.value, 10);
+          targetList[idx].counted_qty = counted;
+          targetList[idx].difference = counted - sysQty;
+        } else {
+          targetList[idx].counted_qty = null;
+          targetList[idx].difference = null;
+        }
+        targetList[idx].notes = noteInput ? noteInput.value.trim() : '';
+
+        if (!isSimplifiedMode && whSelect && whSelect.value) {
+          targetList[idx].warehouse_id = whSelect.value;
+          targetList[idx].warehouse_name = whSelect.options[whSelect.selectedIndex]?.getAttribute('data-name') || 'Bodega';
+        }
+      }
+    });
+  }
+
+  function bindTableInputListeners() {
+    modal.querySelectorAll('.counted-qty-input').forEach(inp => {
+      inp.addEventListener('input', recalculateDiscrepancies);
+    });
+  }
+
+  function bindWarehousePills() {
+    modal.querySelectorAll('.btn-wh-pill').forEach(pill => {
+      pill.addEventListener('click', (e) => {
+        modal.querySelectorAll('.btn-wh-pill').forEach(p => {
+          p.classList.remove('active');
+          p.style.background = 'var(--color-surface)';
+          p.style.color = 'var(--color-text-main)';
+          p.style.borderColor = 'var(--color-border)';
+        });
+        const target = e.currentTarget;
+        target.classList.add('active');
+        target.style.background = '#6366f1';
+        target.style.color = '#ffffff';
+        target.style.borderColor = '#6366f1';
+
+        activeWhFilter = target.getAttribute('data-wh-filter') || 'all';
+        applyRowFiltering();
+      });
+    });
+  }
+
+  function switchCountingMode(toSimplified) {
+    if (toSimplified === isSimplifiedMode) return;
+
+    // 1. Guardar lo digitado en la vista actual
+    syncDomInputsToActiveArray();
+
+    // 2. Si pasamos de Detallado -> Simplificado, actualizar simplifiedProducts preservando conteos simplificados previos si no hubo cambios detallados
+    if (toSimplified) {
+      const prevSimplifiedMap = new Map(simplifiedProducts.map(sp => [String(sp.id || sp.sku), sp]));
+      const freshlyConsolidated = typeof window.consolidateInventoryRequestProducts === 'function'
+        ? window.consolidateInventoryRequestProducts(detailedProducts)
+        : simplifiedProducts;
+
+      freshlyConsolidated.forEach(fc => {
+        const prev = prevSimplifiedMap.get(String(fc.id || fc.sku));
+        // Si en vista detallada ninguna bodega tenía conteo pero en simplificado ya habían digitado uno, preservarlo
+        if ((fc.counted_qty === null || fc.counted_qty === undefined) && prev && prev.counted_qty !== null && prev.counted_qty !== undefined) {
+          fc.counted_qty = prev.counted_qty;
+          fc.difference = fc.counted_qty - (fc.system_qty || 0);
+        }
+        if (!fc.notes && prev && prev.notes) {
+          fc.notes = prev.notes;
+        }
+      });
+      simplifiedProducts = freshlyConsolidated;
+    }
+
+    isSimplifiedMode = toSimplified;
+    activeWhFilter = 'all';
+
+    // Actualizar estilos de botones de modalidad
+    const btnSimp = modal.querySelector('#btn-mode-simplified');
+    const btnDet = modal.querySelector('#btn-mode-detailed');
+    if (btnSimp) {
+      btnSimp.style.background = isSimplifiedMode ? '#10b981' : 'var(--color-surface)';
+      btnSimp.style.color = isSimplifiedMode ? '#ffffff' : '#047857';
+    }
+    if (btnDet) {
+      btnDet.style.background = !isSimplifiedMode ? '#6366f1' : 'var(--color-surface)';
+      btnDet.style.color = !isSimplifiedMode ? '#ffffff' : '#4338ca';
+    }
+
+    const activeList = isSimplifiedMode ? simplifiedProducts : detailedProducts;
+    const totalRowsLabel = modal.querySelector('#manage-req-total-rows-label');
+    if (totalRowsLabel) totalRowsLabel.textContent = activeList.length;
+
+    const headerWhLabel = modal.querySelector('#manage-req-header-wh-label');
+    if (headerWhLabel) {
+      headerWhLabel.textContent = isSimplifiedMode ? 'Total Global (Simplificado)' : (req.warehouse_name || 'Todas las bodegas');
+    }
+
+    const subtitleEl = modal.querySelector('#manage-req-mode-subtitle');
+    if (subtitleEl) {
+      subtitleEl.textContent = isSimplifiedMode
+        ? 'Modo Simplificado Activo: Carga directamente las cantidades totales contabilizadas por SKU (sin desglose por bodegas).'
+        : 'Vista por Bodegas Activa: Puedes filtrar por bodega o cambiar a "Inventario Simplificado" para cargar totales globales por SKU.';
+    }
+
+    const whWrapper = modal.querySelector('#manage-req-wh-filter-wrapper');
+    if (whWrapper) {
+      if (!isSimplifiedMode && distinctWarehouses.length > 1) {
+        whWrapper.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;" id="manage-req-wh-tabs">
+            <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-right: 0.25rem;">
+              <i class="ri-store-2-line"></i> Bodega:
+            </span>
+            <button type="button" class="btn btn-sm btn-wh-pill active" data-wh-filter="all" style="padding: 0.25rem 0.65rem; font-size: 0.775rem; font-weight: 700; border-radius: 9999px; cursor: pointer; border: 1.5px solid #6366f1; background: #6366f1; color: #ffffff;">
+              Todas (${detailedProducts.length})
+            </button>
+            ${distinctWarehouses.map(w => `
+              <button type="button" class="btn btn-sm btn-wh-pill" data-wh-filter="${w.id || w.name}" data-wh-name="${w.name}" style="padding: 0.25rem 0.65rem; font-size: 0.775rem; font-weight: 600; border-radius: 9999px; cursor: pointer; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+                ${w.name} (${w.count})
+              </button>
+            `).join('')}
+          </div>
+        `;
+        bindWarehousePills();
+      } else {
+        whWrapper.innerHTML = `
+          <div style="font-size: 0.8rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem;">
+            <i class="${isSimplifiedMode ? 'ri-global-line' : 'ri-store-2-line'}" style="color: ${isSimplifiedMode ? '#10b981' : 'inherit'};"></i>
+            Vista: <strong>${isSimplifiedMode ? 'Consolidado Global por SKU (Sin desglose por bodegas)' : (req.warehouse_name || 'Central')}</strong> (${activeList.length} SKUs)
+          </div>
+        `;
+      }
+    }
+
+    const tbody = modal.querySelector('#manage-req-tbody');
+    if (tbody) {
+      tbody.innerHTML = buildRowsHtml(activeList, isSimplifiedMode);
+      bindTableInputListeners();
+      applyRowFiltering();
+    }
+  }
+
+  modal.querySelector('#btn-mode-simplified')?.addEventListener('click', () => switchCountingMode(true));
+  modal.querySelector('#btn-mode-detailed')?.addEventListener('click', () => switchCountingMode(false));
+
+  // Panel de pegado masivo de conteos
+  const bulkPastePanel = modal.querySelector('#manage-req-bulk-paste-panel');
+  modal.querySelector('#btn-toggle-bulk-paste-counts')?.addEventListener('click', () => {
+    if (bulkPastePanel) {
+      const isHidden = bulkPastePanel.style.display === 'none';
+      bulkPastePanel.style.display = isHidden ? 'block' : 'none';
+      if (isHidden) {
+        modal.querySelector('#manage-req-bulk-paste-input')?.focus();
+      }
+    }
+  });
+  modal.querySelector('#btn-close-bulk-paste')?.addEventListener('click', () => {
+    if (bulkPastePanel) bulkPastePanel.style.display = 'none';
+  });
+
+  modal.querySelector('#btn-apply-bulk-paste')?.addEventListener('click', () => {
+    const rawText = (modal.querySelector('#manage-req-bulk-paste-input')?.value || '').trim();
+    if (!rawText) {
+      alert('Pega al menos una línea con SKU y cantidad.');
+      return;
+    }
+
+    const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const parsedMap = new Map();
+    lines.forEach(line => {
+      // Separar por tabulación, punto y coma, coma o espacios múltiples/simples (último número al final)
+      const match = line.match(/^([^\t;,]+?)[\t;,\s]+(-?\d+(?:[.,]\d+)?)$/);
+      if (match) {
+        const key = match[1].trim().toUpperCase();
+        const qty = Math.max(0, Math.round(parseFloat(match[2].replace(',', '.'))));
+        if (key && !isNaN(qty)) {
+          parsedMap.set(key, qty);
+        }
+      }
+    });
+
+    if (parsedMap.size === 0) {
+      alert('No se pudo reconocer el formato. Asegúrate de pegar líneas como: SKU [espacio o tabulación] Cantidad (ej: GD001 37).');
+      return;
+    }
+
+    let matchedRows = 0;
+    const rows = modal.querySelectorAll('#manage-req-tbody tr');
+    rows.forEach(tr => {
+      if (tr.style.display === 'none' && activeWhFilter !== 'all') return;
+      const sku = (tr.getAttribute('data-sku') || '').trim().toUpperCase();
+      const input = tr.querySelector('.counted-qty-input');
+      if (sku && parsedMap.has(sku) && input) {
+        input.value = parsedMap.get(sku);
+        matchedRows++;
+      }
+    });
+
+    recalculateDiscrepancies();
+    if (bulkPastePanel) bulkPastePanel.style.display = 'none';
+    alert(`¡Se cargaron los conteos en ${matchedRows} fila(s) exitosamente!`);
+  });
+
+  // Botón para rellenar vacíos con el stock sistema
+  modal.querySelector('#btn-fill-empty-with-sys')?.addEventListener('click', () => {
+    const rows = modal.querySelectorAll('#manage-req-tbody tr');
+    let filled = 0;
+    rows.forEach(tr => {
+      if (tr.style.display === 'none') return;
+      const input = tr.querySelector('.counted-qty-input');
+      const sysQty = tr.getAttribute('data-sys-qty') || '0';
+      if (input && input.value === '') {
+        input.value = sysQty;
+        filled++;
+      }
+    });
+    recalculateDiscrepancies();
+  });
+
   function applyRowFiltering() {
     const rows = modal.querySelectorAll('#manage-req-tbody tr');
 
@@ -25564,7 +26354,7 @@ async function openAdminManageInventoryRequestModal(req) {
       const whName = (tr.getAttribute('data-wh-name') || '').trim().toLowerCase();
 
       let matchesWh = true;
-      if (activeWhFilter !== 'all') {
+      if (!isSimplifiedMode && activeWhFilter !== 'all') {
         const filterVal = activeWhFilter.toLowerCase().trim();
         matchesWh = (whId && whId.toLowerCase() === filterVal) || (whName && whName === filterVal);
       }
@@ -25605,7 +26395,7 @@ async function openAdminManageInventoryRequestModal(req) {
       const whName = (tr.getAttribute('data-wh-name') || '').trim().toLowerCase();
 
       let inActiveFilter = true;
-      if (activeWhFilter !== 'all') {
+      if (!isSimplifiedMode && activeWhFilter !== 'all') {
         const filterVal = activeWhFilter.toLowerCase().trim();
         inActiveFilter = (whId && whId.toLowerCase() === filterVal) || (whName && whName === filterVal);
       }
@@ -25647,8 +26437,8 @@ async function openAdminManageInventoryRequestModal(req) {
       if (globalCounted === 0) {
         summaryEl.innerHTML = `<span style="color: var(--color-text-muted);">Sin conteos ingresados aún</span>`;
       } else {
-        const filterPrefix = activeWhFilter !== 'all' ? `En bodega: ` : ``;
-        const globalInfo = activeWhFilter !== 'all' ? ` <span style="font-size: 0.75rem; color: var(--color-text-muted);">(Total: ${globalCounted}/${globalTotal})</span>` : ``;
+        const filterPrefix = (!isSimplifiedMode && activeWhFilter !== 'all') ? `En bodega: ` : ``;
+        const globalInfo = (!isSimplifiedMode && activeWhFilter !== 'all') ? ` <span style="font-size: 0.75rem; color: var(--color-text-muted);">(Total: ${globalCounted}/${globalTotal})</span>` : ``;
         summaryEl.innerHTML = `
           <span>${filterPrefix}<strong>${filterCounted}/${filterTotal}</strong> contados${globalInfo}</span>
           <span style="margin: 0 0.35rem;">•</span>
@@ -25660,29 +26450,8 @@ async function openAdminManageInventoryRequestModal(req) {
     }
   }
 
-  modal.querySelectorAll('.counted-qty-input').forEach(inp => {
-    inp.addEventListener('input', recalculateDiscrepancies);
-  });
-
-  // Handlers para botones de filtro por bodega
-  modal.querySelectorAll('.btn-wh-pill').forEach(pill => {
-    pill.addEventListener('click', (e) => {
-      modal.querySelectorAll('.btn-wh-pill').forEach(p => {
-        p.classList.remove('active');
-        p.style.background = 'var(--color-surface)';
-        p.style.color = 'var(--color-text-main)';
-        p.style.borderColor = 'var(--color-border)';
-      });
-      const target = e.currentTarget;
-      target.classList.add('active');
-      target.style.background = '#6366f1';
-      target.style.color = '#ffffff';
-      target.style.borderColor = '#6366f1';
-
-      activeWhFilter = target.getAttribute('data-wh-filter') || 'all';
-      applyRowFiltering();
-    });
-  });
+  bindTableInputListeners();
+  bindWarehousePills();
 
   // Handler para buscador rápido
   const searchInput = modal.querySelector('#manage-req-search-filter');
@@ -25695,48 +26464,264 @@ async function openAdminManageInventoryRequestModal(req) {
 
   recalculateDiscrepancies();
 
-  // Helper para extraer lista de productos del formulario
-  function extractUpdatedProductsList() {
-    const updatedProducts = [...products];
-    const rows = modal.querySelectorAll('#manage-req-tbody tr');
+  // -------------------------------------------------------------------------
+  // GESTIÓN DE OBSERVACIONES NUMERADAS Y SEGUNDA REVISIÓN EN TERRENO
+  // -------------------------------------------------------------------------
+  const obsContainerEl = modal.querySelector('#manage-req-enumerated-obs-container');
+  const secondReviewSelectEl = modal.querySelector('#manage-req-second-review-select');
+  const secondReviewHelperEl = modal.querySelector('#manage-req-second-review-helper');
 
-    rows.forEach(tr => {
-      const idx = parseInt(tr.getAttribute('data-prod-index'), 10);
-      const sysQty = parseInt(tr.getAttribute('data-sys-qty') || '0', 10);
-      const input = tr.querySelector('.counted-qty-input');
-      const noteInput = tr.querySelector('.item-notes-input');
-      const whSelect = tr.querySelector('.item-wh-select');
+  function updateSecondReviewHelperText() {
+    if (!secondReviewSelectEl || !secondReviewHelperEl) return;
+    const val = secondReviewSelectEl.value;
+    if (val === 'requires_second_review') {
+      secondReviewSelectEl.style.borderColor = '#f59e0b';
+      secondReviewHelperEl.innerHTML = `<span style="color: #b45309; font-weight: 600;"><i class="ri-information-line"></i> El usuario recibirá el conteo actual indicando que <strong>hay discrepancias que se volverán a validar en terreno (2da revisión)</strong> antes del ajuste final.</span>`;
+    } else if (val === 'no_second_review') {
+      secondReviewSelectEl.style.borderColor = '#10b981';
+      secondReviewHelperEl.innerHTML = `<span style="color: #047857; font-weight: 600;"><i class="ri-checkbox-circle-line"></i> El usuario recibirá el conteo junto con las observaciones numeradas indicando que <strong>NO requiere una 2da revisión en terreno</strong>.</span>`;
+    } else {
+      secondReviewSelectEl.style.borderColor = 'var(--color-border)';
+      secondReviewHelperEl.innerHTML = `<span style="color: var(--color-text-muted);">Agrega observaciones numeradas o usa <em>"Sugerir desde Discrepancias"</em> para detallar hallazgos por SKU.</span>`;
+    }
+  }
 
-      if (updatedProducts[idx]) {
-        if (input && input.value !== '') {
-          const counted = parseInt(input.value, 10);
-          updatedProducts[idx].counted_qty = counted;
-          updatedProducts[idx].difference = counted - sysQty;
-        } else {
-          updatedProducts[idx].counted_qty = null;
-          updatedProducts[idx].difference = null;
+  function syncEnumeratedObservationsFromDOM() {
+    if (!obsContainerEl) return;
+    const itemRows = obsContainerEl.querySelectorAll('.enumerated-obs-row');
+    const updated = [];
+    itemRows.forEach((row, i) => {
+      const skuVal = (row.querySelector('.obs-sku-input')?.value || '').trim().toUpperCase();
+      const textVal = (row.querySelector('.obs-text-input')?.value || '').trim();
+      const reqRecount = Boolean(row.querySelector('.obs-recount-cb')?.checked);
+      updated.push({
+        number: i + 1,
+        sku: skuVal,
+        text: textVal,
+        requires_recount: reqRecount
+      });
+    });
+    enumeratedObservations = updated;
+  }
+
+  function renderEnumeratedObservationsUI() {
+    if (!obsContainerEl) return;
+    updateSecondReviewHelperText();
+
+    if (enumeratedObservations.length === 0) {
+      obsContainerEl.innerHTML = `
+        <div style="padding: 0.65rem 0.85rem; background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; color: var(--color-text-muted); text-align: center;">
+          No hay observaciones numeradas registradas. Haz clic en <strong>"+ Agregar Observación (#)"</strong> o en <strong>"Sugerir desde Discrepancias"</strong> para enumerarlas.
+        </div>
+      `;
+      return;
+    }
+
+    obsContainerEl.innerHTML = enumeratedObservations.map((obs, idx) => {
+      const num = idx + 1;
+      const safeSku = (obs.sku || '').replace(/"/g, '&quot;');
+      const safeText = (obs.text || '').replace(/"/g, '&quot;');
+      const isRecount = Boolean(obs.requires_recount);
+
+      return `
+        <div class="enumerated-obs-row" data-obs-index="${idx}" style="display: flex; align-items: center; gap: 0.5rem; background: var(--color-surface); border: 1px solid ${isRecount ? '#fcd34d' : 'var(--color-border)'}; padding: 0.45rem 0.6rem; border-radius: var(--radius-sm); flex-wrap: wrap;">
+          <span style="min-width: 28px; height: 26px; border-radius: 9999px; background: ${isRecount ? '#f59e0b' : '#6366f1'}; color: #ffffff; font-weight: 800; font-size: 0.78rem; display: inline-flex; align-items: center; justify-content: center;">
+            #${num}
+          </span>
+          <input type="text" list="manage-req-skus-datalist" class="form-input obs-sku-input" value="${safeSku}" placeholder="SKU (opc.)" style="width: 115px; height: 30px; font-family: monospace; font-weight: 700; font-size: 0.8rem; padding: 0.2rem 0.5rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+          <input type="text" class="form-input obs-text-input" value="${safeText}" placeholder="Describe la observación o discrepancia detectada en terreno..." style="flex: 1; min-width: 220px; height: 30px; font-size: 0.82rem; padding: 0.2rem 0.6rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+          <label style="display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.76rem; font-weight: 700; color: ${isRecount ? '#b45309' : 'var(--color-text-muted)'}; background: ${isRecount ? '#fffbeb' : 'var(--color-bg)'}; border: 1px solid ${isRecount ? '#fcd34d' : 'var(--color-border)'}; padding: 0.22rem 0.55rem; border-radius: var(--radius-sm); cursor: pointer; user-select: none;" title="Marcar si este punto específico requiere re-verificación en la 2da revisión en terreno">
+            <input type="checkbox" class="obs-recount-cb" ${isRecount ? 'checked' : ''} style="cursor: pointer; accent-color: #d97706;">
+            <span>🔄 Validar en 2da Rev.</span>
+          </label>
+          <button type="button" class="btn-remove-enumerated-obs" data-obs-index="${idx}" title="Eliminar observación #${num}" style="background: transparent; border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; border-radius: var(--radius-sm); width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer;">
+            <i class="ri-delete-bin-line"></i>
+          </button>
+        </div>
+      `;
+    }).join('');
+
+    obsContainerEl.querySelectorAll('.btn-remove-enumerated-obs').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        syncEnumeratedObservationsFromDOM();
+        const rmIdx = parseInt(e.currentTarget.getAttribute('data-obs-index'), 10);
+        enumeratedObservations.splice(rmIdx, 1);
+        renderEnumeratedObservationsUI();
+      });
+    });
+
+    obsContainerEl.querySelectorAll('.obs-recount-cb').forEach(cb => {
+      cb.addEventListener('change', () => {
+        syncEnumeratedObservationsFromDOM();
+        if (enumeratedObservations.some(o => o.requires_recount) && secondReviewSelectEl && secondReviewSelectEl.value === 'none') {
+          secondReviewSelectEl.value = 'requires_second_review';
         }
-        updatedProducts[idx].notes = noteInput ? noteInput.value.trim() : '';
+        renderEnumeratedObservationsUI();
+      });
+    });
+  }
 
-        // Si se seleccionó una bodega en el selector (solicitud legada o reasignada)
-        if (whSelect && whSelect.value) {
-          updatedProducts[idx].warehouse_id = whSelect.value;
-          updatedProducts[idx].warehouse_name = whSelect.options[whSelect.selectedIndex]?.getAttribute('data-name') || 'Bodega';
+  if (secondReviewSelectEl) {
+    secondReviewSelectEl.addEventListener('change', () => {
+      syncEnumeratedObservationsFromDOM();
+      const modeVal = secondReviewSelectEl.value;
+      if (modeVal === 'no_second_review') {
+        enumeratedObservations.forEach(o => { o.requires_recount = false; });
+      } else if (modeVal === 'requires_second_review' && enumeratedObservations.length > 0 && !enumeratedObservations.some(o => o.requires_recount)) {
+        enumeratedObservations.forEach(o => { o.requires_recount = true; });
+      }
+      renderEnumeratedObservationsUI();
+    });
+  }
+
+  modal.querySelector('#btn-add-enumerated-obs')?.addEventListener('click', () => {
+    syncEnumeratedObservationsFromDOM();
+    if (secondReviewSelectEl && secondReviewSelectEl.value === 'none') {
+      secondReviewSelectEl.value = 'requires_second_review';
+    }
+    const defaultRecount = secondReviewSelectEl ? (secondReviewSelectEl.value === 'requires_second_review') : true;
+    enumeratedObservations.push({
+      number: enumeratedObservations.length + 1,
+      sku: '',
+      text: '',
+      requires_recount: defaultRecount
+    });
+    renderEnumeratedObservationsUI();
+    const inputs = obsContainerEl?.querySelectorAll('.obs-text-input');
+    if (inputs && inputs.length > 0) {
+      inputs[inputs.length - 1].focus();
+    }
+  });
+
+  modal.querySelector('#btn-auto-generate-obs-from-diff')?.addEventListener('click', () => {
+    syncEnumeratedObservationsFromDOM();
+    const currentList = extractUpdatedProductsList();
+    const existingKeys = new Set(enumeratedObservations.map(o => `${(o.sku || '').toUpperCase()}::${(o.text || '').trim()}`));
+    let addedCount = 0;
+
+    currentList.forEach(p => {
+      const hasCount = p.counted_qty !== null && p.counted_qty !== undefined && p.counted_qty !== '';
+      const diff = hasCount ? (Number(p.counted_qty) - (Number(p.system_qty) || 0)) : null;
+      const itemNote = (p.notes || '').trim();
+
+      if ((diff !== null && diff !== 0) || itemNote) {
+        const diffDesc = (diff !== null && diff !== 0)
+          ? `Conteo físico: ${p.counted_qty} uds vs Stock sistema: ${p.system_qty || 0} uds (Diferencia: ${diff > 0 ? '+' + diff + ' sobrante' : diff + ' faltante'}).`
+          : `Conteo físico: ${hasCount ? p.counted_qty : '-'} uds (Sistema: ${p.system_qty || 0} uds).`;
+        const notePart = itemNote ? ` Nota bodega: ${itemNote}.` : ' Pendiente confirmar validación en terreno.';
+        const fullText = `${p.name ? p.name + ' — ' : ''}${diffDesc}${notePart}`;
+        const key = `${(p.sku || '').toUpperCase()}::${fullText.trim()}`;
+
+        if (!existingKeys.has(key)) {
+          enumeratedObservations.push({
+            number: enumeratedObservations.length + 1,
+            sku: p.sku || '',
+            text: fullText,
+            requires_recount: (diff !== null && diff !== 0)
+          });
+          existingKeys.add(key);
+          addedCount++;
         }
       }
     });
 
-    return updatedProducts;
+    if (addedCount === 0) {
+      alert('No se detectaron SKUs nuevos con diferencias de conteo o notas en la tabla actual. Puedes ingresar los conteos primero o usar "+ Agregar Observación (#)".');
+      return;
+    }
+
+    if (secondReviewSelectEl && secondReviewSelectEl.value === 'none') {
+      secondReviewSelectEl.value = enumeratedObservations.some(o => o.requires_recount) ? 'requires_second_review' : 'no_second_review';
+    }
+    renderEnumeratedObservationsUI();
+  });
+
+  renderEnumeratedObservationsUI();
+
+  function buildObservationsPayloadHelper(supervisorName, generalAdminNotes) {
+    syncEnumeratedObservationsFromDOM();
+    const validObs = enumeratedObservations
+      .filter(o => (o.text && o.text.trim() !== '') || (o.sku && o.sku.trim() !== ''))
+      .map((o, idx) => ({
+        number: idx + 1,
+        sku: (o.sku || '').trim(),
+        text: (o.text || '').trim() || 'Observación registrada en conteo físico.',
+        requires_recount: Boolean(o.requires_recount)
+      }));
+
+    let reviewMode = secondReviewSelectEl ? secondReviewSelectEl.value : 'none';
+    if (validObs.length > 0 && reviewMode === 'none') {
+      reviewMode = validObs.some(o => o.requires_recount) ? 'requires_second_review' : 'no_second_review';
+    }
+
+    const requiresSecondReview = (reviewMode === 'requires_second_review');
+    const hasObservations = validObs.length > 0 || reviewMode !== 'none';
+
+    const existingHistory = Array.isArray(req.communication_history) ? [...req.communication_history] : [];
+    let updatedHistory = existingHistory;
+
+    if (hasObservations) {
+      const obsReportEntry = {
+        type: 'observations_report',
+        action: 'counted_with_observations',
+        sender: 'admin',
+        sender_name: supervisorName || 'Supervisor STOCKA',
+        supervisor: supervisorName || 'Supervisor STOCKA',
+        requires_second_review: requiresSecondReview,
+        review_mode: reviewMode,
+        observations: validObs,
+        general_notes: generalAdminNotes || '',
+        created_at: new Date().toISOString()
+      };
+      updatedHistory = [...existingHistory, obsReportEntry];
+    }
+
+    let formattedAdminResponse = generalAdminNotes || '';
+    if (hasObservations) {
+      const headerTag = requiresSecondReview
+        ? '[CON OBSERVACIONES • REQUIERE 2DA REVISIÓN EN TERRENO]'
+        : '[CON OBSERVACIONES • NO REQUIERE 2DA REVISIÓN]';
+      const numberedLines = validObs.map(o => `${o.number}. ${o.sku ? `[SKU ${o.sku}] ` : ''}${o.text} ${o.requires_recount ? '(🔄 Validar en 2da revisión)' : '(✓ Confirmado)'}`).join('\n');
+      formattedAdminResponse = [
+        headerTag,
+        generalAdminNotes ? `Comentario General: ${generalAdminNotes}` : '',
+        validObs.length > 0 ? `Observaciones Numeradas:\n${numberedLines}` : ''
+      ].filter(Boolean).join('\n\n');
+    }
+
+    return {
+      hasObservations,
+      requiresSecondReview,
+      reviewMode,
+      validObs,
+      updatedHistory,
+      formattedAdminResponse
+    };
+  }
+
+  // Helper para extraer lista de productos del formulario según la modalidad activa
+  function extractUpdatedProductsList() {
+    syncDomInputsToActiveArray();
+    return isSimplifiedMode
+      ? JSON.parse(JSON.stringify(simplifiedProducts))
+      : JSON.parse(JSON.stringify(detailedProducts));
   }
 
   // Descargas de Informes de Resultados (PDF y Excel)
   document.getElementById('btn-manage-download-report-pdf')?.addEventListener('click', () => {
+    const currentList = extractUpdatedProductsList();
+    const sup = document.getElementById('manage-req-supervisor').value.trim() || 'Supervisor STOCKA';
+    const admNotes = document.getElementById('manage-req-admin-notes').value.trim();
+    const obsPack = buildObservationsPayloadHelper(sup, admNotes);
     const updated = {
       ...req,
+      warehouse_name: isSimplifiedMode ? 'Total Global (Inventario Simplificado)' : req.warehouse_name,
+      total_skus: currentList.length,
       status: document.getElementById('manage-req-status').value,
-      completed_by: document.getElementById('manage-req-supervisor').value.trim() || 'Supervisor STOCKA',
-      admin_notes: document.getElementById('manage-req-admin-notes').value.trim(),
-      products_list: extractUpdatedProductsList(),
+      completed_by: sup,
+      admin_notes: admNotes,
+      communication_history: obsPack.updatedHistory,
+      products_list: currentList,
       completed_at: req.completed_at || new Date().toISOString()
     };
     if (typeof window.generateInventoryReportPdf === 'function') {
@@ -25745,12 +26730,19 @@ async function openAdminManageInventoryRequestModal(req) {
   });
 
   document.getElementById('btn-manage-download-report-excel')?.addEventListener('click', () => {
+    const currentList = extractUpdatedProductsList();
+    const sup = document.getElementById('manage-req-supervisor').value.trim() || 'Supervisor STOCKA';
+    const admNotes = document.getElementById('manage-req-admin-notes').value.trim();
+    const obsPack = buildObservationsPayloadHelper(sup, admNotes);
     const updated = {
       ...req,
+      warehouse_name: isSimplifiedMode ? 'Total Global (Inventario Simplificado)' : req.warehouse_name,
+      total_skus: currentList.length,
       status: document.getElementById('manage-req-status').value,
-      completed_by: document.getElementById('manage-req-supervisor').value.trim() || 'Supervisor STOCKA',
-      admin_notes: document.getElementById('manage-req-admin-notes').value.trim(),
-      products_list: extractUpdatedProductsList(),
+      completed_by: sup,
+      admin_notes: admNotes,
+      communication_history: obsPack.updatedHistory,
+      products_list: currentList,
       completed_at: req.completed_at || new Date().toISOString()
     };
     if (typeof window.generateInventoryReportExcel === 'function') {
@@ -25767,6 +26759,8 @@ async function openAdminManageInventoryRequestModal(req) {
 
     const updatedContextReq = {
       ...req,
+      warehouse_name: isSimplifiedMode ? 'Total Global (Inventario Simplificado)' : req.warehouse_name,
+      total_skus: currentProducts.length,
       status: currentStatus,
       completed_by: currentSupervisor,
       admin_notes: currentNotes,
@@ -25798,14 +26792,19 @@ async function openAdminManageInventoryRequestModal(req) {
 
   // Descargas PDF y Excel de Hoja de Terreno desde el modal
   document.getElementById('btn-manage-download-pdf').addEventListener('click', () => {
+    const currentList = extractUpdatedProductsList();
     const updated = {
       ...req,
+      warehouse_name: isSimplifiedMode ? 'Total Global (Inventario Simplificado)' : req.warehouse_name,
+      total_skus: currentList.length,
       status: document.getElementById('manage-req-status').value,
       completed_by: document.getElementById('manage-req-supervisor').value.trim(),
       admin_notes: document.getElementById('manage-req-admin-notes').value.trim(),
-      products_list: extractUpdatedProductsList()
+      products_list: currentList
     };
-    if (typeof window.downloadInventoryRequestSheet === 'function') {
+    if (isSimplifiedMode) {
+      window.generateInventoryCountPdf(updated);
+    } else if (typeof window.downloadInventoryRequestSheet === 'function') {
       window.downloadInventoryRequestSheet(updated, 'pdf');
     } else {
       window.generateInventoryCountPdf(updated);
@@ -25813,14 +26812,19 @@ async function openAdminManageInventoryRequestModal(req) {
   });
 
   document.getElementById('btn-manage-download-excel').addEventListener('click', () => {
+    const currentList = extractUpdatedProductsList();
     const updated = {
       ...req,
+      warehouse_name: isSimplifiedMode ? 'Total Global (Inventario Simplificado)' : req.warehouse_name,
+      total_skus: currentList.length,
       status: document.getElementById('manage-req-status').value,
       completed_by: document.getElementById('manage-req-supervisor').value.trim(),
       admin_notes: document.getElementById('manage-req-admin-notes').value.trim(),
-      products_list: extractUpdatedProductsList()
+      products_list: currentList
     };
-    if (typeof window.downloadInventoryRequestSheet === 'function') {
+    if (isSimplifiedMode) {
+      window.generateInventoryCountExcel(updated);
+    } else if (typeof window.downloadInventoryRequestSheet === 'function') {
       window.downloadInventoryRequestSheet(updated, 'excel');
     } else {
       window.generateInventoryCountExcel(updated);
@@ -25848,13 +26852,22 @@ async function openAdminManageInventoryRequestModal(req) {
         }
       }
 
+      const obsPack = buildObservationsPayloadHelper(supervisor, adminNotes);
+
       const updatePayload = {
         status: newStatus,
         completed_by: supervisor || null,
         admin_notes: adminNotes,
+        communication_history: obsPack.updatedHistory,
+        total_skus: updatedProducts.length,
+        warehouse_name: isSimplifiedMode ? 'Total Global (Simplificado)' : (req.warehouse_name || 'Todas las bodegas'),
         products_list: updatedProducts,
         updated_at: new Date().toISOString()
       };
+      if (obsPack.hasObservations) {
+        updatePayload.admin_response = obsPack.formattedAdminResponse;
+        updatePayload.admin_response_at = new Date().toISOString();
+      }
 
       if (newStatus === 'En Conteo' && !req.started_at) {
         updatePayload.started_at = new Date().toISOString();
@@ -25881,6 +26894,147 @@ async function openAdminManageInventoryRequestModal(req) {
     }
   });
 
+  // Enviar Conteo con Observaciones Numeradas e Indicador de 2da Revisión en Terreno
+  const sendWithObsBtn = document.getElementById('btn-send-with-observations-inv');
+  if (sendWithObsBtn) {
+    sendWithObsBtn.addEventListener('click', async () => {
+      const updatedProducts = extractUpdatedProductsList();
+      const supervisor = document.getElementById('manage-req-supervisor').value.trim() || 'Supervisor STOCKA';
+      const adminNotes = document.getElementById('manage-req-admin-notes').value.trim();
+
+      syncEnumeratedObservationsFromDOM();
+
+      // Si aún no hay observaciones numeradas, intentar sugerirlas desde discrepancias o usar el comentario general
+      if (enumeratedObservations.length === 0) {
+        const diffItems = updatedProducts.filter(p => {
+          const hasCnt = p.counted_qty !== null && p.counted_qty !== undefined && p.counted_qty !== '';
+          const diff = hasCnt ? (Number(p.counted_qty) - (Number(p.system_qty) || 0)) : 0;
+          return diff !== 0 || (p.notes && p.notes.trim() !== '');
+        });
+
+        if (diffItems.length > 0) {
+          const autoConfirm = confirm(`No has agregado observaciones numeradas manualmente, pero detectamos ${diffItems.length} SKU(s) con diferencias o notas en la tabla.\n\n¿Deseas enumerar automáticamente estas ${diffItems.length} observaciones para incluirlas en el envío?`);
+          if (autoConfirm) {
+            modal.querySelector('#btn-auto-generate-obs-from-diff')?.click();
+          } else if (adminNotes) {
+            enumeratedObservations.push({
+              number: 1,
+              sku: '',
+              text: adminNotes,
+              requires_recount: secondReviewSelectEl?.value !== 'no_second_review'
+            });
+            renderEnumeratedObservationsUI();
+          } else {
+            alert('Por favor agrega al menos una observación numerada (o escribe un comentario general) antes de enviar el inventario con observaciones.');
+            return;
+          }
+        } else if (adminNotes) {
+          enumeratedObservations.push({
+            number: 1,
+            sku: '',
+            text: adminNotes,
+            requires_recount: secondReviewSelectEl?.value !== 'no_second_review'
+          });
+          renderEnumeratedObservationsUI();
+        } else {
+          alert('Por favor agrega al menos una observación numerada con el botón "+ Agregar Observación (#)" antes de enviar.');
+          return;
+        }
+      }
+
+      if (secondReviewSelectEl && secondReviewSelectEl.value === 'none') {
+        secondReviewSelectEl.value = enumeratedObservations.some(o => o.requires_recount) ? 'requires_second_review' : 'no_second_review';
+        updateSecondReviewHelperText();
+      }
+
+      const obsPack = buildObservationsPayloadHelper(supervisor, adminNotes);
+      const revLabel = obsPack.requiresSecondReview
+        ? 'SÍ REQUIERE SEGUNDA REVISIÓN EN TERRENO (para confirmar discrepancias)'
+        : 'NO REQUIERE SEGUNDA REVISIÓN EN TERRENO (conteo definitivo con observaciones)';
+
+      const confirmSend = confirm(
+        `¿Confirmas el envío del conteo de inventario con observaciones al cliente (${req.comercio})?\n\n` +
+        `• Observaciones numeradas: ${obsPack.validObs.length}\n` +
+        `• Segunda Revisión: ${revLabel}\n` +
+        `• SKUs en planilla: ${updatedProducts.length}\n\n` +
+        `El usuario recibirá el detalle del conteo y las observaciones numeradas por correo y en su portal.`
+      );
+      if (!confirmSend) return;
+
+      sendWithObsBtn.disabled = true;
+      sendWithObsBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Enviando con Observaciones...';
+
+      try {
+        // Si requiere segunda revisión en terreno, mantener estado en 'En Conteo' hasta confirmar en terreno
+        const currentSelectedStatus = document.getElementById('manage-req-status').value;
+        const targetStatus = obsPack.requiresSecondReview
+          ? 'En Conteo'
+          : (currentSelectedStatus === 'Pendiente' ? 'En Conteo' : currentSelectedStatus);
+
+        const nowIso = new Date().toISOString();
+        const updatePayload = {
+          status: targetStatus,
+          completed_by: supervisor,
+          admin_notes: adminNotes || obsPack.formattedAdminResponse,
+          admin_response: obsPack.formattedAdminResponse,
+          admin_response_at: nowIso,
+          communication_history: obsPack.updatedHistory,
+          total_skus: updatedProducts.length,
+          warehouse_name: isSimplifiedMode ? 'Total Global (Simplificado)' : (req.warehouse_name || 'Todas las bodegas'),
+          products_list: updatedProducts,
+          started_at: req.started_at || nowIso,
+          updated_at: nowIso
+        };
+
+        const { error: updErr } = await supabase
+          .from('inventory_requests')
+          .update(updatePayload)
+          .eq('id', req.id);
+
+        if (updErr) throw updErr;
+
+        const mergedReq = { ...req, ...updatePayload };
+
+        if (typeof window.sendInventoryRequestNotification === 'function') {
+          await window.sendInventoryRequestNotification({
+            event: 'counted_with_observations',
+            req: mergedReq,
+            adminResponse: obsPack.formattedAdminResponse,
+            supervisor: supervisor
+          }).catch(e => console.warn('Error enviando correo de conteo con observaciones:', e));
+        }
+
+        modal.remove();
+        renderAdminInventoryRequestsWorkspace();
+        updateAdminInventoryRequestsTabBadge();
+
+        if (typeof Swal !== 'undefined') {
+          Swal.fire({
+            icon: 'success',
+            title: '¡Conteo Enviado con Observaciones!',
+            html: `
+              <div style="text-align: left; font-size: 0.9rem; line-height: 1.5;">
+                <p style="margin: 0 0 8px 0;">Se ha registrado y enviado el conteo del folio <code style="color: #6366f1; font-weight: 700;">${folio}</code> a <strong>${req.comercio}</strong>.</p>
+                <div style="background: ${obsPack.requiresSecondReview ? '#fffbeb' : '#eff6ff'}; border: 1px solid ${obsPack.requiresSecondReview ? '#fcd34d' : '#bfdbfe'}; padding: 8px 12px; border-radius: 6px; font-size: 0.82rem; color: ${obsPack.requiresSecondReview ? '#92400e' : '#1e40af'};">
+                  <strong>Estado informado:</strong> ${obsPack.requiresSecondReview ? '🔄 Requiere 2da Revisión en Terreno' : '✅ No Requiere 2da Revisión'}<br>
+                  <strong>Observaciones numeradas:</strong> ${obsPack.validObs.length}
+                </div>
+              </div>
+            `,
+            confirmButtonColor: '#d97706'
+          });
+        } else {
+          alert(`¡Conteo con ${obsPack.validObs.length} observación(es) enviado exitosamente a ${req.comercio}!`);
+        }
+      } catch (err) {
+        console.error('Error sending inventory with observations:', err);
+        alert('Error al enviar inventario con observaciones: ' + err.message);
+        sendWithObsBtn.disabled = false;
+        sendWithObsBtn.innerHTML = '<i class="ri-mail-send-line"></i> Enviar Conteo con Observaciones';
+      }
+    });
+  }
+
   // Aplicar ajustes de stock en el sistema real
   const applyBtn = document.getElementById('btn-apply-stock-adjustment-inv');
   applyBtn.addEventListener('click', async () => {
@@ -25893,7 +27047,8 @@ async function openAdminManageInventoryRequestModal(req) {
     }
 
     const itemsWithDiff = itemsWithCount.filter(p => p.difference !== 0);
-    const confirmMsg = `¿Confirmas la cuadratura de inventario?\n\n- Total SKUs contados: ${itemsWithCount.length}\n- SKUs con discrepancias de stock: ${itemsWithDiff.length}\n\nEsta acción actualizará el stock físico en la tabla de inventario y registrará los movimientos oficiales de auditoría.`;
+    const modeLabel = isSimplifiedMode ? 'Modo Simplificado (Totales Globales por SKU)' : 'Modo por Bodega';
+    const confirmMsg = `¿Confirmas la cuadratura de inventario en ${modeLabel}?\n\n- Total SKUs contados: ${itemsWithCount.length}\n- SKUs con discrepancias de stock: ${itemsWithDiff.length}\n\nEsta acción actualizará el stock físico en la tabla de inventario y registrará los movimientos oficiales de auditoría en el Kardex.`;
     
     if (!confirm(confirmMsg)) return;
 
@@ -25904,88 +27059,224 @@ async function openAdminManageInventoryRequestModal(req) {
       const supervisor = document.getElementById('manage-req-supervisor').value.trim() || 'Supervisor WMS';
       const adminNotes = document.getElementById('manage-req-admin-notes').value.trim();
 
+      // Consultar la bodega predeterminada del comercio (para ajustes en Modo Simplificado)
+      let commerceDefaultWhId = null;
+      if (req.comercio) {
+        try {
+          const { data: comRow } = await supabase
+            .from('comercios')
+            .select('id, comercios_adicional_config(default_warehouse_id)')
+            .ilike('nombre', req.comercio.trim())
+            .maybeSingle();
+          const cfg = Array.isArray(comRow?.comercios_adicional_config)
+            ? comRow.comercios_adicional_config[0]
+            : comRow?.comercios_adicional_config;
+          if (cfg?.default_warehouse_id) {
+            commerceDefaultWhId = cfg.default_warehouse_id;
+          }
+        } catch (e) {
+          console.warn('No se pudo obtener default_warehouse_id del comercio:', e);
+        }
+      }
+
       // Aplicar ajustes a cada ítem que tenga diferencia
       for (const item of itemsWithDiff) {
         const prodId = item.id;
-        const targetWarehouseId = item.warehouse_id || req.warehouse_id;
-        const newQty = item.counted_qty;
-        const diff = item.difference; // counted - sys
+        const newQty = Number(item.counted_qty) || 0;
+        const diff = Number(item.difference) || 0; // counted - sys
 
         if (!prodId) continue;
 
-        // Si no hay bodega específica, buscar la bodega asignada o Bodega Central
-        let finalWhId = targetWarehouseId;
-        if (!finalWhId) {
-          const { data: invRecord } = await supabase
-            .from('inventory')
-            .select('warehouse_id')
-            .eq('product_id', prodId)
-            .limit(1)
-            .maybeSingle();
+        const isItemConsolidated = isSimplifiedMode || item.is_consolidated || item.warehouse_id === 'CONSOLIDATED';
 
-          if (invRecord) {
-            finalWhId = invRecord.warehouse_id;
-          } else {
-            const central = (window.allWarehousesList || []).find(w => w.name.toLowerCase().includes('central')) || window.allWarehousesList?.[0];
-            finalWhId = central ? central.id : null;
+        if (isItemConsolidated) {
+          // MODO SIMPLIFICADO / CONSOLIDADO: Ajustar el stock total del SKU sin desglose manual por bodega
+          const { data: allInvs, error: fetchInvErr } = await supabase
+            .from('inventory')
+            .select('id, warehouse_id, quantity')
+            .eq('product_id', prodId);
+
+          if (fetchInvErr) throw new Error(`Error consultando inventario de ${item.sku}: ${fetchInvErr.message}`);
+
+          const invRows = allInvs || [];
+          const currentTotal = invRows.reduce((acc, r) => acc + (Number(r.quantity) || 0), 0);
+          const netDiff = newQty - currentTotal;
+
+          if (netDiff === 0) continue;
+
+          // Determinar bodega principal para este SKU (default del comercio -> bodega con mayor stock -> primera bodega)
+          let primaryWhId = commerceDefaultWhId;
+          if (!primaryWhId) {
+            const withStock = [...invRows].sort((a, b) => (b.quantity || 0) - (a.quantity || 0));
+            if (withStock.length > 0 && (withStock[0].quantity || 0) > 0) {
+              primaryWhId = withStock[0].warehouse_id;
+            } else {
+              const central = (window.allWarehousesList || []).find(w => w.name.toLowerCase().includes('ñuñoa') || w.name.toLowerCase().includes('central')) || window.allWarehousesList?.[0];
+              primaryWhId = central ? central.id : (invRows[0]?.warehouse_id || null);
+            }
           }
-        }
 
-        if (finalWhId) {
-          const whObj = (window.allWarehousesList || []).find(w => w.id === finalWhId);
-          const whName = item.warehouse_name || (whObj ? whObj.name : (req.warehouse_name || 'Bodega'));
+          if (netDiff > 0) {
+            // Sobrante: ingresar unidades en la bodega principal del comercio
+            const whObj = (window.allWarehousesList || []).find(w => String(w.id) === String(primaryWhId));
+            const whName = whObj ? whObj.name : 'Bodega Principal';
+            const existingPrimary = invRows.find(r => String(r.warehouse_id) === String(primaryWhId));
 
-          // 1. Actualizar o Insertar en Inventory
-          const { data: existingInv } = await supabase
-            .from('inventory')
-            .select('id, quantity')
-            .eq('product_id', prodId)
-            .eq('warehouse_id', finalWhId)
-            .maybeSingle();
+            if (existingPrimary) {
+              const updatedWhQty = (Number(existingPrimary.quantity) || 0) + netDiff;
+              const { error: updErr } = await supabase
+                .from('inventory')
+                .update({ quantity: updatedWhQty })
+                .eq('id', existingPrimary.id);
+              if (updErr) throw new Error(`Error actualizando stock de ${item.sku} en ${whName}: ${updErr.message}`);
+            } else if (primaryWhId) {
+              const { error: insErr } = await supabase
+                .from('inventory')
+                .insert([{
+                  product_id: prodId,
+                  warehouse_id: primaryWhId,
+                  quantity: netDiff,
+                  committed_quantity: 0
+                }]);
+              if (insErr) throw new Error(`Error creando stock de ${item.sku} en ${whName}: ${insErr.message}`);
+            }
 
-          if (existingInv) {
-            const { error: updErr } = await supabase
+            if (primaryWhId) {
+              const { error: movErr } = await supabase
+                .from('movements')
+                .insert([{
+                  product_id: prodId,
+                  warehouse_id: primaryWhId,
+                  type: 'in',
+                  quantity: netDiff,
+                  reference_doc: `Ajuste Inventario Simplificado Folio ${folio} - ${whName} (+${netDiff} uds)`
+                }]);
+              if (movErr) throw new Error(`Error registrando movimiento de ${item.sku}: ${movErr.message}`);
+            }
+          } else if (netDiff < 0) {
+            // Faltante: descontar primero de la bodega principal y, si falta, de las demás con stock > 0
+            let remainingToDeduct = Math.abs(netDiff);
+            const orderedInvs = [...invRows].sort((a, b) => {
+              const aIsPrimary = String(a.warehouse_id) === String(primaryWhId) ? 1 : 0;
+              const bIsPrimary = String(b.warehouse_id) === String(primaryWhId) ? 1 : 0;
+              if (aIsPrimary !== bIsPrimary) return bIsPrimary - aIsPrimary;
+              return (b.quantity || 0) - (a.quantity || 0);
+            });
+
+            for (const invRow of orderedInvs) {
+              if (remainingToDeduct <= 0) break;
+              const availInRow = Math.max(0, Number(invRow.quantity) || 0);
+              if (availInRow <= 0) continue;
+
+              const deductHere = Math.min(availInRow, remainingToDeduct);
+              const newRowQty = availInRow - deductHere;
+              const whObj = (window.allWarehousesList || []).find(w => String(w.id) === String(invRow.warehouse_id));
+              const whName = whObj ? whObj.name : 'Bodega';
+
+              const { error: updErr } = await supabase
+                .from('inventory')
+                .update({ quantity: newRowQty })
+                .eq('id', invRow.id);
+              if (updErr) throw new Error(`Error actualizando stock de ${item.sku} en ${whName}: ${updErr.message}`);
+
+              const { error: movErr } = await supabase
+                .from('movements')
+                .insert([{
+                  product_id: prodId,
+                  warehouse_id: invRow.warehouse_id,
+                  type: 'out',
+                  quantity: deductHere,
+                  reference_doc: `Ajuste Inventario Simplificado Folio ${folio} - ${whName} (-${deductHere} uds)`
+                }]);
+              if (movErr) throw new Error(`Error registrando movimiento de ${item.sku}: ${movErr.message}`);
+
+              remainingToDeduct -= deductHere;
+            }
+          }
+        } else {
+          // MODO POR BODEGA TRADICIONAL
+          const targetWarehouseId = item.warehouse_id || req.warehouse_id;
+          let finalWhId = targetWarehouseId;
+          if (!finalWhId) {
+            const { data: invRecord } = await supabase
               .from('inventory')
-              .update({ quantity: newQty })
-              .eq('id', existingInv.id);
-            if (updErr) throw new Error(`Error actualizando stock de ${item.sku} en ${whName}: ${updErr.message}`);
-          } else {
-            const { error: insErr } = await supabase
+              .select('warehouse_id')
+              .eq('product_id', prodId)
+              .limit(1)
+              .maybeSingle();
+
+            if (invRecord) {
+              finalWhId = invRecord.warehouse_id;
+            } else {
+              const central = (window.allWarehousesList || []).find(w => w.name.toLowerCase().includes('central')) || window.allWarehousesList?.[0];
+              finalWhId = central ? central.id : null;
+            }
+          }
+
+          if (finalWhId) {
+            const whObj = (window.allWarehousesList || []).find(w => w.id === finalWhId);
+            const whName = item.warehouse_name || (whObj ? whObj.name : (req.warehouse_name || 'Bodega'));
+
+            // 1. Actualizar o Insertar en Inventory
+            const { data: existingInv } = await supabase
               .from('inventory')
+              .select('id, quantity')
+              .eq('product_id', prodId)
+              .eq('warehouse_id', finalWhId)
+              .maybeSingle();
+
+            if (existingInv) {
+              const { error: updErr } = await supabase
+                .from('inventory')
+                .update({ quantity: newQty })
+                .eq('id', existingInv.id);
+              if (updErr) throw new Error(`Error actualizando stock de ${item.sku} en ${whName}: ${updErr.message}`);
+            } else {
+              const { error: insErr } = await supabase
+                .from('inventory')
+                .insert([{
+                  product_id: prodId,
+                  warehouse_id: finalWhId,
+                  quantity: newQty,
+                  committed_quantity: 0
+                }]);
+              if (insErr) throw new Error(`Error creando stock de ${item.sku} en ${whName}: ${insErr.message}`);
+            }
+
+            // 2. Registrar en Movements
+            const movType = diff > 0 ? 'in' : 'out';
+            const movQty = Math.abs(diff);
+            const { error: movErr } = await supabase
+              .from('movements')
               .insert([{
                 product_id: prodId,
                 warehouse_id: finalWhId,
-                quantity: newQty,
-                committed_quantity: 0
+                type: movType,
+                quantity: movQty,
+                reference_doc: `Ajuste Toma Inventario Folio ${folio} - ${whName} (${diff > 0 ? '+' : ''}${diff} uds)`
               }]);
-            if (insErr) throw new Error(`Error creando stock de ${item.sku} en ${whName}: ${insErr.message}`);
+            if (movErr) throw new Error(`Error registrando movimiento de ${item.sku}: ${movErr.message}`);
           }
-
-          // 2. Registrar en Movements
-          const movType = diff > 0 ? 'in' : 'out';
-          const movQty = Math.abs(diff);
-          const { error: movErr } = await supabase
-            .from('movements')
-            .insert([{
-              product_id: prodId,
-              warehouse_id: finalWhId,
-              type: movType,
-              quantity: movQty,
-              reference_doc: `Ajuste Toma Inventario Folio ${folio} - ${whName} (${diff > 0 ? '+' : ''}${diff} uds)`
-            }]);
-          if (movErr) throw new Error(`Error registrando movimiento de ${item.sku}: ${movErr.message}`);
         }
       }
 
       // Actualizar registro de solicitud a Finalizada
+      const obsPack = buildObservationsPayloadHelper(supervisor, adminNotes);
       const updatePayload = {
         status: 'Finalizada',
         completed_by: supervisor,
         admin_notes: adminNotes ? `${adminNotes} [Ajustes de stock aplicados al sistema]` : 'Ajustes de stock aplicados al sistema',
+        communication_history: obsPack.updatedHistory,
+        total_skus: updatedProducts.length,
+        warehouse_name: isSimplifiedMode ? 'Total Global (Simplificado)' : (req.warehouse_name || 'Todas las bodegas'),
         products_list: updatedProducts,
         completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
+      if (obsPack.hasObservations) {
+        updatePayload.admin_response = obsPack.formattedAdminResponse;
+        updatePayload.admin_response_at = new Date().toISOString();
+      }
 
       const { error: reqErr } = await supabase
         .from('inventory_requests')
@@ -26063,7 +27354,8 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
 
   const warehouses = window.allWarehousesList || [];
   const warehouseOptions = `
-    <option value="">Todas las bodegas</option>
+    <option value="">Todas las bodegas (Desglose por bodega)</option>
+    <option value="CONSOLIDATED" data-name="Total Global (Simplificado)">⚡ Inventario Simplificado (Totales por SKU sin desglose por bodegas)</option>
     ${warehouses.map(w => `<option value="${w.id}" data-name="${w.name}">${w.name}</option>`).join('')}
   `;
 
@@ -26401,7 +27693,7 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
     tbody.innerHTML = visibleProducts.map((p, idx) => {
       let sysQty = 0;
       const invs = p.inventory || [];
-      if (selectedWhId) {
+      if (selectedWhId && selectedWhId !== 'CONSOLIDATED') {
         const match = invs.find(i => String(i.warehouse_id) === String(selectedWhId));
         sysQty = match ? (match.quantity || 0) : 0;
       } else {
@@ -26504,8 +27796,11 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
     try {
       const type = document.getElementById('admin-create-req-type').value;
       const whSelect = document.getElementById('admin-create-req-warehouse');
-      const selectedWhId = whSelect.value || null;
-      const selectedWhName = selectedWhId ? (whSelect.options[whSelect.selectedIndex].getAttribute('data-name') || 'Bodega') : 'Todas las bodegas';
+      const isConsolidatedChoice = (whSelect.value === 'CONSOLIDATED');
+      const selectedWhId = isConsolidatedChoice ? null : (whSelect.value || null);
+      const selectedWhName = isConsolidatedChoice
+        ? 'Total Global (Simplificado)'
+        : (selectedWhId ? (whSelect.options[whSelect.selectedIndex].getAttribute('data-name') || 'Bodega') : 'Todas las bodegas');
       const reason = document.getElementById('admin-create-req-reason').value;
       const priority = document.getElementById('admin-create-req-priority').value;
       const cutoffOrder = document.getElementById('admin-create-req-cutoff-order')?.value.trim() || null;
@@ -26533,7 +27828,22 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
       const productsList = [];
       toInclude.forEach(p => {
         const invs = Array.isArray(p.inventory) ? p.inventory : [];
-        if (selectedWhId) {
+        if (isConsolidatedChoice) {
+          const sysQty = invs.reduce((acc, i) => acc + ((i && i.quantity !== undefined && i.quantity !== null) ? Number(i.quantity) : 0), 0);
+          productsList.push({
+            id: p.id,
+            sku: p.sku,
+            name: p.name,
+            barcode: p.barcode || p.codigo_barra || '',
+            warehouse_id: 'CONSOLIDATED',
+            warehouse_name: 'Total Global',
+            is_consolidated: true,
+            system_qty: sysQty,
+            counted_qty: null,
+            difference: null,
+            notes: ''
+          });
+        } else if (selectedWhId) {
           const match = invs.find(i => String(i.warehouse_id) === String(selectedWhId));
           const sysQty = match ? (match.quantity || 0) : 0;
           productsList.push({
@@ -26680,8 +27990,10 @@ async function openAdminEditInventoryRequestModal(req, onComplete) {
 
   const folio = req.folio || req.id.substring(0, 8);
   const warehouses = window.allWarehousesList || [];
+  const isCurrentlyConsolidated = (req.warehouse_name && req.warehouse_name.toLowerCase().includes('simplificado')) || (req.products_list || []).some(p => p.is_consolidated || p.warehouse_id === 'CONSOLIDATED');
   const warehouseOptions = `
-    <option value="" ${!req.warehouse_id ? 'selected' : ''}>Todas las bodegas</option>
+    <option value="" ${(!req.warehouse_id && !isCurrentlyConsolidated) ? 'selected' : ''}>Todas las bodegas (Desglose por bodega)</option>
+    <option value="CONSOLIDATED" data-name="Total Global (Simplificado)" ${isCurrentlyConsolidated ? 'selected' : ''}>⚡ Inventario Simplificado (Totales por SKU sin desglose por bodegas)</option>
     ${warehouses.map(w => `<option value="${w.id}" data-name="${w.name}" ${String(w.id) === String(req.warehouse_id) ? 'selected' : ''}>${w.name}</option>`).join('')}
   `;
 
@@ -26987,7 +28299,7 @@ async function openAdminEditInventoryRequestModal(req, onComplete) {
     tbody.innerHTML = visibleProducts.map((p, idx) => {
       let sysQty = 0;
       const invs = p.inventory || [];
-      if (selectedWhId) {
+      if (selectedWhId && selectedWhId !== 'CONSOLIDATED') {
         const match = invs.find(i => String(i.warehouse_id) === String(selectedWhId));
         sysQty = match ? (match.quantity || 0) : 0;
       } else {
@@ -27079,8 +28391,11 @@ async function openAdminEditInventoryRequestModal(req, onComplete) {
     try {
       const type = document.getElementById('admin-edit-req-type').value;
       const whSelect = document.getElementById('admin-edit-req-warehouse');
-      const selectedWhId = whSelect.value || null;
-      const selectedWhName = selectedWhId ? (whSelect.options[whSelect.selectedIndex].getAttribute('data-name') || 'Bodega') : 'Todas las bodegas';
+      const isConsolidatedChoice = (whSelect.value === 'CONSOLIDATED');
+      const selectedWhId = isConsolidatedChoice ? null : (whSelect.value || null);
+      const selectedWhName = isConsolidatedChoice
+        ? 'Total Global (Simplificado)'
+        : (selectedWhId ? (whSelect.options[whSelect.selectedIndex].getAttribute('data-name') || 'Bodega') : 'Todas las bodegas');
       const reason = document.getElementById('admin-edit-req-reason').value;
       const priority = document.getElementById('admin-edit-req-priority').value;
       const status = document.getElementById('admin-edit-req-status').value;
@@ -27112,7 +28427,34 @@ async function openAdminEditInventoryRequestModal(req, onComplete) {
       const productsList = [];
       toInclude.forEach(p => {
         const invs = Array.isArray(p.inventory) ? p.inventory : [];
-        if (selectedWhId) {
+        if (isConsolidatedChoice) {
+          const sysQty = invs.reduce((acc, i) => acc + ((i && i.quantity !== undefined && i.quantity !== null) ? Number(i.quantity) : 0), 0);
+          const prevRows = oldList.filter(oldP => oldP.id === p.id || (oldP.sku && p.sku && String(oldP.sku).trim() === String(p.sku).trim()));
+          let countedVal = null;
+          const countedRows = prevRows.filter(r => r.counted_qty !== null && r.counted_qty !== undefined && r.counted_qty !== '');
+          if (countedRows.length > 0) {
+            countedVal = countedRows.reduce((acc, r) => acc + Number(r.counted_qty), 0);
+          }
+          let diffVal = null;
+          if (countedVal !== null && countedVal !== undefined) {
+            diffVal = countedVal - sysQty;
+          }
+          const prevNotes = prevRows.map(r => (r.notes || '').trim()).filter(Boolean);
+
+          productsList.push({
+            id: p.id,
+            sku: p.sku,
+            name: p.name,
+            barcode: p.barcode || p.codigo_barra || (prevRows[0] ? prevRows[0].barcode : '') || '',
+            warehouse_id: 'CONSOLIDATED',
+            warehouse_name: 'Total Global',
+            is_consolidated: true,
+            system_qty: sysQty,
+            counted_qty: countedVal,
+            difference: diffVal,
+            notes: Array.from(new Set(prevNotes)).join(' | ')
+          });
+        } else if (selectedWhId) {
           const match = invs.find(i => String(i.warehouse_id) === String(selectedWhId));
           const sysQty = match ? (match.quantity || 0) : 0;
           const prev = oldList.find(oldP => oldP.id === p.id && (!oldP.warehouse_id || String(oldP.warehouse_id) === String(selectedWhId)));
@@ -104539,7 +105881,7 @@ window.renderAutomationsAdmin = async function() {
     const [integrationsRes, queueRecentRes, queueStatsRes] = await Promise.all([
       supabase
         .from('merchant_integrations')
-        .select('id, comercio, platform, shop_url, is_active, sync_tracking_enabled, sync_intermediate_statuses, notify_customer_on_fulfillment, granted_scopes, updated_at')
+        .select('id, merchant_id, comercio, platform, shop_url, is_active, sync_tracking_enabled, sync_intermediate_statuses, notify_customer_on_fulfillment, granted_scopes')
         .eq('platform', 'Shopify')
         .eq('is_active', true)
         .order('comercio', { ascending: true }),
@@ -104798,7 +106140,17 @@ window.drawAutomationsAdminView = function() {
                     <td style="padding: 0.65rem;">
                       ${hasFoPerm
                         ? `<span style="background: rgba(22, 163, 74, 0.14); color: #15803d; padding: 2px 8px; border-radius: 999px; font-size: 0.73rem; font-weight: 700;">✓ Permisos Completos</span>`
-                        : `<span style="background: rgba(249, 115, 22, 0.15); color: #c2410c; padding: 2px 8px; border-radius: 999px; font-size: 0.73rem; font-weight: 700;">⚠️ Falta Reconectar OAuth</span>`
+                        : `
+                          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem;">
+                            <span style="background: rgba(249, 115, 22, 0.15); color: #c2410c; padding: 2px 8px; border-radius: 999px; font-size: 0.73rem; font-weight: 700;">⚠️ Falta Reconectar OAuth</span>
+                            <button class="btn btn-primary" onclick="window.reauthorizeMerchantShopifyOAuth('${int.id}', false)" style="padding: 2px 8px; font-size: 0.72rem;" title="Abrir autorización en Shopify">
+                              <i class="ri-key-2-line"></i> Reconectar
+                            </button>
+                            <button class="btn btn-outline" onclick="window.reauthorizeMerchantShopifyOAuth('${int.id}', true)" style="padding: 2px 8px; font-size: 0.72rem;" title="Copiar enlace de autorización para enviar al comercio">
+                              <i class="ri-file-copy-line"></i> Copiar Link
+                            </button>
+                          </div>
+                        `
                       }
                     </td>
                     <td style="padding: 0.65rem; text-align: center;">
@@ -104877,7 +106229,7 @@ window.drawAutomationsAdminView = function() {
 
 window.toggleAutomationMerchantFlag = async function(integrationId, field, value) {
   try {
-    const updateObj = { [field]: Boolean(value), updated_at: new Date().toISOString() };
+    const updateObj = { [field]: Boolean(value) };
     const { error } = await supabase
       .from('merchant_integrations')
       .update(updateObj)
@@ -104969,5 +106321,42 @@ window.retrySingleShopifyQueueItem = async function(queueId) {
     window.renderAutomationsAdmin();
   } catch (err) {
     Swal.fire('Error', 'No se pudo reintentar el registro: ' + err.message, 'error');
+  }
+};
+
+window.reauthorizeMerchantShopifyOAuth = function(integrationId, copyOnly = false) {
+  const integrations = window._automationsCache?.integrations || [];
+  const int = integrations.find(i => String(i.id) === String(integrationId));
+  if (!int || !int.shop_url) {
+    Swal.fire('Error', 'No se encontró la tienda Shopify seleccionada.', 'error');
+    return;
+  }
+
+  const clientId = '4d04c58f432c53fb870d1fbcad92431c';
+  const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders';
+  const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
+  const cleanShopUrl = int.shop_url.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
+
+  const stateObj = {
+    merchant_id: int.merchant_id,
+    comercio: int.comercio,
+    redirect_back_url: window.location.origin + window.location.pathname,
+    timestamp: Date.now(),
+    nonce: (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : Math.random().toString(36).substring(2)
+  };
+  const stateBase64 = btoa(JSON.stringify(stateObj));
+  const oauthUrl = `https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`;
+
+  if (copyOnly) {
+    navigator.clipboard.writeText(oauthUrl).then(() => {
+      Swal.fire({
+        icon: 'success',
+        title: 'Enlace OAuth Copiado',
+        html: `<div style="font-size: 0.85rem;">Envía este enlace a <strong>${int.comercio}</strong> (o ábrelo si tienes acceso a su Shopify Admin). Al aceptar los nuevos permisos, todos los pedidos pendientes se marcarán como <strong>Preparados / Listos para retiro</strong> automáticamente.</div>`,
+        confirmButtonColor: '#7c3aed'
+      });
+    });
+  } else {
+    window.open(oauthUrl, '_blank');
   }
 };

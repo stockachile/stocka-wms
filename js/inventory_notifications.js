@@ -201,6 +201,150 @@
           </p>
         </div>
       `;
+    } else if (event === 'counted_with_observations') {
+      const obsData = (typeof window.getInventoryObservationsData === 'function')
+        ? window.getInventoryObservationsData(req)
+        : { hasObservations: true, requiresSecondReview: true, observations: [], generalNotes: adminResponse || req.admin_notes || '' };
+
+      const reqSecond = obsData.requiresSecondReview;
+      const obsList = Array.isArray(obsData.observations) ? obsData.observations : [];
+
+      subject = reqSecond
+        ? `🔍 [${folio}] Conteo de Inventario con Observaciones (Requiere 2da Revisión en Terreno) - ${comercio}`
+        : `📋 [${folio}] Conteo de Inventario con Observaciones (Sin 2da Revisión) - ${comercio}`;
+      headerBg = reqSecond
+        ? 'linear-gradient(135deg, #b45309, #f59e0b)'
+        : 'linear-gradient(135deg, #1d4ed8, #3b82f6)';
+      headerIcon = reqSecond ? '🔍' : '📋';
+      title = reqSecond
+        ? 'Conteo de Inventario con Observaciones'
+        : 'Conteo de Inventario Informado con Observaciones';
+      subtitle = reqSecond
+        ? `Se comparte el avance del conteo físico para ${comercio} (${folio}). Existen discrepancias puntuales que requieren una segunda revisión en terreno para su confirmación.`
+        : `Se comparte el resultado del conteo físico para ${comercio} (${folio}) junto con las observaciones levantadas por bodega. No requiere segunda revisión en terreno.`;
+
+      const products = Array.isArray(req.products_list) ? req.products_list : [];
+      const countedProds = products.filter(p => p.counted_qty !== null && p.counted_qty !== undefined && p.counted_qty !== '');
+      const squareCount = countedProds.filter(p => p.difference === 0).length;
+      const missingCount = countedProds.filter(p => p.difference !== null && p.difference < 0).length;
+      const surplusCount = countedProds.filter(p => p.difference !== null && p.difference > 0).length;
+
+      const obsItemsHtml = obsList.length > 0
+        ? obsList.map((o, idx) => `
+            <div style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: #ffffff; border: 1px solid ${o.requires_recount ? '#fde68a' : '#e2e8f0'}; border-radius: 6px; margin-bottom: 8px;">
+              <div style="min-width: 26px; height: 26px; border-radius: 50%; background: ${o.requires_recount ? '#f59e0b' : '#3b82f6'}; color: #ffffff; font-weight: 800; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; text-align: center; line-height: 26px;">
+                ${o.number || (idx + 1)}
+              </div>
+              <div style="flex: 1; font-size: 13px; color: #1e293b; line-height: 1.45;">
+                <div style="margin-bottom: 3px;">
+                  ${o.sku ? `<span style="font-family: monospace; font-weight: 800; background: #f1f5f9; color: #0f172a; padding: 1px 6px; border-radius: 4px; border: 1px solid #cbd5e1; margin-right: 6px;">SKU: ${o.sku}</span>` : ''}
+                  <span style="font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 9999px; background: ${o.requires_recount ? '#fef3c7' : '#dcfce7'}; color: ${o.requires_recount ? '#92400e' : '#166534'};">
+                    ${o.requires_recount ? '🔄 Requiere 2da Revisión en Terreno' : '✓ Observación Informativa'}
+                  </span>
+                </div>
+                <div>${o.text || '-'}</div>
+              </div>
+            </div>
+          `).join('')
+        : `<div style="background: #ffffff; padding: 12px; border-radius: 6px; border: 1px solid #fde68a; font-size: 13px; color: #78350f;">${obsData.generalNotes || adminResponse || 'Favor revisar el detalle del conteo en el portal.'}</div>`;
+
+      const tableRowsHtml = products.map((p, idx) => {
+        const sys = (p.system_qty !== undefined && p.system_qty !== null) ? p.system_qty : 0;
+        const cnt = (p.counted_qty !== undefined && p.counted_qty !== null && p.counted_qty !== '') ? p.counted_qty : '-';
+        const diff = (p.difference !== undefined && p.difference !== null && cnt !== '-') ? p.difference : null;
+        let diffStr = '-';
+        let diffColor = '#64748b';
+        if (diff !== null) {
+          if (diff === 0) { diffStr = '0 (OK)'; diffColor = '#059669'; }
+          else if (diff > 0) { diffStr = `+${diff}`; diffColor = '#2563eb'; }
+          else { diffStr = `${diff}`; diffColor = '#dc2626'; }
+        }
+        return `
+          <tr style="border-bottom: 1px solid #e2e8f0; background: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+            <td style="padding: 6px 8px; font-family: monospace; font-weight: 700; color: #0f172a; font-size: 12px;">${p.sku || '-'}</td>
+            <td style="padding: 6px 8px; color: #334155; font-size: 12px;">${p.name || '-'}</td>
+            <td style="padding: 6px 8px; text-align: center; font-weight: 600; color: #475569; font-size: 12px;">${sys}</td>
+            <td style="padding: 6px 8px; text-align: center; font-weight: 800; color: #0f172a; font-size: 12px; background: #f1f5f9;">${cnt}</td>
+            <td style="padding: 6px 8px; text-align: center; font-weight: 700; color: ${diffColor}; font-size: 12px;">${diffStr}</td>
+          </tr>
+        `;
+      }).join('');
+
+      specificContentHtml = `
+        <!-- Banner de Estado de Segunda Revisión -->
+        <div style="background: ${reqSecond ? '#fffbeb' : '#eff6ff'}; border: 2px solid ${reqSecond ? '#f59e0b' : '#3b82f6'}; border-radius: 8px; padding: 16px 18px; margin-bottom: 20px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+            <strong style="color: ${reqSecond ? '#92400e' : '#1e40af'}; font-size: 14px; text-transform: uppercase; letter-spacing: 0.03em;">
+              ${reqSecond ? '🔄 ESTADO: REQUIERE SEGUNDA REVISIÓN EN TERRENO' : '✅ ESTADO: NO REQUIERE SEGUNDA REVISIÓN EN TERRENO'}
+            </strong>
+          </div>
+          <p style="margin: 0; font-size: 13px; color: ${reqSecond ? '#78350f' : '#1e3a8a'}; line-height: 1.55;">
+            ${reqSecond
+              ? 'Te enviamos el detalle de las cantidades contabilizadas hasta el momento. Como se detalla en las observaciones numeradas más abajo, <strong>existen validaciones en terreno que nuestro equipo confirmará nuevamente mediante una segunda revisión física</strong> antes de aplicar el ajuste definitivo de stock.'
+              : 'Te enviamos el detalle del conteo físico junto con las observaciones registradas por bodega. <strong>No se requiere una segunda revisión en terreno</strong> para confirmar estas cantidades.'}
+          </p>
+        </div>
+
+        <!-- Resumen de Conteo -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; text-align: center;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px;">
+            <div style="font-size: 18px; font-weight: 800; color: #10b981;">${squareCount}</div>
+            <div style="font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 700;">SKUs Cuadrados</div>
+          </div>
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px;">
+            <div style="font-size: 18px; font-weight: 800; color: #ef4444;">${missingCount}</div>
+            <div style="font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 700;">Con Faltante</div>
+          </div>
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px;">
+            <div style="font-size: 18px; font-weight: 800; color: #3b82f6;">${surplusCount}</div>
+            <div style="font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 700;">Con Sobrante</div>
+          </div>
+        </div>
+
+        <!-- Observaciones Enumeradas -->
+        <div style="background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 16px 18px; margin-bottom: 20px;">
+          <h4 style="margin: 0 0 12px 0; color: #0f172a; font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em;">
+            📋 Observaciones Numeradas del Conteo (${obsList.length})
+          </h4>
+          ${obsItemsHtml}
+          ${obsData.generalNotes ? `
+            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #cbd5e1; font-size: 12.5px; color: #475569;">
+              <strong>Comentario General de Bodega:</strong> ${obsData.generalNotes}
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- Tabla de Cantidades Contabilizadas -->
+        ${products.length > 0 ? `
+          <div style="margin-bottom: 20px;">
+            <h4 style="margin: 0 0 8px 0; color: #0f172a; font-size: 13px; font-weight: 800; text-transform: uppercase;">
+              📦 Detalle de Cantidades Contabilizadas (${products.length} ítems)
+            </h4>
+            <div style="border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden;">
+              <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                  <tr style="background: #0f172a; color: #ffffff; font-size: 11px; text-transform: uppercase;">
+                    <th style="padding: 7px 8px;">SKU</th>
+                    <th style="padding: 7px 8px;">Producto</th>
+                    <th style="padding: 7px 8px; text-align: center;">Sist.</th>
+                    <th style="padding: 7px 8px; text-align: center;">Conteo</th>
+                    <th style="padding: 7px 8px; text-align: center;">Dif.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${tableRowsHtml}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ` : ''}
+
+        ${supervisor ? `
+          <p style="font-size: 12px; color: #64748b; margin-bottom: 12px;">
+            Responsable de revisión en bodega: <strong>${supervisor}</strong>
+          </p>
+        ` : ''}
+      `;
     } else if (event === 'completed') {
       subject = `📊 [${folio}] Toma de Inventario Finalizada - Acta Oficial y Plazo de Revisión - ${comercio}`;
       headerBg = 'linear-gradient(135deg, #1e1b4b, #4338ca)';
@@ -426,7 +570,7 @@
       // - Al crear la solicitud: avisar a solicitante y a stockachile@gmail.com
       // - Al responder el cliente: avisar a operaciones
       // - Al finalizar o rechazar: copia a operaciones
-      const shouldBccOps = (event === 'created' || event === 'client_replied' || event === 'completed' || event === 'rejected' || event === 'act_signed');
+      const shouldBccOps = (event === 'created' || event === 'client_replied' || event === 'counted_with_observations' || event === 'completed' || event === 'rejected' || event === 'act_signed');
 
       // Si no se encontró ningún correo de cliente, enviar directo a operaciones
       if (recipientsSet.size === 0) {
@@ -480,6 +624,11 @@
         if (client && comercio && comercio !== 'no asignado') {
           let inAppMsg = subject;
           if (event === 'info_requested') inAppMsg = `Información requerida para solicitud ${folio}: "${adminResponse.substring(0, 100)}..."`;
+          else if (event === 'counted_with_observations') {
+            const obsD = (typeof window.getInventoryObservationsData === 'function') ? window.getInventoryObservationsData(req) : null;
+            const revTxt = (obsD && obsD.requiresSecondReview) ? 'Requiere 2da revisión en terreno para confirmar discrepancias.' : 'No requiere 2da revisión en terreno.';
+            inAppMsg = `Conteo de inventario ${folio} enviado con observaciones (${obsD?.observations?.length || 1}). ${revTxt}`;
+          }
           else if (event === 'completed') inAppMsg = `Inventario ${folio} finalizado. Tienes 7 días para presentar alcances y firmar conformidad.`;
           else if (event === 'act_signed') inAppMsg = `Acta de inventario ${folio} firmada digitalmente de conformidad por ${req.signed_by || comercio}.`;
 
