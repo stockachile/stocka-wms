@@ -742,6 +742,9 @@ async function handleIndividualMode(idPedido) {
       agenda: 'RM',
       operador: 'ALPHA',
       raw_lightdata_data: {
+        ...(order.raw_lightdata_data || {}),
+        ...(process.env.GITHUB_RUN_ID ? { github_run_id: String(process.env.GITHUB_RUN_ID) } : {}),
+        ...(process.env.GITHUB_RUN_NUMBER ? { github_run_number: Number(process.env.GITHUB_RUN_NUMBER) } : {}),
         did: cleanDid,
         id: cleanDid,
         tracking: order.external_order_number || String(idPedido),
@@ -1368,6 +1371,9 @@ async function handleBulkMode(limiteCarga) {
         agenda: 'RM',
         operador: 'ALPHA',
         raw_lightdata_data: {
+          ...(order.raw_lightdata_data || {}),
+          ...(process.env.GITHUB_RUN_ID ? { github_run_id: String(process.env.GITHUB_RUN_ID) } : {}),
+          ...(process.env.GITHUB_RUN_NUMBER ? { github_run_number: Number(process.env.GITHUB_RUN_NUMBER) } : {}),
           did: did,
           id: did,
           tracking: order.external_order_number,

@@ -716,6 +716,11 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
 
   if (isCancelled && existingOrder.status !== "cancelado") {
     updatedData.status = "cancelado";
+    const currentWmsState = (existingOrder.estado_wms || "En procesamiento").trim().toLowerCase();
+    const estadosWmsProtegidos = ["en preparación", "pickeado", "despachado", "incidencia", "entregado", "retirado", "archivado"];
+    if (!estadosWmsProtegidos.includes(currentWmsState)) {
+      updatedData.estado_wms = "Cancelado";
+    }
   }
 
   await supabase

@@ -515,11 +515,18 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     }
   }
 
-  // Si es cancelación, forzamos estado a Cancelado en WMS.
-  // En cualquier otro caso, preservamos el estado operacional WMS intacto (no sobreescribir a Despachado).
-  if (topic === "orders/cancelled") {
+  // Lógica de Alertas Condicionales y Protección de Pedidos Avanzados
+  const rawStatus = (existingOrder.status || '').toLowerCase().trim();
+  const rawWmsStatus = (existingOrder.estado_wms || '').toLowerCase().trim();
+  const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+
+  // Si es cancelación en origen, reflejamos status = "cancelado", pero SOLO pasamos estado_wms a "Cancelado"
+  // si el pedido aún está en procesamiento (NUNCA si ya está En preparación, Pickeado o Despachado).
+  if (topic === "orders/cancelled" || Boolean(order.cancelled_at)) {
       updatedData.status = "cancelado";
-      updatedData.estado_wms = "Cancelado";
+      if (!estadosWmsProtegidos.includes(rawWmsStatus)) {
+          updatedData.estado_wms = "Cancelado";
+      }
   }
 
   // Actualizamos en BD
@@ -533,9 +540,6 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     return;
   }
 
-  // Lógica de Alertas Condicionales y Protección de Pedidos Avanzados
-  const rawStatus = (existingOrder.status || '').toLowerCase().trim();
-  const rawWmsStatus = (existingOrder.estado_wms || '').toLowerCase().trim();
   const isClosedOrDispatched = ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawStatus) ||
                                ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawWmsStatus);
 
@@ -586,8 +590,8 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     let alertMessage = `El pedido ${finalOrderNumber || order.name} ha sido modificado en Shopify mientras estaba en WMS con estado: ${wmsStatus}.`;
     let alertType = 'MODIFICADO_EN_PREPARACION';
 
-    if (topic === "orders/cancelled") {
-        alertMessage = `¡CRÍTICO! El pedido ${finalOrderNumber || order.name} ha sido CANCELADO en Shopify, pero aquí se encuentra en WMS con estado: ${wmsStatus}. Detener despacho de inmediato.`;
+    if (topic === "orders/cancelled" || isCancelled) {
+        alertMessage = `¡CRÍTICO! El pedido ${finalOrderNumber || order.name} ha sido CANCELADO en Shopify, pero aquí se encuentra en WMS con estado: ${wmsStatus}. El estado WMS no fue modificado para evitar descuadres; detener despacho de inmediato.`;
         alertType = 'CANCELADO_EN_PREPARACION';
     }
 

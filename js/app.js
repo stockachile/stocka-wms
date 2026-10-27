@@ -25288,6 +25288,7 @@ window.showNewsLoginPopupModal = function(newsItem, userId) {
 
 window.WMS_CLIENT_MODULES_CATALOG = [
   { key: 'dashboard', label: 'Dashboard', icon: 'ri-dashboard-line', category: 'Operaciones' },
+  { key: 'workspace', label: 'Panel de Trabajo', icon: 'ri-layout-masonry-line', category: 'Operaciones' },
   { key: 'inventory', label: 'Inventario', icon: 'ri-box-3-line', category: 'Operaciones' },
   { key: 'catalog', label: 'Catálogo de Productos', icon: 'ri-list-check', category: 'Operaciones' },
   { key: 'label_generator', label: 'Generador de Etiquetas', icon: 'ri-printer-line', category: 'Operaciones' },

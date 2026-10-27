@@ -243,15 +243,15 @@ window.resolvePosCommerceConfig = function(commerceName) {
   return window.posSelectedCommerceConfig || null;
 };
 
-// Helper para generar código único de venta
+// Helper para generar código único de venta (siempre incluye 6 dígitos numéricos para cumplir unique_orders_comercio_clean_number)
 window.generatePosSaleCode = function(prefix) {
   const cleanPrefix = (prefix || 'POS').replace(/[^a-zA-Z0-9]/g, '').substring(0, 4).toUpperCase();
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let rand = '';
-  for (let i = 0; i < 6; i++) {
-    rand += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return `${cleanPrefix}-${rand}`;
+  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const l1 = letters.charAt(Math.floor(Math.random() * letters.length));
+  const l2 = letters.charAt(Math.floor(Math.random() * letters.length));
+  const timePart = String(Date.now()).slice(-3);
+  const randPart = String(Math.floor(100 + Math.random() * 900));
+  return `${cleanPrefix}-${l1}${l2}${timePart}${randPart}`;
 };
 
 window.regeneratePosCode = function() {
@@ -2877,7 +2877,13 @@ window.savePosSale = async function(e) {
   const customerPhone = document.getElementById('pos-customer-phone')?.value.trim();
   const docTipo = document.getElementById('pos-documento-tipo')?.value || 'BOLETA';
   const modoPago = document.getElementById('pos-modo-pago')?.value || 'Tarjeta de Débito';
-  const codigoVenta = document.getElementById('pos-codigo-venta')?.value.trim().toUpperCase();
+  let codigoVenta = document.getElementById('pos-codigo-venta')?.value.trim().toUpperCase();
+  if (!codigoVenta || codigoVenta.replace(/[^0-9]/g, '').length < 4) {
+    const prefixPart = (codigoVenta && codigoVenta.includes('-')) ? codigoVenta.split('-')[0] : 'POS';
+    codigoVenta = window.generatePosSaleCode(prefixPart);
+    const codeInputEl = document.getElementById('pos-codigo-venta');
+    if (codeInputEl) codeInputEl.value = codigoVenta;
+  }
   const comments = document.getElementById('pos-comments')?.value.trim();
 
   // Datos factura
@@ -3047,13 +3053,38 @@ window.savePosSale = async function(e) {
       }
     };
 
-    const { data: insertedOrder, error: orderErr } = await supabase
-      .from('orders')
-      .insert([orderPayload])
-      .select()
-      .single();
+    let insertedOrder = null;
+    let lastOrderErr = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { data: ordData, error: ordErr } = await supabase
+        .from('orders')
+        .insert([orderPayload])
+        .select()
+        .single();
 
-    if (orderErr) throw orderErr;
+      if (!ordErr && ordData) {
+        insertedOrder = ordData;
+        lastOrderErr = null;
+        break;
+      }
+
+      lastOrderErr = ordErr;
+      const errMsg = String(ordErr?.message || '');
+      if (ordErr?.code === '23505' || errMsg.includes('unique_orders_comercio_clean_number')) {
+        const prefixPart = (codigoVenta && codigoVenta.includes('-')) ? codigoVenta.split('-')[0] : 'POS';
+        codigoVenta = window.generatePosSaleCode(prefixPart);
+        orderPayload.external_order_number = codigoVenta;
+        if (orderPayload.raw_shopify_data) {
+          orderPayload.raw_shopify_data.pos_sale_code = codigoVenta;
+        }
+        const codeInputEl = document.getElementById('pos-codigo-venta');
+        if (codeInputEl) codeInputEl.value = codigoVenta;
+        continue;
+      }
+      break;
+    }
+
+    if (lastOrderErr) throw lastOrderErr;
 
     // 3. CREAR ORDER_ITEMS
     const orderItemsPayload = [];

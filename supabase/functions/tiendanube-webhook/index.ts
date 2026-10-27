@@ -425,6 +425,11 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
 
   if (isCancelled) {
     updatedData.status = "cancelado";
+    const currentWmsState = (existingOrder.estado_wms || "En procesamiento").trim().toLowerCase();
+    const estadosWmsProtegidos = ["en preparación", "pickeado", "despachado", "incidencia", "entregado", "retirado", "archivado"];
+    if (!estadosWmsProtegidos.includes(currentWmsState)) {
+      updatedData.estado_wms = "Cancelado";
+    }
   }
 
   // Actualizamos en BD

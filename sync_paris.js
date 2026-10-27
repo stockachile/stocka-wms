@@ -498,13 +498,19 @@ async function syncMerchantOrders(integration) {
           ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
         };
 
-        // Si el pedido se canceló en origen, actualizar su estado en WMS
+        // Si el pedido se canceló en origen, actualizar su estado en WMS (protegiendo estados operacionales avanzados)
         if (isCancelled && existingOrder.status !== 'cancelado') {
+          const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
+          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+          const cancelUpdate = { ...orderDataToUpdate, status: 'cancelado' };
+          if (!estadosWmsProtegidos.includes(currentWmsState)) {
+            cancelUpdate.estado_wms = 'Cancelado';
+          }
           await supabase
             .from('orders')
-            .update({ ...orderDataToUpdate, status: 'cancelado' })
+            .update(cancelUpdate)
             .eq('id', existingOrder.id);
-          console.log(`🚫 Pedido ${finalOrderId} cancelado en París. Actualizado en el WMS.`);
+          console.log(`🚫 Pedido ${finalOrderId} cancelado en París. Actualizado en el WMS (estado_wms: ${cancelUpdate.estado_wms || existingOrder.estado_wms}).`);
         } else {
           // Actualizar datos del pedido manteniendo el estado WMS actual
           await supabase

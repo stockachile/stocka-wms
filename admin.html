@@ -2893,43 +2893,52 @@
   </div>
 
   <!-- Modal Gestionar Declaración (Admin) -->
-  <div class="modal-overlay" id="modal-manage-declaration">
-    <div class="modal-content" style="max-width: 1200px; width: 96vw; display: flex; flex-direction: column; max-height: 92vh; padding: 0;">
-      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
-        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-settings-4-line" style="color: var(--color-primary);"></i> Gestionar Recepción de Stock</h3>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-          <button type="button" class="btn btn-outline btn-sm" onclick="window.editDeclarationAdmin(document.getElementById('manage-dec-id').value)" style="font-size: 0.8rem; padding: 0.35rem 0.75rem; border-color: var(--color-primary); color: var(--color-primary); display: flex; align-items: center; gap: 0.3rem;" title="Editar datos declarados del ingreso">
+  <div class="modal-overlay" id="modal-manage-declaration" style="padding: 1.25vh 1vw;">
+    <div class="modal-content" style="max-width: 98vw; width: 98vw; height: 96vh; max-height: 96vh; display: flex; flex-direction: column; padding: 0; border-radius: 14px; border: 1px solid var(--color-border); box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.55);">
+      <div class="modal-header" style="padding: 0.95rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: 14px 14px 0 0; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('modal-manage-declaration').classList.remove('active')" style="font-size: 0.82rem; padding: 0.4rem 0.85rem; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; border-radius: 8px; background: var(--color-bg); color: var(--color-text-main); border-color: var(--color-border);" title="Cerrar modal y volver a la lista de ingresos">
+            <i class="ri-arrow-left-line" style="font-size: 1rem;"></i> Volver a la lista
+          </button>
+          <div style="width: 1px; height: 22px; background: var(--color-border);"></div>
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 1.15rem;"><i class="ri-settings-4-line" style="color: var(--color-primary);"></i> Gestionar Recepción de Stock</h3>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.editDeclarationAdmin(document.getElementById('manage-dec-id').value)" style="font-size: 0.82rem; padding: 0.4rem 0.85rem; border-color: var(--color-primary); color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 8px; font-weight: 600;" title="Editar datos declarados del ingreso">
             <i class="ri-edit-line"></i> Editar Ingreso
           </button>
-          <button type="button" class="modal-close" onclick="document.getElementById('modal-manage-declaration').classList.remove('active')">&times;</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('modal-manage-declaration').classList.remove('active')" style="font-size: 0.82rem; padding: 0.4rem 0.8rem; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; color: var(--color-text-main); border-color: var(--color-border); border-radius: 8px;" title="Cerrar ventana modal">
+            <i class="ri-close-line" style="font-size: 1.1rem;"></i> Cerrar
+          </button>
         </div>
       </div>
       <form id="form-manage-declaration" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
         <input type="hidden" id="manage-dec-id">
-        <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.5rem;">
+        <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.25rem 1.5rem;">
           <div id="modal-dec-alert-container"></div>
           
           <!-- Stepper Visual Interactivo de Etapas (Ingresos 2.0) -->
-          <div id="manage-dec-stepper-container" style="margin-bottom: 1.25rem;">
+          <div id="manage-dec-stepper-container" style="margin-bottom: 1.15rem;">
             <!-- Renderizado dinámico de etapas y progreso -->
           </div>
           
-          <!-- Grid Informativo del Ingreso -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+          <!-- Grid Informativo del Ingreso (3 Columnas en Pantalla Ancha) -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1.15rem; margin-bottom: 1.25rem; align-items: stretch;">
             <!-- Column 1: Logística y Origen -->
-            <div style="background-color: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.85rem; font-size: 0.85rem;">
+            <div style="background-color: var(--color-bg); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.85rem;">
               <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
                 <i class="ri-truck-line" style="color: var(--color-primary);"></i> Detalles de Envío
               </h4>
               
-              <div>
-                <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Comercio</span>
-                <div id="manage-dec-merchant" style="color: var(--color-text-main); font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.25rem;"></div>
-              </div>
-
-              <div>
-                <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Origen / Creador</span>
-                <div id="manage-dec-creator-info"></div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div>
+                  <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Comercio</span>
+                  <div id="manage-dec-merchant" style="color: var(--color-text-main); font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap;"></div>
+                </div>
+                <div>
+                  <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Origen / Creador</span>
+                  <div id="manage-dec-creator-info"></div>
+                </div>
               </div>
 
               <div>
@@ -2956,20 +2965,20 @@
                 <div id="manage-dec-warehouse-name" style="color: var(--color-text-main); font-weight: 500;"></div>
               </div>
 
-              <div style="border-top: 1px dashed var(--color-border); padding-top: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
+              <div style="border-top: 1px dashed var(--color-border); padding-top: 0.75rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: auto;">
                 <div id="manage-dec-contact-section">
                   <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Contacto Comercio</span>
-                  <div id="manage-dec-contact" style="color: var(--color-text-main); font-size: 0.8rem; word-break: break-all;"></div>
+                  <div id="manage-dec-contact" style="color: var(--color-text-main); font-size: 0.8rem; word-break: break-word;"></div>
                 </div>
                 <div id="manage-dec-carrier-section">
                   <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Transportista</span>
-                  <div id="manage-dec-carrier" style="color: var(--color-text-main); font-size: 0.8rem;"></div>
+                  <div id="manage-dec-carrier" style="color: var(--color-text-main); font-size: 0.8rem; word-break: break-word;"></div>
                 </div>
               </div>
             </div>
 
             <!-- Column 2: Carga y Finanzas -->
-            <div style="background-color: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.85rem; font-size: 0.85rem;">
+            <div style="background-color: var(--color-bg); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.85rem;">
               <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
                 <i class="ri-checkbox-multiple-line" style="color: var(--color-primary);"></i> Carga y Costos
               </h4>
@@ -3018,14 +3027,15 @@
                 </div>
               </div>
 
-              <div>
-                <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Servicio Descarga Bodega</span>
-                <div id="manage-dec-unloading" style="font-size: 0.85rem; color: var(--color-text-main); font-weight: 500;"></div>
-              </div>
-
-              <div>
-                <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Servicio de Etiquetado</span>
-                <div id="manage-dec-labeling-info" style="font-size: 0.85rem; color: var(--color-text-main); font-weight: 500;"></div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div>
+                  <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Servicio Descarga Bodega</span>
+                  <div id="manage-dec-unloading" style="font-size: 0.82rem; color: var(--color-text-main); font-weight: 500;"></div>
+                </div>
+                <div>
+                  <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Servicio de Etiquetado</span>
+                  <div id="manage-dec-labeling-info" style="font-size: 0.82rem; color: var(--color-text-main); font-weight: 500;"></div>
+                </div>
               </div>
 
               <div style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.15); border-radius: 6px; padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center; margin-top: auto;">
@@ -3036,30 +3046,32 @@
                 <span id="manage-dec-estimated-cost" style="font-size: 1.05rem; font-weight: 800; color: var(--color-success);"></span>
               </div>
             </div>
-          </div>
 
-          <!-- Row for Notes -->
-          <div style="background-color: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.25rem; font-size: 0.85rem; display: flex; align-items: flex-start; gap: 0.5rem;">
-            <i class="ri-chat-quote-line" style="color: var(--color-primary); font-size: 1.15rem; margin-top: 2px;"></i>
-            <div style="flex: 1;">
-              <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px; font-weight: 600; text-transform: uppercase;">Notas Cliente</span>
-              <div id="manage-dec-notes" style="font-style: italic; color: var(--color-text-main); line-height: 1.45;"></div>
-            </div>
-          </div>
+            <!-- Column 3: Notas del Cliente + Integración Picker App -->
+            <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+              <div style="background-color: var(--color-bg); padding: 0.9rem 1.1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); font-size: 0.85rem; display: flex; align-items: flex-start; gap: 0.6rem;">
+                <i class="ri-chat-quote-line" style="color: var(--color-primary); font-size: 1.15rem; margin-top: 2px;"></i>
+                <div style="flex: 1; min-width: 0;">
+                  <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px; font-weight: 600; text-transform: uppercase;">Notas Cliente</span>
+                  <div id="manage-dec-notes" style="font-style: italic; color: var(--color-text-main); line-height: 1.45; word-break: break-word;"></div>
+                </div>
+              </div>
 
-          <!-- Panel Integración con Picker -->
-          <div id="manage-dec-picker-panel" class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-            <label class="form-label" style="font-weight: 700; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem; font-size: 0.95rem; color: var(--color-text-main);">
-              <i class="ri-tablet-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Conteo e Integración con Picker App
-            </label>
-            <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1rem; line-height: 1.4;">
-              Envía este ingreso al Picker para realizar el conteo digital. Una vez finalizado por el operario, podrás importar las cantidades físicas directamente aquí.
-            </p>
-            
-            <div id="manage-dec-picker-status-box" style="padding: 0.85rem; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg); display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
-              <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <i class="ri-loader-4-line spin" style="font-size: 1.25rem; color: var(--color-primary); animation: spin 1s linear infinite;"></i>
-                <span style="font-size: 0.85rem; color: var(--color-text-muted);">Consultando estado en Picker...</span>
+              <!-- Panel Integración con Picker -->
+              <div id="manage-dec-picker-panel" class="form-group" style="background: var(--color-surface); padding: 1.1rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 0; box-shadow: 0 4px 12px rgba(0,0,0,0.05); flex: 1; display: flex; flex-direction: column;">
+                <label class="form-label" style="font-weight: 700; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.4rem; font-size: 0.92rem; color: var(--color-text-main);">
+                  <i class="ri-tablet-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Conteo e Integración con Picker App
+                </label>
+                <p style="font-size: 0.78rem; color: var(--color-text-muted); margin-bottom: 0.75rem; line-height: 1.4;">
+                  Envía este ingreso al Picker para realizar el conteo digital e importa las cantidades físicas al finalizar.
+                </p>
+                
+                <div id="manage-dec-picker-status-box" style="padding: 0.75rem 0.85rem; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg); display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-top: auto;">
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="ri-loader-4-line spin" style="font-size: 1.25rem; color: var(--color-primary); animation: spin 1s linear infinite;"></i>
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted);">Consultando estado en Picker...</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -3105,7 +3117,7 @@
               </div>
               <div id="manage-dec-search-results" style="display: none; position: absolute; left: 0; right: 0; top: 100%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; max-height: 200px; overflow-y: auto; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.15);"></div>
             </div>
-            <div style="overflow-x: auto; max-height: 360px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px;">
+            <div style="overflow-x: auto; max-height: 500px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px;">
               <table class="table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 0;">
                 <thead>
                   <tr style="border-bottom: 1px solid var(--color-border); text-align: left; font-weight: 600; color: var(--color-text-muted); background: var(--color-bg); position: sticky; top: 0; z-index: 10; font-size: 0.78rem;">
@@ -3214,270 +3226,282 @@
           <!-- Campo oculto de Estado -->
           <input type="hidden" id="manage-dec-status" required>
           
-          <!-- Selector Dinámico de Estado y Transiciones Bidireccionales (Ingresos 2.0) -->
-          <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
-              <label class="form-label" style="font-weight: 700; margin-bottom: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; color: var(--color-text-main);">
-                <i class="ri-git-commit-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Control de Etapa de Recepción
-              </label>
-              <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span id="manage-dec-current-status-badge" class="badge" style="font-size: 0.78rem; padding: 4px 8px; background: rgba(37, 99, 235, 0.1); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.2);">Estado actual: Creada</span>
-                <button type="button" id="btn-toggle-manual-stage" class="btn btn-outline" onclick="window.toggleManualStageSelect()" style="font-size: 0.72rem; padding: 0.25rem 0.6rem; height: auto; line-height: 1.2; display: inline-flex; align-items: center; gap: 0.25rem;" title="Cambiar a modo selección manual directa">
-                  <i class="ri-equalizer-line"></i> Modo Libre
-                </button>
-              </div>
-            </div>
-
-            <!-- Selector manual desplegable (oculto por defecto) -->
-            <div id="manage-dec-manual-select-container" style="display: none; background: var(--color-bg); padding: 0.85rem; border-radius: 8px; border: 1px dashed var(--color-primary); margin-bottom: 1rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-                <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-primary); text-transform: uppercase;">Selección Directa de Etapa (Admin)</span>
-                <span style="font-size: 0.7rem; color: var(--color-text-muted);">Permite saltar directamente a cualquier etapa</span>
-              </div>
-              <select id="manage-dec-manual-status-select" class="form-input" style="font-size: 0.85rem; font-weight: 600;" onchange="window.handleManualStatusDropdownChange(this.value)">
-                <option value="Creada">1. Creada (Declaración inicial)</option>
-                <option value="Bodega Asignada">2. Bodega Asignada</option>
-                <option value="En Recepción - Pendiente Conteo">3. En Recepción - Pendiente Conteo</option>
-                <option value="En proceso de conteo/clasificación">4. En proceso de conteo/clasificación</option>
-                <option value="Recibido Conforme">5. Recibido Conforme (100% Carga Completa)</option>
-                <option value="Recepción Parcial">5. Recepción Parcial (Saldo en espera)</option>
-                <option value="Recibido con Incidencias">5. Recibido con Incidencias (Cierre con observaciones)</option>
-              </select>
-            </div>
-
-            <div id="manage-dec-actions-buttons" style="display: flex; gap: 0.75rem; flex-direction: column;">
-              <!-- Botones dinámicos generados por JS -->
-            </div>
-          </div>
-
-          <!-- Panel de Desglose Itemizado de Costos -->
-          <div id="manage-dec-cost-breakdown-panel" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.6rem;">
-              <label class="form-label" style="font-weight: 700; margin-bottom: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; color: var(--color-text-main);">
-                <i class="ri-money-dollar-circle-line" style="color: var(--color-primary); font-size: 1.2rem;"></i> Desglose Itemizado de Costos de Recepción
-              </label>
-              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                <span id="manage-dec-uf-badge" class="badge" style="background: var(--color-surface-hover); border: 1px solid var(--color-border); color: var(--color-text-main); font-size: 0.75rem; font-weight: 600; padding: 4px 8px; border-radius: 6px;">UF Ref: $38.200</span>
-                <button type="button" class="btn btn-outline" id="btn-apply-cost-calc" onclick="window.resetAllChargesToAuto()" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; color: var(--color-primary); border-color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 6px; background: rgba(95, 6, 250, 0.06); height: auto; line-height: 1.2;" title="Restaurar todos los cargos a los valores calculados automáticamente por el sistema">
-                  <i class="ri-refresh-line"></i> Restaurar Cálculos Auto
-                </button>
-              </div>
-            </div>
-
-            <!-- Ajuste Directo de Servicio de Etiquetado -->
-            <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--color-border); margin-bottom: 0.85rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
-              <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <div style="background: rgba(37, 99, 235, 0.1); width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--color-primary); flex-shrink: 0;">
-                  <i class="ri-price-tag-3-line" style="font-size: 1.1rem;"></i>
-                </div>
-                <div>
-                  <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: block;">Servicio de Etiquetado ($100 CLP / ud)</span>
-                  <span style="font-size: 0.72rem; color: var(--color-text-muted);">Indica las unidades rotuladas por Stocka en bodega para auditar el cobro:</span>
-                </div>
-              </div>
-              <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <input type="number" id="manage-dec-labeling-qty-confirmed" class="form-input" min="0" placeholder="0" style="width: 100px; font-weight: 700; text-align: right; padding: 0.35rem 0.6rem; font-size: 0.85rem;" oninput="window.recalculateManageDeclarationCosts()">
-                <span style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">uds</span>
-                <button type="button" class="btn btn-outline" style="padding: 0.3rem 0.6rem; font-size: 0.72rem; height: auto;" onclick="window.setManageLabelingToAll()" title="Asignar a todas las unidades recibidas">Todas</button>
-                <button type="button" class="btn btn-outline" style="padding: 0.3rem 0.6rem; font-size: 0.72rem; height: auto;" onclick="window.setManageLabelingToZero()" title="Establecer a 0">0</button>
-              </div>
-            </div>
-
-            <!-- Sección Costos Adicionales / Extras del Proceso (ej. Despacho en destino) -->
-            <div style="background: var(--color-bg); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid var(--color-border); margin-bottom: 0.85rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; flex-wrap: wrap; gap: 0.5rem;">
-                <div style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
-                  <i class="ri-add-circle-line" style="color: var(--color-success); font-size: 1.1rem;"></i>
-                  Costos Adicionales / Servicios Extras de Recepción
-                </div>
-                <span style="font-size: 0.72rem; color: var(--color-text-muted);">Añade cobros extras al proceso (ej. flete pagado en destino, paletizado, etc.)</span>
-              </div>
-
-              <!-- Formulario de adición de costo extra -->
-              <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 2fr auto; gap: 0.5rem; align-items: center; margin-bottom: 0.65rem;">
-                <div>
-                  <input type="text" id="manage-extra-cost-name" class="form-input" placeholder="Concepto (ej. Despacho pagado en bodega destino)" style="width: 100%; font-size: 0.8rem; padding: 0.4rem 0.6rem;" list="extra-costs-presets">
-                  <datalist id="extra-costs-presets">
-                    <option value="Despacho pagado en bodega destino"></option>
-                    <option value="Servicio de Paletizado y Film"></option>
-                    <option value="Estadía / Almacenaje especial"></option>
-                    <option value="Flete / Retiro coordinado"></option>
-                    <option value="Acondicionamiento / Reparación de embalaje"></option>
-                  </datalist>
-                </div>
-                <div>
-                  <div style="position: relative;">
-                    <input type="number" id="manage-extra-cost-clp" class="form-input" placeholder="$ CLP" step="1" min="0" style="width: 100%; font-size: 0.8rem; padding: 0.4rem 0.5rem 0.4rem 1.2rem;" oninput="window.syncExtraCostInput('clp')">
-                    <span style="position: absolute; left: 6px; top: 50%; transform: translateY(-50%); font-size: 0.75rem; color: var(--color-text-muted);">$</span>
+          <!-- Grid de Gestión Operativa (Izquierda) y Liquidación / Facturación (Derecha) en Pantalla Ancha -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); gap: 1.25rem; align-items: start; margin-bottom: 1.25rem;">
+            <!-- Columna Operativa: Control de Etapa, Conteo, Bodega, Incidencias y Comentarios -->
+            <div style="display: flex; flex-direction: column; gap: 1rem;">
+              <!-- Selector Dinámico de Estado y Transiciones Bidireccionales (Ingresos 2.0) -->
+              <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+                  <label class="form-label" style="font-weight: 700; margin-bottom: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; color: var(--color-text-main);">
+                    <i class="ri-git-commit-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Control de Etapa de Recepción
+                  </label>
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span id="manage-dec-current-status-badge" class="badge" style="font-size: 0.78rem; padding: 4px 8px; background: rgba(37, 99, 235, 0.1); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.2);">Estado actual: Creada</span>
+                    <button type="button" id="btn-toggle-manual-stage" class="btn btn-outline" onclick="window.toggleManualStageSelect()" style="font-size: 0.72rem; padding: 0.25rem 0.6rem; height: auto; line-height: 1.2; display: inline-flex; align-items: center; gap: 0.25rem;" title="Cambiar a modo selección manual directa">
+                      <i class="ri-equalizer-line"></i> Modo Libre
+                    </button>
                   </div>
                 </div>
-                <div>
-                  <div style="position: relative;">
-                    <input type="number" id="manage-extra-cost-uf" class="form-input" placeholder="UF" step="0.0001" min="0" style="width: 100%; font-size: 0.8rem; padding: 0.4rem 1.6rem 0.4rem 0.5rem; font-weight: 600;" oninput="window.syncExtraCostInput('uf')">
-                    <span style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">UF</span>
+
+                <!-- Selector manual desplegable (oculto por defecto) -->
+                <div id="manage-dec-manual-select-container" style="display: none; background: var(--color-bg); padding: 0.85rem; border-radius: 8px; border: 1px dashed var(--color-primary); margin-bottom: 1rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                    <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-primary); text-transform: uppercase;">Selección Directa de Etapa (Admin)</span>
+                    <span style="font-size: 0.7rem; color: var(--color-text-muted);">Permite saltar directamente a cualquier etapa</span>
+                  </div>
+                  <select id="manage-dec-manual-status-select" class="form-input" style="font-size: 0.85rem; font-weight: 600;" onchange="window.handleManualStatusDropdownChange(this.value)">
+                    <option value="Creada">1. Creada (Declaración inicial)</option>
+                    <option value="Bodega Asignada">2. Bodega Asignada</option>
+                    <option value="En Recepción - Pendiente Conteo">3. En Recepción - Pendiente Conteo</option>
+                    <option value="En proceso de conteo/clasificación">4. En proceso de conteo/clasificación</option>
+                    <option value="Recibido Conforme">5. Recibido Conforme (100% Carga Completa)</option>
+                    <option value="Recepción Parcial">5. Recepción Parcial (Saldo en espera)</option>
+                    <option value="Recibido con Incidencias">5. Recibido con Incidencias (Cierre con observaciones)</option>
+                  </select>
+                </div>
+
+                <div id="manage-dec-actions-buttons" style="display: flex; gap: 0.75rem; flex-direction: column;">
+                  <!-- Botones dinámicos generados por JS -->
+                </div>
+              </div>
+
+              <!-- Panel de Ajustes / Ingreso de Conteo -->
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.85rem; background: var(--color-surface); padding: 1rem 1.25rem; border-radius: 10px; border: 1px solid var(--color-border);">
+                <div class="form-group" id="manage-dec-group-received" style="margin-bottom: 0;">
+                  <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">Cant. Recepcionada (Física) *</label>
+                  <input type="number" id="manage-dec-qty-received" class="form-input" min="0" required style="width: 100%;">
+                </div>
+
+                <div class="form-group" id="manage-dec-group-volume-confirmed" style="display: none; margin-bottom: 0;">
+                  <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">Volumen Confirmado (m³) *</label>
+                  <input type="number" id="manage-dec-volume-confirmed" class="form-input" min="0" step="any" style="width: 100%;">
+                </div>
+
+                <div class="form-group" id="manage-dec-group-real-cost" style="margin-bottom: 0;">
+                  <label class="form-label" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center;">
+                    <span>Costo Real Confirmado (UF) *</span>
+                    <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success); font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 4px;">
+                      <i class="ri-calculator-line"></i> Vinculado a la tabla
+                    </span>
+                  </label>
+                  <input type="number" id="manage-dec-real-cost" class="form-input" min="0" step="0.0001" required readonly style="width: 100%; font-weight: 700; color: var(--color-primary); background: var(--color-bg); cursor: default;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px; flex-wrap: wrap; gap: 4px;">
+                    <span id="manage-dec-real-cost-clp" style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">≈ $0 CLP</span>
+                    <span style="font-size: 0.72rem; color: var(--color-text-muted); font-style: italic;">
+                      Total liquidado según tabla editable
+                    </span>
                   </div>
                 </div>
-                <div>
-                  <input type="text" id="manage-extra-cost-notes" class="form-input" placeholder="Detalle / Guía / Factura (opcional)" style="width: 100%; font-size: 0.8rem; padding: 0.4rem 0.6rem;">
+
+                <div class="form-group" id="manage-dec-group-incidents" style="margin-bottom: 0;">
+                  <label class="form-label" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center;">
+                    <span>Cant. Incidencias *</span>
+                    <button type="button" id="btn-toggle-incidents-panel" style="background: none; border: none; font-size: 0.75rem; color: var(--color-danger); cursor: pointer; text-decoration: underline; padding: 0; display: inline-flex; align-items: center; gap: 3px;">
+                      <i class="ri-error-warning-line"></i> Detallar incidencias
+                    </button>
+                  </label>
+                  <input type="number" id="manage-dec-qty-incidents" class="form-input" min="0" required style="width: 100%;">
                 </div>
-                <div>
-                  <button type="button" class="btn btn-primary" onclick="window.addDeclarationAdditionalCost()" style="padding: 0.4rem 0.85rem; font-size: 0.78rem; font-weight: 600; white-space: nowrap; height: auto; display: inline-flex; align-items: center; gap: 0.25rem;">
-                    <i class="ri-add-line"></i> Agregar
+
+                <div class="form-group" id="manage-dec-group-labeling" style="display: none; margin-bottom: 0;"></div>
+              </div>
+
+              <!-- Panel de Incidencias Detalladas -->
+              <div id="manage-dec-incidents-panel" style="display: none; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.15); border-radius: var(--radius-md); padding: 1rem;">
+                <label class="form-label" style="color: var(--color-danger); font-weight: 600; display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                  <span style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.88rem;"><i class="ri-error-warning-line"></i> Enumerar Incidencias Detalladas</span>
+                  <button type="button" id="btn-add-incident-item" class="btn btn-outline" style="padding: 0.3rem 0.65rem; font-size: 0.78rem; border-color: rgba(239, 68, 68, 0.4); color: var(--color-danger); height: auto; margin: 0; line-height: 1; border-radius: 6px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; background: rgba(239, 68, 68, 0.06);">
+                    <i class="ri-add-line"></i> Agregar Incidencia
                   </button>
+                </label>
+                <div id="manage-dec-incidents-container" class="manage-dec-incidents-list-container" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.35rem;">
+                  <!-- Inputs dinámicos -->
                 </div>
+                <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.5rem 0 0 0; font-style: italic;">Indica la descripción de cada incidencia detectada en la recepción física o empaque.</p>
               </div>
 
-              <!-- Listado de costos adicionales registrados -->
-              <div id="manage-extra-costs-list" style="display: flex; flex-direction: column; gap: 0.35rem;">
-                <!-- Chips generados dinámicamente por JS -->
-              </div>
-            </div>
-
-            <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.65rem; line-height: 1.4;">
-              Auditoría transparente del cobro según dimensiones físicas confirmadas, volumen total y servicios aplicados:
-            </p>
-
-            <div class="table-responsive" style="border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; margin-bottom: 0.75rem;">
-              <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: left;">
-                <thead>
-                  <tr style="background: var(--color-bg); border-bottom: 1px solid var(--color-border);">
-                    <th style="padding: 8px 12px; font-weight: 700; color: var(--color-text-main);">Concepto / Servicio</th>
-                    <th style="padding: 8px 10px; font-weight: 700; color: var(--color-text-main); text-align: center;">Tarifa Base</th>
-                    <th style="padding: 8px 10px; font-weight: 700; color: var(--color-text-main); text-align: right;">Estimado (Declarado)</th>
-                    <th style="padding: 8px 10px; font-weight: 700; color: var(--color-primary); text-align: right;">Real Confirmado (Editable)</th>
-                    <th style="padding: 8px 12px; font-weight: 700; color: var(--color-text-main); text-align: right;">Diferencia</th>
-                  </tr>
-                </thead>
-                <tbody id="manage-dec-cost-breakdown-tbody">
-                  <!-- Generado dinámicamente por JS -->
-                </tbody>
-                <tfoot>
-                  <tr style="background: rgba(95, 6, 250, 0.04); border-top: 2px solid var(--color-border); font-weight: 700;">
-                    <td style="padding: 10px 12px; color: var(--color-text-main); font-size: 0.88rem;">TOTAL INGRESO</td>
-                    <td style="padding: 10px 10px; text-align: center; color: var(--color-text-muted); font-size: 0.75rem;">Suma conceptos</td>
-                    <td style="padding: 10px 10px; text-align: right;" id="manage-dec-cost-total-est">0.0000 UF</td>
-                    <td style="padding: 10px 10px; text-align: right; color: var(--color-primary); font-size: 0.95rem;" id="manage-dec-cost-total-real">0.0000 UF</td>
-                    <td style="padding: 10px 12px; text-align: right;" id="manage-dec-cost-total-diff">0.0000 UF</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-            <div style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem; margin-top: 0.4rem;">
-              <i class="ri-edit-line" style="color: var(--color-primary);"></i>
-              <span>Puedes editar o exonerar los cargos directamente en la columna <strong>Real Confirmado (Editable)</strong>. El valor UF definitivo se calcula de forma automática a partir de la suma de esta tabla.</span>
-            </div>
-          </div>
-
-          <!-- Panel de Ajustes / Ingreso de Conteo -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
-            <div class="form-group" id="manage-dec-group-received" style="margin-bottom: 0;">
-              <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">Cant. Recepcionada (Física) *</label>
-              <input type="number" id="manage-dec-qty-received" class="form-input" min="0" required style="width: 100%;">
-            </div>
-
-            <div class="form-group" id="manage-dec-group-volume-confirmed" style="display: none; margin-bottom: 0;">
-              <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">Volumen Confirmado (m³) *</label>
-              <input type="number" id="manage-dec-volume-confirmed" class="form-input" min="0" step="any" style="width: 100%;">
-            </div>
-
-            <div class="form-group" id="manage-dec-group-real-cost" style="margin-bottom: 0;">
-              <label class="form-label" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center;">
-                <span>Costo Real Confirmado (UF) *</span>
-                <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success); font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 4px;">
-                  <i class="ri-calculator-line"></i> Vinculado a la tabla
-                </span>
-              </label>
-              <input type="number" id="manage-dec-real-cost" class="form-input" min="0" step="0.0001" required readonly style="width: 100%; font-weight: 700; color: var(--color-primary); background: var(--color-bg); cursor: default;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px; flex-wrap: wrap; gap: 4px;">
-                <span id="manage-dec-real-cost-clp" style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">≈ $0 CLP</span>
-                <span style="font-size: 0.72rem; color: var(--color-text-muted); font-style: italic;">
-                  Total liquidado según tabla editable
-                </span>
-              </div>
-            </div>
-
-            <div class="form-group" id="manage-dec-group-incidents" style="margin-bottom: 0;">
-              <label class="form-label" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center;">
-                <span>Cant. Incidencias *</span>
-                <button type="button" id="btn-toggle-incidents-panel" style="background: none; border: none; font-size: 0.75rem; color: var(--color-danger); cursor: pointer; text-decoration: underline; padding: 0; display: inline-flex; align-items: center; gap: 3px;">
-                  <i class="ri-error-warning-line"></i> Detallar incidencias
-                </button>
-              </label>
-              <input type="number" id="manage-dec-qty-incidents" class="form-input" min="0" required style="width: 100%;">
-            </div>
-
-            <div class="form-group" id="manage-dec-group-labeling" style="display: none; margin-bottom: 0;"></div>
-          </div>
-
-          <!-- Panel de Incidencias Detalladas -->
-          <div id="manage-dec-incidents-panel" style="display: none; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.15); border-radius: var(--radius-md); padding: 1rem; margin-top: 1rem; margin-bottom: 1rem;">
-            <label class="form-label" style="color: var(--color-danger); font-weight: 600; display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-              <span style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.88rem;"><i class="ri-error-warning-line"></i> Enumerar Incidencias Detalladas</span>
-              <button type="button" id="btn-add-incident-item" class="btn btn-outline" style="padding: 0.3rem 0.65rem; font-size: 0.78rem; border-color: rgba(239, 68, 68, 0.4); color: var(--color-danger); height: auto; margin: 0; line-height: 1; border-radius: 6px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; background: rgba(239, 68, 68, 0.06);">
-                <i class="ri-add-line"></i> Agregar Incidencia
-              </button>
-            </label>
-            <div id="manage-dec-incidents-container" class="manage-dec-incidents-list-container" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.35rem;">
-              <!-- Inputs dinámicos -->
-            </div>
-            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.5rem 0 0 0; font-style: italic;">Indica la descripción de cada incidencia detectada en la recepción física o empaque.</p>
-          </div>
-
-          <!-- Asignación de Bodega -->
-          <div class="form-group" id="manage-dec-group-warehouse" style="display: none;">
-            <label class="form-label" style="font-weight: 600;">Asignar Bodega *</label>
-            <select id="manage-dec-warehouse-select" class="form-input">
-              <option value="">-- Selecciona una Bodega --</option>
-            </select>
-          </div>
-
-          <div class="form-group" style="margin-top: 1.25rem;">
-            <!-- Indicador Dinámico de la Acción Seleccionada (Ingresos 2.0) -->
-            <div id="manage-dec-stage-action-indicator" style="margin-bottom: 0.65rem;"></div>
-            <label class="form-label" style="font-weight: 600;">Comentario de la Etapa / Notas de Avance</label>
-            <textarea id="manage-dec-stage-comment" class="form-input" rows="2" placeholder="Describe qué ocurrió o se realizó en esta etapa... (Ej: Carga recibida en andén, se inicia conteo)"></textarea>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" style="font-weight: 600;">Comentarios / Notas Finales de Recepción</label>
-            <textarea id="manage-dec-admin-notes" class="form-input" rows="2" placeholder="Ej. Se reciben conformes, sin diferencias o se detectaron cajas rotas..."></textarea>
-          </div>
-
-          <!-- Control de Facturación del Ingreso (Solo Admin) -->
-          <div class="form-group" style="background: var(--color-surface); padding: 1rem 1.25rem; border-radius: 8px; border: 1px solid var(--color-border); margin-top: 1rem; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; flex-wrap: wrap; gap: 0.5rem;">
-              <label class="form-label" style="font-weight: 700; margin-bottom: 0; display: flex; align-items: center; gap: 0.4rem; color: var(--color-text-main); font-size: 0.9rem;">
-                <i class="ri-money-dollar-circle-line" style="color: var(--color-success); font-size: 1.15rem;"></i> Estado de Facturación del Ingreso
-              </label>
-              <button type="button" class="btn btn-sm" id="btn-quick-save-billing" onclick="window.saveDeclarationBillingDirect()" style="font-size: 0.78rem; padding: 0.35rem 0.85rem; background: var(--color-success); color: white; border: none; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; cursor: pointer; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
-                <i class="ri-save-line"></i> Guardar Facturación
-              </button>
-            </div>
-            <p style="font-size: 0.78rem; color: var(--color-text-muted); margin-bottom: 0.75rem; line-height: 1.35;">
-              Establece si el costo (estimado / real) de este ingreso de stock ya fue incorporado en la liquidación o facturación del comercio.
-            </p>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; align-items: center;">
-              <div>
-                <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 3px; font-weight: 600;">Estado de Cobro</label>
-                <select id="manage-dec-billing-status" class="form-input" style="height: 38px; font-size: 0.85rem; font-weight: 600; background: var(--color-bg); border-radius: 6px;">
-                  <option value="Pendiente">⏳ Pendiente de Facturación</option>
-                  <option value="Facturado">✅ Incluido en Facturación (Facturado)</option>
+              <!-- Asignación de Bodega -->
+              <div class="form-group" id="manage-dec-group-warehouse" style="display: none; background: var(--color-surface); padding: 1rem 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 0;">
+                <label class="form-label" style="font-weight: 600;">Asignar Bodega *</label>
+                <select id="manage-dec-warehouse-select" class="form-input">
+                  <option value="">-- Selecciona una Bodega --</option>
                 </select>
               </div>
-              <div>
-                <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 3px; font-weight: 600;">Periodo Facturación</label>
-                <input type="text" id="manage-dec-billing-period" class="form-input" placeholder="Ej: AGOSTO 2026" style="height: 38px; font-size: 0.85rem; font-weight: 700; background: var(--color-bg); border-radius: 6px; text-transform: uppercase;">
+
+              <!-- Comentarios Operativos de Avance y Recepción -->
+              <div style="background: var(--color-surface); padding: 1.15rem 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.85rem;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <!-- Indicador Dinámico de la Acción Seleccionada (Ingresos 2.0) -->
+                  <div id="manage-dec-stage-action-indicator" style="margin-bottom: 0.65rem;"></div>
+                  <label class="form-label" style="font-weight: 600;">Comentario de la Etapa / Notas de Avance</label>
+                  <textarea id="manage-dec-stage-comment" class="form-input" rows="2" placeholder="Describe qué ocurrió o se realizó en esta etapa... (Ej: Carga recibida en andén, se inicia conteo)"></textarea>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" style="font-weight: 600;">Comentarios / Notas Finales de Recepción</label>
+                  <textarea id="manage-dec-admin-notes" class="form-input" rows="2" placeholder="Ej. Se reciben conformes, sin diferencias o se detectaron cajas rotas..."></textarea>
+                </div>
               </div>
-              <div>
-                <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 3px; font-weight: 600;">Referencia / N° Factura (Opcional)</label>
-                <input type="text" id="manage-dec-billing-notes" class="form-input" placeholder="Ej. Factura #4582 / Cobro Septiembre" style="height: 38px; font-size: 0.85rem; background: var(--color-bg); border-radius: 6px;">
+            </div>
+
+            <!-- Columna Financiera: Desglose de Costos y Estado de Facturación -->
+            <div style="display: flex; flex-direction: column; gap: 1rem;">
+              <!-- Panel de Desglose Itemizado de Costos -->
+              <div id="manage-dec-cost-breakdown-panel" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.6rem;">
+                  <label class="form-label" style="font-weight: 700; margin-bottom: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; color: var(--color-text-main);">
+                    <i class="ri-money-dollar-circle-line" style="color: var(--color-primary); font-size: 1.2rem;"></i> Desglose Itemizado de Costos de Recepción
+                  </label>
+                  <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <span id="manage-dec-uf-badge" class="badge" style="background: var(--color-surface-hover); border: 1px solid var(--color-border); color: var(--color-text-main); font-size: 0.75rem; font-weight: 600; padding: 4px 8px; border-radius: 6px;">UF Ref: $38.200</span>
+                    <button type="button" class="btn btn-outline" id="btn-apply-cost-calc" onclick="window.resetAllChargesToAuto()" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; color: var(--color-primary); border-color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 6px; background: rgba(95, 6, 250, 0.06); height: auto; line-height: 1.2;" title="Restaurar todos los cargos a los valores calculados automáticamente por el sistema">
+                      <i class="ri-refresh-line"></i> Restaurar Cálculos Auto
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Ajuste Directo de Servicio de Etiquetado -->
+                <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--color-border); margin-bottom: 0.85rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <div style="background: rgba(37, 99, 235, 0.1); width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--color-primary); flex-shrink: 0;">
+                      <i class="ri-price-tag-3-line" style="font-size: 1.1rem;"></i>
+                    </div>
+                    <div>
+                      <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: block;">Servicio de Etiquetado ($100 CLP / ud)</span>
+                      <span style="font-size: 0.72rem; color: var(--color-text-muted);">Indica las unidades rotuladas por Stocka en bodega para auditar el cobro:</span>
+                    </div>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <input type="number" id="manage-dec-labeling-qty-confirmed" class="form-input" min="0" placeholder="0" style="width: 100px; font-weight: 700; text-align: right; padding: 0.35rem 0.6rem; font-size: 0.85rem;" oninput="window.recalculateManageDeclarationCosts()">
+                    <span style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">uds</span>
+                    <button type="button" class="btn btn-outline" style="padding: 0.3rem 0.6rem; font-size: 0.72rem; height: auto;" onclick="window.setManageLabelingToAll()" title="Asignar a todas las unidades recibidas">Todas</button>
+                    <button type="button" class="btn btn-outline" style="padding: 0.3rem 0.6rem; font-size: 0.72rem; height: auto;" onclick="window.setManageLabelingToZero()" title="Establecer a 0">0</button>
+                  </div>
+                </div>
+
+                <!-- Sección Costos Adicionales / Extras del Proceso (ej. Despacho en destino) -->
+                <div style="background: var(--color-bg); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid var(--color-border); margin-bottom: 0.85rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; flex-wrap: wrap; gap: 0.5rem;">
+                    <div style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                      <i class="ri-add-circle-line" style="color: var(--color-success); font-size: 1.1rem;"></i>
+                      Costos Adicionales / Servicios Extras de Recepción
+                    </div>
+                    <span style="font-size: 0.72rem; color: var(--color-text-muted);">Añade cobros extras al proceso (ej. flete pagado en destino, paletizado, etc.)</span>
+                  </div>
+
+                  <!-- Formulario de adición de costo extra -->
+                  <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 2fr auto; gap: 0.5rem; align-items: center; margin-bottom: 0.65rem;">
+                    <div>
+                      <input type="text" id="manage-extra-cost-name" class="form-input" placeholder="Concepto (ej. Despacho pagado en bodega destino)" style="width: 100%; font-size: 0.8rem; padding: 0.4rem 0.6rem;" list="extra-costs-presets">
+                      <datalist id="extra-costs-presets">
+                        <option value="Despacho pagado en bodega destino"></option>
+                        <option value="Servicio de Paletizado y Film"></option>
+                        <option value="Estadía / Almacenaje especial"></option>
+                        <option value="Flete / Retiro coordinado"></option>
+                        <option value="Acondicionamiento / Reparación de embalaje"></option>
+                      </datalist>
+                    </div>
+                    <div>
+                      <div style="position: relative;">
+                        <input type="number" id="manage-extra-cost-clp" class="form-input" placeholder="$ CLP" step="1" min="0" style="width: 100%; font-size: 0.8rem; padding: 0.4rem 0.5rem 0.4rem 1.2rem;" oninput="window.syncExtraCostInput('clp')">
+                        <span style="position: absolute; left: 6px; top: 50%; transform: translateY(-50%); font-size: 0.75rem; color: var(--color-text-muted);">$</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div style="position: relative;">
+                        <input type="number" id="manage-extra-cost-uf" class="form-input" placeholder="UF" step="0.0001" min="0" style="width: 100%; font-size: 0.8rem; padding: 0.4rem 1.6rem 0.4rem 0.5rem; font-weight: 600;" oninput="window.syncExtraCostInput('uf')">
+                        <span style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">UF</span>
+                      </div>
+                    </div>
+                    <div>
+                      <input type="text" id="manage-extra-cost-notes" class="form-input" placeholder="Detalle / Guía / Factura (opcional)" style="width: 100%; font-size: 0.8rem; padding: 0.4rem 0.6rem;">
+                    </div>
+                    <div>
+                      <button type="button" class="btn btn-primary" onclick="window.addDeclarationAdditionalCost()" style="padding: 0.4rem 0.85rem; font-size: 0.78rem; font-weight: 600; white-space: nowrap; height: auto; display: inline-flex; align-items: center; gap: 0.25rem;">
+                        <i class="ri-add-line"></i> Agregar
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Listado de costos adicionales registrados -->
+                  <div id="manage-extra-costs-list" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                    <!-- Chips generados dinámicamente por JS -->
+                  </div>
+                </div>
+
+                <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.65rem; line-height: 1.4;">
+                  Auditoría transparente del cobro según dimensiones físicas confirmadas, volumen total y servicios aplicados:
+                </p>
+
+                <div class="table-responsive" style="border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; margin-bottom: 0.75rem;">
+                  <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: left;">
+                    <thead>
+                      <tr style="background: var(--color-bg); border-bottom: 1px solid var(--color-border);">
+                        <th style="padding: 8px 12px; font-weight: 700; color: var(--color-text-main);">Concepto / Servicio</th>
+                        <th style="padding: 8px 10px; font-weight: 700; color: var(--color-text-main); text-align: center;">Tarifa Base</th>
+                        <th style="padding: 8px 10px; font-weight: 700; color: var(--color-text-main); text-align: right;">Estimado (Declarado)</th>
+                        <th style="padding: 8px 10px; font-weight: 700; color: var(--color-primary); text-align: right;">Real Confirmado (Editable)</th>
+                        <th style="padding: 8px 12px; font-weight: 700; color: var(--color-text-main); text-align: right;">Diferencia</th>
+                      </tr>
+                    </thead>
+                    <tbody id="manage-dec-cost-breakdown-tbody">
+                      <!-- Generado dinámicamente por JS -->
+                    </tbody>
+                    <tfoot>
+                      <tr style="background: rgba(95, 6, 250, 0.04); border-top: 2px solid var(--color-border); font-weight: 700;">
+                        <td style="padding: 10px 12px; color: var(--color-text-main); font-size: 0.88rem;">TOTAL INGRESO</td>
+                        <td style="padding: 10px 10px; text-align: center; color: var(--color-text-muted); font-size: 0.75rem;">Suma conceptos</td>
+                        <td style="padding: 10px 10px; text-align: right;" id="manage-dec-cost-total-est">0.0000 UF</td>
+                        <td style="padding: 10px 10px; text-align: right; color: var(--color-primary); font-size: 0.95rem;" id="manage-dec-cost-total-real">0.0000 UF</td>
+                        <td style="padding: 10px 12px; text-align: right;" id="manage-dec-cost-total-diff">0.0000 UF</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                <div style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem; margin-top: 0.4rem;">
+                  <i class="ri-edit-line" style="color: var(--color-primary);"></i>
+                  <span>Puedes editar o exonerar los cargos directamente en la columna <strong>Real Confirmado (Editable)</strong>. El valor UF definitivo se calcula de forma automática a partir de la suma de esta tabla.</span>
+                </div>
+              </div>
+
+              <!-- Control de Facturación del Ingreso (Solo Admin) -->
+              <div class="form-group" style="background: var(--color-surface); padding: 1rem 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; flex-wrap: wrap; gap: 0.5rem;">
+                  <label class="form-label" style="font-weight: 700; margin-bottom: 0; display: flex; align-items: center; gap: 0.4rem; color: var(--color-text-main); font-size: 0.9rem;">
+                    <i class="ri-money-dollar-circle-line" style="color: var(--color-success); font-size: 1.15rem;"></i> Estado de Facturación del Ingreso
+                  </label>
+                  <button type="button" class="btn btn-sm" id="btn-quick-save-billing" onclick="window.saveDeclarationBillingDirect()" style="font-size: 0.78rem; padding: 0.35rem 0.85rem; background: var(--color-success); color: white; border: none; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; cursor: pointer; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
+                    <i class="ri-save-line"></i> Guardar Facturación
+                  </button>
+                </div>
+                <p style="font-size: 0.78rem; color: var(--color-text-muted); margin-bottom: 0.75rem; line-height: 1.35;">
+                  Establece si el costo (estimado / real) de este ingreso de stock ya fue incorporado en la liquidación o facturación del comercio.
+                </p>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; align-items: center;">
+                  <div>
+                    <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 3px; font-weight: 600;">Estado de Cobro</label>
+                    <select id="manage-dec-billing-status" class="form-input" style="height: 38px; font-size: 0.85rem; font-weight: 600; background: var(--color-bg); border-radius: 6px;">
+                      <option value="Pendiente">⏳ Pendiente de Facturación</option>
+                      <option value="Facturado">✅ Incluido en Facturación (Facturado)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 3px; font-weight: 600;">Periodo Facturación</label>
+                    <input type="text" id="manage-dec-billing-period" class="form-input" placeholder="Ej: AGOSTO 2026" style="height: 38px; font-size: 0.85rem; font-weight: 700; background: var(--color-bg); border-radius: 6px; text-transform: uppercase;">
+                  </div>
+                  <div>
+                    <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 3px; font-weight: 600;">Referencia / N° Factura (Opcional)</label>
+                    <input type="text" id="manage-dec-billing-notes" class="form-input" placeholder="Ej. Factura #4582 / Cobro Septiembre" style="height: 38px; font-size: 0.85rem; background: var(--color-bg); border-radius: 6px;">
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
           <!-- Panel de Historial de Etapas, Trazabilidad y Comentarios -->
-          <div id="manage-dec-history-panel" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-top: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+          <div id="manage-dec-history-panel" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-top: 0.5rem; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.6rem;">
               <label class="form-label" style="font-weight: 700; margin-bottom: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; color: var(--color-text-main);">
                 <i class="ri-history-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Historial de Etapas y Trazabilidad de Comentarios
@@ -3528,15 +3552,19 @@
             </div>
           </div>
         </div>
-        <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; gap: 0.75rem; justify-content: flex-end; flex-wrap: wrap;">
-          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-manage-declaration').classList.remove('active')">Cancelar</button>
-          <button type="button" class="btn btn-outline" onclick="exportDeclarationOperationsPDF(document.getElementById('manage-dec-id').value)" style="display: flex; align-items: center; gap: 0.35rem; border-color: var(--color-success); color: var(--color-success);" title="Hoja de recepción operativa y checklist para equipo de bodega">
-            <i class="ri-file-list-3-line"></i> PDF Operaciones
+        <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 14px 14px; display: flex; gap: 0.75rem; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-manage-declaration').classList.remove('active')" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-arrow-left-line"></i> Volver a la lista / Cerrar
           </button>
-          <button type="button" class="btn btn-outline" onclick="exportDeclarationToPDF(document.getElementById('manage-dec-id').value)" style="display: flex; align-items: center; gap: 0.35rem; border-color: var(--color-primary); color: var(--color-primary);" title="Comprobante general del ingreso">
-            <i class="ri-file-pdf-line"></i> Comprobante PDF
-          </button>
-          <button type="submit" class="btn btn-primary" id="btn-save-manage-declaration"><i class="ri-save-line"></i> Guardar Cambios</button>
+          <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+            <button type="button" class="btn btn-outline" onclick="exportDeclarationOperationsPDF(document.getElementById('manage-dec-id').value)" style="display: flex; align-items: center; gap: 0.35rem; border-color: var(--color-success); color: var(--color-success);" title="Hoja de recepción operativa y checklist para equipo de bodega">
+              <i class="ri-file-list-3-line"></i> PDF Operaciones
+            </button>
+            <button type="button" class="btn btn-outline" onclick="exportDeclarationToPDF(document.getElementById('manage-dec-id').value)" style="display: flex; align-items: center; gap: 0.35rem; border-color: var(--color-primary); color: var(--color-primary);" title="Comprobante general del ingreso">
+              <i class="ri-file-pdf-line"></i> Comprobante PDF
+            </button>
+            <button type="submit" class="btn btn-primary" id="btn-save-manage-declaration"><i class="ri-save-line"></i> Guardar Cambios</button>
+          </div>
         </div>
       </form>
     </div>
@@ -4900,7 +4928,7 @@
   <script type="module" src="./js/picking_requests.js?v=1.0.3"></script>
   <script src="./js/agendas_grid.js?v=1.0.3"></script>
   <script src="./js/db-cache.js?v=1.0.0"></script>
-  <script type="module" src="./js/admin.js?v=1.5.21"></script>
+  <script type="module" src="./js/admin.js?v=1.5.22"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.5"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
   <script type="module" src="./js/billing_generator.js?v=1.3.7"></script>

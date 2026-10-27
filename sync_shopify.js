@@ -317,11 +317,22 @@ async function syncOrders(integration) {
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
         const orderDataToUpdate = { ...orderDataToSave };
 
-        // Preservar estado operacional en WMS: no sobrescribir status ni estado_wms
+        // Preservar siempre stock_descontado en pedidos existentes
+        delete orderDataToUpdate.stock_descontado;
+
+        // Preservar estado operacional en WMS:
+        // Si NO está cancelado en Shopify, no sobrescribir status ni estado_wms.
+        // Si SÍ está cancelado en Shopify, reflejar status='cancelado', pero SOLO pasar estado_wms a 'Cancelado'
+        // si el pedido aún está en procesamiento (NUNCA si ya está En preparación, Pickeado o Despachado).
         if (!isCancelledInShopify) {
           delete orderDataToUpdate.status;
           delete orderDataToUpdate.estado_wms;
-          delete orderDataToUpdate.stock_descontado;
+        } else {
+          const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
+          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+          if (estadosWmsProtegidos.includes(currentWmsState)) {
+            delete orderDataToUpdate.estado_wms;
+          }
         }
         
         // Si el pedido fue editado manualmente en WMS, no sobrescribir SKU, item, cantidad ni total_value

@@ -133,9 +133,9 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Si la orden está en preparación/mesa: actualizar reserved_quantity
+  -- Si la orden está en preparación/mesa: actualizar reserved_quantity (depende exclusivamente de estado_wms)
   IF v_wms_status IN ('En preparación', 'Pickeado') THEN
-    IF NEW.warehouse_id IS NOT NULL AND LOWER(COALESCE(v_order.status, '')) NOT IN ('cancelado', 'devolución', 'devolucion') THEN
+    IF NEW.warehouse_id IS NOT NULL THEN
       UPDATE public.inventory
       SET reserved_quantity = reserved_quantity + NEW.quantity
       WHERE product_id = NEW.product_id AND warehouse_id = NEW.warehouse_id;
@@ -451,10 +451,12 @@ BEGIN
     END LOOP;
 
   -- =========================================================================
-  -- CASO 4: El pedido se CANCELA o ARCHIVA en WMS (o se cancela en status de plataforma)
+  -- CASO 4: El pedido se CANCELA o ARCHIVA en WMS
+  -- Nota: Si el pedido está 'En preparación' o 'Pickeado', el stock en mesa (reserved_quantity)
+  -- NO se libera automáticamente por un cambio en 'status' (origen); solo se libera cuando
+  -- estado_wms pasa explícitamente a 'Cancelado' o 'Archivado'.
   -- =========================================================================
-  ELSIF (v_new_wms IN ('Cancelado', 'Archivado') AND v_old_wms NOT IN ('Cancelado', 'Archivado', 'Despachado'))
-        OR (LOWER(COALESCE(NEW.status, '')) = 'cancelado' AND LOWER(COALESCE(OLD.status, '')) != 'cancelado') THEN
+  ELSIF v_new_wms IN ('Cancelado', 'Archivado') AND v_old_wms NOT IN ('Cancelado', 'Archivado', 'Despachado') THEN
     
     FOR item IN SELECT * FROM public.order_items WHERE order_id = NEW.id LOOP
       SELECT COALESCE(is_virtual, false) INTO v_is_virtual FROM public.products WHERE id = item.product_id;
@@ -551,14 +553,14 @@ BEGIN
   END LOOP;
 
   -- Recalcular reserved_quantity:
-  -- Pedidos activos en mesa de preparación ('En preparación' o 'Pickeado')
+  -- Pedidos físicamente activos en mesa de preparación ('En preparación' o 'Pickeado'),
+  -- independientemente de si en origen cambió su status a cancelado
   FOR r IN 
     SELECT oi.product_id, oi.warehouse_id, SUM(oi.quantity) as total_reserved
     FROM public.order_items oi
     JOIN public.orders o ON o.id = oi.order_id
     WHERE o.estado_wms IN ('En preparación', 'Pickeado')
       AND public.should_process_order_stock(o.id)
-      AND LOWER(COALESCE(o.status, '')) NOT IN ('cancelado', 'devolución', 'devolucion')
     GROUP BY oi.product_id, oi.warehouse_id
   LOOP
     IF r.warehouse_id IS NOT NULL THEN

@@ -391,14 +391,19 @@ async function syncMerchantOrders(integration) {
           }
         };
 
-        // Si el pedido se canceló en origen, actualizar su estado en WMS
+        // Si el pedido se canceló en origen, actualizar su estado en WMS (protegiendo estados operacionales avanzados)
         if (isCancelled && existingOrder.status !== 'cancelado') {
           updatePayload.status = 'cancelado';
+          const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
+          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+          if (!estadosWmsProtegidos.includes(currentWmsState)) {
+            updatePayload.estado_wms = 'Cancelado';
+          }
           await supabase
             .from('orders')
             .update(updatePayload)
             .eq('id', existingOrder.id);
-          console.log(`🚫 Pedido ${finalOrderNumber} cancelado en Falabella. Actualizado en el WMS.`);
+          console.log(`🚫 Pedido ${finalOrderNumber} cancelado en Falabella. Actualizado en el WMS (estado_wms: ${updatePayload.estado_wms || existingOrder.estado_wms}).`);
         } else {
           // Actualizar datos del pedido
           await supabase

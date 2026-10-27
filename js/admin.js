@@ -3779,6 +3779,14 @@ window.generarEtiquetaLightData = async function(orderId, btn) {
   try {
     const now = new Date();
     const todayDDMM = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const dispatchMeta = typeof window.recordWmsAlphaDispatch === 'function'
+      ? window.recordWmsAlphaDispatch(order ? [{ ...order, sucursal_pickeo: formValues.sucursal }] : [{ id: orderId, external_order_number: orderId, sucursal_pickeo: formValues.sucursal }], 'individual')
+      : { batchId: `alpha_${Date.now()}`, dispatchedAt: now.toISOString() };
+    const nextRawLd = {
+      ...(order?.raw_lightdata_data || {}),
+      alpha_dispatched_at: dispatchMeta.dispatchedAt,
+      alpha_batch_id: dispatchMeta.batchId
+    };
 
     // 1. Actualizar orden en WMS con la sucursal y datos de Alpha
     const { error: updError } = await supabase
@@ -3790,7 +3798,8 @@ window.generarEtiquetaLightData = async function(orderId, btn) {
         operador: 'ALPHA',
         courier: 'CARRIER EXTERNO',
         sucursal_pickeo: formValues.sucursal,
-        fecha_procesamiento: todayDDMM
+        fecha_procesamiento: todayDDMM,
+        raw_lightdata_data: nextRawLd
       })
       .eq('id', orderId);
 
@@ -3811,6 +3820,7 @@ window.generarEtiquetaLightData = async function(orderId, btn) {
       order.courier = 'CARRIER EXTERNO';
       order.sucursal_pickeo = formValues.sucursal;
       order.fecha_procesamiento = todayDDMM;
+      order.raw_lightdata_data = nextRawLd;
       delete order._wmsTags;
       (order.order_items || []).forEach(it => {
         it.warehouse_id = effWarehouseId;
@@ -3823,6 +3833,9 @@ window.generarEtiquetaLightData = async function(orderId, btn) {
       method: 'POST',
       body: JSON.stringify({ mode: 'individual', orderId: orderId })
     });
+    if (typeof window.updateWmsMonitorUI === 'function') {
+      setTimeout(() => window.updateWmsMonitorUI(), 2500);
+    }
     
     // Iniciar sondeo activo para auto-refrescar cuando se asigne el tracking
     window.pollForLightDataTracking([orderId]);
@@ -4068,6 +4081,15 @@ window.bulkCreateLightDataLabels = async function(btn) {
     const now = new Date();
     const todayDDMM = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const validOrders = (window.loadedOrders || []).filter(o => targetOrderIds.includes(o.id));
+    const dispatchMeta = typeof window.recordWmsAlphaDispatch === 'function'
+      ? window.recordWmsAlphaDispatch(
+          validOrders.map(o => ({
+            ...o,
+            sucursal_pickeo: (formValues.sucursal === 'keep_existing') ? (o.sucursal_pickeo || 'Sucursal La Reina') : formValues.sucursal
+          })),
+          targetOrderIds.length === 1 ? 'individual' : 'bulk'
+        )
+      : { batchId: `alpha_${Date.now()}`, dispatchedAt: now.toISOString() };
 
     // 1. Actualizar órdenes en base de datos y memoria
     for (const order of validOrders) {
@@ -4075,6 +4097,11 @@ window.bulkCreateLightDataLabels = async function(btn) {
       const effWarehouseId = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
         ? formValues.bodegaStock
         : getWarehouseIdFromSucursal(effSucursal);
+      const nextRawLd = {
+        ...(order.raw_lightdata_data || {}),
+        alpha_dispatched_at: dispatchMeta.dispatchedAt,
+        alpha_batch_id: dispatchMeta.batchId
+      };
 
       const { error: updError } = await supabase
         .from('orders')
@@ -4085,7 +4112,8 @@ window.bulkCreateLightDataLabels = async function(btn) {
           operador: 'ALPHA',
           courier: 'CARRIER EXTERNO',
           sucursal_pickeo: effSucursal,
-          fecha_procesamiento: todayDDMM
+          fecha_procesamiento: todayDDMM,
+          raw_lightdata_data: nextRawLd
         })
         .eq('id', order.id);
 
@@ -4105,6 +4133,7 @@ window.bulkCreateLightDataLabels = async function(btn) {
       order.courier = 'CARRIER EXTERNO';
       order.sucursal_pickeo = effSucursal;
       order.fecha_procesamiento = todayDDMM;
+      order.raw_lightdata_data = nextRawLd;
       delete order._wmsTags;
       (order.order_items || []).forEach(it => {
         it.warehouse_id = effWarehouseId;
@@ -4118,6 +4147,9 @@ window.bulkCreateLightDataLabels = async function(btn) {
       method: 'POST',
       body: JSON.stringify({ mode: targetOrderIds.length === 1 ? 'individual' : 'bulk', orderId: targetOrderIds[0], orderIds: targetOrderIds.join(',') })
     });
+    if (typeof window.updateWmsMonitorUI === 'function') {
+      setTimeout(() => window.updateWmsMonitorUI(), 2500);
+    }
     
     // Iniciar sondeo activo para auto-refrescar pedidos masivos conforme se asignen etiquetas
     window.pollForLightDataTracking(targetOrderIds);
@@ -42741,6 +42773,7 @@ async function renderNotificationsAdmin() {
 
   window.WMS_CLIENT_MODULES_CATALOG = window.WMS_CLIENT_MODULES_CATALOG || [
     { key: 'dashboard', label: 'Dashboard', icon: 'ri-dashboard-line', category: 'Operaciones' },
+    { key: 'workspace', label: 'Panel de Trabajo', icon: 'ri-layout-masonry-line', category: 'Operaciones' },
     { key: 'inventory', label: 'Inventario', icon: 'ri-box-3-line', category: 'Operaciones' },
     { key: 'catalog', label: 'Catálogo de Productos', icon: 'ri-list-check', category: 'Operaciones' },
     { key: 'label_generator', label: 'Generador de Etiquetas', icon: 'ri-printer-line', category: 'Operaciones' },
@@ -44129,8 +44162,11 @@ window.changeDeclarationBillingPeriod = async function(declarationId, currentVal
 };
 
 window._adminDeclarationsCache = null;
+window.selectedDeclarationIds = window.selectedDeclarationIds || new Set();
+window._adminFilteredDeclarations = window._adminFilteredDeclarations || [];
 
 function buildDeclarationRowHtml(dec) {
+  const isSelected = window.selectedDeclarationIds && window.selectedDeclarationIds.has(dec.id);
   const isPrinted = dec.is_printed === true ||
                     dec.is_printed === 'true' ||
                     (dec.admin_notes && dec.admin_notes.includes('[IMPRESO]')) ||
@@ -44249,7 +44285,10 @@ function buildDeclarationRowHtml(dec) {
     `;
 
   return `
-    <tr style="transition: background-color 0.2s;">
+    <tr id="admin-dec-row-${dec.id}" style="transition: background-color 0.2s; ${isSelected ? 'background-color: rgba(95, 6, 250, 0.05);' : ''}">
+      <td style="text-align: center; width: 38px; vertical-align: middle;">
+        <input type="checkbox" class="admin-dec-row-checkbox" data-dec-id="${dec.id}" ${isSelected ? 'checked' : ''} onchange="window.toggleDeclarationRowSelection('${dec.id}', this.checked)" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-primary);">
+      </td>
       <td style="font-weight: 600; color: var(--color-primary);">
         ${dec.comercio || 'no asignado'}
         <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px;">
@@ -44407,7 +44446,7 @@ function getEmptyDeclarationMessage(currentTab) {
   } else if (currentTab === 'completed') {
     emptyMsg = 'No hay declaraciones en el Historial Completado.';
   }
-  return `<tr><td colspan="12" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);"><i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>${emptyMsg}</td></tr>`;
+  return `<tr><td colspan="13" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);"><i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>${emptyMsg}</td></tr>`;
 }
 
 window.filterAndRenderDeclarationsAdminTable = function() {
@@ -44595,11 +44634,18 @@ window.filterAndRenderDeclarationsAdminTable = function() {
     return true;
   });
 
+  window._adminFilteredDeclarations = filteredDeclarations;
+
   // Renderizar filas
   if (filteredDeclarations.length === 0) {
     tbody.innerHTML = getEmptyDeclarationMessage(currentTab);
   } else {
     tbody.innerHTML = filteredDeclarations.map(dec => buildDeclarationRowHtml(dec)).join('');
+  }
+
+  // Sincronizar checkbox "Seleccionar todos" y barra de acciones masivas
+  if (typeof window.updateDeclarationsBulkActionBar === 'function') {
+    window.updateDeclarationsBulkActionBar();
   }
 
   // Actualizar contador
@@ -44674,8 +44720,8 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
       return `<option value="${m}" ${isSelected}>🏢 ${m}</option>`;
     }).join('');
 
-    // Si la estructura aún no existe en appContent, la montamos una sola vez
-    if (!document.getElementById('admin-dec-table-card')) {
+    // Si la estructura aún no existe en appContent (o no tiene la barra de acciones masivas), la montamos
+    if (!document.getElementById('admin-dec-table-card') || !document.getElementById('admin-dec-bulk-actions-bar')) {
       appContent.innerHTML = `
         <div class="card" id="admin-dec-table-card">
           <div class="card-header" style="border-bottom: none; padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
@@ -44755,10 +44801,16 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
           
           <div id="admin-dec-tabs-container" class="tabs-container dec-status-tabs-container"></div>
 
+          <!-- Barra de Acciones Masivas de Ingresos -->
+          <div id="admin-dec-bulk-actions-bar" style="display: none; padding: 0.65rem 1.5rem; background: linear-gradient(90deg, rgba(95, 6, 250, 0.08) 0%, rgba(37, 99, 235, 0.06) 100%); border-bottom: 1px solid rgba(95, 6, 250, 0.25);"></div>
+
           <div class="card-body table-responsive">
             <table class="data-table">
               <thead>
                 <tr>
+                  <th style="width: 38px; text-align: center;">
+                    <input type="checkbox" id="admin-dec-select-all" onchange="window.toggleSelectAllDeclarationsAdmin(this.checked)" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-primary);" title="Seleccionar o desmarcar todos los ingresos visibles">
+                  </th>
                   <th>Comercio</th>
                   <th>Título / Descripción</th>
                   <th>Llegada Estimada</th>
@@ -44774,7 +44826,7 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
                 </tr>
               </thead>
               <tbody id="admin-dec-table-body">
-                <tr><td colspan="12" class="text-center" style="padding: 2rem;">Cargando tabla...</td></tr>
+                <tr><td colspan="13" class="text-center" style="padding: 2rem;">Cargando tabla...</td></tr>
               </tbody>
             </table>
           </div>
@@ -44863,6 +44915,1636 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
       }
     }
   }
+};
+
+// =========================================================================
+// SELECCIÓN MÚLTIPLE Y CAMBIO DE ESTADO / ETAPA MASIVO EN INGRESOS DE STOCK
+// =========================================================================
+
+window.toggleDeclarationRowSelection = function(decId, checked) {
+  if (!window.selectedDeclarationIds) window.selectedDeclarationIds = new Set();
+  if (checked) {
+    window.selectedDeclarationIds.add(decId);
+  } else {
+    window.selectedDeclarationIds.delete(decId);
+  }
+  const rowEl = document.getElementById(`admin-dec-row-${decId}`);
+  if (rowEl) {
+    rowEl.style.backgroundColor = checked ? 'rgba(95, 6, 250, 0.05)' : '';
+  }
+  window.updateDeclarationsBulkActionBar();
+};
+
+window.toggleSelectAllDeclarationsAdmin = function(checked) {
+  if (!window.selectedDeclarationIds) window.selectedDeclarationIds = new Set();
+  const visibleDecs = window._adminFilteredDeclarations || [];
+  visibleDecs.forEach(dec => {
+    if (checked) {
+      window.selectedDeclarationIds.add(dec.id);
+    } else {
+      window.selectedDeclarationIds.delete(dec.id);
+    }
+    const rowEl = document.getElementById(`admin-dec-row-${dec.id}`);
+    if (rowEl) {
+      rowEl.style.backgroundColor = checked ? 'rgba(95, 6, 250, 0.05)' : '';
+    }
+  });
+  document.querySelectorAll('.admin-dec-row-checkbox').forEach(cb => {
+    cb.checked = !!checked;
+  });
+  window.updateDeclarationsBulkActionBar();
+};
+
+window.clearDeclarationSelection = function() {
+  if (window.selectedDeclarationIds) {
+    window.selectedDeclarationIds.clear();
+  }
+  document.querySelectorAll('.admin-dec-row-checkbox').forEach(cb => {
+    cb.checked = false;
+  });
+  document.querySelectorAll('[id^="admin-dec-row-"]').forEach(rowEl => {
+    rowEl.style.backgroundColor = '';
+  });
+  const selectAllCb = document.getElementById('admin-dec-select-all');
+  if (selectAllCb) {
+    selectAllCb.checked = false;
+    selectAllCb.indeterminate = false;
+  }
+  window.updateDeclarationsBulkActionBar();
+};
+
+window.updateDeclarationsBulkActionBar = function() {
+  if (!window.selectedDeclarationIds) window.selectedDeclarationIds = new Set();
+  const allDeclarations = window._adminDeclarationsCache || [];
+  const validIdsSet = new Set(allDeclarations.map(d => d.id));
+  for (const id of Array.from(window.selectedDeclarationIds)) {
+    if (!validIdsSet.has(id)) {
+      window.selectedDeclarationIds.delete(id);
+    }
+  }
+
+  const visibleDecs = window._adminFilteredDeclarations || [];
+  const selectAllCb = document.getElementById('admin-dec-select-all');
+  if (selectAllCb) {
+    if (visibleDecs.length === 0) {
+      selectAllCb.checked = false;
+      selectAllCb.indeterminate = false;
+    } else {
+      const selectedVisibleCount = visibleDecs.filter(d => window.selectedDeclarationIds.has(d.id)).length;
+      selectAllCb.checked = selectedVisibleCount === visibleDecs.length;
+      selectAllCb.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleDecs.length;
+    }
+  }
+
+  const barEl = document.getElementById('admin-dec-bulk-actions-bar');
+  if (!barEl) return;
+
+  const totalSelected = window.selectedDeclarationIds.size;
+  if (totalSelected === 0) {
+    barEl.style.display = 'none';
+    barEl.innerHTML = '';
+    return;
+  }
+
+  const selectedDecs = allDeclarations.filter(d => window.selectedDeclarationIds.has(d.id));
+  const totalUnits = selectedDecs.reduce((acc, d) => acc + (parseInt(d.quantity_declared, 10) || 0), 0);
+  const totalPackages = selectedDecs.reduce((acc, d) => acc + (parseInt(d.package_count, 10) || 0), 0);
+
+  barEl.style.display = 'block';
+  barEl.innerHTML = `
+    <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem;">
+      <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+        <span class="badge" style="background: #5f06fa; color: #ffffff; font-size: 0.82rem; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 6px rgba(95, 6, 250, 0.25);">
+          <i class="ri-checkbox-multiple-fill"></i> ${totalSelected} ${totalSelected === 1 ? 'ingreso seleccionado' : 'ingresos seleccionados'}
+        </span>
+        <span style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">
+          <strong>${totalUnits.toLocaleString('es-CL')}</strong> uds declaradas • <strong>${totalPackages.toLocaleString('es-CL')}</strong> bultos
+        </span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+        <button type="button" class="btn btn-primary" onclick="window.openBulkDeclarationStatusModal()" style="background: #5f06fa; border-color: #5f06fa; color: #fff; font-size: 0.82rem; font-weight: 700; padding: 0.42rem 0.9rem; display: inline-flex; align-items: center; gap: 0.4rem; border-radius: 7px; cursor: pointer; box-shadow: 0 2px 8px rgba(95, 6, 250, 0.25);">
+          <i class="ri-route-line" style="font-size: 1rem;"></i> Cambiar Etapa / Estado Masivo
+        </button>
+        <button type="button" class="btn btn-outline" onclick="window.openBulkDeclarationBillingModal()" style="font-size: 0.8rem; font-weight: 600; padding: 0.4rem 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 7px; border-color: rgba(95, 6, 250, 0.35); color: #5f06fa; background: var(--color-surface); cursor: pointer;">
+          <i class="ri-calendar-check-line"></i> Asignar Periodo / Facturación
+        </button>
+        <button type="button" class="btn btn-outline" onclick="window.bulkToggleDeclarationPrintedStatus()" style="font-size: 0.8rem; font-weight: 600; padding: 0.4rem 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 7px; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface); cursor: pointer;">
+          <i class="ri-printer-line"></i> Estado Impresión
+        </button>
+        <button type="button" class="btn btn-outline" onclick="window.clearDeclarationSelection()" style="font-size: 0.78rem; font-weight: 600; padding: 0.4rem 0.65rem; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: 7px; border-color: var(--color-border); color: var(--color-text-muted); background: transparent; cursor: pointer;">
+          <i class="ri-close-line"></i> Limpiar
+        </button>
+      </div>
+    </div>
+  `;
+};
+
+window.computeDeclarationRealCostBreakdown = function(dec, volConfirmed, labelingConfirmed, ufRate) {
+  const effUfRate = ufRate || window.modalUfRate || window.currentUfValue || 38200;
+  const volDeclared = parseFloat(dec.volume_declared) || 0;
+  const effVolConfirmed = (volConfirmed !== undefined && volConfirmed !== null && !isNaN(volConfirmed) && volConfirmed > 0)
+    ? parseFloat(volConfirmed)
+    : (parseFloat(dec.volume_confirmed) || volDeclared);
+
+  const requiresUnloading = dec.requires_unloading === true || dec.requires_unloading === 'true' || dec.requires_unloading === 1;
+  const labelingRequested = parseInt(dec.labeling_qty_requested, 10) || 0;
+  const effLabelingConfirmed = (labelingConfirmed !== undefined && labelingConfirmed !== null && !isNaN(labelingConfirmed) && labelingConfirmed >= 0)
+    ? parseInt(labelingConfirmed, 10)
+    : ((dec.labeling_qty_confirmed !== undefined && dec.labeling_qty_confirmed !== null) ? parseInt(dec.labeling_qty_confirmed, 10) : labelingRequested);
+
+  let hasLateNotice = false;
+  if (dec.estimated_arrival_type === 'exact' && dec.estimated_arrival_date) {
+    const selectedDate = new Date(dec.estimated_arrival_date + 'T00:00:00');
+    const createdDate = dec.created_at ? new Date(dec.created_at) : new Date();
+    const diffTime = selectedDate.getTime() - createdDate.getTime();
+    if (diffTime < 24 * 60 * 60 * 1000) {
+      hasLateNotice = true;
+    }
+  }
+  const baseUnloadEst = requiresUnloading ? (0.1 * volDeclared) : 0;
+  const baseLabelEst = (labelingRequested * 100) / effUfRate;
+  if (dec.estimated_cost && Math.abs(dec.estimated_cost - (baseUnloadEst + baseLabelEst + (0.75 * volDeclared))) < 0.01) {
+    hasLateNotice = true;
+  }
+
+  const rawAdditionalCosts = Array.isArray(dec.additional_costs) ? dec.additional_costs : [];
+  const savedConfig = rawAdditionalCosts.find(c => c && c.__type === 'charges_config');
+  const overrides = (savedConfig && savedConfig.overrides) ? savedConfig.overrides : {};
+  const cleanAdditionalCosts = rawAdditionalCosts.filter(c => c && !c.__type);
+
+  const autoUnloadRealUf = requiresUnloading ? (0.1 * effVolConfirmed) : 0;
+  const unloadRealUf = overrides['unloading'] !== undefined
+    ? (parseFloat(overrides['unloading'].real_uf) || 0)
+    : autoUnloadRealUf;
+
+  const autoSurchargeRealUf = hasLateNotice ? (0.75 * effVolConfirmed) : 0;
+  const surchargeRealUf = overrides['surcharge'] !== undefined
+    ? (parseFloat(overrides['surcharge'].real_uf) || 0)
+    : autoSurchargeRealUf;
+
+  const autoLabelingRealUf = (effLabelingConfirmed * 100) / effUfRate;
+  const labelingRealUf = overrides['labeling'] !== undefined
+    ? (parseFloat(overrides['labeling'].real_uf) || 0)
+    : autoLabelingRealUf;
+
+  let extrasUf = 0;
+  cleanAdditionalCosts.forEach((extra, idx) => {
+    const extraKey = 'extra_' + idx;
+    const extraVal = overrides[extraKey] !== undefined
+      ? (parseFloat(overrides[extraKey].real_uf) || 0)
+      : (parseFloat(extra.amount_uf) || 0);
+    extrasUf += extraVal;
+  });
+
+  const totalRealUf = Number((unloadRealUf + surchargeRealUf + labelingRealUf + extrasUf).toFixed(4));
+  const breakdown = {
+    unloading_uf: Number(unloadRealUf.toFixed(4)),
+    surcharge_uf: Number(surchargeRealUf.toFixed(4)),
+    labeling_uf: Number(labelingRealUf.toFixed(4)),
+    extras_uf: Number(extrasUf.toFixed(4)),
+    total_uf: totalRealUf
+  };
+  const chargesConfig = {
+    __type: 'charges_config',
+    overrides: overrides,
+    breakdown: breakdown,
+    updated_at: new Date().toISOString()
+  };
+
+  return {
+    realCostUf: totalRealUf,
+    breakdown,
+    chargesConfig,
+    cleanAdditionalCosts
+  };
+};
+
+window.sendIntakeToPickerProgrammatic = async function(dec) {
+  if (!pickerSupabase || !dec || !dec.warehouse_id) return false;
+  const products = typeof getDeclarationProducts === 'function' ? getDeclarationProducts(dec) : (dec.products_list || []);
+  if (!products || products.length === 0) return false;
+
+  const orderNumber = `ING-${dec.id.substring(0, 8).toUpperCase()}`;
+  await pickerSupabase
+    .from('active_orders')
+    .delete()
+    .eq('order_number', orderNumber);
+
+  let pickerSucursal = 'Sucursal Virtual (Hub)';
+  const whName = (dec.warehouses?.name || '').toLowerCase().trim();
+  if (whName.includes('ñuñoa')) pickerSucursal = 'Sucursal Ñuñoa';
+  else if (whName.includes('la reina')) pickerSucursal = 'Sucursal La Reina';
+  else if (whName.includes('recoleta')) pickerSucursal = 'Sucursal Recoleta';
+
+  const skus = products.map(p => (p.sku || '').trim()).filter(Boolean);
+  let productsDb = [];
+  if (skus.length > 0 && dec.comercio) {
+    const { data: dbProds } = await supabase
+      .from('products')
+      .select('sku, barcode, barcode_wms, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2, options')
+      .eq('comercio', dec.comercio)
+      .in('sku', skus);
+    if (dbProds) productsDb = dbProds;
+  }
+
+  const strictSkusMap = new Map(productsDb.map(p => [p.sku.toLowerCase().trim(), p.picking_match_strict]));
+  const aliasProdsMap = new Map(productsDb.map(p => [p.sku.toLowerCase().trim(), { alias: p.alias, send_alias_to_picker: p.send_alias_to_picker }]));
+  const prodVariantMap = new Map(productsDb.map(p => [p.sku.toLowerCase().trim(), p]));
+
+  let commerceVariantConfig = null;
+  if (dec.comercio) {
+    try {
+      const { data: commConfig } = await supabase
+        .from('comercios_adicional_config')
+        .select('plat_siglas_config')
+        .eq('comercio', dec.comercio)
+        .maybeSingle();
+      if (commConfig?.plat_siglas_config?.variant_config) {
+        commerceVariantConfig = commConfig.plat_siglas_config.variant_config;
+      }
+    } catch (e) {}
+  }
+
+  const totu = dec.quantity_declared || products.reduce((s, p) => s + (parseInt(p.qty, 10) || 0), 0);
+  const payloads = [];
+
+  for (const item of products) {
+    const cleanSku = (item.sku || '').trim();
+    if (!cleanSku) continue;
+    const prodData = prodVariantMap.get(cleanSku.toLowerCase()) || {};
+    const prodOpt = prodData.options || {};
+
+    const combinedProd = {
+      ...prodData,
+      sku: cleanSku,
+      barcode: item.barcode || prodData.barcode || '',
+      barcode_wms: item.barcode_wms || prodData.barcode_wms || '',
+      options: {
+        ...prodOpt,
+        alternate_barcodes: [
+          ...(Array.isArray(prodOpt.alternate_barcodes) ? prodOpt.alternate_barcodes : []),
+          ...(item.scanned_barcode ? [item.scanned_barcode] : []),
+          ...(item.barcode && prodData.barcode && item.barcode !== prodData.barcode ? [prodData.barcode] : [])
+        ]
+      }
+    };
+    const pickingSku = window.resolvePickerSku
+      ? window.resolvePickerSku(combinedProd, null, false)
+      : cleanSku;
+
+    const isStrict = strictSkusMap.get(cleanSku.toLowerCase()) || false;
+    const aliasData = aliasProdsMap.get(cleanSku.toLowerCase()) || {};
+    const colorVal = prodData.color || prodOpt.color || null;
+    const tallaVal = prodData.talla || prodOpt.talla || prodOpt.size || null;
+    const mangaVal = prodData.variable_1 || prodOpt.var1 || prodOpt.manga || null;
+    const cuelloVal = prodData.variable_2 || prodOpt.var2 || prodOpt.cuello || null;
+
+    let colorBg = prodOpt.color_bg || null;
+    let colorText = prodOpt.color_text || null;
+    if (colorVal && (!colorBg || !colorText)) {
+      const cStyle = window.getVariantColorStyle ? window.getVariantColorStyle(colorVal, commerceVariantConfig, prodOpt) : null;
+      if (cStyle) {
+        if (!colorBg) colorBg = cStyle.bg;
+        if (!colorText) colorText = cStyle.text;
+      }
+    }
+
+    const prodName = (aliasData.send_alias_to_picker && aliasData.alias && aliasData.alias.trim())
+      ? aliasData.alias.trim()
+      : (item.name || 'Producto Ingreso WMS');
+
+    payloads.push({
+      sucursal: String(pickerSucursal || 'Sucursal Virtual (Hub)').slice(0, 100),
+      order_number: String(orderNumber).slice(0, 100),
+      agenda: 'INGRESO',
+      quantity: parseInt(item.qty, 10) || 1,
+      sku: String(pickingSku || 'SKU-TEMP').slice(0, 100),
+      name: String(prodName).slice(0, 255),
+      color: colorVal ? String(colorVal).trim().slice(0, 100) : '-',
+      color_bg: colorBg ? String(colorBg).slice(0, 50) : null,
+      color_text: colorText ? String(colorText).slice(0, 50) : null,
+      talla: tallaVal ? String(tallaVal).trim().slice(0, 100) : '-',
+      manga: mangaVal ? String(mangaVal).trim().slice(0, 100) : '-',
+      cuello: cuelloVal ? String(cuelloVal).trim().slice(0, 100) : '-',
+      client_name: String(`Ingreso: ${dec.comercio || 'Comercio'}`).slice(0, 255),
+      tracking: String(dec.delivery_method || 'Particular').slice(0, 255),
+      operator: '',
+      totu: totu,
+      sheet_status: 'EN PREPARACIÓN',
+      observation: String(`⚠️ INGRESO DE STOCK. Contar y verificar cantidades recibidas. Notas: ${dec.notes || 'Ninguna'}`).slice(0, 1000),
+      contact_data_q: String(dec.contact_info || '').slice(0, 255),
+      contact_data_r: String(dec.carrier_info || '').slice(0, 255),
+      contact_data_s: String(dec.warehouses?.name || '').slice(0, 255),
+      contact_data_t: String(dec.package_type || '').slice(0, 255),
+      contact_data_u: String(`${dec.package_count || 0} bultos`).slice(0, 255),
+      strict_sku: Boolean(isStrict)
+    });
+  }
+
+  if (payloads.length > 0) {
+    const { error: insErr } = await pickerSupabase
+      .from('active_orders')
+      .insert(payloads);
+    if (insErr) throw insErr;
+    return true;
+  }
+  return false;
+};
+
+window.bulkToggleDeclarationPrintedStatus = async function() {
+  const ids = Array.from(window.selectedDeclarationIds || []);
+  if (ids.length === 0) return;
+
+  const { value: action } = await Swal.fire({
+    title: `Estado de Impresión Masivo (${ids.length} ingresos)`,
+    html: `
+      <div style="text-align: left; font-size: 0.88rem;">
+        <label style="font-weight: 600; display: block; margin-bottom: 0.4rem; color: var(--color-text-main);">Selecciona el estado de impresión a aplicar:</label>
+        <select id="swal-bulk-dec-print-action" class="swal2-input" style="width: 100%; margin: 0; height: 42px; font-weight: 600; box-sizing: border-box;">
+          <option value="printed">✅ Marcar todos los seleccionados como IMPRESO</option>
+          <option value="unprinted">📄 Marcar todos los seleccionados como SIN IMPRIMIR</option>
+        </select>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: 'Aplicar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    preConfirm: () => document.getElementById('swal-bulk-dec-print-action')?.value || 'printed'
+  });
+
+  if (!action) return;
+  const markAsPrinted = action === 'printed';
+
+  Swal.fire({
+    title: 'Actualizando estado de impresión...',
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading()
+  });
+
+  try {
+    const { error } = await supabase
+      .from('stock_declarations')
+      .update({ is_printed: markAsPrinted, updated_at: new Date().toISOString() })
+      .in('id', ids);
+
+    if (error && (!error.message || !error.message.includes('is_printed'))) {
+      throw error;
+    }
+
+    ids.forEach(id => {
+      if (markAsPrinted) {
+        localStorage.setItem(`wms_dec_printed_${id}`, 'true');
+      } else {
+        localStorage.removeItem(`wms_dec_printed_${id}`);
+      }
+      const cached = (window._adminDeclarationsCache || []).find(d => d.id === id);
+      if (cached) {
+        cached.is_printed = markAsPrinted;
+        if (!markAsPrinted && cached.admin_notes) {
+          cached.admin_notes = cached.admin_notes.replace(/\[IMPRESO\]\s*/g, '').trim();
+        }
+      }
+    });
+
+    window.filterAndRenderDeclarationsAdminTable();
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: `${ids.length} ingreso(s) marcados como ${markAsPrinted ? 'Impreso' : 'Sin Imprimir'}`,
+      showConfirmButton: false,
+      timer: 2500
+    });
+  } catch (err) {
+    console.error('Error en bulkToggleDeclarationPrintedStatus:', err);
+    Swal.fire('Error', 'No se pudo actualizar el estado de impresión: ' + (err.message || err), 'error');
+  }
+};
+
+window.openBulkDeclarationBillingModal = async function() {
+  const ids = Array.from(window.selectedDeclarationIds || []);
+  if (ids.length === 0) return;
+
+  let rawPeriods = [];
+  try {
+    const { data } = await supabase.from('billing_periods').select('*');
+    rawPeriods = data || [];
+  } catch (e) {}
+  if (rawPeriods.length === 0) {
+    rawPeriods = ['OCTUBRE 2026', 'SEPTIEMBRE 2026', 'AGOSTO 2026', 'JULIO 2026', 'JUNIO 2026'];
+  }
+  const optionsHtml = typeof window.buildGroupedBillingPeriodsOptionsHtml === 'function'
+    ? window.buildGroupedBillingPeriodsOptionsHtml(rawPeriods, '')
+    : rawPeriods.map(p => `<option value="${p.name || p}">${p.name || p}</option>`).join('');
+
+  const { value: formVals } = await Swal.fire({
+    title: `Facturación Masiva (${ids.length} ingresos)`,
+    width: '540px',
+    html: `
+      <div style="text-align: left; font-size: 0.88rem; display: flex; flex-direction: column; gap: 0.85rem;">
+        <div>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.3rem; color: var(--color-text-main);">1. Periodo de Facturación</label>
+          <select id="swal-bulk-dec-period" class="swal2-input" style="width: 100%; margin: 0; height: 42px; font-weight: 700; box-sizing: border-box;">
+            <option value="__KEEP__">-- Mantener periodo actual de cada ingreso --</option>
+            <option value="__CLEAR__">🚫 Quitar / Desmarcar periodo asignado</option>
+            ${optionsHtml}
+            <option value="__NEW__">+ Crear Nuevo Periodo...</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.3rem; color: var(--color-text-main);">2. Estado de Facturación</label>
+          <select id="swal-bulk-dec-billing-status" class="swal2-input" style="width: 100%; margin: 0; height: 42px; font-weight: 600; box-sizing: border-box;">
+            <option value="auto">⚡ Automático (Facturado si se asigna periodo, Pendiente si se quita)</option>
+            <option value="Facturado">✅ Marcar como Facturado</option>
+            <option value="Pendiente">⏳ Marcar como Pendiente</option>
+            <option value="__KEEP__">-- Mantener estado de facturación actual --</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.3rem; color: var(--color-text-main);">3. Nota de Facturación (Opcional)</label>
+          <input type="text" id="swal-bulk-dec-billing-notes" class="swal2-input" placeholder="Ej: Liquidación mensual / Orden de compra..." style="width: 100%; margin: 0; height: 38px; font-size: 0.85rem; box-sizing: border-box;">
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-save-line"></i> Guardar en Seleccionados',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    preConfirm: async () => {
+      let periodVal = document.getElementById('swal-bulk-dec-period')?.value || '__KEEP__';
+      const statusVal = document.getElementById('swal-bulk-dec-billing-status')?.value || 'auto';
+      const notesVal = document.getElementById('swal-bulk-dec-billing-notes')?.value?.trim() || '';
+
+      if (periodVal === '__NEW__') {
+        const { value: customName } = await Swal.fire({
+          title: 'Nuevo Periodo de Facturación',
+          input: 'text',
+          inputLabel: 'Nombre del Periodo (ej: NOVIEMBRE 2026)',
+          placeholder: 'MES AÑO',
+          showCancelButton: true,
+          confirmButtonText: 'Crear y Asignar',
+          confirmButtonColor: '#5f06fa'
+        });
+        if (!customName || !customName.trim()) return false;
+        periodVal = customName.trim().toUpperCase();
+        try {
+          await supabase.from('billing_periods').insert([{ name: periodVal, status: 'activo' }]);
+        } catch (e) {}
+      }
+      return { periodVal, statusVal, notesVal };
+    }
+  });
+
+  if (!formVals) return;
+
+  Swal.fire({
+    title: 'Actualizando facturación...',
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading()
+  });
+
+  try {
+    const updatePayload = { updated_at: new Date().toISOString() };
+    if (formVals.periodVal !== '__KEEP__') {
+      updatePayload.periodo_facturacion = formVals.periodVal === '__CLEAR__' ? null : formVals.periodVal;
+    }
+    if (formVals.statusVal === 'Facturado' || (formVals.statusVal === 'auto' && formVals.periodVal !== '__KEEP__' && formVals.periodVal !== '__CLEAR__')) {
+      updatePayload.billing_status = 'Facturado';
+      updatePayload.billed_at = new Date().toISOString();
+    } else if (formVals.statusVal === 'Pendiente' || (formVals.statusVal === 'auto' && formVals.periodVal === '__CLEAR__')) {
+      updatePayload.billing_status = 'Pendiente';
+    }
+    if (formVals.notesVal) {
+      updatePayload.billing_notes = formVals.notesVal;
+    }
+
+    let { error } = await supabase
+      .from('stock_declarations')
+      .update(updatePayload)
+      .in('id', ids);
+
+    if (error && error.message && error.message.includes('periodo_facturacion')) {
+      delete updatePayload.periodo_facturacion;
+      if (formVals.periodVal !== '__KEEP__') {
+        updatePayload.billing_notes = formVals.periodVal === '__CLEAR__' ? null : `Periodo: ${formVals.periodVal}`;
+      }
+      const resFb = await supabase.from('stock_declarations').update(updatePayload).in('id', ids);
+      if (resFb.error) throw resFb.error;
+    } else if (error) {
+      throw error;
+    }
+
+    ids.forEach(id => {
+      const cached = (window._adminDeclarationsCache || []).find(d => d.id === id);
+      if (cached) {
+        if (formVals.periodVal !== '__KEEP__') {
+          cached.periodo_facturacion = formVals.periodVal === '__CLEAR__' ? null : formVals.periodVal;
+        }
+        if (updatePayload.billing_status) cached.billing_status = updatePayload.billing_status;
+        if (updatePayload.billing_notes !== undefined) cached.billing_notes = updatePayload.billing_notes;
+      }
+    });
+
+    window.filterAndRenderDeclarationsAdminTable();
+    Swal.fire('¡Éxito!', `Facturación actualizada para ${ids.length} ingreso(s).`, 'success');
+  } catch (err) {
+    console.error('Error en openBulkDeclarationBillingModal:', err);
+    Swal.fire('Error', 'No se pudo actualizar la facturación: ' + (err.message || err), 'error');
+  }
+};
+
+window.openBulkDeclarationStatusModal = async function() {
+  const ids = Array.from(window.selectedDeclarationIds || []);
+  if (ids.length === 0) {
+    Swal.fire('Atención', 'Selecciona al menos un ingreso de stock en la tabla.', 'info');
+    return;
+  }
+
+  Swal.fire({
+    title: 'Preparando gestión masiva...',
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading()
+  });
+
+  let warehouses = [];
+  let rawPeriods = [];
+  try {
+    const [whRes, perRes] = await Promise.all([
+      supabase.from('warehouses').select('id, name, address, comuna, operating_days').order('name'),
+      supabase.from('billing_periods').select('*')
+    ]);
+    warehouses = whRes.data || [];
+    rawPeriods = perRes.data || [];
+  } catch (e) {
+    console.warn('Error cargando catálogos para modal masivo de ingresos:', e);
+  }
+
+  if (rawPeriods.length === 0) {
+    rawPeriods = ['OCTUBRE 2026', 'SEPTIEMBRE 2026', 'AGOSTO 2026', 'JULIO 2026', 'JUNIO 2026'];
+  }
+  const periodOptionsHtml = typeof window.buildGroupedBillingPeriodsOptionsHtml === 'function'
+    ? window.buildGroupedBillingPeriodsOptionsHtml(rawPeriods, '')
+    : rawPeriods.map(p => `<option value="${p.name || p}">${p.name || p}</option>`).join('');
+
+  const allDeclarations = window._adminDeclarationsCache || [];
+  const selectedDecs = ids.map(id => allDeclarations.find(d => d.id === id)).filter(Boolean);
+  if (selectedDecs.length === 0) {
+    Swal.close();
+    return;
+  }
+
+  // Determinar etapa sugerida inteligente según el estado predominante de la selección
+  const statusCounts = {};
+  selectedDecs.forEach(d => {
+    statusCounts[d.status] = (statusCounts[d.status] || 0) + 1;
+  });
+  const dominantStatus = Object.keys(statusCounts).sort((a, b) => statusCounts[b] - statusCounts[a])[0] || 'Creada';
+  let suggestedTargetStatus = 'Bodega Asignada';
+  if (dominantStatus === 'Creada') suggestedTargetStatus = 'Bodega Asignada';
+  else if (dominantStatus === 'Bodega Asignada') suggestedTargetStatus = 'En Recepción - Pendiente Conteo';
+  else if (dominantStatus === 'En Recepción - Pendiente Conteo') suggestedTargetStatus = 'En proceso de conteo/clasificación';
+  else if (dominantStatus === 'En proceso de conteo/clasificación' || dominantStatus === 'Recepción Parcial') suggestedTargetStatus = 'Recibido Conforme';
+  else suggestedTargetStatus = 'Recibido Conforme';
+
+  // Bodega común si todos comparten la misma
+  const uniqueWhIds = Array.from(new Set(selectedDecs.map(d => d.warehouse_id).filter(Boolean)));
+  const defaultWhId = uniqueWhIds.length === 1 ? uniqueWhIds[0] : '';
+  const missingWhCount = selectedDecs.filter(d => !d.warehouse_id).length;
+
+  const warehousesOptionsHtml = warehouses.map(w =>
+    `<option value="${w.id}" ${w.id === defaultWhId ? 'selected' : ''}>${w.name} (${w.comuna || w.address || ''})</option>`
+  ).join('');
+
+  const esc = window.escapeHtml || (s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
+
+  const summaryRowsHtml = selectedDecs.map(d => {
+    const code = `#ING-${d.id.substring(0, 8).toUpperCase()}`;
+    const whLabel = d.warehouses?.name
+      ? `<span style="color: var(--color-primary); font-weight: 600;">${esc(d.warehouses.name)}</span>`
+      : `<span style="color: #d97706; font-style: italic;">Sin bodega</span>`;
+    return `
+      <tr style="border-bottom: 1px solid var(--color-border);">
+        <td style="padding: 4px 8px; font-family: monospace; font-weight: 700; color: #059669; font-size: 0.74rem; white-space: nowrap;">${code}</td>
+        <td style="padding: 4px 8px; font-weight: 600; font-size: 0.76rem; color: var(--color-text-main);">${esc(d.comercio || '-')}</td>
+        <td style="padding: 4px 8px; font-size: 0.76rem; color: var(--color-text-main); max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${esc(d.title)}">${esc(d.title || '-')}</td>
+        <td style="padding: 4px 8px; font-size: 0.72rem;"><span class="badge" style="background: var(--color-surface-hover); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 1px 6px;">${esc(d.status)}</span></td>
+        <td style="padding: 4px 8px; font-size: 0.74rem;">${whLabel}</td>
+        <td style="padding: 4px 8px; font-size: 0.74rem; text-align: right; font-weight: 700;">${parseInt(d.quantity_declared, 10) || 0} uds</td>
+        <td style="padding: 4px 8px; font-size: 0.74rem; text-align: right;">${parseFloat(d.volume_declared || 0).toFixed(4)} m³</td>
+      </tr>
+    `;
+  }).join('');
+
+  const modalHtml = `
+    <div style="text-align: left; font-size: 0.85rem; max-height: 76vh; overflow-y: auto; padding-right: 4px;">
+      <!-- Resumen de Ingresos Seleccionados -->
+      <div style="margin-bottom: 0.85rem; border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; background: var(--color-bg);">
+        <div style="padding: 0.5rem 0.75rem; background: rgba(95, 6, 250, 0.06); border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-weight: 700; font-size: 0.8rem; color: #5f06fa; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-stack-line"></i> Ingresos seleccionados para procesar (${selectedDecs.length})
+          </span>
+          <span style="font-size: 0.74rem; color: var(--color-text-muted);">
+            Total: <strong>${selectedDecs.reduce((s, d) => s + (parseInt(d.quantity_declared, 10) || 0), 0).toLocaleString('es-CL')} uds</strong>
+          </span>
+        </div>
+        <div style="max-height: 125px; overflow-y: auto; background: var(--color-surface);">
+          <table style="width: 100%; border-collapse: collapse; text-align: left;">
+            <thead style="position: sticky; top: 0; background: var(--color-bg); border-bottom: 1px solid var(--color-border); font-size: 0.68rem; color: var(--color-text-muted); text-transform: uppercase;">
+              <tr>
+                <th style="padding: 4px 8px;">Folio</th>
+                <th style="padding: 4px 8px;">Comercio</th>
+                <th style="padding: 4px 8px;">Título</th>
+                <th style="padding: 4px 8px;">Etapa Actual</th>
+                <th style="padding: 4px 8px;">Bodega</th>
+                <th style="padding: 4px 8px; text-align: right;">Uds</th>
+                <th style="padding: 4px 8px; text-align: right;">Vol.</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${summaryRowsHtml}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 1. Selección de Etapa Destino -->
+      <div style="background: var(--color-surface); border: 1.5px solid rgba(95, 6, 250, 0.3); border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 0.85rem;">
+        <label style="font-weight: 700; font-size: 0.84rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.4rem;">
+          <i class="ri-route-line" style="color: #5f06fa; font-size: 1rem;"></i> 1. Selecciona la Nueva Etapa / Estado Destino:
+        </label>
+        <select id="bulk-dec-target-status" class="form-input" onchange="window.onBulkDecTargetStatusChange()" style="width: 100%; height: 42px; font-size: 0.9rem; font-weight: 700; border-radius: 7px; border: 1.5px solid #5f06fa; background: var(--color-bg); color: var(--color-text-main);">
+          <optgroup label="📋 Etapas Operativas del Flujo">
+            <option value="Creada" ${suggestedTargetStatus === 'Creada' ? 'selected' : ''}>1. Creada (Etapa inicial)</option>
+            <option value="Bodega Asignada" ${suggestedTargetStatus === 'Bodega Asignada' ? 'selected' : ''}>2. Bodega Asignada (Asignar sucursal destino)</option>
+            <option value="En Recepción - Pendiente Conteo" ${suggestedTargetStatus === 'En Recepción - Pendiente Conteo' ? 'selected' : ''}>3. En Recepción - Pendiente Conteo (Llegada a andén)</option>
+            <option value="En proceso de conteo/clasificación" ${suggestedTargetStatus === 'En proceso de conteo/clasificación' ? 'selected' : ''}>4. En Conteo / Clasificación (Apertura y auditoría)</option>
+          </optgroup>
+          <optgroup label="✅ Etapas de Recepción y Cierre (Acreditación de Stock)">
+            <option value="Recibido Conforme" ${suggestedTargetStatus === 'Recibido Conforme' ? 'selected' : ''}>5. Recibido Conforme (100% Carga Completa sin diferencias)</option>
+            <option value="Recepción Parcial" ${suggestedTargetStatus === 'Recepción Parcial' ? 'selected' : ''}>5. Recepción Parcial (Acreditar avance y dejar saldo pendiente)</option>
+            <option value="Recibido con Incidencias" ${suggestedTargetStatus === 'Recibido con Incidencias' ? 'selected' : ''}>5. Recibido con Incidencias (Diferencias de conteo o daños)</option>
+          </optgroup>
+          <optgroup label="⚙️ Otras Acciones">
+            <option value="__KEEP__">⏸️ Mantener etapa actual de cada ingreso (Solo actualizar datos / bodega / conteo paralelo)</option>
+          </optgroup>
+        </select>
+        <div id="bulk-dec-stage-helper-banner" style="margin-top: 0.45rem; font-size: 0.77rem; color: var(--color-text-muted); line-height: 1.35;"></div>
+      </div>
+
+      <!-- 2. Bodega de Destino -->
+      <div id="bulk-dec-section-warehouse" style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 0.85rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.4rem;">
+          <label style="font-weight: 700; font-size: 0.82rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.35rem; margin: 0;">
+            <i class="ri-building-2-line"></i> Bodega de Destino <span id="bulk-dec-wh-req-badge" class="badge" style="font-size: 0.68rem; padding: 1px 6px;"></span>
+          </label>
+          ${missingWhCount > 0 ? `<span style="font-size: 0.72rem; color: #d97706; font-weight: 600;"><i class="ri-alert-line"></i> ${missingWhCount} de ${selectedDecs.length} ingreso(s) aún no tienen bodega asignada</span>` : `<span style="font-size: 0.72rem; color: var(--color-success); font-weight: 600;"><i class="ri-check-line"></i> Todos los seleccionados ya tienen bodega</span>`}
+        </div>
+        <select id="bulk-dec-warehouse-select" class="form-input" style="width: 100%; height: 38px; font-size: 0.84rem; margin-bottom: 0.45rem;">
+          <option value="">-- Mantener bodega actual de cada ingreso --</option>
+          ${warehousesOptionsHtml}
+        </select>
+        <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.77rem; color: var(--color-text-muted); cursor: pointer; margin: 0;">
+          <input type="checkbox" id="bulk-dec-wh-only-missing" style="width: 15px; height: 15px; accent-color: var(--color-primary); cursor: pointer;">
+          <span>Asignar bodega <strong>solo a los ingresos que NO tengan bodega</strong> (conservar la bodega actual en los demás)</span>
+        </label>
+      </div>
+
+      <!-- 3. Opciones Operativas: Conteo en Paralelo y Sistema Picker -->
+      <div id="bulk-dec-section-operations" style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 0.85rem;">
+        <div style="font-weight: 700; font-size: 0.82rem; color: #5f06fa; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.5rem;">
+          <i class="ri-Cpu-line"></i> Opciones Operativas (Sistema Picker y Conteo en Paralelo)
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 0.55rem;">
+          <label style="display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.5rem 0.65rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; margin: 0;">
+            <input type="checkbox" id="bulk-dec-send-picker" style="width: 16px; height: 16px; margin-top: 2px; accent-color: var(--color-primary); cursor: pointer;">
+            <div style="font-size: 0.8rem; line-height: 1.35;">
+              <strong style="color: var(--color-text-main); display: block;">📲 Enviar ingresos seleccionados al Sistema Picker (Cola Activa <code>ING-...</code>)</strong>
+              <span style="color: var(--color-text-muted); font-size: 0.74rem;">Carga automáticamente los SKUs y códigos de barras en la sucursal del Picker para que los operarios inicien el conteo.</span>
+            </div>
+          </label>
+          <label style="display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.5rem 0.65rem; background: rgba(95, 6, 250, 0.04); border: 1px dashed rgba(95, 6, 250, 0.35); border-radius: 6px; cursor: pointer; margin: 0;">
+            <input type="checkbox" id="bulk-dec-parallel-count" style="width: 16px; height: 16px; margin-top: 2px; accent-color: #5f06fa; cursor: pointer;">
+            <div style="font-size: 0.8rem; line-height: 1.35;">
+              <strong style="color: #5f06fa; display: block;">⚡ Activar Conteo en Paralelo (Acreditar Stock Declarado de Inmediato)</strong>
+              <span style="color: var(--color-text-muted); font-size: 0.74rem;">Suma inmediatamente las unidades declaradas al inventario físico de la bodega para habilitar ventas/despachos mientras se audita físicamente.</span>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- 4. Confirmación de Recepción: Volumen, Etiquetado, Cantidades, Inventario y Costo Real -->
+      <div id="bulk-dec-section-reception" style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 0.85rem;">
+        <div style="font-weight: 700; font-size: 0.82rem; color: #059669; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.55rem;">
+          <i class="ri-Archive-drawer-line"></i> Parámetros de Recepción, Cubicaje e Inventario
+        </div>
+
+        <!-- Volumen Confirmado -->
+        <div style="margin-bottom: 0.65rem;">
+          <label style="font-weight: 600; font-size: 0.78rem; color: var(--color-text-main); display: block; margin-bottom: 0.25rem;">
+            Cubicaje / Volumen Confirmado (m³):
+          </label>
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <select id="bulk-dec-vol-mode" class="form-input" onchange="document.getElementById('bulk-dec-vol-custom-wrap').style.display = this.value === 'custom' ? 'block' : 'none';" style="flex: 1; min-width: 240px; height: 36px; font-size: 0.8rem;">
+              <option value="keep_or_declared" selected>✅ Conservar volumen confirmado actual (o usar Volumen Declarado si está vacío)</option>
+              <option value="declared">📐 Igualar siempre al Volumen Declarado de cada ingreso</option>
+              <option value="recalc_catalog">📦 Recalcular según medidas de productos en catálogo × cantidad recibida</option>
+              <option value="custom">✏️ Asignar un volumen confirmado específico (m³) a cada ingreso...</option>
+            </select>
+            <div id="bulk-dec-vol-custom-wrap" style="display: none; width: 140px;">
+              <input type="number" id="bulk-dec-vol-custom" class="form-input" step="0.0001" min="0.0001" placeholder="Ej: 0.2500" style="height: 36px; font-size: 0.8rem; width: 100%;">
+            </div>
+          </div>
+        </div>
+
+        <!-- Sub-sección exclusiva para Etapas de Cierre (Recibido Conforme, Parcial, Con Incidencias) -->
+        <div id="bulk-dec-subsection-closing" style="display: none; border-top: 1px dashed var(--color-border); padding-top: 0.65rem; margin-top: 0.5rem;">
+          <!-- Info Recibido Conforme -->
+          <div id="bulk-dec-conforme-info" style="display: none; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 6px; padding: 0.5rem 0.7rem; margin-bottom: 0.6rem; font-size: 0.78rem; color: #065f46;">
+            <i class="ri-checkbox-circle-fill" style="color: #10b981; margin-right: 4px;"></i>
+            <strong>Recibido Conforme:</strong> Se confirmará automáticamente el <strong>100% de las unidades declaradas</strong> (<code>qty_confirmed = qty</code>) y <strong>0 incidencias</strong> en cada ingreso seleccionado.
+          </div>
+
+          <!-- Opciones de Cantidad para Recepción Parcial / Con Incidencias -->
+          <div id="bulk-dec-partial-qty-wrap" style="display: none; margin-bottom: 0.65rem;">
+            <label style="font-weight: 600; font-size: 0.78rem; color: var(--color-text-main); display: block; margin-bottom: 0.25rem;">
+              Criterio de Unidades Recibidas por Producto:
+            </label>
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+              <select id="bulk-dec-partial-qty-mode" class="form-input" onchange="document.getElementById('bulk-dec-partial-pct-wrap').style.display = this.value === 'percentage' ? 'flex' : 'none';" style="flex: 1; min-width: 240px; height: 36px; font-size: 0.8rem;">
+                <option value="keep_or_declared" selected>Conservar cantidades ya contadas en cada ingreso (o 100% declaradas si no tiene conteo)</option>
+                <option value="percentage">Confirmar un porcentaje (%) de las unidades declaradas por SKU...</option>
+              </select>
+              <div id="bulk-dec-partial-pct-wrap" style="display: none; align-items: center; gap: 4px; width: 120px;">
+                <input type="number" id="bulk-dec-partial-pct" class="form-input" min="1" max="100" value="50" style="height: 36px; font-size: 0.8rem; width: 85px; text-align: center; font-weight: 700;">
+                <span style="font-weight: 700; font-size: 0.82rem;">%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Registro de Incidencias (Visible en Recibido con Incidencias y Recepción Parcial) -->
+          <div id="bulk-dec-subsection-incidents" style="display: none; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; padding: 0.6rem 0.75rem; margin-bottom: 0.65rem;">
+            <div style="font-weight: 700; font-size: 0.78rem; color: #b91c1c; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-error-warning-line"></i> Detalle de Incidencias / Observaciones de Recepción
+            </div>
+            <div style="display: grid; grid-template-columns: 140px 1fr; gap: 0.5rem;">
+              <div>
+                <label style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Cant. Incidencias</label>
+                <input type="number" id="bulk-dec-incidents-qty" class="form-input" min="0" placeholder="Auto" style="height: 34px; font-size: 0.8rem; width: 100%;">
+              </div>
+              <div>
+                <label style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Motivo / Descripción de la Incidencia</label>
+                <input type="text" id="bulk-dec-incidents-reason" class="form-input" placeholder="Ej: Diferencia detectada en conteo físico / Embalaje con daño" style="height: 34px; font-size: 0.8rem; width: 100%;">
+              </div>
+            </div>
+          </div>
+
+          <!-- Unidades de Etiquetado Confirmadas -->
+          <div style="margin-bottom: 0.65rem;">
+            <label style="font-weight: 600; font-size: 0.78rem; color: var(--color-text-main); display: block; margin-bottom: 0.25rem;">
+              Servicio de Etiquetado Confirmado:
+            </label>
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+              <select id="bulk-dec-labeling-mode" class="form-input" onchange="document.getElementById('bulk-dec-labeling-custom-wrap').style.display = this.value === 'custom' ? 'block' : 'none';" style="flex: 1; min-width: 240px; height: 36px; font-size: 0.8rem;">
+                <option value="requested" selected>✅ Confirmar según lo solicitado en cada ingreso (o mantener confirmado actual)</option>
+                <option value="zero">0️⃣ Confirmar 0 unidades etiquetadas en todos</option>
+                <option value="custom">✏️ Asignar cantidad fija de unidades etiquetadas...</option>
+              </select>
+              <div id="bulk-dec-labeling-custom-wrap" style="display: none; width: 130px;">
+                <input type="number" id="bulk-dec-labeling-custom" class="form-input" min="0" value="0" style="height: 36px; font-size: 0.8rem; width: 100%;">
+              </div>
+            </div>
+          </div>
+
+          <!-- Checkboxes de Inventario y Costo Real -->
+          <div style="display: flex; flex-direction: column; gap: 0.45rem;">
+            <label style="display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.45rem 0.6rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; margin: 0;">
+              <input type="checkbox" id="bulk-dec-credit-inventory" checked style="width: 16px; height: 16px; margin-top: 2px; accent-color: #059669; cursor: pointer;">
+              <div style="font-size: 0.78rem; line-height: 1.35;">
+                <strong style="color: var(--color-text-main);">📦 Acreditar unidades en Inventario Físico y registrar en Kardex (<code>movements</code>)</strong>
+                <div style="color: var(--color-text-muted); font-size: 0.72rem;">Calcula automáticamente el saldo pendiente por acreditar (<code>qty_confirmed - qty_inventory_added</code>) para evitar duplicidad de stock.</div>
+              </div>
+            </label>
+            <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.6rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; margin: 0;">
+              <input type="checkbox" id="bulk-dec-recalc-cost" checked style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+              <span style="font-size: 0.78rem; color: var(--color-text-main); font-weight: 600;">💰 Calcular y confirmar automáticamente el Costo Real (UF) de liquidación en cada ingreso</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. Sección de Retroceso / Reversa de Stock (Solo si algún ingreso retrocede desde etapa cerrada) -->
+      <div id="bulk-dec-section-rollback" style="display: none; background: rgba(245, 158, 11, 0.08); border: 1.5px solid rgba(245, 158, 11, 0.4); border-radius: 8px; padding: 0.7rem 0.9rem; margin-bottom: 0.85rem;">
+        <div style="font-weight: 700; font-size: 0.8rem; color: #b45309; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-arrow-go-back-line"></i> Aviso de Retroceso de Etapa con Stock Acreditado
+        </div>
+        <label style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; margin: 0;">
+          <input type="checkbox" id="bulk-dec-revert-inventory" checked style="width: 16px; height: 16px; margin-top: 2px; accent-color: #d97706; cursor: pointer;">
+          <span style="font-size: 0.78rem; color: var(--color-text-main); line-height: 1.35;">
+            <strong>Revertir del inventario físico las unidades que ya habían sido acreditadas</strong> en los ingresos que retroceden desde una etapa cerrada o Conteo en Paralelo (registra salida por reversa en Kardex y deja <code>qty_inventory_added = 0</code>).
+          </span>
+        </label>
+      </div>
+
+      <!-- 6. Facturación y Comentarios / Notificaciones -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.5rem;">
+        <!-- Facturación (Opcional) -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.7rem 0.85rem;">
+          <div style="font-weight: 700; font-size: 0.8rem; color: var(--color-text-main); margin-bottom: 0.45rem; display: flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-money-dollar-circle-line" style="color: #5f06fa;"></i> Facturación (Opcional)
+          </div>
+          <div style="margin-bottom: 0.45rem;">
+            <label style="font-size: 0.73rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Estado Facturación</label>
+            <select id="bulk-dec-billing-status" class="form-input" style="width: 100%; height: 34px; font-size: 0.78rem;">
+              <option value="__KEEP__">-- Mantener actual --</option>
+              <option value="Pendiente">⏳ Pendiente</option>
+              <option value="Facturado">✅ Facturado</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size: 0.73rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Periodo Facturación</label>
+            <select id="bulk-dec-billing-period" class="form-input" style="width: 100%; height: 34px; font-size: 0.78rem;">
+              <option value="__KEEP__">-- Mantener actual --</option>
+              <option value="__CLEAR__">🚫 Sin periodo (Desmarcar)</option>
+              ${periodOptionsHtml}
+            </select>
+          </div>
+        </div>
+
+        <!-- Comentario de Etapa y Notas -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.7rem 0.85rem;">
+          <div style="font-weight: 700; font-size: 0.8rem; color: var(--color-text-main); margin-bottom: 0.45rem; display: flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-chat-check-line" style="color: var(--color-primary);"></i> Historial y Notificaciones
+          </div>
+          <div style="margin-bottom: 0.45rem;">
+            <label style="font-size: 0.73rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Comentario para el Historial / Notas Admin</label>
+            <input type="text" id="bulk-dec-stage-comment" class="form-input" placeholder="Opcional (ej: Recepcionado en bodega...)" style="width: 100%; height: 34px; font-size: 0.78rem;">
+          </div>
+          <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.76rem; color: var(--color-text-main); cursor: pointer; margin-top: 0.55rem;">
+            <input type="checkbox" id="bulk-dec-notify-clients" checked style="width: 15px; height: 15px; accent-color: var(--color-primary); cursor: pointer;">
+            <span>📧 Notificar actualización a cada comercio</span>
+          </label>
+        </div>
+      </div>
+    </div>
+  `;
+
+  window.onBulkDecTargetStatusChange = function() {
+    const targetStatus = document.getElementById('bulk-dec-target-status')?.value || 'Bodega Asignada';
+    const whSection = document.getElementById('bulk-dec-section-warehouse');
+    const whReqBadge = document.getElementById('bulk-dec-wh-req-badge');
+    const opsSection = document.getElementById('bulk-dec-section-operations');
+    const recSection = document.getElementById('bulk-dec-section-reception');
+    const closingSub = document.getElementById('bulk-dec-subsection-closing');
+    const conformeInfo = document.getElementById('bulk-dec-conforme-info');
+    const partialWrap = document.getElementById('bulk-dec-partial-qty-wrap');
+    const incidentsSub = document.getElementById('bulk-dec-subsection-incidents');
+    const rollbackSection = document.getElementById('bulk-dec-section-rollback');
+    const helperBanner = document.getElementById('bulk-dec-stage-helper-banner');
+
+    const isClosing = ['Recibido Conforme', 'Recepción Parcial', 'Recibido con Incidencias'].includes(targetStatus);
+    const isReceptionOrLater = ['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', ...['Recibido Conforme', 'Recepción Parcial', 'Recibido con Incidencias']].includes(targetStatus);
+
+    // Helper text
+    if (helperBanner) {
+      const descMap = {
+        'Creada': 'Regresa los ingresos seleccionados a la etapa 1 (Creada).',
+        'Bodega Asignada': 'Asigna la bodega de destino a los ingresos seleccionados y notifica la dirección de entrega al comercio.',
+        'En Recepción - Pendiente Conteo': 'Registra el arribo físico de la carga a bodega (Andén). Puedes enviarla al Picker o activar Conteo en Paralelo.',
+        'En proceso de conteo/clasificación': 'Inicia el proceso de conteo y clasificación de unidades y cubicaje.',
+        'Recibido Conforme': 'Finaliza la recepción al 100% sin discrepancias, acredita el stock físico en la bodega asignada y registra los movimientos en el Kardex.',
+        'Recepción Parcial': 'Acredita las unidades recibidas parcialmente en inventario y mantiene el ingreso abierto por el saldo pendiente.',
+        'Recibido con Incidencias': 'Finaliza la recepción registrando discrepancias o daños, y acredita las unidades efectivamente recibidas.',
+        '__KEEP__': 'Mantiene cada ingreso en su etapa actual y aplica únicamente los cambios complementarios seleccionados abajo.'
+      };
+      helperBanner.textContent = descMap[targetStatus] || '';
+    }
+
+    // Warehouse section
+    if (whSection) {
+      whSection.style.display = targetStatus === 'Creada' ? 'none' : 'block';
+      if (whReqBadge) {
+        if (targetStatus === 'Bodega Asignada' || (isReceptionOrLater && missingWhCount > 0)) {
+          whReqBadge.textContent = 'Requerido para avanzar';
+          whReqBadge.style.background = 'rgba(245, 158, 11, 0.15)';
+          whReqBadge.style.color = '#d97706';
+        } else {
+          whReqBadge.textContent = 'Opcional';
+          whReqBadge.style.background = 'var(--color-surface-hover)';
+          whReqBadge.style.color = 'var(--color-text-muted)';
+        }
+      }
+    }
+
+    // Operations (Picker & Parallel Count)
+    if (opsSection) {
+      opsSection.style.display = ['Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', '__KEEP__'].includes(targetStatus)
+        ? 'block'
+        : 'none';
+    }
+
+    // Reception / Closing section
+    if (recSection) {
+      recSection.style.display = isReceptionOrLater ? 'block' : 'none';
+    }
+    if (closingSub) {
+      closingSub.style.display = isClosing ? 'block' : 'none';
+    }
+    if (conformeInfo) {
+      conformeInfo.style.display = targetStatus === 'Recibido Conforme' ? 'block' : 'none';
+    }
+    if (partialWrap) {
+      partialWrap.style.display = (targetStatus === 'Recepción Parcial' || targetStatus === 'Recibido con Incidencias') ? 'block' : 'none';
+    }
+    if (incidentsSub) {
+      incidentsSub.style.display = (targetStatus === 'Recibido con Incidencias' || targetStatus === 'Recepción Parcial') ? 'block' : 'none';
+    }
+
+    // Check if any selected declaration is rolling back from a stage with stock
+    if (rollbackSection) {
+      const targetStep = targetStatus === '__KEEP__' ? 99 : getStageStepNumber(targetStatus);
+      const anyRollbackWithStock = targetStatus !== '__KEEP__' && selectedDecs.some(d => {
+        const curStep = getStageStepNumber(d.status);
+        const wasCredited = ['Recibido Conforme', 'Recepción Parcial', 'Recibido con Incidencias'].includes(d.status) || d.parallel_count;
+        return targetStep < curStep && wasCredited;
+      });
+      rollbackSection.style.display = anyRollbackWithStock ? 'block' : 'none';
+    }
+  };
+
+  const { value: bulkConfig } = await Swal.fire({
+    title: `<span style="font-size: 1.15rem; font-weight: 800; color: var(--color-text-main);">Gestión y Cambio de Etapa Masivo (${selectedDecs.length} Ingresos)</span>`,
+    width: '780px',
+    html: modalHtml,
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-check-double-line"></i> Aplicar Cambios Masivos',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    didOpen: () => {
+      window.onBulkDecTargetStatusChange();
+    },
+    preConfirm: () => {
+      const targetStatus = document.getElementById('bulk-dec-target-status')?.value || 'Bodega Asignada';
+      const selectedWhId = document.getElementById('bulk-dec-warehouse-select')?.value || '';
+      const whOnlyMissing = document.getElementById('bulk-dec-wh-only-missing')?.checked || false;
+      const sendPicker = document.getElementById('bulk-dec-send-picker')?.checked || false;
+      const activateParallel = document.getElementById('bulk-dec-parallel-count')?.checked || false;
+      const volMode = document.getElementById('bulk-dec-vol-mode')?.value || 'keep_or_declared';
+      const volCustom = parseFloat(document.getElementById('bulk-dec-vol-custom')?.value || '0');
+      const partialQtyMode = document.getElementById('bulk-dec-partial-qty-mode')?.value || 'keep_or_declared';
+      const partialPct = parseFloat(document.getElementById('bulk-dec-partial-pct')?.value || '100');
+      const incidentsQtyRaw = document.getElementById('bulk-dec-incidents-qty')?.value;
+      const incidentsReason = document.getElementById('bulk-dec-incidents-reason')?.value?.trim() || '';
+      const labelingMode = document.getElementById('bulk-dec-labeling-mode')?.value || 'requested';
+      const labelingCustom = parseInt(document.getElementById('bulk-dec-labeling-custom')?.value || '0', 10);
+      const creditInventory = document.getElementById('bulk-dec-credit-inventory')?.checked !== false;
+      const recalcCost = document.getElementById('bulk-dec-recalc-cost')?.checked !== false;
+      const revertInventory = document.getElementById('bulk-dec-revert-inventory')?.checked !== false;
+      const billingStatus = document.getElementById('bulk-dec-billing-status')?.value || '__KEEP__';
+      const billingPeriod = document.getElementById('bulk-dec-billing-period')?.value || '__KEEP__';
+      const stageComment = document.getElementById('bulk-dec-stage-comment')?.value?.trim() || '';
+      const notifyClients = document.getElementById('bulk-dec-notify-clients')?.checked !== false;
+
+      // Validar que todos los ingresos que pasan a Bodega Asignada o etapas posteriores tengan bodega (actual o seleccionada)
+      if (targetStatus !== 'Creada' && targetStatus !== '__KEEP__') {
+        const stillMissingWh = selectedDecs.some(d => !d.warehouse_id && !selectedWhId);
+        if (stillMissingWh) {
+          Swal.showValidationMessage('Hay ingresos seleccionados sin bodega asignada. Por favor selecciona una Bodega de Destino para asignarla.');
+          return false;
+        }
+      }
+      if (activateParallel) {
+        const stillMissingWh = selectedDecs.some(d => !d.warehouse_id && !selectedWhId);
+        if (stillMissingWh) {
+          Swal.showValidationMessage('Para activar el Conteo en Paralelo, todos los ingresos deben tener una Bodega de Destino.');
+          return false;
+        }
+      }
+      if (volMode === 'custom' && (isNaN(volCustom) || volCustom <= 0)) {
+        Swal.showValidationMessage('Ingresa un Volumen Confirmado (m³) válido mayor a 0.');
+        return false;
+      }
+
+      return {
+        targetStatus,
+        selectedWhId,
+        whOnlyMissing,
+        sendPicker,
+        activateParallel,
+        volMode,
+        volCustom,
+        partialQtyMode,
+        partialPct: isNaN(partialPct) ? 100 : Math.max(1, Math.min(100, partialPct)),
+        incidentsQty: (incidentsQtyRaw !== undefined && incidentsQtyRaw !== '') ? parseInt(incidentsQtyRaw, 10) : null,
+        incidentsReason,
+        labelingMode,
+        labelingCustom: isNaN(labelingCustom) ? 0 : Math.max(0, labelingCustom),
+        creditInventory,
+        recalcCost,
+        revertInventory,
+        billingStatus,
+        billingPeriod,
+        stageComment,
+        notifyClients
+      };
+    }
+  });
+
+  if (!bulkConfig) return;
+
+  // Ejecutar procesamiento masivo con barra de progreso en vivo
+  Swal.fire({
+    title: 'Procesando ingresos de stock...',
+    html: `
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 12px 0;">
+        <i class="ri-loader-4-line ri-spin" style="font-size: 2.6rem; color: #5f06fa; animation: spin 1s linear infinite;"></i>
+        <div id="swal-bulk-dec-progress-text" style="font-size: 0.9rem; font-weight: 600; color: var(--color-text-main);">
+          Iniciando procesamiento (0 de ${selectedDecs.length})...
+        </div>
+        <div style="width: 100%; background: var(--color-border); height: 8px; border-radius: 999px; overflow: hidden;">
+          <div id="swal-bulk-dec-progress-bar" style="width: 0%; height: 100%; background: #5f06fa; transition: width 0.25s;"></div>
+        </div>
+      </div>
+    `,
+    allowOutsideClick: false,
+    showConfirmButton: false
+  });
+
+  let currentUserEmail = 'Administración Stocka';
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user && user.email) currentUserEmail = user.email;
+  } catch (e) {}
+
+  let successCount = 0;
+  let errorCount = 0;
+  let totalStockCredited = 0;
+  let totalStockReverted = 0;
+  let totalSentToPicker = 0;
+  const errorMessages = [];
+
+  const getEffectiveClosedAddedQty = (p) => {
+    if (p.qty_inventory_added !== undefined && p.qty_inventory_added !== null) {
+      return parseInt(p.qty_inventory_added, 10) || 0;
+    }
+    if (p.qty_confirmed !== undefined && p.qty_confirmed !== null) {
+      return parseInt(p.qty_confirmed, 10) || 0;
+    }
+    return parseInt(p.qty, 10) || 0;
+  };
+
+  for (let i = 0; i < selectedDecs.length; i++) {
+    const itemSummary = selectedDecs[i];
+    const decId = itemSummary.id;
+    const decShortCode = decId.substring(0, 8).toUpperCase();
+
+    const progText = document.getElementById('swal-bulk-dec-progress-text');
+    const progBar = document.getElementById('swal-bulk-dec-progress-bar');
+    if (progText) {
+      progText.textContent = `Procesando #ING-${decShortCode} (${i + 1} de ${selectedDecs.length})...`;
+    }
+    if (progBar) {
+      progBar.style.width = `${Math.round(((i + 0.5) / selectedDecs.length) * 100)}%`;
+    }
+
+    try {
+      // 1. Obtener estado fresco del ingreso desde Supabase
+      const { data: latestDec, error: fetchErr } = await supabase
+        .from('stock_declarations')
+        .select('*, warehouses(id, name, address, comuna, operating_days)')
+        .eq('id', decId)
+        .single();
+      if (fetchErr || !latestDec) throw (fetchErr || new Error('No se encontró el ingreso'));
+
+      const prevStatus = latestDec.status;
+      let nextStatus = bulkConfig.targetStatus === '__KEEP__' ? prevStatus : bulkConfig.targetStatus;
+      if (bulkConfig.activateParallel && ['Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo'].includes(nextStatus)) {
+        nextStatus = 'En proceso de conteo/clasificación';
+      }
+
+      const prevStep = getStageStepNumber(prevStatus);
+      const nextStep = getStageStepNumber(nextStatus);
+      const isRollback = nextStep < prevStep;
+      const isAdvance = nextStep > prevStep;
+      const isStay = nextStatus === prevStatus;
+      const isFinishingStatus = ['Recibido Conforme', 'Recibido con Incidencias'].includes(nextStatus);
+      const isStockReceivingStatus = ['Recepción Parcial', 'Recibido Conforme', 'Recibido con Incidencias'].includes(nextStatus);
+
+      // Resolver Bodega Destino
+      let effectiveWarehouseId = latestDec.warehouse_id || null;
+      if (bulkConfig.selectedWhId) {
+        if (!bulkConfig.whOnlyMissing || !effectiveWarehouseId) {
+          effectiveWarehouseId = bulkConfig.selectedWhId;
+        }
+      }
+
+      // Cargar lista de productos del ingreso
+      let productsList = Array.isArray(latestDec.products_list) && latestDec.products_list.length > 0
+        ? JSON.parse(JSON.stringify(latestDec.products_list))
+        : (typeof getDeclarationProducts === 'function' ? JSON.parse(JSON.stringify(getDeclarationProducts(latestDec) || [])) : []);
+
+      // 2. Si retrocede desde etapa cerrada o conteo en paralelo y el usuario activó revertir stock físico
+      const wasCreditedStage = ['Recibido Conforme', 'Recepción Parcial', 'Recibido con Incidencias'].includes(prevStatus) || latestDec.parallel_count;
+      if (isRollback && wasCreditedStage && bulkConfig.revertInventory && effectiveWarehouseId) {
+        for (const item of productsList) {
+          const addedQty = getEffectiveClosedAddedQty(item);
+          if (addedQty > 0 && item.sku) {
+            const { data: prod } = await supabase
+              .from('products')
+              .select('id')
+              .eq('comercio', latestDec.comercio)
+              .ilike('sku', item.sku.trim())
+              .limit(1)
+              .maybeSingle();
+
+            if (prod && prod.id) {
+              const { data: inv } = await supabase
+                .from('inventory')
+                .select('id, quantity')
+                .eq('product_id', prod.id)
+                .eq('warehouse_id', effectiveWarehouseId)
+                .maybeSingle();
+
+              if (inv) {
+                const newQty = Math.max(0, (inv.quantity || 0) - addedQty);
+                await supabase.from('inventory').update({ quantity: newQty }).eq('id', inv.id);
+                await supabase.from('movements').insert([{
+                  product_id: prod.id,
+                  warehouse_id: effectiveWarehouseId,
+                  type: 'out',
+                  quantity: addedQty,
+                  reference_doc: `Reversa Masiva por retroceso de Ingreso (${prevStatus} -> ${nextStatus}) [#ING-${decShortCode}]: ${latestDec.title}`
+                }]);
+                totalStockReverted += addedQty;
+              }
+            }
+          }
+          item.qty_inventory_added = 0;
+        }
+      }
+
+      // 3. Preparar cantidades confirmadas por producto e incidencias según la etapa destino
+      const qtyDeclaredTotal = parseInt(latestDec.quantity_declared, 10) || productsList.reduce((s, p) => s + (parseInt(p.qty, 10) || 0), 0);
+      let qtyReceivedTotal = parseInt(latestDec.quantity_received, 10) || 0;
+      let qtyIncidentsTotal = parseInt(latestDec.quantity_incidents, 10) || 0;
+      let incidentsList = Array.isArray(latestDec.incidents_list) ? [...latestDec.incidents_list] : [];
+
+      if (nextStatus === 'Recibido Conforme') {
+        productsList.forEach(p => {
+          p.qty_confirmed = parseInt(p.qty, 10) || 0;
+        });
+        qtyReceivedTotal = qtyDeclaredTotal;
+        qtyIncidentsTotal = 0;
+        incidentsList = [];
+      } else if (nextStatus === 'Recepción Parcial' || nextStatus === 'Recibido con Incidencias') {
+        if (bulkConfig.partialQtyMode === 'percentage') {
+          const factor = bulkConfig.partialPct / 100;
+          productsList.forEach(p => {
+            const decQ = parseInt(p.qty, 10) || 0;
+            p.qty_confirmed = Math.round(decQ * factor);
+          });
+        } else {
+          productsList.forEach(p => {
+            if (p.qty_confirmed === undefined || p.qty_confirmed === null || p.qty_confirmed === '') {
+              p.qty_confirmed = parseInt(p.qty, 10) || 0;
+            }
+          });
+        }
+        qtyReceivedTotal = productsList.reduce((s, p) => s + (parseInt(p.qty_confirmed, 10) || 0), 0);
+        if (productsList.length === 0 && qtyReceivedTotal === 0) {
+          qtyReceivedTotal = bulkConfig.partialQtyMode === 'percentage'
+            ? Math.round(qtyDeclaredTotal * (bulkConfig.partialPct / 100))
+            : qtyDeclaredTotal;
+        }
+
+        // Calcular discrepancias o registrar incidencia
+        const discrepancies = [];
+        productsList.forEach(p => {
+          const decQ = parseInt(p.qty, 10) || 0;
+          const recQ = parseInt(p.qty_confirmed, 10) || 0;
+          const diff = recQ - decQ;
+          if (diff !== 0) {
+            discrepancies.push({
+              type: diff < 0 ? 'Faltante' : 'Sobrante',
+              sku: (p.sku || '-').trim(),
+              name: p.name || '',
+              declared: decQ,
+              received: recQ,
+              diff: diff,
+              quantity: Math.abs(diff),
+              reason: diff < 0
+                ? `Faltan ${Math.abs(diff)} uds físicas (${recQ} recibidas vs ${decQ} declaradas)`
+                : `${diff} uds adicionales recibidas (${recQ} recibidas vs ${decQ} declaradas)`
+            });
+          }
+        });
+
+        if (bulkConfig.incidentsReason) {
+          discrepancies.push({
+            type: nextStatus === 'Recepción Parcial' ? 'Incidencia Parcial' : 'Observación / Daño',
+            sku: '-',
+            name: 'Gestión Masiva',
+            quantity: bulkConfig.incidentsQty || 1,
+            reason: bulkConfig.incidentsReason
+          });
+        }
+
+        if (nextStatus === 'Recibido con Incidencias') {
+          if (discrepancies.length > 0) {
+            incidentsList = discrepancies;
+          } else if (incidentsList.length === 0) {
+            incidentsList = [{
+              type: 'Incidencia',
+              sku: '-',
+              name: 'Recepción física',
+              quantity: bulkConfig.incidentsQty || 1,
+              reason: bulkConfig.stageComment || 'Marcado como Recibido con Incidencias en gestión masiva'
+            }];
+          }
+          const calcIncQty = discrepancies.reduce((s, d) => s + (d.diff && d.diff < 0 ? Math.abs(d.diff) : 0), 0);
+          qtyIncidentsTotal = bulkConfig.incidentsQty !== null ? bulkConfig.incidentsQty : (calcIncQty > 0 ? calcIncQty : Math.max(1, qtyIncidentsTotal));
+        } else if (nextStatus === 'Recepción Parcial') {
+          if (bulkConfig.incidentsReason) incidentsList = discrepancies;
+          if (bulkConfig.incidentsQty !== null) qtyIncidentsTotal = bulkConfig.incidentsQty;
+        }
+      } else if (['Creada', 'Bodega Asignada'].includes(nextStatus)) {
+        qtyReceivedTotal = 0;
+        qtyIncidentsTotal = 0;
+      }
+
+      // 4. Resolver Volumen Confirmado y Etiquetado Confirmado
+      let volumeConfirmed = parseFloat(latestDec.volume_confirmed) || 0;
+      const isReceptionOrLater = ['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recepción Parcial', 'Recibido Conforme', 'Recibido con Incidencias'].includes(nextStatus);
+      if (isReceptionOrLater) {
+        if (bulkConfig.volMode === 'custom') {
+          volumeConfirmed = bulkConfig.volCustom;
+        } else if (bulkConfig.volMode === 'declared') {
+          volumeConfirmed = parseFloat(latestDec.volume_declared) || volumeConfirmed || 0.001;
+        } else if (bulkConfig.volMode === 'recalc_catalog' && productsList.length > 0) {
+          let sumVol = 0;
+          productsList.forEach(p => {
+            const rec = (p.qty_confirmed !== undefined && p.qty_confirmed !== null) ? (parseInt(p.qty_confirmed, 10) || 0) : (parseInt(p.qty, 10) || 0);
+            const uVol = parseFloat(p.confirmed_volumen) || parseFloat(p.volumen) || parseFloat(p.vol) || 0;
+            sumVol += (uVol * rec);
+          });
+          volumeConfirmed = sumVol > 0 ? Number(sumVol.toFixed(6)) : (parseFloat(latestDec.volume_declared) || 0.001);
+        } else {
+          // keep_or_declared
+          if (!volumeConfirmed || volumeConfirmed <= 0) {
+            volumeConfirmed = parseFloat(latestDec.volume_declared) || 0.001;
+          }
+        }
+      }
+
+      let labelingQtyConfirmed = parseInt(latestDec.labeling_qty_confirmed, 10);
+      if (isNaN(labelingQtyConfirmed)) {
+        labelingQtyConfirmed = parseInt(latestDec.labeling_qty_requested, 10) || 0;
+      }
+      if (isStockReceivingStatus) {
+        if (bulkConfig.labelingMode === 'zero') {
+          labelingQtyConfirmed = 0;
+        } else if (bulkConfig.labelingMode === 'custom') {
+          labelingQtyConfirmed = bulkConfig.labelingCustom;
+        } else {
+          labelingQtyConfirmed = (latestDec.labeling_qty_confirmed !== undefined && latestDec.labeling_qty_confirmed !== null)
+            ? parseInt(latestDec.labeling_qty_confirmed, 10)
+            : (parseInt(latestDec.labeling_qty_requested, 10) || 0);
+        }
+      }
+
+      // 5. Calcular Costo Real (UF) y estructura de cargos
+      const dateObj = new Date(latestDec.created_at || new Date());
+      const formattedDate = `${String(dateObj.getDate()).padStart(2, '0')}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${dateObj.getFullYear()}`;
+      const ufRate = typeof window.getUfValueForDate === 'function' ? await window.getUfValueForDate(formattedDate) : 38200;
+
+      const costCalc = window.computeDeclarationRealCostBreakdown(latestDec, volumeConfirmed, labelingQtyConfirmed, ufRate);
+      const finalRealCost = (isStockReceivingStatus && bulkConfig.recalcCost)
+        ? costCalc.realCostUf
+        : ((latestDec.real_cost !== null && latestDec.real_cost !== undefined) ? latestDec.real_cost : costCalc.realCostUf);
+
+      // 6. Procesar Acreditación en Inventario Físico y Kardex (Si corresponde por cierre o por Conteo en Paralelo)
+      const isParallelActive = isFinishingStatus ? false : (bulkConfig.activateParallel || latestDec.parallel_count === true);
+      const shouldCreditStock = ((isStockReceivingStatus && bulkConfig.creditInventory) || (isParallelActive && bulkConfig.activateParallel)) && effectiveWarehouseId;
+
+      if (isFinishingStatus && pickerSupabase) {
+        try {
+          await pickerSupabase.from('active_orders').delete().eq('order_number', `ING-${decShortCode}`);
+        } catch (e) {}
+      }
+
+      if (shouldCreditStock && productsList.length > 0) {
+        const wasAlreadyClosedStage = ['Recibido Conforme', 'Recibido con Incidencias', 'Recepción Parcial'].includes(prevStatus);
+
+        for (const item of productsList) {
+          if (!item.sku) continue;
+          const itemQty = (item.qty_confirmed !== undefined && item.qty_confirmed !== null && item.qty_confirmed !== '')
+            ? parseInt(item.qty_confirmed, 10)
+            : (nextStatus === 'Recibido Conforme' || isParallelActive ? (parseInt(item.qty, 10) || 0) : 0);
+
+          let alreadyAdded = parseInt(item.qty_inventory_added, 10) || 0;
+          if (alreadyAdded === 0 && wasAlreadyClosedStage) {
+            if (item.qty_inventory_added === undefined || item.qty_inventory_added === null) {
+              alreadyAdded = (item.qty_confirmed !== undefined && item.qty_confirmed !== null)
+                ? (parseInt(item.qty_confirmed, 10) || 0)
+                : (parseInt(item.qty, 10) || 0);
+            }
+          }
+
+          const delta = itemQty - alreadyAdded;
+          if (delta === 0) {
+            item.qty_inventory_added = itemQty;
+            continue;
+          }
+
+          // Buscar o crear producto en catálogo del comercio
+          const { data: prod } = await supabase
+            .from('products')
+            .select('id, volumen, largo, ancho, alto')
+            .eq('comercio', latestDec.comercio)
+            .ilike('sku', item.sku.trim())
+            .limit(1)
+            .maybeSingle();
+
+          let productId = prod ? prod.id : null;
+          if (!productId) {
+            const { data: newProd } = await supabase
+              .from('products')
+              .insert([{
+                sku: item.sku.trim(),
+                name: item.name || item.sku.trim(),
+                comercio: latestDec.comercio,
+                volumen: parseFloat(item.confirmed_volumen) || parseFloat(item.volumen) || parseFloat(item.vol) || 0,
+                largo: parseFloat(item.confirmed_largo) || parseFloat(item.largo) || null,
+                ancho: parseFloat(item.confirmed_ancho) || parseFloat(item.ancho) || null,
+                alto: parseFloat(item.confirmed_alto) || parseFloat(item.alto) || null,
+                price: item.price || 0,
+                barcode: item.scanned_barcode || item.barcode || ''
+              }])
+              .select('id')
+              .single();
+            if (newProd) productId = newProd.id;
+          }
+
+          if (productId) {
+            const { data: inv } = await supabase
+              .from('inventory')
+              .select('id, quantity')
+              .eq('product_id', productId)
+              .eq('warehouse_id', effectiveWarehouseId)
+              .maybeSingle();
+
+            if (delta > 0) {
+              if (inv) {
+                await supabase.from('inventory').update({ quantity: (inv.quantity || 0) + delta }).eq('id', inv.id);
+              } else {
+                await supabase.from('inventory').insert([{
+                  product_id: productId,
+                  warehouse_id: effectiveWarehouseId,
+                  quantity: delta,
+                  committed_quantity: 0
+                }]);
+              }
+
+              const refDocIn = (isParallelActive && !isFinishingStatus)
+                ? `Ingreso Provisional (Conteo en Paralelo Masivo) [#ING-${decShortCode}]: ${latestDec.title}`
+                : (alreadyAdded > 0
+                    ? `Ajuste Conteo Final (+${delta} uds) [#ING-${decShortCode}]: ${latestDec.title}`
+                    : `Ingreso de Stock (${nextStatus}) [#ING-${decShortCode}]: ${latestDec.title}`);
+
+              await supabase.from('movements').insert([{
+                product_id: productId,
+                warehouse_id: effectiveWarehouseId,
+                type: 'in',
+                quantity: delta,
+                reference_doc: refDocIn
+              }]);
+              totalStockCredited += delta;
+            } else if (delta < 0 && inv) {
+              const toDeduct = Math.abs(delta);
+              const newQty = Math.max(0, (inv.quantity || 0) - toDeduct);
+              await supabase.from('inventory').update({ quantity: newQty }).eq('id', inv.id);
+              await supabase.from('movements').insert([{
+                product_id: productId,
+                warehouse_id: effectiveWarehouseId,
+                type: 'out',
+                quantity: toDeduct,
+                reference_doc: `Ajuste Conteo Final (Faltante -${toDeduct} uds) [#ING-${decShortCode}]: ${latestDec.title}`
+              }]);
+            }
+            item.qty_inventory_added = itemQty;
+          }
+        }
+      }
+
+      // 7. Construir entrada en Historial
+      let actionTag = '[ACTUALIZACIÓN MASIVA]';
+      if (isAdvance) actionTag = '[AVANCE MASIVO]';
+      else if (isRollback) actionTag = '[RETROCESO MASIVO]';
+
+      let autoComment = bulkConfig.stageComment;
+      if (!autoComment) {
+        if (isStay) autoComment = `Actualización masiva en etapa: ${nextStatus}`;
+        else if (isRollback) autoComment = `Retroceso masivo de ${prevStatus} a: ${nextStatus}`;
+        else autoComment = `Cambio de etapa masivo a: ${nextStatus}`;
+      }
+
+      const newHistoryEntry = {
+        status: nextStatus,
+        timestamp: new Date().toISOString(),
+        author: currentUserEmail,
+        comment: `${actionTag} ${autoComment}`,
+        real_cost: finalRealCost,
+        charges_detail: costCalc.breakdown
+      };
+      const updatedHistory = [...(latestDec.history || []), newHistoryEntry];
+
+      // 8. Preparar payload final para stock_declarations
+      const updateData = {
+        status: nextStatus,
+        warehouse_id: effectiveWarehouseId,
+        quantity_received: qtyReceivedTotal,
+        quantity_incidents: qtyIncidentsTotal,
+        incidents_list: nextStatus === 'Recibido con Incidencias' || nextStatus === 'Recepción Parcial' ? incidentsList : [],
+        products_list: productsList,
+        history: updatedHistory,
+        real_cost: finalRealCost,
+        additional_costs: [...costCalc.cleanAdditionalCosts, costCalc.chargesConfig],
+        parallel_count: isParallelActive,
+        updated_at: new Date().toISOString()
+      };
+
+      if (isParallelActive && bulkConfig.activateParallel) {
+        updateData.parallel_count_data = {
+          ...(latestDec.parallel_count_data || {}),
+          initiated_at: new Date().toISOString(),
+          initiated_by: currentUserEmail,
+          initial_qty_added: productsList.reduce((s, p) => s + (parseInt(p.qty_inventory_added, 10) || 0), 0)
+        };
+      }
+
+      if (isReceptionOrLater) {
+        updateData.volume_confirmed = volumeConfirmed;
+        updateData.labeling_qty_confirmed = labelingQtyConfirmed;
+      }
+
+      if (bulkConfig.stageComment) {
+        updateData.admin_notes = latestDec.admin_notes
+          ? `${latestDec.admin_notes} | ${bulkConfig.stageComment}`
+          : bulkConfig.stageComment;
+      }
+
+      if (bulkConfig.billingStatus !== '__KEEP__') {
+        updateData.billing_status = bulkConfig.billingStatus;
+        if (bulkConfig.billingStatus === 'Facturado' && latestDec.billing_status !== 'Facturado') {
+          updateData.billed_at = new Date().toISOString();
+        }
+      }
+      if (bulkConfig.billingPeriod !== '__KEEP__') {
+        updateData.periodo_facturacion = bulkConfig.billingPeriod === '__CLEAR__' ? null : bulkConfig.billingPeriod;
+        if (bulkConfig.billingPeriod !== '__CLEAR__' && bulkConfig.billingStatus === '__KEEP__') {
+          updateData.billing_status = 'Facturado';
+          updateData.billed_at = new Date().toISOString();
+        }
+      }
+
+      let { error: updErr } = await supabase
+        .from('stock_declarations')
+        .update(updateData)
+        .eq('id', decId);
+
+      if (updErr && updErr.message && (updErr.message.includes('billing_status') || updErr.message.includes('additional_costs') || updErr.message.includes('parallel_count') || updErr.message.includes('periodo_facturacion'))) {
+        delete updateData.parallel_count;
+        delete updateData.parallel_count_data;
+        delete updateData.additional_costs;
+        delete updateData.periodo_facturacion;
+        const resFb = await supabase.from('stock_declarations').update(updateData).eq('id', decId);
+        if (resFb.error) throw resFb.error;
+      } else if (updErr) {
+        throw updErr;
+      }
+
+      // 9. Enviar al Sistema Picker si fue solicitado
+      if (bulkConfig.sendPicker && !isFinishingStatus && effectiveWarehouseId) {
+        const whObj = warehouses.find(w => w.id === effectiveWarehouseId) || latestDec.warehouses || null;
+        try {
+          const sent = await window.sendIntakeToPickerProgrammatic({
+            ...latestDec,
+            ...updateData,
+            warehouses: whObj
+          });
+          if (sent) totalSentToPicker++;
+        } catch (pickerErr) {
+          console.warn(`Aviso enviando #ING-${decShortCode} al Picker:`, pickerErr);
+        }
+      }
+
+      // 10. Enviar notificaciones al comercio si está habilitado
+      if (bulkConfig.notifyClients) {
+        try {
+          const whObj = warehouses.find(w => w.id === effectiveWarehouseId) || latestDec.warehouses || null;
+          const updatedDecForNotif = { ...latestDec, ...updateData, warehouses: whObj };
+          if ((nextStatus === 'Bodega Asignada' || (!latestDec.warehouse_id && effectiveWarehouseId)) && whObj && window.sendStockInboundNotification) {
+            await window.sendStockInboundNotification({
+              event: 'warehouse_assigned',
+              declarationId: decId,
+              comercio: latestDec.comercio,
+              title: latestDec.title,
+              decData: updatedDecForNotif,
+              warehouse: whObj,
+              status: nextStatus,
+              stageComment: autoComment
+            });
+          } else if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'].includes(nextStatus) && !['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recepción Parcial', 'Recibido Conforme', 'Recibido con Incidencias'].includes(prevStatus) && window.sendStockInboundNotification) {
+            await window.sendStockInboundNotification({
+              event: 'received',
+              declarationId: decId,
+              comercio: latestDec.comercio,
+              title: latestDec.title,
+              decData: updatedDecForNotif,
+              warehouse: whObj,
+              status: nextStatus,
+              stageComment: autoComment
+            });
+          } else if (nextStatus === 'Recepción Parcial' && window.sendStockInboundNotification) {
+            await window.sendStockInboundNotification({
+              event: 'partial_received',
+              declarationId: decId,
+              comercio: latestDec.comercio,
+              title: latestDec.title,
+              decData: updatedDecForNotif,
+              warehouse: whObj,
+              status: nextStatus,
+              stageComment: autoComment,
+              productsList: productsList
+            });
+          } else if (['Recibido Conforme', 'Recibido con Incidencias'].includes(nextStatus) && !['Recibido Conforme', 'Recibido con Incidencias'].includes(prevStatus) && window.sendStockInboundNotification) {
+            await window.sendStockInboundNotification({
+              event: 'completed',
+              declarationId: decId,
+              comercio: latestDec.comercio,
+              title: latestDec.title,
+              decData: updatedDecForNotif,
+              warehouse: whObj,
+              status: nextStatus,
+              stageComment: autoComment,
+              incidentsList: nextStatus === 'Recibido con Incidencias' ? incidentsList : [],
+              productsList: productsList
+            });
+          } else if (typeof notifyCommerceUsers === 'function' && !isStay) {
+            await notifyCommerceUsers(
+              latestDec.comercio,
+              'Actualización de Estado de Ingreso',
+              `El estado de tu ingreso de stock "${latestDec.title}" ha cambiado a: "${nextStatus}". ${autoComment ? `Comentario: "${autoComment}"` : ''}`
+            );
+          }
+        } catch (notifErr) {
+          console.warn('Aviso al notificar comercio en cambio masivo:', notifErr);
+        }
+      }
+
+      successCount++;
+    } catch (itemErr) {
+      console.error(`Error procesando ingreso ${decId} en cambio masivo:`, itemErr);
+      errorCount++;
+      errorMessages.push(`#ING-${decShortCode}: ${itemErr.message || itemErr}`);
+    }
+  }
+
+  // Limpiar selección y refrescar tabla desde base de datos
+  window.clearDeclarationSelection();
+  await window.renderDeclarationsAdmin(true);
+
+  const summaryBullets = [];
+  summaryBullets.push(`<li><strong>Ingresos actualizados exitosamente:</strong> ${successCount} de ${selectedDecs.length}</li>`);
+  if (bulkConfig.targetStatus !== '__KEEP__') {
+    summaryBullets.push(`<li><strong>Nueva etapa aplicada:</strong> ${esc(bulkConfig.targetStatus)}</li>`);
+  }
+  if (totalStockCredited > 0) {
+    summaryBullets.push(`<li><strong>Unidades acreditadas en Inventario Físico y Kardex:</strong> +${totalStockCredited.toLocaleString('es-CL')} uds</li>`);
+  }
+  if (totalStockReverted > 0) {
+    summaryBullets.push(`<li><strong>Unidades revertidas por retroceso de etapa:</strong> -${totalStockReverted.toLocaleString('es-CL')} uds</li>`);
+  }
+  if (totalSentToPicker > 0) {
+    summaryBullets.push(`<li><strong>Ingresos enviados a la cola activa del Picker:</strong> ${totalSentToPicker}</li>`);
+  }
+  if (errorCount > 0) {
+    summaryBullets.push(`<li style="color: var(--color-danger);"><strong>Errores (${errorCount}):</strong> ${errorMessages.join(' | ')}</li>`);
+  }
+
+  Swal.fire({
+    icon: errorCount === 0 ? 'success' : (successCount > 0 ? 'warning' : 'error'),
+    title: errorCount === 0 ? '¡Cambio de Etapa Masivo Completado!' : 'Proceso finalizado con observaciones',
+    html: `
+      <div style="text-align: left; font-size: 0.88rem; line-height: 1.5;">
+        <ul style="margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.35rem;">
+          ${summaryBullets.join('')}
+        </ul>
+      </div>
+    `,
+    confirmButtonColor: '#5f06fa'
+  });
 };
 
 let currentDeclarationIncidents = [];
@@ -46921,7 +48603,7 @@ document.addEventListener('submit', async (e) => {
             needs_label: Boolean(item.needs_label),
             label_qty: item.needs_label ? (parseInt(item.label_qty, 10) || 0) : 0,
             label_qty_manual: Boolean(item.label_qty_manual),
-            label_code: item.label_code || item.sku || '',
+            label_code: (item.label_code && item.label_code !== item.sku) ? item.label_code : (item.barcode_wms || item.label_code || item.sku || ''),
             label_name: item.label_name || item.name || '',
             label_size: item.label_size || '5x2.5'
           };
@@ -73729,7 +75411,7 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
         needs_label: needsLabel,
         label_qty: labelQty,
         label_qty_manual: Boolean(item.label_qty_manual),
-        label_code: item.label_code || item.sku || '',
+        label_code: (item.label_code && item.label_code !== item.sku) ? item.label_code : (item.barcode_wms || catProd?.barcode_wms || item.label_code || item.sku || ''),
         label_name: item.label_name || item.name || '',
         label_size: item.label_size || '5x2.5',
         declared_largo: declaredLargo ? parseFloat(declaredLargo) : null,
@@ -73957,7 +75639,7 @@ window.toggleInboundProductSkuCheck = function(idx, isChecked) {
     // Al desmarcar SKU, pasa directo a impresión de etiqueta en formato 5x2.5 cm
     item.needs_label = true;
     item.label_size = item.label_size || '5x2.5';
-    item.label_code = item.label_code || item.sku || '';
+    item.label_code = (item.label_code && item.label_code !== item.sku) ? item.label_code : (item.barcode_wms || item.label_code || item.sku || '');
     item.label_name = item.label_name || item.name || '';
     if (!item.label_qty || item.label_qty <= 0) {
       item.label_qty = confirmed > 0 ? confirmed : (parseInt(item.qty, 10) || 1);
@@ -73998,7 +75680,7 @@ window.toggleInboundProductBarcodeCheck = function(idx, isChecked) {
     if (item.sku_check === false) {
       item.needs_label = true;
       item.label_size = item.label_size || '5x2.5';
-      item.label_code = item.label_code || item.sku || '';
+      item.label_code = (item.label_code && item.label_code !== item.sku) ? item.label_code : (item.barcode_wms || item.label_code || item.sku || '');
       item.label_name = item.label_name || item.name || '';
       if (!item.label_qty || item.label_qty <= 0) {
         item.label_qty = confirmed > 0 ? confirmed : (parseInt(item.qty, 10) || 1);
@@ -74183,7 +75865,7 @@ window.renderInboundDeclarationLabelsPanel = function() {
     item.label_qty = qty;
     totalCopies += qty;
     const itemCostClp = qty * 100;
-    const labelCode = item.label_code || item.sku || '';
+    const labelCode = (item.label_code && item.label_code !== item.sku) ? item.label_code : (item.barcode_wms || item.label_code || item.sku || '');
     const labelName = item.label_name || item.name || '';
     const labelSize = item.label_size || '5x2.5';
 
@@ -74293,7 +75975,7 @@ window.printSingleInboundProductLabel = function(idx) {
     return;
   }
   const size = item.label_size || document.getElementById('manage-dec-labels-global-size')?.value || '5x2.5';
-  const codeToEncode = String(item.label_code || item.sku || '').trim();
+  const codeToEncode = String((item.label_code && item.label_code !== item.sku) ? item.label_code : (item.barcode_wms || item.label_code || item.sku || '')).trim();
   const queue = [{
     sku: codeToEncode,
     barcode: codeToEncode,
@@ -74330,7 +76012,7 @@ window.printInboundDeclarationLabels = function() {
   }
   const globalSize = document.getElementById('manage-dec-labels-global-size')?.value || validEntries[0]?.it?.label_size || '5x2.5';
   const queue = validEntries.map(({ it, copies }) => {
-    const codeToEncode = String(it.label_code || it.sku || '').trim();
+    const codeToEncode = String((it.label_code && it.label_code !== it.sku) ? it.label_code : (it.barcode_wms || it.label_code || it.sku || '')).trim();
     return {
       sku: codeToEncode,
       barcode: codeToEncode,
@@ -74368,7 +76050,7 @@ window.exportInboundDeclarationLabelsZPL = function() {
   }
   const globalSize = document.getElementById('manage-dec-labels-global-size')?.value || validEntries[0]?.it?.label_size || '5x2.5';
   const queue = validEntries.map(({ it, copies }) => {
-    const codeToEncode = String(it.label_code || it.sku || '').trim();
+    const codeToEncode = String((it.label_code && it.label_code !== it.sku) ? it.label_code : (it.barcode_wms || it.label_code || it.sku || '')).trim();
     return {
       sku: codeToEncode,
       barcode: codeToEncode,
@@ -95323,6 +97005,7 @@ window.selectMissingAndOpenBulkDims = function() {
 // ==========================================
 
 const ACK_RUNS_KEY = 'wms_ack_workflow_runs';
+const ALPHA_RUN_DISPATCHES_KEY = 'wms_alpha_run_dispatches';
 
 window.getAcknowledgedRuns = function() {
   try {
@@ -95346,6 +97029,274 @@ window.acknowledgeRun = function(runId) {
   }
 };
 
+window.getWmsAlphaDispatches = function() {
+  try {
+    const raw = localStorage.getItem(ALPHA_RUN_DISPATCHES_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+window.saveWmsAlphaDispatches = function(list) {
+  try {
+    const trimmed = Array.isArray(list) ? list.slice(0, 40) : [];
+    localStorage.setItem(ALPHA_RUN_DISPATCHES_KEY, JSON.stringify(trimmed));
+  } catch (e) {
+    console.warn('No se pudo guardar historial de despachos Alpha:', e);
+  }
+};
+
+window.recordWmsAlphaDispatch = function(ordersList, mode) {
+  const batchId = `alpha_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const dispatchedAt = new Date().toISOString();
+  const safeOrders = (Array.isArray(ordersList) ? ordersList : []).map(o => ({
+    id: o.id || null,
+    orderNumber: String(o.external_order_number || o.orderNumber || o.id || '').trim(),
+    comercio: String(o.comercio || 'Sin comercio').trim(),
+    customer: String(o.customer_name || o.customer || '').trim(),
+    sucursal: String(o.sucursal_pickeo || o.sucursal || '').trim()
+  })).filter(o => o.orderNumber);
+
+  const dispatches = window.getWmsAlphaDispatches();
+  dispatches.unshift({
+    batchId,
+    dispatchedAt,
+    mode: mode || (safeOrders.length <= 1 ? 'individual' : 'bulk'),
+    runId: null,
+    runNumber: null,
+    orders: safeOrders
+  });
+  window.saveWmsAlphaDispatches(dispatches);
+  return { batchId, dispatchedAt };
+};
+
+window.toggleWmsRunDetails = function(runId) {
+  if (!window.wmsMonitorState.expandedRunIds) {
+    window.wmsMonitorState.expandedRunIds = new Set();
+  }
+  const key = String(runId);
+  const el = document.getElementById(`wms-run-details-${key}`);
+  const chev = document.getElementById(`wms-run-chevron-${key}`);
+
+  if (window.wmsMonitorState.expandedRunIds.has(key)) {
+    window.wmsMonitorState.expandedRunIds.delete(key);
+    if (el) el.style.display = 'none';
+    if (chev) chev.style.transform = 'rotate(0deg)';
+  } else {
+    window.wmsMonitorState.expandedRunIds.add(key);
+    if (el) el.style.display = 'flex';
+    if (chev) chev.style.transform = 'rotate(180deg)';
+  }
+};
+
+window.resolveOrdersForAlphaRuns = function(runs, recentLdEnvios) {
+  const resultByRunId = new Map();
+  if (!Array.isArray(runs) || runs.length === 0) return resultByRunId;
+
+  const dispatches = window.getWmsAlphaDispatches();
+  let dispatchesModified = false;
+  const claimedRunIdsForDispatches = new Set(dispatches.map(d => d.runId).filter(Boolean));
+
+  // 1. Vincular automáticamente lotes enviados desde este navegador con la ejecución de GitHub más cercana en tiempo
+  dispatches.forEach(d => {
+    if (d.runId || !d.dispatchedAt) return;
+    const dTime = new Date(d.dispatchedAt).getTime();
+    if (isNaN(dTime)) return;
+
+    let bestRun = null;
+    let bestDiff = Infinity;
+    runs.forEach(r => {
+      if (claimedRunIdsForDispatches.has(r.id)) return;
+      const rTime = new Date(r.created_at).getTime();
+      const diff = rTime - dTime; // GitHub suele crear el run entre -15s (desfase reloj) y +150s después del dispatch
+      if (diff >= -30000 && diff <= 180000 && Math.abs(diff) < bestDiff) {
+        bestDiff = Math.abs(diff);
+        bestRun = r;
+      }
+    });
+
+    if (bestRun) {
+      d.runId = bestRun.id;
+      d.runNumber = bestRun.run_number;
+      claimedRunIdsForDispatches.add(bestRun.id);
+      dispatchesModified = true;
+    }
+  });
+
+  if (dispatchesModified) {
+    window.saveWmsAlphaDispatches(dispatches);
+  }
+
+  const loadedOrders = Array.isArray(window.loadedOrders) ? window.loadedOrders : [];
+  const ordersByExtNum = new Map();
+  const ordersByDid = new Map();
+
+  loadedOrders.forEach(o => {
+    const ext = String(o.external_order_number || '').trim();
+    if (ext) {
+      ordersByExtNum.set(ext.toUpperCase(), o);
+      ordersByExtNum.set(ext.replace(/^#/, '').toUpperCase(), o);
+    }
+    const trk = String(o.tracking_number || '').trim();
+    if (trk && trk !== 'No informado') ordersByDid.set(trk, o);
+    const did = String(o.raw_lightdata_data?.did || o.raw_lightdata_data?.id || '').trim();
+    if (did) ordersByDid.set(did, o);
+  });
+
+  const addOrderToRun = (runId, item) => {
+    if (!item || !item.orderNumber) return;
+    if (!resultByRunId.has(runId)) resultByRunId.set(runId, new Map());
+    const map = resultByRunId.get(runId);
+    const normKey = String(item.orderNumber).replace(/^#/, '').trim().toUpperCase();
+    if (!normKey) return;
+    const existing = map.get(normKey);
+    if (!existing || ((!existing.comercio || existing.comercio === 'Sin comercio') && item.comercio)) {
+      map.set(normKey, {
+        orderNumber: String(item.orderNumber).replace(/^#/, '').trim(),
+        comercio: String(item.comercio || existing?.comercio || 'Sin comercio').trim(),
+        customer: String(item.customer || existing?.customer || '').trim(),
+        sucursal: String(item.sucursal || existing?.sucursal || '').trim()
+      });
+    }
+  };
+
+  // 2. Poblar desde lotes locales ya vinculados a cada run
+  runs.forEach(r => {
+    const matchingDispatches = dispatches.filter(d => d.runId === r.id || (d.runNumber && d.runNumber === r.run_number));
+    matchingDispatches.forEach(d => {
+      (d.orders || []).forEach(ord => addOrderToRun(r.id, ord));
+    });
+  });
+
+  // 3. Poblar desde window.loadedOrders (raw_lightdata_data con github_run_id, github_run_number, alpha_batch_id o alpha_dispatched_at)
+  loadedOrders.forEach(o => {
+    const raw = o.raw_lightdata_data;
+    if (!raw || typeof raw !== 'object') return;
+
+    const item = {
+      orderNumber: String(o.external_order_number || o.id || '').trim(),
+      comercio: String(o.comercio || 'Sin comercio').trim(),
+      customer: String(o.customer_name || '').trim(),
+      sucursal: String(o.sucursal_pickeo || '').trim()
+    };
+
+    if (raw.github_run_id || raw.github_run_number) {
+      const targetRun = runs.find(r =>
+        (raw.github_run_id && String(r.id) === String(raw.github_run_id)) ||
+        (raw.github_run_number && Number(r.run_number) === Number(raw.github_run_number))
+      );
+      if (targetRun) {
+        addOrderToRun(targetRun.id, item);
+        return;
+      }
+    }
+
+    if (raw.alpha_batch_id) {
+      const linkedDisp = dispatches.find(d => d.batchId === raw.alpha_batch_id && d.runId);
+      if (linkedDisp) {
+        addOrderToRun(linkedDisp.runId, item);
+        return;
+      }
+    }
+
+    if (raw.alpha_dispatched_at) {
+      const dispMs = new Date(raw.alpha_dispatched_at).getTime();
+      if (!isNaN(dispMs)) {
+        let closestRun = null;
+        let minDiff = Infinity;
+        runs.forEach(r => {
+          const rMs = new Date(r.created_at).getTime();
+          const diff = rMs - dispMs;
+          if (diff >= -30000 && diff <= 180000 && Math.abs(diff) < minDiff) {
+            minDiff = Math.abs(diff);
+            closestRun = r;
+          }
+        });
+        if (closestRun) {
+          addOrderToRun(closestRun.id, item);
+        }
+      }
+    }
+  });
+
+  // 4. Poblar desde lightdata_envios recientes (cubre ejecuciones históricas o de otros administradores)
+  if (Array.isArray(recentLdEnvios) && recentLdEnvios.length > 0) {
+    recentLdEnvios.forEach(ld => {
+      if (!ld.updated_at) return;
+      const ldMs = new Date(ld.updated_at).getTime();
+      if (isNaN(ldMs)) return;
+
+      const matchedOrder =
+        (ld.tracking && (ordersByExtNum.get(String(ld.tracking).trim().toUpperCase()) || ordersByExtNum.get(String(ld.tracking).replace(/^#/, '').trim().toUpperCase()))) ||
+        (ld.id && ordersByDid.get(String(ld.id).trim())) ||
+        null;
+
+      const ordNum = String(matchedOrder?.external_order_number || ld.tracking || '').trim();
+      const comercio = String(matchedOrder?.comercio || ld.comercio || '').trim();
+      if (!ordNum && !comercio) return;
+
+      let candidateRun = null;
+      let bestScore = Infinity;
+      runs.forEach(r => {
+        const startMs = new Date(r.created_at).getTime() - 10000;
+        const endMs = (r.status === 'completed' && r.updated_at)
+          ? new Date(r.updated_at).getTime() + 45000
+          : Date.now() + 15000;
+        if (ldMs >= startMs && ldMs <= endMs) {
+          const refMs = (r.status === 'completed' && r.updated_at) ? new Date(r.updated_at).getTime() : new Date(r.created_at).getTime();
+          const dist = Math.abs(ldMs - refMs);
+          if (dist < bestScore) {
+            bestScore = dist;
+            candidateRun = r;
+          }
+        }
+      });
+
+      if (candidateRun) {
+        addOrderToRun(candidateRun.id, {
+          orderNumber: ordNum || `DID-${ld.id}`,
+          comercio: comercio || 'Sin comercio',
+          customer: String(matchedOrder?.customer_name || ld.nombre_destinatario || '').trim(),
+          sucursal: String(matchedOrder?.sucursal_pickeo || '').trim()
+        });
+      }
+    });
+  }
+
+  // 5. Fallback para ejecución activa en curso si fue iniciada antes de registrar el lote local
+  const activeRuns = runs.filter(r => r.status === 'queued' || r.status === 'in_progress');
+  if (activeRuns.length > 0) {
+    const primaryActive = activeRuns[0];
+    const currentMatched = resultByRunId.get(primaryActive.id);
+    if (!currentMatched || currentMatched.size === 0) {
+      const now = new Date();
+      const todayDDMM = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      loadedOrders.forEach(o => {
+        const trk = String(o.tracking_number || '').trim();
+        const hasTrk = trk !== '' && trk !== 'null' && trk !== 'undefined' && trk.toLowerCase() !== 'no informado';
+        if (
+          o.operador === 'ALPHA' &&
+          o.estado_wms === 'En preparación' &&
+          o.fecha_procesamiento === todayDDMM &&
+          !hasTrk &&
+          !o.raw_lightdata_data?.did
+        ) {
+          addOrderToRun(primaryActive.id, {
+            orderNumber: String(o.external_order_number || o.id || '').trim(),
+            comercio: String(o.comercio || 'Sin comercio').trim(),
+            customer: String(o.customer_name || '').trim(),
+            sucursal: String(o.sucursal_pickeo || '').trim()
+          });
+        }
+      });
+    }
+  }
+
+  return resultByRunId;
+};
+
 window.toggleWmsMonitorPanel = function() {
   const panel = document.getElementById('wms-monitor-panel');
   if (!panel) return;
@@ -95360,7 +97311,10 @@ window.toggleWmsMonitorPanel = function() {
 window.wmsMonitorState = {
   lastRuns: [],
   isPolling: false,
-  pollIntervalId: null
+  pollIntervalId: null,
+  expandedRunIds: new Set(),
+  recentLightdataEnvios: [],
+  lastLdFetchAt: 0
 };
 
 window.startWmsMonitorPolling = function() {
@@ -95396,9 +97350,34 @@ window.updateWmsMonitorUI = async function() {
   } catch (e) {}
 
   try {
-    const data = await window.fetchWmsEdgeFunction('trigger-lightdata-label', {
-      method: 'GET'
-    });
+    const panel = document.getElementById('wms-monitor-panel');
+    const isPanelVisible = panel && panel.style.display && panel.style.display !== 'none';
+    const nowMs = Date.now();
+
+    const fetchPromises = [
+      window.fetchWmsEdgeFunction('trigger-lightdata-label', { method: 'GET' })
+    ];
+
+    // Consultar lightdata_envios recientes si el panel está abierto o la caché tiene más de 20s
+    if (isPanelVisible || !window.wmsMonitorState.lastLdFetchAt || (nowMs - window.wmsMonitorState.lastLdFetchAt > 20000)) {
+      fetchPromises.push(
+        supabase
+          .from('lightdata_envios')
+          .select('id, tracking, comercio, nombre_destinatario, updated_at')
+          .not('tracking', 'is', null)
+          .order('updated_at', { ascending: false })
+          .limit(120)
+          .then(res => {
+            if (!res.error && Array.isArray(res.data)) {
+              window.wmsMonitorState.recentLightdataEnvios = res.data;
+              window.wmsMonitorState.lastLdFetchAt = Date.now();
+            }
+          })
+          .catch(() => {})
+      );
+    }
+
+    const [data] = await Promise.all(fetchPromises);
     const runs = data.workflow_runs || [];
     const prevRuns = window.wmsMonitorState.lastRuns || [];
     window.wmsMonitorState.lastRuns = runs;
@@ -95411,6 +97390,9 @@ window.updateWmsMonitorUI = async function() {
       if (prev && prev.status !== 'completed' && run.status === 'completed') {
         const isSuccess = run.conclusion === 'success';
         
+        // Invalidar caché de lightdata_envios para traer de inmediato los pedidos recién procesados
+        window.wmsMonitorState.lastLdFetchAt = 0;
+
         // Notificación emergente flotante autónoma y no intrusiva
         if (typeof window.showStockaNotification === 'function') {
           window.showStockaNotification({
@@ -95467,6 +97449,12 @@ window.updateWmsMonitorUI = async function() {
       return;
     }
 
+    const esc = window.escapeHtml || (s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
+    const ordersByRunMap = window.resolveOrdersForAlphaRuns(runs, window.wmsMonitorState.recentLightdataEnvios || []);
+    if (!window.wmsMonitorState.expandedRunIds) {
+      window.wmsMonitorState.expandedRunIds = new Set();
+    }
+
     let html = '';
     runs.forEach(run => {
       const isAck = ackList.includes(run.id);
@@ -95503,13 +97491,78 @@ window.updateWmsMonitorUI = async function() {
       const createdTime = new Date(run.created_at).toLocaleTimeString();
       const createdDate = new Date(run.created_at).toLocaleDateString();
 
-      let actionHtml = '';
+      // Agrupar órdenes detectadas por comercio para el desplegable compacto
+      const runOrdersMap = ordersByRunMap.get(run.id);
+      const runOrdersList = runOrdersMap ? Array.from(runOrdersMap.values()) : [];
+      const byComercio = new Map();
+      runOrdersList.forEach(ord => {
+        const com = ord.comercio || 'Sin comercio';
+        if (!byComercio.has(com)) byComercio.set(com, []);
+        byComercio.get(com).push(ord);
+      });
+
+      const totalOrders = runOrdersList.length;
+      const totalComercios = byComercio.size;
+      const isExpanded = window.wmsMonitorState.expandedRunIds.has(String(run.id));
+
+      let summaryLabel = '';
+      if (totalOrders > 0) {
+        if (totalComercios === 1) {
+          const singleComercio = Array.from(byComercio.keys())[0];
+          const shortCom = singleComercio.length > 18 ? singleComercio.slice(0, 17) + '…' : singleComercio;
+          summaryLabel = `${esc(shortCom)} · ${totalOrders} ${totalOrders === 1 ? 'orden' : 'órdenes'}`;
+        } else {
+          summaryLabel = `${totalComercios} comercios · ${totalOrders} órdenes`;
+        }
+      } else {
+        summaryLabel = 'Ver detalle';
+      }
+
+      const toggleBtnHtml = `
+        <button type="button" onclick="window.toggleWmsRunDetails('${run.id}')" style="padding: 0.12rem 0.42rem; font-size: 0.68rem; font-weight: 600; color: ${totalOrders > 0 ? 'var(--color-text-main)' : 'var(--color-text-muted)'}; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.22rem; max-width: 195px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: all 0.15s;" title="Ver comercios y órdenes enviadas en la ejecución #${run.run_number}">
+          <i class="ri-store-2-line" style="color: var(--color-primary); font-size: 0.75rem; flex-shrink: 0;"></i>
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${summaryLabel}</span>
+          <i id="wms-run-chevron-${run.id}" class="ri-arrow-down-s-line" style="font-size: 0.8rem; flex-shrink: 0; transition: transform 0.18s; transform: rotate(${isExpanded ? '180deg' : '0deg'});"></i>
+        </button>
+      `;
+
+      let ackBtnHtml = '';
       if (isCompleted && !isAck) {
-        actionHtml = `
-          <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; justify-content: flex-end;">
-            <button onclick="window.acknowledgeRun(${run.id})" class="btn btn-outline" style="padding: 0.15rem 0.4rem; font-size: 0.7rem; font-weight: 700; height: auto; border-color: ${isSuccess ? '#10b981' : '#ef4444'}; color: ${isSuccess ? '#10b981' : '#ef4444'}; background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; border-radius: 4px;">
-              <i class="ri-checkbox-line"></i> Aceptar y Cerrar
-            </button>
+        ackBtnHtml = `
+          <button onclick="window.acknowledgeRun(${run.id})" class="btn btn-outline" style="padding: 0.15rem 0.4rem; font-size: 0.7rem; font-weight: 700; height: auto; border-color: ${isSuccess ? '#10b981' : '#ef4444'}; color: ${isSuccess ? '#10b981' : '#ef4444'}; background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; border-radius: 4px; flex-shrink: 0;">
+            <i class="ri-checkbox-line"></i> Aceptar y Cerrar
+          </button>
+        `;
+      }
+
+      let detailsBodyHtml = '';
+      if (totalOrders > 0) {
+        const groupsHtml = Array.from(byComercio.entries()).map(([comercio, ords], idx, arr) => `
+          <div style="display: flex; flex-direction: column; gap: 0.18rem; ${idx < arr.length - 1 ? 'padding-bottom: 0.28rem; border-bottom: 1px dashed var(--color-border);' : ''}">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.69rem; font-weight: 700; color: var(--color-text-main);">
+              <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px;" title="${esc(comercio)}">
+                ${esc(comercio)}
+              </span>
+              <span style="font-size: 0.64rem; color: var(--color-text-muted); font-weight: 600; flex-shrink: 0;">${ords.length} ped.</span>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.2rem;">
+              ${ords.map(o => {
+                const tip = [o.customer, o.sucursal].filter(Boolean).join(' • ');
+                return `<span style="font-size: 0.65rem; font-family: monospace; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-primary); line-height: 1.3;" ${tip ? `title="${esc(tip)}"` : ''}>#${esc(o.orderNumber)}</span>`;
+              }).join('')}
+            </div>
+          </div>
+        `).join('');
+
+        detailsBodyHtml = `
+          <div id="wms-run-details-${run.id}" style="display: ${isExpanded ? 'flex' : 'none'}; flex-direction: column; gap: 0.28rem; margin-top: 0.3rem; padding: 0.4rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 5px; max-height: 130px; overflow-y: auto;">
+            ${groupsHtml}
+          </div>
+        `;
+      } else {
+        detailsBodyHtml = `
+          <div id="wms-run-details-${run.id}" style="display: ${isExpanded ? 'flex' : 'none'}; margin-top: 0.3rem; padding: 0.35rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 5px; font-size: 0.68rem; color: var(--color-text-muted);">
+            Sin detalle de comercios/órdenes registrado para esta ejecución.
           </div>
         `;
       }
@@ -95531,7 +97584,11 @@ window.updateWmsMonitorUI = async function() {
               Ver en GitHub <i class="ri-external-link-line" style="font-size: 0.75rem;"></i>
             </a>
           </div>
-          ${actionHtml}
+          <div style="display: flex; gap: 0.4rem; margin-top: 0.25rem; justify-content: space-between; align-items: center;">
+            ${toggleBtnHtml}
+            ${ackBtnHtml}
+          </div>
+          ${detailsBodyHtml}
         </div>
       `;
     });

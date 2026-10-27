@@ -346,9 +346,18 @@ async function handleOrderNotification(orderId: string, integration: any, access
     const isWmsShippingEdited = (existingOrder as any).wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
 
     if (isCancelled && existingOrder.status !== 'cancelado') {
+      const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
+      const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+      const cancelPayload: Record<string, any> = {
+        payment_status: group.status,
+        status: 'cancelado'
+      };
+      if (!estadosWmsProtegidos.includes(currentWmsState)) {
+        cancelPayload.estado_wms = 'Cancelado';
+      }
       await supabase
         .from('orders')
-        .update({ payment_status: group.status, status: 'cancelado', estado_wms: 'Cancelado' })
+        .update(cancelPayload)
         .eq('id', existingOrder.id);
     } else {
       const updatePayload: any = {

@@ -668,11 +668,13 @@ import supabase from './supabase.js';
               <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">Componentes</label>
               <select id="global-label-template" class="form-input" style="width:100%; height:42px; padding:0.5rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md);">
                 <option value="name+barcode" selected>Nombre + Código de barras</option>
+                <option value="name+sku+barcode">Nombre + SKU + Código de barras</option>
                 <option value="barcode">Sólo Código de barras</option>
+                <option value="name">Sólo Nombre del producto</option>
               </select>
             </div>
             
-            <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem;">
+            <div id="container-label-readable" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem;">
               <input type="checkbox" id="global-label-readable" checked style="width: auto; cursor: pointer;">
               <label for="global-label-readable" style="font-size: 0.85rem; cursor: pointer; user-select: none; color: var(--color-text-main);">Lectura humana (texto bajo las barras)</label>
             </div>
@@ -688,7 +690,7 @@ import supabase from './supabase.js';
             </div>
             ` : ''}
             
-            <div>
+            <div id="container-label-source">
               <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">Origen del Código</label>
               <select id="global-label-source" class="form-input" style="width:100%; height:42px; padding:0.5rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md);">
                 <option value="barcode_wms" selected>Prioridad WMS (CBAR WMS > CBAR Origen > SKU)</option>
@@ -3641,6 +3643,16 @@ import supabase from './supabase.js';
     const dataSource = document.getElementById('global-label-source')?.value || 'barcode_wms';
     const withVariants = hasCommerceVariants && (document.getElementById('global-label-variants')?.checked ?? false);
 
+    // Toggle barcode-specific controls visibility when 'name' (only product name) is selected
+    const readableContainer = document.getElementById('container-label-readable');
+    const sourceContainer = document.getElementById('container-label-source');
+    if (readableContainer) {
+      readableContainer.style.display = template === 'name' ? 'none' : 'flex';
+    }
+    if (sourceContainer) {
+      sourceContainer.style.display = template === 'name' ? 'none' : 'block';
+    }
+
     // Sum physical copies
     updateQueueTotals();
 
@@ -3811,8 +3823,13 @@ import supabase from './supabase.js';
       return;
     }
 
+    const isNameOnly = options.template === 'name';
+    const showName = options.template === 'name+barcode' || options.template === 'name+sku+barcode' || isNameOnly;
+    const showSku = options.template === 'name+sku+barcode';
+    const showBarcode = options.template !== 'name';
+
     const valueToEncode = resolveLabelCode(item, options.dataSource);
-    const barcodeSVG = window.generateBarcodeSVG(valueToEncode, options.withHumanReadable, options.size);
+    const barcodeSVG = showBarcode ? window.generateBarcodeSVG(valueToEncode, options.withHumanReadable, options.size) : '';
     const variantStr = options.withVariants ? formatProductVariantString(item, commerceVariantConfig?.naming) : '';
 
     // Apply exact proportions for the simulated sticker inside the box
@@ -3822,14 +3839,32 @@ import supabase from './supabase.js';
     let nameFontSize = '7.5px';
     let maxNameHeight = '18px';
     let nameLineClamp = 2;
+    let skuFontSize = '7px';
+    let skuMarginBottom = '2px';
     let variantFontSize = '6.8px';
     let variantPadding = '1px 3px';
     let variantMarginBottom = '3px';
 
     if (options.size === '5x2.5') {
       w = '200px'; h = '100px'; // 2:1 Aspect Ratio
-      labelPadding = '5px 6px';
-      if (variantStr) {
+      labelPadding = isNameOnly ? '8px 10px' : (showSku ? '4px 6px' : '5px 6px');
+      if (isNameOnly) {
+        nameFontSize = variantStr ? '10.5px' : '12px';
+        maxNameHeight = variantStr ? '52px' : '74px';
+        nameLineClamp = variantStr ? 3 : 4;
+        variantFontSize = '7.5px';
+        variantPadding = '1.5px 4px';
+        variantMarginBottom = '0';
+      } else if (showSku) {
+        nameFontSize = '7px';
+        maxNameHeight = '10px';
+        nameLineClamp = 1;
+        skuFontSize = '6.5px';
+        skuMarginBottom = variantStr ? '1px' : '2px';
+        variantFontSize = '6px';
+        variantPadding = '0.5px 2px';
+        variantMarginBottom = '1px';
+      } else if (variantStr) {
         nameFontSize = '7px';
         maxNameHeight = '12px';
         nameLineClamp = 1;
@@ -3843,8 +3878,24 @@ import supabase from './supabase.js';
       }
     } else if (options.size === '5x5') {
       w = '160px'; h = '160px'; // 1:1 Aspect Ratio
-      labelPadding = '8px';
-      if (variantStr) {
+      labelPadding = isNameOnly ? '10px 12px' : '8px';
+      skuFontSize = '8px';
+      skuMarginBottom = variantStr ? '2px' : '3px';
+      if (isNameOnly) {
+        nameFontSize = variantStr ? '13px' : '14px';
+        maxNameHeight = variantStr ? '95px' : '125px';
+        nameLineClamp = variantStr ? 4 : 5;
+        variantFontSize = '8.5px';
+        variantPadding = '2px 5px';
+        variantMarginBottom = '0';
+      } else if (showSku) {
+        nameFontSize = '8.5px';
+        maxNameHeight = '21px';
+        nameLineClamp = 2;
+        variantFontSize = '7.5px';
+        variantPadding = '1px 3px';
+        variantMarginBottom = '2px';
+      } else if (variantStr) {
         nameFontSize = '8.5px';
         maxNameHeight = '24px';
         nameLineClamp = 2;
@@ -3859,13 +3910,22 @@ import supabase from './supabase.js';
     } else if (options.size === '10x15') {
       w = '160px'; h = '240px'; // 2:3 Aspect Ratio
       labelPadding = '12px 14px';
-      if (variantStr) {
+      skuFontSize = '9.5px';
+      skuMarginBottom = variantStr ? '3px' : '5px';
+      if (isNameOnly) {
+        nameFontSize = variantStr ? '16px' : '18px';
+        maxNameHeight = variantStr ? '150px' : '190px';
+        nameLineClamp = variantStr ? 5 : 6;
+        variantFontSize = '10px';
+        variantPadding = '3px 7px';
+        variantMarginBottom = '0';
+      } else if (variantStr || showSku) {
         nameFontSize = '10px';
         maxNameHeight = '32px';
         nameLineClamp = 2;
         variantFontSize = '9px';
         variantPadding = '2px 6px';
-        variantMarginBottom = '6px';
+        variantMarginBottom = '5px';
       } else {
         nameFontSize = '11px';
         maxNameHeight = '42px';
@@ -3875,7 +3935,7 @@ import supabase from './supabase.js';
 
     // Safety length warning for EAN codes on small tags
     let warningHtml = '';
-    if (options.size === '5x2.5' && valueToEncode.length > 15) {
+    if (showBarcode && options.size === '5x2.5' && valueToEncode.length > 15) {
       warningHtml = `
         <div style="position:absolute;top:2px;right:2px;background:rgba(245,158,11,0.15);color:var(--color-warning);border:1px solid rgba(245,158,11,0.3);border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:bold;" title="El código es muy largo para este tamaño. Podría desbordarse en la impresión física.">!</div>
       `;
@@ -3902,12 +3962,12 @@ import supabase from './supabase.js';
       ">
         ${warningHtml}
         
-        ${options.template === 'name+barcode' ? `
+        ${showName ? `
           <div class="label-name" style="
             font-size: ${nameFontSize};
             font-weight: 700;
-            line-height: 1.1;
-            margin-bottom: ${variantStr ? '2px' : '4px'};
+            line-height: ${isNameOnly ? '1.2' : '1.1'};
+            margin-bottom: ${isNameOnly ? (variantStr ? '6px' : '0') : ((showSku || variantStr) ? '1.5px' : '4px')};
             max-height: ${maxNameHeight};
             overflow: hidden;
             display: -webkit-box;
@@ -3917,6 +3977,21 @@ import supabase from './supabase.js';
             word-break: break-word;
             color: #000;
           ">${escapeHtml(item.name)}</div>
+        ` : ''}
+
+        ${showSku && item.sku ? `
+          <div class="label-sku" style="
+            font-size: ${skuFontSize};
+            font-weight: 600;
+            font-family: monospace;
+            line-height: 1.1;
+            color: #222;
+            margin-bottom: ${skuMarginBottom};
+            max-width: 98%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          ">SKU: ${escapeHtml(item.sku)}</div>
         ` : ''}
 
         ${variantStr ? `
@@ -3937,11 +4012,13 @@ import supabase from './supabase.js';
           ">${escapeHtml(variantStr)}</div>
         ` : ''}
 
-        <div style="width: 100%; display: flex; justify-content: center; align-items: center; flex: 1; overflow: hidden;">
-          ${barcodeSVG}
-        </div>
+        ${showBarcode ? `
+          <div style="width: 100%; display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden;">
+            ${barcodeSVG}
+          </div>
+        ` : ''}
 
-        ${options.size === '10x15' ? `
+        ${options.size === '10x15' && showBarcode ? `
           <div style="font-size: 8px; color: #555; text-align: left; width: 100%; border-top: 1px dashed #ddd; padding-top: 4px; margin-top: 4px; display: flex; justify-content: space-between;">
             <span>SKU: ${escapeHtml(item.sku)}${variantStr ? ` | ${escapeHtml(variantStr)}` : ''}</span>
             <span>STOCKA WMS</span>
@@ -3992,11 +4069,13 @@ import supabase from './supabase.js';
           <label style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Componentes</label>
           <select id="swal-label-template" class="swal2-select" style="width: 100%; margin: 0; font-size: 0.875rem; height: 42px; padding:0.5rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md);">
             <option value="name+barcode" selected>Nombre + Código de barras</option>
+            <option value="name+sku+barcode">Nombre + SKU + Código de barras</option>
             <option value="barcode">Sólo Código de barras</option>
+            <option value="name">Sólo Nombre del producto</option>
           </select>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.15rem;">
+        <div id="swal-container-readable" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.15rem;">
           <input type="checkbox" id="swal-label-readable" checked style="width: auto; cursor: pointer; margin: 0;">
           <label for="swal-label-readable" style="font-size: 0.85rem; cursor: pointer; user-select: none; color:var(--color-text-main);">Lectura humana (texto bajo barras)</label>
         </div>
@@ -4014,7 +4093,7 @@ import supabase from './supabase.js';
         </div>
         ` : ''}
 
-        <div>
+        <div id="swal-container-source">
           <label style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Origen del Código de Barras</label>
           <select id="swal-label-source" class="swal2-select" style="width: 100%; margin: 0; font-size: 0.875rem; height: 42px; padding:0.5rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md);">
             <option value="barcode_wms" ${defaultBarcodeWms ? 'selected' : (defaultBarcode ? '' : 'selected')}>
@@ -4097,21 +4176,49 @@ import supabase from './supabase.js';
           const withVariants = variantsCb ? variantsCb.checked : false;
           const variantStr = withVariants ? prodVariantStr : '';
 
+          const isNameOnly = template === 'name';
+          const showName = template === 'name+barcode' || template === 'name+sku+barcode' || isNameOnly;
+          const showSku = template === 'name+sku+barcode';
+          const showBarcode = template !== 'name';
+
+          const readableContainer = modal.querySelector('#swal-container-readable');
+          const sourceContainer = modal.querySelector('#swal-container-source');
+          if (readableContainer) readableContainer.style.display = isNameOnly ? 'none' : 'flex';
+          if (sourceContainer) sourceContainer.style.display = isNameOnly ? 'none' : 'block';
+
           const codeVal = resolveLabelCode(product, dataSource);
-          const barcodeSVG = window.generateBarcodeSVG(codeVal, withHumanReadable, size);
+          const barcodeSVG = showBarcode ? window.generateBarcodeSVG(codeVal, withHumanReadable, size) : '';
 
           let w = '200px'; let h = '100px';
           let labelPadding = '6px';
           let nameFontSize = '7.5px';
           let maxNameHeight = '18px';
           let nameLineClamp = 2;
+          let skuFontSize = '7px';
+          let skuMarginBottom = '2px';
           let variantFontSize = '6.8px';
           let variantPadding = '1px 3px';
           let variantMarginBottom = '3px';
 
           if (size === '5x2.5') {
-            w = '200px'; h = '100px'; labelPadding = '5px 6px';
-            if (variantStr) {
+            w = '200px'; h = '100px'; labelPadding = isNameOnly ? '8px 10px' : (showSku ? '4px 6px' : '5px 6px');
+            if (isNameOnly) {
+              nameFontSize = variantStr ? '10.5px' : '12px';
+              maxNameHeight = variantStr ? '52px' : '74px';
+              nameLineClamp = variantStr ? 3 : 4;
+              variantFontSize = '7.5px';
+              variantPadding = '1.5px 4px';
+              variantMarginBottom = '0';
+            } else if (showSku) {
+              nameFontSize = '7px';
+              maxNameHeight = '10px';
+              nameLineClamp = 1;
+              skuFontSize = '6.5px';
+              skuMarginBottom = variantStr ? '1px' : '2px';
+              variantFontSize = '6px';
+              variantPadding = '0.5px 2px';
+              variantMarginBottom = '1px';
+            } else if (variantStr) {
               nameFontSize = '7px';
               maxNameHeight = '12px';
               nameLineClamp = 1;
@@ -4124,8 +4231,24 @@ import supabase from './supabase.js';
               nameLineClamp = 2;
             }
           } else if (size === '5x5') {
-            w = '140px'; h = '140px'; labelPadding = '7px';
-            if (variantStr) {
+            w = '140px'; h = '140px'; labelPadding = isNameOnly ? '9px 10px' : '7px';
+            skuFontSize = '7.5px';
+            skuMarginBottom = variantStr ? '2px' : '3px';
+            if (isNameOnly) {
+              nameFontSize = variantStr ? '12px' : '13px';
+              maxNameHeight = variantStr ? '82px' : '110px';
+              nameLineClamp = variantStr ? 4 : 5;
+              variantFontSize = '8px';
+              variantPadding = '1.5px 4px';
+              variantMarginBottom = '0';
+            } else if (showSku) {
+              nameFontSize = '8px';
+              maxNameHeight = '20px';
+              nameLineClamp = 2;
+              variantFontSize = '7px';
+              variantPadding = '1px 3px';
+              variantMarginBottom = '2px';
+            } else if (variantStr) {
               nameFontSize = '8px';
               maxNameHeight = '22px';
               nameLineClamp = 2;
@@ -4139,7 +4262,16 @@ import supabase from './supabase.js';
             }
           } else if (size === '10x15') {
             w = '140px'; h = '210px'; labelPadding = '10px 12px';
-            if (variantStr) {
+            skuFontSize = '9px';
+            skuMarginBottom = variantStr ? '3px' : '4px';
+            if (isNameOnly) {
+              nameFontSize = variantStr ? '14.5px' : '16px';
+              maxNameHeight = variantStr ? '130px' : '165px';
+              nameLineClamp = variantStr ? 5 : 6;
+              variantFontSize = '9.5px';
+              variantPadding = '2.5px 6px';
+              variantMarginBottom = '0';
+            } else if (variantStr || showSku) {
               nameFontSize = '9.5px';
               maxNameHeight = '28px';
               nameLineClamp = 2;
@@ -4154,7 +4286,7 @@ import supabase from './supabase.js';
           }
 
           let lengthWarning = '';
-          if (size === '5x2.5' && codeVal.length > 15) {
+          if (showBarcode && size === '5x2.5' && codeVal.length > 15) {
             lengthWarning = `
               <div style="position:absolute;top:2px;right:2px;background:rgba(245,158,11,0.15);color:var(--color-warning);border:1px solid rgba(245,158,11,0.3);border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:bold;" title="El código de barras es muy largo y podría desembarcar en la etiqueta física.">!</div>
             `;
@@ -4178,12 +4310,12 @@ import supabase from './supabase.js';
               overflow: hidden;
             ">
               ${lengthWarning}
-              ${template === 'name+barcode' ? `
+              ${showName ? `
                 <div style="
                   font-size: ${nameFontSize};
                   font-weight: 700;
-                  line-height: 1.1;
-                  margin-bottom: ${variantStr ? '2px' : '4px'};
+                  line-height: ${isNameOnly ? '1.2' : '1.1'};
+                  margin-bottom: ${isNameOnly ? (variantStr ? '6px' : '0') : ((showSku || variantStr) ? '1.5px' : '4px')};
                   max-height: ${maxNameHeight};
                   overflow: hidden;
                   display: -webkit-box;
@@ -4194,6 +4326,21 @@ import supabase from './supabase.js';
                   color: #000;
                   text-align: center;
                 ">${escapeHtml(product.name)}</div>
+              ` : ''}
+              ${showSku && product.sku ? `
+                <div style="
+                  font-size: ${skuFontSize};
+                  font-weight: 600;
+                  font-family: monospace;
+                  line-height: 1.1;
+                  color: #222;
+                  margin-bottom: ${skuMarginBottom};
+                  max-width: 98%;
+                  overflow: hidden;
+                  text-overflow: ellipsis;
+                  white-space: nowrap;
+                  text-align: center;
+                ">SKU: ${escapeHtml(product.sku)}</div>
               ` : ''}
               ${variantStr ? `
                 <div style="
@@ -4213,10 +4360,12 @@ import supabase from './supabase.js';
                   text-align: center;
                 ">${escapeHtml(variantStr)}</div>
               ` : ''}
-              <div style="width: 100%; display: flex; justify-content: center; align-items: center; flex: 1; overflow: hidden;">
-                ${barcodeSVG}
-              </div>
-              ${size === '10x15' ? `
+              ${showBarcode ? `
+                <div style="width: 100%; display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden;">
+                  ${barcodeSVG}
+                </div>
+              ` : ''}
+              ${size === '10x15' && showBarcode ? `
                 <div style="font-size: 8px; color: #555; text-align: left; width: 100%; border-top: 1px dashed #ddd; padding-top: 4px; margin-top: 4px; display: flex; justify-content: space-between;">
                   <span>SKU: ${escapeHtml(product.sku)}${variantStr ? ` | ${escapeHtml(variantStr)}` : ''}</span>
                   <span>STOCKA WMS</span>
@@ -4313,7 +4462,25 @@ import supabase from './supabase.js';
         zpl += `^LH0,0\n`;
         
         if (options.size === '5x2.5') {
-          if (options.template === 'name+barcode') {
+          if (options.template === 'name') {
+            const fullCleanName = (item.name || '').substring(0, 120).replace(/[\^\~]/g, '');
+            if (cleanVariant) {
+              zpl += `^FO20,38^A0N,28,26^FB360,3,4,C,0^FD${fullCleanName}^FS\n`;
+              zpl += `^FO20,145^A0N,18,16^FB360,1,0,C,0^FD${cleanVariant.substring(0, 34)}^FS\n`;
+            } else {
+              zpl += `^FO20,48^A0N,32,28^FB360,3,6,C,0^FD${fullCleanName}^FS\n`;
+            }
+          } else if (options.template === 'name+sku+barcode') {
+            const line1 = cleanName.substring(0, 32);
+            zpl += `^FO20,12^A0N,17,16^FD${line1}^FS\n`;
+            zpl += `^FO20,31^A0N,16,15^FDSKU: ${cleanSku.substring(0, 30)}^FS\n`;
+            if (cleanVariant) {
+              zpl += `^FO20,48^A0N,14,13^FD${cleanVariant.substring(0, 34)}^FS\n`;
+              zpl += `^BY${barcodeWidth},3,46^FT20,136^BCN,46,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            } else {
+              zpl += `^BY${barcodeWidth},3,54^FT20,140^BCN,54,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            }
+          } else if (options.template === 'name+barcode') {
             const line1 = cleanName.substring(0, 30);
             const line2 = cleanName.substring(30, 60);
             zpl += `^FO20,16^A0N,17,16^FD${line1}^FS\n`;
@@ -4335,7 +4502,29 @@ import supabase from './supabase.js';
             }
           }
         } else if (options.size === '5x5') {
-          if (options.template === 'name+barcode') {
+          if (options.template === 'name') {
+            const fullCleanName = (item.name || '').substring(0, 150).replace(/[\^\~]/g, '');
+            if (cleanVariant) {
+              zpl += `^FO20,100^A0N,34,30^FB360,4,6,C,0^FD${fullCleanName}^FS\n`;
+              zpl += `^FO20,290^A0N,22,20^FB360,1,0,C,0^FD[ ${cleanVariant.substring(0, 32)} ]^FS\n`;
+            } else {
+              zpl += `^FO20,120^A0N,38,34^FB360,4,8,C,0^FD${fullCleanName}^FS\n`;
+            }
+          } else if (options.template === 'name+sku+barcode') {
+            const line1 = cleanName.substring(0, 26);
+            const line2 = cleanName.substring(26, 52);
+            zpl += `^FO20,22^A0N,22,20^FD${line1}^FS\n`;
+            if (line2) zpl += `^FO20,45^A0N,20,18^FD${line2}^FS\n`;
+            const skuY = line2 ? 68 : 46;
+            zpl += `^FO20,${skuY}^A0N,19,17^FDSKU: ${cleanSku.substring(0, 28)}^FS\n`;
+            if (cleanVariant) {
+              const varY = skuY + 22;
+              zpl += `^FO20,${varY}^A0N,18,16^FD[ ${cleanVariant.substring(0, 32)} ]^FS\n`;
+              zpl += `^BY${barcodeWidth},3,105^FT20,315^BCN,105,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            } else {
+              zpl += `^BY${barcodeWidth},3,120^FT20,315^BCN,120,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            }
+          } else if (options.template === 'name+barcode') {
             const line1 = cleanName.substring(0, 25);
             const line2 = cleanName.substring(25, 50);
             zpl += `^FO20,25^A0N,22,20^FD${line1}^FS\n`;
@@ -4359,7 +4548,27 @@ import supabase from './supabase.js';
             }
           }
         } else if (options.size === '10x15') {
-          if (options.template === 'name+barcode') {
+          if (options.template === 'name') {
+            const fullCleanName = (item.name || '').substring(0, 200).replace(/[\^\~]/g, '');
+            if (cleanVariant) {
+              zpl += `^FO40,400^A0N,60,54^FB720,5,12,C,0^FD${fullCleanName}^FS\n`;
+              zpl += `^FO40,820^A0N,34,30^FB720,1,0,C,0^FD[ ${cleanVariant.substring(0, 45)} ]^FS\n`;
+            } else {
+              zpl += `^FO40,440^A0N,64,58^FB720,5,12,C,0^FD${fullCleanName}^FS\n`;
+            }
+          } else if (options.template === 'name+sku+barcode') {
+            const line1 = cleanName.substring(0, 35);
+            const line2 = cleanName.substring(35, 70);
+            zpl += `^FO40,45^A0N,34,30^FD${line1}^FS\n`;
+            if (line2) zpl += `^FO40,85^A0N,34,30^FD${line2}^FS\n`;
+            const skuY = line2 ? 128 : 88;
+            zpl += `^FO40,${skuY}^A0N,30,26^FDSKU: ${cleanSku.substring(0, 40)}^FS\n`;
+            if (cleanVariant) {
+              const varY = skuY + 38;
+              zpl += `^FO40,${varY}^A0N,26,24^FD[ ${cleanVariant.substring(0, 45)} ]^FS\n`;
+            }
+            zpl += `^BY${barcodeWidth},3,${barcodeHeight}^FT40,820^BCN,330,${isReadable},N,N^FD${cleanCode}^FS\n`;
+          } else if (options.template === 'name+barcode') {
             const line1 = cleanName.substring(0, 35);
             const line2 = cleanName.substring(35, 70);
             zpl += `^FO40,50^A0N,34,30^FD${line1}^FS\n`;
@@ -4379,8 +4588,10 @@ import supabase from './supabase.js';
             }
             zpl += `^BY${barcodeWidth},3,${barcodeHeight}^FT40,750^BCN,420,${isReadable},N,N^FD${cleanCode}^FS\n`;
           }
-          const footerVar = cleanVariant ? ` | ${cleanVariant.substring(0, 25)}` : '';
-          zpl += `^FO40,1100^A0N,26,24^FDSKU: ${cleanSku}${footerVar} | WMS STOCKA^FS\n`;
+          if (options.template !== 'name') {
+            const footerVar = cleanVariant ? ` | ${cleanVariant.substring(0, 25)}` : '';
+            zpl += `^FO40,1100^A0N,26,24^FDSKU: ${cleanSku}${footerVar} | WMS STOCKA^FS\n`;
+          }
         }
         
         zpl += `^XZ\n`;
@@ -4475,28 +4686,39 @@ import supabase from './supabase.js';
     // Build the compiled label pages (expanding quantities)
     let labelPagesHTML = '';
 
+    const isNameOnly = options.template === 'name';
+    const showName = options.template === 'name+barcode' || options.template === 'name+sku+barcode' || isNameOnly;
+    const showSku = options.template === 'name+sku+barcode';
+    const showBarcode = options.template !== 'name';
+
     queue.forEach(item => {
       const codeVal = resolveLabelCode(item, options.dataSource);
-      const barcodeSVG = window.generateBarcodeSVG(codeVal, options.withHumanReadable, options.size);
+      const barcodeSVG = showBarcode ? window.generateBarcodeSVG(codeVal, options.withHumanReadable, options.size) : '';
       const varStr = options.withVariants ? formatProductVariantString(item, commerceVariantConfig?.naming) : '';
 
       // Render copies for physical printing pages
       for (let c = 0; c < item.qty; c++) {
         labelPagesHTML += `
-          <div class="label-page size-${options.size.replace('.', '-')} size-${options.size} ${varStr ? 'has-variant' : ''}">
-            ${options.template === 'name+barcode' ? `
+          <div class="label-page size-${options.size.replace('.', '-')} size-${options.size} ${varStr ? 'has-variant' : ''} ${showSku ? 'has-sku' : ''} ${isNameOnly ? 'name-only' : ''}">
+            ${showName ? `
               <div class="label-name">${escapeHtml(item.name)}</div>
+            ` : ''}
+
+            ${showSku && item.sku ? `
+              <div class="label-sku">SKU: ${escapeHtml(item.sku)}</div>
             ` : ''}
 
             ${varStr ? `
               <div class="label-variant">${escapeHtml(varStr)}</div>
             ` : ''}
 
-            <div class="barcode-container">
-              ${barcodeSVG}
-            </div>
+            ${showBarcode ? `
+              <div class="barcode-container">
+                ${barcodeSVG}
+              </div>
+            ` : ''}
 
-            ${options.size === '10x15' ? `
+            ${options.size === '10x15' && showBarcode ? `
               <div class="extra-info">
                 <div style="display: flex; justify-content: space-between;">
                   <strong>SKU: ${escapeHtml(item.sku)}</strong>
@@ -4660,17 +4882,117 @@ import supabase from './supabase.js';
             white-space: nowrap;
           }
 
+          /* 4. Name-Only Overrides (No Barcode) */
+          .size-5x2-5.name-only .label-name, .size-5x2\\.5.name-only .label-name {
+            font-size: 11px;
+            line-height: 1.2;
+            max-height: 58px;
+            -webkit-line-clamp: 4;
+            word-break: break-word;
+            margin-bottom: 0;
+          }
+          .size-5x2-5.name-only.has-variant .label-name, .size-5x2\\.5.name-only.has-variant .label-name {
+            font-size: 10px;
+            max-height: 40px;
+            -webkit-line-clamp: 3;
+            margin-bottom: 4px;
+          }
+          .size-5x2-5.name-only .label-variant, .size-5x2\\.5.name-only .label-variant {
+            font-size: 7.5px;
+            margin-bottom: 0;
+          }
+          .size-5x5.name-only .label-name {
+            font-size: 14px;
+            line-height: 1.25;
+            max-height: 115px;
+            -webkit-line-clamp: 5;
+            word-break: break-word;
+            margin-bottom: 0;
+          }
+          .size-5x5.name-only.has-variant .label-name {
+            font-size: 13px;
+            max-height: 85px;
+            -webkit-line-clamp: 4;
+            margin-bottom: 6px;
+          }
+          .size-5x5.name-only .label-variant {
+            margin-bottom: 0;
+          }
+          .size-10x15.name-only .label-name {
+            font-size: 26px;
+            line-height: 1.25;
+            max-height: 360px;
+            -webkit-line-clamp: 6;
+            word-break: break-word;
+            margin-bottom: 0;
+          }
+          .size-10x15.name-only.has-variant .label-name {
+            font-size: 24px;
+            max-height: 280px;
+            -webkit-line-clamp: 5;
+            margin-bottom: 12px;
+          }
+          .size-10x15.name-only .label-variant {
+            font-size: 14px;
+            margin-bottom: 0;
+          }
+
+          /* 5. SKU Line Styles (Name + SKU + Barcode) */
+          .label-sku {
+            font-family: monospace;
+            font-weight: 700;
+            line-height: 1.1;
+            width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: #111;
+          }
+          .size-5x2-5.has-sku, .size-5x2\\.5.has-sku {
+            padding: 0.1cm 0.2cm;
+          }
+          .size-5x2-5.has-sku .label-name, .size-5x2\\.5.has-sku .label-name {
+            font-size: 7px;
+            max-height: 9px;
+            -webkit-line-clamp: 1;
+            margin-bottom: 1px;
+          }
+          .size-5x2-5 .label-sku, .size-5x2\\.5 .label-sku {
+            font-size: 6.8px;
+            margin-bottom: 1.5px;
+          }
+          .size-5x5.has-sku .label-name {
+            -webkit-line-clamp: 2;
+            max-height: 24px;
+            margin-bottom: 2px;
+          }
+          .size-5x5 .label-sku {
+            font-size: 8.5px;
+            margin-bottom: 3px;
+          }
+          .size-10x15.has-sku .label-name {
+            -webkit-line-clamp: 3;
+            max-height: 68px;
+            margin-bottom: 6px;
+          }
+          .size-10x15 .label-sku {
+            font-size: 13px;
+            margin-bottom: 8px;
+          }
+
           .barcode-container {
             width: 100%;
             display: flex;
             justify-content: center;
             align-items: center;
             flex: 1;
+            min-height: 0;
             overflow: hidden;
           }
 
           .barcode-container svg {
             max-width: 100%;
+            max-height: 100%;
             height: auto;
             display: block;
           }

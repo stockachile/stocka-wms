@@ -177,10 +177,12 @@ BEGIN
     END LOOP;
 
   -- =========================================================================
-  -- CASO 4: El pedido se CANCELA o ARCHIVA en WMS (o se cancela en status de plataforma)
+  -- CASO 4: El pedido se CANCELA o ARCHIVA en WMS
+  -- Nota: Si el pedido está 'En preparación' o 'Pickeado', el stock en mesa (reserved_quantity)
+  -- NO se libera automáticamente por un cambio en 'status' (origen); solo se libera cuando
+  -- estado_wms pasa explícitamente a 'Cancelado' o 'Archivado'.
   -- =========================================================================
-  ELSIF (v_new_wms IN ('Cancelado', 'Archivado') AND v_old_wms NOT IN ('Cancelado', 'Archivado', 'Despachado'))
-        OR (LOWER(COALESCE(NEW.status, '')) = 'cancelado' AND LOWER(COALESCE(OLD.status, '')) != 'cancelado') THEN
+  ELSIF v_new_wms IN ('Cancelado', 'Archivado') AND v_old_wms NOT IN ('Cancelado', 'Archivado', 'Despachado') THEN
     
     FOR item IN SELECT * FROM public.order_items WHERE order_id = NEW.id LOOP
       SELECT COALESCE(is_virtual, false) INTO v_is_virtual FROM public.products WHERE id = item.product_id;
@@ -241,6 +243,58 @@ CREATE TRIGGER on_order_stock_change
   BEFORE UPDATE OF estado_wms, payment_status, status, raw_shopify_data ON public.orders
   FOR EACH ROW
   EXECUTE FUNCTION public.handle_order_status_change();
+
+-- Actualizar función de recálculo oficial (recalculate_committed_stock) para que el stock en mesa
+-- (reserved_quantity) dependa exclusivamente de estado_wms ('En preparación', 'Pickeado')
+CREATE OR REPLACE FUNCTION public.recalculate_committed_stock()
+RETURNS void AS $$
+DECLARE
+  r RECORD;
+BEGIN
+  -- Resetear committed_quantity y reserved_quantity a 0
+  UPDATE public.inventory 
+  SET committed_quantity = 0, 
+      reserved_quantity = 0
+  WHERE id IS NOT NULL;
+
+  -- Recalcular committed_quantity:
+  -- Solo pedidos en estante ('En procesamiento'), que califiquen en should_process_order_stock
+  -- Y que tengan pedido confirmado y pago confirmado
+  FOR r IN 
+    SELECT oi.product_id, oi.warehouse_id, SUM(oi.quantity) as total_committed
+    FROM public.order_items oi
+    JOIN public.orders o ON o.id = oi.order_id
+    WHERE COALESCE(o.estado_wms, 'En procesamiento') NOT IN ('En preparación', 'Pickeado', 'Despachado', 'Cancelado', 'Archivado')
+      AND public.should_process_order_stock(o.id)
+      AND public.is_order_stock_eligible(o)
+    GROUP BY oi.product_id, oi.warehouse_id
+  LOOP
+    IF r.warehouse_id IS NOT NULL THEN
+      UPDATE public.inventory
+      SET committed_quantity = r.total_committed
+      WHERE product_id = r.product_id AND warehouse_id = r.warehouse_id;
+    END IF;
+  END LOOP;
+
+  -- Recalcular reserved_quantity:
+  -- Pedidos físicamente activos en mesa de preparación ('En preparación' o 'Pickeado'),
+  -- independientemente de si el cliente luego canceló en la plataforma de origen
+  FOR r IN 
+    SELECT oi.product_id, oi.warehouse_id, SUM(oi.quantity) as total_reserved
+    FROM public.order_items oi
+    JOIN public.orders o ON o.id = oi.order_id
+    WHERE o.estado_wms IN ('En preparación', 'Pickeado')
+      AND public.should_process_order_stock(o.id)
+    GROUP BY oi.product_id, oi.warehouse_id
+  LOOP
+    IF r.warehouse_id IS NOT NULL THEN
+      UPDATE public.inventory
+      SET reserved_quantity = r.total_reserved
+      WHERE product_id = r.product_id AND warehouse_id = r.warehouse_id;
+    END IF;
+  END LOOP;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Recalcular stock comprometido y en mesa inmediatamente para sanear cualquier desfase previo
 SELECT public.recalculate_committed_stock();

@@ -614,11 +614,14 @@ async function syncOrders(integration, headers, warehouseId) {
           delete orderDataToUpdate.shipping_complement;
         }
 
-        const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').toLowerCase();
-        if (isCancelled && existingOrder.status === 'para procesar' && currentWmsState === 'en procesamiento') {
+        const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
+        const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+        if (isCancelled && existingOrder.status !== 'cancelado') {
           orderDataToUpdate.status = 'cancelado';
-          orderDataToUpdate.estado_wms = 'Cancelado';
-          console.log(`🚫 Pedido local ${finalOrderNumber} marcado como cancelado (estado Jumpseller: ${statusName}).`);
+          if (!estadosWmsProtegidos.includes(currentWmsState)) {
+            orderDataToUpdate.estado_wms = 'Cancelado';
+          }
+          console.log(`🚫 Pedido local ${finalOrderNumber} marcado como cancelado en origen (estado Jumpseller: ${statusName}, estado_wms: ${orderDataToUpdate.estado_wms || existingOrder.estado_wms}).`);
         }
 
         orderDataToUpdate.raw_jumpseller_data = {

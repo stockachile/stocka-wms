@@ -382,11 +382,17 @@ async function syncMerchantOrders(integration) {
         const isTerminalWMS = ['despachado', 'cancelado', 'entregado', 'retirado'].includes(existingOrder.status);
         
         if (isCancelled && existingOrder.status !== 'cancelado') {
+          const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
+          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+          const cancelUpdate = { ...orderDataToUpdate, status: 'cancelado' };
+          if (!estadosWmsProtegidos.includes(currentWmsState)) {
+            cancelUpdate.estado_wms = 'Cancelado';
+          }
           await supabase
             .from('orders')
-            .update({ ...orderDataToUpdate, status: 'cancelado' })
+            .update(cancelUpdate)
             .eq('id', existingOrder.id);
-          console.log(`🚫 Pedido ${finalOrderId} cancelado en Ripley. Actualizado en el WMS.`);
+          console.log(`🚫 Pedido ${finalOrderId} cancelado en Ripley. Actualizado en el WMS (estado_wms: ${cancelUpdate.estado_wms || existingOrder.estado_wms}).`);
         } else if (!isTerminalWMS) {
           // Actualizar datos del pedido manteniendo el estado WMS actual o transicionando a despachado
           if (isDelivered) {

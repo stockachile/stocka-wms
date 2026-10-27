@@ -858,13 +858,22 @@ async function syncMerchantOrders(integration) {
         const daysDiff = existingDate ? (incomingDate - existingDate) / (1000 * 60 * 60 * 24) : 0;
         const isStaleCollision = (daysDiff > 15 || daysDiff < -15 || (existingOrder.status === 'despachado' && ['ready_to_ship', 'handling'].includes(shippingStatus)));
 
-        // Si se canceló en MercadoLibre, cancelarlo en el WMS
+        // Si se canceló en MercadoLibre, reflejar status='cancelado' y cancelar estado_wms SOLO si aún no está en preparación/pickeado/despachado
         if (isCancelled && existingOrder.status !== 'cancelado') {
+          const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
+          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+          const cancelPayload = {
+            payment_status: group.status,
+            status: 'cancelado'
+          };
+          if (!estadosWmsProtegidos.includes(currentWmsState)) {
+            cancelPayload.estado_wms = 'Cancelado';
+          }
           await supabase
             .from('orders')
-            .update({ payment_status: group.status, status: 'cancelado', estado_wms: 'Cancelado' })
+            .update(cancelPayload)
             .eq('id', existingOrder.id);
-          console.log(`🚫 Pedido ${finalGroupId} cancelado en MercadoLibre. Actualizado en WMS.`);
+          console.log(`🚫 Pedido ${finalGroupId} cancelado en MercadoLibre. Actualizado en WMS (estado_wms: ${cancelPayload.estado_wms || existingOrder.estado_wms}).`);
         } else if (isStaleCollision) {
           console.log(`⚠️ Colisión o desactualización detectada para pedido ${finalGroupId} (WMS: ${existingOrder.status} ${existingOrder.created_at}, ML: ${shippingStatus} ${group.date_created}). Sobreescribiendo con datos reales de MercadoLibre.`);
 

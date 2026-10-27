@@ -619,13 +619,19 @@ async function syncMerchantOrders(integration) {
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
 
-        // Si se canceló en Walmart, cancelarlo en el WMS
+        // Si se canceló en Walmart, cancelarlo en el WMS (protegiendo estados operacionales avanzados)
         if (isCancelled && existingOrder.status !== 'cancelado') {
+          const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
+          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+          const cancelUpdate = { payment_status: finalWalmartStatus, status: 'cancelado' };
+          if (!estadosWmsProtegidos.includes(currentWmsState)) {
+            cancelUpdate.estado_wms = 'Cancelado';
+          }
           await supabase
             .from('orders')
-            .update({ payment_status: finalWalmartStatus, status: 'cancelado' })
+            .update(cancelUpdate)
             .eq('id', existingOrder.id);
-          console.log(`🚫 Pedido ${finalOrderId} cancelado en Walmart. Actualizado en WMS.`);
+          console.log(`🚫 Pedido ${finalOrderId} cancelado en Walmart. Actualizado en WMS (estado_wms: ${cancelUpdate.estado_wms || existingOrder.estado_wms}).`);
         } else {
           // Actualizar datos del pedido
           const updatePayload = {

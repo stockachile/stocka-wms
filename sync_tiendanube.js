@@ -537,13 +537,19 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
           ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
         };
 
-        // Si el pedido se canceló, actualizar estado en WMS
+        // Si el pedido se canceló, actualizar estado en WMS (protegiendo estados operacionales avanzados)
         if (isCancelled && existingOrder.status !== 'cancelado') {
+          const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
+          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+          const cancelUpdate = { ...orderDataToUpdate, status: 'cancelado' };
+          if (!estadosWmsProtegidos.includes(currentWmsState)) {
+            cancelUpdate.estado_wms = 'Cancelado';
+          }
           await supabase
             .from('orders')
-            .update({ ...orderDataToUpdate, status: 'cancelado' })
+            .update(cancelUpdate)
             .eq('id', existingOrder.id);
-          console.log(`🚫 Pedido ${finalOrderNumber} cancelado en Tiendanube. Actualizado en WMS.`);
+          console.log(`🚫 Pedido ${finalOrderNumber} cancelado en Tiendanube. Actualizado en WMS (estado_wms: ${cancelUpdate.estado_wms || existingOrder.estado_wms}).`);
         } else {
           // Actualizar datos generales manteniendo el estado WMS actual
           await supabase
