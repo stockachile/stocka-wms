@@ -3027,9 +3027,9 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                 <span class="sop-section-icon"><i class="ri-shopping-basket-2-line"></i></span>
                 <span>Detalle de Productos, Escaneo Picker y Stock (${items.length} SKU · ${totalUnits} unid.)</span>
               </h4>
-              ${isAdmin ? `
+              ${(isAdmin || ((orderData.estado_wms || orderData.status || '').trim().toLowerCase() === 'en procesamiento')) ? `
                 <div style="display: flex; align-items: center; gap: 0.4rem;">
-                  <button type="button" onclick="window.openEditOrderItemsModal('${orderData.id}')" class="sop-btn">
+                  <button type="button" onclick="window.openEditOrderItemsModal('${orderData.id}')" class="sop-btn" style="cursor: pointer;" title="Editar productos y cantidades de este pedido">
                     <i class="ri-edit-line"></i> Editar Ítems
                   </button>
                 </div>

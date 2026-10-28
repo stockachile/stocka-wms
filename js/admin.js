@@ -2667,7 +2667,17 @@ window.buildPickerObservation = function(order, prodDescription) {
   if (order && order.id && window.pickingRequestsCache && window.pickingRequestsCache.has(order.id)) {
     const pr = window.pickingRequestsCache.get(order.id);
     if (pr && Array.isArray(pr.items) && pr.items.length > 0 && pr.status !== 'completada') {
-      const pendingItems = pr.items.filter(i => !i.checked).map(i => i.text);
+      const pendingItems = pr.items.filter(i => !i.checked && !i.discarded).map(i => i.text);
+      if (pendingItems.length > 0) {
+        pickingReqText = `🚨 [SOLICITUD PICKING: ${pendingItems.join('; ')}]`;
+      }
+    }
+  }
+
+  if (!pickingReqText && order) {
+    const prItems = order.picking_requests_json || (Array.isArray(order.items) && order.items[0]?.text ? order.items : null);
+    if (Array.isArray(prItems) && prItems.length > 0) {
+      const pendingItems = prItems.filter(i => !i.checked && !i.discarded).map(i => i.text);
       if (pendingItems.length > 0) {
         pickingReqText = `🚨 [SOLICITUD PICKING: ${pendingItems.join('; ')}]`;
       }
@@ -21452,6 +21462,425 @@ function renderEquivalencesRows(unmappedProducts, mappingsMap) {
   }).join('');
 }
 
+function renderRegisteredEquivalences(mappings) {
+  const tbody = document.getElementById('eq-registered-tbody');
+  if (!tbody) return;
+
+  if (!mappings || mappings.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
+          No hay equivalencias manuales registradas en el sistema.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  const isObserver = userRole === 'observer';
+
+  tbody.innerHTML = mappings.map(m => {
+    const deleteBtn = isObserver 
+      ? '' 
+      : `<button class="btn btn-outline btn-delete-equivalence" data-id="${m.id}" data-platform="${escapeHtml(m.platform)}" data-platform-sku="${escapeHtml(m.platform_sku)}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;"><i class="ri-delete-bin-line"></i> Eliminar</button>`;
+
+    return `
+      <tr class="eq-registered-row" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        <td style="padding: 0.75rem 2rem;">
+          <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${escapeHtml(m.platform)}</span>
+        </td>
+        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; font-family: monospace; font-weight: bold; color: var(--color-text-muted);">${escapeHtml(m.platform_sku)}</td>
+        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; font-family: monospace; font-weight: bold; color: var(--color-primary);">${escapeHtml(m.master_sku)}</td>
+        <td style="padding: 0.5rem 2rem;">${deleteBtn}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function openCreateManualEquivalenceModal(commerce) {
+  let modal = document.getElementById('modal-create-manual-equivalence');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-create-manual-equivalence';
+  modal.className = 'modal-overlay active';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  `;
+
+  modal.innerHTML = `
+    <div class="modal-content" style="background: var(--color-surface); width: 100%; max-width: 500px; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column; animation: modalFadeIn 0.25s ease;">
+      <div class="modal-header" style="border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; background: var(--color-bg);">
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-link" style="color: var(--color-primary);"></i> Crear Equivalencia Manual
+        </h3>
+        <button type="button" class="btn-close-modal" onclick="this.closest('.modal-overlay').remove()" style="background: transparent; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 1.2rem;"><i class="ri-close-line"></i></button>
+      </div>
+      <form id="form-create-manual-equivalence" style="margin: 0;">
+        <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
+          <div class="form-group">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Plataforma</label>
+            <select id="eq-manual-platform" class="form-input" required style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.8rem;">
+              <option value="Todas">Todas (Mapeo General)</option>
+              <option value="Shopify">Shopify</option>
+              <option value="MercadoLibre">MercadoLibre</option>
+              <option value="WooCommerce">WooCommerce</option>
+              <option value="Falabella">Falabella</option>
+              <option value="Paris">Paris</option>
+              <option value="Jumpseller">Jumpseller</option>
+              <option value="Walmart">Walmart</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.5rem;">SKU Externo (de la tienda)</label>
+            <input type="text" id="eq-manual-platform-sku" class="form-input" placeholder="ej. abcd-shopify" required style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.8rem; font-family: monospace;">
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.5rem;">SKU Maestro WMS (El que predomina / descuenta stock)</label>
+            <input type="text" id="eq-manual-master-sku" list="master-skus-list" class="form-input" placeholder="Busca o escribe el SKU del catálogo..." required style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.8rem; font-family: monospace;">
+          </div>
+        </div>
+        <div class="modal-footer" style="border-top: 1px solid var(--color-border); padding: 1rem 1.5rem; display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-bg);">
+          <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background: var(--color-primary); color: white; border: none; border-radius: var(--radius-md); padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">Asociar Equivalencia</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const form = document.getElementById('form-create-manual-equivalence');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const platform = document.getElementById('eq-manual-platform').value;
+    const platformSku = document.getElementById('eq-manual-platform-sku').value.trim();
+    const masterSku = document.getElementById('eq-manual-master-sku').value.trim();
+
+    if (!platformSku || !masterSku) return;
+
+    const masterSkus = (window.currentMasterProducts || []).map(p => p.sku);
+    if (!masterSkus.includes(masterSku)) {
+      alert(`El SKU Maestro "${masterSku}" no existe en el catálogo master. Crea el producto master primero.`);
+      return;
+    }
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Guardando...';
+
+    try {
+      const { error } = await supabase
+        .from('sku_equivalences')
+        .upsert({
+          comercio: commerce,
+          platform: platform,
+          platform_sku: platformSku,
+          master_sku: masterSku
+        }, { onConflict: 'comercio,platform,platform_sku' });
+
+      if (error) throw error;
+
+      alert('Equivalencia creada/actualizada correctamente.');
+      modal.remove();
+      renderAdminCatalogWorkspace(commerce);
+    } catch (err) {
+      alert('Error al guardar la equivalencia: ' + err.message);
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Asociar Equivalencia';
+    }
+  });
+}
+
+function showAdminEqImportPreviewModal(previewData, commerce) {
+  let modal = document.getElementById('modal-eq-preview');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'modal-eq-preview';
+    modal.className = 'modal-overlay';
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 850px; width: 95%; max-height: 90vh; display: flex; flex-direction: column; padding: 0; background: var(--color-surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl);">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background-color: var(--color-bg); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
+        <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">
+          <i class="ri-file-excel-2-line" style="color: #10b981; margin-right: 0.5rem;"></i> Vista Previa de Importación de Equivalencias (${escapeHtml(commerce)})
+        </h3>
+        <button class="modal-close" onclick="document.getElementById('modal-eq-preview').classList.remove('active')" style="background:none; border:none; font-size: 1.5rem; cursor:pointer; color: var(--color-text-muted);">&times;</button>
+      </div>
+      <div class="modal-body" style="flex: 1; padding: 1.5rem; overflow-y: auto;">
+        <p style="margin-top: 0; margin-bottom: 1rem; font-size: 0.9rem; color: var(--color-text-muted);">
+          Se procesaron <strong>${previewData.length}</strong> registros de tu planilla. Revisa el estado antes de confirmar.
+        </p>
+        <table class="data-table" style="width: 100%; border-collapse: collapse; text-align: left;">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-bg);">
+              <th style="padding: 0.75rem; font-size: 0.85rem; color: var(--color-text-main);">Plataforma</th>
+              <th style="padding: 0.75rem; font-size: 0.85rem; color: var(--color-text-main);">SKU Plataforma</th>
+              <th style="padding: 0.75rem; font-size: 0.85rem; color: var(--color-text-main);">SKU Master</th>
+              <th style="padding: 0.75rem; font-size: 0.85rem; color: var(--color-text-main);">Estado / Diagnóstico</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${previewData.map(row => `
+              <tr style="border-bottom: 1px solid var(--color-border);">
+                <td style="padding: 0.75rem; font-size: 0.875rem;">${escapeHtml(row.platform)}</td>
+                <td style="padding: 0.75rem; font-family: monospace; font-size: 0.875rem;">${escapeHtml(row.platform_sku || 'N/A')}</td>
+                <td style="padding: 0.75rem; font-family: monospace; font-size: 0.875rem; font-weight: 600; color: var(--color-primary);">${escapeHtml(row.master_sku || 'N/A')}</td>
+                <td style="padding: 0.75rem; font-size: 0.875rem; font-weight: 500; color: ${row.statusColor};">
+                  ${row.status === 'Válido' ? '<i class="ri-checkbox-circle-line"></i> Válido' : `<i class="ri-error-warning-line"></i> ${escapeHtml(row.status)}`}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 1rem; background-color: var(--color-bg); border-radius: 0 0 var(--radius-lg) var(--radius-lg);">
+        <button class="btn btn-outline" onclick="document.getElementById('modal-eq-preview').classList.remove('active')" style="margin:0;">Cancelar</button>
+        <button id="btn-confirm-eq-import" class="btn btn-primary" style="margin:0;" ${previewData.some(r => r.isValid) ? '' : 'disabled'}>
+          Confirmar e Importar (${previewData.filter(r => r.isValid).length} válidos)
+        </button>
+      </div>
+    </div>
+  `;
+
+  modal.classList.add('active');
+
+  const btnConfirm = document.getElementById('btn-confirm-eq-import');
+  if (btnConfirm) {
+    btnConfirm.addEventListener('click', async () => {
+      btnConfirm.disabled = true;
+      btnConfirm.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Importando...`;
+
+      const validRows = previewData.filter(r => r.isValid).map(r => ({
+        comercio: commerce,
+        platform: r.platform,
+        platform_sku: r.platform_sku,
+        master_sku: r.master_sku
+      }));
+
+      try {
+        const { error } = await supabase
+          .from('sku_equivalences')
+          .upsert(validRows, { onConflict: 'comercio,platform,platform_sku' });
+
+        if (error) throw error;
+
+        alert(`Se han importado exitosamente ${validRows.length} equivalencias.`);
+        modal.classList.remove('active');
+        renderAdminCatalogWorkspace(commerce);
+      } catch (err) {
+        alert('Error al realizar la importación masiva: ' + err.message);
+        btnConfirm.disabled = false;
+        btnConfirm.innerHTML = `Confirmar e Importar`;
+      }
+    });
+  }
+}
+
+window.openMergeDuplicateSkuModal = function(commerce, refreshFn) {
+  let modal = document.getElementById('modal-merge-duplicate-sku');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-merge-duplicate-sku';
+  modal.className = 'modal-overlay active';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0, 0, 0, 0.55);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  `;
+
+  modal.innerHTML = `
+    <div class="modal-content" style="background: var(--color-surface); width: 95%; max-width: 560px; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column; animation: modalFadeIn 0.25s ease;">
+      <div class="modal-header" style="border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; background: var(--color-bg);">
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-git-merge-line" style="color: #8b5cf6;"></i> Fusionar / Unificar SKUs Duplicados (${escapeHtml(commerce)})
+        </h3>
+        <button type="button" class="btn-close-modal" onclick="this.closest('.modal-overlay').remove()" style="background: transparent; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 1.2rem;"><i class="ri-close-line"></i></button>
+      </div>
+      <form id="form-merge-duplicate-sku" style="margin: 0;">
+        <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.15rem;">
+          <div style="background: rgba(139, 92, 246, 0.08); border-left: 3px solid #8b5cf6; padding: 0.75rem 1rem; border-radius: 4px; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
+            Utiliza esta herramienta cuando un mismo producto físico fue creado dos veces en el Catálogo Master con SKUs distintos (ej. uno creado manualmente con stock/medidas/código WMS y otro importado desde Shopify). Se consolidarán su stock, movimientos, pedidos, medidas y código de barras WMS en un único producto y se creará la regla de equivalencia automáticamente.
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">1. SKU que se absorberá / eliminará (Duplicado o antiguo)</label>
+            <input type="text" id="merge-source-sku" list="master-skus-list" class="form-input" placeholder="Busca o escribe el SKU duplicado..." required style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.8rem; font-family: monospace;">
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">2. SKU Maestro definitivo (El SKU que permanecerá en el catálogo)</label>
+            <input type="text" id="merge-target-sku" list="master-skus-list" class="form-input" placeholder="Busca o escribe el SKU definitivo..." required style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.8rem; font-family: monospace;">
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Plataforma para la regla de equivalencia</label>
+            <select id="merge-eq-platform" class="form-input" style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.8rem;">
+              <option value="Shopify">Shopify</option>
+              <option value="Todas">Todas (Mapeo General)</option>
+              <option value="MercadoLibre">MercadoLibre</option>
+              <option value="WooCommerce">WooCommerce</option>
+              <option value="Falabella">Falabella</option>
+              <option value="Paris">Paris</option>
+              <option value="Jumpseller">Jumpseller</option>
+              <option value="Walmart">Walmart</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer" style="border-top: 1px solid var(--color-border); padding: 1rem 1.5rem; display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-bg);">
+          <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background: #8b5cf6; color: white; border: none; border-radius: var(--radius-md); padding: 0.5rem 1.1rem; font-weight: 600; cursor: pointer;">
+            <i class="ri-git-merge-line"></i> Fusionar y Crear Equivalencia
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const form = document.getElementById('form-merge-duplicate-sku');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const sourceSku = document.getElementById('merge-source-sku').value.trim();
+    const targetSku = document.getElementById('merge-target-sku').value.trim();
+    const platform = document.getElementById('merge-eq-platform').value;
+
+    if (!sourceSku || !targetSku || sourceSku === targetSku) {
+      alert('Debes seleccionar dos SKUs distintos del catálogo.');
+      return;
+    }
+
+    const masterProds = window.currentMasterProducts || [];
+    const sourceProd = masterProds.find(p => p.sku.trim() === sourceSku);
+    const targetProd = masterProds.find(p => p.sku.trim() === targetSku);
+
+    if (!sourceProd || !targetProd) {
+      alert('Ambos SKUs deben existir actualmente en el Catálogo Master para poder fusionarlos.');
+      return;
+    }
+
+    if (!confirm(`¿Confirmas fusionar "${sourceSku}" dentro de "${targetSku}"?\n\nSe conservarán el stock, movimientos, pedidos, medidas y código WMS (CBAR) en el producto "${targetSku}", se eliminará el registro duplicado "${sourceSku}" y quedará registrada la equivalencia.`)) {
+      return;
+    }
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Fusionando...';
+
+    try {
+      // Determinar qué fila conservar como ID base (preferir la que ya tiene barcode_wms o mayor antigüedad/stock)
+      const keeper = (sourceProd.barcode_wms && !targetProd.barcode_wms) ? sourceProd : targetProd;
+      const duplicate = (keeper.id === sourceProd.id) ? targetProd : sourceProd;
+
+      // 1. Re-vincular order_items
+      const { data: dupItems } = await supabase.from('order_items').select('*').eq('product_id', duplicate.id);
+      if (dupItems && dupItems.length > 0) {
+        for (const item of dupItems) {
+          const { data: existingKeeperItem } = await supabase
+            .from('order_items')
+            .select('*')
+            .eq('order_id', item.order_id)
+            .eq('product_id', keeper.id)
+            .maybeSingle();
+
+          if (existingKeeperItem) {
+            await supabase.from('order_items').update({ quantity: (existingKeeperItem.quantity || 0) + (item.quantity || 0) }).eq('id', existingKeeperItem.id);
+            await supabase.from('order_items').delete().eq('id', item.id);
+          } else {
+            await supabase.from('order_items').update({ product_id: keeper.id }).eq('id', item.id);
+          }
+        }
+      }
+
+      // 2. Re-vincular movimientos, ubicaciones, conteos y packs
+      await supabase.from('movements').update({ product_id: keeper.id }).eq('product_id', duplicate.id);
+      await supabase.from('product_locations').update({ product_id: keeper.id }).eq('product_id', duplicate.id);
+      await supabase.from('inventory_count_items').update({ product_id: keeper.id }).eq('product_id', duplicate.id);
+      await supabase.from('product_pack_items').update({ pack_product_id: keeper.id }).eq('pack_product_id', duplicate.id);
+      await supabase.from('product_pack_items').update({ member_product_id: keeper.id }).eq('member_product_id', duplicate.id);
+
+      // 3. Consolidar inventario por bodega
+      const { data: dupInv } = await supabase.from('inventory').select('*').eq('product_id', duplicate.id);
+      const { data: keeperInv } = await supabase.from('inventory').select('*').eq('product_id', keeper.id);
+      if (dupInv && dupInv.length > 0) {
+        for (const dRow of dupInv) {
+          if ((dRow.quantity || 0) > 0) {
+            const kRow = (keeperInv || []).find(k => k.warehouse_id === dRow.warehouse_id);
+            if (kRow) {
+              await supabase.from('inventory').update({ quantity: (kRow.quantity || 0) + dRow.quantity }).eq('id', kRow.id);
+            } else {
+              await supabase.from('inventory').update({ product_id: keeper.id }).eq('id', dRow.id);
+              continue;
+            }
+          }
+          await supabase.from('inventory').delete().eq('id', dRow.id);
+        }
+      }
+
+      // 4. Eliminar el producto duplicado
+      const { error: delErr } = await supabase.from('products').delete().eq('id', duplicate.id);
+      if (delErr) throw delErr;
+
+      // 5. Actualizar el producto keeper con el SKU definitivo (targetSku) y consolidar atributos
+      const updatePayload = {
+        sku: targetSku,
+        name: targetProd.name || sourceProd.name,
+        alias: keeper.alias || (sourceProd.name && sourceProd.name !== targetProd.name ? sourceProd.name : null),
+        image_url: targetProd.image_url || sourceProd.image_url || null,
+        price: targetProd.price || sourceProd.price || 0,
+        barcode: targetProd.barcode || sourceProd.barcode || null,
+        shopify_product_id: targetProd.shopify_product_id || sourceProd.shopify_product_id || null,
+        barcode_wms: keeper.barcode_wms || duplicate.barcode_wms || null,
+        length: keeper.length || duplicate.length || 0,
+        width: keeper.width || duplicate.width || 0,
+        height: keeper.height || duplicate.height || 0,
+        volumen: keeper.volumen || duplicate.volumen || 0,
+        weight: keeper.weight || duplicate.weight || 0
+      };
+
+      const { error: updErr } = await supabase.from('products').update(updatePayload).eq('id', keeper.id);
+      if (updErr) throw updErr;
+
+      // 6. Registrar equivalencia sourceSku -> targetSku
+      await supabase.from('sku_equivalences').upsert({
+        comercio: commerce,
+        platform: platform,
+        platform_sku: sourceSku,
+        master_sku: targetSku
+      }, { onConflict: 'comercio,platform,platform_sku' });
+
+      alert(`¡Fusión completada con éxito! El producto "${targetSku}" ahora concentra todo el stock, medidas, código WMS y pedidos de "${sourceSku}".`);
+      modal.remove();
+      if (typeof refreshFn === 'function') {
+        refreshFn();
+      } else if (typeof renderAdminCatalogWorkspace === 'function') {
+        renderAdminCatalogWorkspace(commerce);
+      }
+    } catch (err) {
+      alert('Error al fusionar SKUs: ' + err.message);
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i class="ri-git-merge-line"></i> Fusionar y Crear Equivalencia';
+    }
+  });
+};
+
 window.showStockAndDimensionsPreviewModal = function({ title, headers, rows, onConfirm }) {
   const oldModal = document.getElementById('modal-import-preview');
   if (oldModal) oldModal.remove();
@@ -22162,9 +22591,11 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
-  // 8. Auto-save Equivalences on input change
-  document.querySelectorAll('.eq-mapping-input').forEach(input => {
-    input.addEventListener('change', async (e) => {
+  // 8. Auto-save Equivalences on input change (delegated on tbody so dynamic toggles work)
+  const eqMatrixTbody = document.getElementById('eq-matrix-tbody');
+  if (eqMatrixTbody) {
+    eqMatrixTbody.addEventListener('change', async (e) => {
+      if (!e.target.classList.contains('eq-mapping-input')) return;
       const platformSku = e.target.getAttribute('data-platform-sku');
       const platform = e.target.getAttribute('data-platform');
       const enteredValue = e.target.value.trim();
@@ -22184,7 +22615,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
           e.target.style.borderColor = 'var(--color-success)';
           renderAdminCatalogWorkspace(commerce);
         } else {
-          const masterSkus = window.currentMasterProducts.map(p => p.sku);
+          const masterSkus = (window.currentMasterProducts || []).map(p => p.sku);
           if (!masterSkus.includes(enteredValue)) {
             e.target.style.borderColor = 'var(--color-danger)';
             alert(`El SKU "${enteredValue}" no existe en el catálogo master. Crea el producto master primero o selecciona uno válido.`);
@@ -22210,7 +22641,171 @@ function setupCatalogListeners(commerce, mainPlatform) {
         alert('Error al guardar equivalencia: ' + err.message);
       }
     });
+  }
+
+  // 8.1 Toggle para mostrar todos los SKUs sincronizados en Mapeo de Equivalencias
+  const cbShowAllSynced = document.getElementById('eq-show-all-synced');
+  if (cbShowAllSynced) {
+    cbShowAllSynced.addEventListener('change', (e) => {
+      const listToShow = e.target.checked
+        ? (window.currentAllSyncedProducts || [])
+        : (window.currentUnmappedSyncedProducts || []);
+      renderEquivalencesRows(listToShow, window.currentMappingsMap || {});
+    });
+  }
+
+  // 8.2 Crear Equivalencia Manual
+  const btnManualEq = document.getElementById('btn-create-manual-equivalence');
+  if (btnManualEq) {
+    btnManualEq.addEventListener('click', () => {
+      openCreateManualEquivalenceModal(commerce);
+    });
+  }
+
+  // 8.3 Fusionar SKUs duplicados del catálogo
+  const btnMergeSkus = document.getElementById('btn-merge-catalog-skus');
+  if (btnMergeSkus) {
+    btnMergeSkus.addEventListener('click', () => {
+      window.openMergeDuplicateSkuModal(commerce, () => renderAdminCatalogWorkspace(commerce));
+    });
+  }
+
+  // 8.4 Buscador de equivalencias registradas
+  const regSearchInput = document.getElementById('eq-registered-search');
+  if (regSearchInput) {
+    regSearchInput.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase().trim();
+      const tbody = document.getElementById('eq-registered-tbody');
+      if (!tbody) return;
+      const rows = tbody.querySelectorAll('.eq-registered-row');
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(term) ? '' : 'none';
+      });
+    });
+  }
+
+  // 8.5 Eliminar equivalencia registrada
+  document.querySelectorAll('.btn-delete-equivalence').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.currentTarget.getAttribute('data-id');
+      const platform = e.currentTarget.getAttribute('data-platform');
+      const platformSku = e.currentTarget.getAttribute('data-platform-sku');
+      if (confirm(`¿Estás seguro de que deseas eliminar la equivalencia para ${platform} (SKU: ${platformSku})?`)) {
+        try {
+          const { error } = await supabase
+            .from('sku_equivalences')
+            .delete()
+            .eq('id', id);
+          if (error) throw error;
+          alert('Equivalencia eliminada correctamente.');
+          renderAdminCatalogWorkspace(commerce);
+        } catch (err) {
+          alert('Error al eliminar equivalencia: ' + err.message);
+        }
+      }
+    });
   });
+
+  // 8.6 Importar Planilla Excel de Equivalencias
+  const btnTriggerEqImport = document.getElementById('btn-trigger-eq-import-excel');
+  if (btnTriggerEqImport) {
+    btnTriggerEqImport.addEventListener('click', () => {
+      const fileInp = document.getElementById('eq-matrix-import-excel');
+      if (fileInp) fileInp.click();
+    });
+  }
+
+  const eqImportInput = document.getElementById('eq-matrix-import-excel');
+  if (eqImportInput) {
+    const newImportInput = eqImportInput.cloneNode(true);
+    eqImportInput.parentNode.replaceChild(newImportInput, eqImportInput);
+    newImportInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        try {
+          const data = new Uint8Array(evt.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const rows = XLSX.utils.sheet_to_json(worksheet);
+
+          if (rows.length === 0) {
+            alert('El archivo Excel está vacío.');
+            return;
+          }
+
+          const sample = rows[0];
+          let colPlatform = '';
+          let colPlatformSku = '';
+          let colMasterSku = '';
+
+          for (const key of Object.keys(sample)) {
+            const lower = key.toLowerCase().trim();
+            if (lower === 'plataforma' || lower === 'platform') colPlatform = key;
+            else if (lower === 'sku plataforma' || lower === 'platform_sku' || lower === 'sku_plataforma' || lower === 'sku externo') colPlatformSku = key;
+            else if (lower === 'sku master' || lower === 'master_sku' || lower === 'sku_master' || lower === 'sku wms' || lower === 'sku maestro') colMasterSku = key;
+          }
+
+          if (!colPlatformSku || !colMasterSku) {
+            alert('Error: Columnas no encontradas. Asegúrate de que el archivo tenga "SKU Plataforma" y "SKU Master" como columnas.');
+            return;
+          }
+
+          const validSkus = new Set((window.currentMasterProducts || []).map(p => p.sku));
+          const previewData = [];
+          const allowedPlatforms = ['Todas', 'Shopify', 'MercadoLibre', 'Falabella', 'Paris', 'Ripley', 'WooCommerce', 'Jumpseller', 'Walmart', 'Tiendanube'];
+
+          rows.forEach((r) => {
+            let platformVal = colPlatform ? r[colPlatform] : 'Todas';
+            if (platformVal) {
+              platformVal = platformVal.toString().trim();
+              const matched = allowedPlatforms.find(ap => ap.toLowerCase() === platformVal.toLowerCase());
+              platformVal = matched || 'Todas';
+            } else {
+              platformVal = 'Todas';
+            }
+
+            const platformSkuVal = r[colPlatformSku] !== undefined && r[colPlatformSku] !== null ? r[colPlatformSku].toString().trim() : '';
+            const masterSkuVal = r[colMasterSku] !== undefined && r[colMasterSku] !== null ? r[colMasterSku].toString().trim() : '';
+
+            let status = 'Válido';
+            let statusColor = '#10b981';
+            let isValid = true;
+
+            if (!platformSkuVal || !masterSkuVal) {
+              status = 'Faltan datos (SKU)';
+              statusColor = '#f59e0b';
+              isValid = false;
+            } else if (!validSkus.has(masterSkuVal)) {
+              status = 'SKU Master no existe en Catálogo WMS';
+              statusColor = '#ef4444';
+              isValid = false;
+            }
+
+            previewData.push({
+              platform: platformVal,
+              platform_sku: platformSkuVal,
+              master_sku: masterSkuVal,
+              status,
+              statusColor,
+              isValid
+            });
+          });
+
+          showAdminEqImportPreviewModal(previewData, commerce);
+        } catch (error) {
+          console.error(error);
+          alert('Error al leer el archivo Excel: ' + error.message);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      e.target.value = '';
+    });
+  }
 
   // 9. Descargar planilla de ejemplo
   const btnDownload = document.getElementById('btn-download-sku-template');
@@ -32652,18 +33247,21 @@ async function renderAdminCatalogWorkspace(commerce) {
 
     const masterSkusSet = new Set(masterProducts.map(p => p.sku.toLowerCase().trim().replace(/\s+/g, '')));
     const unmappedSynced = (syncedProducts || []).filter(sp => {
+      const cleanSku = (sp.sku || '').toLowerCase().trim().replace(/\s+/g, '');
+      const hasExistingMapping = Boolean(mappingsMap[sp.platform] && mappingsMap[sp.platform][sp.sku]);
       if (mainPlatform) {
-        // Si hay una plataforma principal configurada como catálogo maestro (ej: Shopify),
-        // se muestran todos los productos de otras plataformas secundarias en el mapeo de equivalencias.
-        return sp.platform.toLowerCase() !== mainPlatform.toLowerCase();
+        // Mostrar productos de plataformas secundarias Y también los de la plataforma principal
+        // cuyo SKU no exista aún en el Catálogo Master o ya tenga una equivalencia configurada.
+        return sp.platform.toLowerCase() !== mainPlatform.toLowerCase() || !masterSkusSet.has(cleanSku) || hasExistingMapping;
       } else {
-        const cleanSku = sp.sku.toLowerCase().trim().replace(/\s+/g, '');
-        return !masterSkusSet.has(cleanSku);
+        return !masterSkusSet.has(cleanSku) || hasExistingMapping;
       }
     });
 
     window.currentMasterProducts = masterProducts;
     window.currentUnmappedSyncedProducts = unmappedSynced;
+    window.currentAllSyncedProducts = syncedProducts || [];
+    window.currentMappingsMap = mappingsMap;
 
     // Render stats cards in the upper container for admin
     const statsContainer = document.getElementById('catalog-admin-stats-container');
@@ -33086,11 +33684,18 @@ async function renderAdminCatalogWorkspace(commerce) {
               <i class="ri-information-line"></i> Instrucciones de Equivalencias de Canales (Admin)
             </h4>
             <p style="margin: 0 0 1.25rem 0; font-size: 0.9rem; color: var(--color-text-muted); line-height: 1.6;">
-              Asocia los SKUs de las tiendas integradas del cliente a sus correspondientes SKUs maestros de WMS.
+              Asocia los SKUs de las tiendas integradas del cliente a sus correspondientes SKUs maestros de WMS, o fusiona productos duplicados en el Catálogo Master conservando stock, medidas y códigos WMS.
             </p>
-            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-              <button id="btn-download-sku-template" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); background: transparent; padding: 0.5rem 1.2rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+              <button id="btn-download-sku-template" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); background: transparent; padding: 0.5rem 1.1rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
                 <i class="ri-download-2-line"></i> Descargar Planilla de Ejemplo
+              </button>
+              <button id="btn-trigger-eq-import-excel" class="btn btn-outline" style="border-color: #10b981; color: #10b981; background: transparent; padding: 0.5rem 1.1rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+                <i class="ri-file-excel-2-line"></i> Importar Planilla de Equivalencias
+              </button>
+              <input type="file" id="eq-matrix-import-excel" accept=".xlsx, .xls, .csv" style="display: none;">
+              <button id="btn-merge-catalog-skus" class="btn btn-outline" style="border-color: #8b5cf6; color: #8b5cf6; background: rgba(139, 92, 246, 0.06); padding: 0.5rem 1.1rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+                <i class="ri-git-merge-line"></i> Fusionar / Unificar SKUs Duplicados
               </button>
             </div>
           </div>
@@ -33103,7 +33708,11 @@ async function renderAdminCatalogWorkspace(commerce) {
                 </h3>
                 <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">Asocia los SKUs de tus plataformas a los SKUs maestros de WMS.</p>
               </div>
-              <div style="display: flex; gap: 1rem; align-items: center;">
+              <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                <label style="display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; font-weight: 500; color: var(--color-text-muted); cursor: pointer; background: var(--color-bg); padding: 0.4rem 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);" title="Muestra también los productos sincronizados de la plataforma principal o que ya existen en el catálogo">
+                  <input type="checkbox" id="eq-show-all-synced" style="accent-color: var(--color-primary); cursor: pointer;">
+                  <span>Mostrar todos los SKUs sincronizados (${(syncedProducts || []).length})</span>
+                </label>
                 <div style="position: relative;">
                   <i class="ri-search-line" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
                   <input type="text" id="eq-matrix-search" class="form-input" placeholder="Buscar SKU externo..." style="width: 250px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.5rem 1rem 0.5rem 2.5rem; font-size: 0.9rem; transition: border-color 0.2s; height: 38px;">
@@ -33122,6 +33731,41 @@ async function renderAdminCatalogWorkspace(commerce) {
                   </tr>
                 </thead>
                 <tbody id="eq-matrix-tbody">
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-md); margin-bottom: 2rem; border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden; margin-top: 2rem;">
+            <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ri-link" style="color: var(--color-primary);"></i> Equivalencias Registradas en el Sistema
+                </h3>
+                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">Listado completo de reglas de equivalencia activas en el WMS para ${escapeHtml(commerce)}.</p>
+              </div>
+              <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                <div style="position: relative;">
+                  <i class="ri-search-line" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                  <input type="text" id="eq-registered-search" class="form-input" placeholder="Buscar equivalencia..." style="width: 250px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.5rem 1rem 0.5rem 2.5rem; font-size: 0.9rem; transition: border-color 0.2s; height: 38px;">
+                </div>
+                <button id="btn-create-manual-equivalence" class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; background: var(--color-primary); color: white; border: none; border-radius: var(--radius-md); font-weight: 500;"><i class="ri-add-line"></i> + Crear Equivalencia</button>
+              </div>
+            </div>
+            <div class="card-body" style="padding: 0; overflow-x: auto;">
+              <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
+                <thead>
+                  <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Plataforma</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Externo (Tienda)</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Maestro WMS (Predomina)</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 150px;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="eq-registered-tbody">
+                  <tr>
+                    <td colspan="4" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">Cargando equivalencias registradas...</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -33329,6 +33973,7 @@ async function renderAdminCatalogWorkspace(commerce) {
 
     renderMasterCatalogRows(masterProducts);
     renderEquivalencesRows(unmappedSynced, mappingsMap);
+    renderRegisteredEquivalences(mappings);
     initProductPackDomElements(true);
     setupCatalogListeners(commerce, mainPlatform);
 
@@ -47048,7 +47693,8 @@ function handleManageStatusChange(status) {
   const groupVolumeConfirmed = document.getElementById('manage-dec-group-volume-confirmed');
   const volumeConfirmedInput = document.getElementById('manage-dec-volume-confirmed');
   
-  if (status === 'Bodega Asignada') {
+  const needsWarehouseSelection = status === 'Bodega Asignada' || (status !== 'Creada' && !(dec && dec.warehouse_id));
+  if (needsWarehouseSelection) {
     if (groupWarehouse) {
       groupWarehouse.style.display = 'block';
       const selectEl = document.getElementById('manage-dec-warehouse-select');
@@ -48272,15 +48918,18 @@ document.addEventListener('submit', async (e) => {
       }
     }
 
-    // Validar bodega si es Bodega Asignada
-    let warehouseId = null;
-    if (status === 'Bodega Asignada') {
-      const selectEl = document.getElementById('manage-dec-warehouse-select');
-      warehouseId = selectEl ? selectEl.value : null;
-      if (!warehouseId) {
-        alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">Debes seleccionar una bodega obligatoriamente.</div>';
-        return;
+    // Validar bodega en cualquier estado posterior a Creada
+    const selectEl = document.getElementById('manage-dec-warehouse-select');
+    let warehouseId = (selectEl && selectEl.value) ? selectEl.value : (window.currentDeclarationEditing?.warehouse_id || null);
+    if (status !== 'Creada' && !warehouseId) {
+      const groupWarehouse = document.getElementById('manage-dec-group-warehouse');
+      if (groupWarehouse) groupWarehouse.style.display = 'block';
+      if (selectEl) {
+        selectEl.setAttribute('required', 'required');
+        selectEl.focus();
       }
+      alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">Debes seleccionar una bodega de destino antes de avanzar o confirmar esta recepción.</div>';
+      return;
     }
 
     // Reglas según estado específico
@@ -49174,8 +49823,10 @@ window.startParallelCountStockIntake = async function() {
   const dec = window.currentDeclarationEditing;
   if (!dec) return;
 
-  const warehouseId = dec.warehouse_id || document.getElementById('manage-dec-warehouse')?.value;
+  const warehouseId = dec.warehouse_id || document.getElementById('manage-dec-warehouse-select')?.value || document.getElementById('manage-dec-warehouse')?.value;
   if (!warehouseId) {
+    const groupWarehouse = document.getElementById('manage-dec-group-warehouse');
+    if (groupWarehouse) groupWarehouse.style.display = 'block';
     if (window.Swal) {
       window.Swal.fire({
         icon: 'warning',
@@ -49463,9 +50114,11 @@ window.confirmDeclarationFinalCount = async function() {
   const dec = window.currentDeclarationEditing;
   if (!dec) return;
 
-  const warehouseId = dec.warehouse_id || document.getElementById('manage-dec-warehouse')?.value;
+  const warehouseId = dec.warehouse_id || document.getElementById('manage-dec-warehouse-select')?.value || document.getElementById('manage-dec-warehouse')?.value;
   if (!warehouseId) {
-    Swal.fire({ icon: 'warning', title: 'Bodega requerida', text: 'Esta recepción no tiene una bodega asignada.' });
+    const groupWarehouse = document.getElementById('manage-dec-group-warehouse');
+    if (groupWarehouse) groupWarehouse.style.display = 'block';
+    Swal.fire({ icon: 'warning', title: 'Bodega requerida', text: 'Debes seleccionar una bodega de destino antes de confirmar el conteo final.' });
     return;
   }
 
@@ -50916,8 +51569,9 @@ document.addEventListener('submit', async (e) => {
           const newDeclaredQty = parseInt(p.qty, 10) || 0;
           const oldDeclaredQty = oldItem ? (parseInt(oldItem.qty, 10) || 0) : null;
           const qtyWasModified = !oldItem || (newDeclaredQty !== oldDeclaredQty);
+          const needsPendingWarehouseCredit = !orig.warehouse_id && Boolean(warehouseId) && alreadyAdded === 0 && newDeclaredQty > 0;
 
-          if (!qtyWasModified) {
+          if (!qtyWasModified && !needsPendingWarehouseCredit) {
             p.qty_inventory_added = alreadyAdded;
             p.qty_confirmed = (oldItem.qty_confirmed !== undefined && oldItem.qty_confirmed !== null) ? oldItem.qty_confirmed : alreadyAdded;
             continue;
@@ -74376,7 +75030,8 @@ window.registerPickupIfNeeded = async function(order) {
   if (agenda !== 'RETIRO') return;
 
   const orderNumber = String(order.external_order_number || order.id);
-  const sucursal = order.sucursal_pickeo || 'Sucursal Ñuñoa';
+  const rawSucursal = order.sucursal_pickeo || 'Sucursal Ñuñoa';
+  const sucursal = rawSucursal === 'Matriz Ñuñoa' ? 'Sucursal Ñuñoa' : rawSucursal;
   const comercio = order.comercio || '';
   const customerName = order.customer_name || 'Cliente';
 
@@ -74660,7 +75315,7 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
     }
 
     payloads.push({
-      sucursal: (order.sucursal_pickeo || 'Sucursal Virtual (Hub)').slice(0, 100),
+      sucursal: ((order.sucursal_pickeo === 'Matriz Ñuñoa' ? 'Sucursal Ñuñoa' : order.sucursal_pickeo) || 'Sucursal Virtual (Hub)').slice(0, 100),
       order_number: String(orderNumber).slice(0, 100),
       agenda: (order.agenda || 'STK').slice(0, 100),
       quantity: parseInt(item.quantity, 10) || 1,
@@ -74853,6 +75508,80 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
     }
   }
 
+  // 0. Preservar o recuperar estado de Solicitudes Especiales de Picking (Picking Requests)
+  let existingPickingState = null;
+  try {
+    const { data: existingRows } = await pickerSupabase
+      .from('active_orders')
+      .select('has_picking_requests, picking_requests_json, picking_requests_confirmed, picking_requests_operator, picking_requests_confirmed_at, observation')
+      .eq('order_number', orderNumber)
+      .limit(1);
+    if (existingRows && existingRows.length > 0 && (existingRows[0].has_picking_requests || (Array.isArray(existingRows[0].picking_requests_json) && existingRows[0].picking_requests_json.length > 0))) {
+      existingPickingState = existingRows[0];
+    }
+  } catch (e) {
+    console.warn('Error verificando estado previo de picking en Picker:', e);
+  }
+
+  let wmsPickingReq = null;
+  if (!existingPickingState) {
+    if (order.id && window.pickingRequestsCache && window.pickingRequestsCache.has(order.id)) {
+      wmsPickingReq = window.pickingRequestsCache.get(order.id);
+    }
+    if (!wmsPickingReq && (order.id || orderNumber)) {
+      try {
+        const supa = (typeof supabase !== 'undefined' && supabase) || window.supabaseClient || null;
+        if (supa) {
+          let q = supa.from('order_picking_requests').select('*');
+          if (order.id) {
+            q = q.eq('order_id', order.id);
+          } else {
+            q = q.eq('external_order_number', orderNumber);
+          }
+          const { data: prData } = await q.maybeSingle();
+          if (prData && Array.isArray(prData.items) && prData.items.length > 0) {
+            wmsPickingReq = prData;
+            if (window.pickingRequestsCache && order.id) {
+              window.pickingRequestsCache.set(order.id, prData);
+            }
+          }
+        }
+      } catch (prErr) {
+        console.warn('Error consultando order_picking_requests en WMS:', prErr);
+      }
+    }
+  }
+
+  const finalHasPickingReq = Boolean(existingPickingState ? existingPickingState.has_picking_requests : (wmsPickingReq && Array.isArray(wmsPickingReq.items) && wmsPickingReq.items.length > 0));
+  const finalPickingReqJson = existingPickingState ? existingPickingState.picking_requests_json : (wmsPickingReq ? wmsPickingReq.items : null);
+  const finalPickingReqConfirmed = Boolean(existingPickingState ? existingPickingState.picking_requests_confirmed : (wmsPickingReq && (wmsPickingReq.status === 'completada' || (Array.isArray(wmsPickingReq.items) && wmsPickingReq.items.every(i => i.checked || i.discarded)))));
+  const finalPickingReqOperator = existingPickingState ? existingPickingState.picking_requests_operator : (wmsPickingReq ? wmsPickingReq.completed_by_operator : null);
+  const finalPickingReqConfirmedAt = existingPickingState ? existingPickingState.picking_requests_confirmed_at : (wmsPickingReq ? wmsPickingReq.completed_at : null);
+
+  let pickingTag = '';
+  if (finalHasPickingReq && Array.isArray(finalPickingReqJson) && finalPickingReqJson.length > 0) {
+    const allChecked = finalPickingReqJson.every(i => i.checked);
+    const allResolved = finalPickingReqJson.every(i => i.checked || i.discarded);
+    const discardedCount = finalPickingReqJson.filter(i => i.discarded).length;
+    if (allChecked) {
+      pickingTag = '✅ [SOLICITUD PICKING: COMPLETADA]';
+    } else if (allResolved) {
+      pickingTag = `⚠️ [SOLICITUD PICKING: REVISADA (${discardedCount} descartadas)]`;
+    } else {
+      const pendingItems = finalPickingReqJson.filter(i => !i.checked && !i.discarded).map(i => i.text);
+      if (pendingItems.length > 0) {
+        pickingTag = `🚨 [SOLICITUD PICKING: ${pendingItems.join('; ')}]`;
+      }
+    }
+  }
+
+  const resolveObsWithPickingTag = (baseObs) => {
+    let obs = String(baseObs || '').trim();
+    if (!pickingTag) return obs.slice(0, 1000);
+    obs = obs.replace(/(🚨|✅|⚠️)?\s*\[SOLICITUD PICKING:[^\]]*\]\s*(\|)?\s*/gi, '').trim();
+    return (obs ? `${pickingTag} | ${obs}` : pickingTag).slice(0, 1000);
+  };
+
   await pickerSupabase
     .from('active_orders')
     .delete()
@@ -74912,7 +75641,7 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
     }
 
     payloads.push({
-      sucursal: (order.sucursal_pickeo || 'Sucursal Virtual (Hub)').slice(0, 100),
+      sucursal: ((order.sucursal_pickeo === 'Matriz Ñuñoa' ? 'Sucursal Ñuñoa' : order.sucursal_pickeo) || 'Sucursal Virtual (Hub)').slice(0, 100),
       order_number: String(orderNumber).slice(0, 100),
       agenda: (order.agenda || 'STK').slice(0, 100),
       quantity: parseInt(item.quantity, 10) || 1,
@@ -74929,7 +75658,7 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
       operator: String(cleanOperator || '').slice(0, 100),
       totu: totu,
       sheet_status: 'EN PREPARACIÓN',
-      observation: (window.buildPickerObservation ? window.buildPickerObservation(order, prod.description) : (order.observation || prod.description || '')).slice(0, 1000),
+      observation: resolveObsWithPickingTag(window.buildPickerObservation ? window.buildPickerObservation(order, prod.description) : (order.observation || prod.description || '')),
       contact_data_q: (order.customer_email || '').slice(0, 255),
       contact_data_r: (order.customer_phone || '').slice(0, 255),
       contact_data_s: (order.shipping_address || '').slice(0, 255),
@@ -74938,14 +75667,19 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
       extra_col_v: (prod.image_url || '').slice(0, 500),
       comercio: (order.comercio || 'MAGIC MAKEUP').slice(0, 100),
       picking_match_strict: commerceStrict || prod.picking_match_strict || false,
-      created_by: 'Sistema WMS'
+      created_by: 'Sistema WMS',
+      has_picking_requests: finalHasPickingReq,
+      picking_requests_json: finalPickingReqJson,
+      picking_requests_confirmed: finalPickingReqConfirmed,
+      picking_requests_operator: finalPickingReqOperator,
+      picking_requests_confirmed_at: finalPickingReqConfirmedAt
     });
   }
 
   // Fallback si la orden no tiene order_items pero tiene información de item/sku en cabecera
   if (payloads.length === 0 && (order.sku || order.item)) {
     payloads.push({
-      sucursal: (order.sucursal_pickeo || 'Sucursal Virtual (Hub)').slice(0, 100),
+      sucursal: ((order.sucursal_pickeo === 'Matriz Ñuñoa' ? 'Sucursal Ñuñoa' : order.sucursal_pickeo) || 'Sucursal Virtual (Hub)').slice(0, 100),
       order_number: String(orderNumber).slice(0, 100),
       agenda: (order.agenda || 'STK').slice(0, 100),
       quantity: parseInt(order.cantidad, 10) || 1,
@@ -74962,7 +75696,7 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
       operator: String(cleanOperator || '').slice(0, 100),
       totu: parseInt(order.cantidad, 10) || 1,
       sheet_status: 'EN PREPARACIÓN',
-      observation: (window.buildPickerObservation ? window.buildPickerObservation(order, '') : (order.observation || '')).slice(0, 1000),
+      observation: resolveObsWithPickingTag(window.buildPickerObservation ? window.buildPickerObservation(order, '') : (order.observation || '')),
       contact_data_q: (order.customer_email || '').slice(0, 255),
       contact_data_r: (order.customer_phone || '').slice(0, 255),
       contact_data_s: (order.shipping_address || '').slice(0, 255),
@@ -74971,7 +75705,12 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
       extra_col_v: '',
       comercio: (order.comercio || 'MAGIC MAKEUP').slice(0, 100),
       picking_match_strict: commerceStrict || false,
-      created_by: 'Sistema WMS'
+      created_by: 'Sistema WMS',
+      has_picking_requests: finalHasPickingReq,
+      picking_requests_json: finalPickingReqJson,
+      picking_requests_confirmed: finalPickingReqConfirmed,
+      picking_requests_operator: finalPickingReqOperator,
+      picking_requests_confirmed_at: finalPickingReqConfirmedAt
     });
   }
 
@@ -74980,6 +75719,14 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
       .from('active_orders')
       .insert(payloads);
     if (insErr) throw insErr;
+
+    if (finalHasPickingReq && typeof window.syncPickingRequestToPicker === 'function' && order.id) {
+      window.syncPickingRequestToPicker(order.id, {
+        items: finalPickingReqJson,
+        status: finalPickingReqConfirmed ? 'completada' : 'en_preparacion',
+        external_order_number: orderNumber
+      }).catch(() => {});
+    }
   } else {
     throw new Error(`El pedido ${orderNumber} no tiene productos físicos para enviar al Picker.`);
   }
@@ -102938,6 +103685,9 @@ async function renderRedZoneAdmin() {
                 <i class="ri-restart-line"></i> Reabrir
               </button>
             `}
+            <button type="button" class="btn btn-outline btn-eliminar-baja" style="padding: 0.35rem 0.6rem; font-size: 0.78rem; border-color: #fecdd3; color: #ef4444; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;" title="Eliminar solicitud de baja">
+              <i class="ri-delete-bin-line"></i> Eliminar
+            </button>
           </div>
         </td>
       `;
@@ -103088,6 +103838,28 @@ async function renderRedZoneAdmin() {
           } catch (err) {
             alert('Error al reabrir solicitud: ' + err.message);
             btnReabrir.disabled = false;
+          }
+        });
+      }
+
+      const btnEliminar = tr.querySelector('.btn-eliminar-baja');
+      if (btnEliminar) {
+        btnEliminar.addEventListener('click', async () => {
+          if (!confirm(`¿Está seguro de ELIMINAR definitivamente la solicitud de baja del comercio ${state.commerce} (Folio #${t.id.substring(0, 6)})? Esta acción no se puede deshacer.`)) return;
+          btnEliminar.disabled = true;
+          btnEliminar.innerHTML = `<i class="ri-loader-4-line spin"></i>`;
+          try {
+            const { error: delError } = await supabase
+              .from('tickets')
+              .delete()
+              .eq('id', t.id);
+            if (delError) throw delError;
+            if (window.updateAdminBadges) window.updateAdminBadges();
+            renderRedZoneAdmin();
+          } catch (err) {
+            alert('Error al eliminar solicitud: ' + err.message);
+            btnEliminar.disabled = false;
+            btnEliminar.innerHTML = `<i class="ri-delete-bin-line"></i> Eliminar`;
           }
         });
       }

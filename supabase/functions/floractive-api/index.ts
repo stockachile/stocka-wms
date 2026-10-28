@@ -951,12 +951,41 @@ serve(async (req: Request) => {
         }
 
         if (product) {
+          // Determinar la bodega activa del producto (priorizando donde tenga inventario físico o Matriz Ñuñoa)
+          let targetWarehouseId = "973da888-8a63-4790-a08f-919e1af41a93"; // Matriz Ñuñoa por defecto operativo
+          const { data: existingInvRows } = await supabase
+            .from("inventory")
+            .select("id, warehouse_id, quantity")
+            .eq("product_id", product.id)
+            .order("quantity", { ascending: false });
+
+          if (existingInvRows && existingInvRows.length > 0) {
+            const withStock = existingInvRows.find((r: any) => (r.quantity || 0) > 0);
+            if (withStock) {
+              targetWarehouseId = withStock.warehouse_id;
+            } else {
+              const nunoaRow = existingInvRows.find((r: any) => r.warehouse_id === "973da888-8a63-4790-a08f-919e1af41a93");
+              targetWarehouseId = nunoaRow ? nunoaRow.warehouse_id : existingInvRows[0].warehouse_id;
+            }
+          } else {
+            // Asegurar que exista la fila en inventory antes de insertar order_items para que el trigger sume committed_quantity
+            await supabase
+              .from("inventory")
+              .insert([{
+                product_id: product.id,
+                warehouse_id: targetWarehouseId,
+                quantity: 0,
+                committed_quantity: 0,
+                reserved_quantity: 0
+              }]);
+          }
+
           const { error: itemErr } = await supabase
             .from("order_items")
             .insert([{
               order_id: newOrder.id,
               product_id: product.id,
-              warehouse_id: DEFAULT_WAREHOUSE_ID,
+              warehouse_id: targetWarehouseId,
               quantity: qty
             }]);
 
@@ -982,12 +1011,23 @@ serve(async (req: Request) => {
     // RUTA: POST /webhook-test (Probar entrega de Webhooks hacia Floractive)
     // -------------------------------------------------------------------------
     if (req.method === "POST" && path === "webhook-test") {
-      if (!clientAuth.webhook_url) {
+      const reqBody = await req.json().catch(() => ({}));
+      const targetWebhookUrl = (reqBody.webhook_url || clientAuth.webhook_url || "").trim();
+
+      if (!targetWebhookUrl) {
         return jsonResponse({
           success: false,
           error: "Webhook Not Configured",
-          message: "No tienes una URL de webhook configurada en Stocka."
+          message: "No tienes una URL de webhook configurada en Stocka. Puedes enviarla en el body {\"webhook_url\": \"https://...\"} o indicarla al equipo de Stocka."
         }, 400);
+      }
+
+      // Si enviaron webhook_url y aún no estaba guardada, actualizarla en client_api_keys
+      if (reqBody.webhook_url && reqBody.webhook_url !== clientAuth.webhook_url) {
+        await supabase
+          .from("client_api_keys")
+          .update({ webhook_url: targetWebhookUrl })
+          .eq("id", clientAuth.id);
       }
 
       const nowIso = new Date().toISOString();
@@ -1011,7 +1051,7 @@ serve(async (req: Request) => {
       }
 
       try {
-        const destRes = await fetch(clientAuth.webhook_url, {
+        const destRes = await fetch(targetWebhookUrl, {
           method: "POST",
           headers,
           body: payloadText
@@ -1019,9 +1059,11 @@ serve(async (req: Request) => {
 
         return jsonResponse({
           success: true,
-          webhook_url: clientAuth.webhook_url,
+          webhook_url: targetWebhookUrl,
           response_status: destRes.status,
-          response_status_text: destRes.statusText
+          response_status_text: destRes.statusText,
+          headers_sent: headers,
+          raw_body_sent: payloadText
         });
       } catch (err: any) {
         return jsonResponse({

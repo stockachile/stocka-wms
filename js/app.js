@@ -3648,18 +3648,19 @@ async function renderCatalog() {
 
     const masterSkusSet = new Set(masterProducts.map(p => p.sku.toLowerCase().trim().replace(/\s+/g, '')));
     const unmappedSynced = (syncedProducts || []).filter(sp => {
+      const cleanSku = (sp.sku || '').toLowerCase().trim().replace(/\s+/g, '');
+      const hasExistingMapping = Boolean(mappingsMap[sp.platform] && mappingsMap[sp.platform][sp.sku]);
       if (mainPlatform) {
-        // Si hay una plataforma principal configurada como catálogo maestro (ej: Shopify),
-        // se muestran todos los productos de otras plataformas secundarias en el mapeo de equivalencias.
-        return sp.platform.toLowerCase() !== mainPlatform.toLowerCase();
+        return sp.platform.toLowerCase() !== mainPlatform.toLowerCase() || !masterSkusSet.has(cleanSku) || hasExistingMapping;
       } else {
-        const cleanSku = sp.sku.toLowerCase().trim().replace(/\s+/g, '');
-        return !masterSkusSet.has(cleanSku);
+        return !masterSkusSet.has(cleanSku) || hasExistingMapping;
       }
     });
 
     window.currentMasterProducts = masterProducts;
     window.currentUnmappedSyncedProducts = unmappedSynced;
+    window.currentAllSyncedProducts = syncedProducts || [];
+    window.currentMappingsMap = mappingsMap;
 
     const isObserver = userRole === 'observer';
     const createBtn = isObserver ? '' : `<button class="btn btn-primary" id="btn-new-product" style="padding: 0 1rem; font-size: 0.82rem; height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); cursor: pointer; transition: all 0.2s ease;"><i class="ri-add-line" style="font-size: 1.05rem;"></i><span>Nuevo Producto</span></button>`;
@@ -3987,10 +3988,18 @@ async function renderCatalog() {
                 : 'Aquí se listan todos los SKUs que se sincronizan desde tus tiendas integradas y que <strong>no existen</strong> en tu Catálogo Master. Selecciona el producto maestro correspondiente en la columna de equivalencia para asociarlos.'
               }
             </p>
-            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-              <button id="btn-download-sku-template" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); background: transparent; padding: 0.5rem 1.2rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+              <button id="btn-download-sku-template" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); background: transparent; padding: 0.5rem 1.1rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
                 <i class="ri-download-2-line"></i> Descargar Planilla de Ejemplo
               </button>
+              ${!isObserver ? `
+              <button id="btn-trigger-eq-import-excel" class="btn btn-outline" style="border-color: #10b981; color: #10b981; background: transparent; padding: 0.5rem 1.1rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+                <i class="ri-file-excel-2-line"></i> Importar Planilla de Equivalencias
+              </button>
+              <input type="file" id="eq-matrix-import-excel" accept=".xlsx, .xls, .csv" style="display: none;">
+              <button id="btn-merge-catalog-skus" class="btn btn-outline" style="border-color: #8b5cf6; color: #8b5cf6; background: rgba(139, 92, 246, 0.06); padding: 0.5rem 1.1rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+                <i class="ri-git-merge-line"></i> Fusionar / Unificar SKUs Duplicados
+              </button>` : ''}
             </div>
           </div>
 
@@ -4002,7 +4011,11 @@ async function renderCatalog() {
                 </h3>
                 <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">Asocia los SKUs de tus plataformas a los SKUs maestros de WMS.</p>
               </div>
-              <div style="display: flex; gap: 1rem; align-items: center;">
+              <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                <label style="display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; font-weight: 500; color: var(--color-text-muted); cursor: pointer; background: var(--color-bg); padding: 0.4rem 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);" title="Muestra también los productos sincronizados de la plataforma principal o que ya existen en el catálogo">
+                  <input type="checkbox" id="eq-show-all-synced" style="accent-color: var(--color-primary); cursor: pointer;">
+                  <span>Mostrar todos los SKUs sincronizados (${(syncedProducts || []).length})</span>
+                </label>
                 <div style="position: relative;">
                   <i class="ri-search-line" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
                   <input type="text" id="eq-matrix-search" class="form-input" placeholder="Buscar SKU externo..." style="width: 250px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.5rem 1rem 0.5rem 2.5rem; font-size: 0.9rem; transition: border-color 0.2s; height: 38px;">
@@ -10352,6 +10365,7 @@ async function fetchClientOrdersCursorRange({ fromISO, toISO, companyList, merch
 }
 
 async function renderOrders() {
+  window.renderOrders = renderOrders;
   window.clientOrdersInventoryMap = {}; // Limpiar caché al cargar/renderizar pedidos
   window.clientProductTotalStockMap = {};
   window.clientProductInventoryMetricsMap = {};
@@ -12251,7 +12265,10 @@ window.applyClientWmsFiltersAndRender = function() {
             <div class="order-detail-card" style="background: var(--color-surface); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
               <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
                 <span style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-basket-2-line"></i> Ítems del Pedido</span>
-                ${(window.canSplitOrder && window.canSplitOrder(order)) ? `<button type="button" onclick="event.stopPropagation(); window.openSplitOrderModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; color: #7c3aed; border-color: #c4b5fd; background: rgba(124, 58, 237, 0.08); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;" title="Dividir este pedido para realizar un envío parcial de los productos disponibles"><i class="ri-scissors-2-line"></i> Dividir Pedido</button>` : ''}
+                <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                  ${((order.estado_wms || order.status || '').trim().toLowerCase() === 'en procesamiento') ? `<button type="button" onclick="event.stopPropagation(); window.openEditOrderItemsModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; color: var(--color-primary); border-color: rgba(99, 102, 241, 0.45); background: rgba(99, 102, 241, 0.08); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;" title="Editar los productos de este pedido en WMS"><i class="ri-edit-line"></i> Editar Ítems</button>` : ''}
+                  ${(window.canSplitOrder && window.canSplitOrder(order)) ? `<button type="button" onclick="event.stopPropagation(); window.openSplitOrderModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; color: #7c3aed; border-color: #c4b5fd; background: rgba(124, 58, 237, 0.08); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;" title="Dividir este pedido para realizar un envío parcial de los productos disponibles"><i class="ri-scissors-2-line"></i> Dividir Pedido</button>` : ''}
+                </div>
               </h4>
               <div style="overflow-x: auto;">
                 <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
@@ -16527,14 +16544,14 @@ async function renderIntegrations() {
       if (selectedCategoria === 'SHOP POINT (POS)') {
         finalAgenda = 'COMPRA EN BODEGA';
         finalOperador = 'SUCURSAL ÑUÑOA';
-        finalSucursalPickeo = 'Matriz Ñuñoa';
+        finalSucursalPickeo = 'Sucursal Ñuñoa';
         if (!finalShippingMethod || finalShippingMethod.startsWith('Despacho Domicilio') || finalShippingMethod.includes('Retiro en Punto STOCKA')) {
           finalShippingMethod = 'Venta Presencial Sucursal Ñuñoa';
         }
       } else if (selectedCategoria === 'RETIRO') {
         finalAgenda = 'RETIRO';
         finalOperador = 'SUCURSAL ÑUÑOA';
-        finalSucursalPickeo = 'Matriz Ñuñoa';
+        finalSucursalPickeo = 'Sucursal Ñuñoa';
       }
 
       // Generate or retrieve external order number
@@ -16637,6 +16654,7 @@ async function renderIntegrations() {
         comercio: document.getElementById('order-select-commerce')?.value || (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA'),
         status: 'para procesar',
         estado_wms: 'En procesamiento',
+        payment_status: 'pagado',
         customer_name: customerName,
         customer_email: customerEmail || null,
         customer_phone: customerPhone || null,
@@ -36396,9 +36414,11 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
-  // 8. Auto-save Equivalences on input change
-  document.querySelectorAll('.eq-mapping-input').forEach(input => {
-    input.addEventListener('change', async (e) => {
+  // 8. Auto-save Equivalences on input change (delegated on tbody so dynamic toggles work)
+  const eqMatrixTbody = document.getElementById('eq-matrix-tbody');
+  if (eqMatrixTbody) {
+    eqMatrixTbody.addEventListener('change', async (e) => {
+      if (!e.target.classList.contains('eq-mapping-input')) return;
       const platformSku = e.target.getAttribute('data-platform-sku');
       const platform = e.target.getAttribute('data-platform');
       const enteredValue = e.target.value.trim();
@@ -36444,7 +36464,18 @@ function setupCatalogListeners(commerce, mainPlatform) {
         alert('Error al guardar equivalencia: ' + err.message);
       }
     });
-  });
+  }
+
+  // Toggle para mostrar todos los SKUs sincronizados en Mapeo de Equivalencias
+  const cbShowAllSynced = document.getElementById('eq-show-all-synced');
+  if (cbShowAllSynced) {
+    cbShowAllSynced.addEventListener('change', (e) => {
+      const listToShow = e.target.checked
+        ? (window.currentAllSyncedProducts || [])
+        : (window.currentUnmappedSyncedProducts || []);
+      renderEquivalencesRows(listToShow, window.currentMappingsMap || {});
+    });
+  }
 
   // 2. Buscador en la matriz
   const searchInput = document.getElementById('eq-matrix-search');
@@ -36468,6 +36499,16 @@ function setupCatalogListeners(commerce, mainPlatform) {
   if (btnManualEq) {
     btnManualEq.addEventListener('click', () => {
       openCreateManualEquivalenceModal(commerce);
+    });
+  }
+
+  // Fusionar SKUs duplicados del catálogo
+  const btnMergeSkus = document.getElementById('btn-merge-catalog-skus');
+  if (btnMergeSkus) {
+    btnMergeSkus.addEventListener('click', () => {
+      if (typeof window.openMergeDuplicateSkuModal === 'function') {
+        window.openMergeDuplicateSkuModal(commerce, () => renderCatalog());
+      }
     });
   }
 
@@ -36610,6 +36651,14 @@ function setupCatalogListeners(commerce, mainPlatform) {
   }
 
   // 4. Configurar importación de Excel con Vista Previa
+  const btnTriggerEqImport = document.getElementById('btn-trigger-eq-import-excel');
+  if (btnTriggerEqImport) {
+    btnTriggerEqImport.addEventListener('click', () => {
+      const fileInp = document.getElementById('eq-matrix-import-excel');
+      if (fileInp) fileInp.click();
+    });
+  }
+
   const importInput = document.getElementById('eq-matrix-import-excel');
   if (importInput) {
     const newImportInput = importInput.cloneNode(true);
@@ -36661,7 +36710,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
           const validSkus = new Set((validProducts || []).map(p => p.sku));
 
           const previewData = [];
-          const allowedPlatforms = ['Todas', 'Shopify', 'MercadoLibre', 'Falabella', 'Paris', 'Ripley', 'WooCommerce', 'Jumpseller', 'Walmart'];
+          const allowedPlatforms = ['Todas', 'Shopify', 'MercadoLibre', 'Falabella', 'Paris', 'Ripley', 'WooCommerce', 'Jumpseller', 'Walmart', 'Tiendanube'];
 
           rows.forEach((r) => {
             let platformVal = colPlatform ? r[colPlatform] : 'Todas';
@@ -36673,8 +36722,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
               platformVal = 'Todas';
             }
 
-            const platformSkuVal = r[colPlatformSku] ? r[colPlatformSku].toString().trim().replace(/\s+/g, '') : '';
-            const masterSkuVal = r[colMasterSku] ? r[colMasterSku].toString().trim() : '';
+            const platformSkuVal = r[colPlatformSku] !== undefined && r[colPlatformSku] !== null ? r[colPlatformSku].toString().trim() : '';
+            const masterSkuVal = r[colMasterSku] !== undefined && r[colMasterSku] !== null ? r[colMasterSku].toString().trim() : '';
 
             let status = 'Válido';
             let statusColor = '#10b981';

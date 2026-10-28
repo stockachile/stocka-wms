@@ -345,16 +345,18 @@ async function handleOrderCreate(merchantId, comercio, order) {
     let product = null;
 
     // Buscar si existe equivalencia para el SKU en Shopify o Todas las plataformas
-    let cleanSku = (item.sku || item.variant_id?.toString() || "").trim().replace(/\s+/g, '');
-    let mappedSku = cleanSku;
+    const rawSku = (item.sku || item.variant_id?.toString() || "").trim();
+    const cleanSku = rawSku.replace(/\s+/g, '');
+    let mappedSku = rawSku;
     let hasEquivalence = false;
 
-    if (cleanSku) {
+    if (rawSku) {
+      const candidateSkus = rawSku !== cleanSku ? [rawSku, cleanSku] : [rawSku];
       const { data: eqData } = await supabase
         .from("sku_equivalences")
         .select("master_sku, platform")
         .eq("comercio", comercio)
-        .eq("platform_sku", cleanSku)
+        .in("platform_sku", candidateSkus)
         .in("platform", ["Shopify", "Todas"]);
 
       if (eqData && eqData.length > 0) {
@@ -364,14 +366,17 @@ async function handleOrderCreate(merchantId, comercio, order) {
       }
     }
 
-    // Buscar el producto en el catálogo por SKU
-    let query = supabase.from("products")
-      .select("id")
-      .eq("sku", mappedSku)
-      .eq("comercio", comercio);
+    // Buscar el producto en el catálogo por SKU (exacto o sin espacios)
+    const productSkuCandidates = mappedSku !== mappedSku.replace(/\s+/g, '')
+      ? [mappedSku, mappedSku.replace(/\s+/g, '')]
+      : [mappedSku];
+    const { data: foundProducts } = await supabase.from("products")
+      .select("id, sku")
+      .in("sku", productSkuCandidates)
+      .eq("comercio", comercio)
+      .limit(1);
     
-    const { data: foundProduct } = await query.maybeSingle();
-    product = foundProduct;
+    product = foundProducts && foundProducts.length > 0 ? foundProducts[0] : null;
 
     // Auto-crear producto si no existe en el catálogo
     if (!product) {
@@ -753,28 +758,31 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
       let product = null;
 
       // Buscar si existe equivalencia para el SKU en Shopify o Todas las plataformas
-      let cleanSku = (item.sku || "").trim().replace(/\s+/g, '');
-      let mappedSku = cleanSku;
+      const rawSku = (item.sku || item.variant_id?.toString() || "").trim();
+      const cleanSku = rawSku.replace(/\s+/g, '');
+      let mappedSku = rawSku;
       let hasEquivalence = false;
 
       // Verificar si hay cantidad modificada manualmente en WMS
       const cleanLower = cleanSku.toLowerCase();
+      const rawLower = rawSku.toLowerCase();
       const varLower = (item.variant_id?.toString() || '').toLowerCase();
       for (const [mSku, mQty] of Object.entries(manualEdits.modified_quantities || {})) {
         const mLower = mSku.trim().toLowerCase();
-        if (mLower === cleanLower || mLower === varLower) {
+        if (mLower === cleanLower || mLower === rawLower || mLower === varLower) {
           effectiveQty = mQty;
           protectedManualLogs.push(`SKU ${item.sku} mantiene cantidad manual WMS (${mQty}) en lugar de Shopify (${item.current_quantity || item.quantity}).`);
           break;
         }
       }
 
-      if (cleanSku) {
+      if (rawSku) {
+        const candidateSkus = rawSku !== cleanSku ? [rawSku, cleanSku] : [rawSku];
         const { data: eqData } = await supabase
           .from("sku_equivalences")
           .select("master_sku, platform")
           .eq("comercio", comercio)
-          .eq("platform_sku", cleanSku)
+          .in("platform_sku", candidateSkus)
           .in("platform", ["Shopify", "Todas"]);
 
         if (eqData && eqData.length > 0) {
@@ -784,14 +792,17 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
         }
       }
 
-      // Buscar el producto en el catálogo
-      let query = supabase.from("products")
+      // Buscar el producto en el catálogo (exacto o sin espacios)
+      const productSkuCandidates = mappedSku !== mappedSku.replace(/\s+/g, '')
+        ? [mappedSku, mappedSku.replace(/\s+/g, '')]
+        : [mappedSku];
+      const { data: foundProducts } = await supabase.from("products")
         .select("id, sku, name")
-        .eq("sku", mappedSku)
-        .eq("comercio", comercio);
+        .in("sku", productSkuCandidates)
+        .eq("comercio", comercio)
+        .limit(1);
       
-      const { data: foundProduct } = await query.maybeSingle();
-      product = foundProduct;
+      product = foundProducts && foundProducts.length > 0 ? foundProducts[0] : null;
 
       // Auto-crear producto si no existe
       if (!product) {
@@ -981,16 +992,38 @@ async function handleProductSave(merchantId, comercio, product) {
           .maybeSingle();
 
         if (ghostProd) {
-          const { data: ghostInv } = await supabase
-            .from("inventory")
-            .select("quantity")
-            .eq("product_id", ghostProd.id);
+          const { data: realProd } = await supabase
+            .from("products")
+            .select("id")
+            .eq("comercio", comercio)
+            .eq("sku", rawSku)
+            .maybeSingle();
 
-          const totalStock = (ghostInv || []).reduce((acc, i) => acc + (i.quantity || 0), 0);
-          if (totalStock <= 0) {
-            await supabase.from("inventory").delete().eq("product_id", ghostProd.id);
-            await supabase.from("products").delete().eq("id", ghostProd.id);
-            console.log(`Variante huérfana ID ${variantIdStr} eliminada de products al recibirse SKU real ${rawSku}.`);
+          if (realProd && realProd.id !== ghostProd.id) {
+            // Re-vincular order_items que apuntaban al SKU provisional hacia el SKU real
+            await supabase
+              .from("order_items")
+              .update({ product_id: realProd.id })
+              .eq("product_id", ghostProd.id);
+
+            const { data: ghostInv } = await supabase
+              .from("inventory")
+              .select("quantity")
+              .eq("product_id", ghostProd.id);
+
+            const totalStock = (ghostInv || []).reduce((acc, i) => acc + (i.quantity || 0), 0);
+            if (totalStock <= 0) {
+              await supabase.from("inventory").delete().eq("product_id", ghostProd.id);
+              await supabase.from("products").delete().eq("id", ghostProd.id);
+              console.log(`Variante huérfana ID ${variantIdStr} fusionada y eliminada al existir SKU real ${rawSku}.`);
+            }
+          } else if (!realProd) {
+            // Actualizar el SKU provisional directamente al SKU real
+            await supabase
+              .from("products")
+              .update({ sku: rawSku })
+              .eq("id", ghostProd.id);
+            console.log(`Variante provisional ID ${variantIdStr} actualizada a SKU real ${rawSku}.`);
           }
         }
       } catch (cleanErr) {

@@ -252,10 +252,14 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
       shipping_method,
       categoria_entrega,
       payment_status,
+      origen,
+      external_platform,
+      raw_shopify_data,
       estado_wms,
       agenda,
       operador,
       sucursal_pickeo,
+      created_at,
       order_items (
         id,
         quantity,
@@ -323,7 +327,12 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
   const isRetiro = (order.categoria_entrega === 'RETIRO') || 
                    (order.shipping_method && /retiro|pickup|centro|sucursal/i.test(order.shipping_method));
   
-  const isPaid = order.payment_status && /paid|pagado/i.test(order.payment_status);
+  const isManualOrder = /manual/i.test(order.origen || '') ||
+                        /manual/i.test(order.external_platform || '') ||
+                        order.raw_shopify_data?.manual_order === true;
+
+  const isPaid = (order.payment_status && /paid|pagado/i.test(order.payment_status)) ||
+                 (isManualOrder && !order.payment_status);
 
   // Obtener la configuración del comercio para verificar bodega por defecto
   let commerceDefaultWarehouse = null;
@@ -539,7 +548,7 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
       operator: 'SUCURSAL ÑUÑOA',
       totu: totu,
       sheet_status: 'EN PREPARACIÓN',
-      observation: '',
+      observation: String(order.raw_shopify_data?.note || order.raw_shopify_data?.notes || order.raw_shopify_data?.customer_note || '').slice(0, 1000),
       fecha: new Date().toISOString().split('T')[0],
       contact_data_q: order.customer_email || '',
       contact_data_r: order.customer_phone || '',
@@ -742,7 +751,7 @@ async function processAllPendingPickups(options = {}) {
     .from('orders')
     .select('id, external_order_number, comercio, created_at')
     .eq('categoria_entrega', 'RETIRO')
-    .in('payment_status', ['paid', 'PAID', 'pagado', 'PAGADO'])
+    .or('payment_status.in.(paid,PAID,pagado,PAGADO),and(payment_status.is.null,origen.ilike.%manual%),and(payment_status.is.null,external_platform.ilike.%manual%)')
     .in('estado_wms', ['En procesamiento', 'Ingresado', 'no procesado'])
     .gte('created_at', AUTO_PICKUP_CUTOFF_DATE);
 

@@ -148,19 +148,45 @@ function getOrderNoteText(order) {
   return '';
 }
 
-function buildPickerObservation(order, defaultObs) {
+function buildPickerObservation(order, defaultObs, pickingReq) {
   const note = getOrderNoteText(order);
   const def = (defaultObs || '').trim();
-  if (note && def) {
-    if (def.toLowerCase().includes(note.toLowerCase())) {
-      return def;
+  let pickingTag = '';
+  const pr = pickingReq || order?._pickingReq;
+  if (pr && Array.isArray(pr.items) && pr.items.length > 0) {
+    const allChecked = pr.items.every(i => i.checked);
+    const allResolved = pr.items.every(i => i.checked || i.discarded);
+    const discardedCount = pr.items.filter(i => i.discarded).length;
+    if (allChecked) {
+      pickingTag = '✅ [SOLICITUD PICKING: COMPLETADA]';
+    } else if (allResolved) {
+      pickingTag = `⚠️ [SOLICITUD PICKING: REVISADA (${discardedCount} descartadas)]`;
+    } else {
+      const pending = pr.items.filter(i => !i.checked && !i.discarded).map(i => i.text);
+      if (pending.length > 0) {
+        pickingTag = `🚨 [SOLICITUD PICKING: ${pending.join('; ')}]`;
+      }
     }
-    return `${note} | ${def}`;
-  } else if (note) {
-    return note;
-  } else {
-    return def;
   }
+
+  let res = def;
+  if (note && res) {
+    if (!res.toLowerCase().includes(note.toLowerCase())) {
+      res = `${note} | ${res}`;
+    }
+  } else if (note) {
+    res = note;
+  }
+
+  if (pickingTag && res) {
+    if (!res.includes('[SOLICITUD PICKING')) {
+      res = `${pickingTag} | ${res}`;
+    }
+  } else if (pickingTag) {
+    res = pickingTag;
+  }
+
+  return (res || '').slice(0, 1000);
 }
 
 // Helper para resolver el SKU que se envía al Picker en active_orders (concatenación SKU + todos los códigos de barra asociados)
@@ -354,6 +380,8 @@ async function run() {
         agenda,
         sucursal_pickeo,
         operador,
+        has_picking_request,
+        picking_request_status,
         raw_shopify_data,
         raw_woocommerce_data,
         raw_meli_data,
@@ -377,6 +405,29 @@ async function run() {
     }
 
     console.log(`📋 Se encontraron ${wmsOrders.length} pedidos 'En preparación' en WMS.`);
+
+    // Cargar solicitudes especiales de picking para los pedidos en preparación
+    const orderIds = wmsOrders.map(o => o.id).filter(Boolean);
+    const pickingReqsMap = new Map();
+    if (orderIds.length > 0) {
+      try {
+        const { data: pReqs } = await wmsClient
+          .from('order_picking_requests')
+          .select('*')
+          .in('order_id', orderIds);
+        if (pReqs && Array.isArray(pReqs)) {
+          pReqs.forEach(pr => {
+            pickingReqsMap.set(pr.order_id, pr);
+            if (pr.external_order_number) {
+              const cleanP = String(pr.external_order_number).replace(/^#/, '').trim().toUpperCase();
+              pickingReqsMap.set(cleanP, pr);
+            }
+          });
+        }
+      } catch (prErr) {
+        console.warn('Error cargando solicitudes de picking en sync_to_picker:', prErr.message);
+      }
+    }
 
     // 2. Obtener todas las órdenes activas en el Picker para cruzar y comparar (normalizando # y sin #)
     const orderNumbersSet = new Set();
@@ -706,6 +757,15 @@ async function run() {
         if (hasChanges) {
           console.log(`⚠️ DETECTADAS MODIFICACIONES en el pedido ${orderNo}. Actualizando Picker y alertando al operario...`);
 
+          const existingPickingReq = pickerItemsForOrder.find(pi => pi.has_picking_requests) || null;
+          const cleanNo = String(orderNo).replace(/^#/, '').trim().toUpperCase();
+          const wmsPr = pickingReqsMap.get(wmsOrder.id) || pickingReqsMap.get(cleanNo) || null;
+          const hasPr = Boolean(existingPickingReq ? existingPickingReq.has_picking_requests : (wmsPr && Array.isArray(wmsPr.items) && wmsPr.items.length > 0));
+          const prJson = existingPickingReq ? existingPickingReq.picking_requests_json : (wmsPr ? wmsPr.items : null);
+          const prConfirmed = Boolean(existingPickingReq ? existingPickingReq.picking_requests_confirmed : (wmsPr && (wmsPr.status === 'completada' || (Array.isArray(wmsPr.items) && wmsPr.items.every(i => i.checked || i.discarded)))));
+          const prOp = existingPickingReq ? existingPickingReq.picking_requests_operator : (wmsPr ? wmsPr.completed_by_operator : null);
+          const prAt = existingPickingReq ? existingPickingReq.picking_requests_confirmed_at : (wmsPr ? wmsPr.completed_at : null);
+
           // 1. Eliminar anteriores en Picker
           await pickerClient
             .from('active_orders')
@@ -763,7 +823,7 @@ async function run() {
               operator: wmsOrder.operador || (isRetiro ? 'SUCURSAL ÑUÑOA' : (isPorPagar ? 'POR PAGAR' : '')),
               totu: totu,
               sheet_status: 'Pendiente (Obs)', // Resalta en color de alerta en Picker
-              observation: buildPickerObservation(wmsOrder, `⚠️ [MODIFICADO] Este pedido sufrió cambios en el WMS el [${nowStr}]. Por favor verificar ítems.`),
+              observation: buildPickerObservation(wmsOrder, `⚠️ [MODIFICADO] Este pedido sufrió cambios en el WMS el [${nowStr}]. Por favor verificar ítems.`, wmsPr || existingPickingReq),
               contact_data_q: wmsOrder.customer_email || '',
               contact_data_r: wmsOrder.customer_phone || '',
               contact_data_s: wmsOrder.shipping_address || '',
@@ -774,7 +834,12 @@ async function run() {
               created_by: 'Sistema WMS',
               picking_match_strict: commerceStrict || prod.picking_match_strict || false,
               location_info: locData.location_info || '',
-              locations_json: locData.locations_json || null
+              locations_json: locData.locations_json || null,
+              has_picking_requests: hasPr,
+              picking_requests_json: prJson,
+              picking_requests_confirmed: prConfirmed,
+              picking_requests_operator: prOp,
+              picking_requests_confirmed_at: prAt
             });
           });
 
@@ -919,6 +984,14 @@ async function run() {
 
           console.log(`🩹 [SELF-HEALING] Pedido ${orderNo} en preparación con tracking "${cleanTracking}". Re-insertando en active_orders...`);
 
+          const cleanNo = String(orderNo).replace(/^#/, '').trim().toUpperCase();
+          const wmsPr = pickingReqsMap.get(wmsOrder.id) || pickingReqsMap.get(cleanNo) || null;
+          const hasPr = Boolean(wmsPr && Array.isArray(wmsPr.items) && wmsPr.items.length > 0);
+          const prJson = hasPr ? wmsPr.items : null;
+          const prConfirmed = Boolean(wmsPr && (wmsPr.status === 'completada' || (Array.isArray(wmsPr.items) && wmsPr.items.every(i => i.checked || i.discarded))));
+          const prOp = wmsPr ? wmsPr.completed_by_operator : null;
+          const prAt = wmsPr ? wmsPr.completed_at : null;
+
           const physicalItems = (wmsOrder.order_items || []).filter(oi => !oi.products?.is_virtual);
           const totu = physicalItems.reduce((sum, oi) => sum + (parseInt(oi.quantity, 10) || 0), 0) || 1;
           const commerceStrict = strictComerciosSet.has(String(wmsOrder.comercio || '').trim().toUpperCase());
@@ -971,7 +1044,7 @@ async function run() {
               operator: wmsOrder.operador || (isRetiro ? 'SUCURSAL ÑUÑOA' : (isPorPagar ? 'POR PAGAR' : '')),
               totu: totu,
               sheet_status: 'EN PREPARACIÓN',
-              observation: buildPickerObservation(wmsOrder, ''),
+              observation: buildPickerObservation(wmsOrder, '', wmsPr),
               fecha: new Date().toISOString().split('T')[0],
               contact_data_q: wmsOrder.customer_email || '',
               contact_data_r: wmsOrder.customer_phone || '',
@@ -983,7 +1056,12 @@ async function run() {
               created_by: 'Self-Healing Sync',
               picking_match_strict: commerceStrict || prod.picking_match_strict || false,
               location_info: locData.location_info || '',
-              locations_json: locData.locations_json || null
+              locations_json: locData.locations_json || null,
+              has_picking_requests: hasPr,
+              picking_requests_json: prJson,
+              picking_requests_confirmed: prConfirmed,
+              picking_requests_operator: prOp,
+              picking_requests_confirmed_at: prAt
             });
           });
 
