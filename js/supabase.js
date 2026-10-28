@@ -687,15 +687,12 @@ window.fetchAllSupabaseRows = async function(tableName, selectStr, filterCallbac
 
   let allData = [];
   let from = 0;
-  let step = (tableName === 'products' && effectiveSelect.includes('*')) ? 350 : (tableName === 'products' ? 500 : 1000);
+  let step = (tableName === 'products' && effectiveSelect.includes('*')) ? 400 : (tableName === 'products' ? 800 : 1000);
   let jsOrderCol = null;
   let jsOrderAsc = true;
 
-  while (true) {
+  const fetchRangeWithRetry = async (rangeFrom, rangeCount) => {
     let attempts = 0;
-    let data = null;
-    let lastError = null;
-
     while (attempts < 4) {
       attempts++;
       let q = supabase.from(tableName).select(effectiveSelect);
@@ -705,38 +702,69 @@ window.fetchAllSupabaseRows = async function(tableName, selectStr, filterCallbac
           if (col === 'name') {
             jsOrderCol = 'name';
             jsOrderAsc = opts.ascending !== false;
-            return q;
+            return origOrder('id', { ascending: true });
           }
           return origOrder(col, opts);
         };
       }
       if (filterCallback) q = filterCallback(q);
-      const res = await q.range(from, from + step - 1);
+      const res = await q.range(rangeFrom, rangeFrom + rangeCount - 1);
       if (!res.error) {
-        data = res.data;
-        lastError = null;
-        break;
+        return res.data || [];
       }
-      lastError = res.error;
+      const lastError = res.error;
       const errMsg = String(lastError.message || '').toLowerCase();
       const isTimeout = lastError.code === '57014' ||
         errMsg.includes('timeout') ||
         errMsg.includes('canceling statement') ||
         errMsg.includes('failed to fetch');
+      if (isTimeout && rangeCount > 100) {
+        const half = Math.ceil(rangeCount / 2);
+        console.warn(`[fetchAllSupabaseRows] Timeout en ${tableName} [${rangeFrom}..${rangeFrom + rangeCount - 1}], dividiendo lote en ${half}...`, lastError);
+        const firstHalf = await fetchRangeWithRetry(rangeFrom, half);
+        if (firstHalf.length < half) return firstHalf;
+        const secondHalf = await fetchRangeWithRetry(rangeFrom + half, rangeCount - half);
+        return firstHalf.concat(secondHalf);
+      }
       if (isTimeout && attempts < 4) {
-        step = Math.max(100, Math.floor(step / 2));
-        console.warn(`[fetchAllSupabaseRows] Timeout en ${tableName}, reduciendo lote a ${step} (intento ${attempts + 1})...`, lastError);
-        await new Promise(r => setTimeout(r, 400 * attempts));
+        console.warn(`[fetchAllSupabaseRows] Timeout en ${tableName}, reintentando (${attempts + 1}/4)...`, lastError);
+        await new Promise(r => setTimeout(r, 350 * attempts));
       } else {
-        break;
+        throw lastError;
       }
     }
+    return [];
+  };
 
-    if (lastError) throw lastError;
-    if (!data || data.length === 0) break;
-    allData = allData.concat(data);
-    if (data.length < step) break;
-    from += data.length;
+  // Primera página
+  const firstPageData = await fetchRangeWithRetry(0, step);
+  allData = firstPageData;
+
+  // Si la primera página vino llena, descargar las siguientes páginas en olas paralelas (3 páginas por ola)
+  if (allData.length >= step && !isDemo) {
+    from = step;
+    const parallelPages = 3;
+    while (true) {
+      const wavePromises = [];
+      for (let w = 0; w < parallelPages; w++) {
+        wavePromises.push(fetchRangeWithRetry(from + (w * step), step));
+      }
+      const waveResults = await Promise.all(wavePromises);
+      let waveStopped = false;
+      for (const pageRows of waveResults) {
+        if (!pageRows || pageRows.length === 0) {
+          waveStopped = true;
+          break;
+        }
+        allData = allData.concat(pageRows);
+        if (pageRows.length < step) {
+          waveStopped = true;
+          break;
+        }
+      }
+      if (waveStopped) break;
+      from += parallelPages * step;
+    }
   }
 
   // Deduplicar por id en caso de paginar sin ORDER BY en SQL
@@ -773,7 +801,7 @@ window.fetchAllSupabaseRows = async function(tableName, selectStr, filterCallbac
 
     const productIds = allData.map(p => p.id).filter(Boolean);
     const invByProduct = new Map();
-    const chunkSize = 200;
+    const chunkSize = 350;
     const chunks = [];
     for (let i = 0; i < productIds.length; i += chunkSize) {
       chunks.push(productIds.slice(i, i + chunkSize));
@@ -798,7 +826,7 @@ window.fetchAllSupabaseRows = async function(tableName, selectStr, filterCallbac
       return res.data || [];
     };
 
-    const concurrency = 3;
+    const concurrency = 6;
     for (let i = 0; i < chunks.length; i += concurrency) {
       const batch = chunks.slice(i, i + concurrency);
       const batchResults = await Promise.all(batch.map(c => fetchChunk(c)));
@@ -839,6 +867,56 @@ window.fetchAllSupabaseRows = async function(tableName, selectStr, filterCallbac
   }
 
   return allData;
+};
+
+window.refreshSupabaseInventoryForProducts = async function(productsArray, targetProductIds = null) {
+  if (!Array.isArray(productsArray) || productsArray.length === 0) return productsArray;
+  const idsToRefresh = Array.isArray(targetProductIds) && targetProductIds.length > 0
+    ? [...new Set(targetProductIds.filter(Boolean))]
+    : productsArray.map(p => p.id).filter(Boolean);
+  if (idsToRefresh.length === 0) return productsArray;
+
+  const warehouseMap = {};
+  (window.allWarehousesList || []).forEach(w => {
+    if (w && w.id) warehouseMap[String(w.id)] = w.name || '';
+  });
+
+  const invByProduct = new Map();
+  idsToRefresh.forEach(id => invByProduct.set(id, []));
+
+  const chunkSize = 350;
+  const chunks = [];
+  for (let i = 0; i < idsToRefresh.length; i += chunkSize) {
+    chunks.push(idsToRefresh.slice(i, i + chunkSize));
+  }
+
+  let invSelectCols = 'product_id, warehouse_id, quantity, committed_quantity, reserved_quantity';
+  await Promise.all(chunks.map(async (chunkIds) => {
+    let res = await supabase.from('inventory').select(invSelectCols).in('product_id', chunkIds);
+    if (res.error && invSelectCols.includes('reserved_quantity')) {
+      res = await supabase.from('inventory').select('product_id, warehouse_id, quantity, committed_quantity').in('product_id', chunkIds);
+    }
+    (res.data || []).forEach(inv => {
+      const pid = inv.product_id;
+      if (!invByProduct.has(pid)) invByProduct.set(pid, []);
+      const wName = warehouseMap[String(inv.warehouse_id)] || '';
+      invByProduct.get(pid).push({
+        warehouse_id: inv.warehouse_id,
+        quantity: inv.quantity ?? 0,
+        committed_quantity: inv.committed_quantity ?? 0,
+        reserved_quantity: inv.reserved_quantity ?? 0,
+        warehouses: wName ? { name: wName } : null
+      });
+    });
+  }));
+
+  const targetSet = new Set(idsToRefresh);
+  productsArray.forEach(p => {
+    if (p && targetSet.has(p.id)) {
+      p.inventory = invByProduct.get(p.id) || [];
+    }
+  });
+  return productsArray;
 };
 
 window.startPremiumLoader = function(containerId, titleText = 'Inicializando Dashboard') {

@@ -4542,76 +4542,104 @@ async function renderInventory() {
       )
     `;
 
-    const { data: wList } = await supabase.from('warehouses').select('id, name').order('name');
-    window.allWarehousesList = wList || [];
-
-    try {
-      if (typeof window.fetchAllSupabaseRows === 'function') {
-        products = await window.fetchAllSupabaseRows('products', selectFields, q => {
-          return commerce ? q.eq('comercio', commerce).order('name') : q.eq('comercio', 'no asignado').order('name');
+    const fetchWarehousesPromise = (Array.isArray(window.allWarehousesList) && window.allWarehousesList.length > 0)
+      ? Promise.resolve(window.allWarehousesList)
+      : supabase.from('warehouses').select('id, name, comuna').order('name').then(({ data }) => {
+          window.allWarehousesList = data || [];
+          return window.allWarehousesList;
         });
-      } else {
-        let query = supabase.from('products').select(selectFields);
-        query = commerce ? query.eq('comercio', commerce) : query.eq('comercio', 'no asignado');
-        const { data: pData, error: pErr } = await query;
-        if (pErr) throw pErr;
-        products = pData || [];
-      }
-    } catch (errFallback) {
-      const errMsg = String(errFallback?.message || '').toLowerCase();
-      if (typeof window.fetchAllSupabaseRows === 'function' && (errFallback?.code === '57014' || errMsg.includes('timeout') || errMsg.includes('canceling statement'))) {
-        throw errFallback;
-      }
-      if (typeof window.fetchAllSupabaseRows === 'function') {
-        products = await window.fetchAllSupabaseRows('products', selectFallback, q => {
-          return commerce ? q.eq('comercio', commerce).order('name') : q.eq('comercio', 'no asignado').order('name');
-        });
-      } else {
-        let queryFallback = supabase.from('products').select(selectFallback);
-        queryFallback = commerce ? queryFallback.eq('comercio', commerce) : queryFallback.eq('comercio', 'no asignado');
-        const { data: pDataFallback, error: pErrFallback } = await queryFallback;
-        if (pErrFallback) throw pErrFallback;
-        products = pDataFallback || [];
-      }
-    }
 
-    // Obtener stock en tránsito / pendiente de ingreso (sin descargar file_base64 pesado salvo que falte products_list)
-    let pendingStockMap = {};
-    try {
-      const activeStatuses = ['Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'];
-      let decQuery = supabase
-        .from('stock_declarations')
-        .select('id, products_list')
-        .in('status', activeStatuses);
-        
-      if (commerce) {
-        decQuery = decQuery.eq('comercio', commerce);
-      }
-      
-      const { data: decs } = await decQuery;
-      if (decs) {
-        for (const dec of decs) {
-          let decObj = dec;
-          if ((!dec.products_list || !Array.isArray(dec.products_list) || dec.products_list.length === 0) && dec.id) {
-            const { data: fullDec } = await supabase.from('stock_declarations').select('products_list, file_base64').eq('id', dec.id).maybeSingle();
-            if (fullDec) decObj = fullDec;
-          }
-          const decProds = getDeclarationProducts(decObj);
-          decProds.forEach(p => {
-            if (p.sku) {
-              const skuNorm = p.sku.trim();
-              pendingStockMap[skuNorm] = (pendingStockMap[skuNorm] || 0) + (p.qty || 0);
-            }
+    const fetchProductsPromise = (async () => {
+      try {
+        if (typeof window.fetchAllSupabaseRows === 'function') {
+          return await window.fetchAllSupabaseRows('products', selectFields, q => {
+            return commerce ? q.eq('comercio', commerce).order('name') : q.eq('comercio', 'no asignado').order('name');
           });
+        } else {
+          let query = supabase.from('products').select(selectFields);
+          query = commerce ? query.eq('comercio', commerce) : query.eq('comercio', 'no asignado');
+          const { data: pData, error: pErr } = await query;
+          if (pErr) throw pErr;
+          return pData || [];
+        }
+      } catch (errFallback) {
+        const errMsg = String(errFallback?.message || '').toLowerCase();
+        if (typeof window.fetchAllSupabaseRows === 'function' && (errFallback?.code === '57014' || errMsg.includes('timeout') || errMsg.includes('canceling statement'))) {
+          throw errFallback;
+        }
+        if (typeof window.fetchAllSupabaseRows === 'function') {
+          return await window.fetchAllSupabaseRows('products', selectFallback, q => {
+            return commerce ? q.eq('comercio', commerce).order('name') : q.eq('comercio', 'no asignado').order('name');
+          });
+        } else {
+          let queryFallback = supabase.from('products').select(selectFallback);
+          queryFallback = commerce ? queryFallback.eq('comercio', commerce) : queryFallback.eq('comercio', 'no asignado');
+          const { data: pDataFallback, error: pErrFallback } = await queryFallback;
+          if (pErrFallback) throw pErrFallback;
+          return pDataFallback || [];
         }
       }
-    } catch (e) {
-      console.error('Error calculating pending stock map:', e);
-    }
+    })();
+
+    const fetchPendingMapPromise = (async () => {
+      const pendingStockMap = {};
+      try {
+        const activeStatuses = ['Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'];
+        let decQuery = supabase
+          .from('stock_declarations')
+          .select('id, products_list')
+          .in('status', activeStatuses);
+          
+        if (commerce) {
+          decQuery = decQuery.eq('comercio', commerce);
+        }
+        
+        const { data: decs } = await decQuery;
+        if (decs) {
+          for (const dec of decs) {
+            let decObj = dec;
+            if ((!dec.products_list || !Array.isArray(dec.products_list) || dec.products_list.length === 0) && dec.id) {
+              const { data: fullDec } = await supabase.from('stock_declarations').select('products_list, file_base64').eq('id', dec.id).maybeSingle();
+              if (fullDec) decObj = fullDec;
+            }
+            const decProds = getDeclarationProducts(decObj);
+            decProds.forEach(p => {
+              if (p.sku) {
+                const skuNorm = p.sku.trim();
+                pendingStockMap[skuNorm] = (pendingStockMap[skuNorm] || 0) + (p.qty || 0);
+              }
+            });
+          }
+        }
+      } catch (e) {
+        console.error('Error calculating pending stock map:', e);
+      }
+      return pendingStockMap;
+    })();
+
+    const [, loadedProducts, pendingStockMap] = await Promise.all([
+      fetchWarehousesPromise,
+      fetchProductsPromise,
+      fetchPendingMapPromise
+    ]);
+    products = loadedProducts || [];
     window.inventoryPendingStockMap = pendingStockMap;
 
     // Cachear los productos e inventarios obtenidos para buscador y ordenamiento rápido en memoria
     window.cachedInventoryProducts = products || [];
+
+    window.refreshClientInventoryAfterChange = async function(affectedProductIds = null) {
+      if (Array.isArray(window.cachedInventoryProducts) && window.cachedInventoryProducts.length > 0 && typeof window.refreshSupabaseInventoryForProducts === 'function') {
+        try {
+          await window.refreshSupabaseInventoryForProducts(window.cachedInventoryProducts, affectedProductIds);
+          renderInventoryTableBody({ preserveLimit: true });
+          return;
+        } catch (err) {
+          console.warn('Error en actualización incremental de inventario cliente, recargando:', err);
+        }
+      }
+      await renderInventory();
+    };
 
     let commerceSelectorHtml = '';
     if (assignedComercios.length > 1) {
@@ -4945,12 +4973,17 @@ async function renderInventory() {
       });
     }
 
-    // Inicializar listener de búsqueda
+    // Inicializar listener de búsqueda (con debounce para catálogos grandes)
     const searchInput = document.getElementById('inventory-search');
     if (searchInput) {
+      let searchDebounceTimer = null;
       searchInput.addEventListener('input', (e) => {
         window.inventorySearchQuery = e.target.value;
-        renderInventoryTableBody();
+        window.clientInventoryRenderLimit = 150;
+        if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(() => {
+          renderInventoryTableBody();
+        }, 120);
       });
     }
 
@@ -4958,6 +4991,7 @@ async function renderInventory() {
     if (whFilterSelect) {
       whFilterSelect.addEventListener('change', (e) => {
         window.inventoryWarehouseFilter = e.target.value || '';
+        window.clientInventoryRenderLimit = 150;
         renderInventoryTableBody();
       });
     }
@@ -4966,6 +5000,7 @@ async function renderInventory() {
     if (typeFilter) {
       typeFilter.addEventListener('change', (e) => {
         window.inventoryTypeFilter = e.target.value;
+        window.clientInventoryRenderLimit = 150;
         renderInventoryTableBody();
       });
     }
@@ -4978,6 +5013,7 @@ async function renderInventory() {
           if (key === 'instock') window.inventoryFilterInStock = e.target.checked;
           if (key === 'lowstock') window.inventoryFilterLowStock = e.target.checked;
           if (key === 'outofstock') window.inventoryFilterOutOfStock = e.target.checked;
+          window.clientInventoryRenderLimit = 150;
           renderInventoryTableBody();
         });
       }
@@ -5035,7 +5071,7 @@ async function renderInventory() {
 
     const bulkStockBtn = document.getElementById('btn-bulk-stock-assign');
     if (bulkStockBtn) {
-      bulkStockBtn.addEventListener('click', () => openBulkStockAssignModal(commerce, () => renderInventory()));
+      bulkStockBtn.addEventListener('click', () => openBulkStockAssignModal(commerce, (affectedIds) => window.refreshClientInventoryAfterChange(affectedIds)));
     }
 
     const adjustStockBtn = document.getElementById('btn-adjust-stock-bulk');
@@ -5061,7 +5097,7 @@ async function renderInventory() {
           }
         });
 
-        openDirectBulkStockAdjustModal(commerce, selectedProducts, () => renderInventory());
+        openDirectBulkStockAdjustModal(commerce, selectedProducts, (affectedIds) => window.refreshClientInventoryAfterChange(affectedIds || selectedProducts.map(p => p.id)));
       });
     }
 
@@ -5088,7 +5124,7 @@ async function renderInventory() {
           if (!confirmAll) return;
         }
 
-        openBulkStockTransferModal(commerce, selectedProducts, () => renderInventory());
+        openBulkStockTransferModal(commerce, selectedProducts, (affectedIds) => window.refreshClientInventoryAfterChange(affectedIds || (selectedProducts.length > 0 ? selectedProducts.map(p => p.id) : null)));
       });
     }
 
@@ -5811,8 +5847,10 @@ function applyInventoryFiltersAndSort(flat = false, ignoreFilters = false, custo
   return rows;
 }
 
-function renderInventoryTableBody() {
-  renderClientWarehouseLevelsPanel();
+function renderInventoryTableBody(opts = {}) {
+  if (!opts.skipPanel) {
+    renderClientWarehouseLevelsPanel();
+  }
 
   const tbody = document.getElementById('inventory-tbody');
   if (!tbody) return;
@@ -5843,9 +5881,15 @@ function renderInventoryTableBody() {
   }
 
   window.expandedInventoryProducts = window.expandedInventoryProducts || new Set();
+  if (!opts.preserveLimit && !window.clientInventoryRenderLimit) {
+    window.clientInventoryRenderLimit = 150;
+  }
+  const renderLimit = Number(window.clientInventoryRenderLimit) || 150;
+  const visibleRows = rows.length > renderLimit ? rows.slice(0, renderLimit) : rows;
+  const remainingRowsCount = Math.max(0, rows.length - visibleRows.length);
 
   let html = '';
-  rows.forEach(r => {
+  visibleRows.forEach(r => {
     let badge = '';
     const isInsuficiente = r.committed > 0 && r.physical <= 0;
 
@@ -6052,124 +6096,183 @@ function renderInventoryTableBody() {
     }
   });
 
-  tbody.innerHTML = html;
-
-  // Enlazar listeners para expandir/colapsar
-  tbody.querySelectorAll('.toggle-warehouse-detail').forEach(el => {
-    el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const prodId = el.getAttribute('data-prod-id');
-      if (window.expandedInventoryProducts.has(prodId)) {
-        window.expandedInventoryProducts.delete(prodId);
-      } else {
-        window.expandedInventoryProducts.add(prodId);
-      }
-      renderInventoryTableBody();
-    });
-  });
-
-  // Re-bind listeners para inputs de stock crítico inline
-  if (!isObserver) {
-    tbody.querySelectorAll('.stock-critico-inline').forEach(input => {
-      input.addEventListener('change', async (e) => {
-        const prodId = e.target.getAttribute('data-prod-id');
-        const newVal = parseInt(e.target.value, 10);
-        
-        if (isNaN(newVal) || newVal < 0) {
-          alert('El valor de stock crítico debe ser un número mayor o igual a 0.');
-          e.target.value = e.target.defaultValue;
-          return;
-        }
-
-        e.target.style.borderColor = 'var(--color-primary)';
-        
-        try {
-          const { error } = await supabase
-            .from('products')
-            .update({ stock_critico: newVal })
-            .eq('id', prodId);
-
-          if (error) throw error;
-          
-          e.target.style.borderColor = 'var(--color-success)';
-          e.target.defaultValue = newVal;
-          setTimeout(() => {
-            e.target.style.borderColor = '';
-          }, 1000);
-          
-          // Actualizar en el caché local en memoria para no requerir otra consulta
-          if (window.cachedInventoryProducts) {
-            const cachedP = window.cachedInventoryProducts.find(p => p.id === prodId);
-            if (cachedP) cachedP.stock_critico = newVal;
-          }
-          
-          // Re-renderizar para actualizar badges y estados
-          renderInventoryTableBody();
-          
-        } catch (err) {
-          console.error('Error al actualizar stock crítico:', err);
-          e.target.style.borderColor = 'var(--color-danger)';
-          alert('Error al guardar el stock crítico: ' + err.message);
-        }
-      });
-    });
+  if (remainingRowsCount > 0) {
+    const colSpanCount = isSingleWarehouseView ? 16 : 15;
+    html += `
+      <tr id="client-inventory-load-more-row" style="background: var(--color-bg);">
+        <td colspan="${colSpanCount}" style="padding: 0.9rem; text-align: center;">
+          <div style="display: inline-flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; justify-content: center;">
+            <span style="font-size: 0.82rem; color: var(--color-text-muted); font-weight: 500;">
+              Mostrando <strong>${visibleRows.length.toLocaleString('es-CL')}</strong> de <strong>${rows.length.toLocaleString('es-CL')}</strong> productos
+            </span>
+            <button type="button" class="btn btn-outline btn-sm btn-load-more-client-inv" data-step="250" style="padding: 0.35rem 0.85rem; font-size: 0.8rem; font-weight: 600; cursor: pointer;">
+              <i class="ri-add-circle-line"></i> Mostrar 250 más
+            </button>
+            <button type="button" class="btn btn-outline btn-sm btn-load-all-client-inv" style="padding: 0.35rem 0.85rem; font-size: 0.8rem; font-weight: 600; cursor: pointer;">
+              Mostrar todos (${rows.length.toLocaleString('es-CL')})
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
   }
 
-  // Enlazar listeners para botón de movimientos
-  tbody.querySelectorAll('.btn-view-movements').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const prodId = e.currentTarget.getAttribute('data-prod-id');
-      const sku = e.currentTarget.getAttribute('data-prod-sku');
-      const name = e.currentTarget.getAttribute('data-prod-name');
-      openProductMovementsModal(prodId, sku, name);
-    });
-  });
+  tbody.innerHTML = html;
 
-  // Enlazar listeners para traslado rápido desde columna Otras Bodegas
-  tbody.querySelectorAll('.btn-quick-transfer-other-wh').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const prodId = e.currentTarget.getAttribute('data-prod-id');
-      const sku = e.currentTarget.getAttribute('data-prod-sku');
-      const name = e.currentTarget.getAttribute('data-prod-name');
-      const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
-      if (typeof openBulkStockTransferModal === 'function' && commerce) {
-        openBulkStockTransferModal(commerce, [{ id: prodId, sku: sku, name: name }], () => renderInventory());
+  // Auto-cargar más filas al hacer scroll cerca del final
+  const loadMoreRow = document.getElementById('client-inventory-load-more-row');
+  if (loadMoreRow && typeof IntersectionObserver !== 'undefined') {
+    if (window._clientInvLoadMoreObserver) {
+      window._clientInvLoadMoreObserver.disconnect();
+    }
+    window._clientInvLoadMoreObserver = new IntersectionObserver((entries) => {
+      if (entries[0] && entries[0].isIntersecting) {
+        window._clientInvLoadMoreObserver.disconnect();
+        window.clientInventoryRenderLimit = (Number(window.clientInventoryRenderLimit) || 150) + 200;
+        renderInventoryTableBody({ preserveLimit: true, skipPanel: true });
+      }
+    }, { rootMargin: '300px' });
+    window._clientInvLoadMoreObserver.observe(loadMoreRow);
+  }
+
+  // Delegación de eventos en un solo listener sobre tbody
+  if (!tbody._hasDelegatedClientListeners) {
+    tbody._hasDelegatedClientListeners = true;
+
+    tbody.addEventListener('click', (e) => {
+      const loadMoreBtn = e.target.closest('.btn-load-more-client-inv');
+      if (loadMoreBtn) {
+        e.stopPropagation();
+        const step = parseInt(loadMoreBtn.getAttribute('data-step') || '250', 10);
+        window.clientInventoryRenderLimit = (Number(window.clientInventoryRenderLimit) || 150) + step;
+        renderInventoryTableBody({ preserveLimit: true, skipPanel: true });
+        return;
+      }
+
+      const loadAllBtn = e.target.closest('.btn-load-all-client-inv');
+      if (loadAllBtn) {
+        e.stopPropagation();
+        window.clientInventoryRenderLimit = 999999;
+        renderInventoryTableBody({ preserveLimit: true, skipPanel: true });
+        return;
+      }
+
+      const toggleWh = e.target.closest('.toggle-warehouse-detail');
+      if (toggleWh) {
+        e.stopPropagation();
+        const prodId = toggleWh.getAttribute('data-prod-id');
+        if (window.expandedInventoryProducts.has(prodId)) {
+          window.expandedInventoryProducts.delete(prodId);
+        } else {
+          window.expandedInventoryProducts.add(prodId);
+        }
+        renderInventoryTableBody({ preserveLimit: true, skipPanel: true });
+        return;
+      }
+
+      const movBtn = e.target.closest('.btn-view-movements');
+      if (movBtn) {
+        const prodId = movBtn.getAttribute('data-prod-id');
+        const sku = movBtn.getAttribute('data-prod-sku');
+        const name = movBtn.getAttribute('data-prod-name');
+        openProductMovementsModal(prodId, sku, name);
+        return;
+      }
+
+      const quickTransferBtn = e.target.closest('.btn-quick-transfer-other-wh');
+      if (quickTransferBtn) {
+        e.stopPropagation();
+        const prodId = quickTransferBtn.getAttribute('data-prod-id');
+        const sku = quickTransferBtn.getAttribute('data-prod-sku');
+        const name = quickTransferBtn.getAttribute('data-prod-name');
+        const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
+        if (typeof openBulkStockTransferModal === 'function' && commerce) {
+          openBulkStockTransferModal(commerce, [{ id: prodId, sku: sku, name: name }], (affectedIds) => {
+            if (typeof window.refreshClientInventoryAfterChange === 'function') {
+              window.refreshClientInventoryAfterChange(affectedIds || [prodId]);
+            } else {
+              renderInventory();
+            }
+          });
+        }
+        return;
+      }
+
+      const committedLink = e.target.closest('.badge-committed-link');
+      if (committedLink) {
+        const prodId = committedLink.getAttribute('data-prod-id');
+        const whId = committedLink.getAttribute('data-warehouse-id') || null;
+        const sku = committedLink.getAttribute('data-prod-sku');
+        const name = committedLink.getAttribute('data-prod-name');
+        const whName = committedLink.getAttribute('data-warehouse-name');
+        const filterType = committedLink.getAttribute('data-filter-type') || 'all';
+        openCommittedDetailModal(prodId, whId, sku, name, whName, filterType);
+        return;
+      }
+
+      const pendingLink = e.target.closest('.badge-pending-link');
+      if (pendingLink) {
+        const sku = pendingLink.getAttribute('data-prod-sku');
+        const name = pendingLink.getAttribute('data-prod-name');
+        openPendingDetailModal(sku, name);
+        return;
       }
     });
-  });
 
-  // Enlazar listeners para stock comprometido y reservado
-  tbody.querySelectorAll('.badge-committed-link').forEach(link => {
-    link.addEventListener('click', (e) => {
-      const prodId = e.currentTarget.getAttribute('data-prod-id');
-      const whId = e.currentTarget.getAttribute('data-warehouse-id') || null;
-      const sku = e.currentTarget.getAttribute('data-prod-sku');
-      const name = e.currentTarget.getAttribute('data-prod-name');
-      const whName = e.currentTarget.getAttribute('data-warehouse-name');
-      const filterType = e.currentTarget.getAttribute('data-filter-type') || 'all';
-      openCommittedDetailModal(prodId, whId, sku, name, whName, filterType);
-    });
-  });
+    tbody.addEventListener('change', async (e) => {
+      if (userRole === 'observer') return;
+      const input = e.target.closest('.stock-critico-inline');
+      if (!input) return;
 
-  // Enlazar listeners para stock pendiente de ingreso
-  tbody.querySelectorAll('.badge-pending-link').forEach(link => {
-    link.addEventListener('click', (e) => {
-      const sku = e.currentTarget.getAttribute('data-prod-sku');
-      const name = e.currentTarget.getAttribute('data-prod-name');
-      openPendingDetailModal(sku, name);
+      const prodId = input.getAttribute('data-prod-id');
+      const newVal = parseInt(input.value, 10);
+      
+      if (isNaN(newVal) || newVal < 0) {
+        alert('El valor de stock crítico debe ser un número mayor o igual a 0.');
+        input.value = input.defaultValue;
+        return;
+      }
+
+      input.style.borderColor = 'var(--color-primary)';
+      
+      try {
+        const { error } = await supabase
+          .from('products')
+          .update({ stock_critico: newVal })
+          .eq('id', prodId);
+
+        if (error) throw error;
+        
+        input.style.borderColor = 'var(--color-success)';
+        input.defaultValue = newVal;
+        setTimeout(() => {
+          input.style.borderColor = '';
+        }, 1000);
+        
+        if (window.cachedInventoryProducts) {
+          const cachedP = window.cachedInventoryProducts.find(p => p.id === prodId);
+          if (cachedP) cachedP.stock_critico = newVal;
+        }
+        
+        renderInventoryTableBody({ preserveLimit: true });
+        
+      } catch (err) {
+        console.error('Error al actualizar stock crítico:', err);
+        input.style.borderColor = 'var(--color-danger)';
+        alert('Error al guardar el stock crítico: ' + err.message);
+      }
     });
-  });
+  }
 
   const selectAll = document.getElementById('select-all-client-inventory');
   if (selectAll) {
     selectAll.checked = false;
-    selectAll.addEventListener('change', (e) => {
+    selectAll.onchange = (e) => {
       const checked = e.target.checked;
       tbody.querySelectorAll('.inventory-row-checkbox').forEach(cb => {
         cb.checked = checked;
       });
-    });
+    };
   }
 }
 

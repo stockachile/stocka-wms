@@ -24097,15 +24097,75 @@ async function renderAdminInventoryStockTab() {
   }
 }
 
-async function renderAdminInventoryWorkspace(commerce) {
+window.adminInventoryCommerceCache = window.adminInventoryCommerceCache || {};
+
+window.refreshAdminInventoryAfterChange = async function(commerce, affectedProductIds = null) {
+  const activeCom = commerce || window.activeAdminInventoryCommerce;
+  if (!activeCom) return;
+
+  if (Array.isArray(window.cachedAdminInventoryProducts) && window.cachedAdminInventoryProducts.length > 0 && typeof window.refreshSupabaseInventoryForProducts === 'function') {
+    try {
+      await window.refreshSupabaseInventoryForProducts(window.cachedAdminInventoryProducts, affectedProductIds);
+      if (window.adminInventoryCommerceCache && window.adminInventoryCommerceCache[activeCom]) {
+        window.adminInventoryCommerceCache[activeCom].products = window.cachedAdminInventoryProducts;
+        window.adminInventoryCommerceCache[activeCom].timestamp = Date.now();
+      }
+      if (document.getElementById('admin-inventory-tbody')) {
+        renderAdminInventoryTableBody({ preserveLimit: true });
+        return;
+      }
+    } catch (e) {
+      console.warn('Error en refreshAdminInventoryAfterChange parcial, recargando completo:', e);
+    }
+  }
+  await renderAdminInventoryWorkspace(activeCom, true);
+};
+
+async function fetchAdminPendingStockMap(commerce) {
+  const pendingStockMap = {};
+  try {
+    const activeStatuses = ['Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'];
+    const { data: decs } = await supabase
+      .from('stock_declarations')
+      .select('id, products_list')
+      .eq('comercio', commerce)
+      .in('status', activeStatuses);
+
+    if (decs) {
+      for (const dec of decs) {
+        let decObj = dec;
+        if ((!dec.products_list || !Array.isArray(dec.products_list) || dec.products_list.length === 0) && dec.id) {
+          const { data: fullDec } = await supabase.from('stock_declarations').select('products_list, file_base64').eq('id', dec.id).maybeSingle();
+          if (fullDec) decObj = fullDec;
+        }
+        const decProds = getDeclarationProducts(decObj);
+        decProds.forEach(p => {
+          if (p.sku) {
+            const skuNorm = p.sku.trim();
+            pendingStockMap[skuNorm] = (pendingStockMap[skuNorm] || 0) + (p.qty || 0);
+          }
+        });
+      }
+    }
+  } catch (e) {
+    console.error('Error calculating pending stock map:', e);
+  }
+  return pendingStockMap;
+}
+
+async function renderAdminInventoryWorkspace(commerce, forceNetwork = false) {
   const workspace = document.getElementById('inv-admin-workspace');
-  workspace.innerHTML = `<p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem;"></i> Cargando inventario del comercio...</p>`;
+  if (!workspace) return;
+
+  const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos en memoria
+  const cachedEntry = window.adminInventoryCommerceCache && window.adminInventoryCommerceCache[commerce];
+  const hasValidCache = !forceNetwork && cachedEntry && Array.isArray(cachedEntry.products) && (Date.now() - cachedEntry.timestamp < CACHE_TTL_MS);
+
+  if (!hasValidCache) {
+    workspace.innerHTML = `<p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem;"></i> Cargando inventario de <strong>${commerce}</strong>...</p>`;
+  }
 
   try {
-    const { data: wList } = await supabase.from('warehouses').select('id, name').order('name');
-    window.allWarehousesList = wList || [];
-
-    let products = [];
     const selectFields = `
       id,
       sku,
@@ -24142,60 +24202,58 @@ async function renderAdminInventoryWorkspace(commerce) {
       )
     `;
 
-    try {
-      if (typeof window.fetchAllSupabaseRows === 'function') {
-        products = await window.fetchAllSupabaseRows('products', selectFields, q => q.eq('comercio', commerce).order('name'));
-      } else {
-        const { data: pData, error: pErr } = await supabase.from('products').select(selectFields).eq('comercio', commerce);
-        if (pErr) throw pErr;
-        products = pData || [];
+    if (hasValidCache) {
+      window.cachedAdminInventoryProducts = cachedEntry.products;
+      window.adminInventoryPendingStockMap = cachedEntry.pendingStockMap || {};
+      if (!window.allWarehousesList || window.allWarehousesList.length === 0) {
+        const { data: wList } = await supabase.from('warehouses').select('id, name').order('name');
+        window.allWarehousesList = wList || [];
       }
-    } catch (errFallback) {
-      const errMsg = String(errFallback?.message || '').toLowerCase();
-      if (typeof window.fetchAllSupabaseRows === 'function' && (errFallback?.code === '57014' || errMsg.includes('timeout') || errMsg.includes('canceling statement'))) {
-        throw errFallback;
-      }
-      if (typeof window.fetchAllSupabaseRows === 'function') {
-        products = await window.fetchAllSupabaseRows('products', selectFallback, q => q.eq('comercio', commerce).order('name'));
-      } else {
-        const { data: pDataFallback, error: pErrFallback } = await supabase.from('products').select(selectFallback).eq('comercio', commerce);
-        if (pErrFallback) throw pErrFallback;
-        products = pDataFallback || [];
-      }
-    }
-
-    // Obtener stock en tránsito / pendiente de ingreso (sin descargar file_base64 pesado salvo que falte products_list)
-    let pendingStockMap = {};
-    try {
-      const activeStatuses = ['Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'];
-      const { data: decs } = await supabase
-        .from('stock_declarations')
-        .select('id, products_list')
-        .eq('comercio', commerce)
-        .in('status', activeStatuses);
-        
-      if (decs) {
-        for (const dec of decs) {
-          let decObj = dec;
-          if ((!dec.products_list || !Array.isArray(dec.products_list) || dec.products_list.length === 0) && dec.id) {
-            const { data: fullDec } = await supabase.from('stock_declarations').select('products_list, file_base64').eq('id', dec.id).maybeSingle();
-            if (fullDec) decObj = fullDec;
-          }
-          const decProds = getDeclarationProducts(decObj);
-          decProds.forEach(p => {
-            if (p.sku) {
-              const skuNorm = p.sku.trim();
-              pendingStockMap[skuNorm] = (pendingStockMap[skuNorm] || 0) + (p.qty || 0);
-            }
+    } else {
+      // Ejecutar carga de bodegas, productos+inventario y declaraciones en paralelo
+      const warehousesPromise = (Array.isArray(window.allWarehousesList) && window.allWarehousesList.length > 0 && !forceNetwork)
+        ? Promise.resolve(window.allWarehousesList)
+        : supabase.from('warehouses').select('id, name').order('name').then(({ data }) => {
+            window.allWarehousesList = data || [];
+            return window.allWarehousesList;
           });
-        }
-      }
-    } catch (e) {
-      console.error('Error calculating pending stock map:', e);
-    }
-    window.adminInventoryPendingStockMap = pendingStockMap;
 
-    window.cachedAdminInventoryProducts = products || [];
+      const productsPromise = (async () => {
+        try {
+          if (typeof window.fetchAllSupabaseRows === 'function') {
+            return await window.fetchAllSupabaseRows('products', selectFields, q => q.eq('comercio', commerce).order('name'));
+          }
+          const { data: pData, error: pErr } = await supabase.from('products').select(selectFields).eq('comercio', commerce);
+          if (pErr) throw pErr;
+          return pData || [];
+        } catch (errFallback) {
+          const errMsg = String(errFallback?.message || '').toLowerCase();
+          if (typeof window.fetchAllSupabaseRows === 'function' && (errFallback?.code === '57014' || errMsg.includes('timeout') || errMsg.includes('canceling statement'))) {
+            throw errFallback;
+          }
+          if (typeof window.fetchAllSupabaseRows === 'function') {
+            return await window.fetchAllSupabaseRows('products', selectFallback, q => q.eq('comercio', commerce).order('name'));
+          }
+          const { data: pDataFallback, error: pErrFallback } = await supabase.from('products').select(selectFallback).eq('comercio', commerce);
+          if (pErrFallback) throw pErrFallback;
+          return pDataFallback || [];
+        }
+      })();
+
+      const [, products, pendingStockMap] = await Promise.all([
+        warehousesPromise,
+        productsPromise,
+        fetchAdminPendingStockMap(commerce)
+      ]);
+
+      window.adminInventoryPendingStockMap = pendingStockMap;
+      window.cachedAdminInventoryProducts = products || [];
+      window.adminInventoryCommerceCache[commerce] = {
+        products: window.cachedAdminInventoryProducts,
+        pendingStockMap: window.adminInventoryPendingStockMap,
+        timestamp: Date.now()
+      };
+    }
 
     workspace.innerHTML = `
       <!-- Panel de Nivel de Inventario por Bodega -->
@@ -24346,7 +24404,10 @@ async function renderAdminInventoryWorkspace(commerce) {
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
         window.adminInventorySearchQuery = e.target.value;
-        renderAdminInventoryTableBody();
+        if (window.adminInvSearchTimer) clearTimeout(window.adminInvSearchTimer);
+        window.adminInvSearchTimer = setTimeout(() => {
+          renderAdminInventoryTableBody({ skipLevelsPanel: true });
+        }, 120);
       });
     }
 
@@ -24362,7 +24423,7 @@ async function renderAdminInventoryWorkspace(commerce) {
     if (typeFilter) {
       typeFilter.addEventListener('change', (e) => {
         window.adminInventoryTypeFilter = e.target.value;
-        renderAdminInventoryTableBody();
+        renderAdminInventoryTableBody({ skipLevelsPanel: true });
       });
     }
 
@@ -24374,7 +24435,7 @@ async function renderAdminInventoryWorkspace(commerce) {
           if (key === 'instock') window.adminInventoryFilterInStock = e.target.checked;
           if (key === 'lowstock') window.adminInventoryFilterLowStock = e.target.checked;
           if (key === 'outofstock') window.adminInventoryFilterOutOfStock = e.target.checked;
-          renderAdminInventoryTableBody();
+          renderAdminInventoryTableBody({ skipLevelsPanel: true });
         });
       }
     });
@@ -24386,7 +24447,7 @@ async function renderAdminInventoryWorkspace(commerce) {
         if (icon) icon.className = 'ri-loader-4-line ri-spin';
         refreshBtn.disabled = true;
         try {
-          await renderAdminInventoryWorkspace(commerce);
+          await renderAdminInventoryWorkspace(commerce, true);
         } catch (err) {
           console.error('Error al refrescar inventario admin:', err);
           if (icon) icon.className = 'ri-refresh-line';
@@ -24437,7 +24498,7 @@ async function renderAdminInventoryWorkspace(commerce) {
 
     const bulkStockBtn = document.getElementById('btn-admin-bulk-stock-assign');
     if (bulkStockBtn) {
-      bulkStockBtn.addEventListener('click', () => openBulkStockAssignModal(commerce, () => renderAdminInventoryWorkspace(commerce)));
+      bulkStockBtn.addEventListener('click', () => openBulkStockAssignModal(commerce, (affectedIds) => window.refreshAdminInventoryAfterChange(commerce, affectedIds)));
     }
 
     const adjustStockBtn = document.getElementById('btn-admin-adjust-stock-bulk');
@@ -24463,7 +24524,7 @@ async function renderAdminInventoryWorkspace(commerce) {
           }
         });
 
-        openDirectBulkStockAdjustModal(commerce, selectedProducts, () => renderAdminInventoryWorkspace(commerce));
+        openDirectBulkStockAdjustModal(commerce, selectedProducts, (affectedIds) => window.refreshAdminInventoryAfterChange(commerce, affectedIds));
       });
     }
 
@@ -24490,7 +24551,7 @@ async function renderAdminInventoryWorkspace(commerce) {
           if (!confirmAll) return;
         }
 
-        openBulkStockTransferModal(commerce, selectedProducts, () => renderAdminInventoryWorkspace(commerce));
+        openBulkStockTransferModal(commerce, selectedProducts, (affectedIds) => window.refreshAdminInventoryAfterChange(commerce, affectedIds), window.adminInventoryWarehouseFilter || null);
       });
     }
 
@@ -24546,7 +24607,7 @@ async function renderAdminInventoryWorkspace(commerce) {
           window.adminInventorySortAsc = true;
         }
         updateAdminInventorySortingIndicators();
-        renderAdminInventoryTableBody();
+        renderAdminInventoryTableBody({ skipLevelsPanel: true });
       });
     });
 
@@ -24557,6 +24618,15 @@ async function renderAdminInventoryWorkspace(commerce) {
 
     updateAdminInventorySortingIndicators();
     renderAdminInventoryTableBody();
+
+    // Si se hidrató desde caché SWR, refrescar niveles de stock en segundo plano sin bloquear la UI
+    if (hasValidCache && typeof window.refreshSupabaseInventoryForProducts === 'function') {
+      window.refreshSupabaseInventoryForProducts(window.cachedAdminInventoryProducts).then(() => {
+        if (window.activeAdminInventoryCommerce === commerce && document.getElementById('admin-inventory-tbody')) {
+          renderAdminInventoryTableBody({ preserveLimit: true });
+        }
+      }).catch(() => {});
+    }
 
   } catch (err) {
     console.error('Error rendering admin inventory workspace:', err);
@@ -24833,11 +24903,19 @@ function renderAdminWarehouseLevelsPanel() {
   }
 }
 
-function renderAdminInventoryTableBody() {
+function renderAdminInventoryTableBody(opts = {}) {
   const tbody = document.getElementById('admin-inventory-tbody');
   if (!tbody) return;
 
-  renderAdminWarehouseLevelsPanel();
+  if (!opts.preserveLimit) {
+    window.adminInventoryRenderLimit = 150;
+  } else if (!window.adminInventoryRenderLimit) {
+    window.adminInventoryRenderLimit = 150;
+  }
+
+  if (!opts.skipLevelsPanel) {
+    renderAdminWarehouseLevelsPanel();
+  }
 
   const activeWhId = String(window.adminInventoryWarehouseFilter || '');
   const isSingleWarehouseView = Boolean(activeWhId);
@@ -24865,9 +24943,10 @@ function renderAdminInventoryTableBody() {
   }
 
   window.expandedAdminInventoryProducts = window.expandedAdminInventoryProducts || new Set();
+  const visibleRows = rows.slice(0, window.adminInventoryRenderLimit);
 
   let html = '';
-  rows.forEach(r => {
+  visibleRows.forEach(r => {
     let badge = '';
     const isInsuficiente = r.committed > 0 && r.physical <= 0;
     
@@ -24915,19 +24994,20 @@ function renderAdminInventoryTableBody() {
       ? ` <i class="ri-error-warning-line" style="color: #ef4444; cursor: help; font-size: 1rem; vertical-align: middle; margin-left: 0.25rem;" title="El producto tiene unidades comprometidas pero no tiene unidades físicas en stock"></i>`
       : '';
 
-    // Construir la lista completa de bodegas mapeadas para este producto
-    const mappedWarehouses = (window.allWarehousesList || []).map(wh => {
-      const existing = (r.inventory || []).find(inv => inv.warehouse_id === wh.id);
-      return {
-        warehouse_id: wh.id,
-        warehouse_name: wh.name,
-        quantity: existing ? (existing.quantity || 0) : 0,
-        committed_quantity: existing ? (existing.committed_quantity || 0) : 0,
-        reserved_quantity: existing ? (existing.reserved_quantity || 0) : 0
-      };
-    });
-
+    const warehousesCount = (window.allWarehousesList || []).length;
     const isExpanded = !isSingleWarehouseView && window.expandedAdminInventoryProducts.has(r.id);
+    const mappedWarehouses = isExpanded
+      ? (window.allWarehousesList || []).map(wh => {
+          const existing = (r.inventory || []).find(inv => inv.warehouse_id === wh.id);
+          return {
+            warehouse_id: wh.id,
+            warehouse_name: wh.name,
+            quantity: existing ? (existing.quantity || 0) : 0,
+            committed_quantity: existing ? (existing.committed_quantity || 0) : 0,
+            reserved_quantity: existing ? (existing.reserved_quantity || 0) : 0
+          };
+        })
+      : [];
     
     let bodegaCellContent = '';
     if (isSingleWarehouseView) {
@@ -24936,13 +25016,13 @@ function renderAdminInventoryTableBody() {
           <i class="ri-building-2-line"></i> ${r.warehouse || 'Bodega'}
         </span>
       `;
-    } else if (mappedWarehouses.length === 0) {
+    } else if (warehousesCount === 0) {
       bodegaCellContent = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">Sin bodegas creadas</span>`;
     } else {
       bodegaCellContent = `
         <span class="toggle-warehouse-detail" data-prod-id="${r.id}" style="cursor: pointer; color: var(--color-accent); font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; user-select: none;">
           <i class="${isExpanded ? 'ri-subtract-line' : 'ri-add-line'}" style="font-weight: 700;"></i>
-          ${isExpanded ? 'Ocultar Bodegas' : 'Mostrar Bodegas'} (${mappedWarehouses.length})
+          ${isExpanded ? 'Ocultar Bodegas' : 'Mostrar Bodegas'} (${warehousesCount})
         </span>
       `;
     }
@@ -24956,6 +25036,7 @@ function renderAdminInventoryTableBody() {
       const otherAvail = Number(r.otherWarehousesAvailable || 0);
       const otherPhys = Number(r.otherWarehousesPhysical || 0);
       const breakdown = Array.isArray(r.otherWarehousesBreakdown) ? r.otherWarehousesBreakdown : [];
+      const bestSrcWhId = breakdown.length > 0 ? breakdown.reduce((best, cur) => (cur.available > (best?.available || -1) ? cur : best), breakdown[0])?.id || '' : '';
       const canReplenishHere = r.available <= 0 && otherAvail > 0;
       const tooltipDetail = breakdown.length > 0
         ? `Stock en otras bodegas (${ breakdown.map(b => `${b.name}: ${b.available} disp. / ${b.physical} fís.`).join(' | ') }) — Clic para trasladar stock`
@@ -24969,7 +25050,7 @@ function renderAdminInventoryTableBody() {
       if (otherAvail > 0 || otherPhys > 0) {
         otherWarehousesCell = `
           <td style="padding: 0.45rem 0.45rem; text-align: center; background: ${canReplenishHere ? 'rgba(14, 165, 233, 0.08)' : 'rgba(14, 165, 233, 0.03)'}; border-left: 1px dashed rgba(14, 165, 233, 0.25); border-right: 1px dashed rgba(14, 165, 233, 0.25);">
-            <button type="button" class="btn-quick-transfer-other-wh" data-prod-id="${r.id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" title="${tooltipDetail.replace(/"/g, '&quot;')}" style="background: ${canReplenishHere ? 'rgba(14, 165, 233, 0.14)' : 'var(--color-bg)'}; border: 1px solid ${canReplenishHere ? '#0284c7' : 'rgba(14, 165, 233, 0.35)'}; color: #0284c7; font-weight: 800; font-size: 0.85rem; padding: 0.18rem 0.5rem; border-radius: 999px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; transition: all 0.15s ease;">
+            <button type="button" class="btn-quick-transfer-other-wh" data-prod-id="${r.id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-src-wh-id="${bestSrcWhId}" title="${tooltipDetail.replace(/"/g, '&quot;')}" style="background: ${canReplenishHere ? 'rgba(14, 165, 233, 0.14)' : 'var(--color-bg)'}; border: 1px solid ${canReplenishHere ? '#0284c7' : 'rgba(14, 165, 233, 0.35)'}; color: #0284c7; font-weight: 800; font-size: 0.85rem; padding: 0.18rem 0.5rem; border-radius: 999px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; transition: all 0.15s ease;">
               <i class="ri-arrow-left-right-line" style="font-size: 0.8rem;"></i>
               <span>${otherAvail}</span>
               ${otherPhys !== otherAvail ? `<span style="font-size: 0.7rem; font-weight: 600; opacity: 0.8;">(${otherPhys} fís.)</span>` : ''}
@@ -25074,35 +25155,137 @@ function renderAdminInventoryTableBody() {
     }
   });
 
+  if (rows.length > visibleRows.length) {
+    html += `
+      <tr id="admin-inv-load-more-row" style="background: var(--color-bg-alt); border-top: 1px solid var(--color-border);">
+        <td colspan="${isSingleWarehouseView ? 16 : 15}" style="padding: 0.85rem; text-align: center;">
+          <div style="display: inline-flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; justify-content: center; font-size: 0.84rem; color: var(--color-text-muted);">
+            <span>Mostrando <strong style="color: var(--color-text-main);">${visibleRows.length.toLocaleString('es-CL')}</strong> de <strong style="color: var(--color-text-main);">${rows.length.toLocaleString('es-CL')}</strong> productos</span>
+            <button type="button" class="btn btn-outline btn-sm btn-admin-inv-load-more" style="padding: 0.3rem 0.75rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; border-color: var(--color-primary); color: var(--color-primary);">
+              <i class="ri-add-circle-line"></i> Mostrar 250 más
+            </button>
+            <button type="button" class="btn btn-outline btn-sm btn-admin-inv-load-all" data-total="${rows.length}" style="padding: 0.3rem 0.75rem; font-size: 0.8rem; cursor: pointer;">
+              Mostrar todos (${rows.length.toLocaleString('es-CL')})
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
   tbody.innerHTML = html;
 
-  // Enlazar listeners para expandir/colapsar
-  tbody.querySelectorAll('.toggle-warehouse-detail').forEach(el => {
-    el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const prodId = el.getAttribute('data-prod-id');
-      if (window.expandedAdminInventoryProducts.has(prodId)) {
-        window.expandedAdminInventoryProducts.delete(prodId);
-      } else {
-        window.expandedAdminInventoryProducts.add(prodId);
+  // Observer para carga progresiva automática al hacer scroll al final de la tabla
+  const loadMoreRow = document.getElementById('admin-inv-load-more-row');
+  if (loadMoreRow && typeof IntersectionObserver !== 'undefined') {
+    if (window.adminInvScrollObserver) window.adminInvScrollObserver.disconnect();
+    window.adminInvScrollObserver = new IntersectionObserver((entries) => {
+      if (entries[0] && entries[0].isIntersecting) {
+        window.adminInvScrollObserver.disconnect();
+        window.adminInventoryRenderLimit = (window.adminInventoryRenderLimit || 150) + 200;
+        renderAdminInventoryTableBody({ skipLevelsPanel: true, preserveLimit: true });
       }
-      renderAdminInventoryTableBody();
-    });
-  });
+    }, { rootMargin: '250px' });
+    window.adminInvScrollObserver.observe(loadMoreRow);
+  }
 
-  tbody.querySelectorAll('.stock-critico-inline').forEach(input => {
-    input.addEventListener('change', async (e) => {
-      const prodId = e.target.getAttribute('data-prod-id');
-      const newVal = parseInt(e.target.value, 10);
-      
-      if (isNaN(newVal) || newVal < 0) {
-        alert('El valor de stock crítico debe ser un número mayor o igual a 0.');
-        e.target.value = e.target.defaultValue;
+  // Event Delegation único sobre tbody para evitar miles de listeners por render
+  if (!tbody.dataset.delegatedBound) {
+    tbody.dataset.delegatedBound = 'true';
+
+    tbody.addEventListener('click', (e) => {
+      const loadMoreBtn = e.target.closest('.btn-admin-inv-load-more');
+      if (loadMoreBtn) {
+        window.adminInventoryRenderLimit = (window.adminInventoryRenderLimit || 150) + 250;
+        renderAdminInventoryTableBody({ skipLevelsPanel: true, preserveLimit: true });
         return;
       }
 
-      e.target.style.borderColor = 'var(--color-primary)';
-      
+      const loadAllBtn = e.target.closest('.btn-admin-inv-load-all');
+      if (loadAllBtn) {
+        window.adminInventoryRenderLimit = parseInt(loadAllBtn.getAttribute('data-total') || '99999', 10);
+        renderAdminInventoryTableBody({ skipLevelsPanel: true, preserveLimit: true });
+        return;
+      }
+
+      const toggleWhEl = e.target.closest('.toggle-warehouse-detail');
+      if (toggleWhEl) {
+        e.stopPropagation();
+        const prodId = toggleWhEl.getAttribute('data-prod-id');
+        if (window.expandedAdminInventoryProducts.has(prodId)) {
+          window.expandedAdminInventoryProducts.delete(prodId);
+        } else {
+          window.expandedAdminInventoryProducts.add(prodId);
+        }
+        renderAdminInventoryTableBody({ skipLevelsPanel: true, preserveLimit: true });
+        return;
+      }
+
+      const movBtn = e.target.closest('.btn-view-movements');
+      if (movBtn) {
+        const prodId = movBtn.getAttribute('data-prod-id');
+        const sku = movBtn.getAttribute('data-prod-sku');
+        const name = movBtn.getAttribute('data-prod-name');
+        openAdminProductMovementsModal(prodId, sku, name);
+        return;
+      }
+
+      const quickTransferBtn = e.target.closest('.btn-quick-transfer-other-wh');
+      if (quickTransferBtn) {
+        e.stopPropagation();
+        const prodId = quickTransferBtn.getAttribute('data-prod-id');
+        const sku = quickTransferBtn.getAttribute('data-prod-sku');
+        const name = quickTransferBtn.getAttribute('data-prod-name');
+        const srcWhId = quickTransferBtn.getAttribute('data-src-wh-id') || null;
+        const destWhId = window.adminInventoryWarehouseFilter || null;
+        const commerce = window.activeAdminInventoryCommerce || '';
+        if (typeof openBulkStockTransferModal === 'function' && commerce) {
+          openBulkStockTransferModal(
+            commerce,
+            [{ id: prodId, sku: sku, name: name }],
+            (affectedIds) => window.refreshAdminInventoryAfterChange(commerce, affectedIds || [prodId]),
+            srcWhId,
+            destWhId
+          );
+        }
+        return;
+      }
+
+      const commLink = e.target.closest('.badge-committed-link');
+      if (commLink) {
+        const prodId = commLink.getAttribute('data-prod-id');
+        const whId = commLink.getAttribute('data-warehouse-id') || null;
+        const sku = commLink.getAttribute('data-prod-sku');
+        const name = commLink.getAttribute('data-prod-name');
+        const whName = commLink.getAttribute('data-warehouse-name');
+        const filterType = commLink.getAttribute('data-filter-type') || 'all';
+        openCommittedDetailModal(prodId, whId, sku, name, whName, filterType);
+        return;
+      }
+
+      const pendLink = e.target.closest('.badge-pending-link');
+      if (pendLink) {
+        const sku = pendLink.getAttribute('data-prod-sku');
+        const name = pendLink.getAttribute('data-prod-name');
+        openPendingDetailModal(sku, name);
+      }
+    });
+
+    tbody.addEventListener('change', async (e) => {
+      const critInput = e.target.closest('.stock-critico-inline');
+      if (!critInput) return;
+
+      const prodId = critInput.getAttribute('data-prod-id');
+      const newVal = parseInt(critInput.value, 10);
+
+      if (isNaN(newVal) || newVal < 0) {
+        alert('El valor de stock crítico debe ser un número mayor o igual a 0.');
+        critInput.value = critInput.defaultValue;
+        return;
+      }
+
+      critInput.style.borderColor = 'var(--color-primary)';
+
       try {
         const { error } = await supabase
           .from('products')
@@ -25110,79 +25293,36 @@ function renderAdminInventoryTableBody() {
           .eq('id', prodId);
 
         if (error) throw error;
-        
-        e.target.style.borderColor = 'var(--color-success)';
-        e.target.defaultValue = newVal;
+
+        critInput.style.borderColor = 'var(--color-success)';
+        critInput.defaultValue = newVal;
         setTimeout(() => {
-          e.target.style.borderColor = '';
+          critInput.style.borderColor = '';
         }, 1000);
-        
+
         if (window.cachedAdminInventoryProducts) {
           const cachedP = window.cachedAdminInventoryProducts.find(p => p.id === prodId);
           if (cachedP) cachedP.stock_critico = newVal;
         }
-        
-        renderAdminInventoryTableBody();
-        
+
+        renderAdminInventoryTableBody({ skipLevelsPanel: true, preserveLimit: true });
       } catch (err) {
         console.error('Error al actualizar stock crítico:', err);
-        e.target.style.borderColor = 'var(--color-danger)';
+        critInput.style.borderColor = 'var(--color-danger)';
         alert('Error al guardar el stock crítico: ' + err.message);
       }
     });
-  });
-
-  tbody.querySelectorAll('.btn-view-movements').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const prodId = e.currentTarget.getAttribute('data-prod-id');
-      const sku = e.currentTarget.getAttribute('data-prod-sku');
-      const name = e.currentTarget.getAttribute('data-prod-name');
-      openAdminProductMovementsModal(prodId, sku, name);
-    });
-  });
-
-  tbody.querySelectorAll('.btn-quick-transfer-other-wh').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const prodId = e.currentTarget.getAttribute('data-prod-id');
-      const sku = e.currentTarget.getAttribute('data-prod-sku');
-      const name = e.currentTarget.getAttribute('data-prod-name');
-      const commerce = window.activeAdminInventoryCommerce || '';
-      if (typeof openBulkStockTransferModal === 'function' && commerce) {
-        openBulkStockTransferModal(commerce, [{ id: prodId, sku: sku, name: name }], () => renderAdminInventoryWorkspace(commerce));
-      }
-    });
-  });
-
-  tbody.querySelectorAll('.badge-committed-link').forEach(link => {
-    link.addEventListener('click', (e) => {
-      const prodId = e.currentTarget.getAttribute('data-prod-id');
-      const whId = e.currentTarget.getAttribute('data-warehouse-id') || null;
-      const sku = e.currentTarget.getAttribute('data-prod-sku');
-      const name = e.currentTarget.getAttribute('data-prod-name');
-      const whName = e.currentTarget.getAttribute('data-warehouse-name');
-      const filterType = e.currentTarget.getAttribute('data-filter-type') || 'all';
-      openCommittedDetailModal(prodId, whId, sku, name, whName, filterType);
-    });
-  });
-
-  tbody.querySelectorAll('.badge-pending-link').forEach(link => {
-    link.addEventListener('click', (e) => {
-      const sku = e.currentTarget.getAttribute('data-prod-sku');
-      const name = e.currentTarget.getAttribute('data-prod-name');
-      openPendingDetailModal(sku, name);
-    });
-  });
+  }
 
   const selectAll = document.getElementById('select-all-admin-inventory');
   if (selectAll) {
     selectAll.checked = false;
-    selectAll.addEventListener('change', (e) => {
+    selectAll.onchange = (e) => {
       const checked = e.target.checked;
       tbody.querySelectorAll('.inventory-row-checkbox').forEach(cb => {
         cb.checked = checked;
       });
-    });
+    };
   }
 }
 
@@ -92713,30 +92853,48 @@ function openBulkStockAssignModal(commerce, onComplete) {
           return;
         }
 
-        // Fetch products of commerce
-        const dbProducts = typeof window.fetchAllSupabaseRows === 'function'
-          ? await window.fetchAllSupabaseRows('products', 'id, sku, name, status', q => q.eq('comercio', commerce))
-          : (await supabase.from('products').select('id, sku, name, status').eq('comercio', commerce)).data;
+        // Use in-memory cache if available for this commerce, otherwise fetch
+        const useCachedCatalog = window.currentAdminInventoryCommerce === commerce &&
+          Array.isArray(window.cachedAdminInventoryProducts) &&
+          window.cachedAdminInventoryProducts.length > 0;
+
+        const dbProducts = useCachedCatalog
+          ? window.cachedAdminInventoryProducts
+          : (typeof window.fetchAllSupabaseRows === 'function'
+            ? await window.fetchAllSupabaseRows('products', 'id, sku, name, status', q => q.eq('comercio', commerce))
+            : (await supabase.from('products').select('id, sku, name, status').eq('comercio', commerce)).data);
 
         const productMap = {};
+        const inventoryMap = {};
         if (dbProducts) {
           dbProducts.forEach(p => {
             if (p.sku) {
               productMap[p.sku.toLowerCase().trim()] = p;
             }
+            if (useCachedCatalog && Array.isArray(p.inventory)) {
+              const whInv = p.inventory.find(inv => String(inv.warehouse_id) === String(selectedWarehouseId));
+              if (whInv) inventoryMap[p.id] = whInv.quantity || 0;
+            }
           });
         }
 
-        // Fetch inventory levels for selected warehouse
-        const dbInventory = typeof window.fetchAllSupabaseRows === 'function'
-          ? await window.fetchAllSupabaseRows('inventory', 'product_id, quantity', q => q.eq('warehouse_id', selectedWarehouseId))
-          : (await supabase.from('inventory').select('product_id, quantity').eq('warehouse_id', selectedWarehouseId)).data;
-
-        const inventoryMap = {};
-        if (dbInventory) {
-          dbInventory.forEach(inv => {
-            inventoryMap[inv.product_id] = inv.quantity || 0;
-          });
+        if (!useCachedCatalog) {
+          // Fetch inventory levels for selected warehouse only for this commerce's products
+          const prodIds = (dbProducts || []).map(p => p.id);
+          const chunkSize = 350;
+          for (let i = 0; i < prodIds.length; i += chunkSize) {
+            const batchIds = prodIds.slice(i, i + chunkSize);
+            const { data: batchInv } = await supabase
+              .from('inventory')
+              .select('product_id, quantity')
+              .eq('warehouse_id', selectedWarehouseId)
+              .in('product_id', batchIds);
+            if (batchInv) {
+              batchInv.forEach(inv => {
+                inventoryMap[inv.product_id] = inv.quantity || 0;
+              });
+            }
+          }
         }
 
         // Build preview rows
@@ -92788,10 +92946,16 @@ function openBulkStockAssignModal(commerce, onComplete) {
           rows: previewRows,
           onConfirm: async (validRows) => {
             let updatedCount = 0;
-            const updatePromises = validRows.map(async (r) => {
-              const diff = r.stockVal - r.oldValue;
-              if (diff !== 0) {
-                // Find or insert in inventory
+            const modifiedProductIds = [];
+            const rowsToChange = validRows.filter(r => (r.stockVal - r.oldValue) !== 0);
+            updatedCount = validRows.length;
+
+            // Process in controlled concurrent batches of 15 to avoid connection saturation
+            const concurrency = 15;
+            for (let i = 0; i < rowsToChange.length; i += concurrency) {
+              const batch = rowsToChange.slice(i, i + concurrency);
+              await Promise.all(batch.map(async (r) => {
+                const diff = r.stockVal - r.oldValue;
                 const { data: invRecord } = await supabase
                   .from('inventory')
                   .select('id, quantity')
@@ -92817,7 +92981,6 @@ function openBulkStockAssignModal(commerce, onComplete) {
                   if (invErr) throw invErr;
                 }
 
-                // Register movement
                 const type = diff > 0 ? 'in' : 'out';
                 const qty = Math.abs(diff);
                 await supabase
@@ -92829,13 +92992,13 @@ function openBulkStockAssignModal(commerce, onComplete) {
                     quantity: qty,
                     reference_doc: 'Carga Masiva Stock'
                   }]);
-              }
-              updatedCount++;
-            });
 
-            await Promise.all(updatePromises);
+                modifiedProductIds.push(r.prodId);
+              }));
+            }
+
             alert(`¡Éxito! Se actualizaron ${updatedCount} productos correctamente.`);
-            if (onComplete) onComplete();
+            if (onComplete) onComplete(modifiedProductIds);
           }
         });
       } catch (err) {
@@ -92918,24 +93081,21 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
 
   document.body.appendChild(modal);
 
-  // Load warehouses
-  supabase
-    .from('warehouses')
-    .select('id, name, address, comuna')
-    .order('name')
-    .then(({ data: warehouses, error }) => {
-      const selectEl = document.getElementById('direct-warehouse-select');
-      if (selectEl) {
-        selectEl.innerHTML = '<option value="">-- Selecciona una Bodega --</option>';
-        if (warehouses) {
-          warehouses.forEach(w => {
-            selectEl.innerHTML += `<option value="${w.id}">${w.name} (${w.comuna})</option>`;
-          });
-        }
-      }
-    });
-
   const selectEl = document.getElementById('direct-warehouse-select');
+  const populateDirectWarehouseSelect = (warehouses) => {
+    if (!selectEl) return;
+    selectEl.innerHTML = '<option value="">-- Selecciona una Bodega --</option>';
+    (warehouses || []).forEach(w => {
+      selectEl.innerHTML += `<option value="${w.id}">${w.name} (${w.comuna || ''})</option>`;
+    });
+    if (window.adminInventoryWarehouseFilter) {
+      selectEl.value = String(window.adminInventoryWarehouseFilter);
+      if (selectEl.value) {
+        selectEl.dispatchEvent(new Event('change'));
+      }
+    }
+  };
+
   selectEl.addEventListener('change', async () => {
     const warehouseId = selectEl.value;
     if (!warehouseId) {
@@ -92944,30 +93104,60 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
       return;
     }
 
-    // Fetch current stocks for selected products in this warehouse
-    const productIds = selectedProducts.map(p => p.id);
-    const { data: dbInvs } = await supabase
-      .from('inventory')
-      .select('product_id, quantity')
-      .eq('warehouse_id', warehouseId)
-      .in('product_id', productIds);
-
-    const stockMap = {};
-    if (dbInvs) {
-      dbInvs.forEach(inv => {
-        stockMap[inv.product_id] = inv.quantity || 0;
-      });
-    }
-
+    // 1. Instant 0ms population from cached products in memory
+    let foundAllInMemory = true;
     selectedProducts.forEach(p => {
-      const currentStock = stockMap[p.id] || 0;
+      const cachedProd = Array.isArray(window.cachedAdminInventoryProducts)
+        ? window.cachedAdminInventoryProducts.find(cp => String(cp.id) === String(p.id))
+        : p;
+      const invArr = cachedProd && Array.isArray(cachedProd.inventory) ? cachedProd.inventory : null;
+      if (!invArr) foundAllInMemory = false;
+      const whInv = invArr ? invArr.find(inv => String(inv.warehouse_id) === String(warehouseId)) : null;
+      const currentStock = whInv ? (whInv.quantity || 0) : 0;
+
       const label = document.querySelector(`.direct-current-stock-label[data-prod-id="${p.id}"]`);
       if (label) label.textContent = currentStock;
 
       const input = document.querySelector(`.direct-stock-input[data-prod-id="${p.id}"]`);
       if (input) input.value = currentStock;
     });
+
+    // 2. Fallback to DB query only if memory cache was not hydrated
+    if (!foundAllInMemory) {
+      const productIds = selectedProducts.map(p => p.id);
+      const { data: dbInvs } = await supabase
+        .from('inventory')
+        .select('product_id, quantity')
+        .eq('warehouse_id', warehouseId)
+        .in('product_id', productIds);
+
+      const stockMap = {};
+      if (dbInvs) {
+        dbInvs.forEach(inv => {
+          stockMap[inv.product_id] = inv.quantity || 0;
+        });
+      }
+
+      selectedProducts.forEach(p => {
+        const currentStock = stockMap[p.id] || 0;
+        const label = document.querySelector(`.direct-current-stock-label[data-prod-id="${p.id}"]`);
+        if (label) label.textContent = currentStock;
+
+        const input = document.querySelector(`.direct-stock-input[data-prod-id="${p.id}"]`);
+        if (input) input.value = currentStock;
+      });
+    }
   });
+
+  if (Array.isArray(window.allWarehousesList) && window.allWarehousesList.length > 0) {
+    populateDirectWarehouseSelect(window.allWarehousesList);
+  } else {
+    supabase
+      .from('warehouses')
+      .select('id, name, address, comuna')
+      .order('name')
+      .then(({ data: warehouses }) => populateDirectWarehouseSelect(warehouses));
+  }
 
   const confirmBtn = document.getElementById('btn-confirm-direct-adjust');
   confirmBtn.addEventListener('click', async () => {
@@ -92988,62 +93178,62 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
     confirmBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
 
     try {
-      let updatedCount = 0;
-      for (const p of selectedProducts) {
+      const modifiedProductIds = [];
+      const tasks = selectedProducts.map(async (p) => {
         const label = document.querySelector(`.direct-current-stock-label[data-prod-id="${p.id}"]`);
-        const oldValue = parseInt(label.textContent || '0', 10);
+        const oldValue = parseInt(label ? label.textContent : '0', 10) || 0;
         
         const input = document.querySelector(`.direct-stock-input[data-prod-id="${p.id}"]`);
-        const newValue = parseInt(input.value || '0', 10);
+        const newValue = parseInt(input ? input.value : '0', 10) || 0;
 
         const diff = newValue - oldValue;
-        if (diff !== 0) {
-          // Update/Insert inventory
-          const { data: invRecord } = await supabase
+        if (diff === 0) return;
+
+        const { data: invRecord } = await supabase
+          .from('inventory')
+          .select('id, quantity')
+          .eq('product_id', p.id)
+          .eq('warehouse_id', warehouseId)
+          .maybeSingle();
+
+        if (invRecord) {
+          const { error: invErr } = await supabase
             .from('inventory')
-            .select('id, quantity')
-            .eq('product_id', p.id)
-            .eq('warehouse_id', warehouseId)
-            .maybeSingle();
-
-          if (invRecord) {
-            const { error: invErr } = await supabase
-              .from('inventory')
-              .update({ quantity: newValue })
-              .eq('id', invRecord.id);
-            if (invErr) throw invErr;
-          } else {
-            const { error: invErr } = await supabase
-              .from('inventory')
-              .insert([{
-                product_id: p.id,
-                warehouse_id: warehouseId,
-                quantity: newValue,
-                committed_quantity: 0
-              }]);
-            if (invErr) throw invErr;
-          }
-
-          // Register movement
-          const type = diff > 0 ? 'in' : 'out';
-          const qty = Math.abs(diff);
-          await supabase
-            .from('movements')
+            .update({ quantity: newValue })
+            .eq('id', invRecord.id);
+          if (invErr) throw invErr;
+        } else {
+          const { error: invErr } = await supabase
+            .from('inventory')
             .insert([{
               product_id: p.id,
               warehouse_id: warehouseId,
-              type: type,
-              quantity: qty,
-              reference_doc: `Ajuste: ${comment}`
+              quantity: newValue,
+              committed_quantity: 0
             }]);
-          
-          updatedCount++;
+          if (invErr) throw invErr;
         }
-      }
 
-      alert(`¡Éxito! Se actualizó el stock de ${updatedCount} productos en la bodega.`);
+        const type = diff > 0 ? 'in' : 'out';
+        const qty = Math.abs(diff);
+        await supabase
+          .from('movements')
+          .insert([{
+            product_id: p.id,
+            warehouse_id: warehouseId,
+            type: type,
+            quantity: qty,
+            reference_doc: `Ajuste: ${comment}`
+          }]);
+
+        modifiedProductIds.push(p.id);
+      });
+
+      await Promise.all(tasks);
+
+      alert(`¡Éxito! Se actualizó el stock de ${modifiedProductIds.length} productos en la bodega.`);
       modal.remove();
-      if (onComplete) onComplete();
+      if (onComplete) onComplete(modifiedProductIds);
     } catch (err) {
       console.error(err);
       alert('Error al ajustar stock: ' + err.message);
@@ -93152,34 +93342,6 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete, defa
   // Exponer globalmente
   window.openBulkStockTransferModal = openBulkStockTransferModal;
 
-  // Load warehouses
-  supabase
-    .from('warehouses')
-    .select('id, name, address, comuna')
-    .order('name')
-    .then(({ data: warehouses }) => {
-      const srcSelect = document.getElementById('transfer-source-warehouse-select');
-      const destSelect = document.getElementById('transfer-dest-warehouse-select');
-      if (srcSelect && destSelect) {
-        srcSelect.innerHTML = '<option value="">-- Selecciona Origen --</option>';
-        destSelect.innerHTML = '<option value="">-- Selecciona Destino --</option>';
-        if (warehouses) {
-          warehouses.forEach(w => {
-            const opt = `<option value="${w.id}">${w.name} (${w.comuna})</option>`;
-            srcSelect.innerHTML += opt;
-            destSelect.innerHTML += opt;
-          });
-          if (defaultSourceWarehouseId) {
-            srcSelect.value = defaultSourceWarehouseId;
-            srcSelect.dispatchEvent(new Event('change'));
-          }
-          if (defaultDestWarehouseId) {
-            destSelect.value = defaultDestWarehouseId;
-          }
-        }
-      }
-    });
-
   const srcSelect = document.getElementById('transfer-source-warehouse-select');
   const destSelect = document.getElementById('transfer-dest-warehouse-select');
 
@@ -93196,6 +93358,42 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete, defa
       return;
     }
 
+    // Use in-memory cache if available for this commerce (0ms, no network roundtrip)
+    const useCachedCatalog = window.currentAdminInventoryCommerce === commerce &&
+      Array.isArray(window.cachedAdminInventoryProducts) &&
+      window.cachedAdminInventoryProducts.length > 0;
+
+    if (useCachedCatalog) {
+      const stockMap = {};
+      let totalGeneralStock = 0;
+      window.cachedAdminInventoryProducts.forEach(p => {
+        if (p.status === 'archived') return;
+        const whInv = (p.inventory || []).find(inv => String(inv.warehouse_id) === String(srcId));
+        const qty = whInv ? (whInv.quantity || 0) : 0;
+        stockMap[p.id] = qty;
+        totalGeneralStock += qty;
+      });
+
+      let totalSelectedStock = 0;
+      selectedProducts.forEach(p => {
+        const currentStock = stockMap[p.id] || 0;
+        totalSelectedStock += currentStock;
+        const label = document.querySelector(`.transfer-source-stock-label[data-prod-id="${p.id}"]`);
+        if (label) label.textContent = currentStock;
+
+        const input = document.querySelector(`.transfer-qty-input[data-prod-id="${p.id}"]`);
+        if (input) {
+          input.value = selectedProducts.length === 1 && currentStock > 0 ? String(currentStock) : '0';
+          input.max = currentStock;
+        }
+      });
+
+      if (totalStockSpan) {
+        totalStockSpan.textContent = `Total seleccionados: ${totalSelectedStock} uds. / Total comercio en bodega: ${totalGeneralStock} uds.`;
+      }
+      return;
+    }
+
     if (totalStockSpan) {
       totalStockSpan.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Cargando...';
     }
@@ -93203,7 +93401,6 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete, defa
     const productIds = selectedProducts.map(p => p.id);
     let dbInvs = [];
     if (productIds.length > 0) {
-      // Consultar stock de productos seleccionados
       const { data } = await supabase
         .from('inventory')
         .select('product_id, quantity')
@@ -93212,17 +93409,10 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete, defa
       dbInvs = data || [];
     }
 
-    // Consultar stock total general de esa bodega
-    const { data: allInvs } = await supabase
-      .from('inventory')
-      .select('quantity')
-      .eq('warehouse_id', srcId);
-
     const totalSelectedStock = (dbInvs || []).reduce((sum, inv) => sum + (inv.quantity || 0), 0);
-    const totalGeneralStock = (allInvs || []).reduce((sum, inv) => sum + (inv.quantity || 0), 0);
 
     if (totalStockSpan) {
-      totalStockSpan.textContent = `Total seleccionados: ${totalSelectedStock} uds. / Total general: ${totalGeneralStock} uds.`;
+      totalStockSpan.textContent = `Total seleccionados: ${totalSelectedStock} uds.`;
     }
 
     const stockMap = {};
@@ -93244,6 +93434,36 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete, defa
       }
     });
   });
+
+  const populateTransferWarehouses = (warehouses) => {
+    if (!srcSelect || !destSelect) return;
+    srcSelect.innerHTML = '<option value="">-- Selecciona Origen --</option>';
+    destSelect.innerHTML = '<option value="">-- Selecciona Destino --</option>';
+    if (warehouses) {
+      warehouses.forEach(w => {
+        const opt = `<option value="${w.id}">${w.name} (${w.comuna || ''})</option>`;
+        srcSelect.innerHTML += opt;
+        destSelect.innerHTML += opt;
+      });
+      if (defaultSourceWarehouseId) {
+        srcSelect.value = defaultSourceWarehouseId;
+        srcSelect.dispatchEvent(new Event('change'));
+      }
+      if (defaultDestWarehouseId) {
+        destSelect.value = defaultDestWarehouseId;
+      }
+    }
+  };
+
+  if (Array.isArray(window.allWarehousesList) && window.allWarehousesList.length > 0) {
+    populateTransferWarehouses(window.allWarehousesList);
+  } else {
+    supabase
+      .from('warehouses')
+      .select('id, name, address, comuna')
+      .order('name')
+      .then(({ data: warehouses }) => populateTransferWarehouses(warehouses));
+  }
 
   const allStockCheckbox = document.getElementById('transfer-all-stock-checkbox');
   const qtySection = document.getElementById('transfer-qty-section');
@@ -93292,52 +93512,72 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete, defa
       const isTransferAll = allStockCheckbox && allStockCheckbox.checked;
 
       if (isTransferAll) {
-        // Obtener todos los productos de este comercio
-        const commerceProds = await window.fetchAllSupabaseRows(
-          'products',
-          'id, sku, name',
-          q => q.eq('comercio', commerce)
-        );
+        const useCachedCatalog = window.currentAdminInventoryCommerce === commerce &&
+          Array.isArray(window.cachedAdminInventoryProducts) &&
+          window.cachedAdminInventoryProducts.length > 0;
 
-        if (!commerceProds || commerceProds.length === 0) {
-          alert('No se encontraron productos para este comercio.');
-          confirmBtn.disabled = false;
-          confirmBtn.innerHTML = '<i class="ri-arrow-left-right-line"></i> Confirmar Traslado';
-          return;
-        }
-
-        const productIds = commerceProds.map(p => p.id);
-
-        // Obtener inventario de estos productos en la bodega de origen por lotes (batching)
-        const batchSize = 100;
-        const promises = [];
-        for (let i = 0; i < productIds.length; i += batchSize) {
-          const batchIds = productIds.slice(i, i + batchSize);
-          promises.push(
-            supabase
-              .from('inventory')
-              .select('product_id, quantity')
-              .eq('warehouse_id', srcId)
-              .in('product_id', batchIds)
+        if (useCachedCatalog) {
+          for (const prod of window.cachedAdminInventoryProducts) {
+            if (prod.status === 'archived') continue;
+            const whInv = (prod.inventory || []).find(inv => String(inv.warehouse_id) === String(srcId));
+            const qty = whInv ? (whInv.quantity || 0) : 0;
+            if (qty > 0) {
+              transfers.push({
+                product: prod,
+                qty: qty,
+                srcStock: qty
+              });
+              totalToTransfer += qty;
+            }
+          }
+        } else {
+          // Obtener todos los productos de este comercio
+          const commerceProds = await window.fetchAllSupabaseRows(
+            'products',
+            'id, sku, name',
+            q => q.eq('comercio', commerce)
           );
-        }
 
-        const results = await Promise.all(promises);
-        const dbInvs = [];
-        for (const res of results) {
-          if (res.error) throw res.error;
-          if (res.data) dbInvs.push(...res.data);
-        }
+          if (!commerceProds || commerceProds.length === 0) {
+            alert('No se encontraron productos para este comercio.');
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<i class="ri-arrow-left-right-line"></i> Confirmar Traslado';
+            return;
+          }
 
-        for (const inv of dbInvs) {
-          if ((inv.quantity || 0) > 0) {
-            const prod = commerceProds.find(p => p.id === inv.product_id);
-            transfers.push({
-              product: prod || { id: inv.product_id, sku: 'S/SKU', name: 'Producto' },
-              qty: inv.quantity,
-              srcStock: inv.quantity
-            });
-            totalToTransfer += inv.quantity;
+          const productIds = commerceProds.map(p => p.id);
+
+          // Obtener inventario de estos productos en la bodega de origen por lotes (batching)
+          const batchSize = 350;
+          const promises = [];
+          for (let i = 0; i < productIds.length; i += batchSize) {
+            const batchIds = productIds.slice(i, i + batchSize);
+            promises.push(
+              supabase
+                .from('inventory')
+                .select('product_id, quantity')
+                .eq('warehouse_id', srcId)
+                .in('product_id', batchIds)
+            );
+          }
+
+          const results = await Promise.all(promises);
+          const dbInvs = [];
+          for (const res of results) {
+            if (res.error) throw res.error;
+            if (res.data) dbInvs.push(...res.data);
+          }
+
+          for (const inv of dbInvs) {
+            if ((inv.quantity || 0) > 0) {
+              const prod = commerceProds.find(p => p.id === inv.product_id);
+              transfers.push({
+                product: prod || { id: inv.product_id, sku: 'S/SKU', name: 'Producto' },
+                qty: inv.quantity,
+                srcStock: inv.quantity
+              });
+              totalToTransfer += inv.quantity;
+            }
           }
         }
       } else {
@@ -93383,82 +93623,98 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete, defa
 
       const srcName = srcSelect.options[srcSelect.selectedIndex].text;
       const destName = destSelect.options[destSelect.selectedIndex].text;
+      const modifiedProductIds = [];
 
-      for (const item of transfers) {
-        const prodId = item.product.id;
-        const qty = item.qty;
+      // Process transfers in concurrent batches of 10 for high speed
+      const concurrency = 10;
+      for (let i = 0; i < transfers.length; i += concurrency) {
+        const batch = transfers.slice(i, i + concurrency);
+        await Promise.all(batch.map(async (item) => {
+          const prodId = item.product.id;
+          const qty = item.qty;
 
-        // 1. Update Origen
-        const { data: srcRecord } = await supabase
-          .from('inventory')
-          .select('id, quantity')
-          .eq('product_id', prodId)
-          .eq('warehouse_id', srcId)
-          .single();
+          // Fetch source and destination inventory records in parallel
+          const [{ data: srcRecord }, { data: destRecord }] = await Promise.all([
+            supabase
+              .from('inventory')
+              .select('id, quantity')
+              .eq('product_id', prodId)
+              .eq('warehouse_id', srcId)
+              .maybeSingle(),
+            supabase
+              .from('inventory')
+              .select('id, quantity')
+              .eq('product_id', prodId)
+              .eq('warehouse_id', destId)
+              .maybeSingle()
+          ]);
 
-        if (srcRecord) {
-          const newSrcQty = Math.max(0, (srcRecord.quantity || 0) - qty);
-          const { error: srcErr } = await supabase
-            .from('inventory')
-            .update({ quantity: newSrcQty })
-            .eq('id', srcRecord.id);
-          if (srcErr) throw srcErr;
-        }
+          const dbWrites = [];
+          if (srcRecord) {
+            const newSrcQty = Math.max(0, (srcRecord.quantity || 0) - qty);
+            dbWrites.push(
+              supabase
+                .from('inventory')
+                .update({ quantity: newSrcQty })
+                .eq('id', srcRecord.id)
+            );
+          }
 
-        // 2. Update/Insert Destino
-        const { data: destRecord } = await supabase
-          .from('inventory')
-          .select('id, quantity')
-          .eq('product_id', prodId)
-          .eq('warehouse_id', destId)
-          .maybeSingle();
+          if (destRecord) {
+            const newDestQty = (destRecord.quantity || 0) + qty;
+            dbWrites.push(
+              supabase
+                .from('inventory')
+                .update({ quantity: newDestQty })
+                .eq('id', destRecord.id)
+            );
+          } else {
+            dbWrites.push(
+              supabase
+                .from('inventory')
+                .insert([{
+                  product_id: prodId,
+                  warehouse_id: destId,
+                  quantity: qty,
+                  committed_quantity: 0
+                }])
+            );
+          }
 
-        if (destRecord) {
-          const newDestQty = (destRecord.quantity || 0) + qty;
-          const { error: destErr } = await supabase
-            .from('inventory')
-            .update({ quantity: newDestQty })
-            .eq('id', destRecord.id);
-          if (destErr) throw destErr;
-        } else {
-          const { error: destErr } = await supabase
-            .from('inventory')
-            .insert([{
-              product_id: prodId,
-              warehouse_id: destId,
-              quantity: qty,
-              committed_quantity: 0
-            }]);
-          if (destErr) throw destErr;
-        }
+          // Insert both movements in a single batch call
+          dbWrites.push(
+            supabase
+              .from('movements')
+              .insert([
+                {
+                  product_id: prodId,
+                  warehouse_id: srcId,
+                  type: 'out',
+                  quantity: qty,
+                  reference_doc: `Traslado a ${destName}. Nota: ${comment}`
+                },
+                {
+                  product_id: prodId,
+                  warehouse_id: destId,
+                  type: 'in',
+                  quantity: qty,
+                  reference_doc: `Traslado desde ${srcName}. Nota: ${comment}`
+                }
+              ])
+          );
 
-        // 3. Register Movements
-        const { error: movOutErr } = await supabase
-          .from('movements')
-          .insert([{
-            product_id: prodId,
-            warehouse_id: srcId,
-            type: 'out',
-            quantity: qty,
-            reference_doc: `Traslado a ${destName}. Nota: ${comment}`
-          }]);
-        if (movOutErr) throw movOutErr;
+          const writeResults = await Promise.all(dbWrites);
+          for (const wRes of writeResults) {
+            if (wRes.error) throw wRes.error;
+          }
 
-        const { error: movInErr } = await supabase
-          .from('movements')
-          .insert([{
-            product_id: prodId,
-            warehouse_id: destId,
-            type: 'in',
-            quantity: qty,
-            reference_doc: `Traslado desde ${srcName}. Nota: ${comment}`
-          }]);
-        if (movInErr) throw movInErr;
+          modifiedProductIds.push(prodId);
+        }));
       }
 
       alert(`¡Traslado completado con éxito! Se movieron ${totalToTransfer} unidades entre bodegas.`);
       modal.remove();
-      if (onComplete) onComplete();
+      if (onComplete) onComplete(modifiedProductIds);
     } catch (err) {
       console.error(err);
        alert('Error al realizar traslado: ' + err.message);

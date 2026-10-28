@@ -156,8 +156,15 @@ import supabase from './supabase.js';
            (window.currentCompany ? window.currentCompany.split(',')[0].trim() : '');
   }
 
+  const LABEL_CATALOG_SELECT_COLS = 'id, sku, name, barcode, barcode_wms, color, talla, variable_1, variable_2, options, status, is_pack, is_virtual, inventory(quantity)';
+
+  function getTotalProductStock(p) {
+    if (!p || !Array.isArray(p.inventory)) return 0;
+    return p.inventory.reduce((acc, inv) => acc + (parseInt(inv?.quantity, 10) || 0), 0);
+  }
+
   /**
-   * Fetch products specifically for the selected commerce
+   * Fetch products specifically for the selected commerce (paginated beyond 1000 rows)
    */
   async function ensureCatalogProducts() {
     const commerce = getActiveCommerce();
@@ -166,24 +173,84 @@ import supabase from './supabase.js';
       return;
     }
     try {
-      // Use the global WMS helper to fetch all rows
+      // Use the global WMS helper to fetch all rows with lightweight columns
       if (typeof window.fetchAllSupabaseRows === 'function') {
         localCatalogProducts = await window.fetchAllSupabaseRows(
-          'products', 
-          '*, inventory(quantity)', 
+          'products',
+          LABEL_CATALOG_SELECT_COLS,
           q => q.eq('comercio', commerce).order('name')
         );
       } else {
-        const { data } = await supabase
-          .from('products')
-          .select('*, inventory(quantity)')
-          .eq('comercio', commerce)
-          .order('name');
-        localCatalogProducts = data || [];
+        let allRows = [];
+        let from = 0;
+        const step = 800;
+        while (true) {
+          const { data, error } = await supabase
+            .from('products')
+            .select(LABEL_CATALOG_SELECT_COLS)
+            .eq('comercio', commerce)
+            .order('id', { ascending: true })
+            .range(from, from + step - 1);
+          if (error) throw error;
+          if (!data || data.length === 0) break;
+          allRows = allRows.concat(data);
+          if (data.length < step) break;
+          from += step;
+        }
+        allRows.sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+        localCatalogProducts = allRows;
       }
     } catch (err) {
-      console.error("Error fetching catalog products for labels:", err);
-      localCatalogProducts = [];
+      console.error("Error fetching catalog products for labels, trying paginated fallback:", err);
+      try {
+        let allRows = [];
+        let from = 0;
+        const step = 500;
+        while (true) {
+          const { data, error } = await supabase
+            .from('products')
+            .select('id, sku, name, barcode, barcode_wms, color, talla, variable_1, variable_2, options, status, is_pack, is_virtual')
+            .eq('comercio', commerce)
+            .order('id', { ascending: true })
+            .range(from, from + step - 1);
+          if (error) break;
+          if (!data || data.length === 0) break;
+          allRows = allRows.concat(data);
+          if (data.length < step) break;
+          from += step;
+        }
+        localCatalogProducts = allRows;
+      } catch (fbErr) {
+        localCatalogProducts = [];
+      }
+    }
+  }
+
+  /**
+   * Direct live search fallback against Supabase when a product is not yet in localCatalogProducts
+   */
+  async function searchProductsLiveFromSupabase(searchTerm) {
+    const commerce = getActiveCommerce();
+    const clean = String(searchTerm || '').trim().replace(/[,()]/g, ' ');
+    if (!commerce || clean.length < 2) return [];
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select(LABEL_CATALOG_SELECT_COLS)
+        .eq('comercio', commerce)
+        .or(`sku.ilike.%${clean}%,name.ilike.%${clean}%,barcode.ilike.%${clean}%,barcode_wms.ilike.%${clean}%`)
+        .limit(15);
+      if (error || !Array.isArray(data) || data.length === 0) return [];
+      const existingIds = new Set(localCatalogProducts.map(p => p.id));
+      data.forEach(p => {
+        if (p && p.id && !existingIds.has(p.id)) {
+          existingIds.add(p.id);
+          localCatalogProducts.push(p);
+        }
+      });
+      return data;
+    } catch (e) {
+      return [];
     }
   }
 
@@ -2879,7 +2946,34 @@ import supabase from './supabase.js';
     });
 
     // Autocomplete Search logic
+    let catalogSearchLiveTimer = null;
+    const renderCatalogDropdownItems = (list) => {
+      return list.map(p => {
+        const qty = getTotalProductStock(p);
+        const varStr = formatProductVariantString(p, commerceVariantConfig?.naming);
+        const varBadge = varStr 
+          ? `<span class="badge" style="font-size:0.72rem;background:rgba(59,130,246,0.08);color:var(--color-primary);border:1px solid rgba(59,130,246,0.2);padding:0.1rem 0.35rem;border-radius:3px;margin-left:0.4rem;font-weight:600;"><i class="ri-price-tag-3-line" style="margin-right:2px;"></i>${escapeHtml(varStr)}</span>`
+          : '';
+        const barcodeDetail = p.barcode_wms 
+          ? `<span style="margin-left:0.5rem;font-size:0.75rem;color:#2563eb;font-family:monospace;">[WMS: ${escapeHtml(p.barcode_wms)}]</span>`
+          : (p.barcode ? `<span style="margin-left:0.5rem;font-size:0.75rem;color:var(--color-text-muted);font-family:monospace;">[${escapeHtml(p.barcode)}]</span>` : '');
+
+        return `
+          <div class="label-search-item" data-id="${p.id}" style="padding:0.6rem 0.8rem;cursor:pointer;border-bottom:1px solid var(--color-border);display:flex;justify-content:space-between;align-items:center;transition:background 0.15s;font-size:0.85rem;">
+            <div style="flex:1;min-width:0;margin-right:0.5rem;">
+              <strong style="color:var(--color-text-main);">${escapeHtml(p.sku)}</strong>
+              <span style="color:var(--color-text-muted);margin-left:0.5rem;font-size:0.8rem;">${escapeHtml(p.name)}</span>
+              ${varBadge}
+              ${barcodeDetail}
+            </div>
+            <span class="badge" style="font-size:0.75rem;background:rgba(59,130,246,0.08);color:var(--color-primary);padding:0.15rem 0.4rem;border-radius:4px;white-space:nowrap;">Stock: ${qty}</span>
+          </div>
+        `;
+      }).join('');
+    };
+
     searchInput?.addEventListener('input', (e) => {
+      clearTimeout(catalogSearchLiveTimer);
       const val = e.target.value.toLowerCase().trim();
       if (!val) {
         dropdown.style.display = 'none';
@@ -2895,30 +2989,32 @@ import supabase from './supabase.js';
       ).slice(0, 10); // Limit to top 10
 
       if (matches.length === 0) {
+        if (val.length >= 2) {
+          dropdown.innerHTML = `<div style="padding:0.75rem;color:var(--color-text-muted);font-size:0.85rem;text-align:center;"><i class="ri-loader-4-line ri-spin" style="margin-right:0.35rem;"></i>Buscando en catálogo...</div>`;
+          dropdown.style.display = 'block';
+          catalogSearchLiveTimer = setTimeout(async () => {
+            const currentVal = (searchInput.value || '').toLowerCase().trim();
+            if (currentVal !== val) return;
+            await searchProductsLiveFromSupabase(val);
+            const liveMatches = localCatalogProducts.filter(p => 
+              (p.sku || '').toLowerCase().includes(val) || 
+              (p.name || '').toLowerCase().includes(val) ||
+              (p.barcode || '').toLowerCase().includes(val) ||
+              (p.barcode_wms || '').toLowerCase().includes(val)
+            ).slice(0, 10);
+            if ((searchInput.value || '').toLowerCase().trim() !== val) return;
+            if (liveMatches.length === 0) {
+              dropdown.innerHTML = `<div style="padding:0.75rem;color:var(--color-text-muted);font-size:0.85rem;text-align:center;">No se encontraron productos</div>`;
+            } else {
+              dropdown.innerHTML = renderCatalogDropdownItems(liveMatches);
+            }
+            dropdown.style.display = 'block';
+          }, 220);
+          return;
+        }
         dropdown.innerHTML = `<div style="padding:0.75rem;color:var(--color-text-muted);font-size:0.85rem;text-align:center;">No se encontraron productos</div>`;
       } else {
-        dropdown.innerHTML = matches.map(p => {
-          const qty = p.inventory && p.inventory[0] ? p.inventory[0].quantity : 0;
-          const varStr = formatProductVariantString(p, commerceVariantConfig?.naming);
-          const varBadge = varStr 
-            ? `<span class="badge" style="font-size:0.72rem;background:rgba(59,130,246,0.08);color:var(--color-primary);border:1px solid rgba(59,130,246,0.2);padding:0.1rem 0.35rem;border-radius:3px;margin-left:0.4rem;font-weight:600;"><i class="ri-price-tag-3-line" style="margin-right:2px;"></i>${escapeHtml(varStr)}</span>`
-            : '';
-          const barcodeDetail = p.barcode_wms 
-            ? `<span style="margin-left:0.5rem;font-size:0.75rem;color:#2563eb;font-family:monospace;">[WMS: ${escapeHtml(p.barcode_wms)}]</span>`
-            : (p.barcode ? `<span style="margin-left:0.5rem;font-size:0.75rem;color:var(--color-text-muted);font-family:monospace;">[${escapeHtml(p.barcode)}]</span>` : '');
-
-          return `
-            <div class="label-search-item" data-id="${p.id}" style="padding:0.6rem 0.8rem;cursor:pointer;border-bottom:1px solid var(--color-border);display:flex;justify-content:space-between;align-items:center;transition:background 0.15s;font-size:0.85rem;">
-              <div style="flex:1;min-width:0;margin-right:0.5rem;">
-                <strong style="color:var(--color-text-main);">${escapeHtml(p.sku)}</strong>
-                <span style="color:var(--color-text-muted);margin-left:0.5rem;font-size:0.8rem;">${escapeHtml(p.name)}</span>
-                ${varBadge}
-                ${barcodeDetail}
-              </div>
-              <span class="badge" style="font-size:0.75rem;background:rgba(59,130,246,0.08);color:var(--color-primary);padding:0.15rem 0.4rem;border-radius:4px;white-space:nowrap;">Stock: ${qty}</span>
-            </div>
-          `;
-        }).join('');
+        dropdown.innerHTML = renderCatalogDropdownItems(matches);
       }
       dropdown.style.display = 'block';
     });
@@ -2980,7 +3076,7 @@ import supabase from './supabase.js';
     // Load active inventory (stock > 0)
     btnLoadStock?.addEventListener('click', () => {
       const activeProducts = localCatalogProducts.filter(p => {
-        const qty = p.inventory && p.inventory[0] ? parseInt(p.inventory[0].quantity, 10) : 0;
+        const qty = getTotalProductStock(p);
         return qty > 0;
       });
 
@@ -3000,7 +3096,7 @@ import supabase from './supabase.js';
       }).then((result) => {
         if (result.isConfirmed) {
           printQueue = activeProducts.map(p => {
-            const qty = p.inventory && p.inventory[0] ? parseInt(p.inventory[0].quantity, 10) : 1;
+            const qty = Math.max(1, getTotalProductStock(p));
             return {
               id: p.id,
               sku: p.sku,
@@ -3303,7 +3399,9 @@ import supabase from './supabase.js';
       renderExpiryLivePreview();
     });
 
+    let expirySearchLiveTimer = null;
     expiryProdInput?.addEventListener('input', (e) => {
+      clearTimeout(expirySearchLiveTimer);
       const val = e.target.value.toLowerCase().trim();
       expiryState.productName = e.target.value;
       renderExpiryLivePreview();
@@ -3313,22 +3411,46 @@ import supabase from './supabase.js';
         return;
       }
 
+      const renderExpiryItems = (list) => list.map(p => `
+        <div class="expiry-search-item" data-sku="${escapeHtml(p.sku)}" data-name="${escapeHtml(p.name)}" style="padding:0.5rem 0.7rem;cursor:pointer;border-bottom:1px solid var(--color-border);font-size:0.8rem;display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <strong style="color:var(--color-primary);">${escapeHtml(p.sku)}</strong>
+            <span style="color:var(--color-text-main);margin-left:0.4rem;">${escapeHtml(p.name)}</span>
+          </div>
+        </div>
+      `).join('');
+
       const matches = localCatalogProducts.filter(p => 
         (p.sku || '').toLowerCase().includes(val) || 
-        (p.name || '').toLowerCase().includes(val)
+        (p.name || '').toLowerCase().includes(val) ||
+        (p.barcode || '').toLowerCase().includes(val) ||
+        (p.barcode_wms || '').toLowerCase().includes(val)
       ).slice(0, 8);
 
       if (matches.length === 0) {
+        if (val.length >= 2) {
+          expiryProdDropdown.innerHTML = `<div style="padding:0.6rem;color:var(--color-text-muted);font-size:0.8rem;text-align:center;"><i class="ri-loader-4-line ri-spin" style="margin-right:0.3rem;"></i>Buscando...</div>`;
+          expiryProdDropdown.style.display = 'block';
+          expirySearchLiveTimer = setTimeout(async () => {
+            if ((expiryProdInput.value || '').toLowerCase().trim() !== val) return;
+            await searchProductsLiveFromSupabase(val);
+            const liveMatches = localCatalogProducts.filter(p => 
+              (p.sku || '').toLowerCase().includes(val) || 
+              (p.name || '').toLowerCase().includes(val) ||
+              (p.barcode || '').toLowerCase().includes(val) ||
+              (p.barcode_wms || '').toLowerCase().includes(val)
+            ).slice(0, 8);
+            if ((expiryProdInput.value || '').toLowerCase().trim() !== val) return;
+            expiryProdDropdown.innerHTML = liveMatches.length === 0
+              ? `<div style="padding:0.6rem;color:var(--color-text-muted);font-size:0.8rem;text-align:center;">No se encontraron productos</div>`
+              : renderExpiryItems(liveMatches);
+            expiryProdDropdown.style.display = 'block';
+          }, 220);
+          return;
+        }
         expiryProdDropdown.innerHTML = `<div style="padding:0.6rem;color:var(--color-text-muted);font-size:0.8rem;text-align:center;">No se encontraron productos</div>`;
       } else {
-        expiryProdDropdown.innerHTML = matches.map(p => `
-          <div class="expiry-search-item" data-sku="${escapeHtml(p.sku)}" data-name="${escapeHtml(p.name)}" style="padding:0.5rem 0.7rem;cursor:pointer;border-bottom:1px solid var(--color-border);font-size:0.8rem;display:flex;justify-content:space-between;align-items:center;">
-            <div>
-              <strong style="color:var(--color-primary);">${escapeHtml(p.sku)}</strong>
-              <span style="color:var(--color-text-main);margin-left:0.4rem;">${escapeHtml(p.name)}</span>
-            </div>
-          </div>
-        `).join('');
+        expiryProdDropdown.innerHTML = renderExpiryItems(matches);
       }
       expiryProdDropdown.style.display = 'block';
     });
@@ -9348,12 +9470,18 @@ import supabase from './supabase.js';
     // Load catalog for this commerce so the user can easily pick replacement products
     if (st.comercio) {
       try {
-        const { data: prods } = await supabase
-          .from('products')
-          .select('id, sku, name, is_pack, is_virtual')
-          .eq('comercio', st.comercio)
-          .neq('status', 'archived')
-          .order('name');
+        const prods = typeof window.fetchAllSupabaseRows === 'function'
+          ? await window.fetchAllSupabaseRows(
+              'products',
+              'id, sku, name, is_pack, is_virtual',
+              q => q.eq('comercio', st.comercio).neq('status', 'archived').order('name')
+            )
+          : (await supabase
+              .from('products')
+              .select('id, sku, name, is_pack, is_virtual')
+              .eq('comercio', st.comercio)
+              .neq('status', 'archived')
+              .order('name')).data;
         st.catalogProducts = (prods || []).filter(p => !p.is_pack && !p.is_virtual);
       } catch (e) {
         st.catalogProducts = [];
