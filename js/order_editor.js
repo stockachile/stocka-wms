@@ -1100,7 +1100,27 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
 
       <div class="form-group" style="margin-bottom: 0.5rem;">
         <label class="form-label" style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: block; margin-bottom: 0.25rem;">Motivo / Comentario de la Modificación <span style="color: var(--color-danger);">*</span></label>
-        <textarea id="swal-edit-items-comment" placeholder="Ej: Reemplazo de SKU o ajuste solicitado por el cliente..." style="width: 100%; height: 60px; font-size: 0.8rem; padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); box-sizing: border-box;" required>${escapeFn(existingComment)}</textarea>
+        <textarea id="swal-edit-items-comment" oninput="window.syncEditOrderQuickCommentPills && window.syncEditOrderQuickCommentPills()" placeholder="Ej: Reemplazo de SKU o ajuste solicitado por el cliente..." style="width: 100%; height: 60px; font-size: 0.8rem; padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); box-sizing: border-box;" required>${escapeFn(existingComment)}</textarea>
+        <div style="margin-top: 0.45rem;">
+          <div style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-flashlight-line" style="color: var(--color-primary);"></i> Comentarios frecuentes:
+          </div>
+          <div id="swal-edit-quick-comments" style="display: flex; flex-wrap: wrap; gap: 0.35rem;">
+            ${(window.EDIT_ORDER_QUICK_COMMENTS || [
+              { label: 'SKU equivalente', icon: 'ri-exchange-line' },
+              { label: 'Mismo producto / actualización de código', icon: 'ri-barcode-line' },
+              { label: 'Reemplazo por SKU agotado', icon: 'ri-find-replace-line' },
+              { label: 'Se elimina ítem agotado', icon: 'ri-delete-bin-line' },
+              { label: 'Cambio solicitado por comercio / cliente', icon: 'ri-chat-check-line' },
+              { label: 'Desglose de pack en SKUs individuales', icon: 'ri-stack-line' },
+              { label: 'Ítem agregado por solicitud del comercio', icon: 'ri-add-circle-line' }
+            ]).map(chip => `
+              <button type="button" class="swal-edit-quick-comment-pill" data-comment="${escapeFn(chip.label)}" onclick="window.applyEditOrderQuickComment('${escapeFn(chip.label)}')" style="border-radius: 999px; font-size: 0.72rem; font-weight: 600; padding: 0.24rem 0.62rem; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.28rem; cursor: pointer; transition: all 0.15s ease;">
+                <i class="${chip.icon}" style="font-size: 0.82rem; color: var(--color-primary);"></i> ${escapeFn(chip.label)}
+              </button>
+            `).join('')}
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -1160,6 +1180,10 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
           }
         });
       }
+
+      if (typeof window.syncEditOrderQuickCommentPills === 'function') {
+        window.syncEditOrderQuickCommentPills();
+      }
     },
     preConfirm: async () => {
       const skuInput = document.getElementById('swal-add-item-sku');
@@ -1196,6 +1220,56 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
       window.saveEditOrderItems(orderId, result.value.comment, result.value.adjustDispatchedStock);
     }
   });
+};
+
+window.EDIT_ORDER_QUICK_COMMENTS = [
+  { label: 'SKU equivalente', icon: 'ri-exchange-line' },
+  { label: 'Mismo producto / actualización de código', icon: 'ri-barcode-line' },
+  { label: 'Reemplazo por SKU agotado', icon: 'ri-find-replace-line' },
+  { label: 'Se elimina ítem agotado', icon: 'ri-delete-bin-line' },
+  { label: 'Cambio solicitado por comercio / cliente', icon: 'ri-chat-check-line' },
+  { label: 'Desglose de pack en SKUs individuales', icon: 'ri-stack-line' },
+  { label: 'Ítem agregado por solicitud del comercio', icon: 'ri-add-circle-line' }
+];
+
+window.syncEditOrderQuickCommentPills = function() {
+  const textarea = document.getElementById('swal-edit-items-comment');
+  const container = document.getElementById('swal-edit-quick-comments');
+  if (!textarea || !container) return;
+  const currentVal = (textarea.value || '').trim().toLowerCase();
+  const pills = container.querySelectorAll('.swal-edit-quick-comment-pill');
+  pills.forEach(btn => {
+    const label = (btn.getAttribute('data-comment') || '').trim().toLowerCase();
+    const isActive = currentVal === label || (currentVal.length > 0 && label.length > 0 && currentVal.includes(label));
+    if (isActive) {
+      btn.style.borderColor = 'var(--color-primary)';
+      btn.style.background = 'rgba(37, 99, 235, 0.12)';
+      btn.style.color = 'var(--color-primary)';
+    } else {
+      btn.style.borderColor = 'var(--color-border)';
+      btn.style.background = 'var(--color-bg)';
+      btn.style.color = 'var(--color-text-main)';
+    }
+  });
+};
+
+window.applyEditOrderQuickComment = function(text) {
+  const textarea = document.getElementById('swal-edit-items-comment');
+  if (!textarea || !text) return;
+  const currentVal = (textarea.value || '').trim();
+  const presetsLower = (window.EDIT_ORDER_QUICK_COMMENTS || []).map(c => c.label.toLowerCase());
+  if (!currentVal || presetsLower.includes(currentVal.toLowerCase())) {
+    textarea.value = text;
+  } else if (!currentVal.toLowerCase().includes(text.toLowerCase())) {
+    textarea.value = `${currentVal}, ${text}`;
+  }
+  if (typeof Swal !== 'undefined' && typeof Swal.resetValidationMessage === 'function') {
+    Swal.resetValidationMessage();
+  }
+  window.syncEditOrderQuickCommentPills();
+  textarea.focus();
+  const len = textarea.value.length;
+  try { textarea.setSelectionRange(len, len); } catch (e) {}
 };
 
 window.updateTempEditItemQuantity = function(index, val) {

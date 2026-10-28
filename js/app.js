@@ -4542,6 +4542,9 @@ async function renderInventory() {
       )
     `;
 
+    const { data: wList } = await supabase.from('warehouses').select('id, name').order('name');
+    window.allWarehousesList = wList || [];
+
     try {
       if (typeof window.fetchAllSupabaseRows === 'function') {
         products = await window.fetchAllSupabaseRows('products', selectFields, q => {
@@ -4550,11 +4553,15 @@ async function renderInventory() {
       } else {
         let query = supabase.from('products').select(selectFields);
         query = commerce ? query.eq('comercio', commerce) : query.eq('comercio', 'no asignado');
-        const { data: pData, error: pErr } = await query.order('name');
+        const { data: pData, error: pErr } = await query;
         if (pErr) throw pErr;
         products = pData || [];
       }
     } catch (errFallback) {
+      const errMsg = String(errFallback?.message || '').toLowerCase();
+      if (typeof window.fetchAllSupabaseRows === 'function' && (errFallback?.code === '57014' || errMsg.includes('timeout') || errMsg.includes('canceling statement'))) {
+        throw errFallback;
+      }
       if (typeof window.fetchAllSupabaseRows === 'function') {
         products = await window.fetchAllSupabaseRows('products', selectFallback, q => {
           return commerce ? q.eq('comercio', commerce).order('name') : q.eq('comercio', 'no asignado').order('name');
@@ -4562,22 +4569,19 @@ async function renderInventory() {
       } else {
         let queryFallback = supabase.from('products').select(selectFallback);
         queryFallback = commerce ? queryFallback.eq('comercio', commerce) : queryFallback.eq('comercio', 'no asignado');
-        const { data: pDataFallback, error: pErrFallback } = await queryFallback.order('name');
+        const { data: pDataFallback, error: pErrFallback } = await queryFallback;
         if (pErrFallback) throw pErrFallback;
         products = pDataFallback || [];
       }
     }
 
-    const { data: wList } = await supabase.from('warehouses').select('id, name').order('name');
-    window.allWarehousesList = wList || [];
-
-    // Obtener stock en tránsito / pendiente de ingreso
+    // Obtener stock en tránsito / pendiente de ingreso (sin descargar file_base64 pesado salvo que falte products_list)
     let pendingStockMap = {};
     try {
       const activeStatuses = ['Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'];
       let decQuery = supabase
         .from('stock_declarations')
-        .select('products_list, file_base64')
+        .select('id, products_list')
         .in('status', activeStatuses);
         
       if (commerce) {
@@ -4586,15 +4590,20 @@ async function renderInventory() {
       
       const { data: decs } = await decQuery;
       if (decs) {
-        decs.forEach(dec => {
-          const decProds = getDeclarationProducts(dec);
+        for (const dec of decs) {
+          let decObj = dec;
+          if ((!dec.products_list || !Array.isArray(dec.products_list) || dec.products_list.length === 0) && dec.id) {
+            const { data: fullDec } = await supabase.from('stock_declarations').select('products_list, file_base64').eq('id', dec.id).maybeSingle();
+            if (fullDec) decObj = fullDec;
+          }
+          const decProds = getDeclarationProducts(decObj);
           decProds.forEach(p => {
             if (p.sku) {
               const skuNorm = p.sku.trim();
               pendingStockMap[skuNorm] = (pendingStockMap[skuNorm] || 0) + (p.qty || 0);
             }
           });
-        });
+        }
       }
     } catch (e) {
       console.error('Error calculating pending stock map:', e);
@@ -4756,6 +4765,11 @@ async function renderInventory() {
                       <th class="inventory-sortable" data-sort="physical" title="Físico Total: Cantidad física total en bodega (Estante + Mesa)" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
                         <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
                           FÍSICO <i class="ri-information-line" style="color: var(--color-text-main); font-size: 0.85rem;" title="Físico Total: Cantidad física total del producto en toda la bodega (Estante + Mesa)"></i> <span class="sort-indicator"></span>
+                        </span>
+                      </th>
+                      <th id="th-client-other-warehouses" class="inventory-sortable" data-sort="otherWarehousesAvailable" title="Otras Bodegas: Total de unidades en las demás bodegas (disponibles para trasladar hacia esta bodega)" style="display: ${window.inventoryWarehouseFilter ? 'table-cell' : 'none'}; cursor: pointer; user-select: none; padding: 0.65rem 0.5rem; text-align: center; white-space: nowrap; background: rgba(14, 165, 233, 0.06); border-left: 1px dashed rgba(14, 165, 233, 0.3); border-right: 1px dashed rgba(14, 165, 233, 0.3);">
+                        <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%; color: #0284c7; font-weight: 700;">
+                          OTRAS BOD. <i class="ri-arrow-left-right-line" style="color: #0284c7; font-size: 0.9rem;" title="Unidades en otras bodegas disponibles para mover o trasladar hacia la bodega seleccionada"></i> <span class="sort-indicator"></span>
                         </span>
                       </th>
                       <th class="inventory-sortable" data-sort="stock_critico" title="Stock Crítico: Umbral de stock mínimo para alertas" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
@@ -5613,6 +5627,30 @@ function applyInventoryFiltersAndSort(flat = false, ignoreFilters = false, custo
         ? 'Agotado'
         : (avail <= (prod.stock_critico || 0) ? 'Bajo Stock' : 'En Stock');
 
+      const otherWarehousesPhysical = Math.max(0, totalPhysical - phys);
+      const otherWarehousesAvailable = Math.max(0, totalAvailable - avail);
+      const otherWarehousesBreakdown = [];
+      invList.forEach(inv => {
+        if (String(inv.warehouse_id) !== activeWhFilter) {
+          const oPhys = inv.quantity || 0;
+          const oComm = inv.committed_quantity || 0;
+          const oRes = inv.reserved_quantity || 0;
+          const oAvail = oPhys - oComm - oRes;
+          if (oPhys > 0 || oAvail > 0) {
+            const oWhObj = (window.allWarehousesList || []).find(w => String(w.id) === String(inv.warehouse_id));
+            otherWarehousesBreakdown.push({
+              warehouse_id: inv.warehouse_id,
+              name: inv.warehouses?.name || oWhObj?.name || 'Otra Bodega',
+              physical: oPhys,
+              available: oAvail
+            });
+          }
+        }
+      });
+      const otherWarehousesSummary = otherWarehousesBreakdown.length > 0
+        ? otherWarehousesBreakdown.map(b => `${b.name}: ${b.available}`).join(' | ')
+        : '0';
+
       rows.push({
         id: prod.id,
         sku: prod.sku || '',
@@ -5628,6 +5666,10 @@ function applyInventoryFiltersAndSort(flat = false, ignoreFilters = false, custo
         pending: pendingVal,
         available: avail,
         totalAvailable: totalAvailable,
+        otherWarehousesPhysical: otherWarehousesPhysical,
+        otherWarehousesAvailable: otherWarehousesAvailable,
+        otherWarehousesBreakdown: otherWarehousesBreakdown,
+        otherWarehousesSummary: otherWarehousesSummary,
         stock_critico: prod.stock_critico || 0,
         status: whStatusStr,
         inventory: invList,
@@ -5651,6 +5693,8 @@ function applyInventoryFiltersAndSort(flat = false, ignoreFilters = false, custo
           pending: pendingVal,
           available: 0,
           totalAvailable: totalAvailable,
+          otherWarehousesPhysical: 0,
+          otherWarehousesAvailable: 0,
           stock_critico: prod.stock_critico || 0,
           status: statusStr,
           is_virtual: prod.is_virtual,
@@ -5681,6 +5725,8 @@ function applyInventoryFiltersAndSort(flat = false, ignoreFilters = false, custo
             pending: pendingVal,
             available: available,
             totalAvailable: totalAvailable,
+            otherWarehousesPhysical: Math.max(0, totalPhysical - phys),
+            otherWarehousesAvailable: Math.max(0, totalAvailable - available),
             stock_critico: prod.stock_critico || 0,
             status: whStatus,
             is_virtual: prod.is_virtual,
@@ -5771,13 +5817,24 @@ function renderInventoryTableBody() {
   const tbody = document.getElementById('inventory-tbody');
   if (!tbody) return;
 
+  const activeWhId = String(window.inventoryWarehouseFilter || '');
+  const isSingleWarehouseView = Boolean(activeWhId);
+  const thOtherWh = document.getElementById('th-client-other-warehouses');
+  if (thOtherWh) {
+    thOtherWh.style.display = isSingleWarehouseView ? 'table-cell' : 'none';
+  }
+  if (!isSingleWarehouseView && window.inventorySortColumn === 'otherWarehousesAvailable') {
+    window.inventorySortColumn = 'name';
+    updateInventorySortingIndicators();
+  }
+
   const rows = applyInventoryFiltersAndSort(false);
   const isObserver = userRole === 'observer';
 
   if (rows.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="15" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+        <td colspan="${isSingleWarehouseView ? 16 : 15}" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
           No se encontraron productos coincidentes con los filtros seleccionados.
         </td>
       </tr>
@@ -5872,6 +5929,41 @@ function renderInventoryTableBody() {
       ? `<td style="padding: 0.55rem 0.4rem; text-align: center; color: ${r.available > 0 ? 'var(--color-primary)' : 'var(--color-text-muted)'}; font-weight: 700; font-size: 0.9rem;">${r.available}</td>`
       : `<td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>`;
 
+    let otherWarehousesCellHtml = '';
+    if (r.isSingleWarehouseView) {
+      const otherAvail = Number(r.otherWarehousesAvailable || 0);
+      const otherPhys = Number(r.otherWarehousesPhysical || 0);
+      const breakdown = Array.isArray(r.otherWarehousesBreakdown) ? r.otherWarehousesBreakdown : [];
+      const canReplenishHere = r.available <= 0 && otherAvail > 0;
+      const tooltipDetail = breakdown.length > 0
+        ? `Stock en otras bodegas (${ breakdown.map(b => `${b.name}: ${b.available} disp. / ${b.physical} fís.`).join(' | ') }) — Clic para trasladar stock`
+        : 'Sin unidades en otras bodegas';
+      const shortBreakdownHtml = breakdown.length > 0
+        ? `<div style="font-size: 0.68rem; color: var(--color-text-muted); font-weight: 500; margin-top: 2px; line-height: 1.15; max-width: 155px; white-space: normal; margin-left: auto; margin-right: auto;">
+            ${breakdown.map(b => `<span style="display: inline-block; white-space: nowrap;">${b.name}: <strong style="color: var(--color-text-main);">${b.available}</strong></span>`).join(' · ')}
+           </div>`
+        : '';
+
+      if (otherAvail > 0 || otherPhys > 0) {
+        otherWarehousesCellHtml = `
+          <td style="padding: 0.45rem 0.45rem; text-align: center; background: ${canReplenishHere ? 'rgba(14, 165, 233, 0.08)' : 'rgba(14, 165, 233, 0.03)'}; border-left: 1px dashed rgba(14, 165, 233, 0.25); border-right: 1px dashed rgba(14, 165, 233, 0.25);">
+            <button type="button" class="btn-quick-transfer-other-wh" data-prod-id="${r.id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" title="${tooltipDetail.replace(/"/g, '&quot;')}" style="background: ${canReplenishHere ? 'rgba(14, 165, 233, 0.14)' : 'var(--color-bg)'}; border: 1px solid ${canReplenishHere ? '#0284c7' : 'rgba(14, 165, 233, 0.35)'}; color: #0284c7; font-weight: 800; font-size: 0.85rem; padding: 0.18rem 0.5rem; border-radius: 999px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; transition: all 0.15s ease;">
+              <i class="ri-arrow-left-right-line" style="font-size: 0.8rem;"></i>
+              <span>${otherAvail}</span>
+              ${otherPhys !== otherAvail ? `<span style="font-size: 0.7rem; font-weight: 600; opacity: 0.8;">(${otherPhys} fís.)</span>` : ''}
+            </button>
+            ${shortBreakdownHtml}
+          </td>
+        `;
+      } else {
+        otherWarehousesCellHtml = `
+          <td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-text-muted); opacity: 0.45; background: rgba(14, 165, 233, 0.02); border-left: 1px dashed rgba(14, 165, 233, 0.15); border-right: 1px dashed rgba(14, 165, 233, 0.15);" title="0 unidades en las demás bodegas">
+            0
+          </td>
+        `;
+      }
+    }
+
     // Fila principal (consolidada o de la bodega seleccionada)
     html += `
       <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; background-color: var(--color-surface);" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='var(--color-surface)'">
@@ -5889,6 +5981,7 @@ function renderInventoryTableBody() {
         ${dispBodegaCellHtml}
         <td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-success); font-weight: 700; font-size: 0.9rem;">${r.isSingleWarehouseView ? r.available : r.totalAvailable}${alertIconHtml}</td>
         <td style="padding: 0.55rem 0.4rem; text-align: center; font-weight: 600; color: var(--color-text-main); font-size: 0.9rem;">${r.physical}</td>
+        ${otherWarehousesCellHtml}
         <td style="padding: 0.55rem 0.4rem; text-align: center;">
           <input type="number" class="stock-critico-inline" data-prod-id="${r.id}" value="${r.stock_critico}" min="0" style="width: 55px; text-align: center; padding: 0.15rem 0.3rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: 500; font-size: 0.8rem;" ${isObserver ? 'disabled' : ''} />
         </td>
@@ -6029,6 +6122,20 @@ function renderInventoryTableBody() {
       const sku = e.currentTarget.getAttribute('data-prod-sku');
       const name = e.currentTarget.getAttribute('data-prod-name');
       openProductMovementsModal(prodId, sku, name);
+    });
+  });
+
+  // Enlazar listeners para traslado rápido desde columna Otras Bodegas
+  tbody.querySelectorAll('.btn-quick-transfer-other-wh').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const prodId = e.currentTarget.getAttribute('data-prod-id');
+      const sku = e.currentTarget.getAttribute('data-prod-sku');
+      const name = e.currentTarget.getAttribute('data-prod-name');
+      const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
+      if (typeof openBulkStockTransferModal === 'function' && commerce) {
+        openBulkStockTransferModal(commerce, [{ id: prodId, sku: sku, name: name }], () => renderInventory());
+      }
     });
   });
 

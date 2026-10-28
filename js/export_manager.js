@@ -303,6 +303,8 @@
       { id: 'committed', label: 'Comprometido (Pedidos)', defaultSimple: true, defaultFull: true },
       { id: 'pending', label: 'Pendiente de Ingreso', defaultSimple: false, defaultFull: true },
       { id: 'available', label: 'Disp. en Bodega', defaultSimple: true, defaultFull: true },
+      { id: 'otherWarehousesAvailable', label: 'Disp. Otras Bodegas', defaultSimple: false, defaultFull: true },
+      { id: 'otherWarehousesSummary', label: 'Detalle Otras Bodegas', defaultSimple: false, defaultFull: true },
       { id: 'totalAvailable', label: 'Disp. Total Multitienda', defaultSimple: true, defaultFull: true },
       { id: 'physical', label: 'Físico Total Bodega', defaultSimple: true, defaultFull: true },
       { id: 'stock_critico', label: 'Stock Crítico', defaultSimple: false, defaultFull: true },
@@ -319,6 +321,8 @@
       const pend = Number(r.pending || 0);
       const avail = r.available !== undefined ? Number(r.available) : (phys - comm - res);
       const totAvail = r.totalAvailable !== undefined ? Number(r.totalAvailable) : avail;
+      const otherAvail = r.otherWarehousesAvailable !== undefined ? Number(r.otherWarehousesAvailable) : Math.max(0, totAvail - avail);
+      const otherSummary = r.otherWarehousesSummary !== undefined && r.otherWarehousesSummary !== '' ? String(r.otherWarehousesSummary) : (otherAvail > 0 ? `${otherAvail} un. en otras` : 'Sin stock en otras');
       const crit = Number(r.stock_critico || 0);
       const status = r.status || (totAvail <= 0 ? 'Agotado' : (totAvail <= crit ? 'Bajo Stock' : 'En Stock'));
       const pType = r.product_type || (r.is_virtual ? 'Virtual' : (r.is_pack ? 'Pack' : 'Físico'));
@@ -334,6 +338,8 @@
         committed: comm,
         pending: pend,
         available: avail,
+        otherWarehousesAvailable: otherAvail,
+        otherWarehousesSummary: otherSummary,
         totalAvailable: totAvail,
         physical: phys,
         stock_critico: crit,
@@ -1182,12 +1188,17 @@
       // Normalizar filas
       const normalizedRows = rawData.map(r => schema.normalizeRow(r, commerce));
 
-      // Seleccionar columnas según preset
-      const columns = schema.fields.filter(f => mode === 'full' ? f.defaultFull : f.defaultSimple);
+      const isSpecificWh = isInv && warehouseMode && warehouseMode !== 'all_flat' && warehouseMode !== 'consolidated';
+
+      // Seleccionar columnas según preset (incluyendo Disp. Otras Bodegas cuando se exporta una bodega específica)
+      const columns = schema.fields.filter(f => {
+        if (mode === 'full') return f.defaultFull;
+        if (isSpecificWh && f.id === 'otherWarehousesAvailable') return true;
+        return f.defaultSimple;
+      });
 
       const dateTag = new Date().toISOString().slice(0, 10);
       const safeCommerce = (commerce || 'comercio').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
-      const isSpecificWh = isInv && warehouseMode && warehouseMode !== 'all_flat' && warehouseMode !== 'consolidated';
       const safeWhSuffix = isSpecificWh
         ? `_${warehouseLabel.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()}`
         : (warehouseMode === 'consolidated' ? '_consolidado' : '');

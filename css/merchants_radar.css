@@ -1,0 +1,621 @@
+/* css/merchants_radar.css - Diseño Limpio y Ejecutivo para "Radar de Comercios" (WMS STOCKA) */
+
+@keyframes radar-pulse-ring {
+  0% { transform: scale(0.85); opacity: 0.85; }
+  70% { transform: scale(1.8); opacity: 0; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+@keyframes radar-card-flash {
+  0% {
+    box-shadow: 0 0 0 2px var(--color-primary);
+  }
+  100% {
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+.radar-live-dot {
+  position: relative;
+  display: inline-flex;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background-color: #10b981;
+  flex-shrink: 0;
+}
+
+.radar-live-dot::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background-color: #10b981;
+  animation: radar-pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+.radar-flash-highlight {
+  animation: radar-card-flash 1.4s ease-out;
+}
+
+/* ==========================================================================
+   1. Resumen Superior Compacto (KPIs en una sola franja limpia)
+   ========================================================================== */
+.radar-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 0.85rem;
+  overflow: hidden;
+}
+
+@media (max-width: 1024px) {
+  .radar-summary-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.radar-summary-item {
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.15rem;
+  border-right: 1px solid var(--color-border);
+  transition: background-color 0.15s ease;
+}
+
+.radar-summary-item:last-child {
+  border-right: none;
+}
+
+.radar-summary-item.clickable {
+  cursor: pointer;
+}
+
+.radar-summary-item.clickable:hover {
+  background: var(--color-bg);
+}
+
+.radar-summary-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+}
+
+.radar-summary-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+}
+
+.radar-summary-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text-main);
+  line-height: 1.15;
+}
+
+.radar-summary-sub {
+  font-size: 0.73rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+/* ==========================================================================
+   2. Barra de Controles Sobria
+   ========================================================================== */
+.radar-toolbar {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.radar-toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.radar-toolbar-row.divider {
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.radar-segmented {
+  display: inline-flex;
+  align-items: center;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.radar-seg-btn {
+  padding: 0.26rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.radar-seg-btn:hover {
+  color: var(--color-text-main);
+}
+
+.radar-seg-btn.active {
+  background: var(--color-surface);
+  color: var(--color-text-main);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+/* Pastillas neutras para canales globales */
+.radar-channel-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.22rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.74rem;
+  font-weight: 500;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.radar-channel-filter-chip:hover {
+  border-color: var(--color-text-muted);
+  color: var(--color-text-main);
+}
+
+.radar-channel-filter-chip.active {
+  background: var(--color-text-main);
+  color: var(--color-surface);
+  border-color: var(--color-text-main);
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   3. Grilla de Tarjetas de Comercios (Diseño Limpio y Monocromático con Acentos Sutiles)
+   ========================================================================== */
+.radar-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 0.85rem;
+}
+
+@media (max-width: 640px) {
+  .radar-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.radar-merchant-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.1rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.85rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.radar-merchant-card:hover {
+  border-color: rgba(100, 116, 139, 0.45);
+  box-shadow: var(--shadow-md);
+}
+
+.radar-merchant-card.is-idle {
+  opacity: 0.72;
+}
+
+/* Cabecera de Tarjeta */
+.radar-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.radar-sigla-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.14rem 0.42rem;
+  border-radius: 5px;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+.radar-merchant-title {
+  margin: 0;
+  font-size: 0.96rem;
+  font-weight: 700;
+  color: var(--color-text-main);
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.radar-merchant-title:hover {
+  color: var(--color-primary);
+}
+
+/* Canales Activos del Comercio (Chips neutros con punto indicador) */
+.radar-card-channels {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
+}
+
+.radar-plat-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.16rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.73rem;
+  font-weight: 500;
+  background: var(--color-bg);
+  color: var(--color-text-main);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.radar-plat-tag:hover {
+  border-color: var(--color-primary);
+}
+
+.radar-plat-tag.active {
+  background: rgba(79, 70, 229, 0.09);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.radar-plat-tag.active .plat-count {
+  color: var(--color-primary);
+}
+
+.radar-plat-tag .plat-count {
+  font-weight: 700;
+  color: var(--color-text-main);
+}
+
+.radar-plat-tag .plat-pct {
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+}
+
+/* Barra de progreso minimalista (4px) */
+.radar-thin-progress {
+  width: 100%;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--color-bg);
+  overflow: hidden;
+  display: flex;
+  gap: 1px;
+}
+
+/* Tira Unificada de Estados WMS (Sin cajas de colores) */
+.radar-states-strip {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.radar-state-cell {
+  padding: 0.42rem 0.35rem;
+  text-align: center;
+  border-right: 1px solid var(--color-border);
+  background: transparent;
+  border-top: none;
+  border-bottom: none;
+  border-left: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.radar-state-cell:last-child {
+  border-right: none;
+}
+
+.radar-state-cell:hover {
+  background: var(--color-surface);
+}
+
+.radar-state-cell.active {
+  background: rgba(79, 70, 229, 0.08);
+  box-shadow: inset 0 -2px 0 var(--color-primary);
+}
+
+.radar-state-cell.active .radar-state-label,
+.radar-state-cell.active .radar-state-num {
+  color: var(--color-primary);
+  opacity: 1;
+}
+
+.radar-state-label {
+  display: block;
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 0.1rem;
+}
+
+.radar-state-num {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--color-text-main);
+  line-height: 1.1;
+}
+
+.radar-state-num.is-zero {
+  color: var(--color-text-muted);
+  opacity: 0.4;
+  font-weight: 500;
+}
+
+.radar-state-num.is-alert {
+  color: #dc2626;
+}
+
+/* Pie de Tarjeta: Incidencias sutiles y enlace limpio */
+.radar-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--color-border);
+  min-height: 28px;
+}
+
+.radar-inc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--color-bg);
+  color: var(--color-text-main);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.radar-inc-chip:hover {
+  border-color: var(--color-text-muted);
+  background: var(--color-surface);
+}
+
+.radar-inc-chip.active {
+  background: rgba(79, 70, 229, 0.09);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.radar-action-link.has-filter {
+  color: var(--color-primary);
+  background: rgba(79, 70, 229, 0.08);
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+.radar-inc-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.radar-inc-dot.critical {
+  background-color: #ef4444;
+}
+
+.radar-inc-dot.warning {
+  background-color: #f59e0b;
+}
+
+.radar-action-link {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  padding: 0.15rem 0.35rem;
+  border-radius: 5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  white-space: nowrap;
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+
+.radar-action-link:hover {
+  color: var(--color-primary);
+  background: var(--color-bg);
+}
+
+/* ==========================================================================
+   4. Vista Matriz Tabla Ejecutiva
+   ========================================================================== */
+.radar-table-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.radar-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.radar-matrix-table th {
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  letter-spacing: 0.03em;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.radar-matrix-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+  color: var(--color-text-main);
+}
+
+.radar-matrix-table tbody tr:hover {
+  background: var(--color-bg);
+}
+
+/* ==========================================================================
+   5. Modal de Vista Resumida de Pedidos por Comercio
+   ========================================================================== */
+.radar-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(3px);
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+}
+
+.radar-modal-dialog {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.25);
+  width: 100%;
+  max-width: 920px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.radar-modal-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.radar-modal-filterbar {
+  padding: 0.65rem 1.25rem;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.radar-modal-body {
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.radar-modal-footer {
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.radar-cov-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 5px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-main);
+}
+
+.radar-cov-badge.cov-rm {
+  color: #047857;
+  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.radar-cov-badge.cov-reg {
+  color: #1d4ed8;
+  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.radar-cov-badge.cov-none {
+  color: #dc2626;
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.08);
+}
+

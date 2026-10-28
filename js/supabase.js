@@ -668,17 +668,48 @@ window.escapeHtml = function(str) {
 
 
 window.fetchAllSupabaseRows = async function(tableName, selectStr, filterCallback) {
+  const isDemo = typeof window.isDemoMode === 'function' && window.isDemoMode();
+  const rawSelect = String(selectStr || '*');
+  const hasNestedInventoryOnProducts = !isDemo && tableName === 'products' && /\binventory\s*\(/i.test(rawSelect);
+
+  let effectiveSelect = rawSelect;
+  let wantsWarehouseName = false;
+  if (hasNestedInventoryOnProducts) {
+    wantsWarehouseName = /\bwarehouses\s*\(/i.test(rawSelect);
+    effectiveSelect = rawSelect
+      .replace(/,?\s*\binventory\s*\((?:[^()]+|\([^()]*\))*\)/gi, '')
+      .replace(/^\s*,+|,+\s*$/g, '')
+      .trim() || '*';
+    if (effectiveSelect !== '*' && !/\bid\b/i.test(effectiveSelect)) {
+      effectiveSelect = 'id, ' + effectiveSelect;
+    }
+  }
+
   let allData = [];
   let from = 0;
-  const step = 1000;
+  let step = (tableName === 'products' && effectiveSelect.includes('*')) ? 350 : (tableName === 'products' ? 500 : 1000);
+  let jsOrderCol = null;
+  let jsOrderAsc = true;
+
   while (true) {
     let attempts = 0;
     let data = null;
     let lastError = null;
 
-    while (attempts < 3) {
+    while (attempts < 4) {
       attempts++;
-      let q = supabase.from(tableName).select(selectStr);
+      let q = supabase.from(tableName).select(effectiveSelect);
+      if (tableName === 'products' && !isDemo && typeof q.order === 'function') {
+        const origOrder = q.order.bind(q);
+        q.order = function(col, opts = {}) {
+          if (col === 'name') {
+            jsOrderCol = 'name';
+            jsOrderAsc = opts.ascending !== false;
+            return q;
+          }
+          return origOrder(col, opts);
+        };
+      }
       if (filterCallback) q = filterCallback(q);
       const res = await q.range(from, from + step - 1);
       if (!res.error) {
@@ -687,10 +718,15 @@ window.fetchAllSupabaseRows = async function(tableName, selectStr, filterCallbac
         break;
       }
       lastError = res.error;
-      const isTimeout = lastError.code === '57014' || lastError.message?.includes('timeout') || lastError.message?.includes('Failed to fetch');
-      if (isTimeout && attempts < 3) {
-        console.warn(`[fetchAllSupabaseRows] Reintentando ${tableName} (intento ${attempts + 1})...`, lastError);
-        await new Promise(r => setTimeout(r, 600 * attempts));
+      const errMsg = String(lastError.message || '').toLowerCase();
+      const isTimeout = lastError.code === '57014' ||
+        errMsg.includes('timeout') ||
+        errMsg.includes('canceling statement') ||
+        errMsg.includes('failed to fetch');
+      if (isTimeout && attempts < 4) {
+        step = Math.max(100, Math.floor(step / 2));
+        console.warn(`[fetchAllSupabaseRows] Timeout en ${tableName}, reduciendo lote a ${step} (intento ${attempts + 1})...`, lastError);
+        await new Promise(r => setTimeout(r, 400 * attempts));
       } else {
         break;
       }
@@ -700,8 +736,108 @@ window.fetchAllSupabaseRows = async function(tableName, selectStr, filterCallbac
     if (!data || data.length === 0) break;
     allData = allData.concat(data);
     if (data.length < step) break;
-    from += step;
+    from += data.length;
   }
+
+  // Deduplicar por id en caso de paginar sin ORDER BY en SQL
+  if (tableName === 'products' && allData.length > 0 && allData[0].id !== undefined) {
+    const seenIds = new Set();
+    allData = allData.filter(item => {
+      if (!item || !item.id) return true;
+      if (seenIds.has(item.id)) return false;
+      seenIds.add(item.id);
+      return true;
+    });
+  }
+
+  // Hidratar inventory en lotes indexados rápidos cuando se consultó products con inventory(...)
+  if (hasNestedInventoryOnProducts && allData.length > 0) {
+    const warehouseMap = {};
+    if (wantsWarehouseName) {
+      let wList = Array.isArray(window.allWarehousesList) && window.allWarehousesList.length > 0
+        ? window.allWarehousesList
+        : null;
+      if (!wList) {
+        try {
+          const { data: wData } = await supabase.from('warehouses').select('id, name').order('name');
+          wList = wData || [];
+          if (wList.length > 0) window.allWarehousesList = wList;
+        } catch (e) {
+          wList = [];
+        }
+      }
+      wList.forEach(w => {
+        if (w && w.id) warehouseMap[String(w.id)] = w.name || '';
+      });
+    }
+
+    const productIds = allData.map(p => p.id).filter(Boolean);
+    const invByProduct = new Map();
+    const chunkSize = 200;
+    const chunks = [];
+    for (let i = 0; i < productIds.length; i += chunkSize) {
+      chunks.push(productIds.slice(i, i + chunkSize));
+    }
+
+    let invSelectCols = 'product_id, warehouse_id, quantity, committed_quantity, reserved_quantity';
+    const fetchChunk = async (chunkIds) => {
+      let res = await supabase.from('inventory').select(invSelectCols).in('product_id', chunkIds);
+      const errMsg = String(res.error?.message || '').toLowerCase();
+      if (res.error && invSelectCols.includes('reserved_quantity') && !errMsg.includes('timeout') && !errMsg.includes('canceling statement')) {
+        invSelectCols = 'product_id, warehouse_id, quantity, committed_quantity';
+        res = await supabase.from('inventory').select(invSelectCols).in('product_id', chunkIds);
+      }
+      if (res.error && (res.error.code === '57014' || errMsg.includes('timeout') || errMsg.includes('canceling statement')) && chunkIds.length > 50) {
+        const mid = Math.ceil(chunkIds.length / 2);
+        const [r1, r2] = await Promise.all([
+          fetchChunk(chunkIds.slice(0, mid)),
+          fetchChunk(chunkIds.slice(mid))
+        ]);
+        return [...r1, ...r2];
+      }
+      return res.data || [];
+    };
+
+    const concurrency = 3;
+    for (let i = 0; i < chunks.length; i += concurrency) {
+      const batch = chunks.slice(i, i + concurrency);
+      const batchResults = await Promise.all(batch.map(c => fetchChunk(c)));
+      batchResults.forEach(rows => {
+        rows.forEach(inv => {
+          const pid = inv.product_id;
+          if (!pid) return;
+          if (!invByProduct.has(pid)) invByProduct.set(pid, []);
+          const item = {
+            warehouse_id: inv.warehouse_id,
+            quantity: inv.quantity ?? 0,
+            committed_quantity: inv.committed_quantity ?? 0,
+            reserved_quantity: inv.reserved_quantity ?? 0
+          };
+          if (wantsWarehouseName) {
+            const wName = warehouseMap[String(inv.warehouse_id)] || '';
+            item.warehouses = wName ? { name: wName } : null;
+          }
+          invByProduct.get(pid).push(item);
+        });
+      });
+    }
+
+    allData.forEach(p => {
+      p.inventory = invByProduct.get(p.id) || [];
+    });
+  }
+
+  // Ordenar en memoria si se interceptó .order('name')
+  if (jsOrderCol === 'name' && allData.length > 1) {
+    allData.sort((a, b) => {
+      const na = String(a?.name || '').toLowerCase();
+      const nb = String(b?.name || '').toLowerCase();
+      if (na < nb) return jsOrderAsc ? -1 : 1;
+      if (na > nb) return jsOrderAsc ? 1 : -1;
+      return 0;
+    });
+  }
+
   return allData;
 };
 

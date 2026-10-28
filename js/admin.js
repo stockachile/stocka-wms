@@ -7168,6 +7168,26 @@ window.initWmsOrdersRealtimeSync = function() {
     const channel = client.channel('wms-orders-realtime-sync')
       .on(
         'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'orders' },
+        (payload) => {
+          if (!payload || !payload.new || !payload.new.id) return;
+          const inserted = payload.new;
+          if (Array.isArray(window.loadedOrders)) {
+            const exists = window.loadedOrders.some(o => String(o.id) === String(inserted.id));
+            if (!exists) {
+              window.loadedOrders.unshift(inserted);
+              if (typeof window.clearWmsTagsCache === 'function') {
+                window.clearWmsTagsCache();
+              }
+            }
+          }
+          if (typeof window.notifyMerchantsRadarRealtimeEvent === 'function') {
+            window.notifyMerchantsRadarRealtimeEvent(inserted, 'INSERT');
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'orders' },
         (payload) => {
           if (!payload || !payload.new) return;
@@ -7220,6 +7240,11 @@ window.initWmsOrdersRealtimeSync = function() {
           const targetVal = updated.estado_wms || updated.status;
           if (statusSelect && targetVal && statusSelect.value !== targetVal) {
             statusSelect.value = targetVal;
+          }
+
+          // 4. Sincronizar Radar de Comercios en tiempo real
+          if (typeof window.notifyMerchantsRadarRealtimeEvent === 'function') {
+            window.notifyMerchantsRadarRealtimeEvent(updated, 'UPDATE');
           }
         }
       )
@@ -10186,6 +10211,12 @@ async function renderAdminOrders() {
             <span>Gestión de Agendas</span>
             <span class="tab-badge" id="agendas-tab-count">${typeof window.getEligibleAgendasCount === 'function' ? window.getEligibleAgendasCount() : (window.loadedOrders || []).filter(o => !['despachado','cancelado','entregado','retirado','archivado'].includes((o.status||'').toLowerCase()) && !['Despachado','Cancelado','Archivado'].includes(o.estado_wms)).length}</span>
           </button>
+          <button type="button" id="btn-subnav-merchants-radar" class="orders-subnav-tab" onclick="window.switchOrdersSubView('merchants_radar')">
+            <span class="radar-live-dot" style="margin-right: 0.1rem;"></span>
+            <i class="ri-radar-line tab-icon"></i>
+            <span>Radar de Comercios</span>
+            <span class="tab-badge" id="radar-tab-count">${new Set((window.loadedOrders || []).map(o => o.comercio).filter(Boolean)).size} activos</span>
+          </button>
         </div>
       </div>
 
@@ -10810,35 +10841,41 @@ async function renderAdminOrders() {
 
       <!-- Contenedor 2: Gestión de Agendas (Grilla Excel) -->
       <div id="subview-agendas-grid" style="display: none;"></div>
+
+      <!-- Contenedor 3: Radar de Comercios en Tiempo Real -->
+      <div id="subview-merchants-radar" style="display: none;"></div>
     `;
 
-    // Función para alternar entre Torre de Control y Gestión de Agendas
+    // Función para alternar entre Torre de Control, Gestión de Agendas y Radar de Comercios
     window.switchOrdersSubView = function(subview) {
       window.wmsOrdersActiveSubView = subview;
       localStorage.setItem('wms_orders_active_subview', subview);
 
       const btnTower = document.getElementById('btn-subnav-control-tower');
       const btnAgendas = document.getElementById('btn-subnav-agendas-grid');
+      const btnRadar = document.getElementById('btn-subnav-merchants-radar');
       const viewTower = document.getElementById('subview-control-tower');
       const viewAgendas = document.getElementById('subview-agendas-grid');
+      const viewRadar = document.getElementById('subview-merchants-radar');
+
+      if (btnTower) btnTower.classList.toggle('active', subview === 'control_tower' || (!subview));
+      if (btnAgendas) btnAgendas.classList.toggle('active', subview === 'agendas_grid');
+      if (btnRadar) btnRadar.classList.toggle('active', subview === 'merchants_radar');
+
+      if (viewTower) viewTower.style.display = (subview === 'control_tower' || !subview) ? 'block' : 'none';
+      if (viewAgendas) viewAgendas.style.display = subview === 'agendas_grid' ? 'block' : 'none';
+      if (viewRadar) viewRadar.style.display = subview === 'merchants_radar' ? 'block' : 'none';
 
       if (subview === 'agendas_grid') {
-        if (btnTower) btnTower.classList.remove('active');
-        if (btnAgendas) btnAgendas.classList.add('active');
-        if (viewTower) viewTower.style.display = 'none';
-        if (viewAgendas) {
-          viewAgendas.style.display = 'block';
-          if (typeof window.renderAgendasGrid === 'function') {
-            window.renderAgendasGrid();
-          }
+        if (typeof window.renderAgendasGrid === 'function') {
+          window.renderAgendasGrid();
+        }
+      } else if (subview === 'merchants_radar') {
+        if (typeof window.renderMerchantsRadar === 'function') {
+          window.renderMerchantsRadar();
         }
       } else {
-        if (btnTower) btnTower.classList.add('active');
-        if (btnAgendas) btnAgendas.classList.remove('active');
-        if (viewTower) viewTower.style.display = 'block';
-        if (viewAgendas) viewAgendas.style.display = 'none';
-
-        // Sincronizar en Torre de Control cualquier cambio realizado en la grilla
+        // Sincronizar en Torre de Control cualquier cambio realizado en la grilla o en el radar
         if (typeof window.applyWmsFiltersAndRender === 'function') {
           window.applyWmsFiltersAndRender();
         }
@@ -10850,8 +10887,8 @@ async function renderAdminOrders() {
 
     // Restaurar sub-vista activa guardada
     const savedOrdersSubView = localStorage.getItem('wms_orders_active_subview');
-    if (savedOrdersSubView === 'agendas_grid') {
-      window.switchOrdersSubView('agendas_grid');
+    if (savedOrdersSubView === 'agendas_grid' || savedOrdersSubView === 'merchants_radar') {
+      window.switchOrdersSubView(savedOrdersSubView);
     }
 
     // Configurar posiciones sticky para la barra de control y cabecera de la tabla
@@ -11658,6 +11695,16 @@ window.applyWmsFiltersAndRender = function() {
     if (ew && tabCounts.hasOwnProperty(ew)) {
       tabCounts[ew]++;
     }
+  }
+
+  // Sincronizar badge y vista de Radar de Comercios cuando cambian los datos en memoria
+  const radarTabBadge = document.getElementById('radar-tab-count');
+  if (radarTabBadge && Array.isArray(window.loadedOrders)) {
+    const activeMerchantsSet = new Set(window.loadedOrders.map(o => o.comercio).filter(Boolean));
+    radarTabBadge.textContent = `${activeMerchantsSet.size} activos`;
+  }
+  if (window.wmsOrdersActiveSubView === 'merchants_radar' && typeof window.renderMerchantsRadar === 'function') {
+    window.renderMerchantsRadar({ preserveFocus: true });
   }
 
   const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado', 'Archivado'];
@@ -24055,6 +24102,9 @@ async function renderAdminInventoryWorkspace(commerce) {
   workspace.innerHTML = `<p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem;"></i> Cargando inventario del comercio...</p>`;
 
   try {
+    const { data: wList } = await supabase.from('warehouses').select('id, name').order('name');
+    window.allWarehousesList = wList || [];
+
     let products = [];
     const selectFields = `
       id,
@@ -24096,43 +24146,49 @@ async function renderAdminInventoryWorkspace(commerce) {
       if (typeof window.fetchAllSupabaseRows === 'function') {
         products = await window.fetchAllSupabaseRows('products', selectFields, q => q.eq('comercio', commerce).order('name'));
       } else {
-        const { data: pData, error: pErr } = await supabase.from('products').select(selectFields).eq('comercio', commerce).order('name');
+        const { data: pData, error: pErr } = await supabase.from('products').select(selectFields).eq('comercio', commerce);
         if (pErr) throw pErr;
         products = pData || [];
       }
     } catch (errFallback) {
+      const errMsg = String(errFallback?.message || '').toLowerCase();
+      if (typeof window.fetchAllSupabaseRows === 'function' && (errFallback?.code === '57014' || errMsg.includes('timeout') || errMsg.includes('canceling statement'))) {
+        throw errFallback;
+      }
       if (typeof window.fetchAllSupabaseRows === 'function') {
         products = await window.fetchAllSupabaseRows('products', selectFallback, q => q.eq('comercio', commerce).order('name'));
       } else {
-        const { data: pDataFallback, error: pErrFallback } = await supabase.from('products').select(selectFallback).eq('comercio', commerce).order('name');
+        const { data: pDataFallback, error: pErrFallback } = await supabase.from('products').select(selectFallback).eq('comercio', commerce);
         if (pErrFallback) throw pErrFallback;
         products = pDataFallback || [];
       }
     }
 
-    const { data: wList } = await supabase.from('warehouses').select('id, name').order('name');
-    window.allWarehousesList = wList || [];
-
-    // Obtener stock en tránsito / pendiente de ingreso
+    // Obtener stock en tránsito / pendiente de ingreso (sin descargar file_base64 pesado salvo que falte products_list)
     let pendingStockMap = {};
     try {
       const activeStatuses = ['Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'];
       const { data: decs } = await supabase
         .from('stock_declarations')
-        .select('products_list, file_base64')
+        .select('id, products_list')
         .eq('comercio', commerce)
         .in('status', activeStatuses);
         
       if (decs) {
-        decs.forEach(dec => {
-          const decProds = getDeclarationProducts(dec);
+        for (const dec of decs) {
+          let decObj = dec;
+          if ((!dec.products_list || !Array.isArray(dec.products_list) || dec.products_list.length === 0) && dec.id) {
+            const { data: fullDec } = await supabase.from('stock_declarations').select('products_list, file_base64').eq('id', dec.id).maybeSingle();
+            if (fullDec) decObj = fullDec;
+          }
+          const decProds = getDeclarationProducts(decObj);
           decProds.forEach(p => {
             if (p.sku) {
               const skuNorm = p.sku.trim();
               pendingStockMap[skuNorm] = (pendingStockMap[skuNorm] || 0) + (p.qty || 0);
             }
           });
-        });
+        }
       }
     } catch (e) {
       console.error('Error calculating pending stock map:', e);
@@ -24259,6 +24315,11 @@ async function renderAdminInventoryWorkspace(commerce) {
                   <th class="admin-inventory-sortable" data-sort="physical" title="Físico Total: Cantidad física total en bodega (Estante + Mesa)" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
                       FÍSICO <i class="ri-information-line" style="color: var(--color-text-main); font-size: 0.85rem;" title="Físico Total: Cantidad física total del producto en toda la bodega (Estante + Mesa)"></i> <span class="admin-sort-indicator"></span>
+                    </span>
+                  </th>
+                  <th id="th-admin-other-warehouses" class="admin-inventory-sortable" data-sort="otherWarehousesAvailable" title="Otras Bodegas: Total de unidades en las demás bodegas (disponibles para trasladar hacia esta bodega)" style="display: ${window.adminInventoryWarehouseFilter ? 'table-cell' : 'none'}; cursor: pointer; user-select: none; padding: 0.65rem 0.5rem; text-align: center; white-space: nowrap; background: rgba(14, 165, 233, 0.06); border-left: 1px dashed rgba(14, 165, 233, 0.3); border-right: 1px dashed rgba(14, 165, 233, 0.3);">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%; color: #0284c7; font-weight: 700;">
+                      OTRAS BOD. <i class="ri-arrow-left-right-line" style="color: #0284c7; font-size: 0.9rem;" title="Unidades en otras bodegas disponibles para mover o trasladar hacia la bodega seleccionada"></i> <span class="admin-sort-indicator"></span>
                     </span>
                   </th>
                   <th class="admin-inventory-sortable" data-sort="stock_critico" title="Stock Crítico: Umbral de stock mínimo para alertas" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
@@ -24780,12 +24841,22 @@ function renderAdminInventoryTableBody() {
 
   const activeWhId = String(window.adminInventoryWarehouseFilter || '');
   const isSingleWarehouseView = Boolean(activeWhId);
+
+  const thOtherWh = document.getElementById('th-admin-other-warehouses');
+  if (thOtherWh) {
+    thOtherWh.style.display = isSingleWarehouseView ? 'table-cell' : 'none';
+  }
+  if (!isSingleWarehouseView && window.adminInventorySortColumn === 'otherWarehousesAvailable') {
+    window.adminInventorySortColumn = 'name';
+    updateAdminInventorySortingIndicators();
+  }
+
   const rows = applyAdminInventoryFiltersAndSort(false);
 
   if (rows.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="15" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+        <td colspan="${isSingleWarehouseView ? 16 : 15}" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
           No se encontraron productos coincidentes${isSingleWarehouseView ? ' para la bodega seleccionada' : ''}.
         </td>
       </tr>
@@ -24880,6 +24951,41 @@ function renderAdminInventoryTableBody() {
       ? `<td style="padding: 0.55rem 0.4rem; text-align: center; color: ${r.available > 0 ? 'var(--color-primary)' : 'var(--color-text-muted)'}; font-weight: 700; font-size: 0.9rem;">${r.available}</td>`
       : `<td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>`;
 
+    let otherWarehousesCell = '';
+    if (isSingleWarehouseView) {
+      const otherAvail = Number(r.otherWarehousesAvailable || 0);
+      const otherPhys = Number(r.otherWarehousesPhysical || 0);
+      const breakdown = Array.isArray(r.otherWarehousesBreakdown) ? r.otherWarehousesBreakdown : [];
+      const canReplenishHere = r.available <= 0 && otherAvail > 0;
+      const tooltipDetail = breakdown.length > 0
+        ? `Stock en otras bodegas (${ breakdown.map(b => `${b.name}: ${b.available} disp. / ${b.physical} fís.`).join(' | ') }) — Clic para trasladar stock`
+        : 'Sin unidades en otras bodegas';
+      const shortBreakdownHtml = breakdown.length > 0
+        ? `<div style="font-size: 0.68rem; color: var(--color-text-muted); font-weight: 500; margin-top: 2px; line-height: 1.15; max-width: 155px; white-space: normal; margin-left: auto; margin-right: auto;">
+            ${breakdown.map(b => `<span style="display: inline-block; white-space: nowrap;">${b.name}: <strong style="color: var(--color-text-main);">${b.available}</strong></span>`).join(' · ')}
+           </div>`
+        : '';
+
+      if (otherAvail > 0 || otherPhys > 0) {
+        otherWarehousesCell = `
+          <td style="padding: 0.45rem 0.45rem; text-align: center; background: ${canReplenishHere ? 'rgba(14, 165, 233, 0.08)' : 'rgba(14, 165, 233, 0.03)'}; border-left: 1px dashed rgba(14, 165, 233, 0.25); border-right: 1px dashed rgba(14, 165, 233, 0.25);">
+            <button type="button" class="btn-quick-transfer-other-wh" data-prod-id="${r.id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" title="${tooltipDetail.replace(/"/g, '&quot;')}" style="background: ${canReplenishHere ? 'rgba(14, 165, 233, 0.14)' : 'var(--color-bg)'}; border: 1px solid ${canReplenishHere ? '#0284c7' : 'rgba(14, 165, 233, 0.35)'}; color: #0284c7; font-weight: 800; font-size: 0.85rem; padding: 0.18rem 0.5rem; border-radius: 999px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; transition: all 0.15s ease;">
+              <i class="ri-arrow-left-right-line" style="font-size: 0.8rem;"></i>
+              <span>${otherAvail}</span>
+              ${otherPhys !== otherAvail ? `<span style="font-size: 0.7rem; font-weight: 600; opacity: 0.8;">(${otherPhys} fís.)</span>` : ''}
+            </button>
+            ${shortBreakdownHtml}
+          </td>
+        `;
+      } else {
+        otherWarehousesCell = `
+          <td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-text-muted); opacity: 0.45; background: rgba(14, 165, 233, 0.02); border-left: 1px dashed rgba(14, 165, 233, 0.15); border-right: 1px dashed rgba(14, 165, 233, 0.15);" title="0 unidades en las demás bodegas">
+            0
+          </td>
+        `;
+      }
+    }
+
     // Fila principal (consolidada o filtrada por bodega seleccionada)
     html += `
       <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; background-color: var(--color-surface);" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='var(--color-surface)'">
@@ -24897,6 +25003,7 @@ function renderAdminInventoryTableBody() {
         ${dispBodCell}
         <td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-success); font-weight: 700; font-size: 0.9rem;">${r.totalAvailable}${alertIconHtml}</td>
         <td style="padding: 0.55rem 0.4rem; text-align: center; font-weight: 600; color: var(--color-text-main); font-size: 0.9rem;">${r.physical}</td>
+        ${otherWarehousesCell}
         <td style="padding: 0.55rem 0.4rem; text-align: center;">
           <input type="number" class="stock-critico-inline" data-prod-id="${r.id}" value="${r.stock_critico}" min="0" style="width: 55px; text-align: center; padding: 0.15rem 0.3rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: 500; font-size: 0.8rem;" />
         </td>
@@ -25034,6 +25141,19 @@ function renderAdminInventoryTableBody() {
     });
   });
 
+  tbody.querySelectorAll('.btn-quick-transfer-other-wh').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const prodId = e.currentTarget.getAttribute('data-prod-id');
+      const sku = e.currentTarget.getAttribute('data-prod-sku');
+      const name = e.currentTarget.getAttribute('data-prod-name');
+      const commerce = window.activeAdminInventoryCommerce || '';
+      if (typeof openBulkStockTransferModal === 'function' && commerce) {
+        openBulkStockTransferModal(commerce, [{ id: prodId, sku: sku, name: name }], () => renderAdminInventoryWorkspace(commerce));
+      }
+    });
+  });
+
   tbody.querySelectorAll('.badge-committed-link').forEach(link => {
     link.addEventListener('click', (e) => {
       const prodId = e.currentTarget.getAttribute('data-prod-id');
@@ -25114,6 +25234,30 @@ function applyAdminInventoryFiltersAndSort(flat = false, ignoreFilters = false, 
         ? 'Agotado'
         : (available <= (prod.stock_critico || 0) ? 'Bajo Stock' : 'En Stock');
 
+      const otherWarehousesPhysical = Math.max(0, totalPhysical - phys);
+      const otherWarehousesAvailable = Math.max(0, totalAvailable - available);
+      const otherWarehousesBreakdown = [];
+      invList.forEach(inv => {
+        if (String(inv.warehouse_id) !== activeWhId) {
+          const oPhys = inv.quantity || 0;
+          const oComm = inv.committed_quantity || 0;
+          const oRes = inv.reserved_quantity || 0;
+          const oAvail = oPhys - oComm - oRes;
+          if (oPhys > 0 || oAvail > 0) {
+            const oWhObj = (window.allWarehousesList || []).find(w => String(w.id) === String(inv.warehouse_id));
+            otherWarehousesBreakdown.push({
+              warehouse_id: inv.warehouse_id,
+              name: inv.warehouses?.name || oWhObj?.name || 'Otra Bodega',
+              physical: oPhys,
+              available: oAvail
+            });
+          }
+        }
+      });
+      const otherWarehousesSummary = otherWarehousesBreakdown.length > 0
+        ? otherWarehousesBreakdown.map(b => `${b.name}: ${b.available}`).join(' | ')
+        : '0';
+
       rows.push({
         id: prod.id,
         sku: prod.sku || '',
@@ -25128,6 +25272,10 @@ function applyAdminInventoryFiltersAndSort(flat = false, ignoreFilters = false, 
         pending: pendingVal,
         available: available,
         totalAvailable: totalAvailable,
+        otherWarehousesPhysical: otherWarehousesPhysical,
+        otherWarehousesAvailable: otherWarehousesAvailable,
+        otherWarehousesBreakdown: otherWarehousesBreakdown,
+        otherWarehousesSummary: otherWarehousesSummary,
         stock_critico: prod.stock_critico || 0,
         status: whStatusStr,
         inventory: invList,
@@ -25151,6 +25299,8 @@ function applyAdminInventoryFiltersAndSort(flat = false, ignoreFilters = false, 
           pending: pendingVal,
           available: 0,
           totalAvailable: totalAvailable,
+          otherWarehousesPhysical: 0,
+          otherWarehousesAvailable: 0,
           stock_critico: prod.stock_critico || 0,
           status: statusStr,
           is_virtual: prod.is_virtual,
@@ -25178,6 +25328,8 @@ function applyAdminInventoryFiltersAndSort(flat = false, ignoreFilters = false, 
             pending: pendingVal,
             available: available,
             totalAvailable: totalAvailable,
+            otherWarehousesPhysical: Math.max(0, totalPhysical - phys),
+            otherWarehousesAvailable: Math.max(0, totalAvailable - available),
             stock_critico: prod.stock_critico || 0,
             status: statusStr,
             is_virtual: prod.is_virtual,
@@ -80544,38 +80696,16 @@ window.loadEditOrderCommerceCatalog = async function(commerce, forceRefresh = fa
 
   const loadPromise = (async () => {
     try {
-      // Consultar páginas 0..999 y 1000..1999 en paralelo para reducir el tiempo de red a la mitad
-      const [page0, page1] = await Promise.all([
-        supabase.from('products').select(selectCols).eq('comercio', commerce).neq('status', 'archived').order('name').range(0, 999),
-        supabase.from('products').select(selectCols).eq('comercio', commerce).neq('status', 'archived').order('name').range(1000, 1999)
-      ]);
-
       let rawList = [];
-      if (!page0.error && !page1.error) {
-        rawList = [...(page0.data || []), ...(page1.data || [])];
-        // Si el comercio supera los 2.000 productos, traer el resto
-        if ((page1.data || []).length === 1000) {
-          let from = 2000;
-          while (true) {
-            const { data: extraData, error: extraErr } = await supabase
-              .from('products')
-              .select(selectCols)
-              .eq('comercio', commerce)
-              .neq('status', 'archived')
-              .order('name')
-              .range(from, from + 999);
-            if (extraErr || !extraData || extraData.length === 0) break;
-            rawList.push(...extraData);
-            if (extraData.length < 1000) break;
-            from += 1000;
-          }
-        }
-      } else if (typeof window.fetchAllSupabaseRows === 'function') {
+      if (typeof window.fetchAllSupabaseRows === 'function') {
         rawList = await window.fetchAllSupabaseRows(
           'products',
           selectCols,
           q => q.eq('comercio', commerce).neq('status', 'archived').order('name')
         );
+      } else {
+        const { data: pData } = await supabase.from('products').select(selectCols).eq('comercio', commerce).neq('status', 'archived').range(0, 999);
+        rawList = pData || [];
       }
 
       const commerceProducts = (rawList || [])
@@ -81558,7 +81688,27 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
 
       <div class="form-group" style="margin-bottom: 0.5rem;">
         <label class="form-label" style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: block; margin-bottom: 0.25rem;">Motivo / Comentario de la Modificación <span style="color: var(--color-danger);">*</span></label>
-        <textarea id="swal-edit-items-comment" placeholder="Ej: Reemplazo de SKU agotado por alternativa solicitada por el cliente..." style="width: 100%; height: 60px; font-size: 0.8rem; padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); box-sizing: border-box;" required>${escapeFn(existingComment)}</textarea>
+        <textarea id="swal-edit-items-comment" oninput="window.syncEditOrderQuickCommentPills && window.syncEditOrderQuickCommentPills()" placeholder="Ej: Reemplazo de SKU agotado por alternativa solicitada por el cliente..." style="width: 100%; height: 60px; font-size: 0.8rem; padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); box-sizing: border-box;" required>${escapeFn(existingComment)}</textarea>
+        <div style="margin-top: 0.45rem;">
+          <div style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-flashlight-line" style="color: var(--color-primary);"></i> Comentarios frecuentes:
+          </div>
+          <div id="swal-edit-quick-comments" style="display: flex; flex-wrap: wrap; gap: 0.35rem;">
+            ${(window.EDIT_ORDER_QUICK_COMMENTS || [
+              { label: 'SKU equivalente', icon: 'ri-exchange-line' },
+              { label: 'Mismo producto / actualización de código', icon: 'ri-barcode-line' },
+              { label: 'Reemplazo por SKU agotado', icon: 'ri-find-replace-line' },
+              { label: 'Se elimina ítem agotado', icon: 'ri-delete-bin-line' },
+              { label: 'Cambio solicitado por comercio / cliente', icon: 'ri-chat-check-line' },
+              { label: 'Desglose de pack en SKUs individuales', icon: 'ri-stack-line' },
+              { label: 'Ítem agregado por solicitud del comercio', icon: 'ri-add-circle-line' }
+            ]).map(chip => `
+              <button type="button" class="swal-edit-quick-comment-pill" data-comment="${escapeFn(chip.label)}" onclick="window.applyEditOrderQuickComment('${escapeFn(chip.label)}')" style="border-radius: 999px; font-size: 0.72rem; font-weight: 600; padding: 0.24rem 0.62rem; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.28rem; cursor: pointer; transition: all 0.15s ease;">
+                <i class="${chip.icon}" style="font-size: 0.82rem; color: var(--color-primary);"></i> ${escapeFn(chip.label)}
+              </button>
+            `).join('')}
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -81618,6 +81768,10 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
           }
         });
       }
+
+      if (typeof window.syncEditOrderQuickCommentPills === 'function') {
+        window.syncEditOrderQuickCommentPills();
+      }
     },
     preConfirm: async () => {
       // Auto-agregar si el usuario escribió o seleccionó un producto pero no presionó el botón Agregar
@@ -81655,6 +81809,56 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
       window.saveEditOrderItems(orderId, result.value.comment, result.value.adjustDispatchedStock);
     }
   });
+};
+
+window.EDIT_ORDER_QUICK_COMMENTS = [
+  { label: 'SKU equivalente', icon: 'ri-exchange-line' },
+  { label: 'Mismo producto / actualización de código', icon: 'ri-barcode-line' },
+  { label: 'Reemplazo por SKU agotado', icon: 'ri-find-replace-line' },
+  { label: 'Se elimina ítem agotado', icon: 'ri-delete-bin-line' },
+  { label: 'Cambio solicitado por comercio / cliente', icon: 'ri-chat-check-line' },
+  { label: 'Desglose de pack en SKUs individuales', icon: 'ri-stack-line' },
+  { label: 'Ítem agregado por solicitud del comercio', icon: 'ri-add-circle-line' }
+];
+
+window.syncEditOrderQuickCommentPills = function() {
+  const textarea = document.getElementById('swal-edit-items-comment');
+  const container = document.getElementById('swal-edit-quick-comments');
+  if (!textarea || !container) return;
+  const currentVal = (textarea.value || '').trim().toLowerCase();
+  const pills = container.querySelectorAll('.swal-edit-quick-comment-pill');
+  pills.forEach(btn => {
+    const label = (btn.getAttribute('data-comment') || '').trim().toLowerCase();
+    const isActive = currentVal === label || (currentVal.length > 0 && label.length > 0 && currentVal.includes(label));
+    if (isActive) {
+      btn.style.borderColor = 'var(--color-primary)';
+      btn.style.background = 'rgba(37, 99, 235, 0.12)';
+      btn.style.color = 'var(--color-primary)';
+    } else {
+      btn.style.borderColor = 'var(--color-border)';
+      btn.style.background = 'var(--color-bg)';
+      btn.style.color = 'var(--color-text-main)';
+    }
+  });
+};
+
+window.applyEditOrderQuickComment = function(text) {
+  const textarea = document.getElementById('swal-edit-items-comment');
+  if (!textarea || !text) return;
+  const currentVal = (textarea.value || '').trim();
+  const presetsLower = (window.EDIT_ORDER_QUICK_COMMENTS || []).map(c => c.label.toLowerCase());
+  if (!currentVal || presetsLower.includes(currentVal.toLowerCase())) {
+    textarea.value = text;
+  } else if (!currentVal.toLowerCase().includes(text.toLowerCase())) {
+    textarea.value = `${currentVal}, ${text}`;
+  }
+  if (typeof Swal !== 'undefined' && typeof Swal.resetValidationMessage === 'function') {
+    Swal.resetValidationMessage();
+  }
+  window.syncEditOrderQuickCommentPills();
+  textarea.focus();
+  const len = textarea.value.length;
+  try { textarea.setSelectionRange(len, len); } catch (e) {}
 };
 
 window.updateTempEditItemQuantity = function(index, val) {
