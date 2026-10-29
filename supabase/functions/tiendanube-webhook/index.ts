@@ -475,13 +475,17 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
   } else if (!isCancelled) {
     // Si no está preparando y no está cancelado, podemos re-sincronizar los ítems en caso de cambios en la orden
     
-    // 1. Obtener ítems existentes para Smart Diffing
+    // 1. Obtener ítems existentes para Smart Diffing (excluyendo regalos de campañas)
     const { data: existingItems } = await supabase
       .from("order_items")
-      .select("id, product_id, quantity, warehouse_id")
+      .select("id, product_id, quantity, warehouse_id, is_gift, campaign_id, tag")
       .eq("order_id", existingOrder.id);
 
-    const existingMap = new Map((existingItems || []).map((i: any) => [i.product_id, i]));
+    const existingMap = new Map(
+      (existingItems || [])
+        .filter((i: any) => !i.is_gift && !i.campaign_id && i.tag !== "Campaña")
+        .map((i: any) => [i.product_id, i])
+    );
     const processedProductIds = new Set();
 
     // 2. Cargar equivalencias de SKU

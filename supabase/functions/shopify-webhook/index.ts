@@ -320,15 +320,27 @@ async function handleOrderCreate(merchantId, comercio, order) {
 
   console.log(`Creado pedido cabecera ${finalOrderNumber} con ID: ${newOrder.id}`);
 
-  // Buscar la primera bodega asignada al comerciante para guardarla en los items
-  const { data: whRelation } = await supabase
-    .from("merchants_warehouses")
-    .select("warehouse_id")
-    .eq("merchant_id", merchantId)
-    .limit(1)
-    .maybeSingle();
-    
-  const warehouseId = whRelation?.warehouse_id || null;
+  // Buscar la primera bodega asignada al comerciante (priorizando default_warehouse_id del comercio)
+  let warehouseId: string | null = null;
+  if (comercio) {
+    const { data: adicCfg } = await supabase
+      .from("comercios_adicional_config")
+      .select("default_warehouse_id")
+      .eq("comercio", comercio)
+      .maybeSingle();
+    if (adicCfg?.default_warehouse_id) {
+      warehouseId = adicCfg.default_warehouse_id;
+    }
+  }
+  if (!warehouseId && merchantId) {
+    const { data: whRelation } = await supabase
+      .from("merchants_warehouses")
+      .select("warehouse_id")
+      .eq("merchant_id", merchantId)
+      .limit(1)
+      .maybeSingle();
+    warehouseId = whRelation?.warehouse_id || null;
+  }
 
   // Registrar cada item del pedido (excluyendo eliminados)
   // Preparamos mapa de cantidades esperadas por product_id para evitar duplicar filas si el mismo SKU viene varias veces
@@ -702,27 +714,44 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     const protectedManualLogs: string[] = [];
     const appliedChangesLogs: string[] = [];
 
-    // 2. Obtener ítems existentes para Smart Diffing y agrupar por product_id
+    // 2. Obtener ítems existentes para Smart Diffing y agrupar por product_id (excluyendo regalos de campañas)
     const { data: existingItems } = await supabase
       .from("order_items")
-      .select("id, product_id, quantity, warehouse_id, products(sku, name, price)")
+      .select("id, product_id, quantity, warehouse_id, is_gift, campaign_id, tag, products(sku, name, price)")
       .eq("order_id", existingOrder.id);
 
     const existingByProduct = new Map<string, any[]>();
+    const existingGiftItems: any[] = [];
     (existingItems || []).forEach((i: any) => {
+      if (i.is_gift || i.campaign_id || i.tag === "Campaña") {
+        existingGiftItems.push(i);
+        return;
+      }
       if (!existingByProduct.has(i.product_id)) existingByProduct.set(i.product_id, []);
       existingByProduct.get(i.product_id)!.push(i);
     });
 
-    // 3. Obtener primera bodega asignada al comerciante
-    const { data: whRelation } = await supabase
-      .from("merchants_warehouses")
-      .select("warehouse_id")
-      .eq("merchant_id", merchantId)
-      .limit(1)
-      .maybeSingle();
-      
-    const warehouseId = whRelation?.warehouse_id || null;
+    // 3. Obtener primera bodega asignada al comerciante (priorizando default_warehouse_id del comercio)
+    let warehouseId: string | null = null;
+    if (comercio) {
+      const { data: adicCfg } = await supabase
+        .from("comercios_adicional_config")
+        .select("default_warehouse_id")
+        .eq("comercio", comercio)
+        .maybeSingle();
+      if (adicCfg?.default_warehouse_id) {
+        warehouseId = adicCfg.default_warehouse_id;
+      }
+    }
+    if (!warehouseId && merchantId) {
+      const { data: whRelation } = await supabase
+        .from("merchants_warehouses")
+        .select("warehouse_id")
+        .eq("merchant_id", merchantId)
+        .limit(1)
+        .maybeSingle();
+      warehouseId = whRelation?.warehouse_id || null;
+    }
 
     // 4. Registrar ítems actualizados de forma inteligente
     const lineItems = order.line_items || [];

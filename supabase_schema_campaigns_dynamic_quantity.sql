@@ -14,6 +14,9 @@ ALTER TABLE public.campaigns
 DROP TRIGGER IF EXISTS on_order_item_quantity_updated ON public.order_items;
 
 -- 3. Función auxiliar para calcular la cantidad de unidades de regalo que corresponden a un pedido
+-- Eliminar sobrecarga antigua de 2 parámetros para evitar error 42725 (function is not unique)
+DROP FUNCTION IF EXISTS public.calculate_campaign_gift_quantity(UUID, UUID);
+
 CREATE OR REPLACE FUNCTION public.calculate_campaign_gift_quantity(
   p_order_id UUID,
   p_campaign_id UUID,

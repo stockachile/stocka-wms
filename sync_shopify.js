@@ -404,7 +404,7 @@ async function syncOrders(integration) {
       // Sincronizar ítems de la orden de forma inteligente (Smart Diffing)
       const { data: existingItems } = await supabase
         .from('order_items')
-        .select('id, product_id, quantity, warehouse_id, products(sku, name)')
+        .select('id, product_id, quantity, warehouse_id, is_gift, campaign_id, tag, products(sku, name)')
         .eq('order_id', orderId);
 
       // Cargar relaciones de packs del catálogo para desglosar packs de forma precisa
@@ -573,8 +573,14 @@ async function syncOrders(integration) {
       }
 
       // Preservar productos agregados manualmente en WMS que no vienen en Shopify
+      // (excluyendo regalos automáticos de campañas para no eliminarlos ni mezclarlos con ítems comprados)
       const existingByProduct = new Map(); // product_id -> Array<existingItem>
+      const existingGiftItems = [];
       (existingItems || []).forEach(i => {
+        if (i.is_gift || i.campaign_id || i.tag === 'Campaña') {
+          existingGiftItems.push(i);
+          return;
+        }
         if (!existingByProduct.has(i.product_id)) existingByProduct.set(i.product_id, []);
         existingByProduct.get(i.product_id).push(i);
       });
@@ -621,6 +627,15 @@ async function syncOrders(integration) {
         if (!expectedQuantities.has(prodId)) {
           for (const r of rows) {
             await supabase.from('order_items').delete().eq('id', r.id);
+          }
+        }
+      }
+
+      // Si los regalos de campaña existentes no tenían bodega asignada, asegurar su warehouse_id
+      if (warehouseId && existingGiftItems.length > 0 && expectedQuantities.size > 0) {
+        for (const giftRow of existingGiftItems) {
+          if (!giftRow.warehouse_id) {
+            await supabase.from('order_items').update({ warehouse_id: warehouseId }).eq('id', giftRow.id);
           }
         }
       }
