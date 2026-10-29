@@ -527,6 +527,37 @@ async function syncShopifyOrders(integration: any): Promise<number> {
   let url = `https://${integration.shop_url}/admin/api/2024-04/orders.json?status=any&limit=250`;
   let count = 0;
 
+  let warehouseId: string | null = null;
+  if (integration.comercio) {
+    const { data: comercioCfg } = await supabase
+      .from("comercios_adicional_config")
+      .select("default_warehouse_id")
+      .eq("comercio", integration.comercio)
+      .maybeSingle();
+    if (comercioCfg && comercioCfg.default_warehouse_id) {
+      warehouseId = comercioCfg.default_warehouse_id;
+    }
+  }
+  if (!warehouseId && integration.merchant_id) {
+    const { data: mwData } = await supabase
+      .from("merchants_warehouses")
+      .select("warehouse_id")
+      .eq("merchant_id", integration.merchant_id)
+      .limit(1);
+    if (mwData && mwData.length > 0) {
+      warehouseId = mwData[0].warehouse_id;
+    }
+  }
+  if (!warehouseId) {
+    const { data: defaultWh } = await supabase
+      .from("warehouses")
+      .select("id")
+      .ilike("name", "%Matriz Ñuñoa%")
+      .limit(1)
+      .maybeSingle();
+    if (defaultWh) warehouseId = defaultWh.id;
+  }
+
   while (url) {
     const response = await fetch(url, {
       method: "GET",
@@ -629,7 +660,10 @@ async function syncShopifyOrders(integration: any): Promise<number> {
         await supabase.from("orders").update(orderDataToUpdate).eq("id", existingOrder.id);
         orderId = existingOrder.id;
 
-        if (isWmsItemsEdited || ['despachado', 'entregado', 'retirado', 'cancelado'].includes(existingOrder.status)) {
+        const isProtectedStatus = ["en preparación", "preparado", "listo para despacho", "despachado", "entregado", "retirado", "cancelado"].includes((existingOrder.status || "").toLowerCase()) ||
+                                  ["En preparación", "Pickeado", "Despachado", "Cancelado", "Archivado"].includes(existingOrder.estado_wms || "");
+
+        if (isWmsItemsEdited || isProtectedStatus) {
           count++;
           continue;
         }
@@ -639,14 +673,19 @@ async function syncShopifyOrders(integration: any): Promise<number> {
         else continue;
       }
 
-      // Sincronizar ítems con Smart Diffing agrupando duplicados
+      // Sincronizar ítems con Smart Diffing agrupando duplicados (excluyendo regalos de campaña)
       const { data: existingItems } = await supabase
         .from("order_items")
-        .select("id, product_id, quantity, warehouse_id")
+        .select("id, product_id, quantity, warehouse_id, is_gift, campaign_id, tag")
         .eq("order_id", orderId);
 
       const existingByProduct = new Map<string, any[]>();
+      const existingGiftItems: any[] = [];
       (existingItems || []).forEach((i: any) => {
+        if (i.is_gift || i.campaign_id || i.tag === "Campaña") {
+          existingGiftItems.push(i);
+          return;
+        }
         if (!existingByProduct.has(i.product_id)) existingByProduct.set(i.product_id, []);
         existingByProduct.get(i.product_id)!.push(i);
       });
@@ -691,20 +730,26 @@ async function syncShopifyOrders(integration: any): Promise<number> {
         }
       }
 
+      let hasTriggeredCampaignEval = false;
       for (const [prodId, expQty] of expectedQuantities.entries()) {
         const rows = existingByProduct.get(prodId) || [];
         if (rows.length === 0) {
           await supabase.from("order_items").insert([{
             order_id: orderId,
             product_id: prodId,
+            warehouse_id: warehouseId,
             quantity: expQty
           }]);
+          hasTriggeredCampaignEval = true;
         } else {
           const primaryRow = rows[0];
-          if (primaryRow.quantity !== expQty) {
+          const shouldTouchForCampaigns = existingGiftItems.length === 0 && !hasTriggeredCampaignEval;
+          if (primaryRow.quantity !== expQty || (warehouseId && primaryRow.warehouse_id !== warehouseId) || shouldTouchForCampaigns) {
             await supabase.from("order_items").update({
-              quantity: expQty
+              quantity: expQty,
+              warehouse_id: warehouseId || primaryRow.warehouse_id
             }).eq("id", primaryRow.id);
+            hasTriggeredCampaignEval = true;
           }
           if (rows.length > 1) {
             for (let k = 1; k < rows.length; k++) {
@@ -718,6 +763,14 @@ async function syncShopifyOrders(integration: any): Promise<number> {
         if (!expectedQuantities.has(prodId)) {
           for (const row of rows) {
             await supabase.from("order_items").delete().eq("id", row.id);
+          }
+        }
+      }
+
+      if (warehouseId && existingGiftItems.length > 0 && expectedQuantities.size > 0) {
+        for (const giftRow of existingGiftItems) {
+          if (!giftRow.warehouse_id) {
+            await supabase.from("order_items").update({ warehouse_id: warehouseId }).eq("id", giftRow.id);
           }
         }
       }

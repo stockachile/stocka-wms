@@ -595,6 +595,7 @@ async function syncOrders(integration) {
       }
 
       // 2. Conciliar contra existingItems consolidando duplicados
+      let hasTriggeredCampaignEval = false;
       for (const [prodId, expQty] of expectedQuantities.entries()) {
         const rows = existingByProduct.get(prodId) || [];
         if (rows.length === 0) {
@@ -605,14 +606,18 @@ async function syncOrders(integration) {
             warehouse_id: warehouseId,
             quantity: expQty
           }]);
+          hasTriggeredCampaignEval = true;
         } else {
           // Si existe una o más filas, mantener solo la primera con la cantidad total esperada y eliminar duplicados
+          // Si el pedido aún no tiene ítems de campaña evaluados, tocar la primera fila para disparar evaluate_campaign_rules()
           const primaryRow = rows[0];
-          if (primaryRow.quantity !== expQty || (warehouseId && primaryRow.warehouse_id !== warehouseId)) {
+          const shouldTouchForCampaigns = existingGiftItems.length === 0 && !hasTriggeredCampaignEval;
+          if (primaryRow.quantity !== expQty || (warehouseId && primaryRow.warehouse_id !== warehouseId) || shouldTouchForCampaigns) {
             await supabase.from('order_items').update({
               quantity: expQty,
               warehouse_id: warehouseId || primaryRow.warehouse_id
             }).eq('id', primaryRow.id);
+            hasTriggeredCampaignEval = true;
           }
           if (rows.length > 1) {
             for (let k = 1; k < rows.length; k++) {
