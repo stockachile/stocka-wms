@@ -43518,10 +43518,17 @@ async function renderCampaignsTab(commerce) {
           : `<button class="btn btn-outline btn-edit-campaign" data-id="${c.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line"></i></button>` +
             `<button class="btn btn-outline btn-toggle-campaign" data-id="${c.id}" data-active="${c.active}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: ${toggleBtnColor}; color: ${toggleBtnColor}; margin-left: 0.5rem;">${toggleBtnText}</button>` + deleteBtn;
 
+        let giftQtyDisplayHtml = `<span style="color: var(--color-primary); font-weight: bold;">(x${c.gift_quantity})</span>`;
+        if (c.gift_quantity_mode === 'order_products_qty') {
+          giftQtyDisplayHtml = `<span class="badge" style="background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-left: 0.25rem;" title="Igual a la cantidad de productos del pedido (sin contar otras campañas)">= Cant. Productos</span>`;
+        } else if (c.gift_quantity_mode === 'order_total_qty') {
+          giftQtyDisplayHtml = `<span class="badge" style="background: rgba(99, 102, 241, 0.12); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-left: 0.25rem;" title="Igual a la cantidad total de artículos del pedido (productos + otras campañas)">= Total Ítems (+Campañas)</span>`;
+        }
+
         return `
           <tr data-campaign-id="${c.id}">
             <td style="padding: 0.75rem 2rem;"><strong>${c.name}</strong></td>
-            <td style="padding: 0.75rem 2rem;"><strong>${c.gift_sku}</strong> <span style="color: var(--color-primary); font-weight: bold;">(x${c.gift_quantity})</span></td>
+            <td style="padding: 0.75rem 2rem;"><strong>${c.gift_sku}</strong> ${giftQtyDisplayHtml}</td>
             <td style="padding: 0.75rem 2rem; font-size: 0.85rem; line-height: 1.4;">${conditionsHtml}</td>
             <td style="padding: 0.75rem 2rem; font-size: 0.85rem;">${datesText}</td>
             <td style="padding: 0.75rem 2rem;">${statusBadgeHtml}</td>
@@ -43659,7 +43666,8 @@ function openCampaignModal(commerce, campaign = null) {
   }
   const triggerSkusVal = isEdit && campaign.trigger_skus ? campaign.trigger_skus.join(', ') : '';
   const giftSkuVal = isEdit ? campaign.gift_sku : '';
-  const giftQtyVal = isEdit ? campaign.gift_quantity : 1;
+  const giftQtyVal = isEdit ? (campaign.gift_quantity || 1) : 1;
+  const giftQtyModeVal = isEdit && campaign.gift_quantity_mode ? campaign.gift_quantity_mode : 'fixed';
   const minQtyVal = isEdit && campaign.min_total_quantity !== null ? campaign.min_total_quantity : '';
   const minDistinctSkusVal = isEdit && campaign.min_distinct_skus !== null ? campaign.min_distinct_skus : '';
   const nameVal = isEdit ? campaign.name : '';
@@ -43745,15 +43753,30 @@ function openCampaignModal(commerce, campaign = null) {
           <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.5rem 0;">
           <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--color-success);">Premio / Regalo a Añadir</h4>
 
-          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1rem;">
+          <div style="display: grid; grid-template-columns: 1fr 1.35fr; gap: 1rem;">
             <div>
               <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">SKU de Regalo *</label>
               <input type="text" id="campaign-gift-sku" list="master-skus-list" class="form-input" placeholder="Busca o ingresa SKU..." value="${giftSkuVal}" required style="width: 100%;">
             </div>
             <div>
-              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Cantidad *</label>
-              <input type="number" id="campaign-gift-qty" class="form-input" min="1" value="${giftQtyVal}" required style="width: 100%;">
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Cantidad a Añadir *</label>
+              <select id="campaign-gift-qty-mode" class="form-input" style="width: 100%;">
+                <option value="fixed" ${giftQtyModeVal === 'fixed' ? 'selected' : ''}>Cantidad fija</option>
+                <option value="order_products_qty" ${giftQtyModeVal === 'order_products_qty' ? 'selected' : ''}>Igual a cant. de artículos (solo productos)</option>
+                <option value="order_total_qty" ${giftQtyModeVal === 'order_total_qty' ? 'selected' : ''}>Igual a cant. de artículos (incl. otras campañas)</option>
+              </select>
             </div>
+          </div>
+
+          <div id="campaign-fixed-qty-wrapper" style="display: ${giftQtyModeVal === 'fixed' ? 'block' : 'none'};">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Cantidad Fija *</label>
+            <input type="number" id="campaign-gift-qty" class="form-input" min="1" value="${giftQtyVal}" ${giftQtyModeVal === 'fixed' ? 'required' : ''} style="width: 180px;">
+          </div>
+
+          <div id="campaign-dynamic-qty-hint" style="display: ${giftQtyModeVal !== 'fixed' ? 'block' : 'none'}; background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-sm); padding: 0.65rem 0.85rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
+            ${giftQtyModeVal === 'order_products_qty'
+              ? '<i class="ri-information-line" style="color: var(--color-success);"></i> Se añadirá una cantidad igual a los <strong>productos del pedido</strong> (sin contar ítems añadidos por otras campañas).'
+              : '<i class="ri-information-line" style="color: #6366f1;"></i> Se añadirá una cantidad igual al <strong>total de artículos del pedido</strong> (contando productos + ítems añadidos por otras campañas).'}
           </div>
 
           <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.5rem 0;">
@@ -43825,6 +43848,29 @@ function openCampaignModal(commerce, campaign = null) {
     });
   }
 
+  // Toggle modo de cantidad de regalo
+  const qtyModeSelect = document.getElementById('campaign-gift-qty-mode');
+  const fixedQtyWrapper = document.getElementById('campaign-fixed-qty-wrapper');
+  const fixedQtyInput = document.getElementById('campaign-gift-qty');
+  const dynamicQtyHint = document.getElementById('campaign-dynamic-qty-hint');
+  if (qtyModeSelect && fixedQtyWrapper && fixedQtyInput && dynamicQtyHint) {
+    qtyModeSelect.addEventListener('change', () => {
+      const mode = qtyModeSelect.value;
+      if (mode === 'fixed') {
+        fixedQtyWrapper.style.display = 'block';
+        fixedQtyInput.required = true;
+        dynamicQtyHint.style.display = 'none';
+      } else {
+        fixedQtyWrapper.style.display = 'none';
+        fixedQtyInput.required = false;
+        dynamicQtyHint.style.display = 'block';
+        dynamicQtyHint.innerHTML = mode === 'order_products_qty'
+          ? '<i class="ri-information-line" style="color: var(--color-success);"></i> Se añadirá una cantidad igual a los <strong>productos del pedido</strong> (sin contar ítems añadidos por otras campañas).'
+          : '<i class="ri-information-line" style="color: #6366f1;"></i> Se añadirá una cantidad igual al <strong>total de artículos del pedido</strong> (contando productos + ítems añadidos por otras campañas).';
+      }
+    });
+  }
+
   // Toggle panel retroactivo
   const retroChk = document.getElementById('campaign-is-retroactive');
   const retroPanel = document.getElementById('retroactive-options-panel');
@@ -43847,9 +43893,13 @@ function openCampaignModal(commerce, campaign = null) {
       prevFeedback.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Consultando...';
       const targetStatuses = Array.from(document.querySelectorAll('.retro-status-chk:checked')).map(c => c.value);
       try {
+        const currentMode = document.getElementById('campaign-gift-qty-mode')?.value || 'fixed';
+        const currentQty = currentMode === 'fixed' ? (parseInt(document.getElementById('campaign-gift-qty')?.value) || 1) : 1;
         const { data: prev, error: pErr } = await supabase.rpc('preview_campaign_retroactive', {
           p_campaign_id: campaign.id,
-          p_target_statuses: targetStatuses.length > 0 ? targetStatuses : ['para procesar', 'en preparación']
+          p_target_statuses: targetStatuses.length > 0 ? targetStatuses : ['para procesar', 'en preparación'],
+          p_gift_quantity_mode: currentMode,
+          p_gift_quantity: currentQty
         });
         if (pErr) throw pErr;
         const stockStatus = prev.sufficient_stock ? '<span style="color:var(--color-success); font-weight:600;">Stock suficiente</span>' : '<span style="color:var(--color-danger); font-weight:600;">Stock insuficiente</span>';
@@ -43874,7 +43924,8 @@ function openCampaignModal(commerce, campaign = null) {
     const minTotalQtyRaw = document.getElementById('campaign-min-total-qty').value;
     const minDistinctSkusRaw = document.getElementById('campaign-min-distinct-skus').value;
     const giftSku = document.getElementById('campaign-gift-sku').value.trim();
-    const giftQty = parseInt(document.getElementById('campaign-gift-qty').value) || 1;
+    const gift_quantity_mode = document.getElementById('campaign-gift-qty-mode')?.value || 'fixed';
+    const giftQty = gift_quantity_mode === 'fixed' ? (parseInt(document.getElementById('campaign-gift-qty').value) || 1) : 1;
     const is_retroactive = document.getElementById('campaign-is-retroactive')?.checked || false;
     const targetStatuses = Array.from(document.querySelectorAll('.retro-status-chk:checked')).map(c => c.value);
     const retroactive_target_statuses = targetStatuses.length > 0 ? targetStatuses : ['para procesar', 'en preparación'];
@@ -43926,6 +43977,7 @@ function openCampaignModal(commerce, campaign = null) {
       min_distinct_skus,
       gift_sku: giftSku,
       gift_quantity: giftQty,
+      gift_quantity_mode,
       conditions,
       is_retroactive,
       retroactive_target_statuses

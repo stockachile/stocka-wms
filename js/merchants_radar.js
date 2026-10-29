@@ -108,7 +108,80 @@ window.merchantsRadarState = {
   integrationsByMerchant: new Map(),
   openIncidenciasByMerchant: new Map(),
   lastFlashedMerchantKey: null,
-  lastRealtimeEventText: 'En vivo'
+  lastRealtimeEventText: 'En vivo',
+  isLoadingOrders: false,
+  isBackgroundSyncing: false,
+  loadingPresetKey: null,
+  loadingPhaseText: '',
+  loadingOrdersCount: 0,
+  loadingRangeText: ''
+};
+
+window.notifyWmsOrdersFetchProgress = function(info = {}) {
+  const st = window.merchantsRadarState;
+  if (!st) return;
+
+  const isFetching = Boolean(info.isFetching);
+  const isBg = Boolean(info.isBackground);
+  const count = Number(info.count || 0);
+  const phase = info.phase || 'orders';
+
+  if (!isFetching) {
+    const wasLoading = st.isLoadingOrders || st.isBackgroundSyncing;
+    st.isLoadingOrders = false;
+    st.isBackgroundSyncing = false;
+    st.loadingPresetKey = null;
+    st.loadingPhaseText = '';
+    st.loadingOrdersCount = count;
+    if (wasLoading && window.wmsOrdersActiveSubView === 'merchants_radar') {
+      window.renderMerchantsRadar();
+    }
+    return;
+  }
+
+  st.loadingOrdersCount = count;
+  if (isBg) {
+    st.isBackgroundSyncing = true;
+    st.isLoadingOrders = false;
+  } else {
+    st.isLoadingOrders = true;
+  }
+
+  if (phase === 'init') {
+    st.loadingPhaseText = 'Conectando y consultando pedidos del rango seleccionado...';
+  } else if (phase === 'orders') {
+    st.loadingPhaseText = count > 0
+      ? `Descargando lotes de pedidos desde el servidor... ${count.toLocaleString('es-CL')} recibidos`
+      : 'Consultando pedidos del periodo...';
+  } else if (phase === 'hydrating') {
+    st.loadingPhaseText = `Sincronizando stock, estados de picking y couriers para ${count.toLocaleString('es-CL')} pedidos...`;
+  }
+
+  // Si estamos en Radar de Comercios y aún no existe el banner en el DOM, renderizar de inmediato
+  if (window.wmsOrdersActiveSubView === 'merchants_radar') {
+    const phaseEl = document.getElementById('radar-loading-phase-text');
+    const countEl = document.getElementById('radar-loading-count-badge');
+    const pillEl = document.getElementById('radar-summary-loading-pill');
+
+    if (st.isLoadingOrders && !phaseEl) {
+      window.renderMerchantsRadar();
+      return;
+    }
+
+    if (phaseEl) {
+      phaseEl.textContent = st.loadingPhaseText;
+    }
+    if (countEl) {
+      countEl.textContent = count > 0
+        ? `${count.toLocaleString('es-CL')} pedidos descargados`
+        : 'Consultando...';
+    }
+    if (pillEl) {
+      pillEl.innerHTML = `<i class="ri-loader-4-line radar-spin-icon"></i> <span>${st.isBackgroundSyncing ? 'Sincronizando' : 'Cargando'}${count > 0 ? ` (${count.toLocaleString('es-CL')})` : '...'}</span>`;
+    } else if (st.isBackgroundSyncing) {
+      window.renderMerchantsRadar();
+    }
+  }
 };
 
 function escapeHtml(str) {
@@ -710,10 +783,18 @@ window.renderMerchantsRadar = async function() {
     <!-- Franja Ejecutiva de Resumen -->
     <div class="radar-summary-strip">
       <div class="radar-summary-item clickable" onclick="window.setRadarHealthFilter('all')">
-        <span class="radar-summary-label">Total Pedidos</span>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;">
+          <span class="radar-summary-label">Total Pedidos</span>
+          ${(st.isLoadingOrders || st.isBackgroundSyncing) ? `
+            <span id="radar-summary-loading-pill" class="radar-summary-loading-pill">
+              <i class="ri-loader-4-line radar-spin-icon"></i>
+              <span>${st.isBackgroundSyncing ? 'Sincronizando' : 'Cargando'}${st.loadingOrdersCount > 0 ? ` (${st.loadingOrdersCount.toLocaleString('es-CL')})` : '...'}</span>
+            </span>
+          ` : ''}
+        </div>
         <div class="radar-summary-value-row">
-          <span class="radar-summary-value">${summary.globalTotalOrders.toLocaleString('es-CL')}</span>
-          <span class="radar-summary-sub">${escapeHtml(rangeLabel)}</span>
+          <span class="radar-summary-value" style="${st.isLoadingOrders ? 'opacity: 0.55;' : ''}">${summary.globalTotalOrders.toLocaleString('es-CL')}</span>
+          <span class="radar-summary-sub">${escapeHtml(st.loadingRangeText && st.isLoadingOrders ? st.loadingRangeText : rangeLabel)}</span>
         </div>
       </div>
 
@@ -755,19 +836,34 @@ window.renderMerchantsRadar = async function() {
       <div class="radar-toolbar-row">
         <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
           <div class="radar-segmented">
-            <button type="button" class="radar-seg-btn ${activePreset === 'today' ? 'active' : ''}" onclick="window.setRadarPeriodPreset('today')">Hoy</button>
-            <button type="button" class="radar-seg-btn ${activePreset === 'yesterday' ? 'active' : ''}" onclick="window.setRadarPeriodPreset('yesterday')">Ayer</button>
-            <button type="button" class="radar-seg-btn ${activePreset === '7days' ? 'active' : ''}" onclick="window.setRadarPeriodPreset('7days')">7 días</button>
-            <button type="button" class="radar-seg-btn ${activePreset === '14days' ? 'active' : ''}" onclick="window.setRadarPeriodPreset('14days')">14 días</button>
-            <button type="button" class="radar-seg-btn ${activePreset === '30days' ? 'active' : ''}" onclick="window.setRadarPeriodPreset('30days')">30 días</button>
-            <button type="button" class="radar-seg-btn ${activePreset === 'month' ? 'active' : ''}" onclick="window.setRadarPeriodPreset('month')">Este mes</button>
+            <button type="button" class="radar-seg-btn ${activePreset === 'today' ? 'active' : ''}" onclick="window.setRadarPeriodPreset('today')">
+              ${st.isLoadingOrders && st.loadingPresetKey === 'today' ? '<i class="ri-loader-4-line radar-spin-icon"></i> ' : ''}Hoy
+            </button>
+            <button type="button" class="radar-seg-btn ${activePreset === 'yesterday' ? 'active' : ''}" onclick="window.setRadarPeriodPreset('yesterday')">
+              ${st.isLoadingOrders && st.loadingPresetKey === 'yesterday' ? '<i class="ri-loader-4-line radar-spin-icon"></i> ' : ''}Ayer
+            </button>
+            <button type="button" class="radar-seg-btn ${activePreset === '7days' ? 'active' : ''}" onclick="window.setRadarPeriodPreset('7days')">
+              ${st.isLoadingOrders && st.loadingPresetKey === '7days' ? '<i class="ri-loader-4-line radar-spin-icon"></i> ' : ''}7 días
+            </button>
+            <button type="button" class="radar-seg-btn ${activePreset === '14days' ? 'active' : ''}" onclick="window.setRadarPeriodPreset('14days')">
+              ${st.isLoadingOrders && st.loadingPresetKey === '14days' ? '<i class="ri-loader-4-line radar-spin-icon"></i> ' : ''}14 días
+            </button>
+            <button type="button" class="radar-seg-btn ${activePreset === '30days' ? 'active' : ''}" onclick="window.setRadarPeriodPreset('30days')">
+              ${st.isLoadingOrders && st.loadingPresetKey === '30days' ? '<i class="ri-loader-4-line radar-spin-icon"></i> ' : ''}30 días
+            </button>
+            <button type="button" class="radar-seg-btn ${activePreset === 'month' ? 'active' : ''}" onclick="window.setRadarPeriodPreset('month')">
+              ${st.isLoadingOrders && st.loadingPresetKey === 'month' ? '<i class="ri-loader-4-line radar-spin-icon"></i> ' : ''}Este mes
+            </button>
           </div>
 
           <div style="display: inline-flex; align-items: center; gap: 0.25rem; background: var(--color-bg); padding: 0.16rem 0.45rem; border-radius: 7px; border: 1px solid var(--color-border);">
             <input type="date" id="radar-custom-date-from" value="${escapeHtml(summary.dateFrom)}" style="border: none; background: transparent; color: var(--color-text-main); font-size: 0.73rem; font-weight: 500; outline: none;" />
             <span style="color: var(--color-text-muted); font-size: 0.7rem;">—</span>
             <input type="date" id="radar-custom-date-to" value="${escapeHtml(summary.dateTo)}" style="border: none; background: transparent; color: var(--color-text-main); font-size: 0.73rem; font-weight: 500; outline: none;" />
-            <button type="button" onclick="window.applyRadarCustomDates()" style="padding: 0.14rem 0.45rem; font-size: 0.71rem; font-weight: 600; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: 5px; cursor: pointer;">Aplicar</button>
+            <button type="button" onclick="window.applyRadarCustomDates()" style="padding: 0.14rem 0.45rem; font-size: 0.71rem; font-weight: 600; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+              ${st.isLoadingOrders && st.loadingPresetKey === 'custom' ? '<i class="ri-loader-4-line radar-spin-icon" style="color: var(--color-primary);"></i>' : ''}
+              <span>Aplicar</span>
+            </button>
           </div>
         </div>
 
@@ -846,14 +942,38 @@ window.renderMerchantsRadar = async function() {
           </button>
 
           <button type="button" onclick="window.refreshMerchantsRadarManual(this)" class="radar-seg-btn" style="border: 1px solid var(--color-border); background: var(--color-bg); padding: 0.28rem 0.6rem;" title="Refrescar datos">
-            <i class="ri-refresh-line" id="radar-refresh-icon"></i>
+            <i class="ri-refresh-line ${(st.isLoadingOrders || st.isBackgroundSyncing) ? 'radar-spin-icon' : ''}" id="radar-refresh-icon"></i>
           </button>
         </div>
       </div>
     </div>
 
+    ${st.isLoadingOrders ? `
+      <div class="radar-loading-banner" id="radar-loading-banner">
+        <div class="radar-loading-banner-top">
+          <div style="display: flex; align-items: center; gap: 0.65rem;">
+            <div class="radar-loading-spinner-ring"></div>
+            <div>
+              <div style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-main);">
+                Cargando pedidos del periodo (${escapeHtml(st.loadingRangeText || rangeLabel)})...
+              </div>
+              <div id="radar-loading-phase-text" style="font-size: 0.74rem; color: var(--color-text-muted); margin-top: 0.1rem;">
+                ${escapeHtml(st.loadingPhaseText || 'Consultando pedidos en el servidor...')}
+              </div>
+            </div>
+          </div>
+          <span id="radar-loading-count-badge" class="radar-summary-loading-pill" style="font-size: 0.73rem; padding: 0.2rem 0.6rem;">
+            ${st.loadingOrdersCount > 0 ? `${st.loadingOrdersCount.toLocaleString('es-CL')} pedidos descargados` : 'Consultando...'}
+          </span>
+        </div>
+        <div class="radar-loading-bar-track">
+          <div class="radar-loading-bar-fill"></div>
+        </div>
+      </div>
+    ` : ''}
+
     <!-- Resultados -->
-    <div id="radar-merchants-results">
+    <div id="radar-merchants-results" class="${st.isLoadingOrders ? 'radar-results-dimmed' : ''}">
       ${renderRadarMerchantsContent(summary)}
     </div>
   `;
@@ -941,10 +1061,10 @@ function renderRadarCardsGrid(merchants) {
         return `
           <div class="radar-merchant-card ${m.health === 'idle' ? 'is-idle' : ''} ${isFlashed ? 'radar-flash-highlight' : ''}" data-merchant-key="${escapeHtml(m.key)}">
             
-            <!-- Zona 1: Cabecera Limpia (Comercio + Canales Seleccionables a la izquierda | Total Pedidos a la derecha) -->
-            <div class="radar-card-header">
-              <div style="min-width: 0; flex: 1;">
-                <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+            <!-- Zona 1: Cabecera Limpia (Comercio a la izquierda | Total Pedidos a la derecha) + Canales a todo el ancho -->
+            <div style="display: flex; flex-direction: column; gap: 0.45rem;">
+              <div class="radar-card-header">
+                <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; min-width: 0; flex: 1;">
                   <span class="radar-sigla-badge">${escapeHtml(m.sigla)}</span>
                   <h4 class="radar-merchant-title" onclick="window.clearRadarCardFilters('${jsMerchantKey}')" title="${hasAnyCardSelection ? 'Clic para restablecer filtros de esta tarjeta' : escapeHtml(m.nombre)}">${escapeHtml(m.nombre)}</h4>
                   ${hasAnyCardSelection ? `
@@ -954,42 +1074,42 @@ function renderRadarCardsGrid(merchants) {
                   ` : ''}
                 </div>
 
-                <!-- Canales activos: Clic filtra los estados de la propia tarjeta -->
-                <div class="radar-card-channels">
-                  ${m.channelsList.length > 0 ? m.channelsList.map(ch => {
-                    const isChanActive = activePlatKey === ch.key;
-                    const syncTip = ch.hasError
-                      ? `Error de sincronización: ${ch.lastSyncError}`
-                      : `Clic para ver en esta tarjeta solo el estado de los ${ch.count} pedidos de ${ch.def.label}`;
-                    return `
-                      <button type="button" class="radar-plat-tag ${isChanActive ? 'active' : ''}" onclick="window.toggleRadarCardPlatform('${jsMerchantKey}', '${ch.key}')" title="${escapeHtml(syncTip)}">
-                        <i class="${ch.def.icon}" style="color: ${isChanActive ? 'var(--color-primary)' : ch.def.accentColor}; font-size: 0.82rem;"></i>
-                        <span>${escapeHtml(ch.def.short)}</span>
-                        <span class="plat-count">${ch.count}</span>
-                        ${ch.hasError
-                          ? `<span class="radar-inc-dot critical" title="Error API"></span>`
-                          : ''
-                        }
-                      </button>
-                    `;
-                  }).join('') : `
-                    <span style="font-size: 0.71rem; color: var(--color-text-muted);">Sin integraciones activas</span>
-                  `}
+                <div style="text-align: right; flex-shrink: 0;">
+                  <div style="font-size: 1.35rem; font-weight: 700; color: var(--color-text-main); line-height: 1.05;">
+                    ${d.totalOrders.toLocaleString('es-CL')}
+                  </div>
+                  <div style="font-size: 0.69rem; color: var(--color-text-muted); margin-top: 0.1rem;">
+                    ${activePlatDef ? `${escapeHtml(activePlatDef.short)} · ` : ''}${d.totalOrders > 0 ? `${d.fulfillmentPct}% despachado` : '0 pedidos'}
+                  </div>
                 </div>
               </div>
 
-              <div style="text-align: right; flex-shrink: 0;">
-                <div style="font-size: 1.4rem; font-weight: 700; color: var(--color-text-main); line-height: 1.1;">
-                  ${d.totalOrders.toLocaleString('es-CL')}
-                </div>
-                <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;">
-                  ${activePlatDef ? `${escapeHtml(activePlatDef.short)} · ` : ''}${d.totalOrders > 0 ? `${d.fulfillmentPct}% despachado` : '0 pedidos'}
-                </div>
+              <!-- Canales activos: distribuidos en fila horizontal a todo el ancho -->
+              <div class="radar-card-channels">
+                ${m.channelsList.length > 0 ? m.channelsList.map(ch => {
+                  const isChanActive = activePlatKey === ch.key;
+                  const syncTip = ch.hasError
+                    ? `Error de sincronización: ${ch.lastSyncError}`
+                    : `Clic para ver en esta tarjeta solo el estado de los ${ch.count} pedidos de ${ch.def.label}`;
+                  return `
+                    <button type="button" class="radar-plat-tag ${isChanActive ? 'active' : ''}" onclick="window.toggleRadarCardPlatform('${jsMerchantKey}', '${ch.key}')" title="${escapeHtml(syncTip)}">
+                      <i class="${ch.def.icon}" style="color: ${isChanActive ? 'var(--color-primary)' : ch.def.accentColor}; font-size: 0.82rem;"></i>
+                      <span>${escapeHtml(ch.def.short)}</span>
+                      <span class="plat-count">${ch.count}</span>
+                      ${ch.hasError
+                        ? `<span class="radar-inc-dot critical" title="Error API"></span>`
+                        : ''
+                      }
+                    </button>
+                  `;
+                }).join('') : `
+                  <span style="font-size: 0.71rem; color: var(--color-text-muted);">Sin integraciones activas</span>
+                `}
               </div>
             </div>
 
             <!-- Zona 2: Barra minimalista de 4px + Tira Unificada de Estados WMS (se actualiza al elegir plataforma) -->
-            <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+            <div style="display: flex; flex-direction: column; gap: 0.38rem;">
               <div class="radar-thin-progress" title="${d.fulfilledOrders} de ${d.activeOrdersCount} listos/enviados (${d.fulfillmentPct}%)">
                 <div style="width: ${pDesp}%; background: #10b981;"></div>
                 <div style="width: ${pPick}%; background: #60a5fa;"></div>
@@ -1020,43 +1140,41 @@ function renderRadarCardsGrid(merchants) {
               </div>
             </div>
 
-            <!-- Zona 3: Pie de Tarjeta Sobrio (Incidencias del canal seleccionado + Botón "Ver pedidos ›") -->
-            <div class="radar-card-footer">
-              <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
-                ${d.incidentsList.length > 0 ? d.incidentsList.map(inc => {
-                  const isIncActive = activeIncident && activeIncident.actionType === inc.actionType && activeIncident.actionValue === inc.actionValue;
-                  const jsVal = escapeHtml(inc.actionValue || '').replace(/'/g, "\\'");
-                  const jsLbl = escapeHtml(inc.label || '').replace(/'/g, "\\'");
-                  return `
-                    <button type="button" class="radar-inc-chip ${isIncActive ? 'active' : ''}" onclick="window.toggleRadarCardIncident('${jsMerchantKey}', '${inc.actionType}', '${jsVal}', '${jsLbl}')" title="${escapeHtml(inc.tooltip || 'Clic para seleccionar esta alerta y luego ir con Ver pedidos')}">
-                      <span class="radar-inc-dot ${inc.severity}"></span>
-                      <span>${escapeHtml(inc.label)}</span>
-                    </button>
-                  `;
-                }).join('') : `
-                  <span style="font-size: 0.72rem; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.25rem;">
-                    <i class="ri-check-line" style="color: #10b981;"></i> Sin alertas pendientes
-                  </span>
-                `}
-              </div>
-
-              <div style="display: inline-flex; align-items: center; gap: 0.25rem; margin-left: auto;">
-                <button type="button" class="radar-action-link" onclick="window.openRadarQuickSummaryModal('${jsMerchantKey}')" title="Abrir modal con resumen de estos pedidos (# pedido, fecha, SLA, cobertura y plataforma)">
-                  <i class="ri-file-list-3-line"></i>
-                  <span>Vista resumida</span>
-                </button>
-                <span style="color: var(--color-border);">·</span>
-                ${d.eligibleAgendasCount > 0 ? `
-                  <button type="button" class="radar-action-link" onclick="window.radarDrillDownToAgendas('${jsMerchantName}')" title="Abrir en Gestión de Agendas">
-                    <span>Agendas (${d.eligibleAgendasCount})</span>
+            <!-- Zona 3: Cápsulas de Alertas distribuidas horizontalmente a todo el ancho -->
+            <div class="radar-card-alerts-row">
+              ${d.incidentsList.length > 0 ? d.incidentsList.map(inc => {
+                const isIncActive = activeIncident && activeIncident.actionType === inc.actionType && activeIncident.actionValue === inc.actionValue;
+                const jsVal = escapeHtml(inc.actionValue || '').replace(/'/g, "\\'");
+                const jsLbl = escapeHtml(inc.label || '').replace(/'/g, "\\'");
+                return `
+                  <button type="button" class="radar-inc-chip ${isIncActive ? 'active' : ''}" onclick="window.toggleRadarCardIncident('${jsMerchantKey}', '${inc.actionType}', '${jsVal}', '${jsLbl}')" title="${escapeHtml(inc.tooltip || 'Clic para seleccionar esta alerta y luego ir con Ver pedidos')}">
+                    <span class="radar-inc-dot ${inc.severity}"></span>
+                    <span>${escapeHtml(inc.label)}</span>
                   </button>
-                  <span style="color: var(--color-border);">·</span>
-                ` : ''}
-                <button type="button" class="radar-action-link ${hasAnyCardSelection ? 'has-filter' : ''}" onclick="window.openMerchantFromRadarCard('${jsMerchantKey}', '${jsMerchantName}')">
-                  <span>${escapeHtml(verPedidosLabel)}</span>
-                  <i class="ri-arrow-right-s-line"></i>
+                `;
+              }).join('') : `
+                <span style="font-size: 0.72rem; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.25rem;">
+                  <i class="ri-check-line" style="color: #10b981;"></i> Sin alertas pendientes
+                </span>
+              `}
+            </div>
+
+            <!-- Zona 4: Borde Inferior de Acciones a todo el ancho de la tarjeta -->
+            <div class="radar-card-actions-bar">
+              <button type="button" class="radar-action-link" onclick="window.openRadarQuickSummaryModal('${jsMerchantKey}')" title="Abrir modal con resumen de estos pedidos (# pedido, fecha, SLA, cobertura y plataforma)">
+                <i class="ri-file-list-3-line"></i>
+                <span>Vista resumida</span>
+              </button>
+              ${d.eligibleAgendasCount > 0 ? `
+                <button type="button" class="radar-action-link" onclick="window.radarDrillDownToAgendas('${jsMerchantName}')" title="Abrir en Gestión de Agendas">
+                  <i class="ri-calendar-check-line"></i>
+                  <span>Agendas (${d.eligibleAgendasCount})</span>
                 </button>
-              </div>
+              ` : ''}
+              <button type="button" class="radar-action-link primary-action ${hasAnyCardSelection ? 'has-filter' : ''}" onclick="window.openMerchantFromRadarCard('${jsMerchantKey}', '${jsMerchantName}')">
+                <span>${escapeHtml(verPedidosLabel)}</span>
+                <i class="ri-arrow-right-s-line"></i>
+              </button>
             </div>
 
           </div>
@@ -1252,14 +1370,73 @@ window.openMerchantFromRadarCard = function(merchantKey, merchantName) {
   window.radarDrillDownToTower(merchantName, origenFilter, wmsTab, tagFilter);
 };
 
-window.setRadarPeriodPreset = async function(presetKey) {
-  if (typeof window.setWmsDatePreset === 'function') {
-    await window.setWmsDatePreset(presetKey);
+function computePresetDateStrings(presetKey) {
+  const now = new Date();
+  const formatYMD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  let fromStr = '';
+  let toStr = formatYMD(now);
+
+  if (presetKey === 'today') {
+    fromStr = toStr;
+  } else if (presetKey === 'yesterday') {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    fromStr = formatYMD(d);
+    toStr = fromStr;
+  } else if (presetKey === '7days') {
+    const d = new Date();
+    d.setDate(d.getDate() - 6);
+    fromStr = formatYMD(d);
+  } else if (presetKey === '14days') {
+    const d = new Date();
+    d.setDate(d.getDate() - 13);
+    fromStr = formatYMD(d);
+  } else if (presetKey === '30days') {
+    const d = new Date();
+    d.setDate(d.getDate() - 29);
+    fromStr = formatYMD(d);
+  } else if (presetKey === 'month') {
+    fromStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
   }
-  window.renderMerchantsRadar();
+  return { fromStr, toStr };
+}
+
+window.setRadarPeriodPreset = async function(presetKey) {
+  const st = window.merchantsRadarState;
+  const { fromStr, toStr } = computePresetDateStrings(presetKey);
+  const hasRangeInMemory = window.loadedOrders && window.loadedOrders.length > 0 &&
+    window.lastFetchedDateFrom && window.lastFetchedDateTo &&
+    fromStr >= window.lastFetchedDateFrom && toStr <= window.lastFetchedDateTo;
+
+  window.wmsActiveDatePreset = presetKey;
+
+  if (!hasRangeInMemory) {
+    st.isLoadingOrders = true;
+    st.loadingPresetKey = presetKey;
+    st.loadingOrdersCount = 0;
+    st.loadingRangeText = window.formatWmsDateRangeSummary
+      ? window.formatWmsDateRangeSummary(fromStr, toStr)
+      : `${fromStr} - ${toStr}`;
+    st.loadingPhaseText = 'Consultando pedidos del periodo seleccionado...';
+    window.renderMerchantsRadar();
+    // Ceder un frame al navegador para pintar el estado de carga antes de iniciar la consulta
+    await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+  }
+
+  try {
+    if (typeof window.setWmsDatePreset === 'function') {
+      await window.setWmsDatePreset(presetKey);
+    }
+  } finally {
+    st.isLoadingOrders = false;
+    st.loadingPresetKey = null;
+    st.loadingRangeText = '';
+    window.renderMerchantsRadar();
+  }
 };
 
 window.applyRadarCustomDates = async function() {
+  const st = window.merchantsRadarState;
   const fromEl = document.getElementById('radar-custom-date-from');
   const toEl = document.getElementById('radar-custom-date-to');
   const fromVal = fromEl?.value || '';
@@ -1270,15 +1447,47 @@ window.applyRadarCustomDates = async function() {
   if (towerFrom) towerFrom.value = fromVal;
   if (towerTo) towerTo.value = toVal;
 
+  const hasRangeInMemory = fromVal && toVal && window.loadedOrders && window.loadedOrders.length > 0 &&
+    window.lastFetchedDateFrom && window.lastFetchedDateTo &&
+    fromVal >= window.lastFetchedDateFrom && toVal <= window.lastFetchedDateTo;
+
   window.wmsActiveDatePreset = null;
-  if (typeof window.applyWmsCustomDateRange === 'function') {
-    await window.applyWmsCustomDateRange();
-  } else if (typeof window.fetchWmsOrdersData === 'function' && fromVal && toVal) {
-    window.lastFetchedDateFrom = fromVal;
-    window.lastFetchedDateTo = toVal;
-    await window.fetchWmsOrdersData(fromVal, toVal);
+
+  if (!hasRangeInMemory) {
+    st.isLoadingOrders = true;
+    st.loadingPresetKey = 'custom';
+    st.loadingOrdersCount = 0;
+    st.loadingRangeText = window.formatWmsDateRangeSummary
+      ? window.formatWmsDateRangeSummary(fromVal, toVal)
+      : `${fromVal} - ${toVal}`;
+    st.loadingPhaseText = 'Consultando pedidos del rango personalizado...';
+    window.renderMerchantsRadar();
+    await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
   }
-  window.renderMerchantsRadar();
+
+  try {
+    const summaryText = document.getElementById('wms-date-range-summary-text');
+    if (summaryText && window.formatWmsDateRangeSummary) {
+      summaryText.textContent = window.formatWmsDateRangeSummary(fromVal, toVal);
+    }
+    document.querySelectorAll('.wms-date-preset-btn').forEach(btn => btn.classList.remove('active'));
+
+    if (!hasRangeInMemory && typeof window.fetchWmsOrdersData === 'function' && (fromVal || toVal)) {
+      window.lastFetchedDateFrom = fromVal || null;
+      window.lastFetchedDateTo = toVal || null;
+      await window.fetchWmsOrdersData(fromVal, toVal);
+      if (window.updateMerchantFilterOptions) window.updateMerchantFilterOptions();
+      if (window.updateOrderTagFilterOptions) window.updateOrderTagFilterOptions();
+    }
+    if (typeof window.applyWmsFiltersAndRender === 'function') {
+      window.applyWmsFiltersAndRender();
+    }
+  } finally {
+    st.isLoadingOrders = false;
+    st.loadingPresetKey = null;
+    st.loadingRangeText = '';
+    window.renderMerchantsRadar();
+  }
 };
 
 window.toggleRadarPlatformFilter = function(platformKey) {
@@ -1486,6 +1695,102 @@ function formatShortOrderDate(dateStr) {
   });
 }
 
+function getRadarOrderPaymentInfo(order) {
+  if (!order) {
+    return { label: 'Pendiente', badgeClass: 'pay-pending', icon: 'ri-time-line' };
+  }
+  let rawFin = String(order.raw_shopify_data?.financial_status || order.payment_status || '').toLowerCase().trim();
+  const platKey = normalizePlatformKey(order.origen || order.external_platform, order);
+  const isMarketplace = ['Falabella', 'MercadoLibre', 'Paris', 'Ripley', 'Walmart'].includes(platKey);
+  if (isMarketplace && order.status !== 'cancelado') {
+    if (!['refunded', 'reembolsado', 'partially_refunded', 'parcialmente_reembolsado', 'voided', 'anulado'].includes(rawFin)) {
+      rawFin = 'paid';
+    }
+  }
+
+  if (['paid', 'pagado', 'completed', 'approved', 'confirmed', 'cobrado'].includes(rawFin)) {
+    return { label: 'Pagado', badgeClass: 'pay-paid', icon: 'ri-checkbox-circle-line' };
+  }
+  if (['authorized', 'autorizado'].includes(rawFin)) {
+    return { label: 'Autorizado', badgeClass: 'pay-auth', icon: 'ri-check-line' };
+  }
+  if (['partially_refunded', 'parcialmente_reembolsado'].includes(rawFin)) {
+    return { label: 'Reemb. Parcial', badgeClass: 'pay-refund', icon: 'ri-refund-line' };
+  }
+  if (['refunded', 'reembolsado'].includes(rawFin)) {
+    return { label: 'Reembolsado', badgeClass: 'pay-refund', icon: 'ri-refund-line' };
+  }
+  if (['voided', 'anulado', 'cancelado', 'cancelled', 'failed', 'fallido'].includes(rawFin)) {
+    return { label: 'Anulado', badgeClass: 'pay-refund', icon: 'ri-close-circle-line' };
+  }
+  if (['partially_paid', 'parcialmente_pagado'].includes(rawFin)) {
+    return { label: 'Pago Parcial', badgeClass: 'pay-pending', icon: 'ri-time-line' };
+  }
+  if (['pending', 'pendiente', 'unpaid', 'no pagado', 'por_pagar', 'por pagar', 'on-hold', 'on_hold', ''].includes(rawFin)) {
+    return { label: 'Pendiente', badgeClass: 'pay-pending', icon: 'ri-time-line' };
+  }
+  return { label: String(order.payment_status || 'Pendiente'), badgeClass: 'pay-pending', icon: 'ri-time-line' };
+}
+
+function getRadarMeliDeliverySubType(order) {
+  if (!order) return null;
+  const platKey = normalizePlatformKey(order.origen || order.external_platform, order);
+  if (platKey !== 'MercadoLibre') return null;
+
+  const delivInfo = typeof window.getOrderDeliveryTypeInfo === 'function' ? window.getOrderDeliveryTypeInfo(order) : null;
+  const methodUpper = String(order.shipping_method || '').toUpperCase();
+  const agendaUpper = String(order.agenda || '').toUpperCase();
+  const courierUpper = String(order.courier || '').toUpperCase();
+  const rawMeliObj = Array.isArray(order.raw_meli_data) ? order.raw_meli_data[0] : order.raw_meli_data;
+  const rawMeliLogistic = String(
+    rawMeliObj?.shipping?.logistic_type ||
+    rawMeliObj?.orders?.[0]?.shipping?.logistic_type ||
+    order.shipping_type ||
+    ''
+  ).toLowerCase();
+
+  if (
+    delivInfo?.key === 'FLEX' ||
+    methodUpper.includes('FLEX') ||
+    agendaUpper.includes('FLEX') ||
+    courierUpper.includes('FLEX') ||
+    rawMeliLogistic === 'self_service' ||
+    rawMeliLogistic === 'flex'
+  ) {
+    return {
+      key: 'FLEX',
+      label: 'FLEX',
+      badgeClass: 'meli-flex',
+      icon: 'ri-flashlight-fill'
+    };
+  }
+
+  if (delivInfo?.key === 'MELI_FULL' || rawMeliLogistic === 'fulfillment' || methodUpper.includes('FULL')) {
+    return {
+      key: 'FULL',
+      label: 'FULL',
+      badgeClass: 'meli-full',
+      icon: 'ri-flashlight-line'
+    };
+  }
+
+  if (delivInfo?.key === 'MELI_RETIRO' || methodUpper.includes('RETIRO') || agendaUpper.includes('RETIRO') || methodUpper.includes('ACORDAR')) {
+    return {
+      key: 'RETIRO',
+      label: 'RETIRO',
+      badgeClass: 'meli-retiro',
+      icon: 'ri-store-2-line'
+    };
+  }
+
+  return {
+    key: 'CENTRO_ENVIOS',
+    label: 'CENTRO DE ENVÍOS',
+    badgeClass: 'meli-ce',
+    icon: 'ri-community-line'
+  };
+}
+
 window.openRadarQuickSummaryModal = function(merchantKey) {
   const st = window.merchantsRadarState;
   const cf = st.cardFiltersByMerchant.get(merchantKey) || { platformKey: null, wmsStatus: null, incident: null };
@@ -1546,7 +1851,10 @@ function getFilteredModalOrders(merchantEntry) {
       const extNo = String(order.external_order_number || order.id || '').toLowerCase();
       const city = String(order.shipping_city || '').toLowerCase();
       const cust = String(order.customer_name || '').toLowerCase();
-      if (!extNo.includes(q) && !city.includes(q) && !cust.includes(q)) return false;
+      const payLbl = getRadarOrderPaymentInfo(order).label.toLowerCase();
+      const meliSub = getRadarMeliDeliverySubType(order);
+      const meliLbl = meliSub ? meliSub.label.toLowerCase() : '';
+      if (!extNo.includes(q) && !city.includes(q) && !cust.includes(q) && !payLbl.includes(q) && !meliLbl.includes(q)) return false;
     }
     return true;
   });
@@ -1673,6 +1981,7 @@ window.renderRadarQuickSummaryModal = function(preserveSearchFocus = false) {
                 <th>Fecha Pedido</th>
                 <th>Fecha SLA</th>
                 <th>Cobertura / Comuna</th>
+                <th>Estado Pago</th>
                 <th>Estado WMS</th>
               </tr>
             </thead>
@@ -1681,6 +1990,7 @@ window.renderRadarQuickSummaryModal = function(preserveSearchFocus = false) {
                 const orderNum = order.external_order_number || order.id || '—';
                 const platKey = normalizePlatformKey(order.origen || order.external_platform, order);
                 const pDef = PLATFORM_DEFINITIONS[platKey] || PLATFORM_DEFINITIONS.Manual;
+                const meliSubType = getRadarMeliDeliverySubType(order);
 
                 // SLA Info
                 const slaInfo = typeof window.getOrderSlaInfo === 'function' ? window.getOrderSlaInfo(order) : null;
@@ -1703,6 +2013,9 @@ window.renderRadarQuickSummaryModal = function(preserveSearchFocus = false) {
                   }
                 }
 
+                // Pago Info
+                const payInfo = getRadarOrderPaymentInfo(order);
+
                 const wmsState = order.estado_wms || 'En procesamiento';
                 const isInc = wmsState === 'Incidencia';
 
@@ -1715,10 +2028,18 @@ window.renderRadarQuickSummaryModal = function(preserveSearchFocus = false) {
                       </a>
                     </td>
                     <td style="white-space: nowrap;">
-                      <span style="display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.76rem; font-weight: 500;">
-                        <i class="${pDef.icon}" style="color: ${pDef.accentColor};"></i>
-                        <span>${escapeHtml(pDef.short)}</span>
-                      </span>
+                      <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.76rem; font-weight: 500;">
+                          <i class="${pDef.icon}" style="color: ${pDef.accentColor};"></i>
+                          <span>${escapeHtml(pDef.short)}</span>
+                        </span>
+                        ${meliSubType ? `
+                          <span class="radar-meli-type-badge ${meliSubType.badgeClass}">
+                            <i class="${meliSubType.icon}"></i>
+                            <span>${escapeHtml(meliSubType.label)}</span>
+                          </span>
+                        ` : ''}
+                      </div>
                     </td>
                     <td style="white-space: nowrap; color: var(--color-text-muted); font-size: 0.75rem;">
                       ${escapeHtml(formatShortOrderDate(order.created_at))}
@@ -1736,6 +2057,12 @@ window.renderRadarQuickSummaryModal = function(preserveSearchFocus = false) {
                         <span class="radar-cov-badge ${covClass}">${covShort}</span>
                         <span style="font-size: 0.76rem; color: var(--color-text-main);">${escapeHtml(comunaStr)}</span>
                       </div>
+                    </td>
+                    <td style="white-space: nowrap;">
+                      <span class="radar-pay-badge ${payInfo.badgeClass}">
+                        <i class="${payInfo.icon}"></i>
+                        <span>${escapeHtml(payInfo.label)}</span>
+                      </span>
                     </td>
                     <td style="white-space: nowrap;">
                       <span style="font-size: 0.74rem; font-weight: 600; color: ${isInc ? '#dc2626' : 'var(--color-text-main)'};">
