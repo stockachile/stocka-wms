@@ -2683,7 +2683,16 @@
             else if (normG.includes('procesamiento')) payload.status = 'para procesar';
             else if (normG.includes('preparacion')) payload.status = 'en preparación';
             else if (normG.includes('pickeado') || normG.includes('preparado')) payload.status = 'preparado';
-            else if (normG.includes('despachado')) payload.status = 'despachado';
+            else if (normG.includes('despachado')) {
+              payload.stock_descontado = true;
+              const anyAlreadyDiscounted = (grp.ids || []).some(oid => {
+                const ord = (window.loadedOrders || []).find(o => String(o.id) === String(oid));
+                return ord && ord.stock_descontado && ord.status !== 'despachado';
+              });
+              if (!anyAlreadyDiscounted) {
+                payload.status = 'despachado';
+              }
+            }
           }
 
           promises.push(

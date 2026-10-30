@@ -848,6 +848,50 @@ async function run() {
             if (insErr) console.error(`Error re-insertando pedido ${orderNo} en Picker:`, insErr.message);
           }
         } else {
+          // 0. Sincronizar Solicitudes Especiales de Picking si difieren entre WMS y Picker
+          const cleanNo = String(orderNo).replace(/^#/, '').trim().toUpperCase();
+          const wmsPr = pickingReqsMap.get(wmsOrder.id) || pickingReqsMap.get(cleanNo) || null;
+          const wmsHasPr = Boolean(wmsPr && Array.isArray(wmsPr.items) && wmsPr.items.length > 0);
+          const wmsPrJson = wmsHasPr ? wmsPr.items : [];
+          const wmsPrConfirmed = Boolean(wmsHasPr && (wmsPr.status === 'completada' || (Array.isArray(wmsPr.items) && wmsPr.items.every(i => i.checked || i.discarded))));
+          const wmsPrOp = wmsPr ? wmsPr.completed_by_operator : null;
+          const wmsPrAt = wmsPr ? wmsPr.completed_at : null;
+
+          const pickerPrDiffers = pickerItemsForOrder.some(pi => {
+            if (Boolean(pi.has_picking_requests) !== wmsHasPr) return true;
+            if (wmsHasPr) {
+              const piJsonStr = JSON.stringify(pi.picking_requests_json || []);
+              const wmsJsonStr = JSON.stringify(wmsPrJson);
+              if (piJsonStr !== wmsJsonStr) return true;
+              if (Boolean(pi.picking_requests_confirmed) !== wmsPrConfirmed) return true;
+            }
+            return false;
+          });
+
+          if (pickerPrDiffers) {
+            console.log(`📋 [SYNC PICKER] Sincronizando Solicitud de Picking para pedido ${orderNo} en active_orders...`);
+            const targetObs = buildPickerObservation(wmsOrder, pickerItemsForOrder[0]?.observation || '', wmsPr);
+            const prUpdatePayload = {
+              has_picking_requests: wmsHasPr,
+              picking_requests_json: wmsPrJson,
+              picking_requests_confirmed: wmsPrConfirmed,
+              picking_requests_operator: wmsPrOp,
+              picking_requests_confirmed_at: wmsPrAt,
+              observation: targetObs
+            };
+            if (wmsHasPr && !wmsPrConfirmed && pickerItemsForOrder[0]?.sheet_status === 'EN PREPARACIÓN') {
+              prUpdatePayload.sheet_status = 'Pendiente (Obs)';
+            }
+            await pickerClient
+              .from('active_orders')
+              .update(prUpdatePayload)
+              .in('order_number', [orderNo, '#' + cleanNo, cleanNo]);
+
+            pickerItemsForOrder.forEach(it => {
+              Object.assign(it, prUpdatePayload);
+            });
+          }
+
           // Si el pedido no cambió en ítems, verificar si necesita actualizar o completar ubicaciones físicas
           let locsUpdated = false;
           for (const pi of pickerItemsForOrder) {

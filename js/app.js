@@ -30242,6 +30242,9 @@ window.showDeclarationsInfoModal = function() {
 };
 
 window.editDeclaration = async function(id) {
+  if (window._isOpeningEditDeclaration) return;
+  window._isOpeningEditDeclaration = true;
+  const editToken = (window._editDecToken = (window._editDecToken || 0) + 1);
   try {
     const isPaused = typeof window.checkIsCommercePaused === 'function'
       ? await window.checkIsCommercePaused(currentCompany)
@@ -30464,23 +30467,34 @@ window.editDeclaration = async function(id) {
         }
       }
     }
-    // Cargar y mostrar productos en el listado de catálogo
+    // Verificar configuración de seguimiento y precargar productos del catálogo para este comercio
+    await checkSelectedCommerceTracking();
+
+    if (editToken !== window._editDecToken) return;
+
+    // Cargar y mostrar productos en el listado de catálogo limpiando justo antes de poblar
     const tbody = document.getElementById('dec-selected-products-tbody');
     if (tbody) {
       tbody.innerHTML = '';
     }
-    
-    // Asegurar que precargamos los productos del catálogo para este comercio
-    await loadCatalogProductsForDeclaration(dec.comercio);
-
-    await checkSelectedCommerceTracking();
 
     if (dec.products_list && Array.isArray(dec.products_list) && dec.products_list.length > 0) {
       // Activar origen "catálogo"
       setProductSource('catalog');
 
       dec.products_list.forEach(p => {
-        addCatalogProductToDeclarationList(p.sku, p.name, p.vol || p.volumen || 0, p.price || 0, p.barcode || '', p.qty || p.quantity || p.qty_confirmed || 1, p.largo, p.ancho, p.alto);
+        addCatalogProductToDeclarationList(
+          p.sku,
+          p.name,
+          p.vol || p.volumen || 0,
+          p.price || 0,
+          p.barcode || '',
+          p.qty || p.quantity || p.qty_confirmed || 1,
+          p.largo,
+          p.ancho,
+          p.alto,
+          true
+        );
       });
       recalculateCatalogTotals();
     } else if (!window.isCurrentCommerceCatalogConfigured) {
@@ -30489,7 +30503,7 @@ window.editDeclaration = async function(id) {
       recalculateCatalogTotals();
     }
 
-    openNewDeclarationSlideOver();
+    await openNewDeclarationSlideOver({ skipTrackingCheck: true });
 
     if (window.updateDeliveryMethodVisuals) {
       window.updateDeliveryMethodVisuals(dec.delivery_method || 'Transporte vía courier');
@@ -30502,10 +30516,12 @@ window.editDeclaration = async function(id) {
   } catch (err) {
     console.error('Error opening declaration for editing:', err);
     alert('Error al abrir la declaración para editar: ' + err.message);
+  } finally {
+    window._isOpeningEditDeclaration = false;
   }
 };
 
-window.openNewDeclarationSlideOver = async function() {
+window.openNewDeclarationSlideOver = async function(options = {}) {
   const isPaused = typeof window.checkIsCommercePaused === 'function'
     ? await window.checkIsCommercePaused(currentCompany)
     : !!(window.pausedBillingComercios && window.pausedBillingComercios.length > 0);
@@ -30630,7 +30646,9 @@ window.openNewDeclarationSlideOver = async function() {
   }
   
   // Ejecutar verificación de seguimiento y catálogo para el comercio seleccionado
-  await checkSelectedCommerceTracking();
+  if (!options || !options.skipTrackingCheck) {
+    await checkSelectedCommerceTracking();
+  }
 };
 
 window.hasUnsavedDeclarationWork = function() {
@@ -41764,7 +41782,7 @@ async function loadCatalogProductsForDeclaration(commerce) {
   }
 }
 
-function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode = '', initialQty = 1, largo = null, ancho = null, alto = null) {
+function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode = '', initialQty = 1, largo = null, ancho = null, alto = null, replaceQty = false) {
   const tbody = document.getElementById('dec-selected-products-tbody');
   if (!tbody) return;
 
@@ -41808,7 +41826,7 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode =
     if (qtyInput) {
       const currentVal = parseInt(qtyInput.value, 10) || 0;
       const addVal = parseInt(initialQty, 10) || 1;
-      const newVal = currentVal + addVal;
+      const newVal = replaceQty ? addVal : (currentVal + addVal);
       qtyInput.value = newVal;
       
       const currentUnitVol = parseFloat(qtyInput.getAttribute('data-vol') || '0');
@@ -42336,8 +42354,47 @@ window.handleCatalogExcelFileSelected = async function(event) {
       return;
     }
 
-    // 6. Agregar los productos coincidentes a la tabla de la declaración
+    // 6. Consolidar SKUs repetidos dentro de la misma planilla y verificar si ya hay productos en la tabla
+    const consolidatedMap = new Map();
     matchedItems.forEach(item => {
+      const key = String(item.product.sku || '').trim().toUpperCase();
+      if (consolidatedMap.has(key)) {
+        const existing = consolidatedMap.get(key);
+        existing.qty += item.qty;
+        if (item.largo !== null) existing.largo = item.largo;
+        if (item.ancho !== null) existing.ancho = item.ancho;
+        if (item.alto !== null) existing.alto = item.alto;
+      } else {
+        consolidatedMap.set(key, { ...item });
+      }
+    });
+    const consolidatedItems = Array.from(consolidatedMap.values());
+
+    const tbody = document.getElementById('dec-selected-products-tbody');
+    const existingRowsCount = tbody ? tbody.querySelectorAll('.selected-product-row').length : 0;
+
+    if (existingRowsCount > 0) {
+      const choice = await Swal.fire({
+        title: 'Ya existen productos en el listado',
+        html: `Actualmente tienes <strong>${existingRowsCount}</strong> producto(s) cargados en esta declaración.<br><br>¿Deseas <strong>reemplazar</strong> el listado actual por los <strong>${consolidatedItems.length}</strong> producto(s) de la planilla, o <strong>actualizar/agregar</strong> las cantidades sin duplicarlas?`,
+        icon: 'question',
+        showDenyButton: true,
+        showCancelButton: true,
+        confirmButtonText: 'Reemplazar listado actual',
+        denyButtonText: 'Actualizar / Agregar sin duplicar',
+        cancelButtonText: 'Cancelar'
+      });
+
+      if (choice.isDismissed) {
+        return;
+      }
+      if (choice.isConfirmed && tbody) {
+        tbody.innerHTML = '';
+      }
+    }
+
+    // Agregar los productos coincidentes a la tabla de la declaración (replaceQty = true evita duplicar cantidades existentes)
+    consolidatedItems.forEach(item => {
       const p = item.product;
       const largoFinal = item.largo !== null ? item.largo : (p.largo ? Math.round(p.largo) : null);
       const anchoFinal = item.ancho !== null ? item.ancho : (p.ancho ? Math.round(p.ancho) : null);
@@ -42356,7 +42413,8 @@ window.handleCatalogExcelFileSelected = async function(event) {
         item.qty,
         largoFinal,
         anchoFinal,
-        altoFinal
+        altoFinal,
+        true
       );
     });
 
@@ -42401,7 +42459,7 @@ window.handleCatalogExcelFileSelected = async function(event) {
         html: `
           <div style="text-align: left; font-size: 0.875rem;">
             <p style="margin-bottom: 0.35rem; color: var(--color-success); font-weight: 600;">
-              <i class="ri-checkbox-circle-line"></i> Se cargaron con éxito <strong>${matchedItems.length}</strong> producto(s) en la declaración.
+              <i class="ri-checkbox-circle-line"></i> Se cargaron con éxito <strong>${consolidatedItems.length}</strong> producto(s) en la declaración.
             </p>
             ${warningSections}
           </div>
@@ -42412,7 +42470,7 @@ window.handleCatalogExcelFileSelected = async function(event) {
     } else {
       Swal.fire({
         title: '¡Planilla Cargada con Éxito!',
-        text: `Se cargaron ${matchedItems.length} producto(s) desde la planilla con sus cantidades y medidas asociadas al Catálogo Master.`,
+        text: `Se cargaron ${consolidatedItems.length} producto(s) desde la planilla con sus cantidades y medidas asociadas al Catálogo Master.`,
         icon: 'success',
         timer: 3500,
         showConfirmButton: true

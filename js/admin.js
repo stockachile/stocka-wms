@@ -75230,7 +75230,17 @@ window.openWmsOrderModal = async function(orderId) {
     else if (normSt.includes('procesamiento') || normSt.includes('procesar')) updatePayload.status = 'para procesar';
     else if (normSt.includes('preparacion')) updatePayload.status = 'en preparación';
     else if (normSt.includes('pickeado') || normSt.includes('preparado')) updatePayload.status = 'preparado';
-    else if (normSt.includes('despachado')) updatePayload.status = 'despachado';
+    else if (normSt.includes('despachado')) {
+      let hadPriorMovement = !!order.stock_descontado;
+      if (!hadPriorMovement && typeof window.checkOrderExistingStockMovement === 'function') {
+        const checkPrior = await window.checkOrderExistingStockMovement(order);
+        hadPriorMovement = !!(checkPrior && checkPrior.hasMovement);
+      }
+      updatePayload.stock_descontado = true;
+      if (!hadPriorMovement || order.status === 'despachado') {
+        updatePayload.status = 'despachado';
+      }
+    }
     else if (normSt.includes('archivado')) updatePayload.status = 'archivado';
 
     if (rawKey && formValues.note !== undefined) {
@@ -75524,7 +75534,7 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
   // 1. Consultar ítems existentes en Picker
   const { data: existingItems, error: getErr } = await pickerSupabase
     .from('active_orders')
-    .select('id, tracking, operator, sheet_status, observation, sku, quantity')
+    .select('id, tracking, operator, sheet_status, observation, sku, quantity, has_picking_requests, picking_requests_json, picking_requests_confirmed, picking_requests_operator, picking_requests_confirmed_at')
     .eq('order_number', orderNumber);
 
   if (getErr) {
@@ -75624,8 +75634,16 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
     .replace(/antes de escanear\.?/gi, '')
     .trim();
 
+  const existingPickingState = existingItems.find(pi => pi.has_picking_requests) || null;
+  const wmsPr = (order.id && window.pickingRequestsCache && window.pickingRequestsCache.get(order.id)) || null;
+  const finalHasPickingReq = Boolean(existingPickingState?.has_picking_requests || (wmsPr && Array.isArray(wmsPr.items) && wmsPr.items.length > 0));
+  const finalPickingReqJson = existingPickingState ? existingPickingState.picking_requests_json : (wmsPr ? wmsPr.items : null);
+  const finalPickingReqConfirmed = Boolean(existingPickingState ? existingPickingState.picking_requests_confirmed : (wmsPr && (wmsPr.status === 'completada' || (Array.isArray(wmsPr.items) && wmsPr.items.every(i => i.checked || i.discarded)))));
+  const finalPickingReqOp = existingPickingState ? existingPickingState.picking_requests_operator : (wmsPr ? wmsPr.completed_by_operator : null);
+  const finalPickingReqAt = existingPickingState ? existingPickingState.picking_requests_confirmed_at : (wmsPr ? wmsPr.completed_at : null);
+
   const finalObs = window.buildPickerObservation 
-    ? window.buildPickerObservation(order, cleanExistingObs) 
+    ? window.buildPickerObservation(order, cleanExistingObs, wmsPr || existingPickingState) 
     : (cleanExistingObs || order.observation || '');
 
   for (const item of physicalItems) {
@@ -75688,7 +75706,12 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
       extra_col_v: (prod.image_url || '').slice(0, 500),
       comercio: (order.comercio || 'MAGIC MAKEUP').slice(0, 100),
       picking_match_strict: commerceStrict || prod.picking_match_strict || false,
-      created_by: 'Sistema WMS'
+      created_by: 'Sistema WMS',
+      has_picking_requests: finalHasPickingReq,
+      picking_requests_json: finalPickingReqJson,
+      picking_requests_confirmed: finalPickingReqConfirmed,
+      picking_requests_operator: finalPickingReqOp,
+      picking_requests_confirmed_at: finalPickingReqAt
     });
   }
 

@@ -236,26 +236,80 @@ async function sendSingleOrderToPicker(order) {
   const cleanDid = String(order.raw_lightdata_data?.did || order.raw_lightdata_data?.id || order.tracking_number || '').trim();
   const searchNumbers = [orderNumber, '#' + orderNumber.replace(/^#/, ''), orderNumber.replace(/^#/, '')];
 
+  // Consultar si la orden tiene solicitudes especiales de picking en WMS
+  let pickingReq = null;
+  try {
+    const { data: prData } = await supabase
+      .from('order_picking_requests')
+      .select('*')
+      .or(`order_id.eq.${order.id},external_order_number.eq.${orderNumber}`)
+      .maybeSingle();
+    if (prData && Array.isArray(prData.items) && prData.items.length > 0) {
+      pickingReq = prData;
+    }
+  } catch (prErr) {
+    console.warn(`Error consultando order_picking_requests para ${orderNumber}:`, prErr.message);
+  }
+
+  const hasPickingReq = Boolean(pickingReq && Array.isArray(pickingReq.items) && pickingReq.items.length > 0);
+  const pickingReqJson = hasPickingReq ? pickingReq.items : [];
+  const pickingReqConfirmed = Boolean(hasPickingReq && (pickingReq.status === 'completada' || pickingReq.items.every(i => i.checked || i.discarded)));
+  const pickingReqOperator = pickingReq ? pickingReq.completed_by_operator : null;
+  const pickingReqConfirmedAt = pickingReq ? pickingReq.completed_at : null;
+
+  let pickingTag = '';
+  if (hasPickingReq) {
+    const allChecked = pickingReq.items.every(i => i.checked);
+    const allResolved = pickingReq.items.every(i => i.checked || i.discarded);
+    const discardedCount = pickingReq.items.filter(i => i.discarded).length;
+    if (allChecked) {
+      pickingTag = '✅ [SOLICITUD PICKING: COMPLETADA]';
+    } else if (allResolved) {
+      pickingTag = `⚠️ [SOLICITUD PICKING: REVISADA (${discardedCount} descartadas)]`;
+    } else {
+      const pendingItems = pickingReq.items.filter(i => !i.checked && !i.discarded).map(i => i.text);
+      if (pendingItems.length > 0) {
+        pickingTag = `🚨 [SOLICITUD PICKING: ${pendingItems.join('; ')}]`;
+      }
+    }
+  }
+
   // Si ya existe en active_orders, actualizar el tracking y operador directamente para no perder datos ni duplicar
   const { data: existingActive } = await pickerSupabase
     .from('active_orders')
-    .select('id, tracking')
+    .select('id, tracking, observation, sheet_status')
     .in('order_number', searchNumbers);
 
   if (existingActive && existingActive.length > 0) {
+    const updPayload = {
+      tracking: cleanDid,
+      operator: 'ALPHA',
+      sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)'
+    };
+    if (hasPickingReq) {
+      updPayload.has_picking_requests = true;
+      updPayload.picking_requests_json = pickingReqJson;
+      updPayload.picking_requests_confirmed = pickingReqConfirmed;
+      updPayload.picking_requests_operator = pickingReqOperator;
+      updPayload.picking_requests_confirmed_at = pickingReqConfirmedAt;
+
+      let currentObs = (existingActive[0].observation || '').trim();
+      currentObs = currentObs.replace(/(🚨|✅|⚠️)?\s*\[SOLICITUD PICKING:[^\]]*\]\s*(\|)?\s*/gi, '').trim();
+      updPayload.observation = (currentObs ? `${pickingTag} | ${currentObs}` : pickingTag).slice(0, 1000);
+      if (!pickingReqConfirmed && existingActive[0].sheet_status === 'EN PREPARACIÓN') {
+        updPayload.sheet_status = 'Pendiente (Obs)';
+      }
+    }
+
     const { error: updErr } = await pickerSupabase
       .from('active_orders')
-      .update({
-        tracking: cleanDid,
-        operator: 'ALPHA',
-        sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)'
-      })
+      .update(updPayload)
       .in('order_number', searchNumbers);
 
     if (updErr) {
       console.warn(`⚠️ Error actualizando tracking en active_orders para ${orderNumber}:`, updErr.message);
     } else {
-      console.log(`✅ Tracking actualizado exitosamente en Picker active_orders para ${orderNumber}: ${cleanDid}`);
+      console.log(`✅ Tracking y Solicitudes actualizados exitosamente en Picker active_orders para ${orderNumber}: ${cleanDid}`);
     }
     return;
   }
@@ -288,6 +342,11 @@ async function sendSingleOrderToPicker(order) {
       cuelloVal = tmp;
     }
 
+    let finalObs = (order.observation || prod.description || '').trim();
+    if (pickingTag) {
+      finalObs = finalObs ? `${pickingTag} | ${finalObs}` : pickingTag;
+    }
+
     payloads.push({
       sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
       order_number: orderNumber,
@@ -305,8 +364,8 @@ async function sendSingleOrderToPicker(order) {
       tracking: (order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? (String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber) : cleanDid,
       operator: 'ALPHA',
       totu: totu,
-      sheet_status: 'EN PREPARACIÓN',
-      observation: order.observation || prod.description || '',
+      sheet_status: (hasPickingReq && !pickingReqConfirmed) ? 'Pendiente (Obs)' : 'EN PREPARACIÓN',
+      observation: finalObs.slice(0, 1000),
       contact_data_q: order.customer_email || '',
       contact_data_r: order.customer_phone || '',
       contact_data_s: order.shipping_address || '',
@@ -315,7 +374,12 @@ async function sendSingleOrderToPicker(order) {
       extra_col_v: prod.image_url || '',
       comercio: order.comercio || 'MAGIC MAKEUP',
       created_by: 'Sistema WMS',
-      picking_match_strict: commerceStrict || prod.picking_match_strict || false
+      picking_match_strict: commerceStrict || prod.picking_match_strict || false,
+      has_picking_requests: hasPickingReq,
+      picking_requests_json: pickingReqJson,
+      picking_requests_confirmed: pickingReqConfirmed,
+      picking_requests_operator: pickingReqOperator,
+      picking_requests_confirmed_at: pickingReqConfirmedAt
     });
   }
 

@@ -837,7 +837,7 @@ async function syncMerchantOrders(integration) {
       const cleanMeliId = groupId.replace(/\D/g, "");
       const { data: existingOrders } = await supabase
         .from('orders')
-        .select('id, status, estado_wms, comercio, external_order_number, tracking_number, raw_meli_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, created_at, sucursal_pickeo')
+        .select('id, status, estado_wms, stock_descontado, comercio, external_order_number, tracking_number, raw_meli_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, created_at, sucursal_pickeo')
         .in('comercio', holdingComercios)
         .eq('external_platform', 'MercadoLibre')
         .ilike('external_order_number', `%${cleanMeliId}`);
@@ -931,7 +931,8 @@ async function syncMerchantOrders(integration) {
           }
 
           const terminalStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
-          if (!terminalStatuses.includes(existingOrder.status) || (existingOrder.status === 'despachado' && targetStatus === 'entregado')) {
+          const wmsAlreadyTerminal = ['despachado', 'cancelado', 'archivado', 'entregado', 'retirado'].includes((existingOrder.estado_wms || '').toLowerCase()) || existingOrder.stock_descontado === true;
+          if (!wmsAlreadyTerminal && (!terminalStatuses.includes(existingOrder.status) || (existingOrder.status === 'despachado' && targetStatus === 'entregado'))) {
             // SÓLO actualizar estado WMS si en MercadoLibre figura como despachado o entregado
             // NO sobreescribir el avance operacional del WMS (En procesamiento, En preparación, Pickeado)
             if (targetStatus === 'despachado') {

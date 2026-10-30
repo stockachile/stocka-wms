@@ -2069,15 +2069,24 @@ window.syncPickingRequestToPicker = async function(orderId, request) {
     if (!ordNum) return;
 
     const cleanNum = ordNum.replace(/^#/, '');
-    const searchKeys = [ordNum, '#' + cleanNum, cleanNum];
+    const searchKeysSet = new Set([
+      ordNum,
+      '#' + cleanNum,
+      cleanNum,
+      ordNum.toUpperCase(),
+      cleanNum.toUpperCase(),
+      '#' + cleanNum.toUpperCase()
+    ]);
+    const searchKeys = Array.from(searchKeysSet);
 
     // Consultar active_orders
     const { data: activeRows, error: actErr } = await pClient
       .from('active_orders')
-      .select('id, order_number, observation')
+      .select('id, order_number, observation, sheet_status')
       .in('order_number', searchKeys);
 
     if (actErr || !activeRows || activeRows.length === 0) {
+      console.log(`ℹ️ [PICKER SYNC] Pedido ${ordNum} aún no está activo en active_orders. Se propagará automáticamente al generarse su etiqueta o en el próximo ciclo de sincronización.`);
       return;
     }
 
@@ -2117,6 +2126,12 @@ window.syncPickingRequestToPicker = async function(orderId, request) {
         picking_requests_json: hasReq ? request.items : null,
         picking_requests_confirmed: allResolved
       };
+
+      if (hasReq && !allResolved && (row.sheet_status === 'EN PREPARACIÓN' || !row.sheet_status)) {
+        updatePayload.sheet_status = 'Pendiente (Obs)';
+      } else if (allResolved && row.sheet_status === 'Pendiente (Obs)') {
+        updatePayload.sheet_status = 'EN PREPARACIÓN';
+      }
 
       await pClient
         .from('active_orders')
