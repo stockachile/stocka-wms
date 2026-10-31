@@ -457,9 +457,11 @@ window.downloadOrderLabel = async function(orderId, orderNumber, btnEl) {
     }
 
     if (!base64) {
-      const isAlpha = data?.operador === 'ALPHA' || data?.courier === 'LIGHTDATA' || data?.courier === 'CARRIER EXTERNO';
-      const trkNum = String(data?.tracking_number || '').trim();
-      const alphaDid = data?.raw_lightdata_data?.did || data?.raw_lightdata_data?.id || (/^\d+$/.test(trkNum) && !trkNum.startsWith('460') ? trkNum : null);
+      const forcedInfo = window.getOrderForcedTrackingInfo ? window.getOrderForcedTrackingInfo(data) : null;
+      const isAlpha = data?.operador === 'ALPHA' || data?.courier === 'LIGHTDATA' || data?.courier === 'CARRIER EXTERNO' || data?.courier === 'ALPHA' || (forcedInfo?.active && ['ALPHA', 'LIGHTDATA', 'CARRIER EXTERNO'].includes(String(forcedInfo.courier || '').toUpperCase()));
+      const trkNum = String(forcedInfo?.active && forcedInfo.tracking_number ? forcedInfo.tracking_number : (data?.tracking_number || '')).trim();
+      const forcedDid = (/^\d+$/.test(trkNum) && !trkNum.startsWith('460')) ? trkNum : null;
+      const alphaDid = forcedDid || data?.raw_lightdata_data?.did || data?.raw_lightdata_data?.id;
       if (isAlpha && alphaDid) {
         try {
           const resp = await fetch("https://printserver.lightdata.app/print/etiqueta", {
@@ -715,6 +717,53 @@ window.isOrderStockCommittedEligible = function(order) {
   return false;
 };
 
+// Helper para detectar si un pedido de Logística Inversa es CAMBIO o DEVOLUCIÓN
+window.getOrderReverseLogisticsType = function(order) {
+  if (!order) return null;
+  if (order._wmsRlType !== undefined) return order._wmsRlType;
+
+  const rawType = String(order.raw_shopify_data?.rl_type || '').toUpperCase().trim();
+  if (rawType === 'CAMBIO') {
+    order._wmsRlType = 'CAMBIO';
+    return 'CAMBIO';
+  }
+  if (rawType.startsWith('DEVOLUC')) {
+    order._wmsRlType = 'DEVOLUCIÓN';
+    return 'DEVOLUCIÓN';
+  }
+
+  const isRlOrder =
+    order.raw_shopify_data?.is_reverse_logistics === true ||
+    order.origen === 'Logística Inversa' ||
+    order.external_platform === 'Logística Inversa' ||
+    String(order.categoria_entrega || '').toUpperCase().includes('INVERSA') ||
+    String(order.external_order_number || '').toUpperCase().startsWith('LI-');
+
+  if (!isRlOrder) {
+    order._wmsRlType = null;
+    return null;
+  }
+
+  const shipMethodUpper = String(order.shipping_method || '').toUpperCase();
+  const noteUpper = String(order.raw_shopify_data?.note || '').toUpperCase();
+
+  if (shipMethodUpper.includes('CAMBIO') || noteUpper.includes('INVERSA - CAMBIO')) {
+    order._wmsRlType = 'CAMBIO';
+    return 'CAMBIO';
+  }
+  if (
+    shipMethodUpper.includes('DEVOLUC') ||
+    noteUpper.includes('INVERSA - DEVOLUC') ||
+    order.raw_shopify_data?.no_stock_deduction === true
+  ) {
+    order._wmsRlType = 'DEVOLUCIÓN';
+    return 'DEVOLUCIÓN';
+  }
+
+  order._wmsRlType = null;
+  return null;
+};
+
 // Helper para badge amigable de categoría de entrega (Distribución, Retiro, Shop Point, Logística Inversa)
 window.getOrderCategoriaBadgeHtml = function(order) {
   if (!order) return '-';
@@ -723,7 +772,14 @@ window.getOrderCategoriaBadgeHtml = function(order) {
     return `<span style="background: rgba(109, 40, 217, 0.12); color: #6d28d9; border: 1px solid rgba(109, 40, 217, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-shopping-cart-2-line"></i> Shop Point (POS)</span>`;
   }
   if (cat === 'LOGÍSTICA INVERSA' || cat === 'LOGISTICA INVERSA') {
-    return `<span style="background: rgba(126, 34, 206, 0.12); color: #7e22ce; border: 1px solid rgba(126, 34, 206, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-arrow-left-right-line"></i> Logística Inversa</span>`;
+    const rlType = window.getOrderReverseLogisticsType ? window.getOrderReverseLogisticsType(order) : null;
+    let rlTypeBadge = '';
+    if (rlType === 'CAMBIO') {
+      rlTypeBadge = ` <span style="background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; padding: 0.12rem 0.4rem; border-radius: 4px; font-size: 0.72rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-refresh-line"></i> CAMBIO</span>`;
+    } else if (rlType === 'DEVOLUCIÓN') {
+      rlTypeBadge = ` <span style="background: #ffe4e6; color: #be123c; border: 1px solid #fda4af; padding: 0.12rem 0.4rem; border-radius: 4px; font-size: 0.72rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-arrow-go-back-line"></i> DEVOLUCIÓN</span>`;
+    }
+    return `<span style="display: inline-flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;"><span style="background: rgba(126, 34, 206, 0.12); color: #7e22ce; border: 1px solid rgba(126, 34, 206, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-arrow-left-right-line"></i> Logística Inversa</span>${rlTypeBadge}</span>`;
   }
   if (cat === 'RETIRO') {
     return `<span style="background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-store-2-line"></i> Retiro</span>`;
@@ -9447,6 +9503,41 @@ window.buildClientShipmentsIndex = function(shipments) {
   return index;
 };
 
+// Helper global para obtener el tracking forzado/fijado manualmente en un pedido
+window.getOrderForcedTrackingInfo = window.getOrderForcedTrackingInfo || function(order) {
+  if (!order) return null;
+  const rawSources = [
+    order.raw_shopify_data,
+    order.raw_woocommerce_data,
+    order.raw_falabella_data,
+    order.raw_paris_data,
+    order.raw_ripley_data,
+    order.raw_jumpseller_data,
+    order.raw_tiendanube_data,
+    order.raw_meli_data,
+    order.raw_walmart_data
+  ];
+  for (const src of rawSources) {
+    if (src && typeof src === 'object' && !Array.isArray(src) && src.wms_forced_tracking && src.wms_forced_tracking.active) {
+      const ft = src.wms_forced_tracking;
+      const trk = String(ft.tracking_number || '').trim();
+      if (trk) {
+        return {
+          active: true,
+          tracking_number: trk,
+          courier: ft.courier ? String(ft.courier).trim() : (order.courier ? String(order.courier).trim() : null),
+          tracking_url: ft.tracking_url ? String(ft.tracking_url).trim() : (order.tracking_url ? String(order.tracking_url).trim() : null),
+          source_table: ft.source_table || null,
+          status: ft.status || null,
+          global_status: ft.global_status || null,
+          updated_at: ft.updated_at || null
+        };
+      }
+    }
+  }
+  return null;
+};
+
 // Helper de alto rendimiento para obtener el estado del courier/despacho (con caché y mapa O(1))
 window.getClientOrderShipmentGlobalStatus = function(order) {
   if (!order) return null;
@@ -9463,6 +9554,7 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
   const rawShopify = order.raw_shopify_data;
   const isReturned = (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at)) && 
                      ['Despachado', 'Pickeado', 'entregado', 'retirado'].includes(order.estado_wms);
+  const forcedInfo = window.getOrderForcedTrackingInfo ? window.getOrderForcedTrackingInfo(order) : null;
 
   const index = window._clientShipmentsIndex || window.buildClientShipmentsIndex(shipments);
 
@@ -9482,6 +9574,9 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
     if (isValidRef(alpha)) lookupKeys.add(alpha);
   };
 
+  if (forcedInfo?.tracking_number) {
+    addOrderKey(forcedInfo.tracking_number);
+  }
   addOrderKey(order.id);
   addOrderKey(order.external_order_number);
   addOrderKey(order.tracking_number);
@@ -9507,8 +9602,10 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
 
   const orderCommerce = (order.comercio || '').trim().toUpperCase();
   const ldDid = String(order.raw_lightdata_data?.did || order.raw_lightdata_data?.id || '').trim();
+  const forcedTrk = forcedInfo?.tracking_number ? String(forcedInfo.tracking_number).trim() : '';
 
   let orderShipments = candidateShipments.filter(s => {
+    if (forcedTrk && (String(s.tracking || '').trim() === forcedTrk || String(s.source_id || '').trim() === forcedTrk || s.id === 'lightdata_envios:' + forcedTrk)) return true;
     let shipCommerce = (s.empresa_comercio_proveedor || '').trim().toUpperCase();
     if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
     if (isValidRef(s.tracking) && isValidRef(order.tracking_number) && s.tracking === order.tracking_number) return true;
@@ -9746,15 +9843,22 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
     }];
   }
 
-  if (orderShipments.length === 0) {
-    const res = isReturned ? { shipment: null, globStatus: 'DEVOLUCIÓN', isReturned: true, orderShipments: [] } : null;
-    order._clientShipmentStatus = res;
-    order._clientShipmentVersion = window._clientShipmentsVersion;
-    return res;
-  }
-
   if (orderShipments.length > 1) {
     orderShipments.sort((a, b) => {
+      if (forcedInfo?.active && forcedInfo.tracking_number) {
+        const fTrack = String(forcedInfo.tracking_number).trim().toUpperCase();
+        const matchesForced = (s) => {
+          const t1 = String(s.tracking || '').trim().toUpperCase();
+          const t2 = String(s.source_id || '').trim().toUpperCase();
+          const t3 = String(s.raw_data?.uuid || '').trim().toUpperCase();
+          return t1 === fTrack || t2 === fTrack || t3 === fTrack;
+        };
+        const aF = matchesForced(a);
+        const bF = matchesForced(b);
+        if (aF && !bF) return -1;
+        if (!aF && bF) return 1;
+      }
+
       const getMovedScore = (s) => {
         let gStatus = s.global_status;
         let statusText = s.status || '';
@@ -9762,14 +9866,15 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
           if (s.raw_data && s.raw_data[23]) statusText = s.raw_data[23];
           else if (order.raw_lightdata_data?.raw_data && order.raw_lightdata_data.raw_data[23]) statusText = order.raw_lightdata_data.raw_data[23];
         }
-        if (s.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
+        const rawStatus = statusText.toLowerCase().trim();
+        const isCancelledOrDead = rawStatus === 'cancelado' || rawStatus.includes('cancelad') || rawStatus.includes('eliminad') || rawStatus.includes('anula') || rawStatus.includes('rechazado por courier');
+        if (isCancelledOrDead) return 0;
+
+        if (s.source_table === 'optiroute_orders' && (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled')) {
           gStatus = 'SIN MOVIMIENTO';
         }
-        const rawStatus = statusText.toLowerCase().trim();
         if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
           gStatus = 'DEVOLUCIÓN';
-        } else if (rawStatus.includes('rechazado por courier')) {
-          gStatus = 'SIN MOVIMIENTO';
         } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid')) {
           gStatus = 'ALERTA';
         } else if (!gStatus || gStatus === 'SIN MOVIMIENTO' || gStatus === 'DESPACHADO') {
@@ -9778,7 +9883,7 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
               gStatus = 'ENTREGADO';
             } else if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
               gStatus = 'EN TRÁNSITO';
-            } else if (rawStatus === 'cancelado' || rawStatus === 'no entregado' || rawStatus.includes('no entregad')) {
+            } else if (rawStatus === 'no entregado' || rawStatus.includes('no entregad')) {
               gStatus = 'ALERTA';
             } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
               gStatus = 'SIN MOVIMIENTO';
@@ -9788,7 +9893,7 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
               gStatus = 'ENTREGADO';
             } else if (rawStatus.includes('transit') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('pickup') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro')) {
               gStatus = 'EN TRÁNSITO';
-            } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid') || rawStatus.includes('retenid')) {
+            } else if (rawStatus.includes('fail') || rawStatus.includes('fallid') || rawStatus.includes('retenid')) {
               gStatus = 'ALERTA';
             } else if (rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
               gStatus = 'SIN MOVIMIENTO';
@@ -9798,7 +9903,7 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
               gStatus = 'ENTREGADO';
             } else if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('disponible para retiro')) {
               gStatus = 'EN TRÁNSITO';
-            } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro') || rawStatus.includes('retenid')) {
+            } else if (rawStatus.includes('excepcion') || rawStatus.includes('fail') || rawStatus.includes('siniestro') || rawStatus.includes('retenid')) {
               gStatus = 'ALERTA';
             } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
               gStatus = 'SIN MOVIMIENTO';
@@ -9810,21 +9915,17 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
               gStatus = 'SIN MOVIMIENTO';
             } else if (rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
               gStatus = 'EN TRÁNSITO';
-            } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
-              gStatus = 'ALERTA';
             }
           } else if (s.source_table === 'enviame_shipments') {
             if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
               gStatus = 'DEVOLUCIÓN';
-            } else if (rawStatus.includes('rechazado por courier')) {
-              gStatus = 'SIN MOVIMIENTO';
             } else if (rawStatus.includes('entregad') || rawStatus.includes('delivered')) {
               gStatus = 'ENTREGADO';
-            } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || (rawStatus.includes('rechazad') && !rawStatus.includes('rechazado por courier'))) {
+            } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || (rawStatus.includes('rechazad') && !rawStatus.includes('rechazado por courier'))) {
               gStatus = 'ALERTA';
             } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
               gStatus = 'EN TRÁNSITO';
-            } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad') || rawStatus.includes('rechazado por courier')) {
+            } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres')) {
               gStatus = 'SIN MOVIMIENTO';
             }
           }
@@ -9832,7 +9933,7 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
         if (gStatus === 'DESPACHADO') {
           gStatus = (rawStatus.includes('entregad') || rawStatus.includes('delivered')) ? 'ENTREGADO' : 'EN TRÁNSITO';
         }
-        return (gStatus === 'ENTREGADO' ? 3 : (gStatus === 'EN TRÁNSITO' || gStatus === 'ALERTA' || gStatus === 'DEVOLUCIÓN') ? 2 : 1);
+        return (gStatus === 'ENTREGADO' ? 4 : (gStatus === 'EN TRÁNSITO' ? 3 : (gStatus === 'ALERTA' || gStatus === 'DEVOLUCIÓN') ? 2 : 1));
       };
 
       const scoreA = getMovedScore(a);
@@ -9846,8 +9947,8 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
       };
       const orderTrack = (order.tracking_number || '').trim().toUpperCase();
       const hasValidOrderTrack = isValidTrack(orderTrack);
-      const trackA = (a.tracking || (a.source_table === 'optiroute_orders' ? a.raw_data?.uuid : '') || '').trim().toUpperCase();
-      const trackB = (b.tracking || (b.source_table === 'optiroute_orders' ? b.raw_data?.uuid : '') || '').trim().toUpperCase();
+      const trackA = (a.tracking || a.source_id || (a.source_table === 'optiroute_orders' ? a.raw_data?.uuid : '') || '').trim().toUpperCase();
+      const trackB = (b.tracking || b.source_id || (b.source_table === 'optiroute_orders' ? b.raw_data?.uuid : '') || '').trim().toUpperCase();
       const matchA = hasValidOrderTrack && trackA === orderTrack;
       const matchB = hasValidOrderTrack && trackB === orderTrack;
       if (matchA && !matchB) return -1;
@@ -9857,6 +9958,44 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
       const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
       return timeB - timeA;
     });
+  }
+
+  // Si existe un tracking forzado y el primer envío no coincide, inyectarlo como primario
+  if (forcedInfo?.active && forcedInfo.tracking_number) {
+    const fTrackUp = String(forcedInfo.tracking_number).trim().toUpperCase();
+    const topMatch = orderShipments.length > 0 && (
+      String(orderShipments[0].tracking || '').trim().toUpperCase() === fTrackUp ||
+      String(orderShipments[0].source_id || '').trim().toUpperCase() === fTrackUp
+    );
+    if (!topMatch) {
+      const fCourier = forcedInfo.courier || order.courier || 'ALPHA';
+      const isAlphaForced = fCourier.toUpperCase() === 'ALPHA' || fCourier.toUpperCase().includes('LIGHTDATA') || forcedInfo.source_table === 'lightdata_envios';
+      const defaultForcedUrl = forcedInfo.tracking_url || order.tracking_url || (isAlphaForced ? `https://alphagroup.lightdata.com.ar/tracking.php?token=${forcedInfo.tracking_number}d54df4s8a88` : null);
+      orderShipments.unshift({
+        id: `forced:${forcedInfo.tracking_number}`,
+        source_table: forcedInfo.source_table || (isAlphaForced ? 'lightdata_envios' : 'manual_forced'),
+        source_id: String(forcedInfo.tracking_number),
+        tracking: String(forcedInfo.tracking_number),
+        tracking_url: defaultForcedUrl,
+        courier: fCourier,
+        status: forcedInfo.status || (order.estado_wms === 'Despachado' ? 'En tránsito' : 'En preparación'),
+        global_status: forcedInfo.global_status || (order.estado_wms === 'Despachado' ? 'EN TRÁNSITO' : 'SIN MOVIMIENTO'),
+        is_forced: true,
+        created_at: forcedInfo.updated_at || order.created_at,
+        updated_at: forcedInfo.updated_at || order.created_at
+      });
+    } else {
+      orderShipments[0].is_forced = true;
+      if (forcedInfo.courier) orderShipments[0].courier = forcedInfo.courier;
+      if (forcedInfo.tracking_url) orderShipments[0].tracking_url = forcedInfo.tracking_url;
+    }
+  }
+
+  if (orderShipments.length === 0) {
+    const res = isReturned ? { shipment: null, globStatus: 'DEVOLUCIÓN', isReturned: true, orderShipments: [] } : null;
+    order._clientShipmentStatus = res;
+    order._clientShipmentVersion = window._clientShipmentsVersion;
+    return res;
   }
 
   const shipment = orderShipments[0];
@@ -10126,6 +10265,9 @@ window.getClientOrderTags = function(order) {
     tags.add('SHOP POINT (POS)');
   } else if (catDelivery === 'LOGÍSTICA INVERSA' || catDelivery === 'LOGISTICA INVERSA') {
     tags.add('LOGÍSTICA INVERSA');
+    const rlType = window.getOrderReverseLogisticsType ? window.getOrderReverseLogisticsType(order) : null;
+    if (rlType === 'CAMBIO') tags.add('LI: CAMBIO');
+    else if (rlType === 'DEVOLUCIÓN') tags.add('LI: DEVOLUCIÓN');
   } else if (catDelivery === 'RETIRO') {
     tags.add('RETIRO');
   } else {
@@ -10229,11 +10371,6 @@ window.getClientOrderTags = function(order) {
     tags.add('CANCELADO');
   }
 
-  // 11. Etiqueta Generada (Nunca en pedidos RETIRO)
-  if ((order.label_url || order.tracking_number || order.label_base64) && catDelivery !== 'RETIRO') {
-    tags.add('Etiqueta');
-  }
-
   // 12. Tags de Plataforma (Shopify / tags personalizadas)
   if (rawShopify?.tags) {
     String(rawShopify.tags).split(',').map(t => t.trim()).filter(Boolean).forEach(t => tags.add(t));
@@ -10286,7 +10423,6 @@ window.updateClientOrderTagFilterOptions = function(arg1, arg2, arg3) {
   // 1. Etiquetas del Pedido (atributos del pedido, sin duplicar categorías de entrega)
   const orderPillTags = [
     { key: 'Con Packs', label: 'Con Packs' },
-    { key: 'Etiqueta', label: 'Etiqueta Generada' },
     { key: 'Exportado', label: 'Exportado' },
     { key: 'CON NOTA', label: 'Con Nota' },
     { key: 'SOBREDEMANDA STOCK', label: 'Sobredemanda Stock (Físico < Comp.+Mesa)' },
@@ -10304,7 +10440,9 @@ window.updateClientOrderTagFilterOptions = function(arg1, arg2, arg3) {
     { key: 'DISTRIBUCIÓN', label: 'Distribución' },
     { key: 'RETIRO', label: 'Retiro en Tienda' },
     { key: 'SHOP POINT (POS)', label: 'Shop Point (POS)' },
-    { key: 'LOGÍSTICA INVERSA', label: 'Logística Inversa' }
+    { key: 'LOGÍSTICA INVERSA', label: 'Logística Inversa' },
+    { key: 'LI: CAMBIO', label: 'Logística Inversa: Cambio' },
+    { key: 'LI: DEVOLUCIÓN', label: 'Logística Inversa: Devolución' }
   ];
 
   // 3. Despacho Courier
@@ -11571,10 +11709,16 @@ window.applyClientWmsFiltersAndRender = function() {
 
     if (orderShipments.length > 0) {
       const shipment = orderShipments[0];
-      const effTrack = shipment.tracking || (shipment.source_table === 'optiroute_orders' ? shipment.raw_data?.uuid : null);
+      const forcedClientInfo = window.getOrderForcedTrackingInfo ? window.getOrderForcedTrackingInfo(order) : null;
+      const ldSourceId = (shipment.source_table === 'lightdata_envios' && shipment.source_id && /^\d+$/.test(String(shipment.source_id).trim())) ? String(shipment.source_id).trim() : null;
+      const effTrack = (forcedClientInfo?.active && forcedClientInfo.tracking_number)
+        ? forcedClientInfo.tracking_number
+        : (ldSourceId || shipment.tracking || (shipment.source_table === 'optiroute_orders' ? shipment.raw_data?.uuid : null));
       if (effTrack) {
-        const courierName = shipment.courier || (shipment.source_table === 'optiroute_orders' ? 'STOCKA X' : 'Seguimiento');
-        let trackingUrl = shipment.tracking_url;
+        const courierName = (forcedClientInfo?.active && forcedClientInfo.courier)
+          ? forcedClientInfo.courier
+          : (shipment.source_table === 'lightdata_envios' ? 'ALPHA' : (shipment.courier || (shipment.source_table === 'optiroute_orders' ? 'STOCKA X' : 'Seguimiento')));
+        let trackingUrl = (forcedClientInfo?.active && forcedClientInfo.tracking_url) ? forcedClientInfo.tracking_url : shipment.tracking_url;
         if (shipment.source_table === 'optiroute_orders' && !trackingUrl && effTrack) {
           trackingUrl = `https://app.optiroute.cl/service_requets/tracking/${encodeURIComponent(effTrack)}/`;
         }
@@ -11906,7 +12050,16 @@ window.applyClientWmsFiltersAndRender = function() {
     if (catDelivery === 'SHOP POINT (POS)' || catDelivery === 'SHOP POINT' || catDelivery === 'POS') {
       categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${catFilterTag}', event)" style="background-color: rgba(109, 40, 217, 0.12); color: #6d28d9; border: 1px solid rgba(109, 40, 217, 0.25); font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #6d28d9; box-shadow: 0 0 6px rgba(109,40,217,0.4);' : ''}" title="Categoría de Entrega: Shop Point (POS) (Clic para filtrar)"><i class="ri-shopping-cart-2-line" style="color: #6d28d9;"></i> SHOP POINT (POS)</span>`;
     } else if (catDelivery === 'LOGÍSTICA INVERSA' || catDelivery === 'LOGISTICA INVERSA') {
-      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${catFilterTag}', event)" style="background-color: rgba(126, 34, 206, 0.12); color: #7e22ce; border: 1px solid rgba(126, 34, 206, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #7e22ce; box-shadow: 0 0 6px rgba(126,34,206,0.4);' : ''}" title="Categoría de Entrega: Logística Inversa (Clic para filtrar)"><i class="ri-arrow-left-right-line" style="color: #7e22ce;"></i> LOGÍSTICA INVERSA</span>`;
+      const rlType = window.getOrderReverseLogisticsType ? window.getOrderReverseLogisticsType(order) : null;
+      let rlSubBadgeHtml = '';
+      if (rlType === 'CAMBIO') {
+        const isRlActive = selectedTag === 'LI: CAMBIO';
+        rlSubBadgeHtml = `<span class="badge wms-order-tag-badge ${isRlActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('LI: CAMBIO', event)" style="background-color: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isRlActive ? 'outline: 2px solid #1e40af; box-shadow: 0 0 6px rgba(30,64,175,0.4);' : ''}" title="Logística Inversa: Cambio de producto (Clic para filtrar)"><i class="ri-refresh-line" style="color: #1e40af;"></i> CAMBIO</span>`;
+      } else if (rlType === 'DEVOLUCIÓN') {
+        const isRlActive = selectedTag === 'LI: DEVOLUCIÓN';
+        rlSubBadgeHtml = `<span class="badge wms-order-tag-badge ${isRlActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('LI: DEVOLUCIÓN', event)" style="background-color: #ffe4e6; color: #be123c; border: 1px solid #fda4af; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isRlActive ? 'outline: 2px solid #be123c; box-shadow: 0 0 6px rgba(190,18,60,0.4);' : ''}" title="Logística Inversa: Devolución a bodega (Clic para filtrar)"><i class="ri-arrow-go-back-line" style="color: #be123c;"></i> DEVOLUCIÓN</span>`;
+      }
+      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${catFilterTag}', event)" style="background-color: rgba(126, 34, 206, 0.12); color: #7e22ce; border: 1px solid rgba(126, 34, 206, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #7e22ce; box-shadow: 0 0 6px rgba(126,34,206,0.4);' : ''}" title="Categoría de Entrega: Logística Inversa (Clic para filtrar)"><i class="ri-arrow-left-right-line" style="color: #7e22ce;"></i> LOGÍSTICA INVERSA</span>${rlSubBadgeHtml}`;
     } else if (catDelivery === 'RETIRO') {
       categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${catFilterTag}', event)" style="background-color: #ffd600; color: #000000; border: 1px solid #eab308; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #000; box-shadow: 0 0 6px rgba(0,0,0,0.4);' : ''}" title="Categoría de Entrega: Retiro (Clic para filtrar)"><i class="ri-store-2-line" style="color: #000000;"></i> RETIRO</span>`;
     } else if (catDelivery === 'DISTRIBUCIÓN' || catDelivery === 'DISTRIBUCION') {
@@ -12131,13 +12284,6 @@ window.applyClientWmsFiltersAndRender = function() {
     } else if (isCancelled) {
       const isCancActive = selectedTag === 'CANCELADO';
       cancelBadgeHtml = `<span class="badge wms-order-tag-badge ${isCancActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('CANCELADO', event)" style="background-color: #fee2e2; color: #991b1b; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCancActive ? 'outline: 2px solid #991b1b; box-shadow: 0 0 6px rgba(153,27,27,0.4);' : ''}" title="Cancelado (Clic para filtrar)"><i class="ri-close-circle-line" style="color: #991b1b;"></i> CANCELADO</span>`;
-    }
-
-    // 10. Tag de Etiqueta Generada (Nunca en pedidos RETIRO)
-    let labelBadgeHtml = '';
-    if (!isClientRetiroOrder && (order.label_url || order.tracking_number || order.label_base64)) {
-      const isLabelActive = selectedTag === 'Etiqueta';
-      labelBadgeHtml = `<span class="badge wms-order-tag-badge ${isLabelActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('Etiqueta', event)" style="background-color: rgba(113, 23, 235, 0.12); color: #7117eb; border: 1px solid rgba(113, 23, 235, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isLabelActive ? 'outline: 2px solid #7117eb; box-shadow: 0 0 6px rgba(113,23,235,0.5);' : ''}" title="Etiqueta Generada (Clic para filtrar)"><i class="ri-qr-code-line" style="color: #7117eb;"></i> Etiqueta</span>`;
     }
 
     // Obtener estado original de la plataforma
@@ -12390,7 +12536,7 @@ window.applyClientWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.15s;">
         <td colspan="11" style="padding: 0rem 0.75rem 0.5rem 5.6rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${customPlatformTagsHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
+            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${noteBadgeHtml}${customPlatformTagsHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>

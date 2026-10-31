@@ -414,6 +414,9 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
 
         orderDataToUpdate.raw_woocommerce_data = {
           ...order,
+          ...(existingRaw.admin_notes ? { admin_notes: existingRaw.admin_notes } : {}),
+          ...(existingRaw.wms_admin_notes ? { wms_admin_notes: existingRaw.wms_admin_notes } : {}),
+          ...(existingRaw.internal_notes ? { internal_notes: existingRaw.internal_notes } : {}),
           ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
           ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
           ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})

@@ -481,6 +481,9 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     shipping_method: order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : null,
     raw_shopify_data: {
       ...order,
+      ...(existingRaw.admin_notes ? { admin_notes: existingRaw.admin_notes } : {}),
+      ...(existingRaw.wms_admin_notes ? { wms_admin_notes: existingRaw.wms_admin_notes } : {}),
+      ...(existingRaw.internal_notes ? { internal_notes: existingRaw.internal_notes } : {}),
       ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
       ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
       ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {}),

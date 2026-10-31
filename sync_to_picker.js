@@ -223,7 +223,11 @@ function resolvePickerSku(prod, order, commerceStrict) {
 // Helper para resolver el código de seguimiento/etiqueta que se envía al Picker en active_orders
 function resolveOrderTracking(order) {
   if (!order) return '';
-  const isAlpha = order.operador === 'ALPHA' || order.courier === 'LIGHTDATA' || order.courier === 'CARRIER EXTERNO';
+  const ft = order.raw_shopify_data?.wms_forced_tracking;
+  if (ft && ft.active && ft.tracking_number && String(ft.tracking_number).trim()) {
+    return String(ft.tracking_number).trim();
+  }
+  const isAlpha = order.operador === 'ALPHA' || order.courier === 'LIGHTDATA' || order.courier === 'CARRIER EXTERNO' || order.courier === 'ALPHA';
   const alphaDid = order.raw_lightdata_data?.did || order.raw_lightdata_data?.id;
   if (isAlpha && alphaDid) {
     return String(alphaDid).trim();

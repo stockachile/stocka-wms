@@ -1121,7 +1121,7 @@
 
   function getEligibleAgendasOrders() {
     const allOrders = window.loadedOrders || [];
-    return allOrders.filter(window.isOrderInAgendasAllowedState);
+    return allOrders.filter(o => o && !o._isOverdueBacklog && window.isOrderInAgendasAllowedState(o));
   }
 
   window.getEligibleAgendasCount = function() {

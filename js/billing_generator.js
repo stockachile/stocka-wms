@@ -130,10 +130,10 @@ export function injectBillingGeneratorStyles() {
     .bg-card-container {
       background: var(--color-surface);
       border: 1px solid var(--color-border);
-      border-radius: 12px;
-      padding: 1.25rem 1.5rem;
-      margin-bottom: 1.5rem;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+      border-radius: 10px;
+      padding: 0.65rem 1rem;
+      margin-bottom: 0.65rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.03);
     }
 
     [data-theme="dark"] .bg-card-container {
@@ -143,16 +143,16 @@ export function injectBillingGeneratorStyles() {
 
     .bg-kpi-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 1rem;
-      margin-bottom: 1.5rem;
+      grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+      gap: 0.55rem;
+      margin-bottom: 0.6rem;
     }
 
     .bg-kpi-card {
       background: var(--color-surface, #ffffff);
       border: 1px solid var(--color-border, #e2e8f0);
-      border-radius: 12px;
-      padding: 1.1rem 1.25rem;
+      border-radius: 9px;
+      padding: 0.5rem 0.8rem;
       position: relative;
       overflow: hidden;
       display: flex;
@@ -168,7 +168,7 @@ export function injectBillingGeneratorStyles() {
     }
 
     .bg-kpi-card:hover {
-      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+      box-shadow: 0 3px 8px rgba(0,0,0,0.05);
       transform: translateY(-1px);
     }
 
@@ -177,7 +177,7 @@ export function injectBillingGeneratorStyles() {
       position: absolute;
       top: 0;
       left: 0;
-      width: 4px;
+      width: 3.5px;
       height: 100%;
       background: #5f06fa;
     }
@@ -187,15 +187,15 @@ export function injectBillingGeneratorStyles() {
     }
 
     .bg-kpi-title {
-      font-size: 0.725rem;
+      font-size: 0.65rem;
       font-weight: 700;
       color: var(--color-text-muted, #64748b);
       text-transform: uppercase;
-      letter-spacing: 0.6px;
-      margin-bottom: 0.35rem;
+      letter-spacing: 0.4px;
+      margin-bottom: 0.15rem;
       display: flex;
       align-items: center;
-      gap: 0.35rem;
+      gap: 0.3rem;
     }
 
     [data-theme="dark"] .bg-kpi-title {
@@ -203,7 +203,8 @@ export function injectBillingGeneratorStyles() {
     }
 
     .bg-kpi-value {
-      font-size: 1.45rem;
+      font-size: 1.15rem;
+      line-height: 1.2;
       font-weight: 800;
       color: var(--color-text-main, #0f172a);
       font-family: 'Outfit', sans-serif;
@@ -214,9 +215,12 @@ export function injectBillingGeneratorStyles() {
     }
 
     .bg-kpi-subtitle {
-      font-size: 0.75rem;
+      font-size: 0.68rem;
       color: var(--color-text-muted, #64748b);
-      margin-top: 0.25rem;
+      margin-top: 0.12rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     [data-theme="dark"] .bg-kpi-subtitle {
@@ -298,10 +302,12 @@ export function injectBillingGeneratorStyles() {
     /* Sub-tabs del Gestor */
     .bg-subnav {
       display: flex;
-      gap: 0.5rem;
-      border-bottom: 2px solid var(--color-border);
-      margin-bottom: 1.5rem;
-      padding-bottom: 0.5rem;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.45rem;
+      border-bottom: 1.5px solid var(--color-border);
+      margin-bottom: 0.55rem;
+      padding-bottom: 0.35rem;
       flex-wrap: wrap;
     }
 
@@ -309,14 +315,14 @@ export function injectBillingGeneratorStyles() {
       background: transparent;
       border: 1px solid transparent;
       color: var(--color-text-muted);
-      padding: 0.6rem 1.25rem;
-      font-size: 0.85rem;
+      padding: 0.35rem 0.85rem;
+      font-size: 0.78rem;
       font-weight: 700;
-      border-radius: 8px;
+      border-radius: 7px;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.4rem;
       transition: all 0.2s;
     }
 
@@ -332,20 +338,34 @@ export function injectBillingGeneratorStyles() {
       box-shadow: 0 2px 6px rgba(95, 6, 250, 0.1);
     }
 
+    .bg-toolbar-btn {
+      height: 31px;
+      padding: 0 0.65rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      border-radius: 7px;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.32rem;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
     /* Conglomerados y Holdings */
     .bg-conglomerate-banner {
-      background: linear-gradient(135deg, rgba(95, 6, 250, 0.07) 0%, rgba(124, 58, 237, 0.03) 100%);
-      border: 1.5px solid rgba(95, 6, 250, 0.28);
-      border-radius: 12px;
-      padding: 0.85rem 1.25rem;
-      margin-top: 0.75rem;
-      margin-bottom: 0.25rem;
+      background: linear-gradient(135deg, rgba(95, 6, 250, 0.06) 0%, rgba(124, 58, 237, 0.03) 100%);
+      border: 1.5px solid rgba(95, 6, 250, 0.26);
+      border-radius: 9px;
+      padding: 0.42rem 0.85rem;
+      margin-top: 0;
+      margin-bottom: 0.55rem;
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-wrap: wrap;
-      gap: 0.75rem;
-      box-shadow: 0 2px 6px rgba(95, 6, 250, 0.05);
+      gap: 0.5rem;
+      box-shadow: 0 1px 4px rgba(95, 6, 250, 0.04);
     }
     [data-theme="dark"] .bg-conglomerate-banner {
       background: linear-gradient(135deg, rgba(95, 6, 250, 0.16) 0%, rgba(30, 27, 75, 0.45) 100%);
@@ -373,7 +393,8 @@ export function injectBillingGeneratorStyles() {
 
     /* Tabla editable tipo Excel */
     .bg-excel-table-container {
-      max-height: 560px;
+      max-height: calc(100vh - 230px);
+      min-height: 480px;
       overflow-y: auto;
       border: 1px solid var(--color-border);
       border-radius: 8px;
@@ -383,7 +404,7 @@ export function injectBillingGeneratorStyles() {
     .bg-excel-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       background: var(--color-surface);
     }
 
@@ -393,14 +414,14 @@ export function injectBillingGeneratorStyles() {
       background: #f1f5f9;
       color: #1e293b;
       font-weight: 700;
-      padding: 0.7rem 0.6rem;
+      padding: 0.45rem 0.5rem;
       border: 1px solid #cbd5e1;
       text-align: left;
       z-index: 5;
       white-space: nowrap;
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       text-transform: uppercase;
-      letter-spacing: 0.4px;
+      letter-spacing: 0.35px;
     }
 
     [data-theme="dark"] .bg-excel-table th {
@@ -410,7 +431,7 @@ export function injectBillingGeneratorStyles() {
     }
 
     .bg-excel-table td {
-      padding: 0.4rem 0.6rem;
+      padding: 0.32rem 0.5rem;
       border: 1px solid var(--color-border);
       vertical-align: middle;
       white-space: nowrap;
@@ -424,8 +445,8 @@ export function injectBillingGeneratorStyles() {
       background: transparent;
       border: 1px solid transparent;
       border-radius: 4px;
-      padding: 0.25rem 0.4rem;
-      font-size: 0.8rem;
+      padding: 0.2rem 0.35rem;
+      font-size: 0.78rem;
       color: var(--color-text-main);
       font-family: inherit;
       width: 100%;
@@ -463,8 +484,8 @@ export function injectBillingGeneratorStyles() {
       background: var(--color-surface);
       border: 1px solid var(--color-border);
       border-radius: 6px;
-      padding: 0.25rem 0.5rem;
-      font-size: 0.75rem;
+      padding: 0.2rem 0.45rem;
+      font-size: 0.73rem;
       font-weight: 700;
       color: var(--color-text-main);
       cursor: pointer;
@@ -475,17 +496,17 @@ export function injectBillingGeneratorStyles() {
       position: sticky;
       top: 0;
       z-index: 6;
-      height: 38px;
+      height: 34px;
       box-sizing: border-box;
     }
 
     .bg-excel-table thead tr.bg-table-filter-row th {
       position: sticky;
-      top: 38px;
+      top: 34px;
       z-index: 5;
       background: #f8fafc;
       border-bottom: 2px solid #cbd5e1;
-      padding: 4px 5px;
+      padding: 3px 4px;
       box-sizing: border-box;
       font-weight: 500;
     }
@@ -497,8 +518,8 @@ export function injectBillingGeneratorStyles() {
 
     .bg-col-filter-input {
       width: 100%;
-      padding: 3px 6px;
-      font-size: 0.72rem;
+      padding: 2px 5px;
+      font-size: 0.7rem;
       border: 1px solid var(--color-border);
       border-radius: 4px;
       background: var(--color-surface);
@@ -515,7 +536,7 @@ export function injectBillingGeneratorStyles() {
 
     .bg-col-filter-select {
       width: 100%;
-      padding: 3px 4px;
+      padding: 2px 4px;
       font-size: 0.7rem;
       border: 1px solid var(--color-border);
       border-radius: 4px;
@@ -532,10 +553,10 @@ export function injectBillingGeneratorStyles() {
     }
 
     .bg-quick-filter-btn {
-      padding: 3px 9px;
-      font-size: 0.72rem;
+      padding: 2px 8px;
+      font-size: 0.7rem;
       font-weight: 700;
-      border-radius: 6px;
+      border-radius: 5px;
       border: 1px solid var(--color-border);
       background: var(--color-surface);
       color: var(--color-text-muted);
@@ -543,7 +564,7 @@ export function injectBillingGeneratorStyles() {
       transition: all 0.15s;
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: 3px;
     }
 
     .bg-quick-filter-btn:hover {
@@ -2090,33 +2111,65 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   billingState.inboundDeclarations = processedInbounds;
 
   // 6. Consultar pedidos asignados al periodo en el Gestor de Pedidos con paginación keyset determinista
+  //    (optimizado con proyección JSONB ligera y carga selectiva de order_items para evitar statement_timeout 57014 en holdings grandes como BIG BANG)
   let ordersList = [];
   try {
-    const orderSelectFields = 'id,created_at,external_order_number,external_platform,status,estado_wms,comercio,categoria_entrega,agenda,operador,shipping_city,shipping_address,shipping_method,total_value,sku,cantidad,item,periodo_facturacion,raw_shopify_data,raw_woocommerce_data,raw_meli_data,order_items(quantity,product_id,products(sku,is_virtual))';
+    const queryCommerceGroup = Array.from(new Set(
+      commerceGroup
+        .map(c => String(c || '').trim())
+        .filter(c => c && c === c.toUpperCase())
+    ));
+    const effectiveCommerceGroup = queryCommerceGroup.length > 0 ? queryCommerceGroup : commerceGroup;
 
-    const step = 1000;
+    // 6.1 Pre-cargar catálogo de productos del grupo para resolver SKUs y productos virtuales en memoria sin LATERAL JOIN por fila
+    const productsById = {};
+    const virtualSkus = new Set();
+    try {
+      const { data: prodsData } = await supabase
+        .from('products')
+        .select('id,sku,name,is_virtual')
+        .in('comercio', effectiveCommerceGroup)
+        .limit(5000);
+      if (Array.isArray(prodsData)) {
+        prodsData.forEach(p => {
+          if (!p || !p.id) return;
+          productsById[p.id] = p;
+          if (p.is_virtual && p.sku) {
+            virtualSkus.add(String(p.sku).trim().toUpperCase());
+          }
+        });
+      }
+    } catch (eProd) {
+      console.warn('[BillingGenerator] Aviso pre-cargando productos del comercio:', eProd);
+    }
+
+    // 6.2 Proyección ligera de pedidos (extrae sólo subcampos JSONB requeridos en vez de blobs completos ni LATERAL order_items)
+    const fastOrderSelectFields = 'id,created_at,external_order_number,external_platform,status,estado_wms,comercio,categoria_entrega,agenda,operador,shipping_city,shipping_address,shipping_method,total_value,sku,cantidad,item,periodo_facturacion,shopify_items:raw_shopify_data->line_items,shopify_name:raw_shopify_data->>name,shopify_total:raw_shopify_data->>total_price,woo_items:raw_woocommerce_data->line_items,woo_total:raw_woocommerce_data->>total,meli_items:raw_meli_data->order_items,meli_total:raw_meli_data->>total_amount';
+
+    let step = 500;
     let lastCreatedAt = null;
     let pageCount = 0;
+    let hadFatalQueryError = false;
     const existingIds = new Set();
 
-    while (pageCount < 50) {
+    while (pageCount < 60) {
       pageCount++;
-      let q = supabase
-        .from('orders')
-        .select(orderSelectFields)
-        .in('comercio', commerceGroup)
-        .eq('periodo_facturacion', periodName)
-        .order('created_at', { ascending: false })
-        .limit(step);
-
-      if (lastCreatedAt) {
-        q = q.lte('created_at', lastCreatedAt);
-      }
-
       let resData = null;
       let lastErr = null;
 
       for (let attempt = 1; attempt <= 3; attempt++) {
+        let q = supabase
+          .from('orders')
+          .select(fastOrderSelectFields)
+          .in('comercio', effectiveCommerceGroup)
+          .eq('periodo_facturacion', periodName)
+          .order('created_at', { ascending: false })
+          .limit(step);
+
+        if (lastCreatedAt) {
+          q = q.lte('created_at', lastCreatedAt);
+        }
+
         const { data, error } = await q;
         if (!error && data) {
           resData = data;
@@ -2124,22 +2177,53 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
           break;
         }
         lastErr = error;
-        console.warn(`[BillingGenerator] Reintento ${attempt} página ${pageCount}:`, error?.message || error);
-        await new Promise(r => setTimeout(r, 400 * attempt));
+        const isTimeout = error?.code === '57014' || String(error?.message || '').toLowerCase().includes('timeout');
+        if (isTimeout && step > 250) {
+          step = Math.max(250, Math.floor(step / 2));
+          console.warn(`[BillingGenerator] Timeout en página ${pageCount}, reduciendo lote a ${step} y reintentando...`);
+        } else {
+          console.warn(`[BillingGenerator] Reintento ${attempt} página ${pageCount}:`, error?.message || error);
+        }
+        await new Promise(r => setTimeout(r, 350 * attempt));
       }
 
       if (lastErr || !resData || resData.length === 0) {
-        if (lastErr) console.error(`[BillingGenerator] Error en página ${pageCount}:`, lastErr);
+        if (lastErr) {
+          hadFatalQueryError = true;
+          console.error(`[BillingGenerator] Error en página ${pageCount}:`, lastErr);
+        }
         break;
       }
 
-      // Filtrar pedidos repetidos en el límite temporal idéntico
+      // Filtrar pedidos repetidos en el límite temporal idéntico y reconstruir estructura ligera compatible
       const newOrders = resData.filter(o => !existingIds.has(o.id));
       if (newOrders.length === 0) {
         break;
       }
 
-      newOrders.forEach(o => existingIds.add(o.id));
+      newOrders.forEach(o => {
+        existingIds.add(o.id);
+        if (!o.raw_shopify_data && (o.shopify_items || o.shopify_name || o.shopify_total)) {
+          o.raw_shopify_data = {
+            line_items: Array.isArray(o.shopify_items) ? o.shopify_items : [],
+            name: o.shopify_name || null,
+            total_price: o.shopify_total || null
+          };
+        }
+        if (!o.raw_woocommerce_data && (o.woo_items || o.woo_total)) {
+          o.raw_woocommerce_data = {
+            line_items: Array.isArray(o.woo_items) ? o.woo_items : [],
+            total: o.woo_total || null
+          };
+        }
+        if (!o.raw_meli_data && (o.meli_items || o.meli_total)) {
+          o.raw_meli_data = {
+            order_items: Array.isArray(o.meli_items) ? o.meli_items : [],
+            total_amount: o.meli_total || null
+          };
+        }
+      });
+
       ordersList = ordersList.concat(newOrders);
       console.log(`[BillingGenerator] Página ${pageCount}: +${newOrders.length} pedidos (Total: ${ordersList.length})`);
 
@@ -2150,8 +2234,71 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       lastCreatedAt = resData[resData.length - 1].created_at;
     }
 
-    // Fallback secundario de alta disponibilidad: si la consulta directa no trajo pedidos pero están en window.loadedOrders
-    if (ordersList.length === 0 && window.loadedOrders && Array.isArray(window.loadedOrders) && window.loadedOrders.length > 0) {
+    // 6.3 Enriquecer selectivamente con order_items sólo aquellos pedidos que lo requieren
+    //     (pedidos manuales sin line_items, pedidos editados/divididos donde cantidad != suma raw, o con SKUs virtuales)
+    if (ordersList.length > 0) {
+      const candidateOrderIds = [];
+      ordersList.forEach(ord => {
+        if (Array.isArray(ord.order_items) && ord.order_items.length > 0) return;
+        const shopItems = ord.raw_shopify_data?.line_items;
+        const wooItems = ord.raw_woocommerce_data?.line_items;
+        const meliItems = ord.raw_meli_data?.order_items || (Array.isArray(ord.raw_meli_data) && ord.raw_meli_data[0]?.order_items);
+
+        let rawList = null;
+        if (Array.isArray(shopItems) && shopItems.length > 0) {
+          rawList = shopItems.map(li => ({ sku: String(li.sku || '').trim().toUpperCase(), qty: parseInt(li.quantity, 10) || 1 }));
+        } else if (Array.isArray(wooItems) && wooItems.length > 0) {
+          rawList = wooItems.map(li => ({ sku: String(li.sku || '').trim().toUpperCase(), qty: parseInt(li.quantity, 10) || 1 }));
+        } else if (Array.isArray(meliItems) && meliItems.length > 0) {
+          rawList = meliItems.map(mi => ({ sku: String(mi.item?.seller_sku || '').trim().toUpperCase(), qty: parseInt(mi.quantity, 10) || 1 }));
+        }
+
+        if (!rawList) {
+          candidateOrderIds.push(ord.id);
+        } else {
+          const rawUnits = rawList.reduce((s, x) => s + x.qty, 0);
+          const ordCant = parseInt(ord.cantidad, 10) || 0;
+          const hasVirt = rawList.some(x => virtualSkus.has(x.sku));
+          if ((ordCant > 0 && ordCant !== rawUnits) || hasVirt) {
+            candidateOrderIds.push(ord.id);
+          }
+        }
+      });
+
+      if (candidateOrderIds.length > 0) {
+        const itemsByOrderId = {};
+        const CHUNK_SIZE = 120;
+        for (let i = 0; i < candidateOrderIds.length; i += CHUNK_SIZE) {
+          const chunkIds = candidateOrderIds.slice(i, i + CHUNK_SIZE);
+          try {
+            const { data: oiRows, error: oiErr } = await supabase
+              .from('order_items')
+              .select('order_id,quantity,product_id')
+              .in('order_id', chunkIds);
+            if (!oiErr && Array.isArray(oiRows)) {
+              oiRows.forEach(row => {
+                if (!itemsByOrderId[row.order_id]) itemsByOrderId[row.order_id] = [];
+                itemsByOrderId[row.order_id].push({
+                  quantity: row.quantity,
+                  product_id: row.product_id,
+                  products: productsById[row.product_id] || null
+                });
+              });
+            }
+          } catch (eOi) {
+            console.warn('[BillingGenerator] Aviso consultando lote de order_items:', eOi);
+          }
+        }
+        ordersList.forEach(ord => {
+          if (itemsByOrderId[ord.id]) {
+            ord.order_items = itemsByOrderId[ord.id];
+          }
+        });
+      }
+    }
+
+    // Fallback secundario de alta disponibilidad: sólo si la consulta directa falló por error de red/DB y no es parcial de una sola tienda de un holding
+    if (ordersList.length === 0 && hadFatalQueryError && window.loadedOrders && Array.isArray(window.loadedOrders) && window.loadedOrders.length > 0) {
       const pNorm = (periodName || '').trim().toUpperCase();
       const groupSet = new Set(commerceGroup.map(c => c.trim().toUpperCase()));
       const memoryMatches = window.loadedOrders.filter(o => {
@@ -2259,16 +2406,34 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       skuCount = Math.max(1, uniqueSkus.size);
       unitsCount = Math.max(1, itemsToCount.reduce((acc, item) => acc + (parseInt(item.quantity, 10) || 1), 0));
     } else if (ord.raw_shopify_data?.line_items && Array.isArray(ord.raw_shopify_data.line_items) && ord.raw_shopify_data.line_items.length > 0) {
-      skuCount = ord.raw_shopify_data.line_items.length;
-      unitsCount = ord.raw_shopify_data.line_items.reduce((acc, item) => acc + (parseInt(item.quantity, 10) || 1), 0);
+      const uniqueSkus = new Set(
+        ord.raw_shopify_data.line_items.map((item, iIdx) => {
+          const k = String(item.sku || item.product_id || item.title || '').trim().toUpperCase();
+          return k || `ITEM_${iIdx}`;
+        })
+      );
+      skuCount = Math.max(1, uniqueSkus.size);
+      unitsCount = Math.max(1, ord.raw_shopify_data.line_items.reduce((acc, item) => acc + (parseInt(item.quantity, 10) || 1), 0));
     } else if (ord.raw_woocommerce_data?.line_items && Array.isArray(ord.raw_woocommerce_data.line_items) && ord.raw_woocommerce_data.line_items.length > 0) {
-      skuCount = ord.raw_woocommerce_data.line_items.length;
-      unitsCount = ord.raw_woocommerce_data.line_items.reduce((acc, item) => acc + (parseInt(item.quantity, 10) || 1), 0);
+      const uniqueSkus = new Set(
+        ord.raw_woocommerce_data.line_items.map((item, iIdx) => {
+          const k = String(item.sku || item.product_id || item.name || '').trim().toUpperCase();
+          return k || `ITEM_${iIdx}`;
+        })
+      );
+      skuCount = Math.max(1, uniqueSkus.size);
+      unitsCount = Math.max(1, ord.raw_woocommerce_data.line_items.reduce((acc, item) => acc + (parseInt(item.quantity, 10) || 1), 0));
     } else if (ord.raw_meli_data?.order_items && Array.isArray(ord.raw_meli_data.order_items) && ord.raw_meli_data.order_items.length > 0) {
-      skuCount = ord.raw_meli_data.order_items.length;
-      unitsCount = ord.raw_meli_data.order_items.reduce((acc, item) => acc + (parseInt(item.quantity, 10) || 1), 0);
+      const uniqueSkus = new Set(
+        ord.raw_meli_data.order_items.map((item, iIdx) => {
+          const k = String(item.item?.seller_sku || item.item?.id || item.item?.title || '').trim().toUpperCase();
+          return k || `ITEM_${iIdx}`;
+        })
+      );
+      skuCount = Math.max(1, uniqueSkus.size);
+      unitsCount = Math.max(1, ord.raw_meli_data.order_items.reduce((acc, item) => acc + (parseInt(item.quantity, 10) || 1), 0));
     } else if (ord.sku && String(ord.sku).includes(',')) {
-      skuCount = String(ord.sku).split(',').map(s => s.trim()).filter(Boolean).length || 1;
+      skuCount = new Set(String(ord.sku).split(',').map(s => s.trim().toUpperCase()).filter(Boolean)).size || 1;
     }
 
     // Sobreescritura manual por pedido si el admin ya lo editó (o si estaba guardado en snapshot).
@@ -5692,86 +5857,76 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
       <!-- VISTA 2: GENERADOR Y EDITOR DE DESGLOSES POR COMERCIO                     -->
       <!-- ========================================================================= -->
       <div id="bg-generator-workspace-wrapper" style="display: ${startInGenerator ? 'block' : 'none'};">
-      <!-- Barra Superior de Control y Filtros -->
-      <div class="bg-card-container" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; border-left: 4px solid #5f06fa;">
-        <div style="display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap;">
-          <div style="padding-top: 1.15rem;">
-            <button type="button" onclick="window.switchBgMainMode('overview')" class="btn btn-outline" style="height: 40px; border-color: rgba(95, 6, 250, 0.35); background: rgba(95, 6, 250, 0.05); color: #5f06fa; font-weight: 800; border-radius: 8px; display: inline-flex; align-items: center; gap: 0.4rem; padding: 0 0.85rem;" title="Volver a la vista resumen del periodo actual">
-              <i class="ri-arrow-left-line"></i> Resumen del Periodo
-              <span id="bg-btn-overview-pending-badge" style="display: none; background: #f59e0b; color: #ffffff; font-size: 0.68rem; font-weight: 800; padding: 1px 6px; border-radius: 999px;">0</span>
-            </button>
-          </div>
-          <div>
-            <label style="font-size: 0.75rem; font-weight: 800; color: var(--color-text-muted); display: block; margin-bottom: 0.25rem;">
-              <i class="ri-store-2-line" style="color: #5f06fa;"></i> COMERCIO A FACTURAR:
-            </label>
-            <div style="display: flex; align-items: center; gap: 0.5rem; position: relative;">
-              <select id="bg-select-commerce" class="form-input" style="height: 40px; margin: 0; min-width: 265px; font-weight: 700; border-radius: 8px;">
-                <option value="" ${!defaultCommerce ? 'selected' : ''}>— Selecciona un comercio o holding —</option>
-                ${canonicalDisplayList.length > 0 ? `
-                  <optgroup label="🏢 Conglomerados / Holdings (Cuentas Consolidadas)">
-                    ${canonicalDisplayList.map(cg => {
-                      const children = cg.children || [];
-                      const cgUpper = String(cg.name).trim().toUpperCase();
-                      let isSel = false;
-                      if (selUpper && !hasSelectedCommerce) {
-                        if (cgUpper === selUpper || (selUpper.includes('BIG BANG') && cgUpper === 'BIG BANG') || (selUpper.includes('SILVER FOX') && cgUpper === 'SILVER FOX')) {
-                          isSel = true;
-                          hasSelectedCommerce = true;
-                        }
-                      }
-                      return `<option value="${escapeHtml(cg.name)}" ${isSel ? 'selected' : ''}>🏢 ${escapeHtml(cg.name)} (Consolida: ${escapeHtml(children.join(', '))})</option>`;
-                    }).join('')}
-                  </optgroup>
-                ` : ''}
-                <optgroup label="🏪 Tiendas / Comercios Individuales">
-                  ${individualComerciosList.map(c => {
-                    const cUpper = String(c.nombre).trim().toUpperCase();
+      <!-- Barra Superior de Control y Acciones (Compacta en 1 fila) -->
+      <div class="bg-card-container" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding: 0.48rem 0.85rem; margin-bottom: 0.55rem; border-left: 4px solid #5f06fa;">
+        <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+          <button type="button" onclick="window.switchBgMainMode('overview')" class="btn btn-outline bg-toolbar-btn" style="border-color: rgba(95, 6, 250, 0.35); background: rgba(95, 6, 250, 0.05); color: #5f06fa; font-weight: 800;" title="Volver a la vista resumen del periodo actual">
+            <i class="ri-arrow-left-line"></i> Resumen
+            <span id="bg-btn-overview-pending-badge" style="display: none; background: #f59e0b; color: #ffffff; font-size: 0.64rem; font-weight: 800; padding: 1px 5px; border-radius: 999px;">0</span>
+          </button>
+
+          <div style="display: flex; align-items: center; gap: 0.35rem; position: relative;" title="Comercio o Holding a facturar">
+            <select id="bg-select-commerce" class="form-input" style="height: 31px; padding: 0 0.55rem; margin: 0; width: 260px; max-width: 275px; font-size: 0.77rem; font-weight: 700; border-radius: 7px; text-overflow: ellipsis;">
+              <option value="" ${!defaultCommerce ? 'selected' : ''}>— Selecciona comercio o holding —</option>
+              ${canonicalDisplayList.length > 0 ? `
+                <optgroup label="🏢 Conglomerados / Holdings (Cuentas Consolidadas)">
+                  ${canonicalDisplayList.map(cg => {
+                    const cgUpper = String(cg.name).trim().toUpperCase();
+                    const cleanChildren = (cg.children || []).filter(ch => {
+                      const u = String(ch || '').trim().toUpperCase();
+                      return u && u !== cgUpper && u !== `${cgUpper} SPA`;
+                    });
                     let isSel = false;
-                    if (selUpper && !hasSelectedCommerce && cUpper === selUpper) {
-                      isSel = true;
-                      hasSelectedCommerce = true;
+                    if (selUpper && !hasSelectedCommerce) {
+                      if (cgUpper === selUpper || (selUpper.includes('BIG BANG') && cgUpper === 'BIG BANG') || (selUpper.includes('SILVER FOX') && cgUpper === 'SILVER FOX')) {
+                        isSel = true;
+                        hasSelectedCommerce = true;
+                      }
                     }
-                    return `<option value="${escapeHtml(c.nombre)}" ${isSel ? 'selected' : ''}>${escapeHtml(c.nombre)} (${escapeHtml(c.sigla || 'N/A')})</option>`;
+                    return `<option value="${escapeHtml(cg.name)}" ${isSel ? 'selected' : ''}>🏢 ${escapeHtml(cg.name)} (${escapeHtml(cleanChildren.join(', '))})</option>`;
                   }).join('')}
                 </optgroup>
-              </select>
-              <span id="bg-select-commerce-spinner" style="display: none; color: #5f06fa; font-size: 1.25rem; align-items: center;" title="Cargando comercio...">
-                <i class="ri-loader-4-line ri-spin"></i>
-              </span>
-            </div>
-          </div>
-
-          <div>
-            <label style="font-size: 0.75rem; font-weight: 800; color: var(--color-text-muted); display: block; margin-bottom: 0.25rem;">
-              <i class="ri-calendar-event-line" style="color: #5f06fa;"></i> PERIODO OFICIAL:
-            </label>
-            <select id="bg-select-period" class="form-input" style="height: 40px; margin: 0; min-width: 220px; font-weight: 700; border-radius: 8px;">
-              ${periodOptionsHTML}
+              ` : ''}
+              <optgroup label="🏪 Tiendas / Comercios Individuales">
+                ${individualComerciosList.map(c => {
+                  const cUpper = String(c.nombre).trim().toUpperCase();
+                  let isSel = false;
+                  if (selUpper && !hasSelectedCommerce && cUpper === selUpper) {
+                    isSel = true;
+                    hasSelectedCommerce = true;
+                  }
+                  return `<option value="${escapeHtml(c.nombre)}" ${isSel ? 'selected' : ''}>${escapeHtml(c.nombre)} (${escapeHtml(c.sigla || 'N/A')})</option>`;
+                }).join('')}
+              </optgroup>
             </select>
+            <span id="bg-select-commerce-spinner" style="display: none; color: #5f06fa; font-size: 1.05rem; align-items: center;" title="Cargando comercio...">
+              <i class="ri-loader-4-line ri-spin"></i>
+            </span>
           </div>
 
-          <div style="padding-top: 1.15rem;">
-            <button id="bg-btn-recalculate" class="btn btn-primary" style="height: 40px; background: #5f06fa; border-color: #5f06fa; display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700; border-radius: 8px; box-shadow: 0 4px 12px rgba(95, 6, 250, 0.25);">
-              <i class="ri-refresh-line"></i> Calcular Facturación
-            </button>
-          </div>
+          <select id="bg-select-period" class="form-input" style="height: 31px; padding: 0 0.55rem; margin: 0; width: 175px; font-size: 0.77rem; font-weight: 700; border-radius: 7px;" title="Periodo Oficial de Facturación">
+            ${periodOptionsHTML}
+          </select>
+
+          <button id="bg-btn-recalculate" class="btn btn-primary bg-toolbar-btn" style="background: #5f06fa; border-color: #5f06fa; box-shadow: 0 2px 8px rgba(95, 6, 250, 0.22);" title="Calcular o actualizar facturación del comercio seleccionado">
+            <i class="ri-refresh-line"></i> Calcular
+          </button>
         </div>
 
-        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; padding-top: 1.15rem;">
-          <button id="bg-btn-config-delivery" class="btn btn-outline" style="border-color: #5f06fa; color: #5f06fa; height: 40px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 8px;" title="Configurar y editar tipos de entrega">
-            <i class="ri-settings-4-line"></i> Tipos de Entrega
+        <div style="display: flex; gap: 0.38rem; align-items: center; flex-wrap: wrap;">
+          <button id="bg-btn-config-delivery" class="btn btn-outline bg-toolbar-btn" style="border-color: rgba(95, 6, 250, 0.45); color: #5f06fa;" title="Configurar y editar tarifas de tipos de entrega">
+            <i class="ri-settings-4-line"></i> Tipos Entrega
           </button>
-          <button id="bg-btn-export-excel" class="btn btn-outline" style="border-color: #10b981; color: #10b981; height: 40px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 8px;" title="Descargar Excel con fórmulas">
-            <i class="ri-file-excel-2-fill"></i> Exportar Excel (.xlsx)
+          <button id="bg-btn-export-excel" class="btn btn-outline bg-toolbar-btn" style="border-color: #10b981; color: #10b981;" title="Exportar registro a Excel (.xlsx) con fórmulas">
+            <i class="ri-file-excel-2-fill"></i> Excel
           </button>
-          <button id="bg-btn-download-pdf" class="btn btn-outline" style="border-color: #ef4444; color: #ef4444; height: 40px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 8px;" title="Descargar PDF Oficial">
-            <i class="ri-file-pdf-fill"></i> Descargar PDF
+          <button id="bg-btn-download-pdf" class="btn btn-outline bg-toolbar-btn" style="border-color: #ef4444; color: #ef4444;" title="Descargar PDF del Desglose Oficial">
+            <i class="ri-file-pdf-fill"></i> PDF
           </button>
-          <button id="bg-btn-save-record" class="btn btn-primary" style="background: #10b981; border-color: #10b981; height: 40px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 8px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);" title="Guardar en base de datos">
-            <i class="ri-save-3-fill"></i> Guardar Facturación
+          <button id="bg-btn-save-record" class="btn btn-primary bg-toolbar-btn" style="background: #10b981; border-color: #10b981; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.22);" title="Guardar borrador de facturación en base de datos">
+            <i class="ri-save-3-fill"></i> Guardar
           </button>
-          <button id="bg-btn-publish-record" class="btn btn-primary" style="background: linear-gradient(135deg, #5f06fa 0%, #7c3aed 100%); border-color: #5f06fa; height: 40px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 8px; box-shadow: 0 4px 12px rgba(95, 6, 250, 0.3);" title="Confirmar cobro y publicar desglose oficial, registro de pedidos y métricas directamente en el portal del cliente">
+          <button id="bg-btn-publish-record" class="btn btn-primary bg-toolbar-btn" style="background: linear-gradient(135deg, #5f06fa 0%, #7c3aed 100%); border-color: #5f06fa; box-shadow: 0 2px 8px rgba(95, 6, 250, 0.28);" title="Confirmar cobro y publicar desglose oficial, registro de pedidos y métricas directamente en el portal del cliente">
             <i class="ri-send-plane-fill"></i> Confirmar y Publicar
           </button>
         </div>
@@ -5783,66 +5938,55 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
       <!-- Resumen KPI en Vivo -->
       <div id="bg-kpis-container" class="bg-kpi-grid">
         ${startInGenerator ? `
-          <div style="grid-column: 1 / -1; text-align: center; padding: 1.5rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px;">
-            <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; color: #5f06fa; display: inline-block; margin-bottom: 0.35rem;"></i>
-            <div>Iniciando cálculo para <strong>${escapeHtml(defaultCommerce)}</strong>...</div>
+          <div style="grid-column: 1 / -1; text-align: center; padding: 0.9rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px;">
+            <i class="ri-loader-4-line ri-spin" style="font-size: 1.25rem; color: #5f06fa; display: inline-block; margin-bottom: 0.2rem;"></i>
+            <div style="font-size: 0.82rem;">Iniciando cálculo para <strong>${escapeHtml(defaultCommerce)}</strong>...</div>
           </div>
         ` : ''}
       </div>
 
-      <!-- Sub-pestañas de Navegación del Gestor -->
+      <!-- Sub-pestañas de Navegación + Acciones Rápidas del Registro -->
       <div class="bg-subnav">
-        <button class="bg-subnav-btn active" id="bg-tab-btn-register" onclick="window.switchBgSubTab('register')">
-          <i class="ri-table-fill"></i> Registro Editable (Excel)
-        </button>
-        <button class="bg-subnav-btn" id="bg-tab-btn-desglose" onclick="window.switchBgSubTab('desglose')">
-          <i class="ri-file-list-3-fill"></i> Desglose Oficial Stocka
-        </button>
-        <button class="bg-subnav-btn" id="bg-tab-btn-analytics" onclick="window.switchBgSubTab('analytics')">
-          <i class="ri-bar-chart-2-fill"></i> Analítica y Gráficas
-        </button>
-        <button class="bg-subnav-btn" id="bg-tab-btn-checklist" onclick="window.switchBgSubTab('checklist')">
-          <i class="ri-checkbox-circle-line"></i> Checklist Global
-          <span id="bg-checklist-nav-badge" style="background: rgba(95, 6, 250, 0.12); color: #5f06fa; font-size: 0.72rem; padding: 1px 7px; border-radius: 10px; font-weight: 800; margin-left: 4px;">0/0</span>
-        </button>
+        <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+          <button class="bg-subnav-btn active" id="bg-tab-btn-register" onclick="window.switchBgSubTab('register')" title="Edita libremente celdas de tarifas, recargos o fletes en tiempo real">
+            <i class="ri-table-fill"></i> Registro Editable (Excel)
+          </button>
+          <button class="bg-subnav-btn" id="bg-tab-btn-desglose" onclick="window.switchBgSubTab('desglose')">
+            <i class="ri-file-list-3-fill"></i> Desglose Oficial Stocka
+          </button>
+          <button class="bg-subnav-btn" id="bg-tab-btn-analytics" onclick="window.switchBgSubTab('analytics')">
+            <i class="ri-bar-chart-2-fill"></i> Analítica y Gráficas
+          </button>
+          <button class="bg-subnav-btn" id="bg-tab-btn-checklist" onclick="window.switchBgSubTab('checklist')">
+            <i class="ri-checkbox-circle-line"></i> Checklist Global
+            <span id="bg-checklist-nav-badge" style="background: rgba(95, 6, 250, 0.12); color: #5f06fa; font-size: 0.68rem; padding: 1px 6px; border-radius: 10px; font-weight: 800; margin-left: 2px;">0/0</span>
+          </button>
+        </div>
+
+        <div id="bg-register-top-actions" style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.openAddCustomColumnModal()" style="height: 29px; padding: 0 0.6rem; font-size: 0.73rem; border-radius: 6px; font-weight: 700; border-color: rgba(234, 88, 12, 0.45); color: #c2410c; background: rgba(234, 88, 12, 0.06); display: inline-flex; align-items: center; gap: 3px;" title="Añadir columna de cobro personalizada (Recargo por unidad o global por pedido) que se suma a Preparación">
+            <i class="ri-layout-column-line" style="color: #ea580c;"></i> + Columna Recargo
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.addNewManualSupplyRow()" style="height: 29px; padding: 0 0.6rem; font-size: 0.73rem; border-radius: 6px; font-weight: 600;" title="Agregar Insumo o Caja">+ Insumo</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.addNewManualAdjustmentRow()" style="height: 29px; padding: 0 0.6rem; font-size: 0.73rem; border-radius: 6px; font-weight: 600;" title="Agregar Descuento o Ajuste Comercial">+ Ajuste</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.addNewManualAbonoRow()" style="height: 29px; padding: 0 0.6rem; font-size: 0.73rem; border-radius: 6px; font-weight: 600; border-color: rgba(16, 185, 129, 0.5); color: #047857; background: rgba(16, 185, 129, 0.05); display: inline-flex; align-items: center; gap: 3px;" title="Registrar abono comercial que descuenta el saldo a pagar por el cliente">
+            <i class="ri-hand-coin-line" style="color: #10b981;"></i> + Abono
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" onclick="window.openBulkEditOrdersModal()" style="height: 29px; padding: 0 0.65rem; font-size: 0.73rem; background: #5f06fa; border-color: #5f06fa; border-radius: 6px; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;" title="Editar masivamente pedidos filtrados o seleccionados">
+            <i class="ri-edit-2-line"></i> Edición Masiva
+          </button>
+        </div>
       </div>
 
       <!-- Contenedor 1: Registro Editable tipo Excel -->
       <div id="bg-content-register" style="display: block;">
-        <div class="card" style="padding: 1.25rem; margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
-            <div>
-              <h4 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
-                <i class="ri-file-excel-line" style="color: #10b981;"></i> Registro Editable de Pedidos del Periodo
-              </h4>
-              <p style="margin: 0.25rem 0 0 0; font-size: 0.775rem; color: var(--color-text-muted);">
-                Edita libremente celdas de tarifas, recargos o fletes. Todos los cambios recalculan en tiempo real el desglose y las gráficas.
-              </p>
-            </div>
-            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-              <div style="position: relative;">
-                <input type="text" id="bg-filter-order-input" class="form-input" placeholder="Búsqueda global..." style="height: 36px; font-size: 0.8rem; margin: 0; width: 210px; padding-left: 2rem; border-radius: 8px;" oninput="window.applyBgColumnFilters()">
-                <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-              </div>
-              <button type="button" class="btn btn-outline btn-sm" onclick="window.openAddCustomColumnModal()" style="border-radius: 6px; font-weight: 700; border-color: rgba(234, 88, 12, 0.45); color: #c2410c; background: rgba(234, 88, 12, 0.06); display: inline-flex; align-items: center; gap: 4px;" title="Añadir columna de cobro personalizada (Recargo por unidad o global por pedido) que se suma a Preparación">
-                <i class="ri-layout-column-line" style="color: #ea580c;"></i> + Columna Cobro (Recargo)
-              </button>
-              <button class="btn btn-outline btn-sm" onclick="window.addNewManualSupplyRow()" style="border-radius: 6px; font-weight: 600;" title="Agregar Insumo o Caja">+ Insumo</button>
-              <button class="btn btn-outline btn-sm" onclick="window.addNewManualAdjustmentRow()" style="border-radius: 6px; font-weight: 600;" title="Agregar Descuento / Ajuste">+ Ajuste Comercial</button>
-              <button class="btn btn-outline btn-sm" onclick="window.addNewManualAbonoRow()" style="border-radius: 6px; font-weight: 600; border-color: rgba(16, 185, 129, 0.5); color: #047857; background: rgba(16, 185, 129, 0.05);" title="Registrar abono comercial que descuenta el saldo a pagar por el cliente">
-                <i class="ri-hand-coin-line" style="color: #10b981;"></i> + Abono
-              </button>
-              <button type="button" class="btn btn-primary btn-sm" onclick="window.openBulkEditOrdersModal()" style="background: #5f06fa; border-color: #5f06fa; border-radius: 6px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;" title="Editar masivamente pedidos filtrados o seleccionados">
-                <i class="ri-edit-2-line"></i> Edición Masiva
-              </button>
-            </div>
-          </div>
-
-          <!-- Barra de Filtros Rápidos por Categoría -->
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.6rem; background: var(--color-bg); padding: 0.55rem 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
-            <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">
-              <span style="font-size: 0.725rem; font-weight: 800; color: var(--color-text-muted); margin-right: 4px; text-transform: uppercase; letter-spacing: 0.4px;">
-                <i class="ri-filter-3-line" style="color: #5f06fa;"></i> Filtros Rápidos:
+        <div class="card" style="padding: 0.6rem 0.75rem; margin-bottom: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px;">
+          <!-- Barra Unificada de Filtros Rápidos, Búsqueda Global y Conteo -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.45rem; background: var(--color-bg); padding: 0.35rem 0.65rem; border-radius: 7px; border: 1px solid var(--color-border);">
+            <div style="display: flex; gap: 0.3rem; align-items: center; flex-wrap: wrap;">
+              <span style="font-size: 0.72rem; font-weight: 800; color: var(--color-text-main); margin-right: 4px; display: inline-flex; align-items: center; gap: 4px;" title="Registro Editable de Pedidos del Periodo — Edita libremente celdas de tarifas, recargos o fletes">
+                <i class="ri-file-excel-line" style="color: #10b981; font-size: 0.9rem;"></i>
+                <span style="color: var(--color-text-muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.3px;">Filtros:</span>
               </span>
               <button type="button" class="bg-quick-filter-btn active" id="qf-all" onclick="window.setBgQuickFilter('all')">
                 Todos (<span id="qf-count-all">0</span>)
@@ -5867,21 +6011,25 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
               </button>
             </div>
 
-            <div style="display: flex; gap: 0.5rem; align-items: center;">
-              <span id="bg-filter-count-badge" style="font-size: 0.75rem; font-weight: 700; color: #5f06fa; background: rgba(95, 6, 250, 0.08); padding: 4px 8px; border-radius: 6px;">
+            <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
+              <div style="position: relative;">
+                <input type="text" id="bg-filter-order-input" class="form-input" placeholder="Búsqueda global..." style="height: 27px; font-size: 0.74rem; margin: 0; width: 175px; padding-left: 1.75rem; border-radius: 6px;" oninput="window.applyBgColumnFilters()">
+                <i class="ri-search-line" style="position: absolute; left: 0.5rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.8rem;"></i>
+              </div>
+              <span id="bg-filter-count-badge" style="font-size: 0.71rem; font-weight: 700; color: #5f06fa; background: rgba(95, 6, 250, 0.08); padding: 3px 7px; border-radius: 5px; white-space: nowrap;">
                 Mostrando 0 de 0 pedidos
               </span>
-              <button id="bg-btn-bulk-edit-filtered" class="btn btn-sm btn-outline" style="height: 28px; font-size: 0.72rem; padding: 0 8px; border-radius: 6px; border-color: #5f06fa; color: #5f06fa; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;" onclick="window.openBulkEditOrdersModal('filtered')" title="Editar masivamente solo los pedidos visibles según filtros actuales">
+              <button id="bg-btn-bulk-edit-filtered" class="btn btn-sm btn-outline" style="height: 27px; font-size: 0.71rem; padding: 0 7px; border-radius: 5px; border-color: #5f06fa; color: #5f06fa; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;" onclick="window.openBulkEditOrdersModal('filtered')" title="Editar masivamente solo los pedidos visibles según filtros actuales">
                 <i class="ri-edit-line"></i> Editar Filtrados
               </button>
-              <button id="bg-btn-clear-all-filters" class="btn btn-sm btn-outline" style="height: 28px; font-size: 0.72rem; padding: 0 8px; border-radius: 6px; display: none; border-color: #cbd5e1;" onclick="window.clearBgTableFilters()">
-                <i class="ri-filter-off-line"></i> Limpiar Filtros
+              <button id="bg-btn-clear-all-filters" class="btn btn-sm btn-outline" style="height: 27px; font-size: 0.71rem; padding: 0 7px; border-radius: 5px; display: none; border-color: #cbd5e1;" onclick="window.clearBgTableFilters()">
+                <i class="ri-filter-off-line"></i> Limpiar
               </button>
             </div>
           </div>
 
           <!-- Banner Informativo de Tienda Seleccionada (Holding) -->
-          <div id="bg-store-active-filter-banner" style="display: none; margin-bottom: 0.85rem;"></div>
+          <div id="bg-store-active-filter-banner" style="display: none; margin-bottom: 0.5rem;"></div>
 
           <div class="bg-excel-table-container">
             <table class="bg-excel-table" id="bg-orders-excel-grid">
@@ -7022,6 +7170,11 @@ window.switchBgSubTab = function(tabKey) {
     }
   });
 
+  const regActions = document.getElementById('bg-register-top-actions');
+  if (regActions) {
+    regActions.style.display = tabKey === 'register' ? 'flex' : 'none';
+  }
+
   if (!billingState.currentCommerce && (tabKey === 'desglose' || tabKey === 'analytics')) {
     renderGeneratorEmptyCommerceState();
     return;
@@ -7071,9 +7224,9 @@ export async function executeCalculationFromUI(overrides = {}) {
   const kpisCont = document.getElementById('bg-kpis-container');
   if (kpisCont && (isSwitchingCommerce || !billingState.orders || billingState.orders.length === 0)) {
     kpisCont.innerHTML = `
-      <div style="grid-column: 1 / -1; text-align: center; padding: 1.5rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px;">
-        <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; color: #5f06fa; display: inline-block; margin-bottom: 0.35rem;"></i>
-        <div>Iniciando cálculo para <strong>${escapeHtml(commerceName)}</strong> (${escapeHtml(periodName)})...</div>
+      <div style="grid-column: 1 / -1; text-align: center; padding: 0.9rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px;">
+        <i class="ri-loader-4-line ri-spin" style="font-size: 1.25rem; color: #5f06fa; display: inline-block; margin-bottom: 0.2rem;"></i>
+        <div style="font-size: 0.82rem;">Iniciando cálculo para <strong>${escapeHtml(commerceName)}</strong> (${escapeHtml(periodName)})...</div>
       </div>
     `;
   }
@@ -7140,9 +7293,9 @@ export async function executeCalculationFromUI(overrides = {}) {
     const kpisCont = document.getElementById('bg-kpis-container');
     if (kpisCont && (!billingState.totals || !billingState.totals.totalToPay)) {
       kpisCont.innerHTML = `
-        <div style="grid-column: 1 / -1; text-align: center; padding: 1.5rem; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px;">
-          <i class="ri-alert-line" style="font-size: 1.5rem; display: inline-block; margin-bottom: 0.25rem;"></i>
-          <div style="font-weight: 700;">Error al calcular totales del periodo para ${escapeHtml(commerceName)}.</div>
+        <div style="grid-column: 1 / -1; text-align: center; padding: 1rem; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px;">
+          <i class="ri-alert-line" style="font-size: 1.35rem; display: inline-block; margin-bottom: 0.2rem;"></i>
+          <div style="font-weight: 700; font-size: 0.85rem;">Error al calcular totales del periodo para ${escapeHtml(commerceName)}.</div>
         </div>
       `;
     }
@@ -7158,7 +7311,7 @@ export async function executeCalculationFromUI(overrides = {}) {
     billingState.isLoading = false;
     if (calcBtn) {
       calcBtn.disabled = false;
-      calcBtn.innerHTML = `<i class="ri-refresh-line"></i> Calcular Facturación`;
+      calcBtn.innerHTML = `<i class="ri-refresh-line"></i> Calcular`;
     }
     if (commerceSpinner) commerceSpinner.style.display = 'none';
     if (commerceSelect) commerceSelect.disabled = false;
@@ -7166,7 +7319,7 @@ export async function executeCalculationFromUI(overrides = {}) {
 }
 window.executeCalculationFromUI = executeCalculationFromUI;
 
-// Renderizar Banner Dinámico de Conglomerados / Holdings
+// Renderizar Banner Dinámico de Conglomerados / Holdings (Compacto en 1 línea)
 export function renderConglomerateBannerUI() {
   const container = document.getElementById('bg-conglomerate-banner-container');
   if (!container) return;
@@ -7197,14 +7350,14 @@ export function renderConglomerateBannerUI() {
         <button type="button"
                 onclick="window.setConglomerateStoreView('${escapeHtml(childName)}')"
                 class="bg-conglom-store-tab ${isSelected ? 'active' : ''}"
-                style="font-size: 0.76rem; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 8px; border: 1.5px solid ${isSelected ? '#5f06fa' : 'rgba(95,6,250,0.2)'}; background: ${isSelected ? '#5f06fa' : 'var(--color-surface)'}; color: ${isSelected ? '#ffffff' : 'var(--color-text-main)'}; display: inline-flex; align-items: center; gap: 6px; box-shadow: ${isSelected ? '0 3px 10px rgba(95,6,250,0.3)' : '0 1px 3px rgba(0,0,0,0.04)'}; cursor: pointer; transition: all 0.2s ease;">
+                style="font-size: 0.72rem; font-weight: 700; padding: 0.24rem 0.6rem; border-radius: 6px; border: 1.5px solid ${isSelected ? '#5f06fa' : 'rgba(95,6,250,0.2)'}; background: ${isSelected ? '#5f06fa' : 'var(--color-surface)'}; color: ${isSelected ? '#ffffff' : 'var(--color-text-main)'}; display: inline-flex; align-items: center; gap: 4px; box-shadow: ${isSelected ? '0 2px 7px rgba(95,6,250,0.28)' : '0 1px 2px rgba(0,0,0,0.03)'}; cursor: pointer; transition: all 0.15s ease;">
           <i class="ri-store-2-line" style="${isSelected ? 'color: #ffffff;' : 'color: #5f06fa;'}"></i>
           <span>${escapeHtml(childName)}</span>
-          <span style="background: ${isSelected ? 'rgba(255,255,255,0.25)' : 'rgba(95,6,250,0.1)'}; color: ${isSelected ? '#ffffff' : '#5f06fa'}; padding: 1px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 800;">
+          <span style="background: ${isSelected ? 'rgba(255,255,255,0.25)' : 'rgba(95,6,250,0.1)'}; color: ${isSelected ? '#ffffff' : '#5f06fa'}; padding: 1px 5px; border-radius: 4px; font-size: 0.67rem; font-weight: 800;">
             ${orderCount.toLocaleString('es-CL')} ped.
           </span>
           ${netTotal > 0 ? `
-            <span style="font-size: 0.68rem; opacity: ${isSelected ? '0.9' : '0.75'};">
+            <span style="font-size: 0.65rem; opacity: ${isSelected ? '0.9' : '0.75'};">
               (${formatCLP(netTotal)})
             </span>
           ` : ''}
@@ -7213,41 +7366,39 @@ export function renderConglomerateBannerUI() {
     }).join('');
 
     container.innerHTML = `
-      <div class="bg-conglomerate-banner" style="background: linear-gradient(135deg, rgba(95, 6, 250, 0.05) 0%, rgba(124, 58, 237, 0.08) 100%); border: 1.5px solid rgba(95, 6, 250, 0.3); border-radius: 12px; padding: 0.9rem 1.25rem; margin-top: 0.85rem; margin-bottom: 0.5rem; display: flex; flex-direction: column; gap: 0.75rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
-          <div style="display: flex; align-items: center; gap: 0.85rem;">
-            <div style="width: 42px; height: 42px; border-radius: 10px; background: linear-gradient(135deg, #5f06fa 0%, #7c3aed 100%); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.35rem; flex-shrink: 0; box-shadow: 0 3px 8px rgba(95,6,250,0.3);">
-              <i class="ri-building-line"></i>
-            </div>
-            <div>
-              <div style="font-weight: 800; font-size: 0.98rem; color: #5f06fa; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                <span>Conglomerado / Holding: ${escapeHtml(b.conglomerateName || b.currentCommerce)}</span>
-                <span class="badge" style="background: #5f06fa; color: white; font-size: 0.7rem; padding: 0.15rem 0.55rem; border-radius: 9999px;">${children.length} marcas vinculadas</span>
-                ${activeStore ? `
-                  <span class="badge" style="background: #10b981; color: white; font-size: 0.7rem; padding: 0.15rem 0.55rem; border-radius: 9999px; display: inline-flex; align-items: center; gap: 4px;">
-                    <i class="ri-eye-line"></i> Filtrando: ${escapeHtml(activeStore)}
-                  </span>
-                ` : ''}
-              </div>
-              <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.15rem;">
-                Cálculo unificado en memoria con <strong>${totalOrdersHolding.toLocaleString('es-CL')} pedidos</strong>. Selecciona una tienda para ver su tabla y analítica al instante sin re-consultar.
-              </div>
-            </div>
+      <div class="bg-conglomerate-banner" title="Cálculo unificado en memoria con ${totalOrdersHolding.toLocaleString('es-CL')} pedidos. Selecciona una tienda para filtrar su tabla y analítica al instante sin re-consultar.">
+        <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
+          <div style="width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, #5f06fa 0%, #7c3aed 100%); color: white; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; flex-shrink: 0; box-shadow: 0 2px 6px rgba(95,6,250,0.25);">
+            <i class="ri-building-line"></i>
           </div>
-
-          <div style="display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap;">
-            <button type="button"
-                    onclick="window.setConglomerateStoreView(null)"
-                    class="bg-conglom-store-tab ${isAllSelected ? 'active' : ''}"
-                    style="font-size: 0.76rem; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 8px; border: 1.5px solid ${isAllSelected ? '#5f06fa' : 'rgba(95,6,250,0.2)'}; background: ${isAllSelected ? '#5f06fa' : 'var(--color-surface)'}; color: ${isAllSelected ? '#ffffff' : 'var(--color-text-main)'}; display: inline-flex; align-items: center; gap: 6px; box-shadow: ${isAllSelected ? '0 3px 10px rgba(95,6,250,0.3)' : '0 1px 3px rgba(0,0,0,0.04)'}; cursor: pointer; transition: all 0.2s ease;">
-              <i class="ri-building-line" style="${isAllSelected ? 'color: #ffffff;' : 'color: #5f06fa;'}"></i>
-              <span>🏢 Consolidado Holding</span>
-              <span style="background: ${isAllSelected ? 'rgba(255,255,255,0.25)' : 'rgba(95,6,250,0.1)'}; color: ${isAllSelected ? '#ffffff' : '#5f06fa'}; padding: 1px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 800;">
-                ${totalOrdersHolding.toLocaleString('es-CL')}
+          <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+            <span style="font-weight: 800; font-size: 0.84rem; color: #5f06fa;">
+              Holding: ${escapeHtml(b.conglomerateName || b.currentCommerce)}
+            </span>
+            <span class="badge" style="background: #5f06fa; color: white; font-size: 0.64rem; padding: 0.1rem 0.45rem; border-radius: 9999px;">${children.length} marcas</span>
+            <span style="font-size: 0.72rem; color: var(--color-text-muted);">
+              · <strong>${totalOrdersHolding.toLocaleString('es-CL')}</strong> ped. en memoria
+            </span>
+            ${activeStore ? `
+              <span class="badge" style="background: #10b981; color: white; font-size: 0.65rem; padding: 0.1rem 0.5rem; border-radius: 9999px; display: inline-flex; align-items: center; gap: 3px;">
+                <i class="ri-eye-line"></i> ${escapeHtml(activeStore)}
               </span>
-            </button>
-            ${storePills}
+            ` : ''}
           </div>
+        </div>
+
+        <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">
+          <button type="button"
+                  onclick="window.setConglomerateStoreView(null)"
+                  class="bg-conglom-store-tab ${isAllSelected ? 'active' : ''}"
+                  style="font-size: 0.72rem; font-weight: 700; padding: 0.24rem 0.6rem; border-radius: 6px; border: 1.5px solid ${isAllSelected ? '#5f06fa' : 'rgba(95,6,250,0.2)'}; background: ${isAllSelected ? '#5f06fa' : 'var(--color-surface)'}; color: ${isAllSelected ? '#ffffff' : 'var(--color-text-main)'}; display: inline-flex; align-items: center; gap: 4px; box-shadow: ${isAllSelected ? '0 2px 7px rgba(95,6,250,0.28)' : '0 1px 2px rgba(0,0,0,0.03)'}; cursor: pointer; transition: all 0.15s ease;">
+            <i class="ri-building-line" style="${isAllSelected ? 'color: #ffffff;' : 'color: #5f06fa;'}"></i>
+            <span>Consolidado</span>
+            <span style="background: ${isAllSelected ? 'rgba(255,255,255,0.25)' : 'rgba(95,6,250,0.1)'}; color: ${isAllSelected ? '#ffffff' : '#5f06fa'}; padding: 1px 5px; border-radius: 4px; font-size: 0.67rem; font-weight: 800;">
+              ${totalOrdersHolding.toLocaleString('es-CL')}
+            </span>
+          </button>
+          ${storePills}
         </div>
       </div>
     `;
@@ -7257,18 +7408,15 @@ export function renderConglomerateBannerUI() {
     const parentName = b.conglomerateName;
     const siblings = (b.conglomerateChildren || []).filter(c => c.toUpperCase() !== String(b.currentCommerce).toUpperCase());
     container.innerHTML = `
-      <div style="background: rgba(245, 158, 11, 0.08); border: 1.5px solid rgba(245, 158, 11, 0.35); border-radius: 10px; padding: 0.75rem 1.15rem; margin-top: 0.75rem; margin-bottom: 0.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
-        <div style="display: flex; align-items: center; gap: 0.65rem; color: #b45309; font-size: 0.85rem;">
-          <i class="ri-information-line" style="font-size: 1.35rem; flex-shrink: 0; color: #d97706;"></i>
-          <div>
-            <strong>Atención:</strong> La tienda <strong>${escapeHtml(b.currentCommerce)}</strong> forma parte del conglomerado <strong>${escapeHtml(parentName)}</strong>${siblings.length > 0 ? ` (junto a ${escapeHtml(siblings.join(', '))})` : ''}.
-            <div style="font-size: 0.77rem; color: #92400e; margin-top: 0.1rem;">
-              En el Control de Facturación oficial, este cliente se factura consolidado como <strong>${escapeHtml(parentName)}</strong>.
-            </div>
-          </div>
+      <div style="background: rgba(245, 158, 11, 0.08); border: 1.5px solid rgba(245, 158, 11, 0.35); border-radius: 9px; padding: 0.45rem 0.85rem; margin-top: 0; margin-bottom: 0.55rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; color: #b45309; font-size: 0.78rem;">
+          <i class="ri-information-line" style="font-size: 1.05rem; flex-shrink: 0; color: #d97706;"></i>
+          <span>
+            <strong>${escapeHtml(b.currentCommerce)}</strong> pertenece al holding <strong>${escapeHtml(parentName)}</strong>${siblings.length > 0 ? ` (junto a ${escapeHtml(siblings.join(', '))})` : ''}.
+          </span>
         </div>
-        <button type="button" class="btn btn-sm" onclick="window.selectAndCalculateCommerce('${escapeHtml(parentName)}')" style="background: #5f06fa; color: white; border: none; font-weight: 700; font-size: 0.78rem; border-radius: 7px; padding: 0.35rem 0.85rem; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; box-shadow: 0 2px 6px rgba(95,6,250,0.25);">
-          <i class="ri-building-line"></i> Facturar Conglomerado Completo (${escapeHtml(parentName)})
+        <button type="button" class="btn btn-sm" onclick="window.selectAndCalculateCommerce('${escapeHtml(parentName)}')" style="background: #5f06fa; color: white; border: none; font-weight: 700; font-size: 0.72rem; border-radius: 6px; padding: 0.25rem 0.65rem; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; box-shadow: 0 2px 5px rgba(95,6,250,0.22);">
+          <i class="ri-building-line"></i> Facturar Holding (${escapeHtml(parentName)})
         </button>
       </div>
     `;
@@ -7365,32 +7513,32 @@ export function updateActiveStoreFilterBannerUI() {
 
   banner.style.display = 'block';
   banner.innerHTML = `
-    <div style="background: linear-gradient(135deg, rgba(95, 6, 250, 0.08) 0%, rgba(124, 58, 237, 0.04) 100%); border: 1.5px solid rgba(95, 6, 250, 0.35); border-radius: 8px; padding: 0.65rem 1rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; box-shadow: 0 2px 6px rgba(95,6,250,0.06);">
-      <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
-        <span style="background: #5f06fa; color: white; padding: 0.25rem 0.65rem; border-radius: 6px; font-weight: 800; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 5px rgba(95,6,250,0.25);">
-          <i class="ri-store-2-fill"></i> Tienda: ${escapeHtml(activeStore)}
+    <div style="background: linear-gradient(135deg, rgba(95, 6, 250, 0.08) 0%, rgba(124, 58, 237, 0.04) 100%); border: 1.5px solid rgba(95, 6, 250, 0.32); border-radius: 7px; padding: 0.38rem 0.75rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; box-shadow: 0 1px 4px rgba(95,6,250,0.05);">
+      <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+        <span style="background: #5f06fa; color: white; padding: 0.15rem 0.55rem; border-radius: 5px; font-weight: 800; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 3px; box-shadow: 0 1px 4px rgba(95,6,250,0.22);">
+          <i class="ri-store-2-fill"></i> ${escapeHtml(activeStore)}
         </span>
-        <span style="font-size: 0.8rem; color: var(--color-text-main); font-weight: 600;">
-          Pedidos: <strong style="color: #5f06fa;">${storeData.totalOrders.toLocaleString('es-CL')}</strong> (${storeData.billableOrders.toLocaleString('es-CL')} facturables)
+        <span style="font-size: 0.75rem; color: var(--color-text-main); font-weight: 600;">
+          Pedidos: <strong style="color: #5f06fa;">${storeData.totalOrders.toLocaleString('es-CL')}</strong> (${storeData.billableOrders.toLocaleString('es-CL')} fact.)
         </span>
-        <span style="font-size: 0.75rem; color: var(--color-text-muted);">•</span>
-        <span style="font-size: 0.8rem; color: var(--color-text-main);">
-          Pick & Pack Neto: <strong>${formatCLP(storeData.pickPackNet)}</strong>
+        <span style="font-size: 0.7rem; color: var(--color-text-muted);">•</span>
+        <span style="font-size: 0.75rem; color: var(--color-text-main);">
+          Pick & Pack: <strong>${formatCLP(storeData.pickPackNet)}</strong>
         </span>
-        <span style="font-size: 0.75rem; color: var(--color-text-muted);">•</span>
-        <span style="font-size: 0.8rem; color: var(--color-text-main);">
-          Flete Despacho: <strong>${formatCLP(storeData.shippingFreightNet)}</strong>
+        <span style="font-size: 0.7rem; color: var(--color-text-muted);">•</span>
+        <span style="font-size: 0.75rem; color: var(--color-text-main);">
+          Flete: <strong>${formatCLP(storeData.shippingFreightNet)}</strong>
         </span>
-        <span style="font-size: 0.75rem; color: var(--color-text-muted);">•</span>
-        <span style="font-size: 0.82rem; color: #5f06fa; font-weight: 800;">
+        <span style="font-size: 0.7rem; color: var(--color-text-muted);">•</span>
+        <span style="font-size: 0.76rem; color: #5f06fa; font-weight: 800;">
           Subtotal Neto: ${formatCLP(storeData.storeTotalNet)}
         </span>
-        <span style="font-size: 0.72rem; background: rgba(95, 6, 250, 0.12); color: #5f06fa; padding: 2px 7px; border-radius: 4px; font-weight: 700;">
+        <span style="font-size: 0.68rem; background: rgba(95, 6, 250, 0.12); color: #5f06fa; padding: 1px 6px; border-radius: 4px; font-weight: 700;">
           ${storeData.sharePct}% del Holding
         </span>
       </div>
-      <button type="button" class="btn btn-sm btn-outline" onclick="window.setConglomerateStoreView(null)" style="font-size: 0.75rem; font-weight: 700; border-radius: 6px; border-color: rgba(95,6,250,0.4); color: #5f06fa; height: 28px; padding: 0 10px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
-        <i class="ri-close-line"></i> Quitar filtro de tienda
+      <button type="button" class="btn btn-sm btn-outline" onclick="window.setConglomerateStoreView(null)" style="font-size: 0.7rem; font-weight: 700; border-radius: 5px; border-color: rgba(95,6,250,0.4); color: #5f06fa; height: 24px; padding: 0 8px; display: inline-flex; align-items: center; gap: 3px; cursor: pointer;">
+        <i class="ri-close-line"></i> Quitar filtro
       </button>
     </div>
   `;
@@ -12581,13 +12729,13 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
     if (needsOrderEnrichment) {
       try {
         const orderIds = snapshot.orders.map(o => o.id);
-        const BATCH_SIZE = 500;
+        const BATCH_SIZE = 120;
         let dbOrders = [];
         for (let i = 0; i < orderIds.length; i += BATCH_SIZE) {
           const chunk = orderIds.slice(i, i + BATCH_SIZE);
           const { data: chunkData, error: chunkErr } = await supabase
             .from('orders')
-            .select('id, external_order_number, external_platform, raw_shopify_data, raw_woocommerce_data, raw_meli_data')
+            .select('id, external_order_number, external_platform, shopify_name:raw_shopify_data->>name, shopify_order_num:raw_shopify_data->>order_number')
             .in('id', chunk);
           if (!chunkErr && chunkData) {
             dbOrders = dbOrders.concat(chunkData);
@@ -12599,10 +12747,10 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
           snapshot.orders.forEach(o => {
             const dbo = oMap[o.id];
             if (dbo) {
-              const plat = dbo.external_platform || (dbo.raw_shopify_data ? 'Shopify' : (dbo.raw_woocommerce_data ? 'WooCommerce' : (dbo.raw_meli_data ? 'Mercado Libre' : 'Manual')));
+              const plat = dbo.external_platform || (dbo.shopify_name || dbo.shopify_order_num ? 'Shopify' : 'Manual');
               o.platform = o.platform || plat;
               o.externalPlatform = o.externalPlatform || plat;
-              const refNum = dbo.external_order_number || dbo.raw_shopify_data?.name || (dbo.raw_shopify_data?.order_number ? `#${dbo.raw_shopify_data.order_number}` : null);
+              const refNum = dbo.external_order_number || dbo.shopify_name || (dbo.shopify_order_num ? `#${dbo.shopify_order_num}` : null);
               if (refNum) {
                 o.orderNumber = refNum;
                 o.externalOrderNumber = refNum;

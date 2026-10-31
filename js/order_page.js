@@ -1887,22 +1887,106 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
     }
   }
 
+  // Verificar si existe tracking forzado manualmente en el pedido
+  let forcedInfo = null;
+  const rawSources = [
+    orderData.raw_shopify_data,
+    orderData.raw_woocommerce_data,
+    orderData.raw_falabella_data,
+    orderData.raw_paris_data,
+    orderData.raw_ripley_data,
+    orderData.raw_jumpseller_data,
+    orderData.raw_tiendanube_data,
+    orderData.raw_meli_data,
+    orderData.raw_walmart_data
+  ];
+  for (const src of rawSources) {
+    if (src && typeof src === 'object' && !Array.isArray(src) && src.wms_forced_tracking && src.wms_forced_tracking.active) {
+      const ft = src.wms_forced_tracking;
+      const trk = String(ft.tracking_number || '').trim();
+      if (trk) {
+        forcedInfo = {
+          active: true,
+          tracking_number: trk,
+          courier: ft.courier ? String(ft.courier).trim() : (orderData.courier ? String(orderData.courier).trim() : null),
+          tracking_url: ft.tracking_url ? String(ft.tracking_url).trim() : (orderData.tracking_url ? String(orderData.tracking_url).trim() : null),
+          source_table: ft.source_table || null,
+          status: ft.status || null,
+          global_status: ft.global_status || null,
+          updated_at: ft.updated_at || null
+        };
+        break;
+      }
+    }
+  }
+
   // Verificar si Shopify reporta shipment_status = 'delivered' en sus fulfillments
   const shopifyFulfillments = orderData.raw_shopify_data?.fulfillments;
   const shopifyFulfillmentDelivered = Array.isArray(shopifyFulfillments) && shopifyFulfillments.some(f => String(f?.shipment_status || '').toLowerCase() === 'delivered');
 
-  // Ordenar envíos priorizando ENTREGADO (3) > EN TRÁNSITO / ALERTA / DEVOLUCIÓN (2) > SIN MOVIMIENTO (1)
+  // Ordenar envíos priorizando tracking forzado > ENTREGADO (4) > EN TRÁNSITO (3) > DEVOLUCIÓN/ALERTA no cancelada (2) > SIN MOVIMIENTO (1) > CANCELADOS (0)
   if (validShipments.length > 1) {
     validShipments.sort((a, b) => {
+      if (forcedInfo?.active && forcedInfo.tracking_number) {
+        const fTrack = String(forcedInfo.tracking_number).trim().toUpperCase();
+        const matchesForced = (s) => {
+          const t1 = String(s.tracking || '').trim().toUpperCase();
+          const t2 = String(s.source_id || '').trim().toUpperCase();
+          const t3 = String(s.raw_data?.uuid || '').trim().toUpperCase();
+          return t1 === fTrack || t2 === fTrack || t3 === fTrack;
+        };
+        const aF = matchesForced(a);
+        const bF = matchesForced(b);
+        if (aF && !bF) return -1;
+        if (!aF && bF) return 1;
+      }
       const evalA = evaluateSingleShipment(a);
       const evalB = evaluateSingleShipment(b);
-      const score = (g) => (g === 'ENTREGADO' ? 3 : (['EN TRÁNSITO', 'ALERTA', 'DEVOLUCIÓN'].includes(g) ? 2 : 1));
-      const diff = score(evalB.globStatus) - score(evalA.globStatus);
+      const isCanc = (txt) => {
+        const l = String(txt || '').toLowerCase();
+        return l === 'cancelado' || l.includes('cancelad') || l.includes('eliminad') || l.includes('anula') || l.includes('rechazado por courier');
+      };
+      const score = (ev) => {
+        if (isCanc(ev.statusText)) return 0;
+        if (ev.globStatus === 'ENTREGADO') return 4;
+        if (ev.globStatus === 'EN TRÁNSITO') return 3;
+        if (['ALERTA', 'DEVOLUCIÓN'].includes(ev.globStatus)) return 2;
+        return 1;
+      };
+      const diff = score(evalB) - score(evalA);
       if (diff !== 0) return diff;
       const tA = a.updated_at ? new Date(a.updated_at).getTime() : 0;
       const tB = b.updated_at ? new Date(b.updated_at).getTime() : 0;
       return tB - tA;
     });
+  }
+
+  // Si existe tracking forzado y el primer envío no coincide, inyectarlo como primario
+  if (forcedInfo?.active && forcedInfo.tracking_number) {
+    const fTrackUp = String(forcedInfo.tracking_number).trim().toUpperCase();
+    const topMatch = validShipments.length > 0 && (
+      String(validShipments[0].tracking || '').trim().toUpperCase() === fTrackUp ||
+      String(validShipments[0].source_id || '').trim().toUpperCase() === fTrackUp
+    );
+    if (!topMatch) {
+      const fCourier = forcedInfo.courier || orderData.courier || 'ALPHA';
+      const isAlphaForced = fCourier.toUpperCase() === 'ALPHA' || fCourier.toUpperCase().includes('LIGHTDATA') || forcedInfo.source_table === 'lightdata_envios';
+      const defaultForcedUrl = forcedInfo.tracking_url || orderData.tracking_url || (isAlphaForced ? `https://alphagroup.lightdata.com.ar/tracking.php?token=${forcedInfo.tracking_number}d54df4s8a88` : '');
+      validShipments.unshift({
+        id: `forced:${forcedInfo.tracking_number}`,
+        source_table: forcedInfo.source_table || (isAlphaForced ? 'lightdata_envios' : 'manual_forced'),
+        source_id: String(forcedInfo.tracking_number),
+        tracking: String(forcedInfo.tracking_number),
+        pedido_referencia: orderData.external_order_number || String(forcedInfo.tracking_number),
+        tracking_url: defaultForcedUrl,
+        courier: fCourier,
+        status: forcedInfo.status || (String(orderData.estado_wms || '').toLowerCase() === 'despachado' ? 'En tránsito' : 'En preparación'),
+        global_status: forcedInfo.global_status || (String(orderData.estado_wms || '').toLowerCase() === 'despachado' ? 'EN TRÁNSITO' : 'SIN MOVIMIENTO'),
+        is_forced: true,
+        created_at: forcedInfo.updated_at || orderData.created_at,
+        updated_at: forcedInfo.updated_at || orderData.created_at
+      });
+    }
   }
 
   const primaryShipment = validShipments[0] || null;
@@ -1941,16 +2025,20 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
   }
 
   // Resolver nombre limpio del Courier (homologado con Torre de Control)
-  const orderCourierUpper = String(orderData.courier || '').toUpperCase().trim();
+  const orderCourierUpper = String(forcedInfo?.active && forcedInfo.courier ? forcedInfo.courier : (orderData.courier || '')).toUpperCase().trim();
   const orderOperadorUpper = String(orderData.operador || '').toUpperCase().trim();
-  const isAlphaOrder = orderCourierUpper === 'LIGHTDATA' ||
-    orderCourierUpper === 'PENDIENTE_LIGHTDATA' ||
-    primaryShipment?.source_table === 'lightdata_envios' ||
-    (orderOperadorUpper === 'ALPHA' && (hasRealLd || !primaryShipment || primaryShipment.source_table === 'lightdata_envios')) ||
-    (orderCourierUpper === 'CARRIER EXTERNO' && (primaryShipment?.source_table === 'lightdata_envios' || hasRealLd));
+  const isAlphaOrder = forcedInfo?.active
+    ? (forcedInfo.source_table === 'lightdata_envios' || ['ALPHA', 'LIGHTDATA', 'CARRIER EXTERNO'].includes(orderCourierUpper))
+    : (orderCourierUpper === 'LIGHTDATA' ||
+       orderCourierUpper === 'PENDIENTE_LIGHTDATA' ||
+       primaryShipment?.source_table === 'lightdata_envios' ||
+       (orderOperadorUpper === 'ALPHA' && (hasRealLd || !primaryShipment || primaryShipment.source_table === 'lightdata_envios')) ||
+       (orderCourierUpper === 'CARRIER EXTERNO' && (primaryShipment?.source_table === 'lightdata_envios' || hasRealLd)));
 
   let effectiveCourier = 'No asignado';
-  if (isAlphaOrder) {
+  if (forcedInfo?.active && forcedInfo.courier && !isAlphaOrder) {
+    effectiveCourier = forcedInfo.courier;
+  } else if (isAlphaOrder) {
     effectiveCourier = 'ALPHA (LightData)';
   } else if (primaryShipment?.source_table === 'optiroute_orders' && (!primaryShipment.courier || primaryShipment.courier === 'CARRIER EXTERNO')) {
     effectiveCourier = 'STOCKA X (Optiroute)';
@@ -1972,7 +2060,8 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
 
   // Resolver número de seguimiento y URL pública de tracking
   let effectiveTracking = String(
-    (isAlphaOrder ? (orderData.raw_lightdata_data?.did || orderData.raw_lightdata_data?.id || primaryShipment?.source_id || orderData.tracking_number) : '') ||
+    (forcedInfo?.active && forcedInfo.tracking_number ? forcedInfo.tracking_number : '') ||
+    (isAlphaOrder ? (primaryShipment?.source_id || orderData.raw_lightdata_data?.did || orderData.raw_lightdata_data?.id || orderData.tracking_number) : '') ||
     orderData.tracking_number ||
     primaryShipment?.tracking ||
     (primaryShipment?.source_table === 'optiroute_orders' ? primaryShipment.raw_data?.uuid : '') ||
@@ -1982,7 +2071,7 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
     effectiveTracking = '';
   }
 
-  let effectiveTrackingUrl = String(primaryShipment?.tracking_url || orderData.tracking_url || '').trim();
+  let effectiveTrackingUrl = String((forcedInfo?.active && forcedInfo.tracking_url ? forcedInfo.tracking_url : '') || primaryShipment?.tracking_url || orderData.tracking_url || '').trim();
   if (orderData.raw_lightdata_data?.raw_data?.[31] && String(orderData.raw_lightdata_data.raw_data[31]).startsWith('http')) {
     effectiveTrackingUrl = String(orderData.raw_lightdata_data.raw_data[31]).trim();
   } else if (primaryShipment?.source_table === 'lightdata_envios' && primaryShipment?.raw_data?.[31] && String(primaryShipment.raw_data[31]).startsWith('http')) {

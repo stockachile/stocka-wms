@@ -356,6 +356,9 @@ async function syncOrders(integration) {
         // Preservar las banderas dentro de raw_shopify_data para que no se borren en sincronizaciones
         orderDataToUpdate.raw_shopify_data = {
           ...order,
+          ...(existingRaw.admin_notes ? { admin_notes: existingRaw.admin_notes } : {}),
+          ...(existingRaw.wms_admin_notes ? { wms_admin_notes: existingRaw.wms_admin_notes } : {}),
+          ...(existingRaw.internal_notes ? { internal_notes: existingRaw.internal_notes } : {}),
           ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
           ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
           ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {}),

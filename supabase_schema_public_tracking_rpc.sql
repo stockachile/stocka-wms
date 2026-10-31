@@ -82,15 +82,31 @@ BEGIN
             ELSE COALESCE(o.estado_wms, o.status, 'En Proceso')
           END,
           'tracking_number', COALESCE(
+            CASE WHEN COALESCE((o.raw_shopify_data->'wms_forced_tracking'->>'active')::boolean, false) IS TRUE
+              THEN NULLIF(TRIM(o.raw_shopify_data->'wms_forced_tracking'->>'tracking_number'), '')
+              ELSE NULL
+            END,
             NULLIF(NULLIF(o.tracking_number, 'No informado'), ''),
-            (SELECT eu.tracking FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking IS NOT NULL AND eu.tracking <> 'No informado' LIMIT 1),
+            (SELECT eu.tracking FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking IS NOT NULL AND eu.tracking <> 'No informado' AND LOWER(COALESCE(eu.status, '')) NOT LIKE '%cancel%' LIMIT 1),
             o.tracking_number
           ),
           'tracking_url', COALESCE(
+            CASE WHEN COALESCE((o.raw_shopify_data->'wms_forced_tracking'->>'active')::boolean, false) IS TRUE
+              THEN NULLIF(TRIM(o.raw_shopify_data->'wms_forced_tracking'->>'tracking_url'), '')
+              ELSE NULL
+            END,
             o.tracking_url,
-            (SELECT eu.tracking_url FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking_url IS NOT NULL AND eu.tracking_url <> '' LIMIT 1)
+            (SELECT eu.tracking_url FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking_url IS NOT NULL AND eu.tracking_url <> '' AND LOWER(COALESCE(eu.status, '')) NOT LIKE '%cancel%' LIMIT 1)
           ),
-          'courier', COALESCE(o.operador, o.courier, 'Stocka Same Day / Courier'),
+          'courier', COALESCE(
+            CASE WHEN COALESCE((o.raw_shopify_data->'wms_forced_tracking'->>'active')::boolean, false) IS TRUE
+              THEN NULLIF(TRIM(o.raw_shopify_data->'wms_forced_tracking'->>'courier'), '')
+              ELSE NULL
+            END,
+            o.courier,
+            o.operador,
+            'Stocka Same Day / Courier'
+          ),
           'categoria_entrega', COALESCE(o.categoria_entrega, 'DISTRIBUCIÓN'),
           'shipping_city', o.shipping_city,
           'created_at', o.created_at,
@@ -217,15 +233,31 @@ BEGIN
             ELSE COALESCE(o.estado_wms, o.status, 'En Proceso')
           END,
           'tracking_number', COALESCE(
+            CASE WHEN COALESCE((o.raw_shopify_data->'wms_forced_tracking'->>'active')::boolean, false) IS TRUE
+              THEN NULLIF(TRIM(o.raw_shopify_data->'wms_forced_tracking'->>'tracking_number'), '')
+              ELSE NULL
+            END,
             NULLIF(NULLIF(o.tracking_number, 'No informado'), ''),
-            (SELECT eu.tracking FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking IS NOT NULL AND eu.tracking <> 'No informado' LIMIT 1),
+            (SELECT eu.tracking FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking IS NOT NULL AND eu.tracking <> 'No informado' AND LOWER(COALESCE(eu.status, '')) NOT LIKE '%cancel%' LIMIT 1),
             o.tracking_number
           ),
           'tracking_url', COALESCE(
+            CASE WHEN COALESCE((o.raw_shopify_data->'wms_forced_tracking'->>'active')::boolean, false) IS TRUE
+              THEN NULLIF(TRIM(o.raw_shopify_data->'wms_forced_tracking'->>'tracking_url'), '')
+              ELSE NULL
+            END,
             o.tracking_url,
-            (SELECT eu.tracking_url FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking_url IS NOT NULL AND eu.tracking_url <> '' LIMIT 1)
+            (SELECT eu.tracking_url FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking_url IS NOT NULL AND eu.tracking_url <> '' AND LOWER(COALESCE(eu.status, '')) NOT LIKE '%cancel%' LIMIT 1)
           ),
-          'courier', COALESCE(o.operador, o.courier, 'Stocka Same Day / Courier'),
+          'courier', COALESCE(
+            CASE WHEN COALESCE((o.raw_shopify_data->'wms_forced_tracking'->>'active')::boolean, false) IS TRUE
+              THEN NULLIF(TRIM(o.raw_shopify_data->'wms_forced_tracking'->>'courier'), '')
+              ELSE NULL
+            END,
+            o.courier,
+            o.operador,
+            'Stocka Same Day / Courier'
+          ),
           'categoria_entrega', COALESCE(o.categoria_entrega, 'DISTRIBUCIÓN'),
           'shipping_city', o.shipping_city,
           'created_at', o.created_at,
@@ -362,15 +394,31 @@ BEGIN
           ELSE COALESCE(o.estado_wms, o.status, 'En Proceso')
         END,
         'tracking_number', COALESCE(
+          CASE WHEN COALESCE((o.raw_shopify_data->'wms_forced_tracking'->>'active')::boolean, false) IS TRUE
+            THEN NULLIF(TRIM(o.raw_shopify_data->'wms_forced_tracking'->>'tracking_number'), '')
+            ELSE NULL
+          END,
           NULLIF(NULLIF(o.tracking_number, 'No informado'), ''),
-          (SELECT eu.tracking FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking IS NOT NULL AND eu.tracking <> 'No informado' LIMIT 1),
+          (SELECT eu.tracking FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking IS NOT NULL AND eu.tracking <> 'No informado' AND LOWER(COALESCE(eu.status, '')) NOT LIKE '%cancel%' LIMIT 1),
           o.tracking_number
         ),
         'tracking_url', COALESCE(
+          CASE WHEN COALESCE((o.raw_shopify_data->'wms_forced_tracking'->>'active')::boolean, false) IS TRUE
+            THEN NULLIF(TRIM(o.raw_shopify_data->'wms_forced_tracking'->>'tracking_url'), '')
+            ELSE NULL
+          END,
           o.tracking_url,
-          (SELECT eu.tracking_url FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking_url IS NOT NULL AND eu.tracking_url <> '' LIMIT 1)
+          (SELECT eu.tracking_url FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking_url IS NOT NULL AND eu.tracking_url <> '' AND LOWER(COALESCE(eu.status, '')) NOT LIKE '%cancel%' LIMIT 1)
         ),
-        'courier', COALESCE(o.operador, o.courier, 'Stocka Same Day / Courier'),
+        'courier', COALESCE(
+          CASE WHEN COALESCE((o.raw_shopify_data->'wms_forced_tracking'->>'active')::boolean, false) IS TRUE
+            THEN NULLIF(TRIM(o.raw_shopify_data->'wms_forced_tracking'->>'courier'), '')
+            ELSE NULL
+          END,
+          o.courier,
+          o.operador,
+          'Stocka Same Day / Courier'
+        ),
         'categoria_entrega', COALESCE(o.categoria_entrega, 'DISTRIBUCIÓN'),
         'shipping_city', o.shipping_city,
         'created_at', o.created_at,
@@ -503,15 +551,31 @@ BEGIN
           ELSE COALESCE(o.estado_wms, o.status, 'En Proceso')
         END,
         'tracking_number', COALESCE(
+          CASE WHEN COALESCE((o.raw_shopify_data->'wms_forced_tracking'->>'active')::boolean, false) IS TRUE
+            THEN NULLIF(TRIM(o.raw_shopify_data->'wms_forced_tracking'->>'tracking_number'), '')
+            ELSE NULL
+          END,
           NULLIF(NULLIF(o.tracking_number, 'No informado'), ''),
-          (SELECT eu.tracking FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking IS NOT NULL AND eu.tracking <> 'No informado' LIMIT 1),
+          (SELECT eu.tracking FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking IS NOT NULL AND eu.tracking <> 'No informado' AND LOWER(COALESCE(eu.status, '')) NOT LIKE '%cancel%' LIMIT 1),
           o.tracking_number
         ),
         'tracking_url', COALESCE(
+          CASE WHEN COALESCE((o.raw_shopify_data->'wms_forced_tracking'->>'active')::boolean, false) IS TRUE
+            THEN NULLIF(TRIM(o.raw_shopify_data->'wms_forced_tracking'->>'tracking_url'), '')
+            ELSE NULL
+          END,
           o.tracking_url,
-          (SELECT eu.tracking_url FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking_url IS NOT NULL AND eu.tracking_url <> '' LIMIT 1)
+          (SELECT eu.tracking_url FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking_url IS NOT NULL AND eu.tracking_url <> '' AND LOWER(COALESCE(eu.status, '')) NOT LIKE '%cancel%' LIMIT 1)
         ),
-        'courier', COALESCE(o.operador, o.courier, 'Stocka Same Day / Courier'),
+        'courier', COALESCE(
+          CASE WHEN COALESCE((o.raw_shopify_data->'wms_forced_tracking'->>'active')::boolean, false) IS TRUE
+            THEN NULLIF(TRIM(o.raw_shopify_data->'wms_forced_tracking'->>'courier'), '')
+            ELSE NULL
+          END,
+          o.courier,
+          o.operador,
+          'Stocka Same Day / Courier'
+        ),
         'categoria_entrega', COALESCE(o.categoria_entrega, 'DISTRIBUCIÓN'),
         'shipping_city', o.shipping_city,
         'created_at', o.created_at,
@@ -637,15 +701,31 @@ BEGIN
           ELSE COALESCE(o.estado_wms, o.status, 'En Proceso')
         END,
         'tracking_number', COALESCE(
+          CASE WHEN COALESCE((o.raw_shopify_data->'wms_forced_tracking'->>'active')::boolean, false) IS TRUE
+            THEN NULLIF(TRIM(o.raw_shopify_data->'wms_forced_tracking'->>'tracking_number'), '')
+            ELSE NULL
+          END,
           NULLIF(NULLIF(o.tracking_number, 'No informado'), ''),
-          (SELECT eu.tracking FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking IS NOT NULL AND eu.tracking <> 'No informado' LIMIT 1),
+          (SELECT eu.tracking FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking IS NOT NULL AND eu.tracking <> 'No informado' AND LOWER(COALESCE(eu.status, '')) NOT LIKE '%cancel%' LIMIT 1),
           o.tracking_number
         ),
         'tracking_url', COALESCE(
+          CASE WHEN COALESCE((o.raw_shopify_data->'wms_forced_tracking'->>'active')::boolean, false) IS TRUE
+            THEN NULLIF(TRIM(o.raw_shopify_data->'wms_forced_tracking'->>'tracking_url'), '')
+            ELSE NULL
+          END,
           o.tracking_url,
-          (SELECT eu.tracking_url FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking_url IS NOT NULL AND eu.tracking_url <> '' LIMIT 1)
+          (SELECT eu.tracking_url FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking_url IS NOT NULL AND eu.tracking_url <> '' AND LOWER(COALESCE(eu.status, '')) NOT LIKE '%cancel%' LIMIT 1)
         ),
-        'courier', COALESCE(o.operador, o.courier, 'Stocka Same Day / Courier'),
+        'courier', COALESCE(
+          CASE WHEN COALESCE((o.raw_shopify_data->'wms_forced_tracking'->>'active')::boolean, false) IS TRUE
+            THEN NULLIF(TRIM(o.raw_shopify_data->'wms_forced_tracking'->>'courier'), '')
+            ELSE NULL
+          END,
+          o.courier,
+          o.operador,
+          'Stocka Same Day / Courier'
+        ),
         'categoria_entrega', COALESCE(o.categoria_entrega, 'DISTRIBUCIÓN'),
         'shipping_city', o.shipping_city,
         'created_at', o.created_at,
@@ -731,6 +811,7 @@ BEGIN
     WHERE 
       LOWER(TRIM(COALESCE(o.tracking_number, ''))) = LOWER(v_clean_courier)
       OR LOWER(TRIM(COALESCE(o.tracking_number, ''))) ILIKE '%' || LOWER(v_clean_courier)
+      OR LOWER(TRIM(COALESCE(o.raw_shopify_data->'wms_forced_tracking'->>'tracking_number', ''))) = LOWER(v_clean_courier)
     LIMIT 10;
 
   ELSE

@@ -512,7 +512,7 @@ export function computeMerchantsRadarSummary() {
   const dateTo = dateToInput?.value || window.lastFetchedDateTo || '';
 
   const ordersInPeriod = allLoadedOrders.filter(order => {
-    if (!dateFrom && !dateTo) return true;
+    if (!dateFrom && !dateTo) return !order._isOverdueBacklog;
     if (!order.created_at) return false;
     let orderDateStr = order._wmsDateStr;
     if (!orderDateStr) {
