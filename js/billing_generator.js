@@ -58,6 +58,7 @@ export const billingState = {
     maxDailyVolume: 0,
     minDailyVolume: 0
   },
+  storageByStore: {},
   productsStats: {
     totalUnits: 0,
     avgUnitsPerOrder: 0,
@@ -105,6 +106,11 @@ export const billingState = {
     totalToPay: 0
   },
   isSaved: true,
+  isPublished: false,
+  isPaid: false,
+  isLocked: false,
+  paymentStatus: 'Por solicitar',
+  loadedFromSnapshot: false,
   isLoading: false,
   isConglomerate: false,
   conglomerateName: null,
@@ -390,6 +396,25 @@ export function injectBillingGeneratorStyles() {
       color: #c084fc;
       border-color: rgba(168, 85, 247, 0.3);
     }
+    .bg-order-pos-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 800;
+      background: rgba(14, 165, 233, 0.14);
+      color: #0284c7;
+      border: 1px solid rgba(14, 165, 233, 0.38);
+      white-space: nowrap;
+      letter-spacing: 0.01em;
+    }
+    [data-theme="dark"] .bg-order-pos-badge {
+      background: rgba(56, 189, 248, 0.18);
+      color: #38bdf8;
+      border-color: rgba(56, 189, 248, 0.42);
+    }
 
     /* Tabla editable tipo Excel */
     .bg-excel-table-container {
@@ -550,6 +575,23 @@ export function injectBillingGeneratorStyles() {
     .bg-col-filter-select:focus {
       outline: none;
       border-color: #5f06fa;
+    }
+
+    .bg-table-locked .bg-excel-input,
+    .bg-table-locked .bg-excel-select {
+      pointer-events: none !important;
+      background: transparent !important;
+      border-color: transparent !important;
+      box-shadow: none !important;
+      appearance: none !important;
+      -webkit-appearance: none !important;
+      cursor: default !important;
+    }
+
+    .bg-table-locked tbody input[type="checkbox"] {
+      pointer-events: none !important;
+      cursor: default !important;
+      opacity: 0.72;
     }
 
     .bg-quick-filter-btn {
@@ -785,26 +827,30 @@ export function injectBillingGeneratorStyles() {
       border-bottom: none;
     }
 
-    /* 4 Tarjetas Métricas en 1 Sola Línea con Estilo Único y Sobrio */
+    /* Tarjetas Métricas en 1 Sola Línea con Estilo Único y Sobrio (4 o 5 tarjetas) */
     .stocka-metric-row {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 0.85rem;
-      margin-bottom: 1.5rem;
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      gap: 0.7rem;
+      margin-bottom: 1.15rem;
+      width: 100%;
     }
 
-    @media (max-width: 860px) {
+    @media (max-width: 720px) {
       .stocka-metric-row {
-        grid-template-columns: repeat(2, 1fr);
+        flex-wrap: wrap;
       }
     }
 
     .stocka-metric-card {
+      flex: 1 1 0;
+      min-width: 0;
       background: #ffffff;
       border: 1px solid #cbd5e1;
       border-top: 3px solid #5f06fa;
       border-radius: 8px;
-      padding: 0.85rem 1rem;
+      padding: 0.7rem 0.85rem;
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
@@ -812,40 +858,53 @@ export function injectBillingGeneratorStyles() {
     }
 
     .stocka-metric-title {
-      font-size: 0.7rem;
+      font-size: 0.67rem;
       font-weight: 700;
       color: #64748b;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 0.35rem;
+      letter-spacing: 0.4px;
+      margin-bottom: 0.28rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .stocka-metric-value {
-      font-size: 1.35rem;
+      font-size: 1.22rem;
       font-weight: 800;
       color: #0f172a;
       font-family: 'Outfit', sans-serif;
-      line-height: 1.2;
+      line-height: 1.15;
+      white-space: nowrap;
     }
 
     .stocka-metric-sub {
-      font-size: 0.75rem;
+      font-size: 0.71rem;
       color: #64748b;
-      margin-top: 0.35rem;
+      margin-top: 0.28rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .stocka-banner-hero {
-      background: linear-gradient(135deg, #5f06fa 0%, #7c3aed 100%);
+      background: linear-gradient(135deg, #5f06fa 0%, #6d28d9 60%, #4c1d95 100%);
       color: #ffffff;
       border-radius: 10px;
-      padding: 1.25rem 1.75rem;
-      margin-bottom: 1.5rem;
+      padding: 1rem 1.35rem;
+      margin-bottom: 1.25rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      flex-wrap: wrap;
-      gap: 1.25rem;
-      box-shadow: 0 4px 14px rgba(95, 6, 250, 0.25);
+      flex-wrap: nowrap;
+      gap: 1.15rem;
+      box-shadow: 0 4px 14px rgba(95, 6, 250, 0.24);
+    }
+
+    @media (max-width: 760px) {
+      .stocka-banner-hero {
+        flex-wrap: wrap;
+      }
     }
 
     .stocka-table-official {
@@ -1278,6 +1337,26 @@ export function isFullMeliOrder(order) {
 }
 window.isFullMeliOrder = isFullMeliOrder;
 
+// Detección de pedidos generados en Punto de Venta físico (POS)
+export function isPosSaleOrder(order) {
+  if (!order) return false;
+  if (order.isPosOrder === true || order.deliveryType === 'POS') return true;
+  const orderNum = String(order.external_order_number || order.orderNumber || order.externalOrderNumber || '').trim().toUpperCase();
+  if (orderNum.startsWith('POS-') || orderNum.startsWith('VTA-')) return true;
+  const cat = String(order.categoria_entrega || order.categoriaEntrega || '').trim().toUpperCase();
+  if (cat === 'SHOP POINT (POS)' || cat === 'SHOP POINT' || cat === 'POS') return true;
+  const orig = String(order.origen || '').trim().toUpperCase();
+  const plat = String(order.external_platform || order.platform || order.externalPlatform || '').trim().toUpperCase();
+  if (orig === 'PUNTO DE VENTA' || orig === 'POS' || plat === 'PUNTO DE VENTA' || plat === 'POS' || plat.includes('PUNTO DE VENTA')) return true;
+  const ag = String(order.agenda || '').trim().toUpperCase();
+  if (ag === 'COMPRA EN BODEGA' || ag === 'PUNTO DE VENTA' || ag === 'POS') return true;
+  if (order.raw_shopify_data?.is_pos_sale) return true;
+  const shipMethod = String(order.shipping_method || order.shippingMethod || '').trim().toUpperCase();
+  if (shipMethod.includes('PUNTO DE VENTA') || shipMethod.includes('COMPRA EN BODEGA') || shipMethod.includes('VENTA PRESENCIAL')) return true;
+  return false;
+}
+window.isPosSaleOrder = isPosSaleOrder;
+
 // Calcular desglose métrico por tienda dentro de un conglomerado
 export function computeConglomerateStoreBreakdown(orders = [], bState = {}) {
   const children = bState.conglomerateChildren || [];
@@ -1286,7 +1365,6 @@ export function computeConglomerateStoreBreakdown(orders = [], bState = {}) {
   }
 
   const breakdown = [];
-  const totalNetAll = bState.totals?.totalNet || 0;
 
   children.forEach(storeName => {
     const storeUpper = storeName.toUpperCase();
@@ -1312,7 +1390,6 @@ export function computeConglomerateStoreBreakdown(orders = [], bState = {}) {
     const excludedOrders = storeOrders.length - billableOrders.length;
 
     const storeTotalNet = pickPackNet + shippingFreightNet + storeMeliFullNet;
-    const sharePct = totalNetAll > 0 ? parseFloat(((storeTotalNet / totalNetAll) * 100).toFixed(1)) : 0;
 
     breakdown.push({
       storeName,
@@ -1330,8 +1407,21 @@ export function computeConglomerateStoreBreakdown(orders = [], bState = {}) {
       meliFullNet: storeMeliFullNet,
       totalSalesTicket,
       storeTotalNet,
-      sharePct
+      sharePct: 0
     });
+  });
+
+  const totalOperationalNet = breakdown.reduce((sum, s) => sum + (s.storeTotalNet || 0), 0);
+  const totalOrdersAll = breakdown.reduce((sum, s) => sum + (s.totalOrders || 0), 0);
+
+  breakdown.forEach(s => {
+    if (totalOperationalNet > 0) {
+      s.sharePct = parseFloat(((s.storeTotalNet / totalOperationalNet) * 100).toFixed(1));
+    } else if (totalOrdersAll > 0) {
+      s.sharePct = parseFloat(((s.totalOrders / totalOrdersAll) * 100).toFixed(1));
+    } else {
+      s.sharePct = 0;
+    }
   });
 
   return breakdown;
@@ -1554,9 +1644,19 @@ export async function getCommerceBillingInfo(commerceName) {
           }
         }
 
-        // Mapear configuración POS de tiendas del conglomerado
-        result.childPosConfigs = childStores.map(childName => {
-          const chCfg = (childConfigs || []).find(c => c.comercio?.toLowerCase() === childName.toLowerCase());
+        // Mapear configuración POS de tiendas del conglomerado (deduplicadas por nombre en mayúsculas)
+        const uniqueChildStores = [];
+        const seenChildUpper = new Set();
+        childStores.forEach(s => {
+          const up = String(s || '').trim().toUpperCase();
+          if (up && up !== cleanName.toUpperCase() && !seenChildUpper.has(up)) {
+            seenChildUpper.add(up);
+            uniqueChildStores.push(up);
+          }
+        });
+
+        result.childPosConfigs = uniqueChildStores.map(childName => {
+          const chCfg = (childConfigs || []).find(c => c.comercio?.trim().toLowerCase() === childName.toLowerCase());
           const chCached = (typeof window !== 'undefined' && Array.isArray(window.cachedAdminMerchants))
             ? window.cachedAdminMerchants.find(m => m.nombre && m.nombre.trim().toLowerCase() === childName.toLowerCase())
             : null;
@@ -1607,10 +1707,10 @@ export async function getCommerceBillingInfo(commerceName) {
   return result;
 }
 
-// Obtener volumen promedio diario de almacenamiento del mes calendario (Punto B)
+// Obtener volumen promedio diario de almacenamiento del mes calendario (Punto B) y desglose por tienda del conglomerado
 export async function getMonthlyStorageVolume(commerceGroup, year, month) {
   if (!commerceGroup || commerceGroup.length === 0 || !year || !month) {
-    return { averageM3: 0, daysCount: 0, dailyLogs: [] };
+    return { averageM3: 0, daysCount: 0, dailyLogs: [], byStore: {} };
   }
 
   const mm = String(month).padStart(2, '0');
@@ -1629,21 +1729,62 @@ export async function getMonthlyStorageVolume(commerceGroup, year, month) {
 
     if (!error && data && data.length > 0) {
       const dailyMap = {};
+      const dailyByStoreMap = {};
+      const storeDatesMap = {};
+
       data.forEach(item => {
         const d = item.fecha;
         const v = parseFloat(item.volumen) || 0;
+        const storeKey = String(item.comercio || '').trim().toUpperCase();
         dailyMap[d] = (dailyMap[d] || 0) + v;
+
+        if (storeKey) {
+          if (!dailyByStoreMap[d]) dailyByStoreMap[d] = {};
+          dailyByStoreMap[d][storeKey] = parseFloat(((dailyByStoreMap[d][storeKey] || 0) + v).toFixed(4));
+
+          if (!storeDatesMap[storeKey]) storeDatesMap[storeKey] = {};
+          storeDatesMap[storeKey][d] = (storeDatesMap[storeKey][d] || 0) + v;
+        }
       });
 
-      const dates = Object.keys(dailyMap);
+      const dates = Object.keys(dailyMap).sort();
       const daysCount = dates.length;
       const totalVolumeSum = dates.reduce((acc, d) => acc + dailyMap[d], 0);
       const averageM3 = daysCount > 0 ? (totalVolumeSum / daysCount) : 0;
 
+      const byStore = {};
+      Object.keys(storeDatesMap).forEach(storeKey => {
+        const sMap = storeDatesMap[storeKey];
+        const sDates = Object.keys(sMap).sort();
+        const sDaysCount = sDates.length;
+        const sTotalSum = sDates.reduce((acc, d) => acc + sMap[d], 0);
+        const sAvg = sDaysCount > 0 ? (sTotalSum / sDaysCount) : 0;
+        const sVols = sDates.map(d => sMap[d]);
+        const sMax = sVols.length > 0 ? Math.max(...sVols) : 0;
+        const sMin = sVols.length > 0 ? Math.min(...sVols) : 0;
+
+        byStore[storeKey] = {
+          storeName: storeKey,
+          averageM3: parseFloat(sAvg.toFixed(4)),
+          daysCount: sDaysCount,
+          maxDailyVolume: parseFloat(sMax.toFixed(4)),
+          minDailyVolume: parseFloat(sMin.toFixed(4)),
+          dailyLogs: dates.map(d => ({
+            date: d,
+            volume: parseFloat((sMap[d] || 0).toFixed(4))
+          }))
+        };
+      });
+
       return {
         averageM3: parseFloat(averageM3.toFixed(4)),
         daysCount,
-        dailyLogs: dates.map(d => ({ date: d, volume: dailyMap[d] }))
+        dailyLogs: dates.map(d => ({
+          date: d,
+          volume: parseFloat(dailyMap[d].toFixed(4)),
+          byStore: dailyByStoreMap[d] || {}
+        })),
+        byStore
       };
     }
   } catch (e) {
@@ -1658,16 +1799,35 @@ export async function getMonthlyStorageVolume(commerceGroup, year, month) {
       .in('comercio', commerceGroup);
 
     if (curVol && curVol.length > 0) {
-      const sum = curVol.reduce((acc, c) => acc + (parseFloat(c.volumen_actual) || 0), 0);
+      const byStore = {};
+      let sum = 0;
+      curVol.forEach(c => {
+        const v = parseFloat(c.volumen_actual) || 0;
+        sum += v;
+        const storeKey = String(c.comercio || '').trim().toUpperCase();
+        if (storeKey) {
+          const prev = byStore[storeKey]?.averageM3 || 0;
+          const nextVol = parseFloat((prev + v).toFixed(4));
+          byStore[storeKey] = {
+            storeName: storeKey,
+            averageM3: nextVol,
+            daysCount: 1,
+            maxDailyVolume: nextVol,
+            minDailyVolume: nextVol,
+            dailyLogs: []
+          };
+        }
+      });
       return {
         averageM3: parseFloat(sum.toFixed(4)),
         daysCount: 1,
-        dailyLogs: []
+        dailyLogs: [],
+        byStore
       };
     }
   } catch (e) {}
 
-  return { averageM3: 0, daysCount: 0, dailyLogs: [] };
+  return { averageM3: 0, daysCount: 0, dailyLogs: [], byStore: {} };
 }
 
 // Generar serie diaria constante (línea fija en el tiempo) para cuando el Admin fija un volumen mensual manual
@@ -1755,12 +1915,386 @@ export function recomputeOrderPickPackWithCustomColumns(order, customColumns = n
   order.orderTotal = order.pickPackTotal + (order.shippingFreight || 0);
 }
 
+// Guardia de protección para periodos cerrados / confirmados / pagados
+export function guardBillingLocked(actionLabel = 'modificar este registro') {
+  if (!billingState.isLocked) return false;
+  if (typeof Swal !== 'undefined') {
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'warning',
+      title: billingState.isPaid ? '🔒 Periodo Cerrado y Pagado' : '🔒 Periodo Confirmado (Solo Lectura)',
+      text: billingState.isPaid
+        ? `No es posible ${actionLabel} porque este periodo ya fue confirmado y pagado.`
+        : `El desglose está bloqueado en modo lectura. Usa "Reabrir para Rectificar" si necesitas editarlo.`,
+      showConfirmButton: false,
+      timer: 3200
+    });
+  }
+  return true;
+}
+window.guardBillingLocked = guardBillingLocked;
+
+// Hidratar estado de facturación directamente desde un Snapshot congelado (0 consultas de recálculo)
+function hydrateBillingStateFromSnapshot(snapshot, commerceName, periodName, periodYear, periodMonth) {
+  sanitizeSnapshotOrdersMarketplace(snapshot);
+
+  billingState.currentCommerce = commerceName;
+  billingState.currentPeriodName = periodName || snapshot.periodName || billingState.currentPeriodName;
+  billingState.currentPeriodYear = snapshot.currentPeriodYear || periodYear;
+  billingState.currentPeriodMonth = snapshot.currentPeriodMonth || periodMonth;
+
+  const upperComm = String(commerceName || '').trim().toUpperCase();
+  const isConglom = Boolean(
+    snapshot.isConglomerate ||
+    upperComm.includes('BIG BANG') ||
+    upperComm.includes('SILVER FOX') ||
+    (Array.isArray(snapshot.conglomerateChildren) && snapshot.conglomerateChildren.length > 0)
+  );
+  billingState.isConglomerate = isConglom;
+  billingState.conglomerateName = snapshot.conglomerateName || (isConglom ? (upperComm.includes('BIG BANG') ? 'BIG BANG' : (upperComm.includes('SILVER FOX') ? 'SILVER FOX' : upperComm)) : null);
+
+  let childrenList = Array.isArray(snapshot.conglomerateChildren) ? snapshot.conglomerateChildren : [];
+  if (isConglom && childrenList.length === 0 && Array.isArray(snapshot.orders)) {
+    const distinctStores = Array.from(new Set(snapshot.orders.map(o => String(o.comercio || '').trim()).filter(Boolean)));
+    if (distinctStores.length > 0) childrenList = distinctStores;
+  }
+  billingState.conglomerateChildren = childrenList;
+  billingState.selectedAsChildStore = false;
+  billingState.activeConglomerateStoreFilter = null;
+
+  billingState.commerceInfo = snapshot.commerceInfo
+    ? { ...snapshot.commerceInfo }
+    : { comercio: commerceName, razonSocial: commerceName, rut: '—', sigla: '—' };
+
+  if (snapshot.invoiceDates) {
+    billingState.invoiceDates = { ...billingState.invoiceDates, ...snapshot.invoiceDates };
+  }
+
+  billingState.pricingConfig = sanitizeAndMergeConfig(snapshot.pricingConfig || billingState.pricingConfig || DEFAULT_PRICING_CONFIG);
+  billingState.ufValue = Number(snapshot.ufValue) || 40884;
+  billingState.ufDate = snapshot.ufDate || `01/${String(billingState.currentPeriodMonth).padStart(2, '0')}/${billingState.currentPeriodYear}`;
+
+  const volM3 = Number(snapshot.volumeM3) || 0;
+  billingState.volumeM3 = parseFloat(volM3.toFixed(4));
+  billingState.isManualVolume = Boolean(snapshot.isManualVolume || snapshot.totals?.isManualVolume);
+  billingState.autoVolumeM3 = Number(snapshot.autoVolumeM3 ?? volM3) || 0;
+  billingState.volumeDailyAverage = Number(snapshot.volumeDailyAverage ?? volM3) || 0;
+  billingState.volumeDaysLogged = Number(snapshot.volumeDaysLogged) || 30;
+  billingState.dailyStorageLogs = Array.isArray(snapshot.dailyStorageLogs) ? snapshot.dailyStorageLogs : [];
+  billingState.autoDailyStorageLogs = billingState.dailyStorageLogs;
+  billingState.autoVolumeDaysLogged = billingState.volumeDaysLogged;
+
+  const sessKey = `${billingState.currentPeriodId}_${commerceName}`;
+  billingState.volumeSessionKey = sessKey;
+  billingState.suppliesSessionKey = sessKey;
+  billingState.adjustmentsSessionKey = sessKey;
+  billingState.abonosSessionKey = sessKey;
+  billingState.customColumnsSessionKey = sessKey;
+
+  billingState.volumeStats = snapshot.volumeStats || {
+    averageM3: billingState.volumeM3,
+    daysCount: billingState.volumeDaysLogged,
+    maxDailyVolume: billingState.volumeM3,
+    minDailyVolume: billingState.volumeM3
+  };
+  billingState.storageByStore = (snapshot.storageByStore && typeof snapshot.storageByStore === 'object')
+    ? snapshot.storageByStore
+    : {};
+
+  billingState.inboundDeclarations = Array.isArray(snapshot.inboundDeclarations) ? snapshot.inboundDeclarations : [];
+  billingState.activeRange = snapshot.activeRange || null;
+  billingState.orders = Array.isArray(snapshot.orders)
+    ? snapshot.orders.map((o, idx) => ({ ...o, rowNumber: o.rowNumber || idx + 1 }))
+    : [];
+  billingState.customColumns = Array.isArray(snapshot.customColumns) ? snapshot.customColumns : [];
+  billingState.supplies = Array.isArray(snapshot.supplies) ? snapshot.supplies : [];
+  billingState.adjustments = Array.isArray(snapshot.adjustments) ? snapshot.adjustments : [];
+  billingState.abonos = Array.isArray(snapshot.abonos) ? snapshot.abonos : [];
+  billingState.posAbonoSales = Array.isArray(snapshot.posAbonoSales) ? snapshot.posAbonoSales : null;
+  billingState.posAbonoSummary = snapshot.posAbonoSummary || null;
+  billingState.allMerchantPosSales = Array.isArray(snapshot.allMerchantPosSales) ? snapshot.allMerchantPosSales : [];
+
+  billingState.totals = {
+    ...billingState.totals,
+    ...(snapshot.totals || {})
+  };
+
+  billingState.productsStats = (snapshot.productsStats && Array.isArray(snapshot.productsStats.topProducts) && snapshot.productsStats.topProducts.length > 0)
+    ? snapshot.productsStats
+    : computeProductsStatsFromOrders(billingState.orders);
+
+  billingState.storeBreakdown = billingState.isConglomerate
+    ? computeConglomerateStoreBreakdown(billingState.orders, billingState)
+    : [];
+
+  billingState.version = snapshot.version || billingState.snapshotVersion || 1;
+  billingState.publishedAt = snapshot.publishedAt || snapshot.generatedAt || null;
+  billingState.loadedFromSnapshot = true;
+  billingState.isLoading = false;
+
+  return billingState;
+}
+
+// --- MOTOR DE CÁLCULO DE VENTAS POS Y ABONO AL SERVICIO DE FULFILLMENT ---
+const BG_POS_MONTH_NAMES_ES = [
+  'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+  'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
+];
+
+function deriveBgPosPeriodFromDate(dateVal) {
+  const d = dateVal ? new Date(dateVal) : new Date();
+  if (isNaN(d.getTime())) {
+    const now = new Date();
+    return `${BG_POS_MONTH_NAMES_ES[now.getMonth()]} ${now.getFullYear()}`;
+  }
+  return `${BG_POS_MONTH_NAMES_ES[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+export async function fetchAndComputePosSalesAbonoForBilling(commerceGroup, periodName, pricingConfig, ordersList = []) {
+  const targetPeriodUpper = String(periodName || '').trim().toUpperCase();
+  const groupList = Array.isArray(commerceGroup) && commerceGroup.length > 0 ? commerceGroup : [];
+  const queryCommerces = [];
+  groupList.forEach(c => {
+    const t = String(c || '').trim();
+    if (t) {
+      queryCommerces.push(t, t.toUpperCase(), t.toLowerCase());
+    }
+  });
+  const uniqueQueryCommerces = Array.from(new Set(queryCommerces));
+
+  if (uniqueQueryCommerces.length === 0) {
+    return {
+      allSales: [],
+      periodAbonoSales: [],
+      summary: { salesCount: 0, totalGross: 0, totalCommissionNet: 0, totalCommissionIva: 0, totalCommissionWithIva: 0, totalAbonoAmount: 0 }
+    };
+  }
+
+  let rawSales = [];
+  let commerceConfigMap = {};
+  try {
+    const [salesRes, cacsRes] = await Promise.all([
+      supabase.from('store_sales').select('*').in('comercio', uniqueQueryCommerces).order('created_at', { ascending: false }),
+      supabase.from('commerce_additional_config').select('comercio, onboarding_checklist').in('comercio', uniqueQueryCommerces)
+    ]);
+    if (!salesRes.error && Array.isArray(salesRes.data)) {
+      rawSales = salesRes.data;
+    }
+    if (!cacsRes.error && Array.isArray(cacsRes.data)) {
+      cacsRes.data.forEach(row => {
+        if (row.comercio) commerceConfigMap[row.comercio.trim().toUpperCase()] = row;
+      });
+    }
+  } catch (e) {
+    console.warn('[BillingGenerator] Aviso consultando store_sales para abono POS:', e);
+  }
+
+  const ordersByExternalNum = new Map();
+  (ordersList || []).forEach(o => {
+    const ext = String(o.external_order_number || o.externalOrderNumber || o.orderNumber || '').trim().toUpperCase();
+    if (ext) ordersByExternalNum.set(ext, o);
+  });
+
+  const debitPct = Number(pricingConfig?.pos_service_fee?.debit_pct ?? pricingConfig?.pos_fee_debit_pct ?? 2.5);
+  const creditPct = Number(pricingConfig?.pos_service_fee?.credit_pct ?? pricingConfig?.pos_fee_credit_pct ?? 3.5);
+
+  const allProcessedSales = rawSales.map(sale => {
+    const saleCode = String(sale.codigo_venta || '').trim().toUpperCase();
+    const linkedOrd = ordersByExternalNum.get(saleCode) || null;
+    const commUpper = String(sale.comercio || '').trim().toUpperCase();
+    const commCfg = commerceConfigMap[commUpper] || null;
+    const ob = commCfg?.onboarding_checklist || {};
+    const cfgMachine = ob.pos_machine || {};
+    const ordMachine = linkedOrd?.raw_shopify_data?.pos_machine || null;
+
+    const modoPago = String(sale.modo_pago || '').trim();
+    const modoLower = modoPago.toLowerCase();
+    const isDebit = modoLower.includes('débito') || modoLower.includes('debito');
+    const isCredit = modoLower.includes('crédito') || modoLower.includes('credito');
+    const isCardSale = isDebit || isCredit || modoLower.includes('tarjeta');
+
+    const brand = (ordMachine?.brand || cfgMachine.brand || (isCardSale ? 'Transbank' : modoPago)).trim();
+    const model = (ordMachine?.model || cfgMachine.model || '').trim();
+    const color = (ordMachine?.color || cfgMachine.color || '').trim();
+    const rawOwner = (ordMachine?.owner || cfgMachine.owner || (isCardSale ? 'STOCKA' : (sale.comercio || 'COMERCIO'))).trim();
+    const isStockaOwned = isCardSale ? (rawOwner.toUpperCase().includes('STOCKA') || !rawOwner) : false;
+
+    const montoTotal = Math.max(0, Math.round(Number(sale.monto_total) || 0));
+    const appliesStockaPosSettlement = Boolean(isCardSale && isStockaOwned);
+    const feePct = appliesStockaPosSettlement ? (isCredit ? creditPct : debitPct) : 0;
+    const commissionNet = appliesStockaPosSettlement ? Math.round(montoTotal * (feePct / 100)) : 0;
+    const commissionIva = appliesStockaPosSettlement ? Math.round(commissionNet * 0.19) : 0;
+    const commissionTotal = commissionNet + commissionIva;
+    const sellerPayout = Math.max(0, montoTotal - commissionTotal);
+
+    // Determinar periodo de abono
+    let abonoPeriod = '';
+    let isAbono = false;
+    let isExplicit = false;
+
+    const commentStr = String(sale.comentarios || '');
+    const tagMatch = commentStr.match(/\[ABONO-PER:\s*([^\]]+)\]/i);
+    const ordAbonoPer = linkedOrd?.raw_shopify_data?.pos_abono_period;
+    const txTagMatch = commentStr.match(/\[TX-CODE:\s*([^\]]+)\]/i);
+    const rawTxCode = (txTagMatch && txTagMatch[1]) ? txTagMatch[1] : (linkedOrd?.raw_shopify_data?.pos_tx_code || '');
+    const txCode = String(rawTxCode || '').replace(/\s+/g, '').replace(/[\[\]]/g, '').toUpperCase();
+
+    if (tagMatch && tagMatch[1]) {
+      const val = tagMatch[1].trim().toUpperCase();
+      isExplicit = true;
+      if (val === 'SIN_ABONO' || val === 'PAGO_DIRECTO' || val === 'NINGUNO') {
+        abonoPeriod = 'SIN_ABONO';
+        isAbono = false;
+      } else {
+        abonoPeriod = val;
+        isAbono = true;
+      }
+    } else if (ordAbonoPer) {
+      const val = String(ordAbonoPer).trim().toUpperCase();
+      isExplicit = true;
+      if (val === 'SIN_ABONO' || val === 'PAGO_DIRECTO' || val === 'NINGUNO') {
+        abonoPeriod = 'SIN_ABONO';
+        isAbono = false;
+      } else {
+        abonoPeriod = val;
+        isAbono = true;
+      }
+    } else if (!appliesStockaPosSettlement) {
+      abonoPeriod = 'SIN_ABONO';
+      isAbono = false;
+    } else if (linkedOrd?.periodo_facturacion && String(linkedOrd.periodo_facturacion).trim()) {
+      abonoPeriod = String(linkedOrd.periodo_facturacion).trim().toUpperCase();
+      isAbono = true;
+    } else {
+      abonoPeriod = deriveBgPosPeriodFromDate(sale.created_at);
+      isAbono = true;
+    }
+
+    let prodSummary = '';
+    let unitsCount = 0;
+    if (sale.productos) {
+      try {
+        const p = typeof sale.productos === 'string' ? JSON.parse(sale.productos) : sale.productos;
+        if (Array.isArray(p)) {
+          prodSummary = p.map(i => `${i.cantidad || 1}x ${i.producto || i.name || 'Producto'}`).join(', ');
+          p.forEach(i => { unitsCount += (parseInt(i.cantidad, 10) || 1); });
+        }
+      } catch (e) {}
+    }
+
+    return {
+      id: sale.id,
+      codigo_venta: sale.codigo_venta || '-',
+      comercio: sale.comercio || '',
+      nombre_cliente: sale.nombre_cliente || 'Consumidor Final',
+      correo_cliente: sale.correo_cliente || '',
+      created_at: sale.created_at,
+      modo_pago: modoPago,
+      documento_tipo: sale.documento_tipo || 'BOLETA',
+      productos_summary: prodSummary,
+      units_count: unitsCount || 1,
+      machine_brand: brand,
+      machine_model: model,
+      machine_color: color,
+      machine_owner: isStockaOwned ? 'STOCKA' : rawOwner,
+      is_stocka_machine: isStockaOwned,
+      is_card_sale: isCardSale,
+      applies_settlement: appliesStockaPosSettlement,
+      monto_total: montoTotal,
+      fee_pct: feePct,
+      commission_net: commissionNet,
+      commission_iva: commissionIva,
+      commission_total: commissionTotal,
+      seller_payout: sellerPayout,
+      abono_period: abonoPeriod,
+      is_abono: isAbono,
+      is_explicit_period: isExplicit,
+      tx_code: txCode,
+      raw_comentarios: sale.comentarios || ''
+    };
+  });
+
+  const periodAbonoSales = allProcessedSales.filter(s => s.is_abono && s.abono_period === targetPeriodUpper && (s.applies_settlement || s.is_explicit_period));
+
+  const summary = {
+    salesCount: periodAbonoSales.length,
+    totalGross: periodAbonoSales.reduce((acc, s) => acc + s.monto_total, 0),
+    totalCommissionNet: periodAbonoSales.reduce((acc, s) => acc + s.commission_net, 0),
+    totalCommissionIva: periodAbonoSales.reduce((acc, s) => acc + s.commission_iva, 0),
+    totalCommissionWithIva: periodAbonoSales.reduce((acc, s) => acc + s.commission_total, 0),
+    totalAbonoAmount: periodAbonoSales.reduce((acc, s) => acc + s.seller_payout, 0)
+  };
+
+  return {
+    allSales: allProcessedSales,
+    periodAbonoSales,
+    summary
+  };
+}
+
+export function syncPosAbonoIntoBillingState(b) {
+  if (!b) return;
+  if (!Array.isArray(b.abonos)) b.abonos = [];
+
+  const summary = b.posAbonoSummary;
+  const existingIdx = b.abonos.findIndex(a => a && (a.id === 'abono_pos_sales' || a.isPosAbono === true));
+
+  if (b.posAbonoExcludedManually) {
+    return;
+  }
+
+  if (summary && summary.salesCount > 0 && summary.totalAbonoAmount > 0) {
+    const posEntry = {
+      id: 'abono_pos_sales',
+      isPosAbono: true,
+      amount: summary.totalAbonoAmount,
+      grossAmount: summary.totalGross,
+      commissionNet: summary.totalCommissionNet,
+      commissionIva: summary.totalCommissionIva,
+      commissionTotal: summary.totalCommissionWithIva,
+      salesCount: summary.salesCount,
+      date: existingIdx >= 0 && b.abonos[existingIdx].date ? b.abonos[existingIdx].date : new Date().toISOString().split('T')[0],
+      voucher: `${summary.salesCount} venta${summary.salesCount === 1 ? '' : 's'} POS`,
+      reference: `Abono por Ventas Punto de Venta (POS) — ${b.currentPeriodName || b.periodName || ''}`,
+      notes: `Ventas Brutas: ${formatCLP(summary.totalGross)} | Comisión POS (+IVA): -${formatCLP(summary.totalCommissionWithIva)} | Pago Neto Seller (Abono): ${formatCLP(summary.totalAbonoAmount)}`
+    };
+
+    if (existingIdx >= 0) {
+      b.abonos[existingIdx] = posEntry;
+    } else {
+      b.abonos.unshift(posEntry);
+    }
+  } else if (existingIdx >= 0) {
+    b.abonos.splice(existingIdx, 1);
+  }
+}
+
 // --- MOTOR PRINCIPAL DE CÁLCULO DE FACTURACIÓN ---
 export async function calculateCommerceBilling(commerceName, periodName, customOverrides = {}) {
   billingState.isLoading = true;
   billingState.currentCommerce = commerceName;
   billingState.currentPeriodName = periodName;
   billingState.activeConglomerateStoreFilter = null;
+  billingState.loadedFromSnapshot = false;
+
+  // Extraer año y mes del periodo (ej: "AGOSTO 2026")
+  let periodYear = 2026;
+  let periodMonth = 8;
+  const periodParts = (periodName || '').trim().split(/\s+/);
+  if (periodParts.length >= 2) {
+    const mName = periodParts[0].toUpperCase();
+    const yVal = parseInt(periodParts[1], 10);
+    if (!isNaN(yVal)) periodYear = yVal;
+
+    const monthMap = {
+      'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4, 'MAYO': 5, 'JUNIO': 6,
+      'JULIO': 7, 'AGOSTO': 8, 'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
+    };
+    if (monthMap[mName]) periodMonth = monthMap[mName];
+  }
+  billingState.currentPeriodYear = periodYear;
+  billingState.currentPeriodMonth = periodMonth;
 
   if (customOverrides.forceFresh) {
     billingState.suppliesSessionKey = null;
@@ -1813,17 +2347,26 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     totalToPay: 0
   };
 
-  // 1. Cargar tarifas oficiales desde pricing_manager
-  const rawPricing = await loadPricingConfig(supabase);
-  billingState.pricingConfig = sanitizeAndMergeConfig(rawPricing);
-  const cfg = billingState.pricingConfig;
+  billingState.isPaid = false;
+  billingState.isPublished = false;
+  billingState.isLocked = false;
+  billingState.paymentStatus = 'Por solicitar';
 
-  // 1.1 Consultar si ya existe un registro guardado previamente (Supabase o localStorage)
+  // 1.1 Consultar si ya existe un registro guardado/publicado/pagado (Supabase y localStorage)
   let savedSnapshot = null;
   let savedRecordStatus = null;
-  if (billingState.currentPeriodId && commerceName && !customOverrides.forceFresh) {
+  if (billingState.currentPeriodId && commerceName) {
+    let localSnapshot = null;
     try {
-      // Buscar tanto por el nombre exacto como por alias conocidos (ej: 'BIG BANG' y 'BIG BANG SPA')
+      let localStr = localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_${commerceName}`);
+      if (!localStr && (commerceName === 'BIG BANG' || commerceName === 'BIG BANG SPA')) {
+        localStr = localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_BIG BANG SPA`) ||
+                   localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_BIG BANG`);
+      }
+      if (localStr) localSnapshot = JSON.parse(localStr);
+    } catch (e) {}
+
+    try {
       const lookupCommerces = [commerceName];
       const upperCheck = commerceName.trim().toUpperCase();
       if (upperCheck === 'BIG BANG' || upperCheck === 'BIG BANG SPA' || upperCheck.includes('BIG BANG')) {
@@ -1834,26 +2377,51 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 
       const { data: bRecList } = await supabase
         .from('billing_records')
-        .select('desglose_fulfillment, total_fulfillment, fulfillment_link, comercio, updated_at')
+        .select('id, desglose_fulfillment, pago_fulfillment, factura_fulfillment, total_fulfillment, abono_fulfillment, fulfillment_link, comercio, updated_at, fecha_limite')
         .eq('period_id', billingState.currentPeriodId)
         .in('comercio', lookupCommerces);
 
-      const bRec = bRecList && bRecList.length > 0 ? bRecList[0] : null;
+      const bRec = (bRecList && bRecList.length > 0)
+        ? (bRecList.find(r => r.fulfillment_link && ['Enviado', 'Publicado', 'Aprobado'].includes(r.desglose_fulfillment)) ||
+           bRecList.find(r => r.fulfillment_link) ||
+           bRecList.find(r => (r.total_fulfillment || 0) > 0) ||
+           bRecList[0])
+        : null;
 
       if (bRec) {
-        savedRecordStatus = bRec.desglose_fulfillment;
-        const isPublishedStatus = (bRec.desglose_fulfillment === 'Enviado' || bRec.desglose_fulfillment === 'Publicado' || bRec.desglose_fulfillment === 'Aprobado');
+        const rawPago = String(bRec.pago_fulfillment || 'Por solicitar').trim();
+        const rawDesglose = String(bRec.desglose_fulfillment || '').trim();
+        const isPaidStatus = ['recibido', 'aprobado', 'pagado'].includes(rawPago.toLowerCase()) || rawDesglose.toLowerCase() === 'aprobado';
+        const isPublishedStatus = isPaidStatus || ['enviado', 'publicado', 'aprobado', 'confirmado'].includes(rawDesglose.toLowerCase());
+
+        billingState.isPaid = isPaidStatus;
+        billingState.paymentStatus = rawPago || 'Por solicitar';
+        billingState.isPublished = isPublishedStatus;
+        billingState.isLocked = isPaidStatus ? true : (isPublishedStatus && !customOverrides.unlockForEdit);
+
+        savedRecordStatus = rawDesglose;
         if (isPublishedStatus) {
-          billingState.isPublished = true;
-          savedRecordStatus = bRec.desglose_fulfillment === 'Aprobado' ? 'Aprobado' : 'Publicado';
-        } else if (bRec.desglose_fulfillment === 'Creado') {
-          billingState.isPublished = false;
+          savedRecordStatus = isPaidStatus ? 'Aprobado' : 'Publicado';
+        } else if (rawDesglose === 'Creado') {
           billingState.isSaved = true;
           savedRecordStatus = 'Creado';
         }
 
-        if (bRec.fulfillment_link && (bRec.fulfillment_link.includes('billing_snapshots') || bRec.fulfillment_link.includes('_snapshot') || bRec.fulfillment_link.includes('.json'))) {
-          if (!savedSnapshot && (bRec.fulfillment_link.startsWith('http://') || bRec.fulfillment_link.startsWith('https://'))) {
+        // Si el snapshot local ya coincide exactamente con el link versionado inmutable en Storage, usarlo al instante sin descargar de red
+        const isLocalExactMatch = Boolean(
+          localSnapshot &&
+          Array.isArray(localSnapshot.orders) &&
+          localSnapshot.orders.length > 0 &&
+          localSnapshot.totals &&
+          bRec.fulfillment_link &&
+          (localSnapshot.fulfillment_link === bRec.fulfillment_link ||
+           (localSnapshot.version && bRec.fulfillment_link.includes(`_v${localSnapshot.version}_`)))
+        );
+
+        if (isLocalExactMatch) {
+          savedSnapshot = localSnapshot;
+        } else if (bRec.fulfillment_link && (bRec.fulfillment_link.includes('billing_snapshots') || bRec.fulfillment_link.includes('_snapshot') || bRec.fulfillment_link.includes('.json'))) {
+          if (bRec.fulfillment_link.startsWith('http://') || bRec.fulfillment_link.startsWith('https://')) {
             try {
               const fetchUrl = bRec.fulfillment_link + (bRec.fulfillment_link.includes('?') ? '&' : '?') + 't=' + Date.now();
               const resp = await fetch(fetchUrl, { cache: 'no-store' });
@@ -1869,62 +2437,99 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       console.warn('Error consultando billing_records previo:', errRec);
     }
 
-    // Consultar snapshot guardado en localStorage y resolver el más reciente
-    let localSnapshot = null;
-    try {
-      let localStr = localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_${commerceName}`);
-      if (!localStr && (commerceName === 'BIG BANG' || commerceName === 'BIG BANG SPA')) {
-        localStr = localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_BIG BANG SPA`) ||
-                   localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_BIG BANG`);
-      }
-      if (localStr) localSnapshot = JSON.parse(localStr);
-    } catch (e) {}
-
-    if (localSnapshot && savedSnapshot) {
-      const localTime = new Date(localSnapshot.generatedAt || localSnapshot.publishedAt || 0).getTime();
-      const remoteTime = new Date(savedSnapshot.generatedAt || savedSnapshot.publishedAt || 0).getTime();
-      // Si el snapshot oficial de Storage es igual o más reciente que el local, prevalece Storage
-      if (remoteTime >= localTime) {
-        console.log('[BillingGenerator] Sincronizando con snapshot oficial de Storage:', { remoteTime, localTime, version: savedSnapshot.version });
+    if (!customOverrides.forceFresh || billingState.isLocked) {
+      if (localSnapshot && savedSnapshot && localSnapshot !== savedSnapshot) {
+        const localTime = new Date(localSnapshot.generatedAt || localSnapshot.publishedAt || 0).getTime();
+        const remoteTime = new Date(savedSnapshot.generatedAt || savedSnapshot.publishedAt || 0).getTime();
+        if (remoteTime >= localTime || billingState.isLocked) {
+          try {
+            localStorage.setItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_${commerceName}`, JSON.stringify(savedSnapshot));
+          } catch (e) {}
+        } else {
+          savedSnapshot = localSnapshot;
+          if (typeof uploadBillingSnapshotToStorage === 'function') {
+            uploadBillingSnapshotToStorage(localSnapshot).catch(e => console.warn('Aviso sincronizando snapshot local a Storage:', e));
+          }
+        }
+      } else if (!savedSnapshot && localSnapshot) {
+        savedSnapshot = localSnapshot;
+      } else if (savedSnapshot && !localSnapshot) {
         try {
           localStorage.setItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_${commerceName}`, JSON.stringify(savedSnapshot));
         } catch (e) {}
-      } else {
-        console.log('[BillingGenerator] Restaurando snapshot local con cambios pendientes:', { localTime, remoteTime });
-        savedSnapshot = localSnapshot;
-        if (typeof uploadBillingSnapshotToStorage === 'function') {
-          uploadBillingSnapshotToStorage(localSnapshot).catch(e => console.warn('Aviso sincronizando snapshot local a Storage:', e));
-        }
       }
-    } else if (!savedSnapshot && localSnapshot) {
-      savedSnapshot = localSnapshot;
-    }
 
-    if (savedSnapshot) {
-      billingState.snapshotVersion = savedSnapshot.version || (billingState.isPublished ? 1 : 0);
+      if (savedSnapshot) {
+        billingState.snapshotVersion = savedSnapshot.version || (billingState.isPublished ? 1 : 0);
+      }
+    } else {
+      savedSnapshot = null;
     }
   }
 
-  billingState.isSaved = !!(savedRecordStatus === 'Creado' || savedRecordStatus === 'Publicado' || (savedSnapshot && savedSnapshot.generatedAt));
+  billingState.isSaved = !!(savedRecordStatus === 'Creado' || savedRecordStatus === 'Publicado' || savedRecordStatus === 'Aprobado' || (savedSnapshot && savedSnapshot.generatedAt));
   billingState.savedRecordStatus = savedRecordStatus || (billingState.isSaved ? 'Creado' : 'Pendiente');
 
-  // 2. Extraer año y mes del periodo (ej: "AGOSTO 2026")
-  let periodYear = 2026;
-  let periodMonth = 8;
-  const periodParts = (periodName || '').trim().split(/\s+/);
-  if (periodParts.length >= 2) {
-    const mName = periodParts[0].toUpperCase();
-    const yVal = parseInt(periodParts[1], 10);
-    if (!isNaN(yVal)) periodYear = yVal;
+  // VÍA RÁPIDA INSTANTÁNEA: Si el periodo está Pagado, Confirmado/Publicado, o es un Borrador Guardado y no se pidió recalcular contra BD
+  const canHydrateDirectlyFromSnapshot = Boolean(
+    savedSnapshot &&
+    Array.isArray(savedSnapshot.orders) &&
+    savedSnapshot.orders.length > 0 &&
+    savedSnapshot.totals &&
+    (billingState.isLocked || billingState.isPaid || billingState.isPublished || (billingState.isSaved && !customOverrides.forceFresh && !customOverrides.forceRecalculateFromDB))
+  );
 
-    const monthMap = {
-      'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4, 'MAYO': 5, 'JUNIO': 6,
-      'JULIO': 7, 'AGOSTO': 8, 'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
-    };
-    if (monthMap[mName]) periodMonth = monthMap[mName];
+  if (canHydrateDirectlyFromSnapshot) {
+    console.log(`[BillingGenerator] Carga instantánea desde snapshot (${commerceName} - ${periodName}) | Bloqueado=${billingState.isLocked} | Pagado=${billingState.isPaid}`);
+    const hydrated = hydrateBillingStateFromSnapshot(savedSnapshot, commerceName, periodName, periodYear, periodMonth);
+    if (hydrated.isConglomerate && (!hydrated.storageByStore || Object.keys(hydrated.storageByStore).length === 0)) {
+      try {
+        const group = await resolveCommerceGroup(commerceName);
+        const vData = await getMonthlyStorageVolume(group, hydrated.currentPeriodYear || periodYear, hydrated.currentPeriodMonth || periodMonth);
+        if (vData && vData.byStore && Object.keys(vData.byStore).length > 0) {
+          hydrated.storageByStore = vData.byStore;
+          if (!hydrated.isManualVolume && Array.isArray(vData.dailyLogs) && vData.dailyLogs.length > 0) {
+            hydrated.dailyStorageLogs = vData.dailyLogs;
+          }
+          try {
+            savedSnapshot.storageByStore = vData.byStore;
+            if (!hydrated.isManualVolume && Array.isArray(vData.dailyLogs) && vData.dailyLogs.length > 0) {
+              savedSnapshot.dailyStorageLogs = vData.dailyLogs;
+            }
+            localStorage.setItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_${commerceName}`, JSON.stringify(savedSnapshot));
+          } catch (eCache) {}
+        }
+      } catch (eVol) {
+        console.warn('[BillingGenerator] Aviso enriqueciendo volumen por tienda en snapshot:', eVol);
+      }
+    }
+
+    // Enriquecer ventas POS consideradas como abono en el periodo (en tiempo real contra store_sales)
+    try {
+      const posGroup = hydrated.isConglomerate && Array.isArray(hydrated.conglomerateChildren) && hydrated.conglomerateChildren.length > 0
+        ? [commerceName, ...hydrated.conglomerateChildren]
+        : await resolveCommerceGroup(commerceName);
+      const posData = await fetchAndComputePosSalesAbonoForBilling(posGroup, hydrated.currentPeriodName || periodName, hydrated.pricingConfig, hydrated.orders);
+      hydrated.allMerchantPosSales = posData.allSales;
+      hydrated.posAbonoSales = posData.periodAbonoSales;
+      hydrated.posAbonoSummary = posData.summary;
+      if (!hydrated.isLocked && !hydrated.isPaid) {
+        syncPosAbonoIntoBillingState(hydrated);
+        const recomputedAbonos = (hydrated.abonos || []).reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0);
+        hydrated.totals.totalAbonos = recomputedAbonos;
+        hydrated.totals.totalToPay = Math.max(0, (hydrated.totals.totalGross || 0) - recomputedAbonos);
+      }
+    } catch (ePosSnap) {
+      console.warn('[BillingGenerator] Aviso enriqueciendo ventas POS en snapshot:', ePosSnap);
+    }
+
+    return hydrated;
   }
-  billingState.currentPeriodYear = periodYear;
-  billingState.currentPeriodMonth = periodMonth;
+
+  // 1. Cargar tarifas oficiales desde pricing_manager (solo cuando se requiere cálculo desde BD)
+  const rawPricing = await loadPricingConfig(supabase);
+  billingState.pricingConfig = sanitizeAndMergeConfig(rawPricing);
+  const cfg = billingState.pricingConfig;
 
   // 3. Obtener UF del día 1 del mes facturado (Punto E)
   const ufResult = await getUfForPeriod(periodYear, periodMonth);
@@ -2005,6 +2610,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   billingState.autoVolumeM3 = volData.averageM3;
   billingState.autoVolumeDaysLogged = volData.daysCount;
   billingState.autoDailyStorageLogs = volData.dailyLogs || [];
+  billingState.storageByStore = volData.byStore || {};
 
   const currentVolSessionKey = `${billingState.currentPeriodId}_${commerceName}`;
   let isManualVolume = false;
@@ -2450,8 +3056,12 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       ? savedUnitsCount
       : unitsCount;
 
-    // Reglas de Recargos de Pick & Pack
-    const basePickPackRate = activeRange.pick_pack_base; // ej: $1.250
+    // Detección de pedido de Punto de Venta físico (POS)
+    const isPosOrder = isPosSaleOrder(ord) || isPosSaleOrder(manualOrderOverride);
+    const posBasePickPackRate = (cfg.services && cfg.services.showroom_sale_base) || (cfg.shipping && cfg.shipping.pickup_express_base) || 1490;
+
+    // Reglas de Recargos de Pick & Pack (POS tiene tarifa base $1.490)
+    const basePickPackRate = isPosOrder ? posBasePickPackRate : activeRange.pick_pack_base;
     const extraSkuCount = Math.max(0, finalSkuCount - (cfg.pick_pack_rules.base_included_sku || 3));
     const surchargeSku = extraSkuCount * (cfg.pick_pack_rules.surcharge_extra_sku || 100);
 
@@ -2463,7 +3073,8 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     const agendaUpper = String(ord.agenda || '').toUpperCase();
     const operadorUpper = String(ord.operador || '').toUpperCase();
 
-    const isMarketplaceAuto = platformUpper.includes('MERCADO') || 
+    const isMarketplaceAuto = !isPosOrder && (
+                              platformUpper.includes('MERCADO') || 
                               platformUpper.includes('FALABELLA') || 
                               platformUpper.includes('RIPLEY') || 
                               platformUpper.includes('WALMART') || 
@@ -2473,7 +3084,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
                               agendaUpper.includes('FLEX') || 
                               agendaUpper.includes('CENTRO DE ENVIOS') || 
                               operadorUpper.includes('MERCADOLIBRE') || 
-                              operadorUpper.includes('FALABELLA');
+                              operadorUpper.includes('FALABELLA'));
 
     const mktSurchargeRate = (cfg.pick_pack_rules && cfg.pick_pack_rules.surcharge_marketplace_collect) || 100;
 
@@ -2483,12 +3094,13 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     const isColina = cityNorm.includes('colina') || String(ord.shipping_address || '').toLowerCase().includes('colina');
 
     // Envíos Flex
-    const isFlex = agendaUpper.includes('FLEX') || 
+    const isFlex = !isPosOrder && (
+                   agendaUpper.includes('FLEX') || 
                    shippingMethodUpper.includes('FLEX') || 
-                   (platformUpper.includes('MERCADO') && shippingMethodUpper.includes('FLEX'));
+                   (platformUpper.includes('MERCADO') && shippingMethodUpper.includes('FLEX')));
 
     // Operadores Stocka Express RM: STOCKA X, ALPHA, STK, RM
-    const isStkRmCourier = ['STOCKA X', 'ALPHA', 'STK', 'RM', 'STOCKA'].some(c => 
+    const isStkRmCourier = !isPosOrder && ['STOCKA X', 'ALPHA', 'STK', 'RM', 'STOCKA'].some(c => 
       operadorUpper.includes(c) || agendaUpper === c
     );
 
@@ -2504,7 +3116,10 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     let deliveryType = 'OTHER';
     let shippingFreight = 0;
 
-    if (isRetiro) {
+    if (isPosOrder) {
+      deliveryType = 'POS';
+      shippingFreight = 0;
+    } else if (isRetiro) {
       deliveryType = 'RETIRO';
       shippingFreight = getDeliveryPrice('RETIRO', 0);
     } else if (isFlex) {
@@ -2547,7 +3162,10 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       finalSurchargeMarketplace = 0;
     }
 
-    const finalBaseRate = manualOrderOverride?.baseRate !== undefined ? manualOrderOverride.baseRate : basePickPackRate;
+    const isBaseRateManual = Boolean(manualOrderOverride?.baseRateManual);
+    const finalBaseRate = isPosOrder
+      ? ((isBaseRateManual && manualOrderOverride?.baseRate !== undefined) ? manualOrderOverride.baseRate : posBasePickPackRate)
+      : (manualOrderOverride?.baseRate !== undefined ? manualOrderOverride.baseRate : basePickPackRate);
     const isSurchargeSkuManual = Boolean(manualOrderOverride?.surchargeSkuManual);
     const finalSurchargeSku = (isSurchargeSkuManual && manualOrderOverride?.surchargeSku !== undefined)
       ? Math.max(0, Math.round(Number(manualOrderOverride.surchargeSku) || 0))
@@ -2558,9 +3176,14 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       ? Math.max(0, Math.round(Number(manualOrderOverride.surchargeUnits) || 0))
       : surchargeUnits;
 
-    const finalDeliveryType = manualOrderOverride?.deliveryType || deliveryType;
+    const isShippingFreightManual = Boolean(manualOrderOverride?.shippingFreightManual);
+    const finalDeliveryType = isPosOrder
+      ? (manualOrderOverride?.deliveryType === 'POS' || !manualOrderOverride?.deliveryType || manualOrderOverride?.deliveryType === 'RETIRO' || manualOrderOverride?.deliveryType === 'ENVIAME_REGION' ? 'POS' : manualOrderOverride.deliveryType)
+      : (manualOrderOverride?.deliveryType || deliveryType);
     let finalShippingFreight = shippingFreight;
-    if (manualOrderOverride?.shippingFreight !== undefined) {
+    if (isPosOrder && !isShippingFreightManual) {
+      finalShippingFreight = 0;
+    } else if (manualOrderOverride?.shippingFreight !== undefined) {
       finalShippingFreight = manualOrderOverride.shippingFreight;
     } else if (manualOrderOverride?.deliveryType) {
       finalShippingFreight = getDeliveryPrice(manualOrderOverride.deliveryType, shippingFreight);
@@ -2614,13 +3237,18 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     const finalPickPackTotal = finalBaseRate + finalSurchargeSku + finalSurchargeUnits + finalSurchargeMarketplace + customSurchargesTotal;
     const finalOrderTotal = finalPickPackTotal + finalShippingFreight;
 
+    const resolvedPlatform = isPosOrder
+      ? 'Punto de Venta (POS)'
+      : (ord.external_platform || (ord.raw_shopify_data ? 'Shopify' : (ord.raw_woocommerce_data ? 'WooCommerce' : (ord.raw_meli_data ? 'Mercado Libre' : 'Manual'))));
+
     return {
       id: ord.id,
       rowNumber: idx + 1,
       orderNumber: ord.external_order_number || (ord.raw_shopify_data?.name ? ord.raw_shopify_data.name : ord.id.slice(0, 8)),
       externalOrderNumber: ord.external_order_number || (ord.raw_shopify_data?.name ? ord.raw_shopify_data.name : ord.id.slice(0, 8)),
-      platform: ord.external_platform || (ord.raw_shopify_data ? 'Shopify' : (ord.raw_woocommerce_data ? 'WooCommerce' : (ord.raw_meli_data ? 'Mercado Libre' : 'Manual'))),
-      externalPlatform: ord.external_platform || (ord.raw_shopify_data ? 'Shopify' : (ord.raw_woocommerce_data ? 'WooCommerce' : (ord.raw_meli_data ? 'Mercado Libre' : 'Manual'))),
+      platform: resolvedPlatform,
+      externalPlatform: resolvedPlatform,
+      isPosOrder,
       date: ord.created_at ? ord.created_at.slice(0, 10) : '—',
       destination: ord.shipping_city || 'Santiago',
       isColina,
@@ -2628,13 +3256,14 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       skuCount: finalSkuCount,
       unitsCount: finalUnitsCount,
       isMarketplace,
-      categoriaEntrega: ord.categoria_entrega || 'DISTRIBUCIÓN',
-      operador: (ord.operador && String(ord.operador).trim() !== '' && String(ord.operador).trim() !== '—') ? String(ord.operador).trim() : '',
+      categoriaEntrega: isPosOrder ? 'SHOP POINT (POS)' : (ord.categoria_entrega || 'DISTRIBUCIÓN'),
+      operador: (ord.operador && String(ord.operador).trim() !== '' && String(ord.operador).trim() !== '—') ? String(ord.operador).trim() : (isPosOrder ? 'POS Sucursal' : ''),
       agenda: (ord.agenda && String(ord.agenda).trim() !== '' && String(ord.agenda).trim() !== '—') ? String(ord.agenda).trim() : '',
-      shippingMethod: (ord.shipping_method && String(ord.shipping_method).trim() !== '' && String(ord.shipping_method).trim() !== '—') ? String(ord.shipping_method).trim() : '',
+      shippingMethod: (ord.shipping_method && String(ord.shipping_method).trim() !== '' && String(ord.shipping_method).trim() !== '—') ? String(ord.shipping_method).trim() : (isPosOrder ? 'Entrega en Punto Físico' : ''),
       ticketVenta: finalTicketVenta,
       deliveryType: finalDeliveryType,
       baseRate: finalBaseRate,
+      baseRateManual: isBaseRateManual,
       surchargeSku: finalSurchargeSku,
       surchargeSkuManual: isSurchargeSkuManual,
       surchargeUnits: finalSurchargeUnits,
@@ -2646,6 +3275,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       customSurchargesTotal,
       pickPackTotal: finalPickPackTotal,
       shippingFreight: finalShippingFreight,
+      shippingFreightManual: isShippingFreightManual,
       orderTotal: finalOrderTotal,
       isExcluded: !!isExcluded,
       estadoWms: ord.estado_wms || 'Completado',
@@ -2814,8 +3444,12 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   const netStorageCost = Math.round(grossStorage - storageDiscountAmount);
 
   // 11. Cálculo de Costo Fijo Mensual (Punto E)
-  const minOrdersExemption = cfg.fixed_service_fee.exemption_min_orders || 75;
-  const minVolumeExemption = cfg.fixed_service_fee.exemption_min_volume || 1.5;
+  const minOrdersExemption = cfg.fixed_service_fee.exemption_min_orders ?? 75;
+  const minVolumeExemption = cfg.fixed_service_fee.exemption_min_volume ?? 1.5;
+  const tier1MaxOrders = cfg.fixed_service_fee.tier1_max_orders ?? 50;
+  const tier1MaxVolume = cfg.fixed_service_fee.tier1_max_volume ?? 1.0;
+  const tier2MaxOrders = cfg.fixed_service_fee.tier2_max_orders ?? minOrdersExemption;
+  const tier2MaxVolume = cfg.fixed_service_fee.tier2_max_volume ?? minVolumeExemption;
 
   let fixedFeeUF = 0;
   let fixedFeeCLP = 0;
@@ -2824,15 +3458,15 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   if (billableOrders.length >= minOrdersExemption || billingState.volumeM3 >= minVolumeExemption) {
     fixedFeeUF = 0;
     fixedFeeCLP = 0;
-    fixedFeeReason = `Exento ($0) por alcanzar ${billableOrders.length >= minOrdersExemption ? '≥ 75 pedidos' : '≥ 1.5 m³'}`;
-  } else if (billingState.volumeM3 < 1.0 && billableOrders.length < 50) {
-    fixedFeeUF = cfg.fixed_service_fee.tier1_fee_uf || 1.5;
+    fixedFeeReason = `Exento ($0) por alcanzar ${billableOrders.length >= minOrdersExemption ? `≥ ${minOrdersExemption} pedidos` : `≥ ${minVolumeExemption} m³`}`;
+  } else if (billingState.volumeM3 < tier1MaxVolume && billableOrders.length < tier1MaxOrders) {
+    fixedFeeUF = cfg.fixed_service_fee.tier1_fee_uf ?? 1.5;
     fixedFeeCLP = Math.round(fixedFeeUF * billingState.ufValue);
-    fixedFeeReason = `Costo variable 1.5 UF (${formatCLP(fixedFeeCLP)}) por operar con < 50 pedidos y < 1 m³`;
+    fixedFeeReason = `Costo variable ${fixedFeeUF} UF (${formatCLP(fixedFeeCLP)}) por operar con < ${tier1MaxOrders} pedidos y < ${tier1MaxVolume} m³`;
   } else {
-    fixedFeeUF = cfg.fixed_service_fee.tier2_fee_uf || 0.9;
+    fixedFeeUF = cfg.fixed_service_fee.tier2_fee_uf ?? 0.9;
     fixedFeeCLP = Math.round(fixedFeeUF * billingState.ufValue);
-    fixedFeeReason = `Costo variable 0.9 UF (${formatCLP(fixedFeeCLP)}) por operar con < 75 pedidos y < 1.5 m³`;
+    fixedFeeReason = `Costo variable ${fixedFeeUF} UF (${formatCLP(fixedFeeCLP)}) por operar con < ${tier2MaxOrders} pedidos y < ${tier2MaxVolume} m³`;
   }
 
   // Permitir override del costo fijo si el admin lo modificó
@@ -2862,18 +3496,26 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   // Manejo de tiendas activas en conglomerado si el padre no tiene POS pero las hijas sí
   const childPosConfigs = billingState.commerceInfo?.childPosConfigs || [];
   if (!isPosActive && childPosConfigs.length > 0) {
-    const activeChildren = childPosConfigs.filter(c => c.posConfig?.active === true);
+    const seenPosStores = new Set();
+    const activeChildren = childPosConfigs.filter(c => {
+      if (c.posConfig?.active !== true) return false;
+      const stUp = String(c.store || '').trim().toUpperCase();
+      if (!stUp || seenPosStores.has(stUp)) return false;
+      seenPosStores.add(stUp);
+      return true;
+    });
     if (activeChildren.length > 0) {
       isPosActive = true;
-      posFeeUF = parseFloat((activeChildren.length * defaultPosUfRate).toFixed(2));
+      // El cobro de POS es único por comercio o conglomerado (0,2 UF), sin multiplicar por marcas internas
+      posFeeUF = defaultPosUfRate;
       posFeeCLP = Math.round(posFeeUF * billingState.ufValue);
       const childDetails = activeChildren.map(c => {
         const m = c.posConfig;
         const ownerLabel = m.isStockaMachine ? 'Máquina STOCKA' : 'Máquina Propia';
         const parts = [m.brand, m.model ? '#' + m.model : '', m.color ? '(' + m.color + ')' : ''].filter(Boolean).join(' ');
-        return `${c.store}: ${ownerLabel} ${parts ? `[${parts}]` : ''}`;
+        return `${String(c.store || '').trim().toUpperCase()}: ${ownerLabel}${parts ? ` [${parts}]` : ''}`;
       }).join('; ');
-      posFeeDetails = `Habilitación POS en ${activeChildren.length} tienda(s) (${childDetails}) @ ${formatCLP(billingState.ufValue)}/UF`;
+      posFeeDetails = `Habilitación mensual POS (${formatDec(defaultPosUfRate, 1)} UF) @ ${formatCLP(billingState.ufValue)}/UF (${childDetails})`;
       posIsStocka = activeChildren.some(c => c.posConfig?.isStockaMachine);
     }
   } else if (isPosActive) {
@@ -2893,8 +3535,12 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     posFeeDetails = 'Punto de Venta no habilitado para este comercio';
   }
 
-  // Respetar snapshot guardado si ya tenía valores calculados
-  if (savedPosTotals.posFeeNet !== undefined) {
+  // Respetar snapshot guardado si ya tenía valores calculados (salvo si proviene del cálculo antiguo multiplicado por tiendas)
+  const isLegacyMultipliedPos = Boolean(
+    String(savedPosTotals.posFeeDetails || '').includes('tienda(s)') ||
+    (billingState.isConglomerate && savedPosTotals.posFeeUF > defaultPosUfRate && String(savedPosTotals.posFeeDetails || '').includes('Habilitación POS'))
+  );
+  if (savedPosTotals.posFeeNet !== undefined && !isLegacyMultipliedPos) {
     posFeeCLP = savedPosTotals.posFeeNet;
     posFeeUF = savedPosTotals.posFeeUF !== undefined ? savedPosTotals.posFeeUF : (billingState.ufValue > 0 ? parseFloat((posFeeCLP / billingState.ufValue).toFixed(2)) : 0);
     if (savedPosTotals.posFeeDetails) posFeeDetails = savedPosTotals.posFeeDetails;
@@ -2926,6 +3572,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     ] : [];
     billingState.suppliesSessionKey = currentSuppliesKey;
   }
+  syncDynamicSuppliesQuantities(billingState.supplies, billableOrders);
   const totalSuppliesNet = billingState.supplies.reduce((acc, s) => acc + (s.total || 0), 0);
 
   if (customOverrides.adjustments !== undefined) {
@@ -2964,6 +3611,21 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     }
     billingState.abonosSessionKey = currentSuppliesKey;
   }
+
+  // 12.2.b Integrar Ventas Punto de Venta (POS) consideradas como Abono en el Periodo
+  try {
+    const posData = await fetchAndComputePosSalesAbonoForBilling(commerceGroup, periodName, cfg, ordersList);
+    billingState.allMerchantPosSales = posData.allSales;
+    billingState.posAbonoSales = posData.periodAbonoSales;
+    billingState.posAbonoSummary = posData.summary;
+    syncPosAbonoIntoBillingState(billingState);
+  } catch (ePosCalc) {
+    console.warn('[BillingGenerator] Aviso calculando abonos POS del periodo:', ePosCalc);
+    billingState.allMerchantPosSales = [];
+    billingState.posAbonoSales = [];
+    billingState.posAbonoSummary = { salesCount: 0, totalGross: 0, totalCommissionNet: 0, totalCommissionIva: 0, totalCommissionWithIva: 0, totalAbonoAmount: 0 };
+  }
+
   const totalAbonos = (billingState.abonos || []).reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0);
 
   // 12.3 Restaurar checks de checklist si vienen en el snapshot guardado
@@ -3045,7 +3707,7 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
   t.totalAdjustmentsNet = realAdjustmentsNet;
   const c = b.commerceInfo ? { ...b.commerceInfo } : {};
   const invDates = b.invoiceDates || {};
-  const isClient = Boolean(b.isClientView);
+  const isClient = Boolean(b.isClientView || b.isLocked);
   const commName = b.currentCommerce || b.comercio || '';
   const sBreakdown = (b.storeBreakdown && b.storeBreakdown.length > 0)
     ? b.storeBreakdown
@@ -3222,41 +3884,41 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
         </div>
       </div>
 
-      <!-- 4 Cartas Métricas en una misma línea con diseño sobrio y uniforme -->
-      <div class="stocka-metric-row">
-        <div class="stocka-metric-card">
+      <!-- Cartas Métricas en una sola fila con diseño sobrio y uniforme -->
+      <div class="stocka-metric-row" style="display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; gap: 0.7rem !important; width: 100% !important; box-sizing: border-box !important;">
+        <div class="stocka-metric-card" style="flex: 1 1 0 !important; min-width: 0 !important;">
           <div class="stocka-metric-title">Pedidos Procesados</div>
-          <div class="stocka-metric-value">${t.billableOrdersCount} <span style="font-size: 0.8rem; font-weight: 600; color: #64748b;">ud.</span></div>
+          <div class="stocka-metric-value">${t.billableOrdersCount} <span style="font-size: 0.76rem; font-weight: 600; color: #64748b;">ud.</span></div>
           <div class="stocka-metric-sub">Base: ${formatCLP(b.activeRange?.pick_pack_base || 1250)}</div>
         </div>
 
-        <div class="stocka-metric-card" ${!isClient ? 'style="cursor: pointer;" onclick="window.openEditStorageFeeModal()" title="Haga clic para configurar volumen mensual manual, tarifa o descuento"' : ''}>
+        <div class="stocka-metric-card" style="flex: 1 1 0 !important; min-width: 0 !important; ${!isClient ? 'cursor: pointer;' : ''}" ${!isClient ? 'onclick="window.openEditStorageFeeModal()" title="Haga clic para configurar volumen mensual manual, tarifa o descuento"' : ''}>
           <div class="stocka-metric-title" style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
-            <span>Almacenamiento Mes</span>
+            <span style="overflow: hidden; text-overflow: ellipsis;">Almacenamiento Mes</span>
             ${!isClient && (b.isManualVolume || t.isManualVolume) ? `
-              <span class="no-print" style="background: rgba(95, 6, 250, 0.1); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.25); font-size: 0.62rem; font-weight: 800; padding: 1px 5px; border-radius: 4px; text-transform: uppercase;">
+              <span class="no-print" style="background: rgba(95, 6, 250, 0.1); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.25); font-size: 0.58rem; font-weight: 800; padding: 1px 4px; border-radius: 4px; text-transform: uppercase; flex-shrink: 0;">
                 Manual
               </span>
             ` : ''}
           </div>
-          <div class="stocka-metric-value">${formatDec(b.volumeM3, 2)} <span style="font-size: 0.8rem; font-weight: 600; color: #64748b;">m³</span></div>
+          <div class="stocka-metric-value">${formatDec(b.volumeM3, 2)} <span style="font-size: 0.76rem; font-weight: 600; color: #64748b;">m³</span></div>
           <div class="stocka-metric-sub">Tarifa: ${formatCLP(t.storageRate || b.activeRange?.storage_m3 || 48900)} / m³</div>
         </div>
 
-        <div class="stocka-metric-card">
+        <div class="stocka-metric-card" style="flex: 1 1 0 !important; min-width: 0 !important;">
           <div class="stocka-metric-title">UF del Periodo</div>
           <div class="stocka-metric-value">${formatCLP(b.ufValue)}</div>
           <div class="stocka-metric-sub">Día ${b.ufDate || '01/08/2026'}</div>
         </div>
 
-        <div class="stocka-metric-card">
+        <div class="stocka-metric-card" style="flex: 1 1 0 !important; min-width: 0 !important;">
           <div class="stocka-metric-title">Costo Variable Mensual</div>
           <div class="stocka-metric-value">${t.fixedFeeUF > 0 ? `${formatDec(t.fixedFeeUF, 1)} UF` : 'EXENTO'}</div>
           <div class="stocka-metric-sub">${t.fixedFeeUF > 0 ? formatCLP(t.fixedFeeNet) : '$0'}</div>
         </div>
 
         ${(t.posActive || t.posFeeUF > 0) ? `
-        <div class="stocka-metric-card" style="border-top: 3px solid #0ea5e9;">
+        <div class="stocka-metric-card" style="flex: 1 1 0 !important; min-width: 0 !important; border-top: 3px solid #0ea5e9;">
           <div class="stocka-metric-title"><i class="ri-store-3-line" style="color: #0ea5e9;"></i> Punto de Venta (POS)</div>
           <div class="stocka-metric-value" style="color: #0ea5e9;">${t.posFeeUF > 0 ? `${formatDec(t.posFeeUF, 1)} UF` : 'EXENTO'}</div>
           <div class="stocka-metric-sub">${t.posFeeUF > 0 ? formatCLP(t.posFeeNet) : '$0'} · ${t.posIsStocka ? 'Equipo STOCKA' : 'Equipo Propio'}</div>
@@ -3264,46 +3926,50 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
         ` : ''}
       </div>
 
-      <!-- Hero Card: Total a Facturar, Abonos y Monto a Pagar -->
+      <!-- Hero Card: Total a Facturar, Abonos y Monto a Pagar (Resumen alineado a la derecha) -->
       <div class="stocka-banner-hero">
-        <div style="display: flex; gap: 2rem; align-items: center; flex-wrap: wrap;">
+        <div style="display: flex; gap: 1.15rem; align-items: center; flex-wrap: nowrap; flex: 1 1 auto; min-width: 0;">
           <div>
-            <div style="font-size: 0.725rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.85; font-weight: 600;">Subtotal Neto</div>
-            <div style="font-size: 1.15rem; font-weight: 800;">${formatCLP(t.totalNet)}</div>
+            <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.4px; opacity: 0.85; font-weight: 600; margin-bottom: 2px;">Subtotal Neto</div>
+            <div style="font-size: 1.08rem; font-weight: 800; white-space: nowrap;">${formatCLP(t.totalNet)}</div>
           </div>
-          <div style="border-left: 1px solid rgba(255,255,255,0.25); padding-left: 1.5rem;">
-            <div style="font-size: 0.725rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.85; font-weight: 600;">IVA (19%)</div>
-            <div style="font-size: 1.15rem; font-weight: 800;">${formatCLP(t.iva)}</div>
+          <div style="border-left: 1px solid rgba(255,255,255,0.22); padding-left: 1.05rem;">
+            <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.4px; opacity: 0.85; font-weight: 600; margin-bottom: 2px;">IVA (19%)</div>
+            <div style="font-size: 1.08rem; font-weight: 800; white-space: nowrap;">${formatCLP(t.iva)}</div>
           </div>
-          <div style="border-left: 1px solid rgba(255,255,255,0.25); padding-left: 1.5rem;">
-            <div style="font-size: 0.725rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.85; font-weight: 600;">Descuentos / Ajustes</div>
-            <div style="font-size: 1.15rem; font-weight: 800;">${t.adjustmentsNet ? formatCLP(t.adjustmentsNet) : '$0'}</div>
+          <div style="border-left: 1px solid rgba(255,255,255,0.22); padding-left: 1.05rem;">
+            <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.4px; opacity: 0.85; font-weight: 600; margin-bottom: 2px;">Descuentos / Ajustes</div>
+            <div style="font-size: 1.08rem; font-weight: 800; white-space: nowrap;">${t.adjustmentsNet ? formatCLP(t.adjustmentsNet) : '$0'}</div>
           </div>
           ${t.totalAbonos > 0 ? `
-          <div style="border-left: 1px solid rgba(255,255,255,0.25); padding-left: 1.5rem;">
-            <div style="font-size: 0.725rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9; font-weight: 700; color: #a7f3d0;">Abonos Registrados</div>
-            <div style="font-size: 1.15rem; font-weight: 800; color: #6ee7b7;">-${formatCLP(t.totalAbonos)}</div>
+          <div style="border-left: 1px solid rgba(255,255,255,0.22); padding-left: 1.05rem;">
+            <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; color: #a7f3d0; margin-bottom: 2px;">Abonos Registrados</div>
+            <div style="font-size: 1.08rem; font-weight: 800; color: #6ee7b7; white-space: nowrap;">-${formatCLP(t.totalAbonos)}</div>
           </div>
           ` : ''}
         </div>
 
-        <div style="text-align: right;">
+        <div style="margin-left: auto; text-align: right; background: rgba(15, 23, 42, 0.24); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 8px; padding: 0.65rem 1.1rem; min-width: 265px; flex-shrink: 0;">
           ${t.totalAbonos > 0 ? `
             <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 3px;">
-              <div style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 700; opacity: 0.9;">
-                MONTO A FACTURAR (CON IVA): <span style="font-weight: 800; font-size: 0.95rem; text-decoration: underline;">${formatCLP(t.totalGross)}</span>
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; width: 100%; font-size: 0.72rem; letter-spacing: 0.3px;">
+                <span style="opacity: 0.88; font-weight: 600; text-transform: uppercase;">Monto a Facturar (c/IVA):</span>
+                <strong style="font-weight: 800; font-size: 0.86rem; color: #ffffff;">${formatCLP(t.totalGross)}</strong>
               </div>
-              <div style="font-size: 0.75rem; color: #a7f3d0; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
-                <i class="ri-checkbox-circle-fill"></i> Abonos a favor: -${formatCLP(t.totalAbonos)}
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; width: 100%; font-size: 0.72rem; color: #a7f3d0; font-weight: 700;">
+                <span style="display: inline-flex; align-items: center; gap: 4px;"><i class="ri-checkbox-circle-fill"></i> Abonos a favor:</span>
+                <strong>-${formatCLP(t.totalAbonos)}</strong>
               </div>
-              <div style="margin-top: 3px; border-top: 1px solid rgba(255,255,255,0.3); padding-top: 4px; width: 100%;">
-                <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; font-weight: 800; color: #fde047;">MONTO A PAGAR (SALDO)</div>
-                <div style="font-size: 2.1rem; font-weight: 900; line-height: 1.1; color: #ffffff;">${formatCLP(t.totalToPay)}</div>
+              <div style="margin-top: 3px; border-top: 1px solid rgba(255,255,255,0.25); padding-top: 5px; width: 100%; text-align: right;">
+                <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.9px; font-weight: 800; color: #fde047;">MONTO A PAGAR (SALDO)</div>
+                <div style="font-size: 1.75rem; font-weight: 900; line-height: 1.08; color: #ffffff; letter-spacing: -0.3px;">${formatCLP(t.totalToPay)}</div>
               </div>
             </div>
           ` : `
-            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; opacity: 0.9;">TOTAL A FACTURAR / PAGAR</div>
-            <div style="font-size: 2.1rem; font-weight: 900; line-height: 1.1;">${formatCLP(t.totalToPay)}</div>
+            <div style="text-align: right;">
+              <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.9px; font-weight: 800; color: #fde047; margin-bottom: 2px;">TOTAL A FACTURAR / PAGAR (IVA INCL.)</div>
+              <div style="font-size: 1.8rem; font-weight: 900; line-height: 1.08; color: #ffffff; letter-spacing: -0.3px;">${formatCLP(t.totalToPay)}</div>
+            </div>
           `}
         </div>
       </div>
@@ -3365,10 +4031,12 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
                 <div style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">Servicio de preparación de pedidos</div>
                 <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">
                   ${(() => {
-                    const baseDesc = `Pick & Pack base ${formatCLP(b.activeRange?.pick_pack_base || 1250)} + recargos por SKUs adicionales y unidades`;
+                    const billable = (b.orders || []).filter(o => !o.isExcluded);
+                    const posCount = billable.filter(o => o.isPosOrder || isPosSaleOrder(o)).length;
+                    const posNote = posCount > 0 ? ` (incluye ${posCount} venta${posCount === 1 ? '' : 's'} Punto de Venta POS base $1.490)` : '';
+                    const baseDesc = `Pick & Pack base ${formatCLP(b.activeRange?.pick_pack_base || 1250)}${posNote} + recargos por SKUs adicionales y unidades`;
                     const activeCols = Array.isArray(b.customColumns) ? b.customColumns : [];
                     if (activeCols.length === 0) return baseDesc;
-                    const billable = (b.orders || []).filter(o => !o.isExcluded);
                     const colSummaries = activeCols.map(col => {
                       const colSum = billable.reduce((acc, o) => acc + Math.max(0, Number(o.customSurcharges?.[col.id]) || 0), 0);
                       if (colSum <= 0) return null;
@@ -3453,17 +4121,28 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
             ` : ''}
 
             <!-- 5. Insumos -->
-            ${b.supplies.filter(s => (s.qty || 0) > 0).map((s, idx) => `
+            ${b.supplies.filter(s => (s.qty || 0) > 0 || (!isClient && s.qtyMode === 'dynamic_groups')).map((s, idx) => `
               <tr>
                 <td>
                   <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
                     <div>
-                      <div style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">${escapeHtml(s.name)}</div>
-                      <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">Insumos y material de empaque</div>
+                      <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                        <span style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">${escapeHtml(s.name)}</span>
+                        ${s.qtyMode === 'dynamic_groups' && s.formulaCode ? `
+                          <span style="background: rgba(95, 6, 250, 0.08); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.24); font-size: 0.67rem; font-weight: 800; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Cantidad calculada dinámicamente según grupos de pedidos seleccionados">
+                            <i class="ri-links-line"></i> ${escapeHtml(s.formulaCode)}
+                          </span>
+                        ` : ''}
+                      </div>
+                      <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">
+                        ${s.qtyMode === 'dynamic_groups' && s.dynamicSummary
+                          ? `Insumos y material de empaque · Calculado sobre ${escapeHtml(s.dynamicSummary)}${!s.isBubbleLinearCm && s.unitPrice ? ` · ${formatCLP(s.unitPrice)} c/u` : ''}`
+                          : `Insumos y material de empaque${(s.qty > 1 && s.unitPrice > 0) ? ` · ${formatCLP(s.unitPrice)} c/u` : ''}`}
+                      </div>
                     </div>
                     ${!isClient ? `
                     <div class="no-print" style="display: flex; gap: 4px; align-items: center;">
-                      <button type="button" onclick="window.editManualSupplyItem('${s.id || idx}')" title="Editar cantidad o precio de este insumo" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 7px; cursor: pointer; color: #475569; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                      <button type="button" onclick="window.editManualSupplyItem('${s.id || idx}')" title="Editar cantidad, grupos dinámicos o precio de este insumo" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 7px; cursor: pointer; color: #475569; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
                         <i class="ri-pencil-line"></i> Editar
                       </button>
                       <button type="button" onclick="window.deleteManualSupplyItem('${s.id || idx}')" title="Eliminar este ítem de cobro" style="background: #fee2e2; border: 1px solid #fca5a5; border-radius: 4px; padding: 2px 7px; cursor: pointer; color: #dc2626; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">
@@ -3472,7 +4151,7 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
                     </div>` : ''}
                   </div>
                 </td>
-                <td style="text-align: center; font-weight: 600; color: #64748b;">${escapeHtml(s.unit || 'gl.')}</td>
+                <td style="text-align: center; font-weight: 600; color: #64748b;">${escapeHtml(s.unit || (s.isBubbleLinearCm ? 'gl.' : 'ud.'))}</td>
                 <td style="text-align: center; font-weight: 700; color: #0f172a;">${s.qty}</td>
                 <td style="text-align: right; font-weight: 700; color: #0f172a;">${formatCLP(s.total)}</td>
                 <td style="text-align: right; color: #64748b;">${formatCLP((s.total || 0) * 0.19)}</td>
@@ -3572,21 +4251,26 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
                 <td>
                   <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                     <div>
-                      <div style="display: flex; align-items: center; gap: 6px;">
-                        <span style="background: #10b981; color: #ffffff; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; display: inline-flex; align-items: center; gap: 3px;">
-                          <i class="ri-hand-coin-line"></i> Abono
+                      <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                        <span style="background: ${ab.isPosAbono || ab.id === 'abono_pos_sales' ? '#059669' : '#10b981'}; color: #ffffff; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; display: inline-flex; align-items: center; gap: 3px;">
+                          <i class="${ab.isPosAbono || ab.id === 'abono_pos_sales' ? 'ri-store-3-line' : 'ri-hand-coin-line'}"></i> ${ab.isPosAbono || ab.id === 'abono_pos_sales' ? 'Abono Ventas POS' : 'Abono'}
                         </span>
                         <strong style="color: #0f172a; font-size: 0.85rem;">${escapeHtml(ab.reference || 'Abono a cuenta')}</strong>
                         ${ab.voucher ? `<span style="font-size: 0.72rem; color: #047857; background: rgba(16, 185, 129, 0.12); padding: 1px 6px; border-radius: 4px; font-weight: 600;">${escapeHtml(ab.voucher)}</span>` : ''}
                       </div>
                       <div style="font-size: 0.72rem; color: #047857; margin-top: 3px;">
                         ${ab.date ? `Fecha: <strong>${escapeHtml(ab.date)}</strong>` : ''}
-                        ${ab.notes ? ` · Obs: ${escapeHtml(ab.notes)}` : ''}
+                        ${ab.notes ? ` · ${escapeHtml(ab.notes)}` : ''}
                         · <em>Descuenta directamente el saldo a pagar por el cliente</em>
                       </div>
                     </div>
                     ${!isClient ? `
                     <div class="no-print" style="display: flex; gap: 4px; align-items: center;">
+                      ${(ab.isPosAbono || ab.id === 'abono_pos_sales') ? `
+                        <button type="button" onclick="window.openManagePosAbonosBillingModal()" title="Gestionar ventas POS incluidas como abono en este periodo" style="background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 4px; padding: 2px 8px; cursor: pointer; color: #047857; font-size: 0.74rem; font-weight: 800; display: inline-flex; align-items: center; gap: 3px;">
+                          <i class="ri-list-check-2"></i> Detalle / Gestionar POS
+                        </button>
+                      ` : ''}
                       <button type="button" onclick="window.editManualAbonoItem('${ab.id || idx}')" title="Editar este abono" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; padding: 2px 7px; cursor: pointer; color: #059669; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">
                         <i class="ri-edit-line"></i> Editar
                       </button>
@@ -3597,7 +4281,7 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
                   </div>
                 </td>
                 <td style="text-align: center; font-weight: 600; color: #64748b;">gl.</td>
-                <td style="text-align: center; font-weight: 700; color: #0f172a;">1</td>
+                <td style="text-align: center; font-weight: 700; color: #0f172a;">${ab.salesCount || 1}</td>
                 <td style="text-align: right; color: #64748b;">—</td>
                 <td style="text-align: right; color: #64748b;">—</td>
                 <td style="text-align: right; font-weight: 800; color: #059669; font-size: 0.95rem;">
@@ -3684,7 +4368,7 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
                         <span style="display: inline-flex; align-items: center; gap: 5px;">
                           <i class="ri-store-2-line" style="color: #5f06fa;"></i> ${escapeHtml(s.storeName)}
                         </span>
-                        ${!isClient ? `
+                        ${!b.isClientView ? `
                           <div class="no-print" style="display: flex; gap: 4px;">
                             <button type="button"
                                     onclick="window.switchBgSubTab('register'); window.setConglomerateStoreView('${escapeHtml(s.storeName)}');"
@@ -3731,6 +4415,130 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
           </div>
         </div>
       ` : ''}
+
+      ${((Array.isArray(b.posAbonoSales) && b.posAbonoSales.length > 0) || (!isClient && Array.isArray(b.allMerchantPosSales) && b.allMerchantPosSales.length > 0)) ? (() => {
+        const posSalesList = Array.isArray(b.posAbonoSales) ? b.posAbonoSales : [];
+        const sumGross = posSalesList.reduce((acc, s) => acc + (Number(s.monto_total) || 0), 0);
+        const sumCommNet = posSalesList.reduce((acc, s) => acc + (Number(s.commission_net) || 0), 0);
+        const sumCommIva = posSalesList.reduce((acc, s) => acc + (Number(s.commission_iva) || 0), 0);
+        const sumCommTotal = posSalesList.reduce((acc, s) => acc + (Number(s.commission_total) || 0), 0);
+        const sumAbono = posSalesList.reduce((acc, s) => acc + (Number(s.seller_payout) || 0), 0);
+
+        return `
+          <!-- Detalle de Ventas Punto de Venta (POS) Consideradas como Abono en el Periodo -->
+          <div style="margin-top: 1.5rem; background: #ffffff; border-radius: 10px; border: 1.5px solid rgba(16, 185, 129, 0.4); overflow: hidden; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.06);">
+            <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.09) 0%, rgba(5, 150, 105, 0.03) 100%); padding: 0.85rem 1.25rem; border-bottom: 1px solid rgba(16, 185, 129, 0.25); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.65rem;">
+              <div style="display: flex; align-items: center; gap: 0.6rem;">
+                <div style="width: 32px; height: 32px; border-radius: 8px; background: #059669; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0;">
+                  <i class="ri-store-3-line"></i>
+                </div>
+                <div>
+                  <strong style="color: #064e3b; font-size: 0.86rem; text-transform: uppercase; letter-spacing: 0.4px; display: block;">
+                    Detalle de Ventas Punto de Venta (POS) Consideradas como Abono en el Periodo
+                  </strong>
+                  <div style="font-size: 0.72rem; color: #047857; margin-top: 1px;">
+                    Recaudación en máquina POS propiedad de Stocka descontando comisiones vigentes (+IVA) e imputada como abono en <strong>${escapeHtml(b.currentPeriodName || b.periodName || '')}</strong>
+                  </div>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <span style="background: #ffffff; color: #047857; border: 1px solid rgba(16, 185, 129, 0.4); padding: 0.25rem 0.65rem; border-radius: 6px; font-size: 0.725rem; font-weight: 800;">
+                  ${posSalesList.length} VENTA${posSalesList.length === 1 ? '' : 'S'} · ABONO: ${formatCLP(sumAbono)}
+                </span>
+                ${!isClient ? `
+                  <button type="button" class="no-print" onclick="window.openManagePosAbonosBillingModal()" style="background: #059669; color: #ffffff; border: none; padding: 0.3rem 0.75rem; border-radius: 6px; font-size: 0.73rem; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 4px rgba(5, 150, 105, 0.25);">
+                    <i class="ri-settings-3-line"></i> Gestionar Ventas POS del Periodo
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+
+            ${posSalesList.length === 0 ? `
+              <div style="padding: 1.25rem; text-align: center; font-size: 0.8rem; color: #64748b;">
+                No hay ventas POS asignadas como abono para el periodo <strong>${escapeHtml(b.currentPeriodName || '')}</strong>.
+                ${!isClient ? `Puedes asignar o revisar las ${(b.allMerchantPosSales || []).length} ventas históricas del comercio haciendo clic en <strong>"Gestionar Ventas POS del Periodo"</strong>.` : ''}
+              </div>
+            ` : `
+              <div style="overflow-x: auto;">
+                <table class="stocka-table-official" style="margin: 0; border: none; width: 100%;">
+                  <thead>
+                    <tr style="background: #f0fdf4;">
+                      <th style="text-align: center; width: 38px; padding: 7px 8px;">#</th>
+                      <th style="text-align: left; width: 115px; padding: 7px 8px;">FECHA</th>
+                      <th style="text-align: left; width: 135px; padding: 7px 8px;">CÓDIGO VENTA / TX</th>
+                      ${b.isConglomerate ? `<th style="text-align: left; width: 115px; padding: 7px 8px;">TIENDA</th>` : ''}
+                      <th style="text-align: left; padding: 7px 8px;">CLIENTE / PRODUCTOS</th>
+                      <th style="text-align: left; width: 120px; padding: 7px 8px;">MEDIO DE PAGO</th>
+                      <th style="text-align: left; width: 145px; padding: 7px 8px;">MÁQUINA POS</th>
+                      <th style="text-align: right; width: 110px; padding: 7px 8px;">VENTA BRUTA</th>
+                      <th style="text-align: right; width: 130px; padding: 7px 8px;">COMISIÓN POS (+IVA)</th>
+                      <th style="text-align: right; width: 135px; padding: 7px 10px; background: #dcfce7; color: #065f46;">ABONO AL SERVICIO</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${posSalesList.map((s, idx) => {
+                      const d = s.created_at ? new Date(s.created_at) : null;
+                      const dateFmt = (d && !isNaN(d.getTime()))
+                        ? d.toLocaleDateString('es-CL') + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+                        : '-';
+                      return `
+                        <tr>
+                          <td style="text-align: center; color: #64748b; font-weight: 700; padding: 7px 8px;">${idx + 1}</td>
+                          <td style="font-size: 0.75rem; color: #334155; white-space: nowrap; padding: 7px 8px;">${escapeHtml(dateFmt)}</td>
+                          <td style="padding: 7px 8px;">
+                            <span style="font-family: monospace; font-size: 0.76rem; font-weight: 800; background: #f8fafc; border: 1px solid #cbd5e1; padding: 2px 6px; border-radius: 4px; color: #0f172a; display: inline-block;">
+                              ${escapeHtml(s.codigo_venta)}
+                            </span>
+                            ${s.tx_code ? `<div style="margin-top: 2px;"><span style="font-family: monospace; font-size: 0.68rem; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 1px 5px; border-radius: 4px; display: inline-block;" title="Código de Transacción Único">TX: ${escapeHtml(s.tx_code)}</span></div>` : ''}
+                          </td>
+                          ${b.isConglomerate ? `<td style="font-size: 0.76rem; font-weight: 700; color: #0f172a; padding: 7px 8px;">${escapeHtml(s.comercio)}</td>` : ''}
+                          <td style="padding: 7px 8px;">
+                            <div style="font-weight: 700; font-size: 0.78rem; color: #0f172a;">${escapeHtml(s.nombre_cliente || 'Consumidor Final')}</div>
+                            ${s.productos_summary ? `<div style="font-size: 0.68rem; color: #64748b; max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(s.productos_summary)}">${escapeHtml(s.productos_summary)}</div>` : ''}
+                          </td>
+                          <td style="font-size: 0.75rem; font-weight: 600; color: #1e293b; padding: 7px 8px;">
+                            ${escapeHtml(s.modo_pago || '-')}
+                            <div style="font-size: 0.65rem; color: #64748b;">${escapeHtml(s.documento_tipo || 'BOLETA')}</div>
+                          </td>
+                          <td style="padding: 7px 8px;">
+                            <div style="font-size: 0.76rem; font-weight: 700; color: #0f172a;">
+                              ${escapeHtml(s.machine_brand || 'Transbank')} ${s.machine_model ? `<span style="font-family: monospace; background: #2563eb; color: #fff; padding: 0 4px; border-radius: 3px; font-size: 0.68rem;">#${escapeHtml(s.machine_model)}</span>` : ''}
+                            </div>
+                            <span style="font-size: 0.65rem; font-weight: 700; color: #1d4ed8;">Propiedad de ${escapeHtml(s.machine_owner || 'STOCKA')}</span>
+                          </td>
+                          <td style="text-align: right; font-weight: 700; color: #0f172a; padding: 7px 8px;">${formatCLP(s.monto_total)}</td>
+                          <td style="text-align: right; padding: 7px 8px;">
+                            <div style="font-weight: 700; color: #dc2626; font-size: 0.78rem;">-${formatCLP(s.commission_total)}</div>
+                            <div style="font-size: 0.64rem; color: #64748b;">${Number(s.fee_pct || 0).toFixed(2)}% + IVA (${formatCLP(s.commission_net)} + ${formatCLP(s.commission_iva)})</div>
+                          </td>
+                          <td style="text-align: right; font-weight: 900; color: #059669; font-size: 0.86rem; background: rgba(16, 185, 129, 0.05); padding: 7px 10px;">
+                            ${formatCLP(s.seller_payout)}
+                          </td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                  <tfoot>
+                    <tr style="background: #ecfdf5; font-weight: 800; border-top: 2px solid #10b981;">
+                      <td colspan="${b.isConglomerate ? 7 : 6}" style="text-align: right; padding: 8px 12px; color: #064e3b; font-size: 0.82rem;">
+                        TOTAL VENTAS POS CONSIDERADAS EN EL PERIODO (${posSalesList.length} VENTA${posSalesList.length === 1 ? '' : 'S'}):
+                      </td>
+                      <td style="text-align: right; padding: 8px 8px; color: #0f172a; font-size: 0.85rem;">${formatCLP(sumGross)}</td>
+                      <td style="text-align: right; padding: 8px 8px; color: #dc2626; font-size: 0.84rem;">
+                        -${formatCLP(sumCommTotal)}
+                        <div style="font-size: 0.63rem; font-weight: 600; color: #64748b;">Neto ${formatCLP(sumCommNet)} + IVA ${formatCLP(sumCommIva)}</div>
+                      </td>
+                      <td style="text-align: right; padding: 8px 10px; color: #047857; font-size: 0.96rem; font-weight: 900; background: #d1fae5;">
+                        ${formatCLP(sumAbono)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            `}
+          </div>
+        `;
+      })() : ''}
 
       <!-- Cuadro de Pago e Información Bancaria Oficial STOCKA -->
       <div style="margin-top: 1.75rem; background: #f8fafc; border-radius: 10px; border: 1px solid #cbd5e1; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
@@ -4077,6 +4885,61 @@ export function exportBillingToExcel(customState = null) {
     XLSX.utils.book_append_sheet(wb, wsInbounds, "Ingresos Stock");
   }
 
+  // Pestaña 5: Detalle de Ventas POS Consideradas como Abono en el Periodo
+  if (Array.isArray(b.posAbonoSales) && b.posAbonoSales.length > 0) {
+    const posSalesList = b.posAbonoSales;
+    const sumGross = posSalesList.reduce((acc, s) => acc + (Number(s.monto_total) || 0), 0);
+    const sumCommNet = posSalesList.reduce((acc, s) => acc + (Number(s.commission_net) || 0), 0);
+    const sumCommIva = posSalesList.reduce((acc, s) => acc + (Number(s.commission_iva) || 0), 0);
+    const sumCommTotal = posSalesList.reduce((acc, s) => acc + (Number(s.commission_total) || 0), 0);
+    const sumAbono = posSalesList.reduce((acc, s) => acc + (Number(s.seller_payout) || 0), 0);
+
+    const posAbonoData = [
+      ["DETALLE DE VENTAS PUNTO DE VENTA (POS) CONSIDERADAS COMO ABONO EN EL PERIODO"],
+      ["COMERCIO / HOLDING:", b.currentCommerce || b.comercio, "PERIODO DE FACTURACIÓN:", b.currentPeriodName || b.periodName],
+      ["CANTIDAD VENTAS:", posSalesList.length, "VENTA BRUTA TOTAL ($):", sumGross, "COMISIÓN POS + IVA ($):", sumCommTotal, "MONTO NETO ABONADO AL SERVICIO ($):", sumAbono],
+      [],
+      ["N°", "FECHA VENTA", "CÓDIGO VENTA", "CÓD. TRANSACCIÓN", "COMERCIO / TIENDA", "CLIENTE", "PRODUCTOS", "MEDIO DE PAGO", "DOCUMENTO", "MÁQUINA POS", "TERMINAL #", "PROPIEDAD MÁQUINA", "MONTO BRUTO ($)", "% COMISIÓN POS", "COMISIÓN NETA ($)", "IVA COMISIÓN ($)", "COMISIÓN TOTAL + IVA ($)", "MONTO ABONO AL SERVICIO ($)", "PERIODO ABONO"]
+    ];
+
+    posSalesList.forEach((s, idx) => {
+      const d = s.created_at ? new Date(s.created_at) : null;
+      const dateStr = (d && !isNaN(d.getTime()))
+        ? d.toLocaleDateString('es-CL') + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+        : '-';
+      posAbonoData.push([
+        idx + 1,
+        dateStr,
+        s.codigo_venta || '-',
+        s.tx_code || '',
+        s.comercio || b.currentCommerce || '-',
+        s.nombre_cliente || 'Consumidor Final',
+        s.productos_summary || '',
+        s.modo_pago || '-',
+        s.documento_tipo || 'BOLETA',
+        s.machine_brand || 'Transbank',
+        s.machine_model ? `#${s.machine_model}` : '',
+        `Propiedad de ${s.machine_owner || 'STOCKA'}`,
+        s.monto_total || 0,
+        `${Number(s.fee_pct || 0).toFixed(2)}%`,
+        s.commission_net || 0,
+        s.commission_iva || 0,
+        s.commission_total || 0,
+        s.seller_payout || 0,
+        s.abono_period || (b.currentPeriodName || '')
+      ]);
+    });
+
+    posAbonoData.push([]);
+    posAbonoData.push([
+      "", "", "", "", "", "", "", "", "", "", "", "TOTALES PERIODO:",
+      sumGross, "", sumCommNet, sumCommIva, sumCommTotal, sumAbono, b.currentPeriodName || ''
+    ]);
+
+    const wsPosAbono = XLSX.utils.aoa_to_sheet(posAbonoData);
+    XLSX.utils.book_append_sheet(wb, wsPosAbono, "Abono Ventas POS");
+  }
+
   const fileName = `Facturacion_Stocka_${c.sigla || b.currentCommerce || b.comercio || 'COMERCIO'}_${(b.currentPeriodName || b.periodName || 'PERIODO').replace(/\s+/g, '_')}.xlsx`;
   XLSX.writeFile(wb, fileName);
 }
@@ -4271,6 +5134,8 @@ export async function saveBillingRecordToSupabase() {
     return false;
   }
 
+  if (guardBillingLocked('guardar cambios')) return false;
+
   const hasAdminAuth = await ensureAdminBillingSession();
   if (!hasAdminAuth) return false;
 
@@ -4318,6 +5183,7 @@ export async function saveBillingRecordToSupabase() {
       volumeDaysLogged: b.volumeDaysLogged,
       dailyStorageLogs: b.dailyStorageLogs,
       volumeStats: b.volumeStats,
+      storageByStore: b.storageByStore || {},
       productsStats: b.productsStats,
       inboundDeclarations: b.inboundDeclarations,
       ufValue: b.ufValue,
@@ -4329,6 +5195,9 @@ export async function saveBillingRecordToSupabase() {
       supplies: b.supplies,
       adjustments: b.adjustments,
       abonos: b.abonos || [],
+      posAbonoSales: b.posAbonoSales || [],
+      posAbonoSummary: b.posAbonoSummary || null,
+      allMerchantPosSales: b.allMerchantPosSales || [],
       pricingConfig: b.pricingConfig,
       checklist: (typeof getChecklistDataForSnapshot === 'function') ? getChecklistDataForSnapshot() : null,
       generatedAt: new Date().toISOString()
@@ -4485,6 +5354,8 @@ export async function confirmAndPublishBillingToCommerce() {
     return false;
   }
 
+  if (guardBillingLocked('volver a publicar un periodo cerrado')) return false;
+
   const hasAdminAuth = await ensureAdminBillingSession();
   if (!hasAdminAuth) return false;
 
@@ -4572,6 +5443,7 @@ export async function confirmAndPublishBillingToCommerce() {
       volumeDaysLogged: b.volumeDaysLogged,
       dailyStorageLogs: b.dailyStorageLogs,
       volumeStats: b.volumeStats,
+      storageByStore: b.storageByStore || {},
       productsStats: b.productsStats,
       inboundDeclarations: b.inboundDeclarations,
       ufValue: b.ufValue,
@@ -4583,6 +5455,9 @@ export async function confirmAndPublishBillingToCommerce() {
       supplies: b.supplies,
       adjustments: b.adjustments,
       abonos: b.abonos || [],
+      posAbonoSales: b.posAbonoSales || [],
+      posAbonoSummary: b.posAbonoSummary || null,
+      allMerchantPosSales: b.allMerchantPosSales || [],
       pricingConfig: b.pricingConfig,
       checklist: (typeof getChecklistDataForSnapshot === 'function') ? getChecklistDataForSnapshot() : null,
       generatedAt: new Date().toISOString(),
@@ -4693,8 +5568,13 @@ export async function confirmAndPublishBillingToCommerce() {
 
     billingState.isSaved = true;
     billingState.isPublished = true;
+    billingState.isLocked = true;
     billingState.savedRecordStatus = 'Publicado';
+    renderLockStatusBannerAndSyncToolbarUI();
     renderKPIsUI();
+    renderOrdersTableUI();
+    const desgloseCont = document.getElementById('bg-desglose-view-container');
+    if (desgloseCont) desgloseCont.innerHTML = renderStockaDesgloseHTML();
 
     if (typeof window.loadBillingPeriods === 'function') {
       window.loadBillingPeriods();
@@ -4766,12 +5646,107 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
   const b = snapshotState || billingState;
   const t = b.totals || {};
   const allOrders = b.orders || [];
+
+  // Si es conglomerado y el snapshot aún no tenía desglose de volumen por tienda, enriquecerlo desde comercios_volumen_diario
+  if (b.isConglomerate && (!b.storageByStore || Object.keys(b.storageByStore).length === 0)) {
+    try {
+      const group = await resolveCommerceGroup(b.currentCommerce || b.comercio || b.conglomerateName);
+      let pYear = b.currentPeriodYear;
+      let pMonth = b.currentPeriodMonth;
+      if ((!pYear || !pMonth) && Array.isArray(b.dailyStorageLogs) && b.dailyStorageLogs.length > 0) {
+        const parts = String(b.dailyStorageLogs[0].date || '').split('-');
+        if (parts.length >= 2) {
+          pYear = parseInt(parts[0], 10);
+          pMonth = parseInt(parts[1], 10);
+        }
+      }
+      pYear = pYear || new Date().getFullYear();
+      pMonth = pMonth || (new Date().getMonth() + 1);
+      const volData = await getMonthlyStorageVolume(group, pYear, pMonth);
+      if (volData && volData.byStore && Object.keys(volData.byStore).length > 0) {
+        b.storageByStore = volData.byStore;
+        if (!b.isManualVolume && Array.isArray(volData.dailyLogs) && volData.dailyLogs.length > 0) {
+          b.dailyStorageLogs = volData.dailyLogs;
+        }
+      }
+    } catch (eVol) {
+      console.warn('[BillingGenerator] No se pudo enriquecer volumen por tienda en analítica:', eVol);
+    }
+  }
+
   const sBreakdown = (b.storeBreakdown && b.storeBreakdown.length > 0)
     ? b.storeBreakdown
     : (b.isConglomerate ? computeConglomerateStoreBreakdown(allOrders, b) : []);
 
   const activeStore = (snapshotState ? snapshotState.activeConglomerateStoreFilter : billingState.activeConglomerateStoreFilter) || null;
   const isStoreFiltered = Boolean(b.isConglomerate && activeStore);
+
+  // Resolver métricas y series diarias de almacenamiento por cada tienda del conglomerado
+  const childStoresList = (b.conglomerateChildren && b.conglomerateChildren.length > 0)
+    ? b.conglomerateChildren
+    : sBreakdown.map(s => s.storeName);
+
+  const storeStorageColors = ['#0ea5e9', '#f59e0b', '#10b981', '#ec4899', '#6366f1', '#14b8a6'];
+
+  const resolveStoreStorageData = (storeName, idx = 0) => {
+    const stUp = String(storeName || '').trim().toUpperCase();
+    const map = b.storageByStore || {};
+    let matched = map[stUp];
+    if (!matched) {
+      const foundKey = Object.keys(map).find(k => k.toUpperCase() === stUp || k.toUpperCase().includes(stUp) || stUp.includes(k.toUpperCase()));
+      if (foundKey) matched = map[foundKey];
+    }
+    if (!matched && Array.isArray(b.dailyStorageLogs) && b.dailyStorageLogs.some(l => l.byStore)) {
+      const logs = b.dailyStorageLogs.map(l => {
+        const byS = l.byStore || {};
+        const k = Object.keys(byS).find(x => x.toUpperCase() === stUp || x.toUpperCase().includes(stUp) || stUp.includes(x.toUpperCase()));
+        return { date: l.date, volume: k ? (parseFloat(byS[k]) || 0) : 0 };
+      });
+      const nonZero = logs.filter(l => l.volume > 0);
+      const dCount = nonZero.length || logs.length;
+      const sum = logs.reduce((acc, l) => acc + l.volume, 0);
+      const avg = dCount > 0 ? sum / dCount : 0;
+      const vols = (nonZero.length > 0 ? nonZero : logs).map(l => l.volume);
+      matched = {
+        storeName,
+        averageM3: parseFloat(avg.toFixed(4)),
+        daysCount: nonZero.length,
+        maxDailyVolume: vols.length > 0 ? parseFloat(Math.max(...vols).toFixed(4)) : 0,
+        minDailyVolume: vols.length > 0 ? parseFloat(Math.min(...vols).toFixed(4)) : 0,
+        dailyLogs: logs
+      };
+    }
+    const avgM3 = matched ? (parseFloat(matched.averageM3) || 0) : 0;
+    const totalHoldingVol = parseFloat(b.volumeM3) || 0;
+    const sharePct = totalHoldingVol > 0 ? parseFloat(((avgM3 / totalHoldingVol) * 100).toFixed(1)) : 0;
+    return {
+      storeName,
+      color: storeStorageColors[idx % storeStorageColors.length],
+      averageM3: avgM3,
+      daysCount: matched ? (matched.daysCount || 0) : 0,
+      maxDailyVolume: matched ? (parseFloat(matched.maxDailyVolume) || 0) : 0,
+      minDailyVolume: matched ? (parseFloat(matched.minDailyVolume) || 0) : 0,
+      dailyLogs: (matched && Array.isArray(matched.dailyLogs)) ? matched.dailyLogs : [],
+      sharePct
+    };
+  };
+
+  const storesStorageBreakdown = b.isConglomerate
+    ? childStoresList.map((stName, idx) => resolveStoreStorageData(stName, idx))
+    : [];
+
+  const activeStoreStorage = isStoreFiltered
+    ? (storesStorageBreakdown.find(s => s.storeName.toUpperCase() === activeStore.toUpperCase()) || resolveStoreStorageData(activeStore, 0))
+    : null;
+
+  const displayVolAvg = isStoreFiltered ? (activeStoreStorage?.averageM3 || 0) : (b.volumeM3 || 0);
+  const displayVolDays = isStoreFiltered ? (activeStoreStorage?.daysCount || b.volumeDaysLogged || 0) : (b.volumeDaysLogged || 0);
+  const displayVolMax = isStoreFiltered
+    ? (activeStoreStorage?.maxDailyVolume || 0)
+    : ((b.isManualVolume || t.isManualVolume) ? b.volumeM3 : (b.volumeStats?.maxDailyVolume ?? b.volumeM3));
+  const displayVolMin = isStoreFiltered
+    ? (activeStoreStorage?.minDailyVolume || 0)
+    : ((b.isManualVolume || t.isManualVolume) ? b.volumeM3 : (b.volumeStats?.minDailyVolume ?? b.volumeM3));
 
   // Filtrar pedidos según tienda activa seleccionada o mostrar todos los pedidos del conglomerado
   const orders = isStoreFiltered
@@ -4926,7 +5901,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
     <div style="margin-bottom: 0.5rem;">
       <h4 style="margin: 0 0 0.6rem 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
         <span style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-          <span><i class="ri-archive-line text-stocka-purple"></i> Métricas de Almacenamiento Diario</span>
+          <span><i class="ri-archive-line text-stocka-purple"></i> Métricas de Almacenamiento Diario ${isStoreFiltered ? `(${escapeHtml(activeStore)})` : ''}</span>
           ${!b.isClientView && (b.isManualVolume || t.isManualVolume) ? `
             <span class="no-print" style="font-size: 0.7rem; background: rgba(95, 6, 250, 0.12); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.3); padding: 2px 8px; border-radius: 6px; font-weight: 800; text-transform: none; display: inline-flex; align-items: center; gap: 4px;" title="El cliente solo ve el valor y el gráfico estándar, sin saber que es manual">
               <i class="ri-edit-2-line"></i> Volumen Manual Fijo (Auto BD: ${formatDec(b.autoVolumeM3 ?? t.autoVolumeM3 ?? 0, 2)} m³)
@@ -4936,10 +5911,10 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
         <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
           ${isStoreFiltered ? `
             <span style="font-size: 0.72rem; background: rgba(95,6,250,0.08); color: #5f06fa; padding: 2px 8px; border-radius: 6px; font-weight: 600; text-transform: none;">
-              <i class="ri-information-line"></i> Almacenamiento contratado a nivel holding (${escapeHtml(b.currentCommerce)})
+              <i class="ri-information-line"></i> ${activeStoreStorage?.sharePct || 0}% del total holding (${formatDec(b.volumeM3, 2)} m³ consolidados)
             </span>
           ` : ''}
-          ${!b.isClientView ? `
+          ${!b.isClientView && !b.isLocked ? `
             <button type="button" class="btn btn-xs btn-outline no-print" onclick="window.openEditStorageFeeModal()" style="font-size: 0.72rem; font-weight: 700; border-color: rgba(95, 6, 250, 0.35); color: #5f06fa; border-radius: 6px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 4px; text-transform: none; cursor: pointer;">
               <i class="ri-pencil-line"></i> Configurar Volumen / Tarifa
             </button>
@@ -4950,54 +5925,113 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title" style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
             <span>VOLUMEN PROMEDIO DIARIO</span>
-            ${!b.isClientView && (b.isManualVolume || t.isManualVolume) ? `<span class="no-print" style="background: rgba(95, 6, 250, 0.12); color: #5f06fa; font-size: 0.62rem; font-weight: 800; padding: 1px 5px; border-radius: 4px;">MANUAL</span>` : ''}
+            ${!b.isClientView && (b.isManualVolume || t.isManualVolume) && !isStoreFiltered ? `<span class="no-print" style="background: rgba(95, 6, 250, 0.12); color: #5f06fa; font-size: 0.62rem; font-weight: 800; padding: 1px 5px; border-radius: 4px;">MANUAL</span>` : ''}
           </div>
-          <div class="bg-kpi-value">${formatDec(b.volumeM3, 2)} <span class="bg-kpi-unit">m³</span></div>
-          <div class="bg-kpi-subtitle">Promedio mes calendario</div>
+          <div class="bg-kpi-value">${formatDec(displayVolAvg, 2)} <span class="bg-kpi-unit">m³</span></div>
+          <div class="bg-kpi-subtitle">${isStoreFiltered ? `Promedio de ${escapeHtml(activeStore)} (${activeStoreStorage?.sharePct || 0}% del holding)` : 'Promedio mes calendario'}</div>
         </div>
 
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title">DÍAS CON REGISTRO</div>
-          <div class="bg-kpi-value">${b.volumeDaysLogged} <span class="bg-kpi-unit">días</span></div>
-          <div class="bg-kpi-subtitle">Mediciones registradas</div>
+          <div class="bg-kpi-value">${displayVolDays} <span class="bg-kpi-unit">días</span></div>
+          <div class="bg-kpi-subtitle">${isStoreFiltered ? `Mediciones de ${escapeHtml(activeStore)}` : 'Mediciones registradas'}</div>
         </div>
 
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title">PICO MÁXIMO REGISTRADO</div>
-          <div class="bg-kpi-value">${formatDec((b.isManualVolume || t.isManualVolume) ? b.volumeM3 : (b.volumeStats?.maxDailyVolume ?? b.volumeM3), 2)} <span class="bg-kpi-unit">m³</span></div>
-          <div class="bg-kpi-subtitle">Mayor ocupación en el mes</div>
+          <div class="bg-kpi-value">${formatDec(displayVolMax, 2)} <span class="bg-kpi-unit">m³</span></div>
+          <div class="bg-kpi-subtitle">${isStoreFiltered ? `Mayor ocupación de ${escapeHtml(activeStore)}` : 'Mayor ocupación en el mes'}</div>
         </div>
 
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title">VOLUMEN MÍNIMO REGISTRADO</div>
-          <div class="bg-kpi-value">${formatDec((b.isManualVolume || t.isManualVolume) ? b.volumeM3 : (b.volumeStats?.minDailyVolume ?? b.volumeM3), 2)} <span class="bg-kpi-unit">m³</span></div>
-          <div class="bg-kpi-subtitle">Menor ocupación en el mes</div>
+          <div class="bg-kpi-value">${formatDec(displayVolMin, 2)} <span class="bg-kpi-unit">m³</span></div>
+          <div class="bg-kpi-subtitle">${isStoreFiltered ? `Menor ocupación de ${escapeHtml(activeStore)}` : 'Menor ocupación en el mes'}</div>
         </div>
       </div>
     </div>
 
     <!-- Gráfico de Evolución de Almacenamiento Diario -->
-    <div class="bg-chart-card" style="margin-bottom: 2rem;">
+    <div class="bg-chart-card" style="margin-bottom: ${b.isConglomerate && storesStorageBreakdown.length > 0 ? '1.25rem' : '2rem'};">
       <div class="bg-chart-header">
         <div>
           <h4 class="bg-chart-title" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-            <span><i class="ri-line-chart-line text-stocka-purple"></i> Evolución del Volumen de Almacenamiento Diario (m³)</span>
-            ${!b.isClientView && (b.isManualVolume || t.isManualVolume) ? `
+            <span><i class="ri-line-chart-line text-stocka-purple"></i> Evolución del Volumen de Almacenamiento Diario (m³) ${isStoreFiltered ? `— 🏪 ${escapeHtml(activeStore)}` : (b.isConglomerate ? '— Consolidado y por Comercio' : '')}</span>
+            ${!b.isClientView && (b.isManualVolume || t.isManualVolume) && !isStoreFiltered ? `
               <span class="no-print" style="font-size: 0.68rem; background: rgba(95, 6, 250, 0.12); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.3); padding: 1px 7px; border-radius: 4px; font-weight: 800;">
                 <i class="ri-subtract-line"></i> Valor Fijo Manual (${formatDec(b.volumeM3, 2)} m³)
               </span>
             ` : ''}
           </h4>
-          <span style="font-size: 0.75rem; color: var(--color-text-muted);">Comportamiento del cubicaje medido durante el mes facturado</span>
+          <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+            ${isStoreFiltered
+              ? `Evolución diaria del cubicaje de ${escapeHtml(activeStore)} durante el periodo facturado`
+              : (b.isConglomerate
+                  ? 'Comparativa diaria del total consolidado del holding junto al volumen individual de cada comercio'
+                  : 'Comportamiento del cubicaje medido durante el mes facturado')}
+          </span>
         </div>
         <div class="bg-tariff-badge">
           Tarifa: ${formatCLP(t.storageRate || b.activeRange?.storage_m3 || 48900)} / m³
         </div>
       </div>
-      <div style="height: 250px; position: relative;">
+      <div style="height: 260px; position: relative;">
         <canvas id="chart-storage-evolution"></canvas>
       </div>
     </div>
+
+    ${b.isConglomerate && storesStorageBreakdown.length > 0 ? `
+      <!-- Gráficos Individuales de Almacenamiento Diario por Comercio del Conglomerado -->
+      <div style="margin-bottom: 2rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+          <h4 style="margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-store-2-line text-stocka-purple"></i> Gráficos de Almacenamiento Diario por Comercio (${storesStorageBreakdown.length} Tiendas)
+          </h4>
+          <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+            Cada gráfico utiliza su propia escala para visualizar con precisión la curva de ocupación de cada marca
+          </span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.15rem;">
+          ${storesStorageBreakdown.map((st, idx) => {
+            const isThisStoreActive = activeStore && activeStore.toUpperCase() === st.storeName.toUpperCase();
+            return `
+              <div class="bg-chart-card" style="padding: 1rem 1.1rem; border: ${isThisStoreActive ? `2px solid ${st.color}` : '1px solid var(--color-border)'}; box-shadow: ${isThisStoreActive ? '0 4px 14px rgba(95,6,250,0.12)' : '0 1px 3px rgba(0,0,0,0.03)'};">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.6rem; flex-wrap: wrap;">
+                  <div style="display: flex; align-items: center; gap: 0.45rem;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: ${st.color}; display: inline-block; flex-shrink: 0;"></span>
+                    <strong style="font-size: 0.88rem; color: var(--color-text-main);">${escapeHtml(st.storeName)}</strong>
+                    <span class="bg-share-badge" style="font-size: 0.68rem; padding: 1px 6px;">${st.sharePct}% del Holding</span>
+                  </div>
+                  <button type="button"
+                          onclick="window.setConglomerateStoreView(${isThisStoreActive ? 'null' : `'${escapeHtml(st.storeName)}'`})"
+                          class="btn btn-xs"
+                          style="font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 5px; border: 1px solid ${isThisStoreActive ? st.color : 'rgba(95,6,250,0.28)'}; background: ${isThisStoreActive ? st.color : 'var(--color-surface)'}; color: ${isThisStoreActive ? '#ffffff' : '#5f06fa'}; cursor: pointer;">
+                    ${isThisStoreActive ? '<i class="ri-check-line"></i> Filtrado' : '<i class="ri-filter-3-line"></i> Filtrar tienda'}
+                  </button>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.45rem; background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border); border-radius: 7px; padding: 0.4rem 0.6rem; margin-bottom: 0.65rem; font-size: 0.72rem;">
+                  <div>
+                    <div style="color: var(--color-text-muted); font-size: 0.64rem; font-weight: 700; text-transform: uppercase;">Promedio</div>
+                    <div style="font-weight: 800; color: ${st.color}; font-size: 0.85rem;">${formatDec(st.averageM3, 2)} m³</div>
+                  </div>
+                  <div>
+                    <div style="color: var(--color-text-muted); font-size: 0.64rem; font-weight: 700; text-transform: uppercase;">Pico Máx.</div>
+                    <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.82rem;">${formatDec(st.maxDailyVolume, 2)} m³</div>
+                  </div>
+                  <div>
+                    <div style="color: var(--color-text-muted); font-size: 0.64rem; font-weight: 700; text-transform: uppercase;">Mínimo</div>
+                    <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.82rem;">${formatDec(st.minDailyVolume, 2)} m³</div>
+                  </div>
+                </div>
+                <div style="height: 175px; position: relative;">
+                  <canvas id="chart-storage-store-${idx}"></canvas>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    ` : ''}
 
     <!-- Métricas de Artículos Vendidos y Despachados -->
     <div style="margin-bottom: 0.5rem;">
@@ -5212,9 +6246,10 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
               <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
                 <thead>
                   <tr style="border-bottom: 2px solid var(--color-border); text-align: left; color: var(--color-text-muted);">
-                    <th style="padding: 6px 8px; min-width: 190px;">Tienda</th>
+                    <th style="padding: 6px 8px; min-width: 180px;">Tienda</th>
                     <th style="padding: 6px 8px; text-align: center;">Pedidos</th>
                     <th style="padding: 6px 8px; text-align: center;">Envíos RM</th>
+                    <th style="padding: 6px 8px; text-align: center;">Almac. Prom.</th>
                     <th style="padding: 6px 8px; text-align: right;">Costo Neto Op.</th>
                     <th style="padding: 6px 8px; text-align: right;">% Part.</th>
                   </tr>
@@ -5222,6 +6257,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
                 <tbody>
                   ${sBreakdown.map(s => {
                     const isRowActive = activeStore && activeStore.toUpperCase() === s.storeName.toUpperCase();
+                    const stStorage = storesStorageBreakdown.find(st => st.storeName.toUpperCase() === s.storeName.toUpperCase());
                     return `
                       <tr style="border-bottom: 1px solid var(--color-border); ${isRowActive ? 'background: rgba(95,6,250,0.08);' : ''}">
                         <td style="padding: 7px 8px; font-weight: 700; color: var(--color-text-main);">
@@ -5249,6 +6285,9 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
                         </td>
                         <td style="padding: 7px 8px; text-align: center; font-weight: 700;">${s.billableOrders}</td>
                         <td style="padding: 7px 8px; text-align: center; color: var(--color-text-muted);">${s.shippingRmCount}</td>
+                        <td style="padding: 7px 8px; text-align: center; font-weight: 700; color: #10b981;">
+                          ${stStorage ? `${formatDec(stStorage.averageM3, 2)} m³` : '—'}
+                        </td>
                         <td style="padding: 7px 8px; text-align: right; font-weight: 700; color: var(--color-text-main);">${formatCLP(s.storeTotalNet)}</td>
                         <td style="padding: 7px 8px; text-align: right;">
                           <span class="bg-share-badge">${s.sharePct}%</span>
@@ -5298,50 +6337,87 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
     return new Chart(canvas, config);
   };
 
-  // A. Gráfico de Evolución de Almacenamiento Diario
+  // A. Gráfico de Evolución de Almacenamiento Diario (Consolidado + Comercios o Tienda Filtrada)
   const isManualVol = !!(b.isManualVolume || t.isManualVolume);
   const periodYear = b.currentPeriodYear || new Date().getFullYear();
   const periodMonth = b.currentPeriodMonth || (new Date().getMonth() + 1);
   const fixedVolVal = Number((parseFloat(b.volumeM3) || 0).toFixed(2));
-  const dailyLogs = isManualVol
+  const baseDailyLogs = isManualVol
     ? generateConstantDailyStorageLogs(periodYear, periodMonth, fixedVolVal)
     : (b.dailyStorageLogs && b.dailyStorageLogs.length > 0
         ? b.dailyStorageLogs
         : [{ date: `${periodYear}-${String(periodMonth).padStart(2, '0')}-01`, volume: fixedVolVal }]);
 
-  const maxLogVol = dailyLogs.reduce((max, l) => Math.max(max, parseFloat(l.volume) || 0), 0);
+  const activeLogs = (isStoreFiltered && activeStoreStorage && activeStoreStorage.dailyLogs && activeStoreStorage.dailyLogs.length > 0)
+    ? activeStoreStorage.dailyLogs
+    : baseDailyLogs;
+
+  const maxLogVol = activeLogs.reduce((max, l) => Math.max(max, parseFloat(l.volume) || 0), 0);
   const ySuggestedMax = maxLogVol > 0 ? Number((maxLogVol * 1.25).toFixed(2)) : 5;
 
   const storageCanvas = container.querySelector('#chart-storage-evolution') || document.getElementById('chart-storage-evolution');
   if (storageCanvas) {
     const ctx = storageCanvas.getContext('2d');
+    const mainLineColor = isStoreFiltered && activeStoreStorage?.color ? activeStoreStorage.color : chartPurple;
     const gradient = ctx.createLinearGradient(0, 0, 0, 240);
-    gradient.addColorStop(0, isDark ? 'rgba(168, 85, 247, 0.35)' : 'rgba(95, 6, 250, 0.25)');
+    gradient.addColorStop(0, isDark ? 'rgba(168, 85, 247, 0.32)' : 'rgba(95, 6, 250, 0.22)');
     gradient.addColorStop(1, isDark ? 'rgba(168, 85, 247, 0.01)' : 'rgba(95, 6, 250, 0.01)');
+
+    const dateList = activeLogs.map(l => l.date);
+    const formattedLabels = dateList.map(d => {
+      const parts = (d || '').split('-');
+      return parts.length === 3 ? `${parts[2]}/${parts[1]}` : d;
+    });
+
+    const storageDatasets = [{
+      label: isStoreFiltered
+        ? `${activeStore} (${formatDec(activeStoreStorage?.averageM3 || 0, 2)} m³ prom.)`
+        : (b.isConglomerate ? `Total Holding (${formatDec(b.volumeM3, 2)} m³ prom.)` : 'Volumen Diario (m³)'),
+      data: activeLogs.map(l => Number((parseFloat(l.volume) || 0).toFixed(2))),
+      borderColor: mainLineColor,
+      backgroundColor: gradient,
+      fill: true,
+      tension: (isManualVol && !isStoreFiltered) ? 0 : 0.25,
+      borderWidth: 2.5,
+      pointRadius: activeLogs.length > 20 ? 2 : 4,
+      pointBackgroundColor: mainLineColor,
+      pointHoverRadius: 6
+    }];
+
+    // Si es vista consolidada de un conglomerado, incluir también las curvas de cada tienda en el gráfico principal
+    if (b.isConglomerate && !isStoreFiltered && storesStorageBreakdown.length > 0) {
+      storesStorageBreakdown.forEach(st => {
+        const stLogMap = {};
+        (st.dailyLogs || []).forEach(sl => { stLogMap[sl.date] = sl.volume; });
+        const stSeries = dateList.map(d => Number((parseFloat(stLogMap[d] ?? 0) || 0).toFixed(2)));
+        storageDatasets.push({
+          label: `${st.storeName} (${formatDec(st.averageM3, 2)} m³ prom.)`,
+          data: stSeries,
+          borderColor: st.color,
+          backgroundColor: st.color,
+          fill: false,
+          tension: 0.25,
+          borderWidth: 2,
+          pointRadius: dateList.length > 20 ? 1.8 : 3.5,
+          pointBackgroundColor: st.color,
+          pointHoverRadius: 5
+        });
+      });
+    }
 
     getCanvasAndInit('chart-storage-evolution', {
       type: 'line',
       data: {
-        labels: dailyLogs.map(l => {
-          const parts = (l.date || '').split('-');
-          return parts.length === 3 ? `${parts[2]}/${parts[1]}` : l.date;
-        }),
-        datasets: [{
-          label: 'Volumen Diario (m³)',
-          data: dailyLogs.map(l => l.volume),
-          borderColor: chartPurple,
-          backgroundColor: gradient,
-          fill: true,
-          tension: isManualVol ? 0 : 0.25,
-          borderWidth: 2.5,
-          pointRadius: dailyLogs.length > 20 ? 2 : 4,
-          pointBackgroundColor: chartPurple,
-          pointHoverRadius: 6
-        }]
+        labels: formattedLabels,
+        datasets: storageDatasets
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
         scales: {
           x: {
             grid: { display: false },
@@ -5359,14 +6435,91 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
           }
         },
         plugins: {
-          legend: { display: false },
+          legend: {
+            display: storageDatasets.length > 1,
+            position: 'top',
+            labels: {
+              usePointStyle: true,
+              boxWidth: 8,
+              font: { family: 'Outfit', size: 11, weight: '600' },
+              color: chartTextColor
+            }
+          },
           tooltip: {
             callbacks: {
-              label: context => ` Volumen: ${context.raw} m³`
+              label: context => ` ${context.dataset.label.split(' (')[0]}: ${context.raw} m³`
             }
           }
         }
       }
+    });
+  }
+
+  // A2. Gráficos individuales de almacenamiento diario por cada comercio del conglomerado (con escala propia)
+  if (b.isConglomerate && storesStorageBreakdown.length > 0) {
+    storesStorageBreakdown.forEach((st, idx) => {
+      const stCanvasId = `chart-storage-store-${idx}`;
+      const stCanvas = container.querySelector('#' + stCanvasId) || document.getElementById(stCanvasId);
+      if (!stCanvas) return;
+
+      const stLogs = (st.dailyLogs && st.dailyLogs.length > 0)
+        ? st.dailyLogs
+        : baseDailyLogs.map(l => ({ date: l.date, volume: 0 }));
+
+      const stMax = stLogs.reduce((m, l) => Math.max(m, parseFloat(l.volume) || 0), 0);
+      const stSuggestedMax = stMax > 0 ? Number((stMax * 1.25).toFixed(2)) : 5;
+
+      const stLabels = stLogs.map(l => {
+        const parts = (l.date || '').split('-');
+        return parts.length === 3 ? `${parts[2]}/${parts[1]}` : l.date;
+      });
+
+      getCanvasAndInit(stCanvasId, {
+        type: 'line',
+        data: {
+          labels: stLabels,
+          datasets: [{
+            label: `${st.storeName} (m³)`,
+            data: stLogs.map(l => Number((parseFloat(l.volume) || 0).toFixed(2))),
+            borderColor: st.color,
+            backgroundColor: st.color + '22',
+            fill: true,
+            tension: 0.25,
+            borderWidth: 2.2,
+            pointRadius: stLogs.length > 20 ? 1.8 : 3.5,
+            pointBackgroundColor: st.color,
+            pointHoverRadius: 5
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { font: { family: 'Outfit', size: 9 }, color: chartTextColor, maxTicksLimit: 10 }
+            },
+            y: {
+              beginAtZero: true,
+              suggestedMax: stSuggestedMax,
+              grid: { color: chartGridColor },
+              ticks: {
+                font: { family: 'Outfit', size: 9 },
+                color: chartTextColor,
+                callback: val => `${val} m³`
+              }
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: context => ` ${st.storeName}: ${context.raw} m³`
+              }
+            }
+          }
+        }
+      });
     });
   }
 
@@ -5932,6 +7085,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
         </div>
       </div>
 
+      <!-- Banner de Estado Cerrado / Confirmado / Pagado -->
+      <div id="bg-lock-status-banner" style="display: none; margin-bottom: 0.5rem;"></div>
+
       <!-- Banner de Conglomerado Dinámico -->
       <div id="bg-conglomerate-banner-container"></div>
 
@@ -5972,6 +7128,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
           <button type="button" class="btn btn-outline btn-sm" onclick="window.addNewManualAbonoRow()" style="height: 29px; padding: 0 0.6rem; font-size: 0.73rem; border-radius: 6px; font-weight: 600; border-color: rgba(16, 185, 129, 0.5); color: #047857; background: rgba(16, 185, 129, 0.05); display: inline-flex; align-items: center; gap: 3px;" title="Registrar abono comercial que descuenta el saldo a pagar por el cliente">
             <i class="ri-hand-coin-line" style="color: #10b981;"></i> + Abono
           </button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.openManagePosAbonosBillingModal()" style="height: 29px; padding: 0 0.6rem; font-size: 0.73rem; border-radius: 6px; font-weight: 700; border-color: rgba(5, 150, 105, 0.55); color: #065f46; background: rgba(16, 185, 129, 0.1); display: inline-flex; align-items: center; gap: 3px;" title="Ver y gestionar el detalle de ventas Punto de Venta (POS) consideradas como abono en este periodo">
+            <i class="ri-store-3-line" style="color: #059669;"></i> Ventas POS / Abono
+          </button>
           <button type="button" class="btn btn-primary btn-sm" onclick="window.openBulkEditOrdersModal()" style="height: 29px; padding: 0 0.65rem; font-size: 0.73rem; background: #5f06fa; border-color: #5f06fa; border-radius: 6px; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;" title="Editar masivamente pedidos filtrados o seleccionados">
             <i class="ri-edit-2-line"></i> Edición Masiva
           </button>
@@ -6009,6 +7168,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
               <button type="button" class="bg-quick-filter-btn" id="qf-mkt" onclick="window.setBgQuickFilter('mkt')">
                 Marketplace (<span id="qf-count-mkt">0</span>)
               </button>
+              <button type="button" class="bg-quick-filter-btn" id="qf-pos" onclick="window.setBgQuickFilter('pos')" style="border-color: rgba(14, 165, 233, 0.4); color: #0284c7;" title="Pedidos de Punto de Venta físico (Base $1.490 · Despacho $0)">
+                <i class="ri-store-3-fill"></i> Punto de Venta (<span id="qf-count-pos">0</span>)
+              </button>
             </div>
 
             <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
@@ -6045,7 +7207,7 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
                   <th style="width: 175px;">
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
                       <span>Tipo Entrega</span>
-                      <button type="button" onclick="window.openDeliveryTypesManagerModal()" title="Configurar y editar tipos de entrega" style="background: rgba(95,6,250,0.08); border: 1px solid rgba(95,6,250,0.25); border-radius: 4px; cursor: pointer; color: #5f06fa; font-size: 0.72rem; padding: 1px 6px; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">
+                      <button type="button" id="bg-th-btn-edit-delivery" onclick="window.openDeliveryTypesManagerModal()" title="Configurar y editar tipos de entrega" style="background: rgba(95,6,250,0.08); border: 1px solid rgba(95,6,250,0.25); border-radius: 4px; cursor: pointer; color: #5f06fa; font-size: 0.72rem; padding: 1px 6px; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">
                         <i class="ri-settings-4-line"></i> Editar
                       </button>
                     </div>
@@ -6060,7 +7222,7 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
                   <th id="bg-th-prep-total" style="width: 105px; text-align: right;">
                     <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
                       <span>Prep. Total</span>
-                      <button type="button" onclick="window.openAddCustomColumnModal()" title="Añadir columna de recargo de preparación (por unidad o global)" style="background: rgba(234, 88, 12, 0.1); border: 1px solid rgba(234, 88, 12, 0.35); border-radius: 4px; cursor: pointer; color: #c2410c; font-size: 0.65rem; padding: 1px 5px; font-weight: 700; display: inline-flex; align-items: center; gap: 2px; white-space: nowrap;">
+                      <button type="button" id="bg-th-btn-add-surcharge" onclick="window.openAddCustomColumnModal()" title="Añadir columna de recargo de preparación (por unidad o global)" style="background: rgba(234, 88, 12, 0.1); border: 1px solid rgba(234, 88, 12, 0.35); border-radius: 4px; cursor: pointer; color: #c2410c; font-size: 0.65rem; padding: 1px 5px; font-weight: 700; display: inline-flex; align-items: center; gap: 2px; white-space: nowrap;">
                         <i class="ri-add-line"></i> Recargo
                       </button>
                     </div>
@@ -6126,8 +7288,8 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
                   </th>
                   <th id="bg-filter-row-values-colspan" colspan="7" style="padding: 3px 6px; text-align: right; color: #94a3b8; font-size: 0.7rem; font-weight: 500;">
                     <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
-                      <span style="font-size: 0.68rem; color: #64748b;"><i class="ri-edit-line"></i> Columnas de valores y recargos editables</span>
-                      <button type="button" onclick="window.openAddCustomColumnModal()" style="background: #fff7ed; border: 1px solid #fdba74; color: #c2410c; border-radius: 4px; font-size: 0.68rem; font-weight: 700; padding: 1px 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;" title="Añadir nueva columna de cobro / recargo de preparación">
+                      <span id="bg-filter-row-values-label" style="font-size: 0.68rem; color: #64748b;"><i class="ri-edit-line"></i> Columnas de valores y recargos editables</span>
+                      <button type="button" id="bg-th-btn-add-col-filter" onclick="window.openAddCustomColumnModal()" style="background: #fff7ed; border: 1px solid #fdba74; color: #c2410c; border-radius: 4px; font-size: 0.68rem; font-weight: 700; padding: 1px 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;" title="Añadir nueva columna de cobro / recargo de preparación">
                         <i class="ri-add-circle-line"></i> + Columna Cobro
                       </button>
                     </div>
@@ -6145,7 +7307,7 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
       <!-- Contenedor 2: Desglose Oficial Stocka -->
       <div id="bg-content-desglose" style="display: none;">
         <!-- Barra de herramientas para personalizar insumos, fechas y datos legales -->
-        <div class="no-print" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+        <div id="bg-desglose-top-toolbar" class="no-print" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
           <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">
             <i class="ri-file-list-3-line" style="color: #5f06fa; font-size: 1.2rem;"></i>
             <span>Desglose Oficial Stocka</span>
@@ -6239,12 +7401,14 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
       return;
     }
 
+    if (guardBillingLocked('recalcular un periodo cerrado')) return;
+
     const b = billingState;
     const hasData = b.currentCommerce === commerceSelect.value && ((b.orders && b.orders.length > 0) || b.isSaved);
 
     if (hasData && typeof Swal !== 'undefined') {
       const result = await Swal.fire({
-        title: 'Actualizar Facturación',
+        title: 'Actualizar Facturación desde WMS',
         html: `
           <div style="text-align: left; font-size: 0.88rem; color: #334155; line-height: 1.5;">
             <p style="margin-bottom: 0.85rem;">¿Cómo deseas recalcular la facturación de <strong>${escapeHtml(b.currentCommerce || 'este comercio')}</strong>?</p>
@@ -6278,12 +7442,12 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
       });
 
       if (result.isConfirmed) {
-        executeCalculationFromUI({ forceFresh: false });
+        executeCalculationFromUI({ forceFresh: false, forceRecalculateFromDB: true });
       } else if (result.isDenied) {
-        executeCalculationFromUI({ forceFresh: true });
+        executeCalculationFromUI({ forceFresh: true, forceRecalculateFromDB: true });
       }
     } else {
-      executeCalculationFromUI();
+      executeCalculationFromUI({ forceRecalculateFromDB: true });
     }
   });
 
@@ -6350,6 +7514,14 @@ export function renderGeneratorEmptyCommerceState() {
   billingState.activeConglomerateStoreFilter = null;
   billingState.isSaved = false;
   billingState.isPublished = false;
+  billingState.isPaid = false;
+  billingState.isLocked = false;
+  billingState.paymentStatus = 'Por solicitar';
+  billingState.loadedFromSnapshot = false;
+
+  if (typeof renderLockStatusBannerAndSyncToolbarUI === 'function') {
+    renderLockStatusBannerAndSyncToolbarUI();
+  }
 
   const congBanner = document.getElementById('bg-conglomerate-banner-container');
   if (congBanner) congBanner.innerHTML = '';
@@ -7172,7 +8344,7 @@ window.switchBgSubTab = function(tabKey) {
 
   const regActions = document.getElementById('bg-register-top-actions');
   if (regActions) {
-    regActions.style.display = tabKey === 'register' ? 'flex' : 'none';
+    regActions.style.display = (tabKey === 'register' && !billingState.isLocked) ? 'flex' : 'none';
   }
 
   if (!billingState.currentCommerce && (tabKey === 'desglose' || tabKey === 'analytics')) {
@@ -7190,6 +8362,131 @@ window.switchBgSubTab = function(tabKey) {
       renderBillingChecklistUI();
     }
   }
+};
+
+// Renderizar Banner de Periodo Cerrado/Pagado y sincronizar botones de edición en la barra de herramientas
+export function renderLockStatusBannerAndSyncToolbarUI() {
+  const b = billingState;
+  const isLocked = Boolean(b.isLocked);
+  const isPaid = Boolean(b.isPaid);
+  const isPublished = Boolean(b.isPublished);
+
+  // 1. Banner de estado de bloqueo / periodo cerrado
+  const banner = document.getElementById('bg-lock-status-banner');
+  if (banner) {
+    if (!b.currentCommerce || !isLocked) {
+      banner.style.display = 'none';
+      banner.innerHTML = '';
+    } else if (isPaid) {
+      banner.style.display = 'block';
+      banner.innerHTML = `
+        <div style="background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border: 1.5px solid #10b981; border-radius: 9px; padding: 0.5rem 0.9rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.12);">
+          <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+            <span style="background: #059669; color: #ffffff; padding: 0.22rem 0.6rem; border-radius: 6px; font-weight: 800; font-size: 0.74rem; display: inline-flex; align-items: center; gap: 4px; letter-spacing: 0.02em;">
+              <i class="ri-lock-2-fill"></i> PERIODO CERRADO Y PAGADO
+            </span>
+            <span style="font-size: 0.78rem; color: #065f46; font-weight: 600;">
+              Facturación liquidada (${escapeHtml(b.paymentStatus || 'Pagado')}) · <strong>Modo Solo Lectura</strong> (cargado al instante sin recalcular).
+            </span>
+          </div>
+          <span style="font-size: 0.7rem; color: #047857; background: rgba(255,255,255,0.75); border: 1px solid rgba(16,185,129,0.35); padding: 2px 8px; border-radius: 999px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+            <i class="ri-shield-check-fill"></i> Registro Inmutable v${b.currentVersion || 1}
+          </span>
+        </div>
+      `;
+    } else if (isPublished) {
+      banner.style.display = 'block';
+      banner.innerHTML = `
+        <div style="background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%); border: 1.5px solid #8b5cf6; border-radius: 9px; padding: 0.5rem 0.9rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem; box-shadow: 0 2px 6px rgba(139, 92, 246, 0.12);">
+          <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+            <span style="background: #6d28d9; color: #ffffff; padding: 0.22rem 0.6rem; border-radius: 6px; font-weight: 800; font-size: 0.74rem; display: inline-flex; align-items: center; gap: 4px; letter-spacing: 0.02em;">
+              <i class="ri-lock-line"></i> PERIODO CONFIRMADO Y PUBLICADO (v${b.currentVersion || 1})
+            </span>
+            <span style="font-size: 0.78rem; color: #4c1d95; font-weight: 600;">
+              El desglose ya fue enviado al comercio y se encuentra en <strong>Modo Solo Lectura</strong>.
+            </span>
+          </div>
+          <button type="button" onclick="window.unlockPublishedBillingForEdit()" class="btn btn-sm" style="background: #ffffff; color: #6d28d9; border: 1px solid #8b5cf6; font-weight: 700; font-size: 0.72rem; height: 26px; padding: 0 0.65rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.04);" title="Habilitar edición excepcional para emitir una rectificación (nueva versión)">
+            <i class="ri-lock-unlock-line"></i> Reabrir para Rectificar
+          </button>
+        </div>
+      `;
+    }
+  }
+
+  // 2. Sincronizar botones principales de barra superior
+  const calcBtn = document.getElementById('bg-btn-recalculate');
+  const saveBtn = document.getElementById('bg-btn-save-billing');
+  const publishBtn = document.getElementById('bg-btn-confirm-publish');
+  const configBtn = document.getElementById('bg-btn-pricing-config');
+
+  if (calcBtn) {
+    calcBtn.style.display = isLocked ? 'none' : 'inline-flex';
+  }
+  if (saveBtn) {
+    saveBtn.style.display = isLocked ? 'none' : 'inline-flex';
+  }
+  if (publishBtn) {
+    publishBtn.style.display = isLocked ? 'none' : 'inline-flex';
+  }
+  if (configBtn) {
+    configBtn.style.display = isLocked ? 'none' : 'inline-flex';
+  }
+
+  // 3. Sincronizar acciones de edición en la barra de sub-pestañas y cabeceras de tabla
+  const activeTabBtn = document.querySelector('#bg-main-subtabs .bg-subtab-btn.active');
+  const isRegisterTab = !activeTabBtn || activeTabBtn.id === 'bg-tab-btn-register';
+  const regActions = document.getElementById('bg-register-top-actions');
+  if (regActions) {
+    regActions.style.display = (isRegisterTab && !isLocked) ? 'flex' : 'none';
+  }
+
+  const hideWhenLockedIds = [
+    'bg-btn-bulk-edit-filtered',
+    'bg-th-btn-edit-delivery',
+    'bg-th-btn-add-surcharge',
+    'bg-th-btn-add-col-filter',
+    'bg-desglose-top-toolbar'
+  ];
+  hideWhenLockedIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.display = isLocked ? 'none' : '';
+    }
+  });
+}
+window.renderLockStatusBannerAndSyncToolbarUI = renderLockStatusBannerAndSyncToolbarUI;
+
+// Permitir reabrir excepcionalmente un periodo confirmado (pero aún NO pagado) para emitir rectificación
+window.unlockPublishedBillingForEdit = async function() {
+  if (billingState.isPaid) {
+    guardBillingLocked();
+    return;
+  }
+  if (typeof Swal !== 'undefined') {
+    const { isConfirmed } = await Swal.fire({
+      icon: 'warning',
+      title: '¿Reabrir periodo para rectificar?',
+      html: `
+        <div style="font-size: 0.88rem; color: #334155; text-align: left; line-height: 1.45;">
+          Este periodo ya fue <strong>Confirmado y Publicado (v${billingState.currentVersion || 1})</strong> para <strong>${escapeHtml(billingState.currentCommerce)}</strong>.<br><br>
+          Si lo reabres y realizas cambios, deberás volver a presionar <strong>"Confirmar y Publicar"</strong> para generar una nueva versión oficial (v${(billingState.currentVersion || 1) + 1}).
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: '<i class="ri-lock-unlock-line"></i> Sí, habilitar edición',
+      cancelButtonText: 'Cancelar (Mantener cerrado)',
+      confirmButtonColor: '#6d28d9'
+    });
+    if (!isConfirmed) return;
+  }
+
+  billingState.isLocked = false;
+  renderLockStatusBannerAndSyncToolbarUI();
+  renderKPIsUI();
+  renderOrdersTableUI();
+  const desgloseCont = document.getElementById('bg-desglose-view-container');
+  if (desgloseCont) desgloseCont.innerHTML = renderStockaDesgloseHTML();
 };
 
 // Ejecutar el motor de cálculo desde los valores actuales de la UI
@@ -7217,7 +8514,7 @@ export async function executeCalculationFromUI(overrides = {}) {
 
   if (calcBtn) {
     calcBtn.disabled = true;
-    calcBtn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Calculando...`;
+    calcBtn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Cargando...`;
   }
 
   const isSwitchingCommerce = billingState.currentCommerce !== commerceName || billingState.currentPeriodId !== periodId;
@@ -7226,7 +8523,7 @@ export async function executeCalculationFromUI(overrides = {}) {
     kpisCont.innerHTML = `
       <div style="grid-column: 1 / -1; text-align: center; padding: 0.9rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px;">
         <i class="ri-loader-4-line ri-spin" style="font-size: 1.25rem; color: #5f06fa; display: inline-block; margin-bottom: 0.2rem;"></i>
-        <div style="font-size: 0.82rem;">Iniciando cálculo para <strong>${escapeHtml(commerceName)}</strong> (${escapeHtml(periodName)})...</div>
+        <div style="font-size: 0.82rem;">Cargando facturación de <strong>${escapeHtml(commerceName)}</strong> (${escapeHtml(periodName)})...</div>
       </div>
     `;
   }
@@ -7238,8 +8535,8 @@ export async function executeCalculationFromUI(overrides = {}) {
       <tr>
         <td colspan="30" style="text-align: center; padding: 3rem; color: var(--color-text-muted);">
           <i class="ri-loader-4-line ri-spin" style="font-size: 2.2rem; color: #5f06fa; display: inline-block; margin-bottom: 0.6rem;"></i>
-          <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.95rem;">Calculando facturación para <strong>${escapeHtml(commerceName)}</strong> (${escapeHtml(periodName)})...</div>
-          <div style="font-size: 0.775rem; color: var(--color-text-muted); margin-top: 0.25rem;">Consultando pedidos, almacenamiento, tarifas oficiales y despachos.</div>
+          <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.95rem;">Cargando facturación para <strong>${escapeHtml(commerceName)}</strong> (${escapeHtml(periodName)})...</div>
+          <div style="font-size: 0.775rem; color: var(--color-text-muted); margin-top: 0.25rem;">Verificando registro del periodo o calculando tarifas...</div>
         </td>
       </tr>
     `;
@@ -7248,8 +8545,11 @@ export async function executeCalculationFromUI(overrides = {}) {
   try {
     billingState.currentPeriodId = periodId;
 
-    // Ejecutar cálculo completo
+    // Ejecutar cálculo o hidratar snapshot instantáneamente si ya está cerrado/guardado
     await calculateCommerceBilling(commerceName, periodName, overrides);
+
+    // Sincronizar banner de bloqueo y barra de herramientas según el estado del periodo
+    renderLockStatusBannerAndSyncToolbarUI();
 
     // Actualizar KPI Cards en pantalla
     renderKPIsUI();
@@ -7311,10 +8611,11 @@ export async function executeCalculationFromUI(overrides = {}) {
     billingState.isLoading = false;
     if (calcBtn) {
       calcBtn.disabled = false;
-      calcBtn.innerHTML = `<i class="ri-refresh-line"></i> Calcular`;
+      calcBtn.innerHTML = `<i class="ri-refresh-line"></i> Recalcular`;
     }
     if (commerceSpinner) commerceSpinner.style.display = 'none';
     if (commerceSelect) commerceSelect.disabled = false;
+    renderLockStatusBannerAndSyncToolbarUI();
   }
 }
 window.executeCalculationFromUI = executeCalculationFromUI;
@@ -7562,16 +8863,24 @@ export function renderKPIsUI() {
 
   const b = billingState;
   const t = b.totals || {};
+  const isLocked = Boolean(b.isLocked);
+
+  let statusBadgeHTML = '';
+  if (b.isPaid) {
+    statusBadgeHTML = '<span style="background: rgba(16, 185, 129, 0.16); color: #059669; border: 1px solid rgba(16, 185, 129, 0.4); padding: 2px 7px; border-radius: 4px; font-weight: 800; font-size: 0.65rem; text-transform: none; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-lock-2-fill"></i> Pagado · Cerrado</span>';
+  } else if (b.isPublished || b.savedRecordStatus === 'Publicado') {
+    statusBadgeHTML = `<span style="background: rgba(168, 85, 247, 0.15); color: #7e22ce; border: 1px solid rgba(168, 85, 247, 0.35); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.65rem; text-transform: none; display: inline-flex; align-items: center; gap: 3px;"><i class="${isLocked ? 'ri-lock-line' : 'ri-send-plane-fill'}"></i> ${isLocked ? 'Confirmado · Cerrado' : 'Publicado'}</span>`;
+  } else if (b.isSaved) {
+    statusBadgeHTML = '<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.65rem; text-transform: none;"><i class="ri-checkbox-circle-line"></i> Guardado</span>';
+  } else {
+    statusBadgeHTML = '<span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.65rem; text-transform: none;"><i class="ri-time-line"></i> Borrador</span>';
+  }
 
   container.innerHTML = `
     <div class="bg-kpi-card" style="border-left: 4px solid #5f06fa;">
       <div class="bg-kpi-title" style="display: flex; align-items: center; justify-content: space-between;">
         <span><i class="ri-money-dollar-circle-line" style="color: #5f06fa;"></i> ${t.totalAbonos > 0 ? 'MONTO A PAGAR (SALDO)' : 'TOTAL FACTURA (CON IVA)'}</span>
-        ${b.isSaved 
-          ? ((b.isPublished || b.savedRecordStatus === 'Publicado')
-              ? '<span style="background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.65rem; text-transform: none;"><i class="ri-send-plane-fill"></i> Publicado</span>'
-              : '<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.65rem; text-transform: none;"><i class="ri-checkbox-circle-line"></i> Guardado</span>') 
-          : '<span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.65rem; text-transform: none;"><i class="ri-time-line"></i> Borrador</span>'}
+        ${statusBadgeHTML}
       </div>
       <div class="bg-kpi-value text-stocka-purple">${formatCLP(t.totalToPay)}</div>
       <div class="bg-kpi-subtitle">
@@ -7587,12 +8896,14 @@ export function renderKPIsUI() {
       <div class="bg-kpi-subtitle">Pick & Pack Base: ${formatCLP(b.activeRange?.pick_pack_base || 1250)}</div>
     </div>
 
-    <div class="bg-kpi-card" style="border-left: 4px solid #10b981; cursor: pointer; position: relative;" onclick="window.openEditStorageFeeModal()" title="Clic para configurar volumen mensual (m³), tarifa o descuento de almacenamiento">
+    <div class="bg-kpi-card" style="border-left: 4px solid #10b981; ${isLocked ? 'cursor: default;' : 'cursor: pointer;'} position: relative;" ${isLocked ? '' : 'onclick="window.openEditStorageFeeModal()" title="Clic para configurar volumen mensual (m³), tarifa o descuento de almacenamiento"'}>
       <div class="bg-kpi-title" style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
         <span style="display: inline-flex; align-items: center; gap: 6px;"><i class="ri-archive-2-line" style="color: #10b981;"></i> ALMACENAMIENTO MES</span>
-        <span class="no-print" style="display: inline-flex; align-items: center; gap: 3px; font-size: 0.65rem; font-weight: 800; color: #5f06fa; background: rgba(95,6,250,0.08); border: 1px solid rgba(95,6,250,0.22); padding: 1px 6px; border-radius: 999px; text-transform: none; letter-spacing: 0;">
-          <i class="ri-edit-2-line"></i> ${b.isManualVolume ? 'Manual · Editar' : 'Editar m³'}
-        </span>
+        ${!isLocked ? `
+          <span class="no-print" style="display: inline-flex; align-items: center; gap: 3px; font-size: 0.65rem; font-weight: 800; color: #5f06fa; background: rgba(95,6,250,0.08); border: 1px solid rgba(95,6,250,0.22); padding: 1px 6px; border-radius: 999px; text-transform: none; letter-spacing: 0;">
+            <i class="ri-edit-2-line"></i> ${b.isManualVolume ? 'Manual · Editar' : 'Editar m³'}
+          </span>
+        ` : ''}
       </div>
       <div class="bg-kpi-value" style="color: #10b981; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
         <span>${formatDec(b.volumeM3, 2)} <span style="font-size: 0.9rem; font-weight: 600; color: var(--color-text-muted, #94a3b8);">m³</span></span>
@@ -7677,6 +8988,7 @@ function syncCustomColumnsHeaderDOM() {
   const headerRow = prepTotalTh.parentElement;
   headerRow.querySelectorAll('.bg-custom-surcharge-th').forEach(el => el.remove());
 
+  const isLocked = Boolean(billingState.isLocked);
   const customCols = Array.isArray(billingState.customColumns) ? billingState.customColumns : [];
   customCols.forEach(col => {
     const th = document.createElement('th');
@@ -7689,12 +9001,14 @@ function syncCustomColumnsHeaderDOM() {
       <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
         <div style="display: flex; align-items: center; justify-content: flex-end; gap: 3px; width: 100%;">
           <span style="font-size: 0.72rem; font-weight: 800; color: #9a3412; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 72px;" title="${escapeHtml(col.name)} (${escapeHtml(modeBadge)})">${escapeHtml(col.name)}</span>
-          <button type="button" onclick="window.openEditCustomColumnModal('${escapeHtml(col.id)}')" title="Editar columna de recargo (${escapeHtml(col.name)})" style="background: transparent; border: none; cursor: pointer; color: #ea580c; padding: 0 1px; font-size: 0.78rem; line-height: 1;">
-            <i class="ri-settings-4-line"></i>
-          </button>
-          <button type="button" onclick="window.deleteCustomColumn('${escapeHtml(col.id)}')" title="Eliminar columna de recargo" style="background: transparent; border: none; cursor: pointer; color: #dc2626; padding: 0 1px; font-size: 0.78rem; line-height: 1;">
-            <i class="ri-close-circle-line"></i>
-          </button>
+          ${!isLocked ? `
+            <button type="button" onclick="window.openEditCustomColumnModal('${escapeHtml(col.id)}')" title="Editar columna de recargo (${escapeHtml(col.name)})" style="background: transparent; border: none; cursor: pointer; color: #ea580c; padding: 0 1px; font-size: 0.78rem; line-height: 1;">
+              <i class="ri-settings-4-line"></i>
+            </button>
+            <button type="button" onclick="window.deleteCustomColumn('${escapeHtml(col.id)}')" title="Eliminar columna de recargo" style="background: transparent; border: none; cursor: pointer; color: #dc2626; padding: 0 1px; font-size: 0.78rem; line-height: 1;">
+              <i class="ri-close-circle-line"></i>
+            </button>
+          ` : ''}
         </div>
         <span style="font-size: 0.62rem; font-weight: 700; color: #c2410c; background: #ffedd5; padding: 0px 4px; border-radius: 3px; line-height: 1.2;">
           ${escapeHtml(modeBadge)}
@@ -7714,6 +9028,16 @@ function syncCustomColumnsHeaderDOM() {
 export function renderOrdersTableUI() {
   const tbody = document.getElementById('bg-orders-table-body');
   if (!tbody) return;
+
+  const isLocked = Boolean(billingState.isLocked);
+  const gridTable = document.getElementById('bg-orders-excel-grid');
+  if (gridTable) {
+    gridTable.classList.toggle('bg-table-locked', isLocked);
+  }
+  const masterCheckbox = document.getElementById('bg-master-inclusion-checkbox');
+  if (masterCheckbox) {
+    masterCheckbox.disabled = isLocked;
+  }
 
   syncCustomColumnsHeaderDOM();
   const customCols = Array.isArray(billingState.customColumns) ? billingState.customColumns : [];
@@ -7739,6 +9063,7 @@ export function renderOrdersTableUI() {
   }
 
   const deliveryTypes = getDeliveryTypes(billingState.pricingConfig);
+  const disAttr = isLocked ? 'disabled' : '';
 
   tbody.innerHTML = orders.map((o) => {
     const isChecked = !o.isExcluded;
@@ -7779,13 +9104,15 @@ export function renderOrdersTableUI() {
         : `Valor global (${formatCLP(col.rate || 0)})${isManual ? ' (Editado manual)' : ''}`;
       return `
         <td class="bg-custom-surcharge-td" style="text-align: right; background: rgba(255, 247, 237, 0.45); border-left: 1px dashed #fed7aa; border-right: 1px dashed #fed7aa;">
-          <input type="number" class="bg-excel-input" value="${val}" min="0"
+          <input type="number" class="bg-excel-input" value="${val}" min="0" ${disAttr}
             style="text-align: right; width: 78px; font-weight: 700; color: ${val > 0 ? '#ea580c' : '#64748b'}; ${isManual ? 'border-color: #f97316; background: #fff7ed;' : ''}"
             onchange="window.updateBgOrderCustomColumn('${o.id}', '${col.id}', this.value)"
             title="${escapeHtml(col.name)}: ${escapeHtml(modeHint)}">
         </td>
       `;
     }).join('');
+
+    const isOrderPos = Boolean(o.isPosOrder || isPosSaleOrder(o));
 
     return `
       <tr ${rowClass} id="bg-row-${o.id}" data-id="${o.id}"
@@ -7803,14 +9130,20 @@ export function renderOrdersTableUI() {
           data-skus="${o.skuCount}"
           data-units="${o.unitsCount}"
           data-mkt="${o.isMarketplace ? '1' : '0'}"
+          data-pos="${isOrderPos ? '1' : '0'}"
           data-inc="${isChecked ? '1' : '0'}">
         <td style="text-align: center;">
-          <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="window.toggleBgOrderInclusion('${o.id}', this.checked)" style="cursor: pointer; width: 16px; height: 16px; accent-color: #5f06fa;">
+          <input type="checkbox" ${isChecked ? 'checked' : ''} ${disAttr} onchange="window.toggleBgOrderInclusion('${o.id}', this.checked)" style="cursor: pointer; width: 16px; height: 16px; accent-color: #5f06fa;">
         </td>
         <td style="text-align: center; color: #64748b; font-weight: 700;">${o.rowNumber}</td>
         <td>
           <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
             <strong style="color: var(--color-text-main); font-size: 0.85rem;">${escapeHtml(o.orderNumber)}</strong>
+            ${isOrderPos ? `
+              <span class="bg-order-pos-badge" title="Pedido de Punto de Venta físico (Tarifa Prep. Base $1.490 · Despacho $0)">
+                <i class="ri-store-3-fill"></i> PUNTO DE VENTA
+              </span>
+            ` : ''}
             ${billingState.isConglomerate && o.comercio ? `
               <span class="bg-order-child-store-badge" title="Tienda del conglomerado: ${escapeHtml(o.comercio)}">
                 <i class="ri-store-2-line"></i> ${escapeHtml(o.comercio)}
@@ -7835,10 +9168,10 @@ export function renderOrdersTableUI() {
           </div>
         </td>
         <td style="text-align: right;">
-          <input type="number" class="bg-excel-input" value="${o.ticketVenta || 0}" style="text-align: right; width: 85px; font-weight: 700; color: #0f766e;" onchange="window.updateBgOrderCell('${o.id}', 'ticketVenta', this.value)" title="Ticket de venta del pedido (monto de compra cliente: ${formatCLP(o.ticketVenta || 0)})">
+          <input type="number" class="bg-excel-input" value="${o.ticketVenta || 0}" ${disAttr} style="text-align: right; width: 85px; font-weight: 700; color: #0f766e;" onchange="window.updateBgOrderCell('${o.id}', 'ticketVenta', this.value)" title="Ticket de venta del pedido (monto de compra cliente: ${formatCLP(o.ticketVenta || 0)})">
         </td>
         <td>
-          <select class="bg-excel-select" onchange="window.updateBgOrderDeliveryType('${o.id}', this.value)" style="width: 100%;">
+          <select class="bg-excel-select" ${disAttr} onchange="window.updateBgOrderDeliveryType('${o.id}', this.value)" style="width: 100%;">
             ${deliveryTypes.map(dt => `
               <option value="${escapeHtml(dt.key)}" ${o.deliveryType === dt.key ? 'selected' : ''}>
                 ${escapeHtml(dt.name)} (${formatCLP(dt.price)})
@@ -7847,31 +9180,31 @@ export function renderOrdersTableUI() {
           </select>
         </td>
         <td style="text-align: center; padding: 3px 2px;">
-          <input type="number" class="bg-excel-input" value="${o.skuCount}" min="1" style="text-align: center; font-weight: 700; width: 100%; font-size: 0.88rem; padding: 2px 0;" onchange="window.updateBgOrderCell('${o.id}', 'skuCount', this.value)">
+          <input type="number" class="bg-excel-input" value="${o.skuCount}" min="1" ${disAttr} style="text-align: center; font-weight: 700; width: 100%; font-size: 0.88rem; padding: 2px 0;" onchange="window.updateBgOrderCell('${o.id}', 'skuCount', this.value)">
         </td>
         <td style="text-align: center; padding: 3px 2px;">
-          <input type="number" class="bg-excel-input" value="${o.unitsCount}" min="1" style="text-align: center; font-weight: 700; width: 100%; font-size: 0.88rem; padding: 2px 0;" onchange="window.updateBgOrderCell('${o.id}', 'unitsCount', this.value)">
+          <input type="number" class="bg-excel-input" value="${o.unitsCount}" min="1" ${disAttr} style="text-align: center; font-weight: 700; width: 100%; font-size: 0.88rem; padding: 2px 0;" onchange="window.updateBgOrderCell('${o.id}', 'unitsCount', this.value)">
         </td>
         <td style="text-align: center;">
-          <input type="checkbox" ${o.isMarketplace ? 'checked' : ''} onchange="window.updateBgOrderCell('${o.id}', 'isMarketplace', this.checked)" style="accent-color: #5f06fa; cursor: pointer;">
+          <input type="checkbox" ${o.isMarketplace ? 'checked' : ''} ${disAttr} onchange="window.updateBgOrderCell('${o.id}', 'isMarketplace', this.checked)" style="accent-color: #5f06fa; cursor: pointer;">
         </td>
         <td style="text-align: right;">
-          <input type="number" class="bg-excel-input" value="${o.baseRate}" min="0" style="text-align: right; width: 75px; font-weight: 600;" onchange="window.updateBgOrderCell('${o.id}', 'baseRate', this.value)" title="Tarifa Base Pick & Pack: ${formatCLP(o.baseRate)}">
+          <input type="number" class="bg-excel-input" value="${o.baseRate}" min="0" ${disAttr} style="text-align: right; width: 75px; font-weight: 600;" onchange="window.updateBgOrderCell('${o.id}', 'baseRate', this.value)" title="Tarifa Base Pick & Pack: ${formatCLP(o.baseRate)}">
         </td>
         <td style="text-align: right;">
-          <input type="number" class="bg-excel-input" value="${o.surchargeSku || 0}" min="0"
+          <input type="number" class="bg-excel-input" value="${o.surchargeSku || 0}" min="0" ${disAttr}
             style="text-align: right; width: 72px; font-weight: 700; color: ${(o.surchargeSku || 0) > 0 ? '#ea580c' : '#64748b'}; ${o.surchargeSkuManual ? 'border-color: #f97316; background: #fff7ed;' : ''}"
             onchange="window.updateBgOrderCell('${o.id}', 'surchargeSku', this.value)"
             title="Recargo SKU Extra: ${formatCLP(o.surchargeSku || 0)}${o.surchargeSkuManual ? ' (Editado manualmente)' : ''}">
         </td>
         <td style="text-align: right;">
-          <input type="number" class="bg-excel-input" value="${o.surchargeUnits || 0}" min="0"
+          <input type="number" class="bg-excel-input" value="${o.surchargeUnits || 0}" min="0" ${disAttr}
             style="text-align: right; width: 76px; font-weight: 700; color: ${(o.surchargeUnits || 0) > 0 ? '#ea580c' : '#64748b'}; ${o.surchargeUnitsManual ? 'border-color: #f97316; background: #fff7ed;' : ''}"
             onchange="window.updateBgOrderCell('${o.id}', 'surchargeUnits', this.value)"
             title="Recargo Unidades Extra: ${formatCLP(o.surchargeUnits || 0)}${o.surchargeUnitsManual ? ' (Editado manualmente)' : ''}">
         </td>
         <td style="text-align: right;">
-          <input type="number" class="bg-excel-input" value="${o.surchargeMarketplace || 0}" min="0"
+          <input type="number" class="bg-excel-input" value="${o.surchargeMarketplace || 0}" min="0" ${disAttr}
             style="text-align: right; width: 72px; font-weight: 700; color: ${(o.surchargeMarketplace || 0) > 0 ? '#ea580c' : '#64748b'}; ${o.surchargeMarketplaceManual ? 'border-color: #f97316; background: #fff7ed;' : ''}"
             onchange="window.updateBgOrderCell('${o.id}', 'surchargeMarketplace', this.value)"
             title="Recargo Marketplace: ${formatCLP(o.surchargeMarketplace || 0)}${o.surchargeMarketplaceManual ? ' (Editado manualmente)' : ''}">
@@ -7881,7 +9214,7 @@ export function renderOrdersTableUI() {
           ${formatCLP(o.pickPackTotal)}
         </td>
         <td style="text-align: right;">
-          <input type="number" class="bg-excel-input" value="${o.shippingFreight}" style="text-align: right; width: 80px; font-weight: 700; color: #5f06fa;" onchange="window.updateBgOrderCell('${o.id}', 'shippingFreight', this.value)">
+          <input type="number" class="bg-excel-input" value="${o.shippingFreight}" ${disAttr} style="text-align: right; width: 80px; font-weight: 700; color: #5f06fa;" onchange="window.updateBgOrderCell('${o.id}', 'shippingFreight', this.value)">
         </td>
         <td style="text-align: right; font-weight: 800; color: #5f06fa; background: rgba(95, 6, 250, 0.05); font-size: 0.85rem;">
           ${formatCLP(o.orderTotal)}
@@ -7925,6 +9258,10 @@ export function renderOrdersTableUI() {
 
 // Funciones de Edición Inline en el Grid
 window.toggleBgOrderInclusion = function(orderId, isChecked) {
+  if (guardBillingLocked()) {
+    renderOrdersTableUI();
+    return;
+  }
   const order = billingState.orders.find(o => String(o.id) === String(orderId));
   if (order) {
     order.isExcluded = !isChecked;
@@ -7934,6 +9271,10 @@ window.toggleBgOrderInclusion = function(orderId, isChecked) {
 };
 
 window.updateBgOrderDeliveryType = function(orderId, newType) {
+  if (guardBillingLocked()) {
+    renderOrdersTableUI();
+    return;
+  }
   const order = billingState.orders.find(o => String(o.id) === String(orderId));
   if (!order) return;
 
@@ -7941,7 +9282,16 @@ window.updateBgOrderDeliveryType = function(orderId, newType) {
   const dt = deliveryTypes.find(d => d.key === newType);
 
   order.deliveryType = newType;
-  order.shippingFreight = dt ? dt.price : 0;
+  if (newType === 'POS') {
+    order.isPosOrder = true;
+    order.shippingFreight = 0;
+    if (!order.baseRateManual) {
+      order.baseRate = (billingState.pricingConfig?.services?.showroom_sale_base) || (billingState.pricingConfig?.shipping?.pickup_express_base) || 1490;
+    }
+    recomputeOrderPickPackWithCustomColumns(order, billingState.customColumns);
+  } else {
+    order.shippingFreight = dt ? dt.price : 0;
+  }
 
   order.orderTotal = order.pickPackTotal + order.shippingFreight;
   billingState.isSaved = false;
@@ -7949,6 +9299,10 @@ window.updateBgOrderDeliveryType = function(orderId, newType) {
 };
 
 window.updateBgOrderCell = function(orderId, field, value) {
+  if (guardBillingLocked()) {
+    renderOrdersTableUI();
+    return;
+  }
   const order = billingState.orders.find(o => String(o.id) === String(orderId));
   if (!order) return;
 
@@ -7980,8 +9334,10 @@ window.updateBgOrderCell = function(orderId, field, value) {
     order.surchargeMarketplaceManual = false;
   } else if (field === 'baseRate') {
     order.baseRate = Math.max(0, parseInt(value, 10) || 0);
+    order.baseRateManual = true;
   } else if (field === 'shippingFreight') {
     order.shippingFreight = Math.max(0, parseInt(value, 10) || 0);
+    order.shippingFreightManual = true;
   } else if (field === 'ticketVenta') {
     order.ticketVenta = Math.max(0, parseInt(value, 10) || 0);
   }
@@ -7995,6 +9351,10 @@ window.updateBgOrderCell = function(orderId, field, value) {
 
 // Actualizar valor de una columna de cobro personalizada en un pedido específico
 window.updateBgOrderCustomColumn = function(orderId, colId, rawValue) {
+  if (guardBillingLocked()) {
+    renderOrdersTableUI();
+    return;
+  }
   const order = billingState.orders.find(o => String(o.id) === String(orderId));
   if (!order) return;
 
@@ -8017,6 +9377,7 @@ window.updateBgOrderCustomColumn = function(orderId, colId, rawValue) {
 
 // Modal para añadir una nueva columna de cobro (recargo de preparación por unidad o global)
 window.openAddCustomColumnModal = async function() {
+  if (guardBillingLocked()) return;
   const allOrders = billingState.orders || [];
   const visibleRows = Array.from(document.querySelectorAll('#bg-orders-table-body tr[id^="bg-row-"]')).filter(r => r.style.display !== 'none');
   const visibleIds = new Set(visibleRows.map(r => String(r.getAttribute('data-id'))));
@@ -8147,6 +9508,7 @@ window.openAddCustomColumnModal = async function() {
 
 // Modal para editar una columna de cobro personalizada existente
 window.openEditCustomColumnModal = async function(colId) {
+  if (guardBillingLocked()) return;
   const customCols = Array.isArray(billingState.customColumns) ? billingState.customColumns : [];
   const col = customCols.find(c => c.id === colId);
   if (!col) return;
@@ -8224,6 +9586,7 @@ window.openEditCustomColumnModal = async function(colId) {
 
 // Eliminar una columna de cobro personalizada
 window.deleteCustomColumn = async function(colId) {
+  if (guardBillingLocked()) return;
   const customCols = Array.isArray(billingState.customColumns) ? billingState.customColumns : [];
   const col = customCols.find(c => c.id === colId);
   if (!col) return;
@@ -8258,6 +9621,10 @@ window.deleteCustomColumn = async function(colId) {
 
 // Marcar / Desmarcar inclusión de todos los pedidos actualmente visibles
 window.toggleAllVisibleOrdersInclusion = function(isChecked) {
+  if (guardBillingLocked()) {
+    renderOrdersTableUI();
+    return;
+  }
   const visibleRows = Array.from(document.querySelectorAll('#bg-orders-table-body tr[id^="bg-row-"]')).filter(r => r.style.display !== 'none');
   if (visibleRows.length === 0) return;
   const visibleIds = new Set(visibleRows.map(r => String(r.getAttribute('data-id'))));
@@ -8279,6 +9646,7 @@ window.toggleAllVisibleOrdersInclusion = function(isChecked) {
 
 // Modal de Edición Masiva de Pedidos
 window.openBulkEditOrdersModal = async function(preselectedScope = null) {
+  if (guardBillingLocked()) return;
   const allOrders = billingState.orders || [];
   if (allOrders.length === 0) {
     Swal.fire('Sin pedidos', 'No hay pedidos cargados para editar en este periodo.', 'info');
@@ -8757,6 +10125,7 @@ function recalculateFromCurrentState() {
     fixedFeeReason = `Costo variable 0.9 UF (${formatCLP(fixedFeeCLP)}) por operar con < 75 pedidos y < 1.5 m³`;
   }
 
+  syncDynamicSuppliesQuantities(b.supplies, billableOrders);
   const totalSuppliesNet = (b.supplies || []).reduce((acc, s) => acc + (s.total || 0), 0);
   const totalAdjustmentsNet = (b.adjustments || []).reduce((acc, a) => acc + (a.amount || 0), 0);
   const totalAbonos = (b.abonos || []).reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0);
@@ -8819,27 +10188,602 @@ function recalculateFromCurrentState() {
   }
 }
 
-// // Agregar Fila Manual de Insumos
+// =========================================================================
+// MOTOR DE ASIGNACIÓN DINÁMICA DE INSUMOS POR AGENDAS / GRUPOS DE PEDIDOS
+// (Garantiza 0 duplicación de grupos y 0 doble conteo de pedidos)
+// =========================================================================
+export function resolveCanonicalSupplyAgendaGroup(order) {
+  const raw = String(order?.agenda || '').trim();
+  const hasAgenda = Boolean(raw && raw !== '—' && raw !== '-');
+  const norm = hasAgenda
+    ? raw.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim()
+    : '';
+  const dt = String(order?.deliveryType || '').trim().toUpperCase();
+
+  if (
+    order?.isPosOrder ||
+    isPosSaleOrder(order) ||
+    dt === 'POS' ||
+    norm === 'COMPRA EN BODEGA' ||
+    norm === 'POS' ||
+    norm.includes('PUNTO DE VENTA') ||
+    norm.includes('SHOWROOM')
+  ) {
+    return { key: 'POS', label: 'PUNTO DE VENTA (POS)', shortLabel: 'POS', rawAgenda: raw || 'POS', sortOrder: 60 };
+  }
+
+  if (!hasAgenda) {
+    return { key: 'SIN_AGENDA', label: 'SIN AGENDA', shortLabel: 'SIN AGENDA', rawAgenda: 'Sin Agenda', sortOrder: 99 };
+  }
+
+  if (isFullMeliOrder(order) || norm.includes('FULL MERCADO') || norm === 'FULL MELI' || norm === 'FULL') {
+    return { key: 'FULL_MELI', label: 'FULL MERCADOLIBRE', shortLabel: 'FULL MELI', rawAgenda: raw, sortOrder: 50 };
+  }
+
+  if (norm === 'FLEX' || norm.includes('FLEX')) {
+    return { key: 'FLEX', label: 'FLEX', shortLabel: 'FLEX', rawAgenda: raw, sortOrder: 20 };
+  }
+
+  if (
+    ['RM', 'STK', 'RM-STK', 'RM STK', 'STOCKA', 'STOCKA X', 'ALPHA', 'COLINA', 'SANTIAGO'].includes(norm) ||
+    norm.startsWith('RM ')
+  ) {
+    return { key: 'RM', label: 'RM', shortLabel: 'RM', rawAgenda: raw, sortOrder: 10 };
+  }
+
+  if (norm.includes('CENTRO DE ENVIO') || norm.includes('CENTRO ENVIO') || norm === 'COLECTA') {
+    return { key: 'CENTRO_ENVIOS', label: 'CENTRO DE ENVÍOS', shortLabel: 'CENTRO DE ENVÍOS', rawAgenda: raw, sortOrder: 40 };
+  }
+
+  if (norm.includes('RETIRO')) {
+    return { key: 'RETIRO', label: 'RETIRO', shortLabel: 'RETIRO', rawAgenda: raw, sortOrder: 55 };
+  }
+
+  if (
+    norm === 'REGION' ||
+    norm === 'REGIONES' ||
+    norm.includes('REGION') ||
+    norm.includes('ENVIAME') ||
+    ['STARKEN', 'CHILEXPRESS', 'BLUEXPRESS', 'BLUE EXPRESS', 'CORREOS'].includes(norm)
+  ) {
+    return { key: 'REGIONES', label: 'REGIONES', shortLabel: 'REGIONES', rawAgenda: raw, sortOrder: 30 };
+  }
+
+  const customKey = 'AG_' + norm.replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
+  return { key: customKey, label: norm, shortLabel: norm, rawAgenda: raw, sortOrder: 70 };
+}
+
+export function getOrderSupplyGroupsCatalog(orders = [], ensureKeys = []) {
+  const billableOrders = (Array.isArray(orders) ? orders : []).filter(o => !o.isExcluded);
+  const baseCatalog = [
+    { key: 'RM', label: 'RM', shortLabel: 'RM', sortOrder: 10 },
+    { key: 'FLEX', label: 'FLEX', shortLabel: 'FLEX', sortOrder: 20 },
+    { key: 'REGIONES', label: 'REGIONES', shortLabel: 'REGIONES', sortOrder: 30 },
+    { key: 'CENTRO_ENVIOS', label: 'CENTRO DE ENVÍOS', shortLabel: 'CENTRO DE ENVÍOS', sortOrder: 40 },
+    { key: 'FULL_MELI', label: 'FULL MERCADOLIBRE', shortLabel: 'FULL MELI', sortOrder: 50 },
+    { key: 'RETIRO', label: 'RETIRO', shortLabel: 'RETIRO', sortOrder: 55 },
+    { key: 'POS', label: 'PUNTO DE VENTA (POS)', shortLabel: 'POS', sortOrder: 60 },
+    { key: 'SIN_AGENDA', label: 'SIN AGENDA', shortLabel: 'SIN AGENDA', sortOrder: 99 }
+  ];
+
+  const groupMap = new Map();
+  baseCatalog.forEach(g => {
+    groupMap.set(g.key, {
+      ...g,
+      orderIds: new Set(),
+      unitsCount: 0,
+      rawAgendas: new Set()
+    });
+  });
+
+  const globalSeenOrderIds = new Set();
+
+  billableOrders.forEach((ord, idx) => {
+    const ordId = String(ord?.id ?? `idx_${idx}`);
+    if (globalSeenOrderIds.has(ordId)) return;
+    globalSeenOrderIds.add(ordId);
+
+    const resolved = resolveCanonicalSupplyAgendaGroup(ord);
+    if (!groupMap.has(resolved.key)) {
+      groupMap.set(resolved.key, {
+        key: resolved.key,
+        label: resolved.label,
+        shortLabel: resolved.shortLabel || resolved.label,
+        sortOrder: resolved.sortOrder || 70,
+        orderIds: new Set(),
+        unitsCount: 0,
+        rawAgendas: new Set()
+      });
+    }
+    const entry = groupMap.get(resolved.key);
+    entry.orderIds.add(ordId);
+    entry.unitsCount += Math.max(1, parseInt(ord?.unitsCount, 10) || 1);
+    if (resolved.rawAgenda) entry.rawAgendas.add(String(resolved.rawAgenda).toUpperCase().trim());
+  });
+
+  const ensureSet = new Set(['RM', 'FLEX', 'REGIONES', ...(Array.isArray(ensureKeys) ? ensureKeys : [])]);
+
+  return Array.from(groupMap.values())
+    .filter(g => g.orderIds.size > 0 || ensureSet.has(g.key))
+    .map(g => ({
+      key: g.key,
+      label: g.label,
+      shortLabel: g.shortLabel,
+      sortOrder: g.sortOrder,
+      count: g.orderIds.size,
+      unitsCount: g.unitsCount,
+      orderIds: g.orderIds,
+      rawAgendasList: Array.from(g.rawAgendas)
+    }))
+    .sort((a, b) => (a.sortOrder - b.sortOrder) || a.label.localeCompare(b.label, 'es'));
+}
+
+export function computeDynamicSupplyGroupStats(orders = [], selectedGroupKeys = []) {
+  const uniqueSelectedKeys = Array.from(
+    new Set((Array.isArray(selectedGroupKeys) ? selectedGroupKeys : []).map(k => String(k || '').trim()).filter(Boolean))
+  );
+  const catalog = getOrderSupplyGroupsCatalog(orders, uniqueSelectedKeys);
+  const selectedSet = new Set(uniqueSelectedKeys);
+
+  const matchedOrderIds = new Set();
+  let matchedUnitsCount = 0;
+  const activeGroups = [];
+
+  catalog.forEach(g => {
+    if (!selectedSet.has(g.key)) return;
+    let groupAddedOrders = 0;
+    g.orderIds.forEach(id => {
+      if (!matchedOrderIds.has(id)) {
+        matchedOrderIds.add(id);
+        groupAddedOrders++;
+      }
+    });
+    matchedUnitsCount += g.unitsCount;
+    activeGroups.push({
+      key: g.key,
+      label: g.label,
+      shortLabel: g.shortLabel,
+      count: groupAddedOrders
+    });
+  });
+
+  const formulaCode = activeGroups.map(g => g.shortLabel).join('+');
+  const formulaText = activeGroups.map(g => `${g.shortLabel} (${g.count})`).join(' + ');
+
+  return {
+    selectedKeys: activeGroups.map(g => g.key),
+    activeGroups,
+    totalOrders: matchedOrderIds.size,
+    totalUnits: matchedUnitsCount,
+    formulaCode,
+    formulaText,
+    catalog
+  };
+}
+
+export function syncDynamicSuppliesQuantities(supplies = [], orders = []) {
+  if (!Array.isArray(supplies)) return;
+  supplies.forEach(s => {
+    if (!s || s.qtyMode !== 'dynamic_groups' || !Array.isArray(s.selectedGroups) || s.selectedGroups.length === 0) return;
+    const stats = computeDynamicSupplyGroupStats(orders, s.selectedGroups);
+    s.selectedGroups = stats.selectedKeys;
+    s.matchedOrdersCount = stats.totalOrders;
+    s.formulaCode = stats.formulaCode;
+    s.formulaText = stats.formulaText;
+
+    if (s.isBubbleLinearCm) {
+      const cmPerOrder = Math.max(1, parseFloat(s.cmPerOrder) || 50);
+      const costPerCm = Math.max(0, parseFloat(s.costPerCm) || 3.6);
+      const rollWidthCm = s.rollWidthCm || 100;
+      const totalCm = Math.round(cmPerOrder * stats.totalOrders);
+      const totalCost = Math.round(totalCm * costPerCm);
+      s.qty = 1;
+      s.unit = 'gl.';
+      s.unitPrice = totalCost;
+      s.total = totalCost;
+      if (s.baseMaterialName) {
+        s.name = `${s.baseMaterialName} (${totalCm.toLocaleString('es-CL')} cm lineales · ancho ${rollWidthCm} cm)`;
+      }
+      s.dynamicSummary = `${stats.formulaCode}: ${stats.formulaText} = ${stats.totalOrders} ped. × ${cmPerOrder} cm (${totalCm.toLocaleString('es-CL')} cm)`;
+    } else {
+      const perOrderQty = Math.max(0.01, parseFloat(s.perOrderQty) || 1);
+      const computedQty = Math.round(stats.totalOrders * perOrderQty);
+      s.qty = computedQty;
+      if (!s.unit || s.unit === 'gl.') s.unit = 'ud.';
+      s.total = Math.round(computedQty * (Number(s.unitPrice) || 0));
+      s.dynamicSummary = `${stats.formulaCode}: ${stats.formulaText} = ${stats.totalOrders} ped.${perOrderQty !== 1 ? ` × ${perOrderQty} ud/ped` : ''}`;
+    }
+  });
+}
+
+function renderSupplyDynamicGroupSelectorHTML(catalog, initialMode = 'dynamic_groups', initialSelectedKeys = ['RM', 'FLEX', 'REGIONES'], initialPerOrderQty = 1) {
+  const isDynamic = initialMode === 'dynamic_groups';
+  const selSet = new Set(initialSelectedKeys);
+
+  return `
+    <div style="margin-bottom: 0.75rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.65rem 0.75rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 0.5rem; flex-wrap: wrap;">
+        <label style="font-size: 0.73rem; font-weight: 800; color: #334155; text-transform: uppercase; display: flex; align-items: center; gap: 4px; margin: 0;">
+          <i class="ri-links-line" style="color: #5f06fa; font-size: 0.9rem;"></i> Modo de Cantidad:
+        </label>
+        <div style="display: inline-flex; background: #e2e8f0; padding: 2px; border-radius: 6px; gap: 2px;">
+          <button type="button" id="swal-sup-mode-dynamic" style="border: none; border-radius: 5px; padding: 4px 9px; font-size: 0.72rem; font-weight: 800; cursor: pointer; transition: all 0.15s; background: ${isDynamic ? '#5f06fa' : 'transparent'}; color: ${isDynamic ? '#ffffff' : '#475569'};">
+            <i class="ri-stack-line"></i> Por Agendas / Grupos
+          </button>
+          <button type="button" id="swal-sup-mode-manual" style="border: none; border-radius: 5px; padding: 4px 9px; font-size: 0.72rem; font-weight: 800; cursor: pointer; transition: all 0.15s; background: ${!isDynamic ? '#5f06fa' : 'transparent'}; color: ${!isDynamic ? '#ffffff' : '#475569'};">
+            <i class="ri-edit-2-line"></i> Fija Manual
+          </button>
+        </div>
+      </div>
+
+      <div id="swal-sup-dynamic-panel" style="display: ${isDynamic ? 'block' : 'none'};">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-bottom: 0.4rem; flex-wrap: wrap;">
+          <span style="font-size: 0.69rem; font-weight: 700; color: #64748b;">Combinaciones rápidas:</span>
+          <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+            <button type="button" class="swal-sup-preset-btn" data-preset="rm_flex_reg" style="background: #ede9fe; border: 1px solid #c4b5fd; color: #5b21b6; font-size: 0.68rem; font-weight: 800; padding: 2px 7px; border-radius: 999px; cursor: pointer;">
+              ⚡ RM+FLEX+REGIONES
+            </button>
+            <button type="button" class="swal-sup-preset-btn" data-preset="rm_flex" style="background: #ffffff; border: 1px solid #cbd5e1; color: #334155; font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 999px; cursor: pointer;">
+              RM+FLEX
+            </button>
+            <button type="button" class="swal-sup-preset-btn" data-preset="regiones" style="background: #ffffff; border: 1px solid #cbd5e1; color: #334155; font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 999px; cursor: pointer;">
+              Solo REGIONES
+            </button>
+            <button type="button" class="swal-sup-preset-btn" data-preset="all_agenda" style="background: #ffffff; border: 1px solid #cbd5e1; color: #334155; font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 999px; cursor: pointer;">
+              Con Agenda
+            </button>
+            <button type="button" class="swal-sup-preset-btn" data-preset="all" style="background: #ffffff; border: 1px solid #cbd5e1; color: #334155; font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 999px; cursor: pointer;">
+              Todos
+            </button>
+            <button type="button" class="swal-sup-preset-btn" data-preset="none" style="background: #ffffff; border: 1px solid #fecaca; color: #dc2626; font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 999px; cursor: pointer;">
+              Limpiar
+            </button>
+          </div>
+        </div>
+
+        <div style="font-size: 0.69rem; color: #64748b; margin-bottom: 0.35rem;">
+          Selecciona las agendas / grupos a sumar (grupos normalizados sin duplicados):
+        </div>
+
+        <div id="swal-sup-groups-grid" style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 0.55rem;">
+          ${catalog.map(g => {
+            const active = selSet.has(g.key);
+            const rawHint = g.rawAgendasList && g.rawAgendasList.length > 1
+              ? `Incluye: ${g.rawAgendasList.join(', ')}`
+              : `Grupo: ${g.label} (${g.count} pedidos únicos)`;
+            return `
+              <button type="button"
+                      class="swal-sup-group-pill"
+                      data-group-key="${escapeHtml(g.key)}"
+                      title="${escapeHtml(rawHint)}"
+                      style="display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border-radius: 7px; font-size: 0.74rem; font-weight: 700; cursor: pointer; transition: all 0.15s; border: 1.5px solid ${active ? '#5f06fa' : '#cbd5e1'}; background: ${active ? 'rgba(95, 6, 250, 0.1)' : '#ffffff'}; color: ${active ? '#4c1d95' : '#334155'};">
+                <i class="swal-sup-pill-icon ${active ? 'ri-checkbox-circle-fill' : 'ri-checkbox-blank-circle-line'}" style="color: ${active ? '#5f06fa' : '#94a3b8'}; font-size: 0.88rem;"></i>
+                <span>${escapeHtml(g.label)}</span>
+                <span style="background: ${active ? '#5f06fa' : '#f1f5f9'}; color: ${active ? '#ffffff' : '#475569'}; font-size: 0.67rem; font-weight: 800; padding: 1px 5px; border-radius: 4px;">
+                  ${g.count}
+                </span>
+              </button>
+            `;
+          }).join('')}
+        </div>
+
+        <div id="swal-sup-per-order-row" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 5px 8px; margin-bottom: 0.45rem;">
+          <span style="font-size: 0.72rem; font-weight: 700; color: #334155;">
+            Unidades de insumo por pedido considerado:
+          </span>
+          <input id="swal-sup-per-order-qty" type="number" min="0.1" step="any" value="${initialPerOrderQty}" class="swal2-input" style="margin: 0; width: 78px; height: 28px; font-size: 0.8rem; font-weight: 800; text-align: right; padding: 2px 6px;">
+        </div>
+
+        <div id="swal-sup-formula-summary" style="background: rgba(95, 6, 250, 0.06); border: 1px dashed rgba(95, 6, 250, 0.32); border-radius: 6px; padding: 6px 8px; font-size: 0.73rem; color: #1e293b; line-height: 1.35;">
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// Agregar Fila Manual de Insumos (con soporte para catálogo de Cajas por tamaño, Plástico Burbuja y Cantidad Dinámica por Agendas)
 window.addNewManualSupplyRow = async function() {
+  if (guardBillingLocked()) return;
+  const cfg = billingState.pricingConfig || DEFAULT_PRICING_CONFIG;
+  const knownBoxes = Array.isArray(cfg.supplies?.boxes) && cfg.supplies.boxes.length > 0
+    ? cfg.supplies.boxes
+    : DEFAULT_PRICING_CONFIG.supplies.boxes;
+  const bwRoll = cfg.supplies?.bubble_wrap_roll || DEFAULT_PRICING_CONFIG.supplies.bubble_wrap_roll;
+  const costPerCm = Number(bwRoll?.cost_per_linear_cm ?? 3.6);
+  const rollWidthCm = bwRoll?.roll_width_cm ?? 100;
+
+  const defaultBox = knownBoxes.find(b => b.id === 'box_s') || knownBoxes[0] || { name: 'Caja S', length_cm: 20, width_cm: 20, height_cm: 20, unit_price: 450 };
+
+  const ordersList = billingState.orders || [];
+  const catalog = getOrderSupplyGroupsCatalog(ordersList, ['RM', 'FLEX', 'REGIONES']);
+  const defaultSelectedKeys = ['RM', 'FLEX', 'REGIONES'].filter(k => catalog.some(g => g.key === k));
+  const initialStats = computeDynamicSupplyGroupStats(ordersList, defaultSelectedKeys);
+  const hasBillableOrders = ordersList.some(o => !o.isExcluded);
+  const initialMode = hasBillableOrders ? 'dynamic_groups' : 'manual';
+  const initialQty = initialMode === 'dynamic_groups' ? Math.max(0, initialStats.totalOrders) : 1;
+
+  let modalState = {
+    mode: initialMode,
+    selectedKeys: [...defaultSelectedKeys],
+    perOrderQty: 1
+  };
+
   const { value: formValues } = await Swal.fire({
-    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.4rem;"><i class="ri-box-3-line" style="color:#5f06fa;"></i><span>Agregar Insumo o Caja</span></div>',
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.4rem;"><i class="ri-box-3-line" style="color:#5f06fa;"></i><span>Agregar Insumo o Material</span></div>',
+    width: '580px',
     html: `
-      <div style="text-align: left; font-size: 0.9rem;">
-        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">NOMBRE DEL INSUMO:</label>
-        <input id="swal-supply-name" class="swal2-input" style="margin: 0 0 0.75rem 0; width: 100%; height: 38px; font-size: 0.85rem;" placeholder="Ej: Caja S 20x20x20 o Cinta Embalaje" value="Caja S 20x20x20">
+      <div style="text-align: left; font-size: 0.88rem;">
+        <label style="font-size: 0.74rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem; text-transform: uppercase;">
+          1. Seleccionar Material Conocido del Tarifario:
+        </label>
+        <select id="swal-supply-preset" class="swal2-select" style="margin: 0 0 0.7rem 0; width: 100%; height: 38px; font-size: 0.84rem; font-weight: 600;">
+          <optgroup label="📦 Cajas por Tamaño y Unidad">
+            ${knownBoxes.map((bx, i) => `
+              <option value="box_${i}" ${bx.id === defaultBox.id ? 'selected' : ''}>
+                ${escapeHtml(bx.name)} (${bx.length_cm}×${bx.width_cm}×${bx.height_cm} cm) — ${formatCLP(bx.unit_price)} c/u
+              </option>
+            `).join('')}
+          </optgroup>
+          <optgroup label="🫧 Plástico Burbuja (Costo Lineal por cm)">
+            <option value="bubble_cm">
+              Plástico Burbuja (Ancho ${rollWidthCm} cm) — $${costPerCm.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} / cm lineal
+            </option>
+          </optgroup>
+          <optgroup label="✏️ Otro Material">
+            <option value="custom">Otro insumo personalizado...</option>
+          </optgroup>
+        </select>
+
+        ${renderSupplyDynamicGroupSelectorHTML(catalog, initialMode, defaultSelectedKeys, 1)}
+
+        <div id="swal-bubble-helper-box" style="display: none; background: rgba(95, 6, 250, 0.06); border: 1px solid rgba(95, 6, 250, 0.25); border-radius: 8px; padding: 0.65rem 0.8rem; margin-bottom: 0.75rem; font-size: 0.78rem;">
+          <div style="font-weight: 800; color: #5f06fa; margin-bottom: 0.35rem;">
+            <i class="ri-scissors-cut-line"></i> Cálculo Lineal por Centímetro (Rollo ${rollWidthCm} cm ancho × ${bwRoll?.roll_length_m ?? 100} m)
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+            <div>
+              <label style="font-size: 0.7rem; font-weight: 700; color: #475569; display: block;">CM POR PEDIDO / CORTE:</label>
+              <input id="swal-bubble-cm-per-order" type="number" class="swal2-input" style="margin: 0; width: 100%; height: 34px; font-size: 0.82rem;" min="1" value="50">
+            </div>
+            <div>
+              <label style="font-size: 0.7rem; font-weight: 700; color: #475569; display: block;">N° DE PEDIDOS / CORTES:</label>
+              <input id="swal-bubble-orders-count" type="number" class="swal2-input" style="margin: 0; width: 100%; height: 34px; font-size: 0.82rem;" min="0" value="${initialQty}">
+            </div>
+          </div>
+          <div style="margin-top: 0.4rem; color: #334155; font-size: 0.75rem;">
+            Total lineal: <strong id="swal-bubble-total-cm-lbl">50 cm</strong> &times; $${costPerCm.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}/cm = <strong id="swal-bubble-calc-total" style="color: #5f06fa;">$${Math.round(50 * costPerCm).toLocaleString('es-CL')}</strong>
+          </div>
+        </div>
+
+        <label style="font-size: 0.74rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem;">NOMBRE EN EL DESGLOSE:</label>
+        <input id="swal-supply-name" class="swal2-input" style="margin: 0 0 0.75rem 0; width: 100%; height: 38px; font-size: 0.85rem;" placeholder="Ej: Caja S (20x20x20 cm)" value="${escapeHtml(`${defaultBox.name} (${defaultBox.length_cm}x${defaultBox.width_cm}x${defaultBox.height_cm} cm)`)}">
         
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
           <div>
-            <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">CANTIDAD:</label>
-            <input id="swal-supply-qty" type="number" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;" min="1" value="1">
+            <label id="swal-supply-qty-lbl" style="font-size: 0.74rem; font-weight: 800; color: #475569; display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.25rem;">
+              <span>CANTIDAD (UNID.):</span>
+              <span id="swal-supply-qty-badge" style="font-size: 0.64rem; background: #ede9fe; color: #5f06fa; padding: 1px 5px; border-radius: 4px; font-weight: 800; display: ${initialMode === 'dynamic_groups' ? 'inline-block' : 'none'};">DINÁMICA</span>
+            </label>
+            <input id="swal-supply-qty" type="number" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem; font-weight: 700;" min="0" value="${initialQty}">
           </div>
           <div>
-            <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">PRECIO UNITARIO ($ NETO):</label>
-            <input id="swal-supply-price" type="number" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;" min="0" placeholder="450" value="450">
+            <label id="swal-supply-price-lbl" style="font-size: 0.74rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem;">PRECIO UNITARIO ($ NETO):</label>
+            <input id="swal-supply-price" type="number" step="0.01" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem; font-weight: 700;" min="0" value="${defaultBox.unit_price}">
           </div>
+        </div>
+
+        <div id="swal-supply-total-preview" style="margin-top: 0.65rem; padding: 0.5rem 0.75rem; background: #f1f5f9; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem;">
+          <span style="color: #475569; font-weight: 700;">Total Neto Insumo:</span>
+          <strong id="swal-supply-total-net-lbl" style="color: #5f06fa; font-size: 0.92rem; font-weight: 900;">$0</strong>
         </div>
       </div>
     `,
+    didOpen: () => {
+      const presetSel = document.getElementById('swal-supply-preset');
+      const nameInp = document.getElementById('swal-supply-name');
+      const qtyInp = document.getElementById('swal-supply-qty');
+      const qtyBadge = document.getElementById('swal-supply-qty-badge');
+      const priceInp = document.getElementById('swal-supply-price');
+      const totalNetLbl = document.getElementById('swal-supply-total-net-lbl');
+      const bubbleBox = document.getElementById('swal-bubble-helper-box');
+      const cmPerOrderInp = document.getElementById('swal-bubble-cm-per-order');
+      const ordersCountInp = document.getElementById('swal-bubble-orders-count');
+      const totalCmLbl = document.getElementById('swal-bubble-total-cm-lbl');
+      const calcTotalLbl = document.getElementById('swal-bubble-calc-total');
+
+      const btnModeDynamic = document.getElementById('swal-sup-mode-dynamic');
+      const btnModeManual = document.getElementById('swal-sup-mode-manual');
+      const dynamicPanel = document.getElementById('swal-sup-dynamic-panel');
+      const perOrderRow = document.getElementById('swal-sup-per-order-row');
+      const perOrderInp = document.getElementById('swal-sup-per-order-qty');
+      const formulaSummary = document.getElementById('swal-sup-formula-summary');
+      const groupPills = Array.from(document.querySelectorAll('.swal-sup-group-pill'));
+      const presetBtns = Array.from(document.querySelectorAll('.swal-sup-preset-btn'));
+
+      const updateTotalPreview = () => {
+        const q = Math.max(0, parseInt(qtyInp?.value, 10) || 0);
+        const p = Math.max(0, Math.round(parseFloat(priceInp?.value) || 0));
+        const net = q * p;
+        if (totalNetLbl) {
+          totalNetLbl.textContent = `${formatCLP(net)} neto (${formatCLP(Math.round(net * 1.19))} IVA incl.)`;
+        }
+      };
+
+      const syncBubbleHelper = () => {
+        const cmPerOrd = Math.max(1, parseFloat(cmPerOrderInp?.value) || 0);
+        const ordCnt = Math.max(0, parseInt(ordersCountInp?.value, 10) || 0);
+        const totalCm = Math.round(cmPerOrd * ordCnt);
+        const totalCost = Math.round(totalCm * costPerCm);
+        if (totalCmLbl) totalCmLbl.textContent = `${totalCm.toLocaleString('es-CL')} cm`;
+        if (calcTotalLbl) calcTotalLbl.textContent = `$${totalCost.toLocaleString('es-CL')}`;
+        if (nameInp) nameInp.value = `Plástico Burbuja (${totalCm} cm lineales · ancho ${rollWidthCm} cm)`;
+        if (qtyInp) qtyInp.value = ordCnt > 0 ? 1 : 0;
+        if (priceInp) priceInp.value = totalCost;
+        updateTotalPreview();
+      };
+
+      const refreshDynamicUI = () => {
+        const isDyn = modalState.mode === 'dynamic_groups';
+        const isBubble = presetSel?.value === 'bubble_cm';
+        if (dynamicPanel) dynamicPanel.style.display = isDyn ? 'block' : 'none';
+        if (perOrderRow) perOrderRow.style.display = (isDyn && !isBubble) ? 'flex' : 'none';
+        if (qtyBadge) qtyBadge.style.display = isDyn ? 'inline-block' : 'none';
+
+        if (btnModeDynamic) {
+          btnModeDynamic.style.background = isDyn ? '#5f06fa' : 'transparent';
+          btnModeDynamic.style.color = isDyn ? '#ffffff' : '#475569';
+        }
+        if (btnModeManual) {
+          btnModeManual.style.background = !isDyn ? '#5f06fa' : 'transparent';
+          btnModeManual.style.color = !isDyn ? '#ffffff' : '#475569';
+        }
+
+        const selSet = new Set(modalState.selectedKeys);
+        groupPills.forEach(pill => {
+          const k = pill.getAttribute('data-group-key');
+          const active = selSet.has(k);
+          pill.style.borderColor = active ? '#5f06fa' : '#cbd5e1';
+          pill.style.background = active ? 'rgba(95, 6, 250, 0.1)' : '#ffffff';
+          pill.style.color = active ? '#4c1d95' : '#334155';
+          const icon = pill.querySelector('.swal-sup-pill-icon');
+          if (icon) {
+            icon.className = `swal-sup-pill-icon ${active ? 'ri-checkbox-circle-fill' : 'ri-checkbox-blank-circle-line'}`;
+            icon.style.color = active ? '#5f06fa' : '#94a3b8';
+          }
+          const badge = pill.querySelector('span:last-child');
+          if (badge) {
+            badge.style.background = active ? '#5f06fa' : '#f1f5f9';
+            badge.style.color = active ? '#ffffff' : '#475569';
+          }
+        });
+
+        if (isDyn) {
+          const stats = computeDynamicSupplyGroupStats(ordersList, modalState.selectedKeys);
+          const perOrd = Math.max(0.01, parseFloat(perOrderInp?.value) || 1);
+          modalState.perOrderQty = perOrd;
+
+          if (isBubble) {
+            if (ordersCountInp) ordersCountInp.value = stats.totalOrders;
+            syncBubbleHelper();
+          } else {
+            const finalQty = Math.round(stats.totalOrders * perOrd);
+            if (qtyInp) qtyInp.value = finalQty;
+            updateTotalPreview();
+          }
+
+          if (formulaSummary) {
+            if (stats.activeGroups.length === 0) {
+              formulaSummary.innerHTML = `<span style="color:#dc2626; font-weight:700;"><i class="ri-error-warning-line"></i> Selecciona al menos un grupo de pedidos arriba.</span>`;
+            } else {
+              const multTxt = (!isBubble && perOrd !== 1) ? ` &times; ${perOrd} ud/ped = <strong>${Math.round(stats.totalOrders * perOrd)} ud.</strong>` : '';
+              formulaSummary.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap;">
+                  <span><strong style="color:#5f06fa;">${escapeHtml(stats.formulaCode)}</strong>: ${escapeHtml(stats.formulaText)}</span>
+                  <span style="background:#5f06fa; color:#fff; padding:1px 7px; border-radius:999px; font-weight:800; font-size:0.7rem;">
+                    ${stats.totalOrders} ped. únicos${multTxt}
+                  </span>
+                </div>
+              `;
+            }
+          }
+        } else {
+          updateTotalPreview();
+        }
+      };
+
+      btnModeDynamic?.addEventListener('click', () => {
+        modalState.mode = 'dynamic_groups';
+        refreshDynamicUI();
+      });
+
+      btnModeManual?.addEventListener('click', () => {
+        modalState.mode = 'manual';
+        refreshDynamicUI();
+      });
+
+      groupPills.forEach(pill => {
+        pill.addEventListener('click', () => {
+          const k = pill.getAttribute('data-group-key');
+          if (!k) return;
+          const idx = modalState.selectedKeys.indexOf(k);
+          if (idx >= 0) {
+            modalState.selectedKeys.splice(idx, 1);
+          } else {
+            modalState.selectedKeys.push(k);
+          }
+          modalState.mode = 'dynamic_groups';
+          refreshDynamicUI();
+        });
+      });
+
+      presetBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const preset = btn.getAttribute('data-preset');
+          if (preset === 'rm_flex_reg') {
+            modalState.selectedKeys = ['RM', 'FLEX', 'REGIONES'].filter(k => catalog.some(g => g.key === k));
+          } else if (preset === 'rm_flex') {
+            modalState.selectedKeys = ['RM', 'FLEX'].filter(k => catalog.some(g => g.key === k));
+          } else if (preset === 'regiones') {
+            modalState.selectedKeys = ['REGIONES'].filter(k => catalog.some(g => g.key === k));
+          } else if (preset === 'all_agenda') {
+            modalState.selectedKeys = catalog.filter(g => g.key !== 'SIN_AGENDA' && g.count > 0).map(g => g.key);
+          } else if (preset === 'all') {
+            modalState.selectedKeys = catalog.filter(g => g.count > 0).map(g => g.key);
+          } else if (preset === 'none') {
+            modalState.selectedKeys = [];
+          }
+          modalState.mode = 'dynamic_groups';
+          refreshDynamicUI();
+        });
+      });
+
+      perOrderInp?.addEventListener('input', refreshDynamicUI);
+
+      qtyInp?.addEventListener('input', () => {
+        if (modalState.mode === 'dynamic_groups') {
+          modalState.mode = 'manual';
+          refreshDynamicUI();
+        } else {
+          updateTotalPreview();
+        }
+      });
+
+      priceInp?.addEventListener('input', updateTotalPreview);
+
+      presetSel?.addEventListener('change', () => {
+        const val = presetSel.value;
+        if (val.startsWith('box_')) {
+          if (bubbleBox) bubbleBox.style.display = 'none';
+          const idx = parseInt(val.replace('box_', ''), 10);
+          const bx = knownBoxes[idx];
+          if (bx) {
+            if (nameInp) nameInp.value = `${bx.name} (${bx.length_cm}x${bx.width_cm}x${bx.height_cm} cm)`;
+            if (priceInp) priceInp.value = bx.unit_price;
+          }
+          refreshDynamicUI();
+        } else if (val === 'bubble_cm') {
+          if (bubbleBox) bubbleBox.style.display = 'block';
+          refreshDynamicUI();
+        } else {
+          if (bubbleBox) bubbleBox.style.display = 'none';
+          if (nameInp) nameInp.value = '';
+          if (priceInp) priceInp.value = 0;
+          refreshDynamicUI();
+          nameInp?.focus();
+        }
+      });
+
+      cmPerOrderInp?.addEventListener('input', syncBubbleHelper);
+      ordersCountInp?.addEventListener('input', () => {
+        if (modalState.mode === 'dynamic_groups') {
+          modalState.mode = 'manual';
+          refreshDynamicUI();
+        }
+        syncBubbleHelper();
+      });
+
+      refreshDynamicUI();
+    },
     focusConfirm: false,
     showCancelButton: true,
     confirmButtonText: '<i class="ri-check-line"></i> Agregar',
@@ -8847,26 +10791,88 @@ window.addNewManualSupplyRow = async function() {
     confirmButtonColor: '#5f06fa',
     preConfirm: () => {
       const name = document.getElementById('swal-supply-name')?.value?.trim();
-      const qty = parseInt(document.getElementById('swal-supply-qty')?.value, 10) || 1;
-      const price = parseInt(document.getElementById('swal-supply-price')?.value, 10) || 0;
+      const qty = parseInt(document.getElementById('swal-supply-qty')?.value, 10) || 0;
+      const price = Math.round(parseFloat(document.getElementById('swal-supply-price')?.value) || 0);
+      const isBubble = document.getElementById('swal-supply-preset')?.value === 'bubble_cm';
+      const cmPerOrder = Math.max(1, parseFloat(document.getElementById('swal-bubble-cm-per-order')?.value) || 50);
+      const perOrderQty = Math.max(0.01, parseFloat(document.getElementById('swal-sup-per-order-qty')?.value) || 1);
 
       if (!name) {
         Swal.showValidationMessage('Ingresa un nombre para el insumo.');
         return false;
       }
-      return { name, qty, price };
+
+      if (modalState.mode === 'dynamic_groups') {
+        if (!modalState.selectedKeys || modalState.selectedKeys.length === 0) {
+          Swal.showValidationMessage('Selecciona al menos un grupo/agenda de pedidos o cambia a modo "Fija Manual".');
+          return false;
+        }
+        const stats = computeDynamicSupplyGroupStats(ordersList, modalState.selectedKeys);
+        if (stats.totalOrders === 0) {
+          Swal.showValidationMessage('Los grupos seleccionados tienen 0 pedidos en este periodo. Selecciona otro grupo o usa "Fija Manual".');
+          return false;
+        }
+        return {
+          name,
+          qty,
+          price,
+          qtyMode: 'dynamic_groups',
+          selectedGroups: stats.selectedKeys,
+          perOrderQty,
+          isBubbleLinearCm: isBubble,
+          cmPerOrder,
+          costPerCm,
+          rollWidthCm,
+          baseMaterialName: isBubble ? 'Plástico Burbuja' : null,
+          matchedOrdersCount: stats.totalOrders,
+          formulaCode: stats.formulaCode,
+          formulaText: stats.formulaText
+        };
+      }
+
+      if (qty <= 0) {
+        Swal.showValidationMessage('Ingresa una cantidad mayor a 0.');
+        return false;
+      }
+
+      return {
+        name,
+        qty,
+        price,
+        qtyMode: 'manual',
+        selectedGroups: [],
+        perOrderQty: 1,
+        isBubbleLinearCm: isBubble
+      };
     }
   });
 
   if (formValues && formValues.name) {
-    billingState.supplies.push({
+    const newSupply = {
       id: 'custom_' + Date.now(),
       name: formValues.name,
-      unit: 'gl.',
+      unit: formValues.isBubbleLinearCm ? 'gl.' : 'ud.',
       qty: formValues.qty,
       unitPrice: formValues.price,
-      total: formValues.qty * formValues.price
-    });
+      total: formValues.qty * formValues.price,
+      qtyMode: formValues.qtyMode || 'manual',
+      selectedGroups: Array.isArray(formValues.selectedGroups) ? formValues.selectedGroups : [],
+      perOrderQty: formValues.perOrderQty || 1,
+      isBubbleLinearCm: Boolean(formValues.isBubbleLinearCm),
+      cmPerOrder: formValues.cmPerOrder || 50,
+      costPerCm: formValues.costPerCm || costPerCm,
+      rollWidthCm: formValues.rollWidthCm || rollWidthCm,
+      baseMaterialName: formValues.baseMaterialName || null,
+      matchedOrdersCount: formValues.matchedOrdersCount || formValues.qty,
+      formulaCode: formValues.formulaCode || '',
+      formulaText: formValues.formulaText || ''
+    };
+
+    if (newSupply.qtyMode === 'dynamic_groups') {
+      syncDynamicSuppliesQuantities([newSupply], billingState.orders || []);
+    }
+
+    billingState.supplies.push(newSupply);
     billingState.isSaved = false;
     billingState.suppliesSessionKey = `${billingState.currentPeriodId}_${billingState.currentCommerce}`;
     recalculateFromCurrentState();
@@ -8876,15 +10882,18 @@ window.addNewManualSupplyRow = async function() {
       position: 'top-end',
       icon: 'success',
       title: 'Insumo agregado',
-      text: `Se agregó "${formValues.name}" al desglose.`,
+      text: newSupply.qtyMode === 'dynamic_groups'
+        ? `Se agregó "${newSupply.name}" (${newSupply.formulaCode}: ${newSupply.qty} ud.).`
+        : `Se agregó "${newSupply.name}" al desglose.`,
       showConfirmButton: false,
-      timer: 2500
+      timer: 2800
     });
   }
 };
 
 // Eliminar un ítem de insumo
 window.deleteManualSupplyItem = function(supplyIdOrIdx) {
+  if (guardBillingLocked()) return;
   const b = billingState;
   const idx = b.supplies.findIndex((s, i) => String(s.id) === String(supplyIdOrIdx) || String(i) === String(supplyIdOrIdx));
   if (idx === -1) return;
@@ -8927,33 +10936,201 @@ window.deleteManualSupplyItem = function(supplyIdOrIdx) {
   });
 };
 
-// Editar un ítem de insumo (nombre, cantidad, precio)
+// Editar un ítem de insumo (nombre, cantidad fija o dinámica por agendas, precio)
 window.editManualSupplyItem = async function(supplyIdOrIdx) {
+  if (guardBillingLocked()) return;
   const b = billingState;
   const idx = b.supplies.findIndex((s, i) => String(s.id) === String(supplyIdOrIdx) || String(i) === String(supplyIdOrIdx));
   if (idx === -1) return;
 
   const item = b.supplies[idx];
+  const ordersList = b.orders || [];
+  const existingSelected = Array.isArray(item.selectedGroups) && item.selectedGroups.length > 0
+    ? item.selectedGroups
+    : ['RM', 'FLEX', 'REGIONES'];
+  const catalog = getOrderSupplyGroupsCatalog(ordersList, existingSelected);
+  const initialMode = item.qtyMode === 'dynamic_groups' ? 'dynamic_groups' : 'manual';
+  const initialPerOrderQty = item.perOrderQty || 1;
+
+  let modalState = {
+    mode: initialMode,
+    selectedKeys: [...existingSelected.filter(k => catalog.some(g => g.key === k))],
+    perOrderQty: initialPerOrderQty
+  };
 
   const { value: formValues } = await Swal.fire({
     title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.4rem;"><i class="ri-pencil-line" style="color:#5f06fa;"></i><span>Editar Ítem de Insumo</span></div>',
+    width: '580px',
     html: `
-      <div style="text-align: left; font-size: 0.9rem;">
-        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">NOMBRE DEL INSUMO:</label>
+      <div style="text-align: left; font-size: 0.88rem;">
+        <label style="font-size: 0.75rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem;">NOMBRE DEL INSUMO:</label>
         <input id="swal-edit-supply-name" class="swal2-input" style="margin: 0 0 0.75rem 0; width: 100%; height: 38px; font-size: 0.85rem;" value="${escapeHtml(item.name)}">
         
+        ${renderSupplyDynamicGroupSelectorHTML(catalog, initialMode, modalState.selectedKeys, initialPerOrderQty)}
+
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
           <div>
-            <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">CANTIDAD:</label>
-            <input id="swal-edit-supply-qty" type="number" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;" min="0" value="${item.qty || 1}">
+            <label style="font-size: 0.75rem; font-weight: 800; color: #475569; display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.25rem;">
+              <span>CANTIDAD:</span>
+              <span id="swal-edit-supply-qty-badge" style="font-size: 0.64rem; background: #ede9fe; color: #5f06fa; padding: 1px 5px; border-radius: 4px; font-weight: 800; display: ${initialMode === 'dynamic_groups' ? 'inline-block' : 'none'};">DINÁMICA</span>
+            </label>
+            <input id="swal-edit-supply-qty" type="number" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem; font-weight: 700;" min="0" value="${item.qty || 1}">
           </div>
           <div>
-            <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">PRECIO UNITARIO ($ NETO):</label>
-            <input id="swal-edit-supply-price" type="number" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;" min="0" value="${item.unitPrice || 0}">
+            <label style="font-size: 0.75rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem;">PRECIO UNITARIO ($ NETO):</label>
+            <input id="swal-edit-supply-price" type="number" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem; font-weight: 700;" min="0" value="${item.unitPrice || 0}">
           </div>
+        </div>
+
+        <div style="margin-top: 0.65rem; padding: 0.5rem 0.75rem; background: #f1f5f9; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem;">
+          <span style="color: #475569; font-weight: 700;">Total Neto Insumo:</span>
+          <strong id="swal-edit-supply-total-net-lbl" style="color: #5f06fa; font-size: 0.92rem; font-weight: 900;">$0</strong>
         </div>
       </div>
     `,
+    didOpen: () => {
+      const qtyInp = document.getElementById('swal-edit-supply-qty');
+      const qtyBadge = document.getElementById('swal-edit-supply-qty-badge');
+      const priceInp = document.getElementById('swal-edit-supply-price');
+      const totalNetLbl = document.getElementById('swal-edit-supply-total-net-lbl');
+
+      const btnModeDynamic = document.getElementById('swal-sup-mode-dynamic');
+      const btnModeManual = document.getElementById('swal-sup-mode-manual');
+      const dynamicPanel = document.getElementById('swal-sup-dynamic-panel');
+      const perOrderInp = document.getElementById('swal-sup-per-order-qty');
+      const formulaSummary = document.getElementById('swal-sup-formula-summary');
+      const groupPills = Array.from(document.querySelectorAll('.swal-sup-group-pill'));
+      const presetBtns = Array.from(document.querySelectorAll('.swal-sup-preset-btn'));
+
+      const updateTotalPreview = () => {
+        const q = Math.max(0, parseInt(qtyInp?.value, 10) || 0);
+        const p = Math.max(0, Math.round(parseFloat(priceInp?.value) || 0));
+        const net = q * p;
+        if (totalNetLbl) {
+          totalNetLbl.textContent = `${formatCLP(net)} neto (${formatCLP(Math.round(net * 1.19))} IVA incl.)`;
+        }
+      };
+
+      const refreshDynamicUI = () => {
+        const isDyn = modalState.mode === 'dynamic_groups';
+        if (dynamicPanel) dynamicPanel.style.display = isDyn ? 'block' : 'none';
+        if (qtyBadge) qtyBadge.style.display = isDyn ? 'inline-block' : 'none';
+
+        if (btnModeDynamic) {
+          btnModeDynamic.style.background = isDyn ? '#5f06fa' : 'transparent';
+          btnModeDynamic.style.color = isDyn ? '#ffffff' : '#475569';
+        }
+        if (btnModeManual) {
+          btnModeManual.style.background = !isDyn ? '#5f06fa' : 'transparent';
+          btnModeManual.style.color = !isDyn ? '#ffffff' : '#475569';
+        }
+
+        const selSet = new Set(modalState.selectedKeys);
+        groupPills.forEach(pill => {
+          const k = pill.getAttribute('data-group-key');
+          const active = selSet.has(k);
+          pill.style.borderColor = active ? '#5f06fa' : '#cbd5e1';
+          pill.style.background = active ? 'rgba(95, 6, 250, 0.1)' : '#ffffff';
+          pill.style.color = active ? '#4c1d95' : '#334155';
+          const icon = pill.querySelector('.swal-sup-pill-icon');
+          if (icon) {
+            icon.className = `swal-sup-pill-icon ${active ? 'ri-checkbox-circle-fill' : 'ri-checkbox-blank-circle-line'}`;
+            icon.style.color = active ? '#5f06fa' : '#94a3b8';
+          }
+          const badge = pill.querySelector('span:last-child');
+          if (badge) {
+            badge.style.background = active ? '#5f06fa' : '#f1f5f9';
+            badge.style.color = active ? '#ffffff' : '#475569';
+          }
+        });
+
+        if (isDyn) {
+          const stats = computeDynamicSupplyGroupStats(ordersList, modalState.selectedKeys);
+          const perOrd = Math.max(0.01, parseFloat(perOrderInp?.value) || 1);
+          modalState.perOrderQty = perOrd;
+          const finalQty = item.isBubbleLinearCm ? 1 : Math.round(stats.totalOrders * perOrd);
+          if (qtyInp) qtyInp.value = finalQty;
+          updateTotalPreview();
+
+          if (formulaSummary) {
+            if (stats.activeGroups.length === 0) {
+              formulaSummary.innerHTML = `<span style="color:#dc2626; font-weight:700;"><i class="ri-error-warning-line"></i> Selecciona al menos un grupo de pedidos arriba.</span>`;
+            } else {
+              const multTxt = (!item.isBubbleLinearCm && perOrd !== 1) ? ` &times; ${perOrd} ud/ped = <strong>${finalQty} ud.</strong>` : '';
+              formulaSummary.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap;">
+                  <span><strong style="color:#5f06fa;">${escapeHtml(stats.formulaCode)}</strong>: ${escapeHtml(stats.formulaText)}</span>
+                  <span style="background:#5f06fa; color:#fff; padding:1px 7px; border-radius:999px; font-weight:800; font-size:0.7rem;">
+                    ${stats.totalOrders} ped. únicos${multTxt}
+                  </span>
+                </div>
+              `;
+            }
+          }
+        } else {
+          updateTotalPreview();
+        }
+      };
+
+      btnModeDynamic?.addEventListener('click', () => {
+        modalState.mode = 'dynamic_groups';
+        refreshDynamicUI();
+      });
+
+      btnModeManual?.addEventListener('click', () => {
+        modalState.mode = 'manual';
+        refreshDynamicUI();
+      });
+
+      groupPills.forEach(pill => {
+        pill.addEventListener('click', () => {
+          const k = pill.getAttribute('data-group-key');
+          if (!k) return;
+          const pIdx = modalState.selectedKeys.indexOf(k);
+          if (pIdx >= 0) {
+            modalState.selectedKeys.splice(pIdx, 1);
+          } else {
+            modalState.selectedKeys.push(k);
+          }
+          modalState.mode = 'dynamic_groups';
+          refreshDynamicUI();
+        });
+      });
+
+      presetBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const preset = btn.getAttribute('data-preset');
+          if (preset === 'rm_flex_reg') {
+            modalState.selectedKeys = ['RM', 'FLEX', 'REGIONES'].filter(k => catalog.some(g => g.key === k));
+          } else if (preset === 'rm_flex') {
+            modalState.selectedKeys = ['RM', 'FLEX'].filter(k => catalog.some(g => g.key === k));
+          } else if (preset === 'regiones') {
+            modalState.selectedKeys = ['REGIONES'].filter(k => catalog.some(g => g.key === k));
+          } else if (preset === 'all_agenda') {
+            modalState.selectedKeys = catalog.filter(g => g.key !== 'SIN_AGENDA' && g.count > 0).map(g => g.key);
+          } else if (preset === 'all') {
+            modalState.selectedKeys = catalog.filter(g => g.count > 0).map(g => g.key);
+          } else if (preset === 'none') {
+            modalState.selectedKeys = [];
+          }
+          modalState.mode = 'dynamic_groups';
+          refreshDynamicUI();
+        });
+      });
+
+      perOrderInp?.addEventListener('input', refreshDynamicUI);
+      qtyInp?.addEventListener('input', () => {
+        if (modalState.mode === 'dynamic_groups') {
+          modalState.mode = 'manual';
+          refreshDynamicUI();
+        } else {
+          updateTotalPreview();
+        }
+      });
+      priceInp?.addEventListener('input', updateTotalPreview);
+
+      refreshDynamicUI();
+    },
     showCancelButton: true,
     confirmButtonText: '<i class="ri-check-line"></i> Guardar Cambios',
     cancelButtonText: 'Cancelar',
@@ -8962,31 +11139,59 @@ window.editManualSupplyItem = async function(supplyIdOrIdx) {
       const name = document.getElementById('swal-edit-supply-name')?.value?.trim();
       const qty = parseInt(document.getElementById('swal-edit-supply-qty')?.value, 10);
       const price = parseInt(document.getElementById('swal-edit-supply-price')?.value, 10);
+      const perOrderQty = Math.max(0.01, parseFloat(document.getElementById('swal-sup-per-order-qty')?.value) || 1);
 
       if (!name) {
         Swal.showValidationMessage('El nombre del insumo no puede estar vacío.');
-        return false;
-      }
-      if (isNaN(qty) || qty < 0) {
-        Swal.showValidationMessage('Ingresa una cantidad válida.');
         return false;
       }
       if (isNaN(price) || price < 0) {
         Swal.showValidationMessage('Ingresa un precio unitario válido.');
         return false;
       }
-      return { name, qty, price };
+
+      if (modalState.mode === 'dynamic_groups') {
+        if (!modalState.selectedKeys || modalState.selectedKeys.length === 0) {
+          Swal.showValidationMessage('Selecciona al menos un grupo/agenda de pedidos o cambia a modo "Fija Manual".');
+          return false;
+        }
+        const stats = computeDynamicSupplyGroupStats(ordersList, modalState.selectedKeys);
+        return {
+          name,
+          qty: Math.round(stats.totalOrders * perOrderQty),
+          price,
+          qtyMode: 'dynamic_groups',
+          selectedGroups: stats.selectedKeys,
+          perOrderQty
+        };
+      }
+
+      if (isNaN(qty) || qty < 0) {
+        Swal.showValidationMessage('Ingresa una cantidad válida.');
+        return false;
+      }
+      return { name, qty, price, qtyMode: 'manual', selectedGroups: [], perOrderQty: 1 };
     }
   });
 
   if (formValues) {
-    if (formValues.qty === 0) {
+    if (formValues.qtyMode === 'manual' && formValues.qty === 0) {
       b.supplies.splice(idx, 1);
     } else {
       item.name = formValues.name;
       item.qty = formValues.qty;
       item.unitPrice = formValues.price;
       item.total = formValues.qty * formValues.price;
+      item.qtyMode = formValues.qtyMode;
+      item.selectedGroups = formValues.selectedGroups;
+      item.perOrderQty = formValues.perOrderQty;
+      if (item.qtyMode === 'dynamic_groups') {
+        syncDynamicSuppliesQuantities([item], b.orders || []);
+      } else {
+        delete item.formulaCode;
+        delete item.formulaText;
+        delete item.dynamicSummary;
+      }
     }
 
     b.isSaved = false;
@@ -9006,6 +11211,7 @@ window.editManualSupplyItem = async function(supplyIdOrIdx) {
 
 // Agregar Fila Manual de Ajuste / Descuento Comercial
 window.addNewManualAdjustmentRow = async function() {
+  if (guardBillingLocked()) return;
   const { value: formValues } = await Swal.fire({
     title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.4rem;"><i class="ri-price-tag-3-line" style="color:#5f06fa;"></i><span>Agregar Ajuste Comercial / Descuento</span></div>',
     html: `
@@ -9068,6 +11274,7 @@ window.addNewManualAdjustmentRow = async function() {
 
 // Eliminar un ajuste comercial
 window.deleteManualAdjustmentItem = function(adjIdOrIdx) {
+  if (guardBillingLocked()) return;
   const b = billingState;
   const idx = b.adjustments.findIndex((a, i) => String(a.id) === String(adjIdOrIdx) || String(i) === String(adjIdOrIdx));
   if (idx === -1) return;
@@ -9106,6 +11313,7 @@ window.deleteManualAdjustmentItem = function(adjIdOrIdx) {
 
 // Agregar Fila Manual de Abono a Cuenta
 window.addNewManualAbonoRow = async function() {
+  if (guardBillingLocked()) return;
   const b = billingState;
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -9196,6 +11404,7 @@ window.addNewManualAbonoRow = async function() {
 
 // Editar un abono registrado
 window.editManualAbonoItem = async function(abonoIdOrIdx) {
+  if (guardBillingLocked()) return;
   const b = billingState;
   if (!Array.isArray(b.abonos)) return;
   const idx = b.abonos.findIndex((a, i) => String(a.id) === String(abonoIdOrIdx) || String(i) === String(abonoIdOrIdx));
@@ -9281,6 +11490,7 @@ window.editManualAbonoItem = async function(abonoIdOrIdx) {
 
 // Eliminar un abono registrado
 window.deleteManualAbonoItem = function(abonoIdOrIdx) {
+  if (guardBillingLocked()) return;
   const b = billingState;
   if (!Array.isArray(b.abonos)) return;
   const idx = b.abonos.findIndex((a, i) => String(a.id) === String(abonoIdOrIdx) || String(i) === String(abonoIdOrIdx));
@@ -9305,6 +11515,9 @@ window.deleteManualAbonoItem = function(abonoIdOrIdx) {
     cancelButtonText: 'Cancelar'
   }).then((result) => {
     if (result.isConfirmed) {
+      if (ab.id === 'abono_pos_sales' || ab.isPosAbono) {
+        b.posAbonoExcludedManually = true;
+      }
       b.abonos.splice(idx, 1);
       b.isSaved = false;
       b.abonosSessionKey = `${b.currentPeriodId}_${b.currentCommerce}`;
@@ -9329,8 +11542,275 @@ window.deleteManualAbonoItem = function(abonoIdOrIdx) {
   });
 };
 
+// Modal interactivo para gestionar las Ventas POS consideradas como Abono en el Periodo actual
+window.openManagePosAbonosBillingModal = async function() {
+  const b = billingState;
+  if (!b.currentCommerce || !b.currentPeriodName) {
+    Swal.fire('Atención', 'Selecciona primero un comercio y un periodo de facturación.', 'warning');
+    return;
+  }
+
+  const targetPeriodUpper = String(b.currentPeriodName || '').trim().toUpperCase();
+
+  try {
+    Swal.fire({
+      title: 'Consultando Ventas POS...',
+      text: `Cargando ventas de ${b.currentCommerce} en Punto de Venta...`,
+      allowOutsideClick: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
+
+    const posGroup = b.isConglomerate && Array.isArray(b.conglomerateChildren) && b.conglomerateChildren.length > 0
+      ? [b.currentCommerce, ...b.conglomerateChildren]
+      : await resolveCommerceGroup(b.currentCommerce);
+
+    const posData = await fetchAndComputePosSalesAbonoForBilling(posGroup, targetPeriodUpper, b.pricingConfig, b.orders);
+    b.allMerchantPosSales = posData.allSales;
+    b.posAbonoSales = posData.periodAbonoSales;
+    b.posAbonoSummary = posData.summary;
+
+    const allSales = posData.allSales || [];
+    Swal.close();
+
+    if (allSales.length === 0) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Sin Ventas POS Registradas',
+        html: `No se encontraron ventas presenciales registradas en Punto de Venta para <strong>${escapeHtml(b.currentCommerce)}</strong>.`,
+        confirmButtonColor: '#5f06fa'
+      });
+      return;
+    }
+
+    const isLocked = Boolean(b.isLocked);
+
+    const rowsHtml = allSales.map((s) => {
+      const isIncludedInCurrent = Boolean(s.is_abono && s.abono_period === targetPeriodUpper);
+      const d = s.created_at ? new Date(s.created_at) : null;
+      const dateFmt = (d && !isNaN(d.getTime()))
+        ? d.toLocaleDateString('es-CL') + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+        : '-';
+
+      return `
+        <tr class="bg-pos-modal-row" data-sale-id="${s.id}" data-gross="${s.monto_total}" data-comm-net="${s.commission_net}" data-comm-iva="${s.commission_iva}" data-comm-total="${s.commission_total}" data-payout="${s.seller_payout}" style="border-bottom: 1px solid #e2e8f0; background: ${isIncludedInCurrent ? 'rgba(16, 185, 129, 0.06)' : '#ffffff'};">
+          <td style="text-align: center; padding: 7px 6px;">
+            <input type="checkbox" class="bg-pos-sale-chk" data-sale-id="${s.id}" ${isIncludedInCurrent ? 'checked' : ''} ${isLocked ? 'disabled' : ''} style="width: 16px; height: 16px; accent-color: #059669; cursor: pointer;">
+          </td>
+          <td style="padding: 7px 6px; font-size: 0.74rem; white-space: nowrap; color: #334155;">${escapeHtml(dateFmt)}</td>
+          <td style="padding: 7px 6px;">
+            <span style="font-family: monospace; font-size: 0.75rem; font-weight: 800; background: #f8fafc; border: 1px solid #cbd5e1; padding: 1px 5px; border-radius: 4px; display: inline-block;">${escapeHtml(s.codigo_venta)}</span>
+            ${s.tx_code ? `<div style="margin-top: 2px;"><span style="font-family: monospace; font-size: 0.66rem; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 1px 5px; border-radius: 4px; display: inline-block;">TX: ${escapeHtml(s.tx_code)}</span></div>` : ''}
+          </td>
+          <td style="padding: 7px 6px; font-size: 0.75rem; font-weight: 700; color: #0f172a;">${escapeHtml(s.comercio)}</td>
+          <td style="padding: 7px 6px; font-size: 0.75rem; color: #1e293b;">
+            <div style="font-weight: 600;">${escapeHtml(s.nombre_cliente)}</div>
+            <div style="font-size: 0.66rem; color: #64748b;">${escapeHtml(s.modo_pago)}</div>
+          </td>
+          <td style="padding: 7px 6px; font-size: 0.73rem;">
+            <div style="font-weight: 700; color: #0f172a;">${escapeHtml(s.machine_brand)} ${s.machine_model ? `#${escapeHtml(s.machine_model)}` : ''}</div>
+            <span style="font-size: 0.64rem; color: ${s.is_stocka_machine ? '#1d4ed8' : '#7c3aed'}; font-weight: 700;">
+              ${s.is_stocka_machine ? 'Propiedad STOCKA' : 'Propiedad ' + escapeHtml(s.machine_owner)}
+            </span>
+          </td>
+          <td style="padding: 7px 6px; text-align: right; font-weight: 700; font-size: 0.78rem; color: #0f172a;">${formatCLP(s.monto_total)}</td>
+          <td style="padding: 7px 6px; text-align: right; font-size: 0.75rem; color: #dc2626; font-weight: 700;">
+            ${s.applies_settlement ? `-${formatCLP(s.commission_total)} <div style="font-size:0.62rem;color:#64748b;font-weight:500;">(${s.fee_pct.toFixed(2)}%+IVA)</div>` : '$0'}
+          </td>
+          <td style="padding: 7px 8px; text-align: right; font-weight: 900; font-size: 0.82rem; color: #059669;">${formatCLP(s.seller_payout)}</td>
+          <td style="padding: 7px 6px; text-align: center; font-size: 0.7rem;">
+            <span class="bg-pos-row-period-badge" style="padding: 2px 6px; border-radius: 4px; font-weight: 800; background: ${isIncludedInCurrent ? '#d1fae5' : '#f1f5f9'}; color: ${isIncludedInCurrent ? '#065f46' : '#64748b'};">
+              ${isIncludedInCurrent ? escapeHtml(targetPeriodUpper) : escapeHtml(s.is_abono ? s.abono_period : 'Sin Abono')}
+            </span>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    const { value: selectedIds } = await Swal.fire({
+      title: `<div style="display:flex;align-items:center;justify-content:center;gap:0.5rem;font-size:1.1rem;"><i class="ri-store-3-line" style="color:#059669;"></i><span>Ventas POS Consideradas como Abono (${escapeHtml(targetPeriodUpper)})</span></div>`,
+      width: '940px',
+      html: `
+        <div style="text-align: left; font-size: 0.84rem;">
+          <p style="margin: 0 0 0.75rem 0; color: #475569; line-height: 1.45;">
+            Selecciona las ventas de <strong>${escapeHtml(b.currentCommerce)}</strong> en Punto de Venta cuya recaudación neta (descontando comisión POS + IVA) se considera como <strong>Abono al Servicio de Fulfillment</strong> en el periodo <strong>${escapeHtml(targetPeriodUpper)}</strong>:
+          </p>
+
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.65rem; margin-bottom: 0.85rem; background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 8px; padding: 0.65rem 0.85rem;">
+            <div>
+              <span style="font-size: 0.66rem; text-transform: uppercase; color: #065f46; font-weight: 800; display: block;">Ventas Seleccionadas</span>
+              <strong id="swal-pos-abono-count" style="font-size: 1.1rem; color: #0f172a;">0</strong>
+            </div>
+            <div>
+              <span style="font-size: 0.66rem; text-transform: uppercase; color: #065f46; font-weight: 800; display: block;">Total Bruto Ventas</span>
+              <strong id="swal-pos-abono-gross" style="font-size: 1.1rem; color: #0f172a;">$0</strong>
+            </div>
+            <div>
+              <span style="font-size: 0.66rem; text-transform: uppercase; color: #dc2626; font-weight: 800; display: block;">Comisión POS (+IVA)</span>
+              <strong id="swal-pos-abono-comm" style="font-size: 1.1rem; color: #dc2626;">-$0</strong>
+            </div>
+            <div style="background: #ffffff; border: 1px solid #34d399; border-radius: 6px; padding: 0.25rem 0.55rem;">
+              <span style="font-size: 0.66rem; text-transform: uppercase; color: #047857; font-weight: 800; display: block;">Monto Abono Periodo</span>
+              <strong id="swal-pos-abono-net" style="font-size: 1.15rem; color: #059669; font-weight: 900;">$0</strong>
+            </div>
+          </div>
+
+          <div style="max-height: 360px; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 8px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.78rem;">
+              <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 2; border-bottom: 2px solid #cbd5e1;">
+                <tr>
+                  <th style="width: 36px; text-align: center; padding: 7px 6px;">
+                    <input type="checkbox" id="swal-pos-master-chk" ${isLocked ? 'disabled' : ''} style="width: 15px; height: 15px; accent-color: #059669; cursor: pointer;" title="Seleccionar / Deseleccionar todas">
+                  </th>
+                  <th style="text-align: left; padding: 7px 6px;">Fecha</th>
+                  <th style="text-align: left; padding: 7px 6px;">Código</th>
+                  <th style="text-align: left; padding: 7px 6px;">Comercio</th>
+                  <th style="text-align: left; padding: 7px 6px;">Cliente / Pago</th>
+                  <th style="text-align: left; padding: 7px 6px;">Máquina POS</th>
+                  <th style="text-align: right; padding: 7px 6px;">Monto Bruto</th>
+                  <th style="text-align: right; padding: 7px 6px;">Comisión + IVA</th>
+                  <th style="text-align: right; padding: 7px 8px;">Pago Seller (Abono)</th>
+                  <th style="text-align: center; padding: 7px 6px;">Periodo Asignado</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      showConfirmButton: !isLocked,
+      confirmButtonText: '<i class="ri-check-double-line"></i> Guardar y Sincronizar Abono en Desglose',
+      cancelButtonText: isLocked ? 'Cerrar' : 'Cancelar',
+      confirmButtonColor: '#059669',
+      didOpen: () => {
+        const chks = Array.from(document.querySelectorAll('.bg-pos-sale-chk'));
+        const masterChk = document.getElementById('swal-pos-master-chk');
+
+        const recomputeModalTotals = () => {
+          let cnt = 0;
+          let gross = 0;
+          let comm = 0;
+          let net = 0;
+          chks.forEach(c => {
+            const tr = c.closest('tr');
+            const badge = tr?.querySelector('.bg-pos-row-period-badge');
+            if (c.checked) {
+              cnt++;
+              gross += Number(tr?.dataset.gross || 0);
+              comm += Number(tr?.dataset.commTotal || 0);
+              net += Number(tr?.dataset.payout || 0);
+              if (tr) tr.style.background = 'rgba(16, 185, 129, 0.06)';
+              if (badge) {
+                badge.textContent = targetPeriodUpper;
+                badge.style.background = '#d1fae5';
+                badge.style.color = '#065f46';
+              }
+            } else {
+              if (tr) tr.style.background = '#ffffff';
+              if (badge) {
+                badge.textContent = 'No incluido';
+                badge.style.background = '#f1f5f9';
+                badge.style.color = '#64748b';
+              }
+            }
+          });
+          const elCnt = document.getElementById('swal-pos-abono-count');
+          const elGross = document.getElementById('swal-pos-abono-gross');
+          const elComm = document.getElementById('swal-pos-abono-comm');
+          const elNet = document.getElementById('swal-pos-abono-net');
+          if (elCnt) elCnt.textContent = String(cnt);
+          if (elGross) elGross.textContent = formatCLP(gross);
+          if (elComm) elComm.textContent = `-${formatCLP(comm)}`;
+          if (elNet) elNet.textContent = formatCLP(net);
+        };
+
+        chks.forEach(c => c.addEventListener('change', recomputeModalTotals));
+        if (masterChk) {
+          masterChk.checked = chks.length > 0 && chks.every(c => c.checked);
+          masterChk.addEventListener('change', () => {
+            chks.forEach(c => { c.checked = masterChk.checked; });
+            recomputeModalTotals();
+          });
+        }
+        recomputeModalTotals();
+      },
+      preConfirm: () => {
+        const chks = Array.from(document.querySelectorAll('.bg-pos-sale-chk'));
+        return new Set(chks.filter(c => c.checked).map(c => String(c.dataset.saleId)));
+      }
+    });
+
+    if (!selectedIds) return;
+
+    Swal.fire({
+      title: 'Actualizando Ventas POS...',
+      text: 'Guardando asignación de periodo y sincronizando abono...',
+      allowOutsideClick: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
+
+    // Actualizar en store_sales aquellas ventas cuyo estado cambió respecto al periodo actual
+    for (const s of allSales) {
+      const shouldBeInPeriod = selectedIds.has(String(s.id));
+      const wasInPeriod = Boolean(s.is_abono && s.abono_period === targetPeriodUpper);
+
+      if (shouldBeInPeriod !== wasInPeriod) {
+        const newPeriodTag = shouldBeInPeriod ? targetPeriodUpper : 'SIN_ABONO';
+        let updatedComment = String(s.raw_comentarios || '').replace(/\s*\[ABONO-PER:\s*[^\]]+\]/gi, '').trim();
+        updatedComment = `${updatedComment} [ABONO-PER: ${newPeriodTag}]`.trim();
+
+        await supabase
+          .from('store_sales')
+          .update({ comentarios: updatedComment, updated_at: new Date().toISOString() })
+          .eq('id', s.id);
+
+        s.raw_comentarios = updatedComment;
+        s.abono_period = newPeriodTag;
+        s.is_abono = shouldBeInPeriod;
+        s.is_explicit_period = true;
+      }
+    }
+
+    b.posAbonoExcludedManually = false;
+    b.posAbonoSales = allSales.filter(s => selectedIds.has(String(s.id)));
+    b.posAbonoSummary = {
+      salesCount: b.posAbonoSales.length,
+      totalGross: b.posAbonoSales.reduce((acc, s) => acc + s.monto_total, 0),
+      totalCommissionNet: b.posAbonoSales.reduce((acc, s) => acc + s.commission_net, 0),
+      totalCommissionIva: b.posAbonoSales.reduce((acc, s) => acc + s.commission_iva, 0),
+      totalCommissionWithIva: b.posAbonoSales.reduce((acc, s) => acc + s.commission_total, 0),
+      totalAbonoAmount: b.posAbonoSales.reduce((acc, s) => acc + s.seller_payout, 0)
+    };
+
+    syncPosAbonoIntoBillingState(b);
+    b.isSaved = false;
+    b.abonosSessionKey = `${b.currentPeriodId}_${b.currentCommerce}`;
+    try {
+      localStorage.setItem(`stocka_billing_abonos_${b.currentPeriodId}_${b.currentCommerce}`, JSON.stringify(b.abonos));
+    } catch (e) {}
+
+    recalculateFromCurrentState();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Abono POS Sincronizado',
+      text: `${b.posAbonoSummary.salesCount} venta(s) POS por ${formatCLP(b.posAbonoSummary.totalAbonoAmount)} abonadas en ${targetPeriodUpper}.`,
+      showConfirmButton: false,
+      timer: 3200
+    });
+  } catch (err) {
+    console.error('Error gestionando ventas POS en facturación:', err);
+    Swal.fire('Error', 'No se pudo actualizar las ventas POS: ' + (err.message || err), 'error');
+  }
+};
+
 // Modal interactivo para editar o eximir Costo Variable Mensual
 window.openEditFixedFeeModal = async function() {
+  if (guardBillingLocked()) return;
   const b = billingState;
   const t = b.totals;
 
@@ -9418,7 +11898,8 @@ window.openEditFixedFeeModal = async function() {
     const totalAbonos = (b.abonos || []).reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0);
     const inboundNet = b.totals.inboundNet || 0;
     const posFeeNet = b.totals.posFeeNet || 0;
-    const totalNet = Math.round(b.totals.storageNet + b.totals.pickPackNet + b.totals.shippingRmFlexNet + inboundNet + formValues.clp + posFeeNet + totalSuppliesNet + totalAdjustmentsNet);
+    const meliFullNet = b.totals.meliFullNet || 0;
+    const totalNet = Math.round(b.totals.storageNet + b.totals.pickPackNet + b.totals.shippingRmFlexNet + inboundNet + formValues.clp + posFeeNet + totalSuppliesNet + totalAdjustmentsNet + meliFullNet);
     const totalIVA = Math.round(totalNet * 0.19);
     const totalGross = totalNet + totalIVA;
     const totalToPay = Math.max(0, totalGross - totalAbonos);
@@ -9452,6 +11933,7 @@ window.openEditFixedFeeModal = async function() {
 
 // Modal interactivo para editar o eximir Cobro Punto de Venta (POS)
 window.openEditPosFeeModal = async function() {
+  if (guardBillingLocked()) return;
   const b = billingState;
   const t = b.totals;
   const machine = t.posMachine || {};
@@ -9553,7 +12035,8 @@ window.openEditPosFeeModal = async function() {
     const totalAbonos = (b.abonos || []).reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0);
     const inboundNet = b.totals.inboundNet || 0;
     const fixedFeeNet = b.totals.fixedFeeNet || 0;
-    const totalNet = Math.round(b.totals.storageNet + b.totals.pickPackNet + b.totals.shippingRmFlexNet + inboundNet + fixedFeeNet + formValues.clp + totalSuppliesNet + totalAdjustmentsNet);
+    const meliFullNet = b.totals.meliFullNet || 0;
+    const totalNet = Math.round(b.totals.storageNet + b.totals.pickPackNet + b.totals.shippingRmFlexNet + inboundNet + fixedFeeNet + formValues.clp + totalSuppliesNet + totalAdjustmentsNet + meliFullNet);
     const totalIVA = Math.round(totalNet * 0.19);
     const totalGross = totalNet + totalIVA;
     const totalToPay = Math.max(0, totalGross - totalAbonos);
@@ -9587,6 +12070,7 @@ window.openEditPosFeeModal = async function() {
 
 // Modal interactivo para asignar o editar el volumen mensual (m³), tarifa de almacenamiento y descuento por volumen
 window.openEditStorageFeeModal = async function() {
+  if (guardBillingLocked()) return;
   const b = billingState;
   const t = b.totals || {};
   const activeRange = b.activeRange || {};
@@ -9888,12 +12372,21 @@ window.openEditStorageFeeModal = async function() {
 
         if (prevFixedFeeHint) {
           const billableOrdersCount = (b.orders || []).filter(o => !o.isExcluded).length;
-          if (billableOrdersCount >= 75 || activeVol >= 1.5) {
-            prevFixedFeeHint.innerHTML = `<i class="ri-shield-check-line" style="color: #10b981;"></i> <strong>Costo Variable Mensual:</strong> <span style="color: #10b981; font-weight: 700;">EXENTO ($0)</span> (${activeVol >= 1.5 ? `volumen ≥ 1,5 m³` : `≥ 75 pedidos`})`;
-          } else if (activeVol < 1.0 && billableOrdersCount < 50) {
-            prevFixedFeeHint.innerHTML = `<i class="ri-information-line" style="color: #ef4444;"></i> <strong>Costo Variable Mensual:</strong> <span style="color: #ef4444; font-weight: 700;">1,5 UF</span> (&lt; 50 pedidos y &lt; 1,0 m³)`;
+          const fFee = cfg.fixed_service_fee || {};
+          const minOrdEx = fFee.exemption_min_orders ?? 75;
+          const minVolEx = fFee.exemption_min_volume ?? 1.5;
+          const t1MaxOrd = fFee.tier1_max_orders ?? 50;
+          const t1MaxVol = fFee.tier1_max_volume ?? 1.0;
+          const t1Uf = fFee.tier1_fee_uf ?? 1.5;
+          const t2MaxOrd = fFee.tier2_max_orders ?? minOrdEx;
+          const t2MaxVol = fFee.tier2_max_volume ?? minVolEx;
+          const t2Uf = fFee.tier2_fee_uf ?? 0.9;
+          if (billableOrdersCount >= minOrdEx || activeVol >= minVolEx) {
+            prevFixedFeeHint.innerHTML = `<i class="ri-shield-check-line" style="color: #10b981;"></i> <strong>Costo Variable Mensual:</strong> <span style="color: #10b981; font-weight: 700;">EXENTO ($0)</span> (${activeVol >= minVolEx ? `volumen ≥ ${minVolEx} m³` : `≥ ${minOrdEx} pedidos`})`;
+          } else if (activeVol < t1MaxVol && billableOrdersCount < t1MaxOrd) {
+            prevFixedFeeHint.innerHTML = `<i class="ri-information-line" style="color: #ef4444;"></i> <strong>Costo Variable Mensual:</strong> <span style="color: #ef4444; font-weight: 700;">${t1Uf} UF</span> (&lt; ${t1MaxOrd} pedidos y &lt; ${t1MaxVol} m³)`;
           } else {
-            prevFixedFeeHint.innerHTML = `<i class="ri-information-line" style="color: #f59e0b;"></i> <strong>Costo Variable Mensual:</strong> <span style="color: #d97706; font-weight: 700;">0,9 UF</span> (&lt; 75 pedidos y &lt; 1,5 m³)`;
+            prevFixedFeeHint.innerHTML = `<i class="ri-information-line" style="color: #f59e0b;"></i> <strong>Costo Variable Mensual:</strong> <span style="color: #d97706; font-weight: 700;">${t2Uf} UF</span> (&lt; ${t2MaxOrd} pedidos y &lt; ${t2MaxVol} m³)`;
           }
         }
       };
@@ -10117,6 +12610,7 @@ window.openEditStorageFeeModal = async function() {
 
 // Modal de Configuración y Edición de Tipos de Entrega y Tarifas
 window.openDeliveryTypesManagerModal = async function() {
+  if (guardBillingLocked()) return;
   const currentConfig = billingState.pricingConfig || DEFAULT_PRICING_CONFIG;
   const deliveryTypes = JSON.parse(JSON.stringify(getDeliveryTypes(currentConfig)));
 
@@ -10434,6 +12928,7 @@ window.openDeliveryTypesManagerModal = async function() {
 
 // Modal de Edición de Fechas de Emisión, Plazo de Pago y Datos Legales del Comercio
 export function openEditDesgloseHeaderModal() {
+  if (guardBillingLocked()) return;
   const b = billingState;
   const c = b.commerceInfo || {};
   const d = b.invoiceDates || {};
@@ -10734,6 +13229,7 @@ function updateQuickPillCounts(orders) {
   const enviame = orders.filter(o => o.deliveryType === 'ENVIAME_REGION').length;
   const centroEnvios = orders.filter(o => o.deliveryType === 'CENTRO_ENVIOS').length;
   const mkt = orders.filter(o => o.isMarketplace).length;
+  const posCount = orders.filter(o => o.isPosOrder || isPosSaleOrder(o)).length;
 
   const setElText = (id, val) => {
     const el = document.getElementById(id);
@@ -10746,6 +13242,7 @@ function updateQuickPillCounts(orders) {
   setElText('qf-count-enviame', enviame);
   setElText('qf-count-centro-envios', centroEnvios);
   setElText('qf-count-mkt', mkt);
+  setElText('qf-count-pos', posCount);
 }
 
 // Actualizar dinámicamente las opciones del selector de Tiendas del Conglomerado
@@ -10811,7 +13308,8 @@ function updateAgendaFilterOptions(orders) {
       noAgendaCount++;
     } else {
       withAgendaCount++;
-      agendaMap[rawAgenda] = (agendaMap[rawAgenda] || 0) + 1;
+      const normAgenda = rawAgenda.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+      agendaMap[normAgenda] = (agendaMap[normAgenda] || 0) + 1;
     }
   });
 
@@ -11132,6 +13630,9 @@ window.setBgQuickFilter = function(filterType) {
   } else if (filterType === 'mkt') {
     const el = document.getElementById('bg-col-filter-mkt');
     if (el) el.value = 'yes';
+  } else if (filterType === 'pos') {
+    const el = document.getElementById('bg-col-filter-delivery');
+    if (el) el.value = 'POS';
   }
 
   window.applyBgColumnFilters();
@@ -11872,6 +14373,12 @@ export function getPlatformBadgeHTML(platform) {
     bg = 'rgba(236, 72, 153, 0.12)';
     border = 'rgba(236, 72, 153, 0.3)';
     slug = 'vtex';
+  } else if (pLower.includes('punto de venta') || pLower === 'pos' || pLower.includes('(pos)')) {
+    icon = 'ri-store-3-fill';
+    color = '#0284c7';
+    bg = 'rgba(14, 165, 233, 0.14)';
+    border = 'rgba(14, 165, 233, 0.38)';
+    slug = 'pos';
   }
 
   return `<span class="cm-platform-badge cm-platform-${slug}" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 6px; font-size: 0.72rem; font-weight: 700; background: ${bg}; color: ${color}; border: 1px solid ${border}; white-space: nowrap;">
@@ -12089,33 +14596,31 @@ export function injectClientInteractiveModalStyles() {
     }
 
     .client-billing-modal-view .stocka-metric-row {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 0.85rem;
-      margin-bottom: 1.5rem;
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      gap: 0.7rem;
+      margin-bottom: 1.15rem;
+      width: 100%;
     }
 
-    @media (max-width: 860px) {
+    @media (max-width: 720px) {
       .client-billing-modal-view .stocka-metric-row {
-        grid-template-columns: repeat(2, 1fr);
+        flex-wrap: wrap;
       }
       .client-billing-modal-view .stocka-desglose-paper {
         padding: 1.5rem 1.25rem;
       }
     }
 
-    @media (max-width: 520px) {
-      .client-billing-modal-view .stocka-metric-row {
-        grid-template-columns: 1fr;
-      }
-    }
-
     .client-billing-modal-view .stocka-metric-card {
+      flex: 1 1 0;
+      min-width: 0;
       background: #ffffff;
       border: 1px solid #cbd5e1;
       border-top: 3px solid #5f06fa;
       border-radius: 8px;
-      padding: 0.85rem 1rem;
+      padding: 0.7rem 0.85rem;
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
@@ -12123,26 +14628,33 @@ export function injectClientInteractiveModalStyles() {
     }
 
     .client-billing-modal-view .stocka-metric-title {
-      font-size: 0.7rem;
+      font-size: 0.67rem;
       font-weight: 700;
       color: #64748b;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 0.35rem;
+      letter-spacing: 0.4px;
+      margin-bottom: 0.28rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .client-billing-modal-view .stocka-metric-value {
-      font-size: 1.35rem;
+      font-size: 1.22rem;
       font-weight: 800;
       color: #0f172a;
       font-family: 'Outfit', sans-serif;
-      line-height: 1.2;
+      line-height: 1.15;
+      white-space: nowrap;
     }
 
     .client-billing-modal-view .stocka-metric-sub {
-      font-size: 0.75rem;
+      font-size: 0.71rem;
       color: #64748b;
-      margin-top: 0.35rem;
+      margin-top: 0.28rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .client-billing-modal-view .stocka-official-total-card {
@@ -12482,11 +14994,42 @@ export function sanitizeSnapshotOrdersMarketplace(snapshot, config = null) {
   if (!snapshot || !Array.isArray(snapshot.orders)) return;
   const cfg = config || billingState.pricingConfig;
   const mktRate = (cfg?.pick_pack_rules?.surcharge_marketplace_collect) || 100;
+  const posBaseRate = (cfg?.services?.showroom_sale_base) || (cfg?.shipping?.pickup_express_base) || 1490;
   const customCols = Array.isArray(snapshot.customColumns) ? snapshot.customColumns : [];
   let changed = false;
 
   snapshot.orders.forEach(o => {
     const customTotal = computeOrderCustomSurchargesTotal(o, customCols);
+    const isPos = isPosSaleOrder(o);
+
+    if (isPos) {
+      let posChanged = false;
+      if (!o.isPosOrder) {
+        o.isPosOrder = true;
+        posChanged = true;
+      }
+      if (o.platform !== 'Punto de Venta (POS)') {
+        o.platform = 'Punto de Venta (POS)';
+        o.externalPlatform = 'Punto de Venta (POS)';
+      }
+      if (!o.baseRateManual && o.baseRate !== posBaseRate) {
+        o.baseRate = posBaseRate;
+        posChanged = true;
+      }
+      if (!o.shippingFreightManual && (o.shippingFreight || 0) !== 0) {
+        o.shippingFreight = 0;
+        posChanged = true;
+      }
+      if (!o.deliveryType || o.deliveryType === 'RETIRO' || o.deliveryType === 'ENVIAME_REGION' || o.deliveryType === 'OTHER') {
+        o.deliveryType = 'POS';
+      }
+      if (posChanged) {
+        o.pickPackTotal = (o.baseRate || 0) + (o.surchargeSku || 0) + (o.surchargeUnits || 0) + (o.surchargeMarketplace || 0) + customTotal;
+        o.orderTotal = o.pickPackTotal + (o.shippingFreight || 0);
+        changed = true;
+      }
+    }
+
     if (!o.surchargeMarketplaceManual && o.isMarketplace && (!o.surchargeMarketplace || o.surchargeMarketplace === 0)) {
       o.surchargeMarketplace = mktRate;
       o.pickPackTotal = (o.baseRate || 0) + (o.surchargeSku || 0) + (o.surchargeUnits || 0) + o.surchargeMarketplace + customTotal;
@@ -12536,6 +15079,61 @@ export function sanitizeSnapshotOrdersMarketplace(snapshot, config = null) {
     }
   }
 
+  // Deduplicar childPosConfigs si vinieran con variantes mayúsculas/minúsculas en el snapshot
+  if (snapshot.commerceInfo && Array.isArray(snapshot.commerceInfo.childPosConfigs)) {
+    const seenPos = new Set();
+    snapshot.commerceInfo.childPosConfigs = snapshot.commerceInfo.childPosConfigs.filter(c => {
+      const stUp = String(c?.store || '').trim().toUpperCase();
+      if (!stUp || seenPos.has(stUp)) return false;
+      seenPos.add(stUp);
+      c.store = stUp;
+      return true;
+    });
+  }
+
+  // Normalizar cobro POS si el snapshot tenía multiplicación por tiendas (ej: 1,2 UF en lugar de 0,2 UF único por comercio/conglomerado)
+  if (snapshot.totals) {
+    const defaultPosUf = (cfg?.services?.pos_monthly_uf || cfg?.pos_service_fee?.monthly_fee_uf || 0.2);
+    const posDetStr = String(snapshot.totals.posFeeDetails || '');
+    const isMultipliedLegacyPos = Boolean(
+      posDetStr.includes('tienda(s)') ||
+      (snapshot.totals.posFeeUF > defaultPosUf && posDetStr.includes('Habilitación POS'))
+    );
+    if (isMultipliedLegacyPos) {
+      const ufVal = Number(snapshot.ufValue || billingState.ufValue || 41065);
+      snapshot.totals.posFeeUF = defaultPosUf;
+      snapshot.totals.posFeeNet = Math.round(defaultPosUf * ufVal);
+      const activeChildPos = (snapshot.commerceInfo?.childPosConfigs || []).filter(c => c.posConfig?.active === true);
+      if (activeChildPos.length > 0) {
+        const childDetails = activeChildPos.map(c => {
+          const m = c.posConfig;
+          const ownerLabel = m.isStockaMachine ? 'Máquina STOCKA' : 'Máquina Propia';
+          const parts = [m.brand, m.model ? '#' + m.model : '', m.color ? '(' + m.color + ')' : ''].filter(Boolean).join(' ');
+          return `${String(c.store || '').trim().toUpperCase()}: ${ownerLabel}${parts ? ` [${parts}]` : ''}`;
+        }).join('; ');
+        snapshot.totals.posFeeDetails = `Habilitación mensual POS (${formatDec(defaultPosUf, 1)} UF) @ ${formatCLP(ufVal)}/UF (${childDetails})`;
+      } else {
+        const parenMatch = posDetStr.match(/\(([^@]+)\)\s*@/);
+        if (parenMatch && parenMatch[1]) {
+          const seenSeg = new Set();
+          const uniqueSegs = parenMatch[1].split(';').map(s => s.trim()).filter(s => {
+            const storePart = (s.split(':')[0] || '').trim().toUpperCase();
+            if (!storePart || seenSeg.has(storePart)) return false;
+            seenSeg.add(storePart);
+            return true;
+          }).map(s => {
+            const idx = s.indexOf(':');
+            return idx > 0 ? `${s.slice(0, idx).trim().toUpperCase()}:${s.slice(idx + 1)}` : s;
+          });
+          snapshot.totals.posFeeDetails = `Habilitación mensual POS (${formatDec(defaultPosUf, 1)} UF) @ ${formatCLP(ufVal)}/UF (${uniqueSegs.join('; ')})`;
+        } else {
+          snapshot.totals.posFeeDetails = `Habilitación mensual POS (${formatDec(defaultPosUf, 1)} UF) @ ${formatCLP(ufVal)}/UF`;
+        }
+      }
+      changed = true;
+    }
+  }
+
   // Calcular Cobro de Etiqueta FULL de MELI ($100 por producto en pedidos con agenda FULL MERCADOLIBRE)
   const billable = snapshot.orders.filter(o => !o.isExcluded);
   const fullMeliOrders = billable.filter(o => isFullMeliOrder(o));
@@ -12567,6 +15165,48 @@ export function sanitizeSnapshotOrdersMarketplace(snapshot, config = null) {
       snapshot.totals.totalAbonos = totalAbonos;
       snapshot.totals.totalToPay = Math.max(0, snapshot.totals.totalGross - totalAbonos);
     }
+  }
+}
+
+async function enrichSnapshotWithPosAbonosIfNeeded(snapshot) {
+  if (!snapshot) return;
+  try {
+    const commName = snapshot.comercio || '';
+    const periodName = snapshot.periodName || snapshot.currentPeriodName || '';
+    if (!commName || !periodName) return;
+
+    const childStores = (Array.isArray(snapshot.conglomerateChildren) && snapshot.conglomerateChildren.length > 0)
+      ? snapshot.conglomerateChildren
+      : Array.from(new Set((snapshot.orders || []).map(o => (o.comercio || '').trim()).filter(Boolean)));
+    const commGroup = {
+      billingEntity: commName,
+      isConglomerate: Boolean(snapshot.isConglomerate || childStores.length > 1),
+      children: childStores.length > 0 ? childStores : [commName]
+    };
+
+    const posRes = await fetchAndComputePosSalesAbonoForBilling(
+      commGroup,
+      periodName,
+      billingState.pricingConfig,
+      snapshot.orders || []
+    );
+    if (posRes && Array.isArray(posRes.periodAbonoSales)) {
+      snapshot.posAbonoSales = posRes.periodAbonoSales;
+      snapshot.posAbonoSummary = posRes.summary;
+      snapshot.allMerchantPosSales = posRes.allSales;
+      if (!snapshot.posAbonoExcludedManually) {
+        syncPosAbonoIntoBillingState(snapshot);
+        if (snapshot.totals) {
+          const totalAbonos = Array.isArray(snapshot.abonos)
+            ? snapshot.abonos.reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0)
+            : (snapshot.totals.totalAbonos || 0);
+          snapshot.totals.totalAbonos = totalAbonos;
+          snapshot.totals.totalToPay = Math.max(0, (snapshot.totals.totalGross || 0) - totalAbonos);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[BillingGenerator] Error enriqueciendo snapshot con abonos POS:', err);
   }
 }
 
@@ -12684,8 +15324,18 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
     }
   }
 
-  if (snapshot.isConglomerate && (!snapshot.storeBreakdown || snapshot.storeBreakdown.length === 0)) {
-    snapshot.storeBreakdown = computeConglomerateStoreBreakdown(snapshot.orders, snapshot);
+  if (snapshot.isConglomerate) {
+    if (snapshot.orders && snapshot.orders.length > 0) {
+      snapshot.storeBreakdown = computeConglomerateStoreBreakdown(snapshot.orders, snapshot);
+    } else if (Array.isArray(snapshot.storeBreakdown) && snapshot.storeBreakdown.length > 0) {
+      const totalOpNet = snapshot.storeBreakdown.reduce((sum, s) => sum + (Number(s.storeTotalNet) || 0), 0);
+      if (totalOpNet > 0) {
+        snapshot.storeBreakdown = snapshot.storeBreakdown.map(s => ({
+          ...s,
+          sharePct: parseFloat((((Number(s.storeTotalNet) || 0) / totalOpNet) * 100).toFixed(1))
+        }));
+      }
+    }
   }
 
   // Enriquecer y sincronizar datos legales del cliente (RUT, Razón Social, Sigla)
@@ -12716,6 +15366,8 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
       if (localLegal.sigla && localLegal.sigla !== '—') snapshot.commerceInfo.sigla = localLegal.sigla;
     }
   } catch (e) {}
+
+  await enrichSnapshotWithPosAbonosIfNeeded(snapshot);
 
   try {
     localStorage.setItem(cacheKey, JSON.stringify(snapshot));
@@ -12925,13 +15577,20 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
                 <tbody id="client-modal-orders-body">
                   ${orders.map((o, idx) => {
                     const refDisplay = o.orderNumber || o.externalOrderNumber || (o.id ? o.id.slice(0, 8) : '—');
-                    const platformName = o.platform || o.externalPlatform || (o.isMarketplace ? 'Marketplace' : 'Shopify');
+                    const isOrderPos = Boolean(o.isPosOrder || isPosSaleOrder(o));
+                    const platformName = isOrderPos ? 'Punto de Venta (POS)' : (o.platform || o.externalPlatform || (o.isMarketplace ? 'Marketplace' : 'Shopify'));
+                    const deliveryLabel = isOrderPos ? 'Punto de Venta (POS)' : (o.deliveryType || 'Estándar');
                     return `
                     <tr class="client-modal-order-row" data-comercio="${escapeHtml((o.comercio || '').toUpperCase())}">
                       <td class="cm-cell-num">${idx + 1}</td>
                       <td class="cm-cell-id">
                         <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
                           <span style="font-weight: 800; font-size: 0.85rem; color: #a855f7;">${escapeHtml(refDisplay)}</span>
+                          ${isOrderPos ? `
+                            <span class="bg-order-pos-badge" title="Venta realizada en Punto de Venta físico">
+                              <i class="ri-store-3-fill"></i> PUNTO DE VENTA
+                            </span>
+                          ` : ''}
                           ${snapshot.isConglomerate && o.comercio ? `
                             <span class="bg-order-child-store-badge" title="Tienda: ${escapeHtml(o.comercio)}">
                               <i class="ri-store-2-line"></i> ${escapeHtml(o.comercio)}
@@ -12948,10 +15607,10 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
                       <td class="cm-cell-date">${escapeHtml(o.date || '—')}</td>
                       <td class="cm-cell-agenda ${o.agenda ? '' : 'empty'}">${escapeHtml(o.agenda || 'Sin agenda')}</td>
                       <td class="cm-cell-dest">${escapeHtml(o.destination || 'Santiago')}</td>
-                      <td class="cm-cell-op">${escapeHtml(o.operador || '—')}</td>
+                      <td class="cm-cell-op">${escapeHtml(o.operador || (isOrderPos ? 'POS Sucursal' : '—'))}</td>
                       <td>
                         <span class="cm-delivery-badge">
-                          ${escapeHtml(o.deliveryType || 'Estándar')}
+                          ${escapeHtml(deliveryLabel)}
                         </span>
                       </td>
                       <td class="cm-cell-qty">${o.skuCount || 1}</td>
@@ -13205,6 +15864,8 @@ export async function downloadClientBillingPdf(recordId) {
     }
   } catch (e) {}
 
+  await enrichSnapshotWithPosAbonosIfNeeded(snapshot);
+
   snapshot.isClientView = true;
 
   // Renderizar siempre en un contenedor limpio y aislado con estilos oficiales
@@ -13288,6 +15949,8 @@ export async function downloadClientBillingExcel(recordId) {
 
   // Garantizar que recargos Marketplace y totales sean consistentes
   sanitizeSnapshotOrdersMarketplace(snapshot);
+
+  await enrichSnapshotWithPosAbonosIfNeeded(snapshot);
 
   exportBillingToExcel(snapshot);
 }

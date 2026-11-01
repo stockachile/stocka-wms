@@ -226,6 +226,10 @@ window.resolvePosCommerceConfig = function(commerceName) {
   if (window.posSelectedCommerceConfig && (!window.posSelectedCommerceConfig.comercio || window.posSelectedCommerceConfig.comercio.trim().toLowerCase() === clean.toLowerCase())) {
     return window.posSelectedCommerceConfig;
   }
+  if (window.posCommerceConfigsMap) {
+    const foundKey = Object.keys(window.posCommerceConfigsMap).find(k => k.trim().toLowerCase() === clean.toLowerCase());
+    if (foundKey) return window.posCommerceConfigsMap[foundKey];
+  }
   if (window.loadedCommerceConfigsMap) {
     const foundKey = Object.keys(window.loadedCommerceConfigsMap).find(k => k.trim().toLowerCase() === clean.toLowerCase());
     if (foundKey) return window.loadedCommerceConfigsMap[foundKey];
@@ -241,6 +245,1327 @@ window.resolvePosCommerceConfig = function(commerceName) {
     }
   }
   return window.posSelectedCommerceConfig || null;
+};
+
+// ====== MOTOR DE CÁLCULO POS: MÁQUINA DE PAGO, COMISIONES (+IVA), PAGO SELLER Y PERIODO ABONO ======
+window.POS_MONTH_NAMES_ES = [
+  'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+  'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
+];
+
+window.derivePosPeriodFromDate = function(dateVal) {
+  const d = dateVal ? new Date(dateVal) : new Date();
+  if (isNaN(d.getTime())) {
+    const now = new Date();
+    return `${window.POS_MONTH_NAMES_ES[now.getMonth()]} ${now.getFullYear()}`;
+  }
+  return `${window.POS_MONTH_NAMES_ES[d.getMonth()]} ${d.getFullYear()}`;
+};
+
+window.cleanPosSaleComments = function(rawComments) {
+  if (!rawComments) return '';
+  return String(rawComments)
+    .replace(/\[WMS-ORD:\s*[^\]]+\]/gi, '')
+    .replace(/\[Terminal:\s*[^\]]+\]/gi, '')
+    .replace(/\[ABONO-PER:\s*[^\]]+\]/gi, '')
+    .replace(/\[TX-CODE:\s*[^\]]+\]/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+};
+
+window.sanitizePosTransactionCode = function(rawCode) {
+  return String(rawCode || '').replace(/\s+/g, '').trim().toUpperCase();
+};
+
+window.resolvePosSaleTransactionCode = function(sale, linkedOrder = null) {
+  if (sale?.codigo_transaccion && String(sale.codigo_transaccion).trim()) {
+    return window.sanitizePosTransactionCode(sale.codigo_transaccion);
+  }
+  const match = String(sale?.comentarios || '').match(/\[TX-CODE:\s*([^\]]+)\]/i);
+  if (match && match[1]) {
+    return window.sanitizePosTransactionCode(match[1]);
+  }
+  if (linkedOrder?.raw_shopify_data?.pos_tx_code) {
+    return window.sanitizePosTransactionCode(linkedOrder.raw_shopify_data.pos_tx_code);
+  }
+  return '';
+};
+
+window.buildPosSaleCommentsWithTags = function(cleanComment, existingRawComment, overrides = {}) {
+  const raw = String(existingRawComment || '');
+  const baseClean = (cleanComment !== undefined && cleanComment !== null)
+    ? window.cleanPosSaleComments(cleanComment)
+    : window.cleanPosSaleComments(raw);
+
+  const ordMatch = raw.match(/\[WMS-ORD:\s*([^\]]+)\]/i);
+  const termMatch = raw.match(/\[Terminal:\s*([^\]]+)\]/i);
+  const abonoMatch = raw.match(/\[ABONO-PER:\s*([^\]]+)\]/i);
+  const txMatch = raw.match(/\[TX-CODE:\s*([^\]]+)\]/i);
+
+  const wmsOrdOverride = overrides.wmsOrderId !== undefined ? overrides.wmsOrderId : overrides.orderId;
+  const termOverride = overrides.terminal !== undefined ? overrides.terminal : overrides.terminalLabel;
+  const txOverride = overrides.txCode !== undefined ? overrides.txCode : overrides.transactionCode;
+
+  const wmsOrd = wmsOrdOverride !== undefined ? wmsOrdOverride : (ordMatch ? ordMatch[1].trim() : '');
+  const terminal = termOverride !== undefined ? termOverride : (termMatch ? termMatch[1].trim() : '');
+  const abonoPeriod = overrides.abonoPeriod !== undefined ? overrides.abonoPeriod : (abonoMatch ? abonoMatch[1].trim() : '');
+  const txCode = txOverride !== undefined ? window.sanitizePosTransactionCode(txOverride) : (txMatch ? window.sanitizePosTransactionCode(txMatch[1]) : '');
+
+  const tags = [];
+  if (wmsOrd) tags.push(`[WMS-ORD: ${wmsOrd}]`);
+  if (terminal) tags.push(`[Terminal: ${terminal}]`);
+  if (abonoPeriod) tags.push(`[ABONO-PER: ${abonoPeriod}]`);
+  if (txCode) tags.push(`[TX-CODE: ${txCode}]`);
+
+  return [baseClean, ...tags].filter(Boolean).join(' ').trim();
+};
+
+// Verificar si un código de transacción ya fue utilizado en otra venta POS (único e irrepetible)
+window.checkPosTransactionCodeDuplicate = async function(rawCode, excludeSaleId = null) {
+  const cleanCode = window.sanitizePosTransactionCode(rawCode);
+  if (!cleanCode) {
+    return { isDuplicate: false, conflictingSale: null, cleanCode: '' };
+  }
+
+  // 1. Revisar en memoria primero (posAllLoadedSales y posSalesCache)
+  const memoryCandidates = [];
+  if (Array.isArray(window.posAllLoadedSales)) {
+    memoryCandidates.push(...window.posAllLoadedSales);
+  }
+  if (window.posSalesCache && typeof window.posSalesCache.values === 'function') {
+    for (const s of window.posSalesCache.values()) {
+      if (s && s.id) memoryCandidates.push(s);
+    }
+  }
+
+  const seenIds = new Set();
+  for (const s of memoryCandidates) {
+    if (!s || !s.id || seenIds.has(String(s.id))) continue;
+    seenIds.add(String(s.id));
+    if (excludeSaleId !== null && excludeSaleId !== undefined && String(s.id) === String(excludeSaleId)) continue;
+    const existingTx = window.resolvePosSaleTransactionCode(s);
+    if (existingTx && existingTx.toUpperCase() === cleanCode) {
+      return { isDuplicate: true, conflictingSale: s, cleanCode };
+    }
+  }
+
+  // 2. Consultar en base de datos store_sales para garantizar unicidad global histórica
+  try {
+    const { data: dbMatches } = await supabase
+      .from('store_sales')
+      .select('id, codigo_venta, comercio, created_at, comentarios, monto_total, nombre_cliente')
+      .ilike('comentarios', `%[TX-CODE:%`);
+
+    if (Array.isArray(dbMatches)) {
+      for (const row of dbMatches) {
+        if (!row || !row.id) continue;
+        if (excludeSaleId !== null && excludeSaleId !== undefined && String(row.id) === String(excludeSaleId)) continue;
+        const rowTx = window.resolvePosSaleTransactionCode(row);
+        if (rowTx && rowTx.toUpperCase() === cleanCode) {
+          return { isDuplicate: true, conflictingSale: row, cleanCode };
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Aviso consultando unicidad de código de transacción POS:', err);
+  }
+
+  return { isDuplicate: false, conflictingSale: null, cleanCode };
+};
+
+// Resolver máquina POS utilizada según comercio, pedido vinculado y comentarios
+window.resolvePosSaleMachineInfo = function(sale, commerceConfigsMap = null, linkedOrder = null) {
+  const comercio = String(sale?.comercio || '').trim();
+  const cfgMap = commerceConfigsMap || window.posCommerceConfigsMap || window.loadedCommerceConfigsMap || {};
+  let commCfg = null;
+
+  if (comercio) {
+    const key = Object.keys(cfgMap).find(k => k.trim().toLowerCase() === comercio.toLowerCase());
+    if (key) commCfg = cfgMap[key];
+    if (!commCfg && typeof window.resolvePosCommerceConfig === 'function') {
+      commCfg = window.resolvePosCommerceConfig(comercio);
+    }
+  }
+
+  const cfgMachine = commCfg?.onboarding_checklist?.pos_machine || {};
+  const ordMachine = linkedOrder?.raw_shopify_data?.pos_machine || {};
+  const termMatch = String(sale?.comentarios || '').match(/\[Terminal:\s*([^\]]+)\]/i);
+  const termTag = termMatch ? termMatch[1].trim() : '';
+
+  let brand = cfgMachine.brand || ordMachine.brand || '';
+  let model = String(cfgMachine.model || ordMachine.model || '').replace(/^#+/, '').trim();
+  let color = cfgMachine.color || ordMachine.color || '';
+  let colorHex = cfgMachine.color_hex || ordMachine.color_hex || '';
+  let owner = cfgMachine.owner || ordMachine.owner || '';
+  let notes = cfgMachine.notes || ordMachine.notes || '';
+
+  if (!brand && termTag) {
+    const parts = termTag.split(/\s+/);
+    brand = parts[0] || 'STOCKA POS';
+    if (!model && parts.length > 1) {
+      model = parts.slice(1).join(' ').replace(/^#+/, '').trim();
+    }
+  }
+
+  const modoPago = String(sale?.modo_pago || '').trim();
+  const modoLower = modoPago.toLowerCase();
+  const isCredit = modoLower.includes('crédito') || modoLower.includes('credito');
+  const isDebit = !isCredit && (modoLower.includes('débito') || modoLower.includes('debito') || modoLower.includes('tarjeta') || modoLower.includes('redcompra'));
+  const isCardPayment = isCredit || isDebit;
+  const isTransferPayment = modoLower.includes('transferencia');
+  const isCashPayment = modoLower.includes('efectivo');
+
+  const ownerUpper = String(owner || '').toUpperCase();
+  const brandUpper = String(brand || '').toUpperCase();
+
+  let isStockaMachine = true;
+  if (ownerUpper) {
+    if (ownerUpper.includes('STOCKA')) {
+      isStockaMachine = true;
+    } else if (
+      ownerUpper.includes('PROPIEDAD DE') ||
+      ownerUpper.includes('COMERCIO') ||
+      ownerUpper.includes('PROPIO') ||
+      ownerUpper.includes('CLIENTE') ||
+      (comercio && ownerUpper.includes(comercio.toUpperCase()))
+    ) {
+      isStockaMachine = false;
+    }
+  } else if (brandUpper.includes('STOCKA')) {
+    isStockaMachine = true;
+  }
+
+  const ownerLabel = owner
+    ? owner
+    : (isStockaMachine ? 'Propiedad de STOCKA' : `Propiedad de ${comercio || 'Comercio'}`);
+
+  const resolvedHex = (typeof window.resolvePosMachineColor === 'function')
+    ? window.resolvePosMachineColor(color, colorHex)
+    : '#2563eb';
+
+  const displayBrand = brand || (isStockaMachine ? 'POS STOCKA' : `POS ${comercio || 'Comercio'}`);
+  const displayModel = model ? `#${model}` : '';
+  const fullLabel = [displayBrand, displayModel, color ? `(${color})` : ''].filter(Boolean).join(' ');
+
+  return {
+    comercio,
+    brand: displayBrand,
+    rawBrand: brand,
+    model: model,
+    displayModel,
+    color: color || '',
+    colorHex: resolvedHex,
+    owner: ownerLabel,
+    isStockaMachine,
+    isStockaOwned: isStockaMachine,
+    notes,
+    posActive: Boolean(commCfg?.onboarding_checklist?.pos_active ?? true),
+    isCardPayment,
+    isCardSale: isCardPayment,
+    isCredit,
+    isDebit,
+    isTransferPayment,
+    isCashPayment,
+    fullLabel
+  };
+};
+
+// Calcular comisión POS (+ IVA) y pago/abono neto al seller
+window.calculatePosSaleFinancials = function(sale, machineInfo = null, pricingConfig = null) {
+  const mInfo = machineInfo || window.resolvePosSaleMachineInfo(sale);
+  const grossAmount = Math.max(0, Math.round(Number(sale?.monto_total) || 0));
+
+  const servicesCfg = pricingConfig?.services || window.posPricingServicesConfig || {};
+  const debitPct = Number(servicesCfg.pos_fee_debit_pct ?? 2.5);
+  const creditPct = Number(servicesCfg.pos_fee_credit_pct ?? 3.5);
+  const monthlyUf = Number(servicesCfg.pos_monthly_uf ?? 0.2);
+
+  const isCard = Boolean(mInfo.isCardPayment);
+  const isCredit = Boolean(mInfo.isCredit);
+  const isDebit = Boolean(mInfo.isDebit);
+  const isStockaMachine = Boolean(mInfo.isStockaMachine);
+
+  // Cuando la máquina es propiedad de STOCKA y el cobro es con tarjeta, aplica comisión vigente (+ IVA)
+  const appliesStockaCommission = isStockaMachine && isCard;
+  const commissionPct = appliesStockaCommission ? (isCredit ? creditPct : debitPct) : 0;
+  const commissionNet = appliesStockaCommission ? Math.round(grossAmount * (commissionPct / 100)) : 0;
+  const commissionIva = appliesStockaCommission ? Math.round(commissionNet * 0.19) : 0;
+  const commissionTotal = commissionNet + commissionIva;
+  const sellerPayout = Math.max(0, grossAmount - commissionTotal);
+
+  let reasonLabel = 'Pago al Seller / Abono Fulfillment';
+  if (!appliesStockaCommission) {
+    reasonLabel = !isCard
+      ? `Recaudación Directa (${sale?.modo_pago || 'Efectivo / Transferencia'})`
+      : `Terminal Propio (${mInfo.comercio || 'Seller'})`;
+  }
+
+  return {
+    grossAmount,
+    montoTotal: grossAmount,
+    isCard,
+    isCredit,
+    isDebit,
+    isStockaMachine,
+    appliesStockaCommission,
+    appliesStockaPosSettlement: appliesStockaCommission,
+    commissionPct,
+    feePct: commissionPct,
+    commissionTypeLabel: isCredit ? 'Crédito' : (isDebit ? 'Débito' : (sale?.modo_pago || 'Otro')),
+    commissionNet,
+    commissionIva,
+    commissionTotal,
+    sellerPayout,
+    reasonLabel,
+    debitPct,
+    creditPct,
+    monthlyUf
+  };
+};
+
+// Resolver el periodo de facturación en que la venta POS se considera como abono al servicio de fulfillment
+window.resolvePosSaleAbonoPeriod = function(sale, linkedOrder = null, machineInfo = null, financials = null) {
+  const mInfo = machineInfo || window.resolvePosSaleMachineInfo(sale, null, linkedOrder);
+  const fin = financials || window.calculatePosSaleFinancials(sale, mInfo);
+
+  // 1. Revisar si tiene asignación explícita en columna, comentario [ABONO-PER: ...] o raw_shopify_data
+  let explicitVal = '';
+  if (sale?.periodo_abono && String(sale.periodo_abono).trim()) {
+    explicitVal = String(sale.periodo_abono).trim();
+  } else {
+    const match = String(sale?.comentarios || '').match(/\[ABONO-PER:\s*([^\]]+)\]/i);
+    if (match && match[1]) {
+      explicitVal = match[1].trim();
+    } else if (linkedOrder?.raw_shopify_data?.pos_abono_period) {
+      explicitVal = String(linkedOrder.raw_shopify_data.pos_abono_period).trim();
+    }
+  }
+
+  const upperExp = explicitVal.toUpperCase();
+  if (upperExp === 'PAGO_DIRECTO' || upperExp === 'SIN_ABONO' || upperExp === 'NO_ABONAR') {
+    return {
+      period: 'PAGO_DIRECTO',
+      label: 'Pago Directo Seller (Sin Abono)',
+      isAbono: false,
+      isExplicit: true
+    };
+  }
+  if (upperExp === 'RECAUDACION_COMERCIO' || upperExp === 'MAQUINA_PROPIA') {
+    return {
+      period: 'RECAUDACION_COMERCIO',
+      label: 'Recaudación Directa Comercio',
+      isAbono: false,
+      isExplicit: true
+    };
+  }
+  if (upperExp === 'SIN_ASIGNAR' || upperExp === 'PENDIENTE') {
+    return {
+      period: 'SIN_ASIGNAR',
+      label: 'Pendiente de Asignar',
+      isAbono: false,
+      isExplicit: true
+    };
+  }
+  if (upperExp) {
+    return {
+      period: upperExp,
+      label: upperExp,
+      isAbono: true,
+      isExplicit: true
+    };
+  }
+
+  // 2. Por defecto: si la máquina es propiedad de STOCKA y fue cobrado con tarjeta, el monto recaudado se considera abono en el periodo de la venta
+  if (mInfo.isStockaMachine && fin.isCard) {
+    const ordPeriod = String(linkedOrder?.periodo_facturacion || '').trim().toUpperCase();
+    const derivedPeriod = ordPeriod || window.derivePosPeriodFromDate(sale?.created_at);
+    return {
+      period: derivedPeriod,
+      label: derivedPeriod,
+      isAbono: true,
+      isExplicit: false
+    };
+  }
+
+  // Si la máquina es propia del comercio o pago en efectivo/transferencia directa al comercio
+  return {
+    period: 'RECAUDACION_COMERCIO',
+    label: mInfo.isStockaMachine ? 'Cobro Directo Comercio' : `Terminal Propio (${mInfo.comercio || 'Seller'})`,
+    isAbono: false,
+    isExplicit: false
+  };
+};
+
+// Cargar configuraciones POS de comercios y lista de periodos oficiales de facturación
+window.ensurePosMetadataLoaded = async function(forceRefresh = false) {
+  if (!forceRefresh && window.posCommerceConfigsMap && Object.keys(window.posCommerceConfigsMap).length > 0 && Array.isArray(window.posBillingPeriodsList) && window.posBillingPeriodsList.length > 0) {
+    return {
+      commerceConfigsMap: window.posCommerceConfigsMap,
+      billingPeriodsList: window.posBillingPeriodsList
+    };
+  }
+
+  window.posCommerceConfigsMap = window.posCommerceConfigsMap || {};
+  window.posBillingPeriodsList = window.posBillingPeriodsList || [];
+
+  try {
+    const [cacRes, bpRes] = await Promise.all([
+      supabase.from('comercios_adicional_config').select('comercio, sigla, rut, razon_social, inventario_seguimiento, onboarding_checklist'),
+      supabase.from('billing_periods').select('id, name, period_month, period_year, status, created_at').order('period_year', { ascending: false }).order('period_month', { ascending: false })
+    ]);
+
+    if (cacRes.data && Array.isArray(cacRes.data)) {
+      cacRes.data.forEach(row => {
+        if (row.comercio) {
+          window.posCommerceConfigsMap[row.comercio.trim()] = row;
+          window.posCommerceConfigsMap[row.comercio.trim().toUpperCase()] = row;
+        }
+      });
+    }
+
+    if (bpRes.data && Array.isArray(bpRes.data)) {
+      window.posBillingPeriodsList = bpRes.data;
+    }
+  } catch (e) {
+    console.warn('Aviso cargando metadatos POS (comercios / periodos):', e);
+  }
+
+  return {
+    commerceConfigsMap: window.posCommerceConfigsMap,
+    billingPeriodsList: window.posBillingPeriodsList
+  };
+};
+
+// Obtener lista de nombres de periodos disponibles (oficiales + derivados)
+window.getAvailablePosBillingPeriodNames = function(extraPeriods = []) {
+  const set = new Set();
+  const now = new Date();
+  const currentPeriodName = `${window.POS_MONTH_NAMES_ES[now.getMonth()]} ${now.getFullYear()}`;
+  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevPeriodName = `${window.POS_MONTH_NAMES_ES[prevDate.getMonth()]} ${prevDate.getFullYear()}`;
+
+  (window.posBillingPeriodsList || []).forEach(p => {
+    if (p && p.name) set.add(String(p.name).trim().toUpperCase());
+  });
+  set.add(currentPeriodName);
+  set.add(prevPeriodName);
+  (extraPeriods || []).forEach(ep => {
+    if (ep && ep !== 'PAGO_DIRECTO' && ep !== 'RECAUDACION_COMERCIO' && ep !== 'SIN_ASIGNAR') {
+      set.add(String(ep).trim().toUpperCase());
+    }
+  });
+
+  return Array.from(set);
+};
+
+// Actualizar el Periodo de Facturación (Abono) de una venta POS en Supabase
+window.updatePosSaleAbonoPeriod = async function(saleId, newPeriodValue, options = {}) {
+  const { silent = false, skipRefresh = false } = options;
+  try {
+    let sale = window.posSalesCache?.get(String(saleId));
+    if (!sale) {
+      const { data: fetchedSale } = await supabase.from('store_sales').select('*').eq('id', saleId).maybeSingle();
+      sale = fetchedSale;
+    }
+    if (!sale) throw new Error('No se encontró la venta POS seleccionada.');
+
+    const cleanPeriod = String(newPeriodValue || '').trim().toUpperCase() || 'SIN_ASIGNAR';
+    const updatedComments = window.buildPosSaleCommentsWithTags(null, sale.comentarios, {
+      abonoPeriod: cleanPeriod
+    });
+
+    // 1. Actualizar store_sales (intentando también columna periodo_abono si existe, con fallback a comentarios)
+    let updatedRow = null;
+    try {
+      const { data: d1, error: e1 } = await supabase
+        .from('store_sales')
+        .update({ comentarios: updatedComments, periodo_abono: cleanPeriod })
+        .eq('id', sale.id)
+        .select()
+        .maybeSingle();
+      if (e1) throw e1;
+      updatedRow = d1;
+    } catch (_) {
+      const { data: d2, error: e2 } = await supabase
+        .from('store_sales')
+        .update({ comentarios: updatedComments })
+        .eq('id', sale.id)
+        .select()
+        .maybeSingle();
+      if (e2) throw e2;
+      updatedRow = d2;
+    }
+
+    const finalSaleObj = { ...sale, ...(updatedRow || {}), comentarios: updatedComments, periodo_abono: cleanPeriod };
+    sale.comentarios = updatedComments;
+    sale.periodo_abono = cleanPeriod;
+
+    // 2. Sincronizar también en el pedido vinculado en public.orders (raw_shopify_data.pos_abono_period)
+    const ordMatch = String(sale.comentarios || '').match(/\[WMS-ORD:\s*([a-zA-Z0-9-]+)\]/i);
+    const linkedOrdId = sale.wms_order_id || (ordMatch ? ordMatch[1].trim() : null);
+
+    try {
+      let ordRow = null;
+      if (linkedOrdId) {
+        const { data: oData } = await supabase.from('orders').select('id, raw_shopify_data, periodo_facturacion').eq('id', linkedOrdId).maybeSingle();
+        ordRow = oData;
+      } else if (sale.codigo_venta) {
+        const { data: oData } = await supabase.from('orders').select('id, raw_shopify_data, periodo_facturacion').eq('external_order_number', sale.codigo_venta).maybeSingle();
+        ordRow = oData;
+      }
+
+      if (ordRow) {
+        const nextRaw = {
+          ...(ordRow.raw_shopify_data || {}),
+          pos_abono_period: cleanPeriod
+        };
+        const isRealPeriod = !['PAGO_DIRECTO', 'RECAUDACION_COMERCIO', 'SIN_ASIGNAR'].includes(cleanPeriod);
+        const ordUpdatePayload = {
+          raw_shopify_data: nextRaw,
+          ...(isRealPeriod && !ordRow.periodo_facturacion ? { periodo_facturacion: cleanPeriod } : {})
+        };
+        await supabase.from('orders').update(ordUpdatePayload).eq('id', ordRow.id);
+        if (window.posLinkedOrdersMap) {
+          window.posLinkedOrdersMap.set(String(ordRow.id), { ...ordRow, ...ordUpdatePayload });
+          if (sale.codigo_venta) window.posLinkedOrdersMap.set(String(sale.codigo_venta), { ...ordRow, ...ordUpdatePayload });
+        }
+      }
+    } catch (ordSyncErr) {
+      console.warn('Aviso sincronizando pos_abono_period en orders:', ordSyncErr);
+    }
+
+    if (!skipRefresh) {
+      await window.syncPosSaleInMemoryAndDOM(finalSaleObj, { updatedField: 'period' });
+    } else if (window.posSalesCache) {
+      window.posSalesCache.set(String(sale.id), finalSaleObj);
+      if (sale.codigo_venta) window.posSalesCache.set(String(sale.codigo_venta), finalSaleObj);
+    }
+
+    if (!silent && typeof Swal !== 'undefined') {
+      const labelDisplay = cleanPeriod === 'PAGO_DIRECTO'
+        ? 'Pago Directo al Seller (Sin abono)'
+        : (cleanPeriod === 'RECAUDACION_COMERCIO'
+          ? 'Recaudación Directa Comercio'
+          : (cleanPeriod === 'SIN_ASIGNAR' ? 'Pendiente de Asignar' : `Abono en ${cleanPeriod}`));
+
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `Venta ${sale.codigo_venta || '#' + sale.id}`,
+        text: `Periodo guardado: ${labelDisplay}`,
+        showConfirmButton: false,
+        returnFocus: false,
+        timer: 2000
+      });
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error actualizando periodo de abono POS:', err);
+    if (!silent && typeof Swal !== 'undefined') {
+      Swal.fire('Error', 'No se pudo actualizar el periodo de abono: ' + err.message, 'error');
+    }
+    return false;
+  }
+};
+
+// Helpers de renderizado por celda para actualización in-place sin recargar la tabla
+window.getPosPaymentSelectColors = function(modoPago) {
+  const pagoLower = String(modoPago || '').toLowerCase();
+  if (pagoLower.includes('efectivo')) {
+    return {
+      border: 'rgba(16, 185, 129, 0.45)',
+      bg: 'rgba(16, 185, 129, 0.12)',
+      color: '#047857'
+    };
+  }
+  if (pagoLower.includes('crédito') || pagoLower.includes('credito')) {
+    return {
+      border: 'rgba(79, 70, 229, 0.4)',
+      bg: 'rgba(79, 70, 229, 0.1)',
+      color: '#4338ca'
+    };
+  }
+  if (pagoLower.includes('tarjeta') || pagoLower.includes('débito') || pagoLower.includes('debito')) {
+    return {
+      border: 'rgba(37, 99, 235, 0.4)',
+      bg: 'rgba(37, 99, 235, 0.1)',
+      color: '#1d4ed8'
+    };
+  }
+  if (pagoLower.includes('transferencia')) {
+    return {
+      border: 'rgba(245, 158, 11, 0.48)',
+      bg: 'rgba(245, 158, 11, 0.14)',
+      color: '#b45309'
+    };
+  }
+  return {
+    border: 'var(--color-border)',
+    bg: 'var(--color-surface)',
+    color: 'var(--color-text-main)'
+  };
+};
+
+window.renderPosPaymentSelectHtml = function(sale) {
+  const currentModo = String(sale?.modo_pago || 'Tarjeta de Débito').trim();
+  const stdMethods = ['Tarjeta de Débito', 'Tarjeta de Crédito', 'Efectivo', 'Transferencia'];
+  const allMethods = stdMethods.includes(currentModo) ? stdMethods : [currentModo, ...stdMethods];
+  const st = window.getPosPaymentSelectColors(currentModo);
+
+  const iconForMethod = (m) => {
+    const ml = m.toLowerCase();
+    if (ml.includes('efectivo')) return '💵 ';
+    if (ml.includes('transferencia')) return '🏦 ';
+    return '💳 ';
+  };
+
+  return `
+    <select
+      id="pos-payment-select-${sale.id}"
+      class="form-input"
+      onchange="window.updatePosSalePaymentMethod('${sale.id}', this.value)"
+      style="height: 26px; padding: 0 0.45rem; font-size: 0.72rem; font-weight: 800; border-radius: 999px; border: 1px solid ${st.border}; background: ${st.bg}; color: ${st.color}; cursor: pointer; width: auto; max-width: 155px;"
+      title="Cambiar método de pago (recalcula automáticamente máquina, comisión POS y abono sin mover la vista)"
+    >
+      ${allMethods.map(m => `
+        <option value="${escapeHtml(m)}" ${currentModo === m ? 'selected' : ''}>${iconForMethod(m)}${escapeHtml(m)}</option>
+      `).join('')}
+    </select>
+  `;
+};
+
+window.renderPosMachineColHtml = function(mInfo) {
+  if (mInfo.isCardPayment) {
+    const dotColor = mInfo.colorHex || '#2563eb';
+    const readableColor = (typeof window.getPosReadableTextColor === 'function') ? window.getPosReadableTextColor(dotColor) : dotColor;
+    const ownerBadge = mInfo.isStockaMachine
+      ? `<span style="font-size: 0.68rem; font-weight: 800; color: #1d4ed8; background: rgba(37, 99, 235, 0.1); border: 1px solid rgba(37, 99, 235, 0.25); padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px; width: fit-content;">
+          <i class="ri-shield-star-line"></i> Propiedad de STOCKA
+         </span>`
+      : `<span style="font-size: 0.68rem; font-weight: 800; color: #6d28d9; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.25); padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px; width: fit-content;">
+          <i class="ri-store-2-line"></i> ${escapeHtml(mInfo.owner)}
+         </span>`;
+
+    return `
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <div style="width: 30px; height: 30px; border-radius: 7px; background: ${dotColor}15; border: 1px solid ${dotColor}45; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+          ${window.getPosMachineSvg(dotColor, 20)}
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+            <strong style="font-size: 0.8rem; color: var(--color-text-main);">${escapeHtml(mInfo.brand)}</strong>
+            ${mInfo.displayModel ? `<span style="font-family: monospace; font-size: 0.78rem; font-weight: 900; color: ${readableColor}; background: ${dotColor}18; border: 1px solid ${dotColor}40; padding: 0 5px; border-radius: 4px;">${escapeHtml(mInfo.displayModel)}</span>` : ''}
+            ${mInfo.color ? `<span style="font-size: 0.68rem; color: var(--color-text-muted); font-weight: 600;">(${escapeHtml(mInfo.color)})</span>` : ''}
+          </div>
+          ${ownerBadge}
+        </div>
+      </div>
+    `;
+  }
+  if (mInfo.isTransferPayment) {
+    return `
+      <div style="display: flex; flex-direction: column; gap: 2px;">
+        <span style="font-size: 0.78rem; font-weight: 700; color: #4f46e5; display: inline-flex; align-items: center; gap: 4px;">
+          <i class="ri-bank-line"></i> Transferencia Bancaria
+        </span>
+        <span style="font-size: 0.68rem; color: var(--color-text-muted);">Cuenta directa / comprobante</span>
+      </div>
+    `;
+  }
+  return `
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <span style="font-size: 0.78rem; font-weight: 700; color: #059669; display: inline-flex; align-items: center; gap: 4px;">
+        <i class="ri-money-dollar-circle-line"></i> Caja Efectivo Ñuñoa
+      </span>
+      <span style="font-size: 0.68rem; color: var(--color-text-muted);">Retiro por comercio</span>
+    </div>
+  `;
+};
+
+window.renderPosSellerPayoutColHtml = function(fin) {
+  if (fin.appliesStockaCommission) {
+    const tooltipText = `Venta Bruta: ${formatCLP(fin.grossAmount)} | Comisión POS ${fin.commissionTypeLabel} (${fin.commissionPct}% Neto): -${formatCLP(fin.commissionNet)} | IVA Comisión (19%): -${formatCLP(fin.commissionIva)} | Total Comisión + IVA: -${formatCLP(fin.commissionTotal)} | Pago/Abono Neto al Seller: ${formatCLP(fin.sellerPayout)}`;
+    return `
+      <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;" title="${escapeHtml(tooltipText)}">
+        <strong style="color: #059669; font-size: 0.98rem; font-weight: 800; background: rgba(16, 185, 129, 0.1); padding: 1px 7px; border-radius: 5px; border: 1px solid rgba(16, 185, 129, 0.3);">
+          ${formatCLP(fin.sellerPayout)}
+        </strong>
+        <span style="font-size: 0.7rem; color: #d97706; font-weight: 700; white-space: nowrap;">
+          -${formatCLP(fin.commissionTotal)} <span style="color: var(--color-text-muted); font-weight: 600;">(${fin.commissionPct}% + IVA)</span>
+        </span>
+        <span style="font-size: 0.65rem; color: #047857; font-weight: 700;">
+          <i class="ri-hand-coin-line"></i> Abono Fulfillment
+        </span>
+      </div>
+    `;
+  }
+  return `
+    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;" title="Cobro procesado directamente en máquina o cuenta del comercio. Sin comisión POS de Stocka.">
+      <span style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-muted);">
+        ${formatCLP(fin.grossAmount)}
+      </span>
+      <span style="font-size: 0.68rem; color: #64748b; background: var(--color-bg); border: 1px solid var(--color-border); padding: 1px 6px; border-radius: 4px; font-weight: 600;">
+        Recaudación Directa Seller
+      </span>
+    </div>
+  `;
+};
+
+window.renderPosPeriodColHtml = function(s, linkedOrd, mInfo, fin, abonoInfo, availablePeriods = null) {
+  const periodsList = availablePeriods || window.getAvailablePosBillingPeriodNames([abonoInfo.isAbono ? abonoInfo.period : null]);
+  const txCode = window.resolvePosSaleTransactionCode(s, linkedOrd);
+  const txInlineControlHtml = `
+    <div style="display: flex; align-items: center; gap: 4px; margin-top: 2px;">
+      <div style="position: relative; flex: 1; min-width: 135px;">
+        <i id="pos-tx-icon-${s.id}" class="ri-hashtag" style="position: absolute; left: 6px; top: 50%; transform: translateY(-50%); font-size: 0.72rem; color: ${txCode ? '#0284c7' : '#94a3b8'}; pointer-events: none;"></i>
+        <input
+          type="text"
+          id="pos-tx-input-${s.id}"
+          value="${escapeHtml(txCode)}"
+          data-original="${escapeHtml(txCode)}"
+          placeholder="Cód. Transacción..."
+          autocomplete="off"
+          oninput="this.value = this.value.replace(/\\s+/g, '').toUpperCase();"
+          onchange="window.saveInlinePosTxCode('${s.id}')"
+          onkeydown="if(event.key === 'Enter'){ event.preventDefault(); this.blur(); }"
+          style="width: 100%; height: 26px; padding: 0 6px 0 19px; font-family: monospace; font-size: 0.73rem; font-weight: 800; border-radius: 5px; border: 1px solid ${txCode ? 'rgba(2, 132, 199, 0.45)' : 'var(--color-border)'}; background: ${txCode ? 'rgba(2, 132, 199, 0.08)' : 'var(--color-surface)'}; color: ${txCode ? '#0369a1' : 'var(--color-text-main)'}; letter-spacing: 0.3px;"
+          title="Código de transacción único e irrepetible (sin espacios). Se guarda automáticamente al presionar Enter, Tab o el botón."
+        >
+      </div>
+      <button
+        type="button"
+        id="pos-tx-save-btn-${s.id}"
+        onclick="window.saveInlinePosTxCode('${s.id}')"
+        style="height: 26px; width: 26px; border-radius: 5px; border: 1px solid ${txCode ? 'rgba(2, 132, 199, 0.4)' : 'rgba(16, 185, 129, 0.45)'}; background: ${txCode ? 'rgba(2, 132, 199, 0.12)' : 'rgba(16, 185, 129, 0.12)'}; color: ${txCode ? '#0284c7' : '#059669'}; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; font-size: 0.82rem; transition: all 0.2s;"
+        title="${txCode ? 'Actualizar código de transacción' : 'Guardar código de transacción único'}"
+      >
+        <i class="ri-save-3-line"></i>
+      </button>
+    </div>
+  `;
+
+  if (mInfo.isStockaMachine || abonoInfo.isAbono) {
+    const allSelectPeriods = Array.from(new Set([...periodsList, ...(abonoInfo.isAbono ? [abonoInfo.period] : [])]));
+    const selectBorderColor = abonoInfo.isAbono ? 'rgba(16, 185, 129, 0.55)' : 'var(--color-border)';
+    const selectBg = abonoInfo.isAbono ? 'rgba(16, 185, 129, 0.08)' : 'var(--color-surface)';
+    const selectColor = abonoInfo.isAbono ? '#047857' : 'var(--color-text-muted)';
+
+    return `
+      <div style="display: flex; flex-direction: column; gap: 3px; min-width: 195px;">
+        <select id="pos-period-select-${s.id}" class="form-input" onchange="window.updatePosSaleAbonoPeriod('${s.id}', this.value)" style="height: 29px; padding: 0 0.45rem; font-size: 0.74rem; font-weight: 800; border-radius: 6px; border-color: ${selectBorderColor}; background: ${selectBg}; color: ${selectColor}; cursor: pointer;" title="Seleccionar periodo de facturación en el que se considera como abono al servicio de fulfillment">
+          ${allSelectPeriods.map(pName => `
+            <option value="${escapeHtml(pName)}" ${abonoInfo.period === pName ? 'selected' : ''}>📅 Abono: ${escapeHtml(pName)}</option>
+          `).join('')}
+          <option value="PAGO_DIRECTO" ${abonoInfo.period === 'PAGO_DIRECTO' ? 'selected' : ''}>💸 Pago Directo Seller</option>
+          <option value="SIN_ASIGNAR" ${abonoInfo.period === 'SIN_ASIGNAR' ? 'selected' : ''}>⏳ Sin Asignar</option>
+        </select>
+        ${txInlineControlHtml}
+        <div id="pos-period-link-wrap-${s.id}">
+          ${abonoInfo.isAbono ? `
+            <span onclick="window.openPosCommerceInBillingManager('${escapeHtml(s.comercio)}', '${escapeHtml(abonoInfo.period)}')" style="cursor: pointer; font-size: 0.67rem; color: #5f06fa; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;" title="Ir al desglose de ${escapeHtml(s.comercio)} en ${escapeHtml(abonoInfo.period)}">
+              <i class="ri-links-line"></i> Ver en Facturación <i class="ri-arrow-right-up-line"></i>
+            </span>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div style="display: flex; flex-direction: column; gap: 3px; min-width: 195px;">
+      <span style="font-size: 0.72rem; color: var(--color-text-muted); background: var(--color-bg); border: 1px dashed var(--color-border); padding: 2px 7px; border-radius: 5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; width: fit-content;">
+        <i class="ri-store-2-line"></i> No aplica abono (Terminal Seller)
+      </span>
+      ${txInlineControlHtml}
+      <div id="pos-period-link-wrap-${s.id}"></div>
+    </div>
+  `;
+};
+
+// Sincronizar en memoria, KPIs y DOM de la fila sin recargar la tabla ni mover el scroll
+window.syncPosSaleInMemoryAndDOM = async function(updatedSale, options = {}) {
+  if (!updatedSale || !updatedSale.id) return;
+  const saleIdStr = String(updatedSale.id);
+
+  // 1. Actualizar en cache y en lista completa en memoria
+  if (window.posSalesCache) {
+    window.posSalesCache.set(saleIdStr, updatedSale);
+    if (updatedSale.codigo_venta) {
+      window.posSalesCache.set(String(updatedSale.codigo_venta), updatedSale);
+    }
+  }
+  if (Array.isArray(window.posAllLoadedSales)) {
+    const idx = window.posAllLoadedSales.findIndex(s => String(s.id) === saleIdStr);
+    if (idx >= 0) {
+      window.posAllLoadedSales[idx] = { ...window.posAllLoadedSales[idx], ...updatedSale };
+    }
+  }
+
+  // 2. Actualizar elementos de la fila en el DOM in-place (sin reconstruir tbody)
+  const linkedOrd = window.posLinkedOrdersMap?.get(String(updatedSale.codigo_venta)) || null;
+  const mInfo = window.resolvePosSaleMachineInfo(updatedSale, window.posCommerceConfigsMap, linkedOrd);
+  const fin = window.calculatePosSaleFinancials(updatedSale, mInfo);
+  const abonoInfo = window.resolvePosSaleAbonoPeriod(updatedSale, linkedOrd, mInfo, fin);
+  const txCode = window.resolvePosSaleTransactionCode(updatedSale, linkedOrd);
+
+  // Actualizar selector de método de pago en la fila
+  const paymentSelectEl = document.getElementById(`pos-payment-select-${saleIdStr}`);
+  if (paymentSelectEl) {
+    if (paymentSelectEl.value !== updatedSale.modo_pago) {
+      paymentSelectEl.value = updatedSale.modo_pago;
+    }
+    const st = window.getPosPaymentSelectColors(updatedSale.modo_pago);
+    paymentSelectEl.style.borderColor = st.border;
+    paymentSelectEl.style.background = st.bg;
+    paymentSelectEl.style.color = st.color;
+  }
+
+  // Si se actualizó el método de pago, refrescar las celdas de Máquina POS, Pago al Seller y Periodo de esa fila
+  if (options.updatedField === 'paymentMethod') {
+    const machineCell = document.getElementById(`pos-machine-cell-${saleIdStr}`);
+    if (machineCell) machineCell.innerHTML = window.renderPosMachineColHtml(mInfo);
+
+    const payoutCell = document.getElementById(`pos-payout-cell-${saleIdStr}`);
+    if (payoutCell) payoutCell.innerHTML = window.renderPosSellerPayoutColHtml(fin);
+
+    const periodCell = document.getElementById(`pos-period-cell-${saleIdStr}`);
+    if (periodCell) periodCell.innerHTML = window.renderPosPeriodColHtml(updatedSale, linkedOrd, mInfo, fin, abonoInfo);
+  }
+
+  // Actualizar selector de periodo en la fila
+  const periodSelectEl = document.getElementById(`pos-period-select-${saleIdStr}`);
+  if (periodSelectEl) {
+    if (periodSelectEl.value !== abonoInfo.period) {
+      periodSelectEl.value = abonoInfo.period;
+    }
+    periodSelectEl.style.borderColor = abonoInfo.isAbono ? 'rgba(16, 185, 129, 0.55)' : 'var(--color-border)';
+    periodSelectEl.style.background = abonoInfo.isAbono ? 'rgba(16, 185, 129, 0.08)' : 'var(--color-surface)';
+    periodSelectEl.style.color = abonoInfo.isAbono ? '#047857' : 'var(--color-text-muted)';
+  }
+
+  // Actualizar link "Ver en Facturación" en la fila
+  const linkWrapEl = document.getElementById(`pos-period-link-wrap-${saleIdStr}`);
+  if (linkWrapEl) {
+    if (abonoInfo.isAbono) {
+      linkWrapEl.innerHTML = `
+        <span onclick="window.openPosCommerceInBillingManager('${escapeHtml(updatedSale.comercio)}', '${escapeHtml(abonoInfo.period)}')" style="cursor: pointer; font-size: 0.67rem; color: #5f06fa; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;" title="Ir al desglose de ${escapeHtml(updatedSale.comercio)} en ${escapeHtml(abonoInfo.period)}">
+          <i class="ri-links-line"></i> Ver en Facturación <i class="ri-arrow-right-up-line"></i>
+        </span>
+      `;
+    } else {
+      linkWrapEl.innerHTML = '';
+    }
+  }
+
+  // Actualizar input y botón de código de transacción en la fila y en modal de detalle (si está abierto)
+  const txInputs = [
+    document.getElementById(`pos-tx-input-${saleIdStr}`),
+    document.getElementById(`pos-detail-tx-input-${saleIdStr}`)
+  ].filter(Boolean);
+
+  txInputs.forEach(inp => {
+    inp.value = txCode;
+    inp.dataset.original = txCode;
+    inp.style.borderColor = txCode ? 'rgba(2, 132, 199, 0.45)' : 'var(--color-border)';
+    inp.style.background = txCode ? 'rgba(2, 132, 199, 0.08)' : 'var(--color-surface)';
+    inp.style.color = txCode ? '#0369a1' : 'var(--color-text-main)';
+  });
+
+  const txIconEl = document.getElementById(`pos-tx-icon-${saleIdStr}`);
+  if (txIconEl) {
+    txIconEl.style.color = txCode ? '#0284c7' : '#94a3b8';
+  }
+
+  const txBtnEl = document.getElementById(`pos-tx-save-btn-${saleIdStr}`);
+  if (txBtnEl) {
+    if (options.updatedField === 'txCode') {
+      txBtnEl.style.borderColor = '#10b981';
+      txBtnEl.style.background = 'rgba(16, 185, 129, 0.18)';
+      txBtnEl.style.color = '#059669';
+      txBtnEl.innerHTML = '<i class="ri-check-line"></i>';
+      setTimeout(() => {
+        if (!txBtnEl.isConnected) return;
+        txBtnEl.style.borderColor = txCode ? 'rgba(2, 132, 199, 0.4)' : 'rgba(16, 185, 129, 0.45)';
+        txBtnEl.style.background = txCode ? 'rgba(2, 132, 199, 0.12)' : 'rgba(16, 185, 129, 0.12)';
+        txBtnEl.style.color = txCode ? '#0284c7' : '#059669';
+        txBtnEl.innerHTML = '<i class="ri-save-3-line"></i>';
+      }, 1500);
+    } else {
+      txBtnEl.style.borderColor = txCode ? 'rgba(2, 132, 199, 0.4)' : 'rgba(16, 185, 129, 0.45)';
+      txBtnEl.style.background = txCode ? 'rgba(2, 132, 199, 0.12)' : 'rgba(16, 185, 129, 0.12)';
+      txBtnEl.style.color = txCode ? '#0284c7' : '#059669';
+    }
+  }
+
+  // 3. Actualizar KPIs y banner de comercio sin tocar tbody ni mover scroll
+  if (Array.isArray(window.posAllLoadedSales)) {
+    const allFilteredSales = applyClientSidePosFilters(window.posAllLoadedSales);
+    await updatePosKpis(allFilteredSales);
+    const selectedCommerce = document.getElementById('filter-pos-commerce')?.value || '';
+    renderSelectedCommercePosBanner(selectedCommerce, allFilteredSales);
+  }
+};
+
+// Actualizar Método de Pago de una venta POS directamente desde la tabla o modal de detalle (sin mover el scroll)
+window.updatePosSalePaymentMethod = async function(saleId, newPaymentMethod, options = {}) {
+  const { silent = false, skipRefresh = false, fromDetailModal = false } = options;
+  try {
+    let sale = window.posSalesCache?.get(String(saleId));
+    if (!sale) {
+      const { data: fetchedSale } = await supabase.from('store_sales').select('*').eq('id', saleId).maybeSingle();
+      sale = fetchedSale;
+    }
+    if (!sale) throw new Error('No se encontró la venta POS seleccionada.');
+
+    const cleanModo = String(newPaymentMethod || '').trim();
+    if (!cleanModo || cleanModo === sale.modo_pago) return true;
+
+    const { data: updatedRow, error: updErr } = await supabase
+      .from('store_sales')
+      .update({ modo_pago: cleanModo })
+      .eq('id', sale.id)
+      .select()
+      .maybeSingle();
+
+    if (updErr) throw updErr;
+
+    const finalSaleObj = { ...sale, ...(updatedRow || {}), modo_pago: cleanModo };
+    sale.modo_pago = cleanModo;
+
+    // Recalcular máquina y liquidación con el nuevo método de pago
+    const linkedOrd = window.posLinkedOrdersMap?.get(String(sale.codigo_venta)) || null;
+    const mInfo = window.resolvePosSaleMachineInfo(finalSaleObj, window.posCommerceConfigsMap, linkedOrd);
+    const fin = window.calculatePosSaleFinancials(finalSaleObj, mInfo);
+
+    // Sincronizar también en el pedido vinculado en public.orders (raw_shopify_data.payment_method y pos_financials)
+    const ordMatch = String(sale.comentarios || '').match(/\[WMS-ORD:\s*([a-zA-Z0-9-]+)\]/i);
+    const linkedOrdId = sale.wms_order_id || (ordMatch ? ordMatch[1].trim() : null);
+
+    try {
+      let ordRow = null;
+      if (linkedOrdId) {
+        const { data: oData } = await supabase.from('orders').select('id, raw_shopify_data').eq('id', linkedOrdId).maybeSingle();
+        ordRow = oData;
+      } else if (sale.codigo_venta) {
+        const { data: oData } = await supabase.from('orders').select('id, raw_shopify_data').eq('external_order_number', sale.codigo_venta).maybeSingle();
+        ordRow = oData;
+      }
+
+      if (ordRow) {
+        const nextRaw = {
+          ...(ordRow.raw_shopify_data || {}),
+          payment_method: cleanModo,
+          pos_financials: {
+            monto_total: fin.montoTotal,
+            fee_pct: fin.feePct,
+            commission_net: fin.commissionNet,
+            commission_iva: fin.commissionIva,
+            commission_total: fin.commissionTotal,
+            seller_payout: fin.sellerPayout,
+            applies_stocka_settlement: fin.appliesStockaPosSettlement
+          }
+        };
+        await supabase.from('orders').update({ raw_shopify_data: nextRaw }).eq('id', ordRow.id);
+        if (window.posLinkedOrdersMap) {
+          window.posLinkedOrdersMap.set(String(ordRow.id), { ...ordRow, raw_shopify_data: nextRaw });
+          if (sale.codigo_venta) window.posLinkedOrdersMap.set(String(sale.codigo_venta), { ...ordRow, raw_shopify_data: nextRaw });
+        }
+      }
+    } catch (ordSyncErr) {
+      console.warn('Aviso sincronizando payment_method en orders:', ordSyncErr);
+    }
+
+    if (!skipRefresh) {
+      await window.syncPosSaleInMemoryAndDOM(finalSaleObj, { updatedField: 'paymentMethod' });
+    }
+
+    if (fromDetailModal && document.getElementById('modal-pos-detail')?.classList.contains('active')) {
+      window.openPosSaleDetail(finalSaleObj.id);
+    }
+
+    if (!silent && typeof Swal !== 'undefined') {
+      const subMsg = fin.appliesStockaCommission
+        ? `Comisión ${fin.commissionPct}%+IVA (-${formatCLP(fin.commissionTotal)}) · Abono: ${formatCLP(fin.sellerPayout)}`
+        : `Recaudación directa (${formatCLP(fin.grossAmount)}, $0 comisión)`;
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `Pago actualizado: ${cleanModo}`,
+        text: subMsg,
+        showConfirmButton: false,
+        returnFocus: false,
+        timer: 2200
+      });
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error actualizando método de pago POS:', err);
+    if (!silent && typeof Swal !== 'undefined') {
+      Swal.fire('Error', 'No se pudo actualizar el método de pago: ' + err.message, 'error');
+    }
+    return false;
+  }
+};
+
+// Actualizar y validar Código de Transacción único e irrepetible (sin espacios) para una venta POS
+window.updatePosSaleTransactionCode = async function(saleId, rawCode, options = {}) {
+  const { silent = false, skipRefresh = false, inputEl = null } = options;
+  try {
+    let sale = window.posSalesCache?.get(String(saleId));
+    if (!sale) {
+      const { data: fetchedSale } = await supabase.from('store_sales').select('*').eq('id', saleId).maybeSingle();
+      sale = fetchedSale;
+    }
+    if (!sale) throw new Error('No se encontró la venta POS seleccionada.');
+
+    const prevTxCode = window.resolvePosSaleTransactionCode(sale);
+
+    // Validar que no tenga espacios y limpiar
+    if (/\s/.test(String(rawCode || ''))) {
+      if (inputEl) inputEl.value = window.sanitizePosTransactionCode(rawCode);
+    }
+    const cleanCode = window.sanitizePosTransactionCode(rawCode);
+
+    // Si no cambió respecto al código actual, no hacer nada
+    if (cleanCode === prevTxCode) {
+      return true;
+    }
+
+    // Validar unicidad si se está ingresando un código no vacío
+    if (cleanCode) {
+      const dupCheck = await window.checkPosTransactionCodeDuplicate(cleanCode, sale.id);
+      if (dupCheck.isDuplicate) {
+        const conf = dupCheck.conflictingSale || {};
+        const confDate = conf.created_at ? new Date(conf.created_at).toLocaleDateString('es-CL') : '';
+        if (inputEl) {
+          inputEl.value = prevTxCode || '';
+          inputEl.style.borderColor = '#ef4444';
+          setTimeout(() => {
+            if (inputEl) inputEl.style.borderColor = prevTxCode ? 'rgba(2, 132, 199, 0.45)' : 'var(--color-border)';
+          }, 2200);
+        }
+        if (typeof Swal !== 'undefined') {
+          Swal.fire({
+            icon: 'error',
+            title: 'Código de Transacción Duplicado',
+            html: `
+              <div style="text-align: left; font-size: 0.88rem; line-height: 1.5;">
+                <p style="margin-bottom: 0.65rem;">El código de transacción <strong style="font-family: monospace; color: #dc2626; background: rgba(239,68,68,0.1); padding: 2px 6px; border-radius: 4px;">${escapeHtml(cleanCode)}</strong> ya fue registrado anteriormente y no puede repetirse.</p>
+                <div style="background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px; padding: 0.65rem 0.85rem; font-size: 0.82rem;">
+                  <div><strong>Venta asociada:</strong> <span style="font-family: monospace;">${escapeHtml(conf.codigo_venta || '#' + conf.id)}</span></div>
+                  <div><strong>Comercio:</strong> ${escapeHtml(conf.comercio || 'N/A')}</div>
+                  ${conf.nombre_cliente ? `<div><strong>Cliente:</strong> ${escapeHtml(conf.nombre_cliente)}</div>` : ''}
+                  ${confDate ? `<div><strong>Fecha:</strong> ${escapeHtml(confDate)}</div>` : ''}
+                </div>
+              </div>
+            `,
+            confirmButtonText: 'Entendido',
+            confirmButtonColor: '#ef4444'
+          });
+        }
+        return false;
+      }
+    }
+
+    const updatedComments = window.buildPosSaleCommentsWithTags(null, sale.comentarios, {
+      txCode: cleanCode
+    });
+
+    const { data: updatedRow, error: updErr } = await supabase
+      .from('store_sales')
+      .update({ comentarios: updatedComments })
+      .eq('id', sale.id)
+      .select()
+      .maybeSingle();
+
+    if (updErr) throw updErr;
+
+    const finalSaleObj = { ...sale, ...(updatedRow || {}), comentarios: updatedComments, codigo_transaccion: cleanCode };
+    sale.comentarios = updatedComments;
+    sale.codigo_transaccion = cleanCode;
+
+    // Sincronizar también en el pedido vinculado en public.orders (raw_shopify_data.pos_tx_code)
+    const ordMatch = String(sale.comentarios || '').match(/\[WMS-ORD:\s*([a-zA-Z0-9-]+)\]/i);
+    const linkedOrdId = sale.wms_order_id || (ordMatch ? ordMatch[1].trim() : null);
+
+    try {
+      let ordRow = null;
+      if (linkedOrdId) {
+        const { data: oData } = await supabase.from('orders').select('id, raw_shopify_data').eq('id', linkedOrdId).maybeSingle();
+        ordRow = oData;
+      } else if (sale.codigo_venta) {
+        const { data: oData } = await supabase.from('orders').select('id, raw_shopify_data').eq('external_order_number', sale.codigo_venta).maybeSingle();
+        ordRow = oData;
+      }
+
+      if (ordRow) {
+        const nextRaw = {
+          ...(ordRow.raw_shopify_data || {}),
+          pos_tx_code: cleanCode
+        };
+        await supabase.from('orders').update({ raw_shopify_data: nextRaw }).eq('id', ordRow.id);
+        if (window.posLinkedOrdersMap) {
+          window.posLinkedOrdersMap.set(String(ordRow.id), { ...ordRow, raw_shopify_data: nextRaw });
+          if (sale.codigo_venta) window.posLinkedOrdersMap.set(String(sale.codigo_venta), { ...ordRow, raw_shopify_data: nextRaw });
+        }
+      }
+    } catch (ordSyncErr) {
+      console.warn('Aviso sincronizando pos_tx_code en orders:', ordSyncErr);
+    }
+
+    if (!skipRefresh) {
+      await window.syncPosSaleInMemoryAndDOM(finalSaleObj, { updatedField: 'txCode' });
+    } else if (window.posSalesCache) {
+      window.posSalesCache.set(String(sale.id), finalSaleObj);
+      if (sale.codigo_venta) window.posSalesCache.set(String(sale.codigo_venta), finalSaleObj);
+    }
+
+    if (!silent && typeof Swal !== 'undefined') {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `Venta ${sale.codigo_venta || '#' + sale.id}`,
+        text: cleanCode ? `Código de transacción guardado: ${cleanCode}` : 'Código de transacción eliminado',
+        showConfirmButton: false,
+        returnFocus: false,
+        timer: 2000
+      });
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error actualizando código de transacción POS:', err);
+    if (!silent && typeof Swal !== 'undefined') {
+      Swal.fire('Error', 'No se pudo guardar el código de transacción: ' + err.message, 'error');
+    }
+    return false;
+  }
+};
+
+window._posSavingTxLocks = window._posSavingTxLocks || new Set();
+window.saveInlinePosTxCode = async function(saleId, inputElementId = null) {
+  const lockKey = String(saleId);
+  if (window._posSavingTxLocks.has(lockKey)) return false;
+
+  const inputEl = document.getElementById(inputElementId || `pos-tx-input-${saleId}`);
+  if (!inputEl) return false;
+  const cleaned = window.sanitizePosTransactionCode(inputEl.value);
+  inputEl.value = cleaned;
+
+  const originalVal = window.sanitizePosTransactionCode(inputEl.dataset.original || '');
+  if (cleaned === originalVal) {
+    return true;
+  }
+
+  window._posSavingTxLocks.add(lockKey);
+  const btnEl = document.getElementById(`pos-tx-save-btn-${saleId}`);
+  const prevBtnHtml = btnEl ? btnEl.innerHTML : '';
+  if (btnEl) {
+    btnEl.innerHTML = '<i class="ri-loader-4-line spin"></i>';
+    btnEl.disabled = true;
+  }
+
+  try {
+    return await window.updatePosSaleTransactionCode(saleId, cleaned, { inputEl });
+  } finally {
+    window._posSavingTxLocks.delete(lockKey);
+    if (btnEl) {
+      btnEl.disabled = false;
+      if (btnEl.innerHTML.includes('ri-loader-4-line')) {
+        btnEl.innerHTML = prevBtnHtml || '<i class="ri-save-3-line"></i>';
+      }
+    }
+  }
+};
+
+let _posTxStep3ValidationTimer = null;
+window.validatePosStep3TxCodeInput = function() {
+  const inputEl = document.getElementById('pos-tx-code-input');
+  const msgEl = document.getElementById('pos-tx-code-validation-msg');
+  if (!inputEl || !msgEl) return;
+
+  const cleanCode = window.sanitizePosTransactionCode(inputEl.value);
+  if (inputEl.value !== cleanCode) {
+    inputEl.value = cleanCode;
+  }
+
+  if (_posTxStep3ValidationTimer) clearTimeout(_posTxStep3ValidationTimer);
+
+  if (!cleanCode) {
+    inputEl.style.borderColor = '';
+    inputEl.dataset.txDuplicate = 'false';
+    msgEl.style.color = 'var(--color-text-muted)';
+    msgEl.innerHTML = 'Código único e irrepetible de la operación POS/pago (no admite espacios ni duplicados).';
+    return;
+  }
+
+  msgEl.style.color = '#64748b';
+  msgEl.innerHTML = '<i class="ri-loader-4-line spin"></i> Verificando unicidad del código...';
+
+  _posTxStep3ValidationTimer = setTimeout(async () => {
+    const res = await window.checkPosTransactionCodeDuplicate(cleanCode, null);
+    if (inputEl.value !== cleanCode) return;
+    if (res.isDuplicate) {
+      const conf = res.conflictingSale || {};
+      inputEl.style.borderColor = '#ef4444';
+      inputEl.dataset.txDuplicate = 'true';
+      msgEl.style.color = '#dc2626';
+      msgEl.innerHTML = `<i class="ri-error-warning-fill"></i> <strong>Código ya utilizado</strong> en venta <code>${escapeHtml(conf.codigo_venta || '#' + conf.id)}</code> (${escapeHtml(conf.comercio || '')}). Ingresa un código diferente.`;
+    } else {
+      inputEl.style.borderColor = '#10b981';
+      inputEl.dataset.txDuplicate = 'false';
+      msgEl.style.color = '#059669';
+      msgEl.innerHTML = `<i class="ri-checkbox-circle-fill"></i> Código <strong>${escapeHtml(cleanCode)}</strong> disponible y único.`;
+    }
+  }, 220);
+};
+
+// Asignación masiva de Periodo de Facturación (Abono) para las ventas filtradas
+window.openBulkAssignPosPeriodModal = async function() {
+  await window.ensurePosMetadataLoaded();
+  const availablePeriods = window.getAvailablePosBillingPeriodNames();
+
+  let query = supabase.from('store_sales').select('*').order('created_at', { ascending: false });
+  query = buildPosSalesQuery(query);
+  const { data: rawSales, error } = await query;
+  if (error) {
+    Swal.fire('Error', 'No se pudieron obtener las ventas actuales: ' + error.message, 'error');
+    return;
+  }
+
+  const filteredSales = applyClientSidePosFilters(rawSales || []);
+  const stockaSales = filteredSales.filter(s => {
+    const mInfo = window.resolvePosSaleMachineInfo(s);
+    return mInfo.isStockaMachine && mInfo.isCardPayment;
+  });
+
+  if (filteredSales.length === 0) {
+    Swal.fire('Sin ventas', 'No hay ventas en la vista actual para asignar periodo.', 'info');
+    return;
+  }
+
+  const totalNetAbono = stockaSales.reduce((acc, s) => {
+    const mInfo = window.resolvePosSaleMachineInfo(s);
+    const fin = window.calculatePosSaleFinancials(s, mInfo);
+    return acc + fin.sellerPayout;
+  }, 0);
+
+  const periodOptionsHtml = [
+    ...availablePeriods.map(p => `<option value="${escapeHtml(p)}">📅 Abonar en Periodo: ${escapeHtml(p)}</option>`),
+    `<option value="PAGO_DIRECTO">💸 Pago Directo al Seller (No abonar en factura)</option>`,
+    `<option value="SIN_ASIGNAR">⏳ Dejar Pendiente / Sin Asignar</option>`
+  ].join('');
+
+  const { value: formValues } = await Swal.fire({
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.45rem;font-size:1.15rem;"><i class="ri-calendar-check-line" style="color:#10b981;"></i><span>Asignar Periodo de Abono POS</span></div>',
+    width: '540px',
+    html: `
+      <div style="text-align: left; font-size: 0.88rem; line-height: 1.45; color: var(--color-text-main);">
+        <p style="margin: 0 0 0.85rem 0; color: var(--color-text-muted);">
+          Selecciona el periodo de facturación en el cual las ventas seleccionadas se descontarán como <strong>Abono al servicio de Fulfillment</strong>.
+        </p>
+
+        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+            <span style="color: var(--color-text-muted); font-weight: 600;">Ventas en vista actual:</span>
+            <strong>${filteredSales.length} venta(s)</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+            <span style="color: var(--color-text-muted); font-weight: 600;">Ventas con Máquina STOCKA:</span>
+            <strong style="color: #2563eb;">${stockaSales.length} venta(s)</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; border-top: 1px dashed rgba(16, 185, 129, 0.35); padding-top: 0.35rem; margin-top: 0.35rem;">
+            <span style="color: #047857; font-weight: 700;">Total Neto a Abonar al Seller (-Com. + IVA):</span>
+            <strong style="color: #059669; font-size: 1rem;">${formatCLP(totalNetAbono)}</strong>
+          </div>
+        </div>
+
+        <label style="font-size: 0.75rem; font-weight: 800; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">
+          1. Alcance de la Asignación:
+        </label>
+        <select id="swal-bulk-pos-scope" class="form-input" style="width: 100%; margin-bottom: 0.85rem; font-weight: 600;">
+          <option value="stocka_only" selected>Solo ventas con Máquina STOCKA (${stockaSales.length} ventas)</option>
+          <option value="all_filtered">Todas las ventas filtradas en pantalla (${filteredSales.length} ventas)</option>
+        </select>
+
+        <label style="font-size: 0.75rem; font-weight: 800; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">
+          2. Periodo de Facturación Destino:
+        </label>
+        <select id="swal-bulk-pos-period" class="form-input" style="width: 100%; font-weight: 700; color: #0f172a;">
+          ${periodOptionsHtml}
+        </select>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-check-double-line"></i> Aplicar Periodo',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#10b981',
+    preConfirm: () => {
+      const scope = document.getElementById('swal-bulk-pos-scope')?.value || 'stocka_only';
+      const period = document.getElementById('swal-bulk-pos-period')?.value || '';
+      if (!period) {
+        Swal.showValidationMessage('Selecciona un periodo válido.');
+        return false;
+      }
+      return { scope, period };
+    }
+  });
+
+  if (!formValues) return;
+
+  const targetList = formValues.scope === 'stocka_only' ? stockaSales : filteredSales;
+  if (targetList.length === 0) {
+    Swal.fire('Atención', 'No hay ventas que cumplan con el alcance seleccionado.', 'warning');
+    return;
+  }
+
+  Swal.fire({
+    title: 'Actualizando Periodo de Abono...',
+    text: `Procesando ${targetList.length} venta(s)...`,
+    allowOutsideClick: false,
+    didOpen: () => { Swal.showLoading(); }
+  });
+
+  let updatedCount = 0;
+  for (const s of targetList) {
+    const ok = await window.updatePosSaleAbonoPeriod(s.id, formValues.period, { silent: true, skipRefresh: true });
+    if (ok) updatedCount++;
+  }
+
+  await fetchAndRenderPosData();
+
+  Swal.fire({
+    icon: 'success',
+    title: 'Periodo de Abono Actualizado',
+    text: `Se asignó "${formValues.period}" a ${updatedCount} venta(s) correctamente.`,
+    timer: 2600,
+    showConfirmButton: false
+  });
+};
+
+// Abrir el Gestor de Facturación directamente en el comercio y periodo seleccionados
+window.openPosCommerceInBillingManager = function(commerceName, periodName = '') {
+  const navBilling = document.querySelector('.nav-item[data-view="facturacion_admin"]') || document.querySelector('[data-view="facturacion_admin"]');
+  const targetPeriod = (window.posBillingPeriodsList || []).find(p => String(p.name || '').trim().toUpperCase() === String(periodName || '').trim().toUpperCase());
+  const periodId = targetPeriod?.id || null;
+
+  if (navBilling) {
+    navBilling.click();
+    setTimeout(() => {
+      if (typeof window.openBillingGeneratorFromOverview === 'function') {
+        window.openBillingGeneratorFromOverview(commerceName, periodId);
+      } else if (typeof window.renderBillingGeneratorAdmin === 'function') {
+        window.renderBillingGeneratorAdmin('tab-generator-content', commerceName, periodId);
+      }
+    }, 350);
+  } else if (typeof window.openBillingGeneratorFromOverview === 'function') {
+    window.openBillingGeneratorFromOverview(commerceName, periodId);
+  }
 };
 
 // Helper para generar código único de venta (siempre incluye 6 dígitos numéricos para cumplir unique_orders_comercio_clean_number)
@@ -278,85 +1603,136 @@ async function renderPosAdmin() {
   const content = document.getElementById('app-content');
   if (!content) return;
 
+  await window.ensurePosMetadataLoaded();
+
   content.innerHTML = `
-    <div style="margin-bottom: 2rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end;">
+    <div style="margin-bottom: 1.35rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end;">
       <div>
-        <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6; margin: 0;">
-          Registro y gestión centralizada de ventas presenciales realizadas en la <strong>Sucursal Física de Ñuñoa</strong> (Campo de Deportes 405).
+        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
+          <span style="background: rgba(37, 99, 235, 0.1); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.25); font-size: 0.72rem; font-weight: 800; padding: 0.2rem 0.65rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-store-3-line"></i> SUCURSAL FÍSICA ÑUÑOA · CAMPO DE DEPORTES 405
+          </span>
+          <span style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.25); font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.65rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.3rem;" title="Comisiones POS vigentes sobre máquinas Stocka (+ IVA)">
+            <i class="ri-bank-card-line"></i> Tarifa POS Stocka: Débito 2.5% + IVA · Crédito 3.5% + IVA · Mantención 0.2 UF + IVA
+          </span>
+        </div>
+        <p style="color: var(--color-text-muted); font-size: 0.92rem; max-width: 860px; line-height: 1.5; margin: 0;">
+          Control de ventas presenciales, trazabilidad de <strong>Máquina POS utilizada</strong>, liquidación de <strong>Pago al Seller / Abono Fulfillment (-Comisión + IVA)</strong> y asignación de <strong>Periodo de Facturación</strong>.
         </p>
       </div>
       <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-        <button id="btn-open-create-pos-sale" onclick="window.openCreatePosSaleModal()" class="btn btn-primary" style="background-color: var(--color-primary); color: white; display: flex; align-items: center; gap: 0.35rem; font-weight: 600; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2); cursor: pointer;">
+        <button id="btn-open-create-pos-sale" onclick="window.openCreatePosSaleModal()" class="btn btn-primary" style="background-color: var(--color-primary); color: white; display: flex; align-items: center; gap: 0.35rem; font-weight: 700; box-shadow: 0 2px 6px rgba(59, 130, 246, 0.25); cursor: pointer;">
           <i class="ri-shopping-cart-2-line"></i> Registrar Venta
         </button>
-        <button id="btn-pos-branch-exchange-receipt" onclick="window.openQuickBranchExchangeReceiptModal()" class="btn btn-primary" style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; display: flex; align-items: center; gap: 0.35rem; font-weight: 700; box-shadow: 0 2px 6px rgba(79, 70, 229, 0.25); cursor: pointer;" title="Crear o imprimir comprobante de cambio o recepción realizado en Sucursal Ñuñoa">
-          <i class="ri-file-list-3-line"></i> Comprobante Cambio Sucursal
+        <button id="btn-pos-bulk-period" onclick="window.openBulkAssignPosPeriodModal()" class="btn btn-outline" style="background: rgba(16, 185, 129, 0.08); color: #047857; border-color: rgba(16, 185, 129, 0.45); display: flex; align-items: center; gap: 0.35rem; font-weight: 700; cursor: pointer;" title="Asignar o cambiar masivamente el periodo de facturación para abono">
+          <i class="ri-calendar-check-line"></i> Asignar Periodo Abono
         </button>
-        <button id="btn-pos-export-csv" class="btn btn-outline" style="background-color: transparent; color: #10b981; border-color: #10b981; display: flex; align-items: center; gap: 0.25rem;">
+        <button id="btn-pos-branch-exchange-receipt" onclick="window.openQuickBranchExchangeReceiptModal()" class="btn btn-primary" style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; display: flex; align-items: center; gap: 0.35rem; font-weight: 700; box-shadow: 0 2px 6px rgba(79, 70, 229, 0.25); cursor: pointer;" title="Crear o imprimir comprobante de cambio o recepción realizado en Sucursal Ñuñoa">
+          <i class="ri-file-list-3-line"></i> Comprobante Cambio
+        </button>
+        <button id="btn-pos-export-csv" class="btn btn-outline" style="background-color: transparent; color: #10b981; border-color: #10b981; display: flex; align-items: center; gap: 0.25rem; font-weight: 600;">
           <i class="ri-file-text-line"></i> CSV
         </button>
-        <button id="btn-pos-export-excel" class="btn btn-outline" style="background-color: transparent; color: #059669; border-color: #059669; display: flex; align-items: center; gap: 0.25rem;">
+        <button id="btn-pos-export-excel" class="btn btn-outline" style="background-color: transparent; color: #059669; border-color: #059669; display: flex; align-items: center; gap: 0.25rem; font-weight: 600;">
           <i class="ri-file-excel-2-line"></i> Excel
         </button>
       </div>
     </div>
 
-    <!-- Tarjetas de Métricas KPI -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
-      <div class="card" style="padding: 1.25rem; display: flex; align-items: center; gap: 1rem; border-left: 4px solid var(--color-primary);">
-        <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center; color: var(--color-primary); font-size: 1.5rem;">
+    <!-- Tarjetas de Métricas KPI (Dinámicas según filtros activos) -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 0.9rem; margin-bottom: 1.25rem;">
+      <div class="card" style="padding: 1.1rem 1.2rem; display: flex; align-items: center; gap: 0.9rem; border-left: 4px solid var(--color-primary);">
+        <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center; color: var(--color-primary); font-size: 1.4rem; flex-shrink: 0;">
           <i class="ri-shopping-bag-3-line"></i>
         </div>
-        <div>
-          <span style="font-size: 0.8rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; display: block;">Ventas del Mes</span>
-          <strong id="pos-kpi-total-month" style="font-size: 1.5rem; color: var(--color-text-main);">0</strong>
+        <div style="min-width: 0; flex: 1;">
+          <span id="pos-kpi-label-count" style="font-size: 0.72rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 0.4px; display: block;">Ventas Registradas</span>
+          <div style="display: flex; align-items: baseline; gap: 0.45rem; flex-wrap: wrap;">
+            <strong id="pos-kpi-total-month" style="font-size: 1.45rem; color: var(--color-text-main); line-height: 1.2;">0</strong>
+            <span id="pos-kpi-sub-units" style="font-size: 0.73rem; color: var(--color-text-muted); font-weight: 600;">0 un.</span>
+          </div>
+          <span id="pos-kpi-today-badge" style="font-size: 0.7rem; color: #2563eb; font-weight: 600; display: block; margin-top: 2px;">Hoy: <strong id="pos-kpi-today-count">0</strong></span>
         </div>
       </div>
 
-      <div class="card" style="padding: 1.25rem; display: flex; align-items: center; gap: 1rem; border-left: 4px solid #10b981;">
-        <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(16, 185, 129, 0.1); display: flex; align-items: center; justify-content: center; color: #10b981; font-size: 1.5rem;">
+      <div class="card" style="padding: 1.1rem 1.2rem; display: flex; align-items: center; gap: 0.9rem; border-left: 4px solid #0ea5e9;">
+        <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(14, 165, 233, 0.1); display: flex; align-items: center; justify-content: center; color: #0284c7; font-size: 1.4rem; flex-shrink: 0;">
           <i class="ri-money-dollar-circle-line"></i>
         </div>
-        <div>
-          <span style="font-size: 0.8rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; display: block;">Monto Recaudado Mes</span>
-          <strong id="pos-kpi-monto-month" style="font-size: 1.5rem; color: #10b981;">$0</strong>
+        <div style="min-width: 0; flex: 1;">
+          <span id="pos-kpi-label-monto" style="font-size: 0.72rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 0.4px; display: block;">Monto Bruto Ventas</span>
+          <strong id="pos-kpi-monto-month" style="font-size: 1.45rem; color: #0284c7; line-height: 1.2; display: block;">$0</strong>
+          <span id="pos-kpi-sub-monto" style="font-size: 0.7rem; color: var(--color-text-muted); display: block; margin-top: 2px;">Total pagado por clientes</span>
         </div>
       </div>
 
-      <div class="card" style="padding: 1.25rem; display: flex; align-items: center; gap: 1rem; border-left: 4px solid #8b5cf6;">
-        <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(139, 92, 246, 0.1); display: flex; align-items: center; justify-content: center; color: #8b5cf6; font-size: 1.5rem;">
-          <i class="ri-calendar-check-line"></i>
+      <div class="card" style="padding: 1.1rem 1.2rem; display: flex; align-items: center; gap: 0.9rem; border-left: 4px solid #f59e0b;">
+        <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(245, 158, 11, 0.12); display: flex; align-items: center; justify-content: center; color: #d97706; font-size: 1.4rem; flex-shrink: 0;">
+          <i class="ri-percent-line"></i>
         </div>
-        <div>
-          <span style="font-size: 0.8rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; display: block;">Ventas de Hoy</span>
-          <strong id="pos-kpi-today-count" style="font-size: 1.5rem; color: var(--color-text-main);">0</strong>
+        <div style="min-width: 0; flex: 1;">
+          <span style="font-size: 0.72rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 0.4px; display: block;">Comisión POS Stocka (+IVA)</span>
+          <strong id="pos-kpi-comisiones-stocka" style="font-size: 1.45rem; color: #d97706; line-height: 1.2; display: block;">$0</strong>
+          <span id="pos-kpi-sub-comisiones" style="font-size: 0.7rem; color: var(--color-text-muted); display: block; margin-top: 2px;">Déb. 2.5% · Créd. 3.5% (+IVA)</span>
         </div>
       </div>
 
-      <div class="card" style="padding: 1.25rem; display: flex; align-items: center; gap: 1rem; border-left: 4px solid #f59e0b;">
-        <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(245, 158, 11, 0.1); display: flex; align-items: center; justify-content: center; color: #f59e0b; font-size: 1.5rem;">
+      <div class="card" style="padding: 1.1rem 1.2rem; display: flex; align-items: center; gap: 0.9rem; border-left: 4px solid #10b981; background: linear-gradient(135deg, rgba(16, 185, 129, 0.04) 0%, var(--color-surface) 100%);">
+        <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(16, 185, 129, 0.14); display: flex; align-items: center; justify-content: center; color: #059669; font-size: 1.4rem; flex-shrink: 0;">
+          <i class="ri-hand-coin-line"></i>
+        </div>
+        <div style="min-width: 0; flex: 1;">
+          <span style="font-size: 0.72rem; color: #047857; text-transform: uppercase; font-weight: 800; letter-spacing: 0.4px; display: block;">Pago Seller / Abono Fulfillment</span>
+          <strong id="pos-kpi-abono-seller" style="font-size: 1.45rem; color: #059669; line-height: 1.2; display: block;">$0</strong>
+          <span id="pos-kpi-sub-abono" style="font-size: 0.7rem; color: #047857; font-weight: 600; display: block; margin-top: 2px;">Recaudado neto en Máquina Stocka</span>
+        </div>
+      </div>
+
+      <div class="card" style="padding: 1.1rem 1.2rem; display: flex; align-items: center; gap: 0.9rem; border-left: 4px solid #8b5cf6;">
+        <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(139, 92, 246, 0.1); display: flex; align-items: center; justify-content: center; color: #7c3aed; font-size: 1.4rem; flex-shrink: 0;">
           <i class="ri-store-2-line"></i>
         </div>
-        <div>
-          <span style="font-size: 0.8rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; display: block;">Comercios Activos POS</span>
-          <strong id="pos-kpi-active-merchants" style="font-size: 1.5rem; color: var(--color-text-main);">0</strong>
+        <div style="min-width: 0; flex: 1;">
+          <span style="font-size: 0.72rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 0.4px; display: block;">Comercios con Ventas</span>
+          <strong id="pos-kpi-active-merchants" style="font-size: 1.45rem; color: var(--color-text-main); line-height: 1.2; display: block;">0</strong>
+          <span id="pos-kpi-sub-merchants" style="font-size: 0.7rem; color: var(--color-text-muted); display: block; margin-top: 2px;">Terminales activos en sucursal</span>
         </div>
       </div>
     </div>
 
+    <!-- Banner Contextual del Comercio Seleccionado (Máquina POS, Propietario y Acceso a Facturación) -->
+    <div id="pos-selected-commerce-summary-banner" style="display: none; margin-bottom: 1.25rem;"></div>
+
     <!-- Filtros -->
-    <div class="card" style="margin-bottom: 1.5rem;">
-      <div class="card-body" style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;">
-        <div class="form-group" style="flex: 1; min-width: 170px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Comercio</label>
+    <div class="card" style="margin-bottom: 1.25rem;">
+      <div class="card-body" style="display: flex; flex-wrap: wrap; gap: 0.85rem; align-items: flex-end; padding: 1rem 1.25rem;">
+        <div class="form-group" style="flex: 1.2; min-width: 175px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.76rem; font-weight: 700;">Comercio</label>
           <select id="filter-pos-commerce" class="form-input">
             <option value="">Todos los Comercios</option>
-            <!-- Inyectado dinámicamente -->
           </select>
         </div>
 
-        <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Modo de Pago</label>
+        <div class="form-group" style="flex: 1.2; min-width: 175px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.76rem; font-weight: 700; color: #047857;">
+            <i class="ri-calendar-check-line"></i> Periodo Facturación (Abono)
+          </label>
+          <select id="filter-pos-period" class="form-input" style="border-color: rgba(16, 185, 129, 0.4); font-weight: 600;">
+            <option value="">Todos los Periodos</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="flex: 1; min-width: 155px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.76rem; font-weight: 700;">Propiedad Máquina POS</label>
+          <select id="filter-pos-machine-owner" class="form-input">
+            <option value="">Todas las Máquinas</option>
+            <option value="STOCKA">Propiedad de STOCKA (Con Abono)</option>
+            <option value="COMERCIO">Propiedad del Comercio (Directo)</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="flex: 1; min-width: 145px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.76rem; font-weight: 700;">Modo de Pago</label>
           <select id="filter-pos-payment" class="form-input">
             <option value="">Todos los Modos</option>
             <option value="Tarjeta de Débito">Tarjeta de Débito</option>
@@ -366,27 +1742,27 @@ async function renderPosAdmin() {
           </select>
         </div>
 
-        <div class="form-group" style="flex: 1; min-width: 140px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Documento</label>
+        <div class="form-group" style="flex: 0.8; min-width: 120px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.76rem; font-weight: 700;">Documento</label>
           <select id="filter-pos-doc" class="form-input">
-            <option value="">Todos los Tipos</option>
+            <option value="">Todos</option>
             <option value="BOLETA">Boleta</option>
             <option value="FACTURA">Factura</option>
           </select>
         </div>
 
-        <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Buscador General</label>
-          <input type="text" id="filter-pos-search" class="form-input" placeholder="Buscar por código, cliente, correo, comentarios...">
+        <div class="form-group" style="flex: 1.4; min-width: 190px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.76rem; font-weight: 700;">Buscador General</label>
+          <input type="text" id="filter-pos-search" class="form-input" placeholder="Código, transacción, cliente, terminal...">
         </div>
 
-        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Desde Fecha</label>
+        <div class="form-group" style="flex: 0.9; min-width: 128px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.76rem; font-weight: 700;">Desde Fecha</label>
           <input type="date" id="filter-pos-date-from" class="form-input">
         </div>
 
-        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Hasta Fecha</label>
+        <div class="form-group" style="flex: 0.9; min-width: 128px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.76rem; font-weight: 700;">Hasta Fecha</label>
           <input type="date" id="filter-pos-date-to" class="form-input">
         </div>
       </div>
@@ -402,21 +1778,23 @@ async function renderPosAdmin() {
               <th>Código Venta</th>
               <th>Comercio</th>
               <th>Cliente</th>
-              <th>Sucursal</th>
               <th>Productos</th>
               <th style="text-align: right;">Total Pagado</th>
               <th>Pago y Documento</th>
+              <th>Máquina de Pago</th>
+              <th style="text-align: right;">Pago al Seller / Abono (+IVA)</th>
+              <th>Periodo Facturación (Abono) / Cód. Transacción</th>
               <th>Pedido Gestor</th>
               <th style="text-align: center;">Acciones</th>
             </tr>
           </thead>
           <tbody id="pos-admin-tbody">
-            <tr><td colspan="10" class="text-center" style="padding: 2rem;">Cargando ventas...</td></tr>
+            <tr><td colspan="12" class="text-center" style="padding: 2rem;">Cargando ventas...</td></tr>
           </tbody>
         </table>
       </div>
-      <div class="card-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem;">
-        <div id="pos-pagination-info" style="font-size: 0.875rem; color: var(--color-text-muted);">
+      <div class="card-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+        <div id="pos-pagination-info" style="font-size: 0.85rem; color: var(--color-text-muted);">
           Mostrando 0 registros
         </div>
         <div style="display: flex; gap: 0.5rem;">
@@ -427,11 +1805,20 @@ async function renderPosAdmin() {
     </div>
   `;
 
-  // Inicializar selectores de comercio en filtro
+  // Inicializar selectores de comercio y periodos en filtro
   await populateFilterCommerces();
+  populateFilterPeriods();
 
   // Listeners de Filtros
-  const filters = ['filter-pos-commerce', 'filter-pos-payment', 'filter-pos-doc', 'filter-pos-date-from', 'filter-pos-date-to'];
+  const filters = [
+    'filter-pos-commerce',
+    'filter-pos-period',
+    'filter-pos-machine-owner',
+    'filter-pos-payment',
+    'filter-pos-doc',
+    'filter-pos-date-from',
+    'filter-pos-date-to'
+  ];
   filters.forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -450,7 +1837,7 @@ async function renderPosAdmin() {
       searchTimeout = setTimeout(() => {
         posCurrentPage = 1;
         fetchAndRenderPosData();
-      }, 400);
+      }, 350);
     });
   }
 
@@ -484,7 +1871,37 @@ async function renderPosAdmin() {
   // Cargar datos
   posCurrentPage = 1;
   await fetchAndRenderPosData();
-};
+}
+
+function populateFilterPeriods() {
+  const select = document.getElementById('filter-pos-period');
+  if (!select) return;
+  const currentVal = select.value || '';
+  const periodNames = window.getAvailablePosBillingPeriodNames();
+
+  select.innerHTML = `<option value="">Todos los Periodos</option>`;
+  periodNames.forEach(pName => {
+    const opt = document.createElement('option');
+    opt.value = pName;
+    opt.textContent = `📅 ${pName}`;
+    select.appendChild(opt);
+  });
+
+  const extraOpts = [
+    { value: 'CON_ABONO', label: '✅ Todas con Abono a Fulfillment' },
+    { value: 'PAGO_DIRECTO', label: '💸 Pago Directo al Seller (Sin Abono)' },
+    { value: 'RECAUDACION_COMERCIO', label: '🏪 Recaudación Directa Comercio' },
+    { value: 'SIN_ASIGNAR', label: '⏳ Pendiente de Asignar' }
+  ];
+  extraOpts.forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o.value;
+    opt.textContent = o.label;
+    select.appendChild(opt);
+  });
+
+  if (currentVal) select.value = currentVal;
+}
 
 // Helper unificado para obtener listado limpio de comercios individuales (sin cadenas combinadas)
 window.getPosUniqueMerchantsList = async function() {
@@ -590,50 +2007,209 @@ function buildPosSalesQuery(query) {
   return query;
 }
 
-async function fetchAndRenderPosData() {
+function applyClientSidePosFilters(salesList) {
+  const fPeriod = document.getElementById('filter-pos-period')?.value || '';
+  const fOwner = document.getElementById('filter-pos-machine-owner')?.value || '';
+  if (!fPeriod && !fOwner) return salesList || [];
+
+  return (salesList || []).filter(s => {
+    const linkedOrd = window.posLinkedOrdersMap?.get(String(s.codigo_venta)) || null;
+    const mInfo = window.resolvePosSaleMachineInfo(s, window.posCommerceConfigsMap, linkedOrd);
+    const fin = window.calculatePosSaleFinancials(s, mInfo);
+    const abInfo = window.resolvePosSaleAbonoPeriod(s, linkedOrd, mInfo, fin);
+
+    if (fOwner === 'STOCKA' && !mInfo.isStockaMachine) return false;
+    if (fOwner === 'COMERCIO' && mInfo.isStockaMachine) return false;
+
+    if (fPeriod) {
+      if (fPeriod === 'CON_ABONO') {
+        if (!abInfo.isAbono) return false;
+      } else if (abInfo.period !== fPeriod) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
+function renderSelectedCommercePosBanner(selectedCommerce, filteredSales) {
+  const bannerEl = document.getElementById('pos-selected-commerce-summary-banner');
+  if (!bannerEl) return;
+
+  if (!selectedCommerce) {
+    bannerEl.style.display = 'none';
+    bannerEl.innerHTML = '';
+    return;
+  }
+
+  const mInfo = window.resolvePosSaleMachineInfo({ comercio: selectedCommerce, modo_pago: 'Tarjeta de Débito' }, window.posCommerceConfigsMap);
+  const dotColor = mInfo.colorHex || '#2563eb';
+  const readableColor = (typeof window.getPosReadableTextColor === 'function') ? window.getPosReadableTextColor(dotColor) : dotColor;
+  const posSvg = window.getPosMachineSvg(dotColor, 34);
+
+  let totalGross = 0;
+  let totalComm = 0;
+  let totalNetAbono = 0;
+  const periodTotalsMap = {};
+
+  (filteredSales || []).forEach(s => {
+    const linkedOrd = window.posLinkedOrdersMap?.get(String(s.codigo_venta)) || null;
+    const sMach = window.resolvePosSaleMachineInfo(s, window.posCommerceConfigsMap, linkedOrd);
+    const fin = window.calculatePosSaleFinancials(s, sMach);
+    const ab = window.resolvePosSaleAbonoPeriod(s, linkedOrd, sMach, fin);
+
+    totalGross += fin.grossAmount;
+    totalComm += fin.commissionTotal;
+    if (sMach.isStockaMachine && fin.isCard) {
+      totalNetAbono += fin.sellerPayout;
+    }
+    if (ab.isAbono && ab.period) {
+      periodTotalsMap[ab.period] = (periodTotalsMap[ab.period] || 0) + fin.sellerPayout;
+    }
+  });
+
+  const topPeriod = Object.keys(periodTotalsMap)[0] || '';
+  const periodPillsHtml = Object.entries(periodTotalsMap).map(([pName, amt]) => `
+    <span onclick="window.openPosCommerceInBillingManager('${escapeHtml(selectedCommerce)}', '${escapeHtml(pName)}')" style="cursor: pointer; background: rgba(16, 185, 129, 0.12); color: #047857; border: 1px solid rgba(16, 185, 129, 0.35); padding: 0.22rem 0.65rem; border-radius: 6px; font-size: 0.75rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.3rem;" title="Abrir ${escapeHtml(pName)} en Gestor de Facturación">
+      <i class="ri-calendar-check-line"></i> ${escapeHtml(pName)}: ${formatCLP(amt)} <i class="ri-external-link-line" style="font-size: 0.72rem;"></i>
+    </span>
+  `).join('');
+
+  bannerEl.style.display = 'block';
+  bannerEl.innerHTML = `
+    <div style="background: linear-gradient(135deg, ${dotColor}10 0%, var(--color-surface) 100%); border: 1.5px solid ${dotColor}45; border-left: 5px solid ${dotColor}; border-radius: 12px; padding: 1rem 1.25rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; box-shadow: 0 2px 10px rgba(0,0,0,0.04);">
+      <div style="display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap;">
+        <div style="width: 46px; height: 46px; border-radius: 10px; background: #ffffff; border: 1.5px solid ${dotColor}55; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.06);">
+          ${posSvg}
+        </div>
+        <div>
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <strong style="font-size: 1rem; color: var(--color-text-main);">${escapeHtml(selectedCommerce)}</strong>
+            <span style="background: ${dotColor}18; color: ${readableColor}; border: 1px solid ${dotColor}45; font-size: 0.74rem; font-weight: 800; padding: 0.15rem 0.55rem; border-radius: 6px; font-family: monospace;">
+              ${escapeHtml(mInfo.brand)} ${mInfo.displayModel ? escapeHtml(mInfo.displayModel) : ''} ${mInfo.color ? '· ' + escapeHtml(mInfo.color) : ''}
+            </span>
+            ${mInfo.isStockaMachine ? `
+              <span style="background: rgba(37, 99, 235, 0.12); color: #1d4ed8; border: 1px solid rgba(37, 99, 235, 0.3); font-size: 0.72rem; font-weight: 800; padding: 0.15rem 0.55rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-shield-star-line"></i> Propiedad de STOCKA (Aplica Abono Fulfillment)
+              </span>
+            ` : `
+              <span style="background: rgba(139, 92, 246, 0.12); color: #6d28d9; border: 1px solid rgba(139, 92, 246, 0.3); font-size: 0.72rem; font-weight: 800; padding: 0.15rem 0.55rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-store-2-line"></i> ${escapeHtml(mInfo.owner)} (Recaudación Directa Comercio)
+              </span>
+            `}
+          </div>
+          <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.3rem; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <span><strong>Ventas filtradas:</strong> ${(filteredSales || []).length} (${formatCLP(totalGross)} bruto)</span>
+            ${mInfo.isStockaMachine ? `
+              <span>· <strong>Comisión POS (+IVA):</strong> <span style="color: #d97706; font-weight: 700;">-${formatCLP(totalComm)}</span></span>
+              <span>· <strong>Abono Neto al Seller:</strong> <span style="color: #059669; font-weight: 800;">${formatCLP(totalNetAbono)}</span></span>
+            ` : `
+              <span>· <strong>Comisión POS Stocka:</strong> $0 (Terminal propio del seller)</span>
+            `}
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+        ${periodPillsHtml}
+        <button type="button" class="btn btn-sm btn-primary" onclick="window.openPosCommerceInBillingManager('${escapeHtml(selectedCommerce)}', '${escapeHtml(topPeriod)}')" style="background: #5f06fa; border-color: #5f06fa; font-size: 0.76rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.4rem 0.8rem; border-radius: 8px;">
+          <i class="ri-calculator-line"></i> Ver Abono en Gestor de Facturación
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+async function fetchAndRenderPosData(options = {}) {
   const tbody = document.getElementById('pos-admin-tbody');
   const btnPrev = document.getElementById('btn-pos-prev-page');
   const btnNext = document.getElementById('btn-pos-next-page');
   const info = document.getElementById('pos-pagination-info');
 
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="10" class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: inline-block;"></i> Cargando ventas...</td></tr>';
+  const hadExistingRows = tbody.querySelectorAll('tr').length > 1;
+  const savedWindowScrollY = window.scrollY;
+  const mainContainer = document.querySelector('.main-content') || document.scrollingElement;
+  const savedMainScrollTop = mainContainer ? mainContainer.scrollTop : 0;
+
+  if (!hadExistingRows && !options.preserveScroll) {
+    tbody.innerHTML = '<tr><td colspan="12" class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: inline-block;"></i> Cargando ventas...</td></tr>';
+  }
   if (btnPrev) btnPrev.disabled = true;
   if (btnNext) btnNext.disabled = true;
 
   try {
-    // 1. Ejecutar consulta paginada
-    let query = supabase.from('store_sales').select('*', { count: 'exact' });
+    await window.ensurePosMetadataLoaded();
+
+    // 1. Consultar todas las ventas que coinciden con los filtros de BD para calcular KPIs exactos y filtrar por periodo/máquina
+    let query = supabase.from('store_sales').select('*').order('created_at', { ascending: false });
     query = buildPosSalesQuery(query);
 
-    const from = (posCurrentPage - 1) * posPageSize;
-    const to = from + posPageSize - 1;
-    query = query.order('created_at', { ascending: false }).range(from, to);
-
-    const { data: sales, error, count } = await query;
+    const { data: rawSales, error } = await query;
     if (error) throw error;
 
-    // 2. Guardar en cache para acceso instantáneo por ID sin depender de comillas en atributos HTML
+    // 2. Consultar pedidos vinculados en public.orders por external_order_number para enriquecer periodo_facturacion y pos_machine
+    window.posLinkedOrdersMap = window.posLinkedOrdersMap || new Map();
+    const saleCodes = Array.from(new Set((rawSales || []).map(s => s.codigo_venta).filter(Boolean)));
+    if (saleCodes.length > 0) {
+      try {
+        const { data: linkedOrders } = await supabase
+          .from('orders')
+          .select('id, external_order_number, periodo_facturacion, raw_shopify_data')
+          .in('external_order_number', saleCodes);
+        (linkedOrders || []).forEach(o => {
+          if (o.id) window.posLinkedOrdersMap.set(String(o.id), o);
+          if (o.external_order_number) window.posLinkedOrdersMap.set(String(o.external_order_number), o);
+        });
+      } catch (eOrd) {
+        console.warn('Aviso consultando pedidos vinculados POS:', eOrd);
+      }
+    }
+
+    // 3. Aplicar filtros de Periodo de Abono y Propiedad de Máquina POS
+    window.posAllLoadedSales = rawSales || [];
+    const allFilteredSales = applyClientSidePosFilters(rawSales || []);
+    const count = allFilteredSales.length;
+
+    // Paginar en memoria sobre el resultado filtrado
+    const from = (posCurrentPage - 1) * posPageSize;
+    const to = from + posPageSize;
+    const sales = allFilteredSales.slice(from, to);
+
+    // 4. Guardar en cache para acceso instantáneo por ID o código
     window.posSalesCache = window.posSalesCache || new Map();
     window.posSalesCache.clear();
-    (sales || []).forEach(s => {
+    allFilteredSales.forEach(s => {
       window.posSalesCache.set(String(s.id), s);
       if (s.codigo_venta) window.posSalesCache.set(String(s.codigo_venta), s);
     });
 
-    // 3. Calcular KPIs mensuales y del día
-    updatePosKpis();
+    // 5. Actualizar KPIs dinámicos y Banner de Comercio Seleccionado
+    await updatePosKpis(allFilteredSales);
+    const selectedCommerce = document.getElementById('filter-pos-commerce')?.value || '';
+    renderSelectedCommercePosBanner(selectedCommerce, allFilteredSales);
 
-    // 4. Renderizar filas
+    const availablePeriods = window.getAvailablePosBillingPeriodNames(
+      allFilteredSales.map(s => {
+        const lOrd = window.posLinkedOrdersMap?.get(String(s.codigo_venta)) || null;
+        return window.resolvePosSaleAbonoPeriod(s, lOrd).period;
+      })
+    );
+
+    // 6. Renderizar filas
     let html = '';
     if (!sales || sales.length === 0) {
-      html = '<tr><td colspan="10" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">No se encontraron ventas con los filtros aplicados.</td></tr>';
+      html = '<tr><td colspan="12" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">No se encontraron ventas con los filtros aplicados.</td></tr>';
     } else {
       sales.forEach(s => {
         const d = new Date(s.created_at);
         const dateStr = d.toLocaleDateString('es-CL') + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
-        
-        let montoFmt = formatCLP(s.monto_total);
+        const montoFmt = formatCLP(s.monto_total);
+
+        const linkedOrd = window.posLinkedOrdersMap?.get(String(s.codigo_venta)) || null;
+        const mInfo = window.resolvePosSaleMachineInfo(s, window.posCommerceConfigsMap, linkedOrd);
+        const fin = window.calculatePosSaleFinancials(s, mInfo);
+        const abonoInfo = window.resolvePosSaleAbonoPeriod(s, linkedOrd, mInfo, fin);
 
         // Desglose de productos
         let prodSummary = 'Sin ítems';
@@ -654,73 +2230,75 @@ async function fetchAndRenderPosData() {
           } catch(e) {}
         }
 
-        // Badge de Pago
-        let paymentBadge = 'badge-neutral';
-        const pagoLower = (s.modo_pago || '').toLowerCase();
-        if (pagoLower.includes('efectivo')) paymentBadge = 'badge-success';
-        else if (pagoLower.includes('tarjeta') || pagoLower.includes('débito') || pagoLower.includes('crédito')) paymentBadge = 'badge-info';
-        else if (pagoLower.includes('transferencia')) paymentBadge = 'badge-warning';
-
-        // Badge de Documento
+        // Selector inline de Método de Pago y Badge de Documento
+        const paymentSelectHtml = window.renderPosPaymentSelectHtml(s);
         const docBadge = (s.documento_tipo === 'FACTURA')
           ? `<span class="badge" style="background: rgba(139, 92, 246, 0.12); color: #7c3aed; border: 1px solid rgba(139, 92, 246, 0.3); font-size: 0.72rem;"><i class="ri-file-paper-2-line"></i> Factura</span>`
           : `<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.25); font-size: 0.72rem;"><i class="ri-bill-line"></i> Boleta</span>`;
 
+        // Columnas dinámicas: Máquina de Pago, Pago al Seller y Periodo / Código de Transacción
+        const machineColHtml = window.renderPosMachineColHtml(mInfo);
+        const sellerPayoutColHtml = window.renderPosSellerPayoutColHtml(fin);
+        const periodColHtml = window.renderPosPeriodColHtml(s, linkedOrd, mInfo, fin, abonoInfo, availablePeriods);
+
         // Badge de Orden WMS
         let orderBadge = `<span class="text-muted" style="font-size: 0.8rem; font-style: italic;">Sin vincular</span>`;
-        if (s.wms_order_id) {
-          orderBadge = `<span class="badge badge-info" style="cursor: pointer;" onclick="window.filterOrderInGestor('${s.wms_order_id}', '${escapeHtml(s.codigo_venta)}')" title="Ver en Gestor de Pedidos"><i class="ri-box-3-line"></i> #${escapeHtml(s.codigo_venta)}</span>`;
-        } else {
-          // Revisar si en comentarios trae el ID de orden
-          const ordMatch = (s.comentarios || '').match(/\[WMS-ORD:\s*([a-zA-Z0-9-]+)\]/);
-          if (ordMatch) {
-            orderBadge = `<span class="badge badge-info" style="cursor: pointer;" onclick="window.filterOrderInGestor('${ordMatch[1]}', '${escapeHtml(s.codigo_venta)}')" title="Ver en Gestor de Pedidos"><i class="ri-box-3-line"></i> #${escapeHtml(s.codigo_venta)}</span>`;
-          }
+        const ordMatch = (s.comentarios || '').match(/\[WMS-ORD:\s*([a-zA-Z0-9-]+)\]/);
+        const wmsOrdId = s.wms_order_id || (ordMatch ? ordMatch[1] : (linkedOrd?.id || null));
+        if (wmsOrdId) {
+          orderBadge = `<span class="badge badge-info" style="cursor: pointer;" onclick="window.filterOrderInGestor('${wmsOrdId}', '${escapeHtml(s.codigo_venta)}')" title="Ver en Gestor de Pedidos"><i class="ri-box-3-line"></i> #${escapeHtml(s.codigo_venta)}</span>`;
         }
 
         html += `
-          <tr style="transition: background-color 0.2s;">
-            <td style="white-space: nowrap; font-size: 0.85rem;">
+          <tr id="pos-row-${s.id}" style="transition: background-color 0.2s;">
+            <td style="white-space: nowrap; font-size: 0.82rem;">
               <i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 1px;">
+                <i class="ri-map-pin-line" style="color: var(--color-primary);"></i> ${escapeHtml(s.sucursal || SUCURSAL_NUNOA_NAME)}
+              </div>
             </td>
             <td>
-              <span style="font-family: monospace; font-size: 0.85rem; font-weight: 700; background: var(--color-bg); padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">
+              <span style="font-family: monospace; font-size: 0.82rem; font-weight: 700; background: var(--color-bg); padding: 0.2rem 0.45rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.4px; white-space: nowrap;">
                 ${escapeHtml(s.codigo_venta || 'N/A')}
               </span>
             </td>
             <td>
-              <strong style="color: var(--color-text-main); font-size: 0.85rem;">${escapeHtml(s.comercio || 'N/A')}</strong>
+              <strong style="color: var(--color-text-main); font-size: 0.84rem;">${escapeHtml(s.comercio || 'N/A')}</strong>
             </td>
             <td>
-              <div style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">${escapeHtml(s.nombre_cliente || 'Consumidor Final')}</div>
-              ${s.correo_cliente ? `<div style="font-size: 0.75rem; color: var(--color-text-muted);"><i class="ri-mail-line"></i> ${escapeHtml(s.correo_cliente)}</div>` : ''}
+              <div style="font-size: 0.84rem; font-weight: 600; color: var(--color-text-main);">${escapeHtml(s.nombre_cliente || 'Consumidor Final')}</div>
+              ${s.correo_cliente ? `<div style="font-size: 0.73rem; color: var(--color-text-muted);"><i class="ri-mail-line"></i> ${escapeHtml(s.correo_cliente)}</div>` : ''}
             </td>
-            <td>
-              <span style="font-size: 0.8rem; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.25rem;">
-                <i class="ri-map-pin-line" style="color: var(--color-primary);"></i> ${escapeHtml(s.sucursal || SUCURSAL_NUNOA_NAME)}
-              </span>
-            </td>
-            <td style="font-size: 0.85rem; line-height: 1.4;">
+            <td style="font-size: 0.82rem; line-height: 1.35; max-width: 240px;">
               ${prodSummary}
             </td>
-            <td style="text-align: right;">
-              <strong style="color: #10b981; font-size: 1rem;">${montoFmt}</strong>
+            <td style="text-align: right; white-space: nowrap;">
+              <strong style="color: #0284c7; font-size: 0.96rem;">${montoFmt}</strong>
             </td>
             <td>
               <div style="display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-start;">
-                <span class="badge ${paymentBadge}" style="font-size: 0.75rem;">${escapeHtml(s.modo_pago || 'N/A')}</span>
+                ${paymentSelectHtml}
                 ${docBadge}
               </div>
+            </td>
+            <td id="pos-machine-cell-${s.id}">
+              ${machineColHtml}
+            </td>
+            <td id="pos-payout-cell-${s.id}" style="text-align: right; white-space: nowrap;">
+              ${sellerPayoutColHtml}
+            </td>
+            <td id="pos-period-cell-${s.id}">
+              ${periodColHtml}
             </td>
             <td>
               ${orderBadge}
             </td>
             <td style="text-align: center; white-space: nowrap;">
               <div style="display: flex; gap: 0.35rem; justify-content: center;">
-                <button class="btn btn-outline btn-sm" onclick="window.openPosSaleDetail('${s.id}')" style="padding: 0.3rem 0.6rem; font-size: 0.78rem;" title="Ver Detalle Completo">
+                <button class="btn btn-outline btn-sm" onclick="window.openPosSaleDetail('${s.id}')" style="padding: 0.3rem 0.55rem; font-size: 0.76rem;" title="Ver Detalle y Liquidación POS">
                   <i class="ri-search-eye-line" style="color: var(--color-primary);"></i> Detalle
                 </button>
-                <button class="btn btn-outline btn-sm" onclick="window.printPosTicket('${s.id}')" style="padding: 0.3rem 0.6rem; font-size: 0.78rem;" title="Imprimir Comprobante Térmico">
+                <button class="btn btn-outline btn-sm" onclick="window.printPosTicket('${s.id}')" style="padding: 0.3rem 0.55rem; font-size: 0.76rem;" title="Imprimir Comprobante Térmico">
                   <i class="ri-printer-line"></i>
                 </button>
               </div>
@@ -732,6 +2310,11 @@ async function fetchAndRenderPosData() {
 
     tbody.innerHTML = html;
 
+    if (hadExistingRows || options.preserveScroll) {
+      if (mainContainer && savedMainScrollTop > 0) mainContainer.scrollTop = savedMainScrollTop;
+      if (savedWindowScrollY > 0) window.scrollTo(0, savedWindowScrollY);
+    }
+
     const currentEnd = Math.min(from + posPageSize, count || 0);
     if (info) {
       info.textContent = `Mostrando ${count === 0 ? 0 : from + 1} a ${currentEnd} de ${count || 0} registros`;
@@ -742,45 +2325,98 @@ async function fetchAndRenderPosData() {
 
   } catch (err) {
     console.error('Error cargando ventas POS:', err);
-    tbody.innerHTML = `<tr><td colspan="10" class="text-center text-danger" style="padding: 2rem;">Error al cargar ventas: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="12" class="text-center text-danger" style="padding: 2rem;">Error al cargar ventas: ${err.message}</td></tr>`;
   }
 }
 
-// Función para actualizar tarjetas KPI superiores
-async function updatePosKpis() {
+// Función para actualizar tarjetas KPI superiores (dinámicas según filtros activos)
+async function updatePosKpis(filteredSalesList = null) {
   try {
-    const now = new Date();
-    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-
-    // Ventas del mes
-    const { data: monthSales } = await supabase
-      .from('store_sales')
-      .select('monto_total, comercio')
-      .gte('created_at', firstDayOfMonth);
-
-    if (monthSales) {
-      const countMonth = monthSales.length;
-      const totalMonth = monthSales.reduce((sum, s) => sum + (Number(s.monto_total) || 0), 0);
-      const uniqueCommerces = new Set(monthSales.map(s => s.comercio).filter(Boolean)).size;
-
-      const kpiCount = document.getElementById('pos-kpi-total-month');
-      const kpiMonto = document.getElementById('pos-kpi-monto-month');
-      const kpiCommerces = document.getElementById('pos-kpi-active-merchants');
-
-      if (kpiCount) kpiCount.textContent = countMonth;
-      if (kpiMonto) kpiMonto.textContent = formatCLP(totalMonth);
-      if (kpiCommerces) kpiCommerces.textContent = uniqueCommerces;
+    let list = filteredSalesList;
+    if (!Array.isArray(list)) {
+      const { data: allSales } = await supabase.from('store_sales').select('*').order('created_at', { ascending: false });
+      list = applyClientSidePosFilters(allSales || []);
     }
 
-    // Ventas de hoy
-    const { count: todayCount } = await supabase
-      .from('store_sales')
-      .select('*', { count: 'exact', head: true })
-      .gte('created_at', todayStart);
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
+    let totalSalesCount = list.length;
+    let totalUnits = 0;
+    let totalGross = 0;
+    let totalCommStocka = 0;
+    let totalNetAbonoStocka = 0;
+    let stockaSalesCount = 0;
+    let todayCount = 0;
+    const uniqueCommerces = new Set();
+
+    list.forEach(s => {
+      const createdTime = new Date(s.created_at).getTime();
+      if (createdTime >= todayStart) todayCount++;
+      if (s.comercio) uniqueCommerces.add(s.comercio.trim().toUpperCase());
+
+      if (s.productos) {
+        try {
+          const parsed = typeof s.productos === 'string' ? JSON.parse(s.productos) : s.productos;
+          if (Array.isArray(parsed)) {
+            totalUnits += parsed.reduce((acc, p) => acc + (parseInt(p.cantidad, 10) || 1), 0);
+          }
+        } catch (_) {}
+      }
+
+      const linkedOrd = window.posLinkedOrdersMap?.get(String(s.codigo_venta)) || null;
+      const mInfo = window.resolvePosSaleMachineInfo(s, window.posCommerceConfigsMap, linkedOrd);
+      const fin = window.calculatePosSaleFinancials(s, mInfo);
+
+      totalGross += fin.grossAmount;
+      if (fin.appliesStockaCommission) {
+        totalCommStocka += fin.commissionTotal;
+        totalNetAbonoStocka += fin.sellerPayout;
+        stockaSalesCount++;
+      } else if (mInfo.isStockaMachine) {
+        totalNetAbonoStocka += fin.sellerPayout;
+        stockaSalesCount++;
+      }
+    });
+
+    const fCommerce = document.getElementById('filter-pos-commerce')?.value || '';
+    const fPeriod = document.getElementById('filter-pos-period')?.value || '';
+    const hasFilter = Boolean(
+      fCommerce ||
+      fPeriod ||
+      document.getElementById('filter-pos-machine-owner')?.value ||
+      document.getElementById('filter-pos-payment')?.value ||
+      document.getElementById('filter-pos-doc')?.value ||
+      document.getElementById('filter-pos-search')?.value?.trim() ||
+      document.getElementById('filter-pos-date-from')?.value ||
+      document.getElementById('filter-pos-date-to')?.value
+    );
+
+    const kpiCount = document.getElementById('pos-kpi-total-month');
+    const kpiUnits = document.getElementById('pos-kpi-sub-units');
+    const kpiLabelCount = document.getElementById('pos-kpi-label-count');
+    const kpiMonto = document.getElementById('pos-kpi-monto-month');
+    const kpiSubMonto = document.getElementById('pos-kpi-sub-monto');
+    const kpiComm = document.getElementById('pos-kpi-comisiones-stocka');
+    const kpiSubComm = document.getElementById('pos-kpi-sub-comisiones');
+    const kpiAbono = document.getElementById('pos-kpi-abono-seller');
+    const kpiSubAbono = document.getElementById('pos-kpi-sub-abono');
+    const kpiCommerces = document.getElementById('pos-kpi-active-merchants');
     const kpiToday = document.getElementById('pos-kpi-today-count');
-    if (kpiToday) kpiToday.textContent = todayCount || 0;
+
+    if (kpiLabelCount) kpiLabelCount.textContent = hasFilter ? 'Ventas Filtradas' : 'Total Ventas POS';
+    if (kpiCount) kpiCount.textContent = totalSalesCount;
+    if (kpiUnits) kpiUnits.textContent = `(${totalUnits} un.)`;
+    if (kpiMonto) kpiMonto.textContent = formatCLP(totalGross);
+    if (kpiSubMonto) kpiSubMonto.textContent = fCommerce ? `Comercio: ${fCommerce}` : (fPeriod ? `Periodo: ${fPeriod}` : 'Total bruto acumulado');
+    if (kpiComm) kpiComm.textContent = formatCLP(totalCommStocka);
+    if (kpiSubComm) kpiSubComm.textContent = `${stockaSalesCount} venta(s) en Máquina Stocka`;
+    if (kpiAbono) kpiAbono.textContent = formatCLP(totalNetAbonoStocka);
+    if (kpiSubAbono) kpiSubAbono.textContent = fPeriod && !['PAGO_DIRECTO', 'RECAUDACION_COMERCIO', 'SIN_ASIGNAR'].includes(fPeriod)
+      ? `Abono para ${fPeriod}`
+      : 'Monto neto a abonar al seller';
+    if (kpiCommerces) kpiCommerces.textContent = uniqueCommerces.size;
+    if (kpiToday) kpiToday.textContent = todayCount;
 
   } catch (e) {
     console.warn('Error calculando KPIs de POS:', e);
@@ -845,6 +2481,17 @@ window.openCreatePosSaleModal = async function() {
   if (phoneValMsg) phoneValMsg.style.display = 'none';
 
   setVal('pos-comments', '');
+  setVal('pos-tx-code-input', '');
+  const txInputEl = document.getElementById('pos-tx-code-input');
+  if (txInputEl) {
+    txInputEl.style.borderColor = '';
+    txInputEl.dataset.txDuplicate = 'false';
+  }
+  const txValMsg = document.getElementById('pos-tx-code-validation-msg');
+  if (txValMsg) {
+    txValMsg.style.color = 'var(--color-text-muted)';
+    txValMsg.innerHTML = 'Código único e irrepetible de la operación POS/pago (no admite espacios ni duplicados).';
+  }
   setVal('pos-factura-rut', '');
   setVal('pos-factura-razon-social', '');
   setVal('pos-factura-giro', '');
@@ -2311,6 +3958,112 @@ window.updatePosPaymentMachineBanner = function() {
   } else {
     banner.innerHTML = '';
   }
+
+  if (typeof window.updatePosStep3AbonoPreview === 'function') {
+    window.updatePosStep3AbonoPreview();
+  }
+};
+
+window.updatePosStep3AbonoPreview = function() {
+  const commerceName = (document.getElementById('pos-select-commerce')?.value || '').trim();
+  const modoPago = document.getElementById('pos-modo-pago')?.value || 'Tarjeta de Débito';
+  const periodSelect = document.getElementById('pos-abono-period-select');
+  const previewEl = document.getElementById('pos-step3-financial-preview');
+  const abonoBox = document.getElementById('pos-step3-abono-period-box');
+
+  if (!commerceName) {
+    if (previewEl) previewEl.innerHTML = '';
+    return;
+  }
+
+  // Calcular monto bruto actual de las filas
+  const rows = document.querySelectorAll('#pos-products-tbody tr');
+  let totalAmount = 0;
+  rows.forEach(r => {
+    const qty = parseInt(r.querySelector('.pos-row-qty')?.value, 10) || 0;
+    const priceVal = r.querySelector('.pos-row-price')?.value;
+    const price = (priceVal !== '' && !isNaN(priceVal)) ? Math.max(0, parseInt(priceVal, 10)) : 0;
+    totalAmount += Math.max(0, qty * price);
+  });
+
+  const dummySale = {
+    comercio: commerceName,
+    modo_pago: modoPago,
+    monto_total: totalAmount,
+    created_at: new Date().toISOString()
+  };
+
+  const machineInfo = window.resolvePosSaleMachineInfo(dummySale, window.loadedCommerceConfigsMap, null);
+  const fin = window.calculatePosSaleFinancials(dummySale, machineInfo, window.posCachedPricingConfig);
+  const currentDefaultPeriod = window.derivePosPeriodFromDate(new Date());
+  const availablePeriods = window.getAvailablePosBillingPeriodNames([currentDefaultPeriod]);
+
+  if (periodSelect) {
+    const prevValue = periodSelect.value;
+    const shouldDefaultSinAbono = !fin.appliesStockaPosSettlement;
+    periodSelect.innerHTML = `
+      ${availablePeriods.map(p => `<option value="${escapeHtml(p)}">📅 Abonar en Facturación: ${escapeHtml(p)}</option>`).join('')}
+      <option value="SIN_ABONO">🚫 Pago Directo Seller / Excluir de Abono Fulfillment</option>
+    `;
+
+    const lastModo = periodSelect.dataset.lastModo || '';
+    const lastComm = periodSelect.dataset.lastCommerce || '';
+    if (lastModo !== modoPago || lastComm !== commerceName || !prevValue) {
+      periodSelect.value = shouldDefaultSinAbono ? 'SIN_ABONO' : currentDefaultPeriod;
+      periodSelect.dataset.lastModo = modoPago;
+      periodSelect.dataset.lastCommerce = commerceName;
+    } else if (Array.from(periodSelect.options).some(o => o.value === prevValue)) {
+      periodSelect.value = prevValue;
+    }
+    periodSelect.onchange = () => window.updatePosStep3AbonoPreview();
+  }
+
+  const selectedPeriod = periodSelect ? periodSelect.value : (fin.appliesStockaPosSettlement ? currentDefaultPeriod : 'SIN_ABONO');
+
+  if (abonoBox) {
+    abonoBox.style.borderColor = (selectedPeriod !== 'SIN_ABONO' && fin.appliesStockaPosSettlement)
+      ? 'rgba(16, 185, 129, 0.4)'
+      : 'rgba(100, 116, 139, 0.3)';
+    abonoBox.style.background = (selectedPeriod !== 'SIN_ABONO' && fin.appliesStockaPosSettlement)
+      ? 'rgba(16, 185, 129, 0.06)'
+      : 'rgba(100, 116, 139, 0.05)';
+  }
+
+  if (previewEl) {
+    if (fin.appliesStockaPosSettlement) {
+      previewEl.innerHTML = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 0.55rem; background: #ffffff; border: 1px solid rgba(16, 185, 129, 0.28); border-radius: 8px; padding: 0.65rem 0.8rem;">
+          <div>
+            <span style="font-size: 0.66rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Máquina Utilizada</span>
+            <strong style="font-size: 0.82rem; color: #0f172a;">${escapeHtml(machineInfo.brand)}${machineInfo.model ? ' #' + escapeHtml(machineInfo.model) : ''}</strong>
+            <span style="font-size: 0.66rem; color: #2563eb; font-weight: 700; display: block;">Propiedad de STOCKA</span>
+          </div>
+          <div>
+            <span style="font-size: 0.66rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Monto Bruto Venta</span>
+            <strong style="font-size: 0.92rem; color: #0f172a;">${formatCLP(fin.montoTotal)}</strong>
+            <span style="font-size: 0.66rem; color: var(--color-text-muted); display: block;">${escapeHtml(modoPago)}</span>
+          </div>
+          <div>
+            <span style="font-size: 0.66rem; text-transform: uppercase; color: #dc2626; font-weight: 700; display: block;">Comisión POS (${fin.feePct.toFixed(2)}% + IVA)</span>
+            <strong style="font-size: 0.9rem; color: #dc2626;">-${formatCLP(fin.commissionTotal)}</strong>
+            <span style="font-size: 0.65rem; color: var(--color-text-muted); display: block;">Neto ${formatCLP(fin.commissionNet)} + IVA ${formatCLP(fin.commissionIva)}</span>
+          </div>
+          <div style="background: rgba(16, 185, 129, 0.08); border-radius: 6px; padding: 0.35rem 0.55rem; border: 1px solid rgba(16, 185, 129, 0.25);">
+            <span style="font-size: 0.66rem; text-transform: uppercase; color: #047857; font-weight: 800; display: block;">Pago al Seller (Abono)</span>
+            <strong style="font-size: 1rem; color: #059669; font-weight: 900;">${formatCLP(fin.sellerPayout)}</strong>
+            <span style="font-size: 0.65rem; color: #047857; font-weight: 700; display: block;">${selectedPeriod !== 'SIN_ABONO' ? 'Abona en ' + escapeHtml(selectedPeriod) : 'Excluido de abono'}</span>
+          </div>
+        </div>
+      `;
+    } else {
+      previewEl.innerHTML = `
+        <div style="background: #ffffff; border: 1px solid rgba(100, 116, 139, 0.25); border-radius: 8px; padding: 0.6rem 0.8rem; font-size: 0.78rem; color: #475569; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+          <span><i class="ri-information-line" style="color: #7c3aed;"></i> <strong>${escapeHtml(fin.reasonLabel)}:</strong> El comercio recibe el 100% directo (${formatCLP(fin.montoTotal)}) sin comisión POS de Stocka ($0).</span>
+          <span style="font-size: 0.72rem; font-weight: 700; color: #64748b;">Estado: ${selectedPeriod === 'SIN_ABONO' ? 'Recaudación Directa Seller' : 'Abono Manual en ' + escapeHtml(selectedPeriod)}</span>
+        </div>
+      `;
+    }
+  }
 };
 
 // ====== 4. CARGA DE CATÁLOGO E INVENTARIO POR COMERCIO ======
@@ -2863,6 +4616,10 @@ window.calculatePosTotals = function() {
 
   const confirmTotal = document.getElementById('pos-confirm-total');
   if (confirmTotal) confirmTotal.textContent = formatCLP(total);
+
+  if (typeof window.updatePosStep3AbonoPreview === 'function') {
+    window.updatePosStep3AbonoPreview();
+  }
 };
 
 // ====== 6. GUARDAR VENTA, CREAR PEDIDO Y DESCONTAR STOCK ======
@@ -2955,12 +4712,67 @@ window.savePosSale = async function(e) {
 
   const assignedPosMachine = window.resolvePosCommerceConfig(commerce)?.onboarding_checklist?.pos_machine || {};
   const isCardSale = (modoPago === 'Tarjeta de Débito' || modoPago === 'Tarjeta de Crédito');
+  const selectedAbonoPeriodVal = document.getElementById('pos-abono-period-select')?.value || window.derivePosPeriodFromDate(new Date());
+  const rawTxCodeVal = document.getElementById('pos-tx-code-input')?.value || '';
+  const txCodeVal = window.sanitizePosTransactionCode(rawTxCodeVal);
+  const txInputEl = document.getElementById('pos-tx-code-input');
+  if (txInputEl && txInputEl.value !== txCodeVal) {
+    txInputEl.value = txCodeVal;
+  }
+
+  // Validar unicidad del código de transacción antes de continuar si fue ingresado
+  if (txCodeVal) {
+    const dupCheck = await window.checkPosTransactionCodeDuplicate(txCodeVal, null);
+    if (dupCheck.isDuplicate) {
+      const conf = dupCheck.conflictingSale || {};
+      const confDate = conf.created_at ? new Date(conf.created_at).toLocaleDateString('es-CL') : '';
+      if (txInputEl) {
+        txInputEl.style.borderColor = '#ef4444';
+        txInputEl.focus();
+      }
+      Swal.fire({
+        icon: 'error',
+        title: 'Código de Transacción Duplicado',
+        html: `
+          <div style="text-align: left; font-size: 0.88rem; line-height: 1.5;">
+            <p style="margin-bottom: 0.65rem;">El código de transacción <strong style="font-family: monospace; color: #dc2626; background: rgba(239,68,68,0.1); padding: 2px 6px; border-radius: 4px;">${escapeHtml(txCodeVal)}</strong> ya fue ingresado anteriormente y no puede repetirse.</p>
+            <div style="background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px; padding: 0.65rem 0.85rem; font-size: 0.82rem;">
+              <div><strong>Venta existente:</strong> <span style="font-family: monospace;">${escapeHtml(conf.codigo_venta || '#' + conf.id)}</span></div>
+              <div><strong>Comercio:</strong> ${escapeHtml(conf.comercio || 'N/A')}</div>
+              ${conf.nombre_cliente ? `<div><strong>Cliente:</strong> ${escapeHtml(conf.nombre_cliente)}</div>` : ''}
+              ${confDate ? `<div><strong>Fecha:</strong> ${escapeHtml(confDate)}</div>` : ''}
+            </div>
+          </div>
+        `,
+        confirmButtonText: 'Corregir Código',
+        confirmButtonColor: '#ef4444'
+      });
+      return;
+    }
+  }
+
+  const previewSaleObj = { comercio: commerce, modo_pago: modoPago, monto_total: totalAmount, created_at: new Date().toISOString() };
+  const previewMachineInfo = window.resolvePosSaleMachineInfo(previewSaleObj, window.loadedCommerceConfigsMap, null);
+  const previewFin = window.calculatePosSaleFinancials(previewSaleObj, previewMachineInfo, window.posCachedPricingConfig);
+
   const confirmMachineHtml = (isCardSale && (assignedPosMachine.brand || assignedPosMachine.model))
     ? `<div style="margin-top: 0.65rem; padding: 0.6rem 0.85rem; background: rgba(37, 99, 235, 0.08); border: 1.5px solid rgba(37, 99, 235, 0.35); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
          <span style="font-size: 0.82rem; font-weight: 700; color: #1e293b;">Máquina POS (${escapeHtml(assignedPosMachine.brand || 'POS')}${assignedPosMachine.color ? ' · ' + escapeHtml(assignedPosMachine.color) : ''}):</span>
          <span style="font-family: monospace; font-size: 1.25rem; font-weight: 900; color: #1d4ed8;">#${escapeHtml(assignedPosMachine.model || 'S/N')}</span>
        </div>`
     : '';
+
+  const confirmSettlementHtml = previewFin.appliesStockaPosSettlement
+    ? `<div style="margin-top: 0.55rem; padding: 0.6rem 0.85rem; background: rgba(16, 185, 129, 0.08); border: 1.5px solid rgba(16, 185, 129, 0.35); border-radius: 8px; font-size: 0.8rem;">
+         <div style="display: flex; justify-content: space-between;"><span>Comisión POS (${previewFin.feePct.toFixed(2)}% + IVA):</span><strong style="color: #dc2626;">-${formatCLP(previewFin.commissionTotal)}</strong></div>
+         <div style="display: flex; justify-content: space-between; margin-top: 2px;"><span>Pago Neto Seller (Abono):</span><strong style="color: #059669;">${formatCLP(previewFin.sellerPayout)}</strong></div>
+         <div style="display: flex; justify-content: space-between; margin-top: 2px;"><span>Periodo Facturación (Abono):</span><strong style="color: #047857;">${selectedAbonoPeriodVal === 'SIN_ABONO' ? 'Excluido de Abono' : escapeHtml(selectedAbonoPeriodVal)}</strong></div>
+         ${txCodeVal ? `<div style="display: flex; justify-content: space-between; margin-top: 2px;"><span>Cód. Transacción:</span><strong style="color: #0284c7; font-family: monospace;">#${escapeHtml(txCodeVal)}</strong></div>` : ''}
+       </div>`
+    : `<div style="margin-top: 0.55rem; padding: 0.55rem 0.85rem; background: rgba(100, 116, 139, 0.08); border: 1px solid rgba(100, 116, 139, 0.25); border-radius: 8px; font-size: 0.78rem; color: #475569;">
+         <strong>${escapeHtml(previewFin.reasonLabel)}:</strong> Recaudación directa por el comercio ($0 comisión Stocka).
+         ${txCodeVal ? `<div style="margin-top: 2px;"><strong>Cód. Transacción:</strong> <span style="font-family: monospace; color: #0284c7;">#${escapeHtml(txCodeVal)}</span></div>` : ''}
+       </div>`;
 
   // Confirmación previa
   const confirmResult = await Swal.fire({
@@ -2973,6 +4785,7 @@ window.savePosSale = async function(e) {
         <p style="margin-bottom: 0.5rem;"><strong>Medio de Pago:</strong> ${escapeHtml(modoPago)} (${docTipo})</p>
         <p style="margin-bottom: 0.25rem;"><strong>Artículos:</strong> ${totalUnits} unidad(es)</p>
         ${confirmMachineHtml}
+        ${confirmSettlementHtml}
       </div>
     `,
     icon: 'question',
@@ -3017,6 +4830,9 @@ window.savePosSale = async function(e) {
     // 2. CREAR PEDIDO EN EL GESTOR (orders)
     const skusString = itemsPayload.map(i => i.sku).filter(Boolean).join(', ');
     const namesString = itemsPayload.map(i => `${i.cantidad}x ${i.producto}`).join(', ');
+    const effectiveOrderPeriod = (selectedAbonoPeriodVal && selectedAbonoPeriodVal !== 'SIN_ABONO')
+      ? selectedAbonoPeriodVal
+      : window.derivePosPeriodFromDate(new Date());
 
     const orderPayload = {
       merchant_id: merchantId,
@@ -3040,6 +4856,7 @@ window.savePosSale = async function(e) {
       total_value: totalAmount,
       sucursal_pickeo: SUCURSAL_NUNOA_NAME,
       agenda: 'POS',
+      periodo_facturacion: effectiveOrderPeriod,
       raw_shopify_data: {
         is_pos_sale: true,
         pos_sale_code: codigoVenta,
@@ -3047,8 +4864,19 @@ window.savePosSale = async function(e) {
         document_type: docTipo,
         recorded_by: adminUser,
         ...posCreatorMeta,
+        pos_abono_period: selectedAbonoPeriodVal,
+        pos_tx_code: txCodeVal || null,
+        pos_financials: {
+          monto_total: previewFin.montoTotal,
+          fee_pct: previewFin.feePct,
+          commission_net: previewFin.commissionNet,
+          commission_iva: previewFin.commissionIva,
+          commission_total: previewFin.commissionTotal,
+          seller_payout: previewFin.sellerPayout,
+          applies_stocka_settlement: previewFin.appliesStockaPosSettlement
+        },
         pos_machine: (modoPago.includes('Tarjeta') || modoPago.includes('Débito') || modoPago.includes('Crédito'))
-          ? (window.posSelectedCommerceConfig?.onboarding_checklist?.pos_machine || { brand: 'STOCKA POS' })
+          ? (window.posSelectedCommerceConfig?.onboarding_checklist?.pos_machine || { brand: 'STOCKA POS', owner: 'STOCKA' })
           : null
       }
     };
@@ -3123,9 +4951,16 @@ window.savePosSale = async function(e) {
 
     const assignedMachine = window.posSelectedCommerceConfig?.onboarding_checklist?.pos_machine;
     const isCard = modoPago.includes('Tarjeta') || modoPago.includes('Débito') || modoPago.includes('Crédito');
-    const machineTag = isCard 
-      ? ` [Terminal: ${(assignedMachine?.brand || 'STOCKA') + (assignedMachine?.model ? ' ' + assignedMachine.model : '')}]`
-      : '';
+    const terminalTagStr = isCard
+      ? ((assignedMachine?.brand || 'STOCKA') + (assignedMachine?.model ? ' ' + assignedMachine.model : ''))
+      : null;
+
+    const fullCommentsWithTags = window.buildPosSaleCommentsWithTags(comments, '', {
+      orderId: insertedOrder.id,
+      terminalLabel: terminalTagStr,
+      abonoPeriod: selectedAbonoPeriodVal,
+      txCode: txCodeVal
+    });
 
     const salePayload = {
       ...(nextSaleId ? { id: nextSaleId } : {}),
@@ -3142,7 +4977,7 @@ window.savePosSale = async function(e) {
       giro_facturacion: docTipo === 'FACTURA' ? fGiro : null,
       razon_social_facturacion: docTipo === 'FACTURA' ? fRazon : null,
       direccion_facturacion: docTipo === 'FACTURA' ? fDireccion : null,
-      comentarios: comments ? `${comments} [WMS-ORD: ${insertedOrder.id}]${machineTag}` : `[WMS-ORD: ${insertedOrder.id}]${machineTag}`,
+      comentarios: fullCommentsWithTags,
       sucursal: 'Ñuñoa',
       creado_por: adminUser
     };
@@ -3373,6 +5208,92 @@ window.openPosSaleDetail = function(idOrData) {
     const d = new Date(data.created_at);
     const dateStr = d.toLocaleDateString('es-CL') + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
 
+    // Resolver Máquina POS, Comisiones (+IVA), Periodo de Abono y Código de Transacción
+    const linkedOrder = (window.posLinkedOrdersBySaleCodeMap && data.codigo_venta && window.posLinkedOrdersBySaleCodeMap.get(String(data.codigo_venta).trim().toUpperCase())) || (window.posLinkedOrdersMap && data.codigo_venta && window.posLinkedOrdersMap.get(String(data.codigo_venta))) || null;
+    const machineInfo = data._posMachineInfo || window.resolvePosSaleMachineInfo(data, window.loadedCommerceConfigsMap, linkedOrder);
+    const fin = data._posFinancials || window.calculatePosSaleFinancials(data, machineInfo, window.posCachedPricingConfig);
+    const abonoInfo = data._posAbonoInfo || window.resolvePosSaleAbonoPeriod(data, linkedOrder, machineInfo, fin);
+    const txCodeDetail = window.resolvePosSaleTransactionCode(data, linkedOrder);
+    const cleanObs = window.cleanPosSaleComments(data.comentarios);
+    const availablePeriods = window.getAvailablePosBillingPeriodNames([abonoInfo.period !== 'SIN_ABONO' ? abonoInfo.period : null]);
+
+    const dotColor = window.resolvePosMachineColor(machineInfo.color, machineInfo.colorHex);
+    const readableColor = window.getPosReadableTextColor(dotColor);
+
+    const posSettlementDetailHtml = `
+      <div style="background: linear-gradient(135deg, ${fin.appliesStockaPosSettlement ? 'rgba(16, 185, 129, 0.06)' : 'rgba(100, 116, 139, 0.05)'} 0%, #ffffff 100%); border: 1.5px solid ${fin.appliesStockaPosSettlement ? 'rgba(16, 185, 129, 0.35)' : 'rgba(100, 116, 139, 0.25)'}; border-radius: var(--radius-md); padding: 1rem 1.15rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.85rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.55rem;">
+          <h4 style="margin: 0; font-size: 0.88rem; color: #0f172a; font-weight: 800; display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-scales-3-line" style="color: ${fin.appliesStockaPosSettlement ? '#059669' : '#64748b'}; font-size: 1.05rem;"></i>
+            Máquina de Pago, Comisiones POS y Liquidación / Abono Fulfillment
+          </h4>
+          <button type="button" class="btn btn-sm btn-outline" onclick="document.getElementById('modal-pos-detail')?.classList.remove('active'); window.openPosCommerceInBillingManager('${escapeHtml(data.comercio || '')}', '${escapeHtml(abonoInfo.period !== 'SIN_ABONO' ? abonoInfo.period : '')}');" style="font-size: 0.74rem; padding: 0.25rem 0.65rem; border-color: rgba(16, 185, 129, 0.4); color: #047857; font-weight: 700;">
+            <i class="ri-file-list-3-line"></i> Ver en Gestor de Facturación
+          </button>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 0.75rem;">
+          <div style="background: #ffffff; border: 1px solid var(--color-border); border-left: 3.5px solid ${readableColor}; border-radius: 8px; padding: 0.65rem 0.8rem;">
+            <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Máquina de Pago Utilizada</span>
+            <div style="display: flex; align-items: center; gap: 0.4rem; margin-top: 0.25rem;">
+              ${machineInfo.isCardSale ? window.getPosMachineSvg(dotColor, 20) : `<i class="ri-bank-card-line" style="color:${dotColor};font-size:1.1rem;"></i>`}
+              <strong style="font-size: 0.9rem; color: #0f172a;">${escapeHtml(machineInfo.brand)}${machineInfo.model ? ' #' + escapeHtml(machineInfo.model) : ''}</strong>
+            </div>
+            <span style="display: inline-block; margin-top: 0.25rem; font-size: 0.68rem; font-weight: 800; padding: 0.1rem 0.45rem; border-radius: 4px; background: ${machineInfo.isStockaOwned ? 'rgba(37, 99, 235, 0.1)' : 'rgba(124, 58, 237, 0.1)'}; color: ${machineInfo.isStockaOwned ? '#1d4ed8' : '#6d28d9'};">
+              ${machineInfo.isCardSale ? (machineInfo.isStockaOwned ? 'Propiedad de STOCKA' : 'Propiedad de ' + escapeHtml(machineInfo.owner)) : escapeHtml(machineInfo.owner)}
+            </span>
+          </div>
+
+          <div style="background: #ffffff; border: 1px solid var(--color-border); border-left: 3.5px solid #dc2626; border-radius: 8px; padding: 0.65rem 0.8rem;">
+            <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Comisión POS (${fin.appliesStockaPosSettlement ? fin.feePct.toFixed(2) + '% + IVA' : '0%'})</span>
+            <strong style="font-size: 1.05rem; color: ${fin.appliesStockaPosSettlement ? '#dc2626' : '#64748b'}; display: block; margin-top: 0.2rem;">
+              ${fin.appliesStockaPosSettlement ? '-' + formatCLP(fin.commissionTotal) : '$0'}
+            </strong>
+            <span style="font-size: 0.7rem; color: var(--color-text-muted);">
+              ${fin.appliesStockaPosSettlement ? `Neto: ${formatCLP(fin.commissionNet)} + IVA: ${formatCLP(fin.commissionIva)}` : escapeHtml(fin.reasonLabel)}
+            </span>
+          </div>
+
+          <div style="background: ${fin.appliesStockaPosSettlement ? 'rgba(16, 185, 129, 0.08)' : '#ffffff'}; border: 1px solid ${fin.appliesStockaPosSettlement ? 'rgba(16, 185, 129, 0.35)' : 'var(--color-border)'}; border-left: 3.5px solid #10b981; border-radius: 8px; padding: 0.65rem 0.8rem;">
+            <span style="font-size: 0.68rem; text-transform: uppercase; color: #047857; font-weight: 800; display: block;">Pago al Seller / Abono Fulfillment</span>
+            <strong style="font-size: 1.15rem; color: #059669; font-weight: 900; display: block; margin-top: 0.15rem;">
+              ${formatCLP(fin.sellerPayout)}
+            </strong>
+            <span style="font-size: 0.69rem; color: #047857; font-weight: 600;">
+              ${fin.appliesStockaPosSettlement ? 'Monto neto recaudado por Stocka' : 'Recaudado directo por Seller'}
+            </span>
+          </div>
+
+          <div style="background: #ffffff; border: 1px solid var(--color-border); border-left: 3.5px solid #4f46e5; border-radius: 8px; padding: 0.65rem 0.8rem;">
+            <span style="font-size: 0.68rem; text-transform: uppercase; color: #4f46e5; font-weight: 800; display: block; margin-bottom: 0.25rem;">Periodo Facturación (Abono)</span>
+            <select class="form-control" style="padding: 0.28rem 0.45rem; font-size: 0.76rem; font-weight: 800; height: auto;" onchange="window.updatePosSaleAbonoPeriod('${escapeHtml(String(data.id))}', this.value)">
+              ${availablePeriods.map(p => `<option value="${escapeHtml(p)}" ${abonoInfo.period === p ? 'selected' : ''}>📅 Abono: ${escapeHtml(p)}</option>`).join('')}
+              <option value="PAGO_DIRECTO" ${!abonoInfo.isAbono || abonoInfo.period === 'PAGO_DIRECTO' ? 'selected' : ''}>💸 Pago Directo Seller</option>
+              <option value="SIN_ASIGNAR" ${abonoInfo.period === 'SIN_ASIGNAR' ? 'selected' : ''}>⏳ Sin Asignar</option>
+            </select>
+            <div style="margin-top: 0.45rem;">
+              <span style="font-size: 0.66rem; text-transform: uppercase; color: #0284c7; font-weight: 800; display: block; margin-bottom: 0.2rem;">Código de Transacción (Único)</span>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <input
+                  type="text"
+                  id="pos-detail-tx-input-${escapeHtml(String(data.id))}"
+                  value="${escapeHtml(txCodeDetail)}"
+                  placeholder="Sin espacios..."
+                  autocomplete="off"
+                  oninput="this.value = this.value.replace(/\\s+/g, '').toUpperCase();"
+                  onkeydown="if(event.key === 'Enter'){ event.preventDefault(); window.saveInlinePosTxCode('${escapeHtml(String(data.id))}', 'pos-detail-tx-input-${escapeHtml(String(data.id))}'); }"
+                  style="flex: 1; height: 28px; padding: 0 8px; font-family: monospace; font-size: 0.76rem; font-weight: 800; border-radius: 5px; border: 1px solid ${txCodeDetail ? 'rgba(2, 132, 199, 0.45)' : 'var(--color-border)'}; background: ${txCodeDetail ? 'rgba(2, 132, 199, 0.08)' : '#ffffff'}; color: ${txCodeDetail ? '#0369a1' : '#0f172a'};"
+                >
+                <button type="button" onclick="window.saveInlinePosTxCode('${escapeHtml(String(data.id))}', 'pos-detail-tx-input-${escapeHtml(String(data.id))}')" style="height: 28px; padding: 0 8px; border-radius: 5px; border: 1px solid rgba(2, 132, 199, 0.4); background: rgba(2, 132, 199, 0.12); color: #0284c7; font-size: 0.74rem; font-weight: 700; cursor: pointer;">
+                  <i class="ri-save-3-line"></i> Guardar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
     container.innerHTML = `
       <div style="display: flex; flex-direction: column; gap: 1rem;">
         
@@ -3386,13 +5307,18 @@ window.openPosSaleDetail = function(idOrData) {
             </div>
           </div>
           <div style="text-align: right;">
-            <span style="font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted); letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Total Pagado</span>
+            <span style="font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted); letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Total Pagado (Bruto)</span>
             <span style="font-size: 1.6rem; font-weight: 800; color: #10b981;">${formatCLP(data.monto_total)}</span>
-            <div style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); margin-top: 0.25rem;">
-              ${escapeHtml(data.modo_pago || '-')} <small class="text-muted">(${data.documento_tipo || 'BOLETA'})</small>
+            <div style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); margin-top: 0.35rem; display: flex; align-items: center; justify-content: flex-end; gap: 0.4rem; flex-wrap: wrap;">
+              <select class="form-input" onchange="window.updatePosSalePaymentMethod('${escapeHtml(String(data.id))}', this.value, { fromDetailModal: true })" style="height: 28px; padding: 0 0.5rem; font-size: 0.78rem; font-weight: 700; width: auto;">
+                ${['Tarjeta de Débito', 'Tarjeta de Crédito', 'Efectivo', 'Transferencia'].map(m => `<option value="${escapeHtml(m)}" ${data.modo_pago === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+              </select>
+              <small class="text-muted">(${data.documento_tipo || 'BOLETA'})</small>
             </div>
           </div>
         </div>
+
+        ${posSettlementDetailHtml}
 
         <!-- Origen y Destinatario -->
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
@@ -3432,10 +5358,10 @@ window.openPosSaleDetail = function(idOrData) {
         </div>
 
         <!-- Comentarios y Enlace al Gestor -->
-        ${data.comentarios ? `
+        ${cleanObs ? `
           <div style="background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); padding: 0.85rem 1rem; border-radius: var(--radius-md); font-size: 0.85rem;">
             <strong style="color: #d97706; display: block; margin-bottom: 0.25rem;"><i class="ri-message-3-line"></i> Observaciones / Voucher:</strong>
-            ${escapeHtml(data.comentarios)}
+            ${escapeHtml(cleanObs)}
           </div>
         ` : ''}
 
@@ -3624,20 +5550,30 @@ window.printPosTicket = function(idOrData) {
 
 window.exportPosSales = async function(format) {
   try {
+    await window.ensurePosMetadataLoaded();
     let query = supabase.from('store_sales').select('*').order('created_at', { ascending: false });
     query = buildPosSalesQuery(query);
 
     const { data, error } = await query;
     if (error) throw error;
 
-    if (!data || data.length === 0) {
+    const filteredData = applyClientSidePosFilters(data || [], window.posLinkedOrdersBySaleCodeMap || new Map());
+
+    if (!filteredData || filteredData.length === 0) {
       alert('No hay datos para exportar con los filtros seleccionados.');
       return;
     }
 
-    const rows = data.map(s => {
+    const rows = filteredData.map(s => {
       const d = new Date(s.created_at);
       const dateStr = d.toLocaleDateString('es-CL') + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+
+      const linkedOrder = (window.posLinkedOrdersBySaleCodeMap && s.codigo_venta && window.posLinkedOrdersBySaleCodeMap.get(String(s.codigo_venta).trim().toUpperCase())) || null;
+      const machineInfo = s._posMachineInfo || window.resolvePosSaleMachineInfo(s, window.loadedCommerceConfigsMap, linkedOrder);
+      const fin = s._posFinancials || window.calculatePosSaleFinancials(s, machineInfo, window.posCachedPricingConfig);
+      const abonoInfo = s._posAbonoInfo || window.resolvePosSaleAbonoPeriod(s, linkedOrder, machineInfo, fin);
+      const txCodeExport = window.resolvePosSaleTransactionCode(s, linkedOrder);
+      const cleanComments = window.cleanPosSaleComments(s.comentarios);
 
       let prodStr = '';
       if (s.productos) {
@@ -3655,20 +5591,31 @@ window.exportPosSales = async function(format) {
         'Fecha Venta': dateStr,
         'Comercio': s.comercio,
         'Sucursal': s.sucursal || SUCURSAL_NUNOA_NAME,
-        'Total Pagado': s.monto_total,
+        'Total Pagado Bruto ($)': fin.montoTotal,
         'Modo Pago': s.modo_pago,
         'Documento': s.documento_tipo,
+        'Máquina POS': machineInfo.brand,
+        'N° Terminal': machineInfo.model ? `#${machineInfo.model}` : '',
+        'Color Máquina': machineInfo.color || '',
+        'Propiedad Máquina': machineInfo.isCardSale ? (machineInfo.isStockaOwned ? 'Propiedad de STOCKA' : `Propiedad de ${machineInfo.owner}`) : machineInfo.owner,
+        '% Comisión POS': fin.appliesStockaPosSettlement ? `${fin.feePct.toFixed(2)}%` : '0%',
+        'Comisión Neta ($)': fin.commissionNet,
+        'IVA Comisión ($)': fin.commissionIva,
+        'Comisión Total + IVA ($)': fin.commissionTotal,
+        'Pago al Seller / Abono Neto ($)': fin.sellerPayout,
+        'Periodo Facturación (Abono)': abonoInfo.isAbono ? abonoInfo.period : 'SIN ABONO (Pago Directo Seller)',
+        'Código Transacción': txCodeExport || '',
         'Cliente': s.nombre_cliente,
         'Email Cliente': s.correo_cliente,
         'Teléfono': s.telefono_cliente,
         'Productos': prodStr,
         'Vendedor': s.creado_por,
-        'Comentarios': s.comentarios,
+        'Comentarios': cleanComments,
         'RUT Factura': s.rut_facturacion || '',
         'Razón Social Factura': s.razon_social_facturacion || '',
         'Giro Factura': s.giro_facturacion || '',
         'Dirección Factura': s.direccion_facturacion || '',
-        'ID Orden WMS': s.wms_order_id || ''
+        'ID Orden WMS': linkedOrder?.id || s.wms_order_id || ''
       };
     });
 

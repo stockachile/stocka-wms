@@ -1064,16 +1064,40 @@ window.appCalendarState = {
   selectedDateStr: null
 };
 
+const CANONICAL_CONGLOMERATES_CLIENT = [
+  {
+    canonicalName: 'BIG BANG',
+    aliases: ['BIG BANG', 'BIG BANG SPA', 'HOLDING BIG BANG'],
+    children: ['BACK IN TIME', 'DORMILONES', 'RELAJARTE']
+  },
+  {
+    canonicalName: 'SILVER FOX',
+    aliases: ['SILVER FOX', 'SILVER FOX SPA', 'HOLDING SILVER FOX'],
+    children: ['FORTE MAX', 'MENPRIME']
+  }
+];
+
 function getCompanyList() {
   const companySet = new Set();
+  const addSingleVariant = (trimmed) => {
+    if (!trimmed) return;
+    companySet.add(trimmed);
+    companySet.add(trimmed.toLowerCase());
+    companySet.add(trimmed.toUpperCase());
+  };
   const addName = (cName) => {
     if (!cName) return;
     String(cName).split(',').forEach(c => {
       const trimmed = c.trim();
       if (trimmed) {
-        companySet.add(trimmed);
-        companySet.add(trimmed.toLowerCase());
-        companySet.add(trimmed.toUpperCase());
+        addSingleVariant(trimmed);
+        const upper = trimmed.toUpperCase();
+        // Si el perfil tiene asignado directamente el nombre de un Conglomerado / Holding, incluir sus comercios hijos
+        CANONICAL_CONGLOMERATES_CLIENT.forEach(cg => {
+          if (cg.aliases.includes(upper)) {
+            cg.children.forEach(child => addSingleVariant(child));
+          }
+        });
       }
     });
   };
@@ -1084,6 +1108,17 @@ function getCompanyList() {
   if (window.currentUserProfile?.custom_company) addName(window.currentUserProfile.custom_company);
   return Array.from(companySet);
 }
+
+window.handleClientDashboardCommerceScope = function(selectedScope) {
+  if (!selectedScope) return;
+  window.clientDashboardCommerceScope = selectedScope;
+  if (selectedScope !== 'ALL') {
+    window.activeIntegrationCommerce = selectedScope;
+  }
+  if (typeof renderDashboard === 'function') {
+    renderDashboard();
+  }
+};
 
 function getDisplayStatusName(rawStatus) {
   if (!rawStatus) return 'Desconocido';
@@ -1430,6 +1465,11 @@ async function init() {
           } else if (view === 'inventory') {
             viewTitle.textContent = 'Inventario';
             renderInventory();
+          } else if (view === 'inventory_coverage') {
+            viewTitle.textContent = 'Cobertura de Inventario y Salud de Stock (30d)';
+            if (typeof window.renderInventoryCoverageClient === 'function') {
+              window.renderInventoryCoverageClient();
+            }
           } else if (view === 'catalog') {
             viewTitle.textContent = 'Catálogo de Productos';
             renderCatalog();
@@ -1560,8 +1600,8 @@ async function init() {
           }
           let isAllowed = allowedModules.includes(view) || view === 'profile' || view === 'inbox' || view === 'tickets';
 
-          // Compatibilidad con perfiles antiguos guardados antes de que dashboard o tracking_widget fueran configurables
-          if ((view === 'dashboard' || view === 'tracking_widget') && !allowedModules.includes(view) && allowedModules.length > 5) {
+          // Compatibilidad con perfiles antiguos guardados antes de que dashboard, tracking_widget o inventory_coverage fueran configurables
+          if ((view === 'dashboard' || view === 'tracking_widget' || view === 'inventory_coverage') && !allowedModules.includes(view) && (allowedModules.length > 5 || allowedModules.includes('inventory') || allowedModules.includes('catalog'))) {
             isAllowed = true;
           }
 
@@ -1790,8 +1830,29 @@ window.toggleOnboardingStepExpand = function(stepName) {
 window.handleOnboardingCommerceChange = function(selectedCommerce) {
   if (!selectedCommerce) return;
   window.activeIntegrationCommerce = selectedCommerce;
+  window._keepOnboardingDrawerOpen = true;
   if (typeof renderDashboard === 'function') {
     renderDashboard();
+  }
+};
+
+window.toggleOnboardingDrawer = function(forceState) {
+  const card = document.getElementById('onboarding-checklist-card');
+  const backdrop = document.getElementById('onboarding-drawer-backdrop');
+  const edgeTab = document.getElementById('onboarding-edge-tab');
+  if (!card) return;
+
+  const isCurrentlyOpen = card.classList.contains('is-open');
+  const shouldOpen = typeof forceState === 'boolean' ? forceState : !isCurrentlyOpen;
+
+  if (shouldOpen) {
+    card.classList.add('is-open');
+    if (backdrop) backdrop.classList.add('is-open');
+    if (edgeTab) edgeTab.classList.add('is-hidden-tab');
+  } else {
+    card.classList.remove('is-open');
+    if (backdrop) backdrop.classList.remove('is-open');
+    if (edgeTab) edgeTab.classList.remove('is-hidden-tab');
   }
 };
 
@@ -1944,9 +2005,15 @@ window.updateOnboardingProgress = function() {
 
   const bar = document.getElementById('onboarding-progress-bar');
   const text = document.getElementById('onboarding-progress-text');
+  const tabPct = document.getElementById('onboarding-edge-tab-pct');
+  const tabSteps = document.getElementById('onboarding-edge-tab-steps');
+  const tabBar = document.getElementById('onboarding-edge-tab-bar');
   
   if (bar) bar.style.width = `${pct}%`;
   if (text) text.textContent = `${pct}%`;
+  if (tabPct) tabPct.textContent = `${pct}%`;
+  if (tabSteps) tabSteps.textContent = `${completed}/5 pasos`;
+  if (tabBar) tabBar.style.width = `${pct}%`;
 
   if (pct === 100) {
     window.triggerConfettiCelebration();
@@ -1961,11 +2028,11 @@ window.dismissOnboardingChecklist = async function() {
   if (!commerce) return;
 
   const result = await Swal.fire({
-    title: '¿Ocultar guía de inicio?',
-    text: 'Esta acción ocultará permanentemente el checklist de tu dashboard. Podrás seguir operando con normalidad.',
+    title: '¿Ocultar guía de inicio definitivamente?',
+    text: 'Esta acción desactivará la pestaña lateral de Guía de Inicio en tu dashboard. Si solo deseas plegarla al borde de la pantalla, usa el botón "Minimizar".',
     icon: 'question',
     showCancelButton: true,
-    confirmButtonText: 'Sí, ocultar',
+    confirmButtonText: 'Sí, ocultar definitivamente',
     cancelButtonText: 'Cancelar'
   });
 
@@ -1991,10 +2058,11 @@ window.dismissOnboardingChecklist = async function() {
       if (error) throw error;
 
       const card = document.getElementById('onboarding-checklist-card');
-      if (card) {
-        card.style.opacity = '0';
-        setTimeout(() => card.remove(), 300);
-      }
+      const backdrop = document.getElementById('onboarding-drawer-backdrop');
+      const edgeTab = document.getElementById('onboarding-edge-tab');
+      if (card) card.remove();
+      if (backdrop) backdrop.remove();
+      if (edgeTab) edgeTab.remove();
     }
   } catch (err) {
     console.error("Error dismissing onboarding checklist:", err);
@@ -2068,12 +2136,33 @@ async function renderDashboard() {
       .split(',')
       .map(c => c.trim())
       .filter(Boolean);
-    const assignedComercios = [...new Set(rawAssignedComercios)];
+    const expandedAssignedSet = new Set();
+    rawAssignedComercios.forEach(c => {
+      const upper = c.toUpperCase();
+      let matchedCg = false;
+      CANONICAL_CONGLOMERATES_CLIENT.forEach(cg => {
+        if (cg.aliases.includes(upper)) {
+          matchedCg = true;
+          cg.children.forEach(child => expandedAssignedSet.add(child));
+        }
+      });
+      if (!matchedCg) expandedAssignedSet.add(c);
+    });
+    const assignedComercios = [...expandedAssignedSet];
 
     if (!window.activeIntegrationCommerce || !assignedComercios.some(c => c.toLowerCase() === (window.activeIntegrationCommerce || '').toLowerCase())) {
       window.activeIntegrationCommerce = assignedComercios[0] || (companyList[0] || '');
     }
     const targetCommerce = window.activeIntegrationCommerce;
+
+    // Alcance de vista del Dashboard para cuentas con múltiples comercios o conglomerados ('ALL' = consolidado, o nombre de comercio individual)
+    if (!window.clientDashboardCommerceScope) {
+      window.clientDashboardCommerceScope = assignedComercios.length > 1 ? 'ALL' : (targetCommerce || 'ALL');
+    }
+    if (window.clientDashboardCommerceScope !== 'ALL' && !assignedComercios.some(c => c.toLowerCase() === String(window.clientDashboardCommerceScope).toLowerCase())) {
+      window.clientDashboardCommerceScope = assignedComercios.length > 1 ? 'ALL' : (targetCommerce || 'ALL');
+    }
+    const activeDashboardScope = assignedComercios.length > 1 ? window.clientDashboardCommerceScope : (targetCommerce || 'ALL');
 
     // Obtener checklist de onboarding y guía SKU
     let onboardingChecklist = null;
@@ -2083,12 +2172,36 @@ async function renderDashboard() {
       shopifyPartnerPin = localStorage.getItem('shopify_partner_pin_' + targetCommerce) || '';
     }
 
-    const cacheKey = 'client_dashboard_' + (companyList.join('_') || 'no_company') + '_' + (targetCommerce || '');
+    const cacheKey = 'client_dashboard_v6_' + (companyList.join('_') || 'no_company') + '_' + (targetCommerce || '');
     const cached = window.getDashboardCache(cacheKey, 120000); // 2 min TTL
 
     let dashboardData;
     let isCached = false;
     let cacheTimeStr = '';
+
+    // Construir ventanas de los últimos 6 meses calendario (en horario de Chile) para consultas exactas por mes
+    const tzNowForMonths = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Santiago' }));
+    const monthNamesShortRef = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const monthNamesFullUpperRef = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+    const sixMonthWindows = [];
+    for (let mBack = 5; mBack >= 0; mBack--) {
+      const dStart = new Date(tzNowForMonths.getFullYear(), tzNowForMonths.getMonth() - mBack, 1);
+      const dEnd = new Date(tzNowForMonths.getFullYear(), tzNowForMonths.getMonth() - mBack + 1, 1);
+      const yy = dStart.getFullYear();
+      const mm = String(dStart.getMonth() + 1).padStart(2, '0');
+      const ym = `${yy}-${mm}`;
+      const nextYy = dEnd.getFullYear();
+      const nextMm = String(dEnd.getMonth() + 1).padStart(2, '0');
+      sixMonthWindows.push({
+        ym,
+        year: yy,
+        monthIndex: dStart.getMonth(),
+        label: `${monthNamesShortRef[dStart.getMonth()]} ${String(yy).slice(-2)}`,
+        periodNameUpper: `${monthNamesFullUpperRef[dStart.getMonth()]} ${yy}`,
+        startIso: `${yy}-${mm}-01T00:00:00.000Z`,
+        endIso: `${nextYy}-${nextMm}-01T00:00:00.000Z`
+      });
+    }
 
     if (cached && cached.data) {
       isCached = true;
@@ -2129,26 +2242,132 @@ async function renderDashboard() {
             .then(res => res, err => { console.warn("Error fetching merchant integration:", err); return { data: null }; })
         : Promise.resolve({ data: null });
 
-      // 4. Productos con inventario anidado (consulta indexada directa sin escaneo de tabla completa)
+      // 4. Productos con inventario anidado por sucursal física (incluye comercio para desglose multi-comercio/conglomerado)
       let prodsQuery = supabase
         .from('products')
-        .select('id, sku, name, stock_critico, volumen, is_virtual, inventory(quantity, committed_quantity)');
+        .select('id, comercio, sku, name, stock_critico, volumen, is_virtual, inventory(warehouse_id, quantity, committed_quantity)');
       if (companyList.length > 0) {
         prodsQuery = prodsQuery.in('comercio', companyList);
       } else {
         prodsQuery = prodsQuery.eq('comercio', 'no asignado');
       }
-      prodsQuery = prodsQuery.limit(3000);
+      prodsQuery = prodsQuery.limit(2500).then(res => res, err => { console.warn("Error fetching products:", err); return { data: [] }; });
 
-      // 5. Pedidos acotados (pedidos activos + últimos 60 días)
-      let ordQuery = supabase.from('orders').select('id, status');
-      if (companyList.length > 0) {
-        ordQuery = ordQuery.in('comercio', companyList);
-      } else {
-        ordQuery = ordQuery.eq('comercio', 'no asignado');
-      }
-      const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
-      ordQuery = ordQuery.or(`status.in.("en preparación","para procesar","preparado"),created_at.gte.${sixtyDaysAgo}`);
+      // 5. Pedidos acotados (pedidos activos + últimos 66 días divididos en 11 tramos paralelos de 6 días)
+      // Evita que el límite duro de 1.000 filas por petición de Supabase (PostgREST max-rows) trunque los días previos del periodo cuando un comercio o conglomerado supera ~50 pedidos/día
+      const orderSelectCols = 'id, comercio, status, estado_wms, created_at, periodo_facturacion, sku, cantidad, courier, operador, shipping_method, categoria_entrega, external_platform, origen, sucursal_pickeo';
+      const ordQuery = (async () => {
+        if (companyList.length === 0) return { data: [] };
+        try {
+          const nowMs = Date.now();
+          const dayMs = 24 * 60 * 60 * 1000;
+          const sliceDays = 6;
+          const totalSlices = 11; // 66 días completos (30d actuales + 30d previos + margen de zona horaria)
+          const sixtySixDaysAgoIso = new Date(nowMs - (totalSlices * sliceDays * dayMs)).toISOString();
+
+          const fetchSixDaySlice = async (sliceIdx) => {
+            const sliceStartMs = nowMs - ((sliceIdx + 1) * sliceDays * dayMs);
+            const sliceEndMs = sliceIdx === 0 ? (nowMs + dayMs) : (nowMs - (sliceIdx * sliceDays * dayMs));
+            const sliceStartIso = new Date(sliceStartMs).toISOString();
+            const sliceEndIso = new Date(sliceEndMs).toISOString();
+
+            const firstPageRes = await supabase
+              .from('orders')
+              .select(orderSelectCols)
+              .in('comercio', companyList)
+              .gte('created_at', sliceStartIso)
+              .lt('created_at', sliceEndIso)
+              .order('created_at', { ascending: false })
+              .range(0, 999);
+
+            const page1Rows = firstPageRes?.data || [];
+            if (page1Rows.length < 1000) return page1Rows;
+
+            // Si un tramo de 6 días alcanzó las 1.000 filas (ej. conglomerado grande o CyberDay), traer segunda página
+            const secondPageRes = await supabase
+              .from('orders')
+              .select(orderSelectCols)
+              .in('comercio', companyList)
+              .gte('created_at', sliceStartIso)
+              .lt('created_at', sliceEndIso)
+              .order('created_at', { ascending: false })
+              .range(1000, 1999);
+
+            return page1Rows.concat(secondPageRes?.data || []);
+          };
+
+          const slicePromises = [];
+          for (let s = 0; s < totalSlices; s++) {
+            slicePromises.push(fetchSixDaySlice(s).catch(err => {
+              console.warn(`Error fetching orders slice ${s}:`, err);
+              return [];
+            }));
+          }
+
+          // Incluir también cualquier pedido activo en bodega anterior a los 66 días
+          const olderActivePromise = supabase
+            .from('orders')
+            .select(orderSelectCols)
+            .in('comercio', companyList)
+            .in('status', ['en preparación', 'para procesar', 'preparado'])
+            .lt('created_at', sixtySixDaysAgoIso)
+            .order('created_at', { ascending: false })
+            .limit(1000)
+            .then(res => res?.data || [], () => []);
+
+          const allSlicesResults = await Promise.all([...slicePromises, olderActivePromise]);
+          const dedupMap = new Map();
+          allSlicesResults.forEach(rows => {
+            (rows || []).forEach(r => {
+              if (r && r.id && !dedupMap.has(r.id)) {
+                dedupMap.set(r.id, r);
+              }
+            });
+          });
+          return { data: Array.from(dedupMap.values()) };
+        } catch (err) {
+          console.warn("Error fetching orders in parallel slices:", err);
+          return { data: [] };
+        }
+      })();
+
+      // 5.B. Consultas mensuales independientes para los últimos 6 meses con { count: 'exact' } y paginación adicional si supera 1.000 filas
+      const monthlyBucketsQuery = companyList.length > 0
+        ? Promise.all(sixMonthWindows.map(async (mw) => {
+            try {
+              const firstRes = await supabase
+                .from('orders')
+                .select('comercio, cantidad, status, estado_wms', { count: 'exact' })
+                .in('comercio', companyList)
+                .gte('created_at', mw.startIso)
+                .lt('created_at', mw.endIso)
+                .range(0, 999);
+              let rows = firstRes?.data || [];
+              const exactCount = typeof firstRes?.count === 'number' ? firstRes.count : rows.length;
+              if (rows.length === 1000 && exactCount > 1000) {
+                const extraPages = Math.min(3, Math.ceil((exactCount - 1000) / 1000));
+                const pagePromises = [];
+                for (let p = 1; p <= extraPages; p++) {
+                  pagePromises.push(
+                    supabase
+                      .from('orders')
+                      .select('comercio, cantidad, status, estado_wms')
+                      .in('comercio', companyList)
+                      .gte('created_at', mw.startIso)
+                      .lt('created_at', mw.endIso)
+                      .range(p * 1000, (p + 1) * 1000 - 1)
+                      .then(r => r?.data || [], () => [])
+                  );
+                }
+                const extraChunks = await Promise.all(pagePromises);
+                extraChunks.forEach(chunk => { rows = rows.concat(chunk); });
+              }
+              return { ym: mw.ym, rows, exactCount };
+            } catch (e) {
+              return { ym: mw.ym, rows: [], exactCount: 0 };
+            }
+          }))
+        : Promise.resolve([]);
 
       // 6. Integraciones activas
       let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio').eq('is_active', true);
@@ -2159,14 +2378,14 @@ async function renderDashboard() {
       }
 
       // 7. Ingresos de stock declarados
-      let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at');
+      let decQuery = supabase.from('stock_declarations').select('id, comercio, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at');
       if (companyList.length > 0) {
         const commerceFilters = companyList.map(c => `comercio.eq."${c}"`).join(',');
         decQuery = decQuery.or(`merchant_id.eq.${currentMerchantId},${commerceFilters}`);
       } else {
         decQuery = decQuery.eq('merchant_id', currentMerchantId);
       }
-      decQuery = decQuery.order('created_at', { ascending: false }).limit(5);
+      decQuery = decQuery.order('created_at', { ascending: false }).limit(8);
 
       // 8. Periodos y mapeos de facturación
       const periodsQuery = companyList.length > 0
@@ -2183,6 +2402,21 @@ async function renderDashboard() {
       // 10. Eventos de calendario del mes
       const eventsQuery = supabase.from('dashboard_events').select('*').gte('event_date', startOfMonth).order('event_date', { ascending: true });
 
+      // 11. Bodegas físicas
+      const warehousesQuery = supabase.from('warehouses').select('id, name').order('name').then(res => res, () => ({ data: [] }));
+
+      // 12. Historial de Almacenamiento Diario (últimos 60 días) para gráfico de m³ y variaciones porcentuales
+      const sixtyDaysAgoDateStr = new Date(Date.now() - 62 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const volHistoryQuery = companyList.length > 0
+        ? supabase.from('comercios_volumen_diario')
+            .select('comercio, fecha, volumen')
+            .in('comercio', companyList)
+            .gte('fecha', sixtyDaysAgoDateStr)
+            .order('fecha', { ascending: true })
+            .limit(800)
+            .then(res => res, () => ({ data: [] }))
+        : Promise.resolve({ data: [] });
+
       // Ejecución en paralelo de todas las consultas
       const [
         cacRes,
@@ -2190,24 +2424,30 @@ async function renderDashboard() {
         miRes,
         prodsRes,
         ordRes,
+        monthlyBucketsRes,
         intRes,
         decRes,
         periodsRes,
         mappingsRes,
         newsRes,
-        eventsRes
+        eventsRes,
+        warehousesRes,
+        volHistoryRes
       ] = await Promise.all([
         cacQuery,
         docQuery,
         miQuery,
         prodsQuery,
         ordQuery,
+        monthlyBucketsQuery,
         intQuery,
         decQuery,
         periodsQuery,
         mappingsQuery,
         newsQuery,
-        eventsQuery
+        eventsQuery,
+        warehousesQuery,
+        volHistoryQuery
       ]);
 
       if (!isStillOnDashboard()) {
@@ -2216,7 +2456,7 @@ async function renderDashboard() {
         return;
       }
 
-      // Consulta de facturación con nombres resueltos
+      // Consulta de facturación con nombres resueltos (incluyendo alias de conglomerados)
       let allBillingRecords = [];
       if (companyList.length > 0) {
         const mappings = mappingsRes?.data || [];
@@ -2226,6 +2466,14 @@ async function renderDashboard() {
           const nameToUse = matchedMapping ? matchedMapping.billing_name : c;
           uniqueBillingNames.add(nameToUse);
         });
+        if (uniqueBillingNames.has('BIG BANG') || uniqueBillingNames.has('BIG BANG SPA')) {
+          uniqueBillingNames.add('BIG BANG');
+          uniqueBillingNames.add('BIG BANG SPA');
+        }
+        if (uniqueBillingNames.has('SILVER FOX') || uniqueBillingNames.has('SILVER FOX SPA')) {
+          uniqueBillingNames.add('SILVER FOX');
+          uniqueBillingNames.add('SILVER FOX SPA');
+        }
         const resolvedCompanyList = Array.from(uniqueBillingNames);
 
         if (resolvedCompanyList.length > 0) {
@@ -2249,13 +2497,16 @@ async function renderDashboard() {
         miData: miRes?.data || null,
         prodsData: prodsRes?.data || [],
         ordData: ordRes?.data || [],
+        monthlyBucketsData: monthlyBucketsRes || [],
         intData: intRes?.data || [],
         decData: decRes?.data || [],
         periodsData: periodsRes?.data || [],
         mappingsData: mappingsRes?.data || [],
         billingRecords: allBillingRecords,
         newsData: newsRes?.data || [],
-        eventsData: eventsRes?.data || []
+        eventsData: eventsRes?.data || [],
+        warehousesData: warehousesRes?.data || [],
+        volHistoryData: volHistoryRes?.data || []
       };
 
       window.setDashboardCache(cacheKey, dashboardData);
@@ -2266,15 +2517,50 @@ async function renderDashboard() {
     const cacData = dashboardData.cacData;
     const docData = dashboardData.docData;
     const miData = dashboardData.miData;
-    const prodsData = dashboardData.prodsData || [];
-    const ordData = dashboardData.ordData || [];
-    const activeIntList = dashboardData.intData || [];
-    const recentDecs = dashboardData.decData || [];
+    const allProdsData = dashboardData.prodsData || [];
+    const allOrdData = dashboardData.ordData || [];
+    const allMonthlyBuckets = dashboardData.monthlyBucketsData || [];
+    const allIntList = dashboardData.intData || [];
+    const allRecentDecs = dashboardData.decData || [];
     const periods = dashboardData.periodsData || [];
     const mappings = dashboardData.mappingsData || [];
     const allRecords = dashboardData.billingRecords || [];
     const news = dashboardData.newsData || [];
     const events = dashboardData.eventsData || [];
+    const warehousesList = dashboardData.warehousesData || [];
+    const allVolHistoryList = dashboardData.volHistoryData || [];
+
+    // Detectar si los comercios del usuario pertenecen a un Conglomerado / Holding (por seed canónico o billing_mappings)
+    let parentConglomerateName = null;
+    for (const c of assignedComercios) {
+      const cUpper = c.toUpperCase();
+      for (const cg of CANONICAL_CONGLOMERATES_CLIENT) {
+        if (cg.aliases.includes(cUpper) || cg.children.includes(cUpper)) {
+          parentConglomerateName = cg.canonicalName;
+          break;
+        }
+      }
+      if (!parentConglomerateName && mappings.length > 0) {
+        const mFound = mappings.find(m => (m.comercio_nombre || '').trim().toUpperCase() === cUpper);
+        if (mFound && mFound.billing_name && mFound.billing_name.trim().toUpperCase() !== cUpper) {
+          parentConglomerateName = mFound.billing_name.trim().toUpperCase();
+        }
+      }
+      if (parentConglomerateName) break;
+    }
+
+    // Filtrar datos operativos según el alcance seleccionado en la cabecera ('ALL' = consolidado multi-comercio/conglomerado, o comercio específico)
+    const isFilteringSingleCommerce = activeDashboardScope && activeDashboardScope !== 'ALL' && assignedComercios.length > 1;
+    const matchScopeCommerce = (itemCommerce) => {
+      if (!isFilteringSingleCommerce) return true;
+      return String(itemCommerce || '').trim().toLowerCase() === String(activeDashboardScope).trim().toLowerCase();
+    };
+
+    const prodsData = isFilteringSingleCommerce ? allProdsData.filter(p => matchScopeCommerce(p.comercio)) : allProdsData;
+    const ordData = isFilteringSingleCommerce ? allOrdData.filter(o => matchScopeCommerce(o.comercio)) : allOrdData;
+    const activeIntList = isFilteringSingleCommerce ? allIntList.filter(i => matchScopeCommerce(i.comercio)) : allIntList;
+    const recentDecs = isFilteringSingleCommerce ? allRecentDecs.filter(d => !d.comercio || matchScopeCommerce(d.comercio)) : allRecentDecs;
+    const volHistoryList = isFilteringSingleCommerce ? allVolHistoryList.filter(v => matchScopeCommerce(v.comercio)) : allVolHistoryList;
 
     const rawEnviame = cacData?.enviame_id;
     const hasValidEnviame = !!(rawEnviame && String(rawEnviame).trim() !== '' && String(rawEnviame).trim().toLowerCase() !== 'null');
@@ -2341,51 +2627,237 @@ async function renderDashboard() {
         .then(({error}) => { if (error) console.error("Error auto-actualizando pasos del checklist:", error); });
     }
 
+    // Mapa de ID de bodega a nombre
+    const warehouseNameById = {};
+    warehousesList.forEach(w => {
+      if (w && w.id) warehouseNameById[w.id] = w.name || 'Bodega';
+    });
+
+    // Función normalizadora de sucursal física
+    function normalizeBranchKey(rawName) {
+      const n = String(rawName || '').toLowerCase();
+      if (n.includes('ñuñoa') || n.includes('nunoa')) return 'Ñuñoa';
+      if (n.includes('reina')) return 'La Reina';
+      if (n.includes('recoleta')) return 'Recoleta';
+      if (n.includes('central') || n.includes('hub') || n.includes('principal') || n.includes('bodega')) return 'Bodega Central';
+      return rawName || 'Bodega Central';
+    }
+
+    const branchStats = {
+      'Ñuñoa': { name: 'Sucursal Ñuñoa', shortName: 'Ñuñoa', icon: 'ri-store-2-line', color: '#2563eb', units: 0, available: 0, skusSet: new Set(), volume: 0, activeOrders: 0 },
+      'La Reina': { name: 'Sucursal La Reina', shortName: 'La Reina', icon: 'ri-building-4-line', color: '#8b5cf6', units: 0, available: 0, skusSet: new Set(), volume: 0, activeOrders: 0 },
+      'Recoleta': { name: 'Sucursal Recoleta', shortName: 'Recoleta', icon: 'ri-Community-line', color: '#10b981', units: 0, available: 0, skusSet: new Set(), volume: 0, activeOrders: 0 },
+      'Bodega Central': { name: 'Hub Bodega Central', shortName: 'Bodega Central', icon: 'ri-archive-drawer-line', color: '#f59e0b', units: 0, available: 0, skusSet: new Set(), volume: 0, activeOrders: 0 }
+    };
+
     let totalStock = 0;
     let availableStock = 0;
+    let totalCommitted = 0;
     let lowStockCount = 0;
+    let criticalRunwayCount = 0;
     let totalVolume = 0;
     const lowStockItems = [];
     const productVolumeMap = {};
+    const productIdToSku = {};
 
-    // Agrupar y sumar stock por SKU a partir de prodsData
+    // Agrupar y sumar stock por SKU y por sucursal física a partir de prodsData
     const aggregatedProducts = {};
     prodsData.forEach(p => {
       const key = p.sku || 'N/A';
+      if (p.id) productIdToSku[p.id] = key;
+      const unitVol = parseFloat(p.volumen || 0);
       if (!aggregatedProducts[key]) {
         aggregatedProducts[key] = {
-          sku: p.sku || 'N/A',
+          sku: key,
           name: p.name || 'Sin Nombre',
           stock_critico: p.stock_critico || 0,
-          volumen: parseFloat(p.volumen || 0),
+          volumen: unitVol,
           is_virtual: !!p.is_virtual,
           quantity: 0,
           committed_quantity: 0
         };
       }
       (p.inventory || []).forEach(inv => {
-        aggregatedProducts[key].quantity += (inv.quantity || 0);
-        aggregatedProducts[key].committed_quantity += (inv.committed_quantity || 0);
+        const qty = Number(inv.quantity || 0);
+        const comm = Number(inv.committed_quantity || 0);
+        aggregatedProducts[key].quantity += qty;
+        aggregatedProducts[key].committed_quantity += comm;
+
+        const rawWhName = inv.warehouses?.name || warehouseNameById[inv.warehouse_id] || 'Bodega Central';
+        const bKey = normalizeBranchKey(rawWhName);
+        if (!branchStats[bKey]) {
+          branchStats[bKey] = { name: rawWhName, shortName: rawWhName, icon: 'ri-building-2-line', color: '#06b6d4', units: 0, available: 0, skusSet: new Set(), volume: 0, activeOrders: 0 };
+        }
+        branchStats[bKey].units += qty;
+        branchStats[bKey].available += (qty - comm);
+        branchStats[bKey].volume += qty * unitVol;
+        if (qty > 0) branchStats[bKey].skusSet.add(key);
       });
     });
 
-    // Procesar los productos agrupados para calcular las métricas globales
+    // Calcular velocidad de venta de los últimos 30 días por SKU, pipeline de pedidos y series para gráficos
+    const thirtyDaysAgoMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const sixtyDaysAgoMs = Date.now() - 60 * 24 * 60 * 60 * 1000;
+    const sales30dBySku = {};
+    const dailySalesByDate = {};
+    const monthlySalesByMonth = {};
+    let activeOrders = 0;
+    let completedOrders = 0;
+    let pipelineToProcess = 0;
+    let pipelineInPrep = 0;
+    let pipelineReady = 0;
+    let pipelineDispatched = 0;
+    let pipelineDelivered = 0;
+
+    const courierStats = {
+      bluex: { label: 'Blue Express / Envíame', color: '#2563eb', icon: 'ri-truck-line', total: 0, completed: 0 },
+      meli: { label: 'Mercado Envíos / Flex', color: '#eab308', icon: 'ri-flashlight-line', total: 0, completed: 0 },
+      starken: { label: 'Starken / Chilexpress', color: '#f97316', icon: 'ri-Focus-3-line', total: 0, completed: 0 },
+      optiroute: { label: 'Flota Propia / Optiroute', color: '#8b5cf6', icon: 'ri-route-line', total: 0, completed: 0 },
+      other: { label: 'Retiro / Marketplaces', color: '#10b981', icon: 'ri-store-3-line', total: 0, completed: 0 }
+    };
+
+    const formatChileYMD = (dateObj) => {
+      const tz = new Date(dateObj.toLocaleString('en-US', { timeZone: 'America/Santiago' }));
+      const yy = tz.getFullYear();
+      const mm = String(tz.getMonth() + 1).padStart(2, '0');
+      const dd = String(tz.getDate()).padStart(2, '0');
+      return `${yy}-${mm}-${dd}`;
+    };
+
+    ordData.forEach(o => {
+      const st = String(o.status || '').toLowerCase().trim();
+      const wmsSt = String(o.estado_wms || '').toLowerCase().trim();
+      if (st === 'cancelado' || wmsSt === 'cancelado') return;
+
+      const createdDateObj = o.created_at ? new Date(o.created_at) : null;
+      const createdMs = createdDateObj ? createdDateObj.getTime() : 0;
+      const isWithin60d = createdMs >= sixtyDaysAgoMs;
+      const orderUnits = Math.max(1, Number(o.cantidad) || 1);
+
+      // Acumular ventas por día y por mes para los gráficos del cliente
+      if (createdDateObj && !isNaN(createdMs)) {
+        const ymd = formatChileYMD(createdDateObj);
+        const ym = ymd.slice(0, 7);
+        if (!dailySalesByDate[ymd]) dailySalesByDate[ymd] = { orders: 0, units: 0 };
+        dailySalesByDate[ymd].orders += 1;
+        dailySalesByDate[ymd].units += orderUnits;
+
+        if (!monthlySalesByMonth[ym]) monthlySalesByMonth[ym] = { orders: 0, units: 0 };
+        monthlySalesByMonth[ym].orders += 1;
+        monthlySalesByMonth[ym].units += orderUnits;
+      }
+
+      // Pipeline 5 etapas (activos siempre + completados últimos 60d)
+      if (st === 'para procesar' || wmsSt === 'para procesar') {
+        pipelineToProcess++;
+        activeOrders++;
+      } else if (st === 'en preparación' || wmsSt === 'en preparación') {
+        pipelineInPrep++;
+        activeOrders++;
+      } else if (st === 'preparado' || st === 'listo para retiro' || wmsSt === 'pickeado') {
+        pipelineReady++;
+        activeOrders++;
+      } else if (isWithin60d && (st === 'despachado' || st === 'en tránsito' || st === 'en transito')) {
+        pipelineDispatched++;
+        completedOrders++;
+      } else if (isWithin60d && (st === 'entregado' || st === 'retirado')) {
+        pipelineDelivered++;
+        completedOrders++;
+      }
+
+      // Sucursal de pickeo activa
+      if (['para procesar', 'en preparación', 'preparado'].includes(st)) {
+        let orderBranch = o.sucursal_pickeo ? normalizeBranchKey(o.sucursal_pickeo) : null;
+        if (!orderBranch && Array.isArray(o.order_items) && o.order_items.length > 0) {
+          const firstWhId = o.order_items[0].warehouse_id;
+          if (firstWhId && warehouseNameById[firstWhId]) {
+            orderBranch = normalizeBranchKey(warehouseNameById[firstWhId]);
+          }
+        }
+        if (orderBranch && branchStats[orderBranch]) {
+          branchStats[orderBranch].activeOrders++;
+        }
+      }
+
+      // Clasificación por operador logístico (últimos 60 días + activos)
+      if (isWithin60d || ['para procesar', 'en preparación', 'preparado'].includes(st)) {
+        const cText = `${o.courier || ''} ${o.operador || ''} ${o.shipping_method || ''} ${o.categoria_entrega || ''} ${o.external_platform || ''} ${o.origen || ''}`.toLowerCase();
+        const isDone = ['despachado', 'en tránsito', 'en transito', 'entregado', 'retirado'].includes(st);
+        if (cText.includes('blue') || cText.includes('bx') || cText.includes('enviame') || cText.includes('envíame')) {
+          courierStats.bluex.total++;
+          if (isDone) courierStats.bluex.completed++;
+        } else if (cText.includes('mercado') || cText.includes('meli') || cText.includes('flex') || cText.includes('urbano')) {
+          courierStats.meli.total++;
+          if (isDone) courierStats.meli.completed++;
+        } else if (cText.includes('starken') || cText.includes('chilexpress') || cText.includes('correos')) {
+          courierStats.starken.total++;
+          if (isDone) courierStats.starken.completed++;
+        } else if (cText.includes('optiroute') || cText.includes('reparto') || cText.includes('sameday') || cText.includes('nextday') || cText.includes('flota')) {
+          courierStats.optiroute.total++;
+          if (isDone) courierStats.optiroute.completed++;
+        } else {
+          courierStats.other.total++;
+          if (isDone) courierStats.other.completed++;
+        }
+      }
+
+      // Velocidad de venta últimos 30 días
+      if (createdMs >= thirtyDaysAgoMs) {
+        if (Array.isArray(o.order_items) && o.order_items.length > 0) {
+          o.order_items.forEach(oi => {
+            const sku = productIdToSku[oi.product_id];
+            if (sku) {
+              sales30dBySku[sku] = (sales30dBySku[sku] || 0) + (Number(oi.quantity) || 1);
+            }
+          });
+        } else if (o.sku) {
+          const skuParts = String(o.sku).split(',').map(s => s.trim()).filter(Boolean);
+          const perPartQty = skuParts.length === 1 ? (Number(o.cantidad) || 1) : 1;
+          skuParts.forEach(cleanSku => {
+            sales30dBySku[cleanSku] = (sales30dBySku[cleanSku] || 0) + perPartQty;
+          });
+        }
+      }
+    });
+
+    // Procesar los productos agrupados para calcular métricas globales y Días de Cobertura Estimada (Runway 30d)
     Object.values(aggregatedProducts).forEach(p => {
       totalStock += p.quantity;
+      totalCommitted += p.committed_quantity;
       const available = p.quantity - p.committed_quantity;
       availableStock += available;
       totalVolume += p.quantity * p.volumen;
 
+      const units30d = sales30dBySku[p.sku] || 0;
+      const velocityDaily = units30d / 30;
+      const runwayDays = velocityDaily > 0 ? Math.max(0, Math.round(available / velocityDaily)) : (available > 0 ? 999 : 0);
+      const suggestedReplenish = velocityDaily > 0
+        ? Math.max(0, Math.ceil((velocityDaily * 30) - Math.max(0, available)))
+        : Math.max(0, (p.stock_critico || 0) - Math.max(0, available));
+
       if (p.is_virtual !== true) {
         const isCritical = p.stock_critico > 0 && available <= p.stock_critico;
         const isInsufficient = p.committed_quantity > 0 && available <= 0;
+        const isLowRunway = velocityDaily > 0 && runwayDays <= 14;
+
         if (isCritical || isInsufficient) {
           lowStockCount++;
+        }
+        if ((velocityDaily > 0 && runwayDays < 7) || isInsufficient) {
+          criticalRunwayCount++;
+        }
+
+        if (isCritical || isInsufficient || isLowRunway) {
           lowStockItems.push({
             sku: p.sku,
             name: p.name,
             available: available,
-            critico: p.stock_critico
+            critico: p.stock_critico,
+            units30d: units30d,
+            velocityDaily: velocityDaily,
+            runwayDays: runwayDays,
+            suggestedReplenish: suggestedReplenish
           });
         }
       }
@@ -2404,23 +2876,332 @@ async function renderDashboard() {
       productVolumeMap[p.sku].volumenTotal += totalVol;
     });
 
+    // Ordenar alertas de stock crítico y cobertura: primero sin stock/insuficientes, luego menor cobertura (Runway)
+    lowStockItems.sort((a, b) => {
+      if (a.available <= 0 && b.available > 0) return -1;
+      if (b.available <= 0 && a.available > 0) return 1;
+      if (a.runwayDays !== b.runwayDays) return a.runwayDays - b.runwayDays;
+      return a.available - b.available;
+    });
+
     const topVolumeProducts = Object.values(productVolumeMap)
       .sort((a, b) => b.volumenTotal - a.volumenTotal)
       .slice(0, 10);
 
-    let activeOrders = 0;
-    let completedOrders = 0;
-    ordData.forEach(o => {
-      if (['en preparación', 'para procesar', 'preparado'].includes(o.status)) activeOrders++;
-      if (['despachado', 'entregado', 'retirado'].includes(o.status)) completedOrders++;
+    // =========================================================================
+    // MOTOR DE ANALÍTICA VISUAL DEL CLIENTE:
+    // 1. Almacenamiento Diario (m³) + Variaciones Porcentuales (24h, 7d, 30d)
+    // 2. Cantidad de Ventas por Periodos de Tiempo (7D, 14D, 30D) + Var %
+    // 3. Evolución de Ventas Mensuales (Últimos 6 Meses) + Var MoM %
+    // =========================================================================
+    const tzNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Santiago' }));
+    const getPastYMD = (daysBack) => {
+      const d = new Date(tzNow.getFullYear(), tzNow.getMonth(), tzNow.getDate() - daysBack);
+      const yy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yy}-${mm}-${dd}`;
+    };
+    const formatShortDayLabel = (ymd) => {
+      const parts = ymd.split('-');
+      return `${parts[2]}/${parts[1]}`;
+    };
+    const calcPctDelta = (currVal, prevVal) => {
+      if (prevVal > 0.0001) return ((currVal - prevVal) / prevVal) * 100;
+      if (currVal > 0.0001) return 100;
+      return 0;
+    };
+    const renderPctBadgeHtml = (pct, suffixText = '', invertColors = false) => {
+      const rounded = Math.abs(pct) < 0.05 ? 0 : pct;
+      if (rounded === 0) {
+        return `<span style="display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.15rem 0.48rem; border-radius: 99px;"><i class="ri-subtract-line"></i> 0.0%${suffixText ? ' ' + suffixText : ''}</span>`;
+      }
+      const isPos = rounded > 0;
+      const isGood = invertColors ? !isPos : isPos;
+      const bg = isGood ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)';
+      const color = isGood ? '#059669' : '#dc2626';
+      const icon = isPos ? 'ri-arrow-right-up-line' : 'ri-arrow-right-down-line';
+      const sign = isPos ? '+' : '';
+      return `<span style="display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.72rem; font-weight: 700; color: ${color}; background: ${bg}; padding: 0.15rem 0.5rem; border-radius: 99px;"><i class="${icon}"></i> ${sign}${rounded.toFixed(1)}%${suffixText ? ' <span style="opacity:0.8;font-weight:600;">' + suffixText + '</span>' : ''}</span>`;
+    };
+
+    // --- 1. Serie de Almacenamiento Diario (m³) ---
+    const rawStorageByDate = {};
+    (volHistoryList || []).forEach(row => {
+      if (!row || !row.fecha) return;
+      rawStorageByDate[row.fecha] = (rawStorageByDate[row.fecha] || 0) + (parseFloat(row.volumen) || 0);
     });
+    const todayYMD = getPastYMD(0);
+    rawStorageByDate[todayYMD] = totalVolume > 0 ? totalVolume : (rawStorageByDate[todayYMD] || 0);
+
+    // Rellenar ventana continua de 60 días (usando el valor registrado más cercano si hay huecos)
+    const knownDatesSorted = Object.keys(rawStorageByDate).sort();
+    let fallbackVol = knownDatesSorted.length > 0 ? rawStorageByDate[knownDatesSorted[0]] : totalVolume;
+    const storageTimeline60 = [];
+    for (let i = 59; i >= 0; i--) {
+      const ymd = getPastYMD(i);
+      if (rawStorageByDate[ymd] !== undefined) {
+        fallbackVol = rawStorageByDate[ymd];
+      }
+      storageTimeline60.push({
+        ymd,
+        label: i === 0 ? 'Hoy' : formatShortDayLabel(ymd),
+        volume: Number(fallbackVol || 0)
+      });
+    }
+
+    const volTodayVal = storageTimeline60[storageTimeline60.length - 1]?.volume || totalVolume || 0;
+    const volYesterdayVal = storageTimeline60[storageTimeline60.length - 2]?.volume ?? volTodayVal;
+    const vol7dAgoVal = storageTimeline60[storageTimeline60.length - 8]?.volume ?? volTodayVal;
+    const vol30dAgoVal = storageTimeline60[storageTimeline60.length - 31]?.volume ?? volTodayVal;
+
+    const storageVar24hPct = calcPctDelta(volTodayVal, volYesterdayVal);
+    const storageDelta24hM3 = volTodayVal - volYesterdayVal;
+    const storageVar7dPct = calcPctDelta(volTodayVal, vol7dAgoVal);
+    const storageDelta7dM3 = volTodayVal - vol7dAgoVal;
+    const storageVar30dPct = calcPctDelta(volTodayVal, vol30dAgoVal);
+    const storageDelta30dM3 = volTodayVal - vol30dAgoVal;
+
+    const last30StorageVals = storageTimeline60.slice(-30).map(d => d.volume);
+    const avgStorage30d = last30StorageVals.length > 0
+      ? last30StorageVals.reduce((s, v) => s + v, 0) / last30StorageVals.length
+      : volTodayVal;
+    const minStorage30d = last30StorageVals.length > 0 ? Math.min(...last30StorageVals) : volTodayVal;
+    const maxStorage30d = last30StorageVals.length > 0 ? Math.max(...last30StorageVals) : volTodayVal;
+
+    // --- 2. Series de Cantidad de Ventas por Periodo (7D, 14D, 30D) ---
+    const buildSalesPeriodSeries = (daysCount) => {
+      const labels = [];
+      const ordersArr = [];
+      const unitsArr = [];
+      let currOrdersTotal = 0;
+      let currUnitsTotal = 0;
+      let prevOrdersTotal = 0;
+      let prevUnitsTotal = 0;
+
+      for (let i = daysCount - 1; i >= 0; i--) {
+        const ymd = getPastYMD(i);
+        const entry = dailySalesByDate[ymd] || { orders: 0, units: 0 };
+        labels.push(i === 0 ? 'Hoy' : formatShortDayLabel(ymd));
+        ordersArr.push(entry.orders);
+        unitsArr.push(entry.units);
+        currOrdersTotal += entry.orders;
+        currUnitsTotal += entry.units;
+      }
+
+      for (let i = (daysCount * 2) - 1; i >= daysCount; i--) {
+        const ymd = getPastYMD(i);
+        const entry = dailySalesByDate[ymd] || { orders: 0, units: 0 };
+        prevOrdersTotal += entry.orders;
+        prevUnitsTotal += entry.units;
+      }
+
+      const firstActiveIdx = ordersArr.findIndex(v => v > 0);
+      const effectiveDays = (prevOrdersTotal === 0 && firstActiveIdx > 0)
+        ? Math.max(1, daysCount - firstActiveIdx)
+        : daysCount;
+      const avgDailyOrders = currOrdersTotal / effectiveDays;
+      const avgDailyUnits = currUnitsTotal / effectiveDays;
+      const avgSubText = effectiveDays < daysCount
+        ? `${avgDailyUnits.toFixed(1)} uds/día (${effectiveDays}d act.)`
+        : `${avgDailyUnits.toFixed(1)} uds/día prom.`;
+
+      const ordersVarPct = calcPctDelta(currOrdersTotal, prevOrdersTotal);
+      const unitsVarPct = calcPctDelta(currUnitsTotal, prevUnitsTotal);
+
+      const noPrevPeriodBadge = `<span style="display: inline-flex; align-items: center; gap: 2px; font-size: 0.68rem; font-weight: 700; color: #2563eb; background: rgba(37, 99, 235, 0.1); padding: 0.12rem 0.42rem; border-radius: 99px;"><i class="ri-calendar-check-line"></i> ${effectiveDays}d activos</span>`;
+
+      return {
+        daysCount,
+        labels,
+        ordersArr,
+        unitsArr,
+        currOrdersTotal,
+        currUnitsTotal,
+        prevOrdersTotal,
+        prevUnitsTotal,
+        avgDailyOrders,
+        avgDailyUnits,
+        avgSubText,
+        ordersVarPct,
+        unitsVarPct,
+        ordersBadgeHtml: (prevOrdersTotal === 0 && currOrdersTotal > 0)
+          ? noPrevPeriodBadge
+          : renderPctBadgeHtml(ordersVarPct, `vs ${daysCount}d ant.`),
+        unitsBadgeHtml: (prevUnitsTotal === 0 && currUnitsTotal > 0)
+          ? noPrevPeriodBadge
+          : renderPctBadgeHtml(unitsVarPct, `vs ${daysCount}d ant.`)
+      };
+    };
+
+    const salesPeriodMap = {
+      7: buildSalesPeriodSeries(7),
+      14: buildSalesPeriodSeries(14),
+      30: buildSalesPeriodSeries(30)
+    };
+
+    // --- 3. Serie de Ventas Mensuales (Últimos 6 Meses con conteo exacto por mes desde Supabase) ---
+    const monthNamesShort = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const exactMonthlyMap = {};
+    (allMonthlyBuckets || []).forEach(bucket => {
+      if (!bucket || !bucket.ym) return;
+      const rawRows = Array.isArray(bucket.rows) ? bucket.rows : [];
+      const scopedRows = isFilteringSingleCommerce ? rawRows.filter(r => matchScopeCommerce(r.comercio)) : rawRows;
+      const validScopedRows = scopedRows.filter(r => {
+        const st = String(r.status || '').toLowerCase().trim();
+        const wmsSt = String(r.estado_wms || '').toLowerCase().trim();
+        return st !== 'cancelado' && wmsSt !== 'cancelado';
+      });
+      const sampleUnits = validScopedRows.reduce((acc, r) => acc + Math.max(1, Number(r.cantidad) || 1), 0);
+      // Si el mes supera el tope de 1.000 filas de PostgREST, escalar usando exactCount devuelto por PostgreSQL
+      const scaleFactor = (rawRows.length > 0 && bucket.exactCount > rawRows.length)
+        ? (bucket.exactCount / rawRows.length)
+        : 1;
+      exactMonthlyMap[bucket.ym] = {
+        orders: Math.round(validScopedRows.length * scaleFactor),
+        units: Math.round(sampleUnits * scaleFactor)
+      };
+    });
+
+    const monthlySeries6m = [];
+    for (let mBack = 5; mBack >= 0; mBack--) {
+      const d = new Date(tzNow.getFullYear(), tzNow.getMonth() - mBack, 1);
+      const yy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const ym = `${yy}-${mm}`;
+      const fromOrdData = monthlySalesByMonth[ym] || { orders: 0, units: 0 };
+      const fromExactBucket = exactMonthlyMap[ym] || { orders: 0, units: 0 };
+      monthlySeries6m.push({
+        ym,
+        label: `${monthNamesShort[d.getMonth()]} ${String(yy).slice(-2)}`,
+        orders: Math.max(fromOrdData.orders, fromExactBucket.orders),
+        units: Math.max(fromOrdData.units, fromExactBucket.units)
+      });
+    }
+
+    const currMonthItem = monthlySeries6m[monthlySeries6m.length - 1] || { orders: 0, units: 0, label: 'Actual' };
+    const prevMonthItem = monthlySeries6m[monthlySeries6m.length - 2] || { orders: 0, units: 0, label: 'Anterior' };
+    const dayOfCurrentMonth = tzNow.getDate();
+    const isEarlyMonthPartial = dayOfCurrentMonth <= 7 && prevMonthItem.orders > 0 && currMonthItem.orders < (prevMonthItem.orders * 0.5);
+    const momOrdersPct = calcPctDelta(currMonthItem.orders, prevMonthItem.orders);
+    const momUnitsPct = calcPctDelta(currMonthItem.units, prevMonthItem.units);
+    const momOrdersBadgeHtml = isEarlyMonthPartial
+      ? `<span style="display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; font-weight: 700; color: var(--color-primary); background: rgba(37, 99, 235, 0.1); padding: 0.15rem 0.5rem; border-radius: 99px;" title="Mes recién iniciado (Día ${dayOfCurrentMonth}). Mes anterior cerrado: ${prevMonthItem.orders.toLocaleString('es-CL')} ped."><i class="ri-calendar-check-line"></i> Día ${dayOfCurrentMonth} • Ant: ${prevMonthItem.orders.toLocaleString('es-CL')}</span>`
+      : renderPctBadgeHtml(momOrdersPct, 'vs mes ant.');
+    const momUnitsBadgeHtml = isEarlyMonthPartial
+      ? `<span style="display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; font-weight: 700; color: #8b5cf6; background: rgba(139, 92, 246, 0.1); padding: 0.15rem 0.5rem; border-radius: 99px;" title="Mes recién iniciado (Día ${dayOfCurrentMonth}). Mes anterior cerrado: ${prevMonthItem.units.toLocaleString('es-CL')} uds."><i class="ri-stack-line"></i> Ant: ${prevMonthItem.units.toLocaleString('es-CL')} uds</span>`
+      : renderPctBadgeHtml(momUnitsPct, 'vs mes ant.');
+
+    // Promedio mensual calculado sobre los meses con actividad real (evita diluir el promedio con meses en 0 previos al inicio de operación)
+    const closedMonthsWithSales = monthlySeries6m.slice(0, -1).filter(m => m.orders > 0);
+    const allMonthsWithSales = monthlySeries6m.filter(m => m.orders > 0);
+    const baseMonthsForAvg = closedMonthsWithSales.length > 0 ? closedMonthsWithSales : allMonthsWithSales;
+    const avgMonthlyOrders = baseMonthsForAvg.length > 0
+      ? Math.round(baseMonthsForAvg.reduce((s, m) => s + m.orders, 0) / baseMonthsForAvg.length)
+      : 0;
+    const activeMonthsCount = allMonthsWithSales.length;
+    const peakMonthItem = [...monthlySeries6m].sort((a, b) => b.orders - a.orders)[0] || currMonthItem;
+
+    // --- 4. Desglose por Comercio para usuarios Multi-Comercio o Conglomerados ---
+    let multiCommerceBreakdownHtml = '';
+    if (assignedComercios.length > 1) {
+      const perCommerceStats = assignedComercios.map(cName => {
+        const cLower = cName.trim().toLowerCase();
+        let cStock = 0;
+        let cAvail = 0;
+        let cVol = 0;
+        let cSkus = 0;
+        let cActiveOrders = 0;
+        let cOrders30d = 0;
+
+        allProdsData.forEach(p => {
+          if (String(p.comercio || '').trim().toLowerCase() !== cLower) return;
+          cSkus++;
+          const uVol = parseFloat(p.volumen || 0);
+          (p.inventory || []).forEach(inv => {
+            const q = Number(inv.quantity || 0);
+            const cm = Number(inv.committed_quantity || 0);
+            cStock += q;
+            cAvail += (q - cm);
+            cVol += q * uVol;
+          });
+        });
+
+        allOrdData.forEach(o => {
+          if (String(o.comercio || '').trim().toLowerCase() !== cLower) return;
+          const st = String(o.status || '').toLowerCase().trim();
+          const wmsSt = String(o.estado_wms || '').toLowerCase().trim();
+          if (st === 'cancelado' || wmsSt === 'cancelado') return;
+          if (['para procesar', 'en preparación', 'preparado'].includes(st) || ['para procesar', 'en preparación', 'pickeado'].includes(wmsSt)) {
+            cActiveOrders++;
+          }
+          const cMs = o.created_at ? new Date(o.created_at).getTime() : 0;
+          if (cMs >= thirtyDaysAgoMs) {
+            cOrders30d++;
+          }
+        });
+
+        const isSelected = activeDashboardScope !== 'ALL' && String(activeDashboardScope).toLowerCase() === cLower;
+        return {
+          name: cName,
+          stock: cStock,
+          available: cAvail,
+          volume: cVol,
+          skus: cSkus,
+          activeOrders: cActiveOrders,
+          orders30d: cOrders30d,
+          isSelected
+        };
+      });
+
+      const isAllSelected = activeDashboardScope === 'ALL';
+      multiCommerceBreakdownHtml = `
+        <div class="card" style="margin-bottom: 0; padding: 0.9rem 1.15rem; background: var(--color-surface); border: 1px solid var(--color-border);">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.7rem;">
+            <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+              <span style="font-size: 0.85rem; font-weight: 800; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-hotel-line" style="color: #8b5cf6;"></i> ${parentConglomerateName ? `Conglomerado ${parentConglomerateName} • Desglose por Comercio` : `Mis Comercios Asociados (${assignedComercios.length})`}
+              </span>
+              <span style="font-size: 0.72rem; color: var(--color-text-muted);">Haz clic en un comercio para filtrar el dashboard o ver el consolidado del grupo</span>
+            </div>
+            ${!isAllSelected ? `
+              <button type="button" onclick="window.handleClientDashboardCommerceScope('ALL')" style="border: 1px solid rgba(139, 92, 246, 0.35); background: rgba(139, 92, 246, 0.1); color: #7c3aed; font-size: 0.72rem; font-weight: 700; padding: 0.25rem 0.65rem; border-radius: 99px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-apps-2-line"></i> Ver Consolidado Grupo (${assignedComercios.length})
+              </button>
+            ` : ''}
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.75rem;">
+            ${perCommerceStats.map(cs => `
+              <div onclick="window.handleClientDashboardCommerceScope('${window.escapeHtmlAttr(cs.name)}')" style="cursor: pointer; background: ${cs.isSelected ? 'rgba(37, 99, 235, 0.06)' : 'var(--color-bg)'}; border: ${cs.isSelected ? '2px solid var(--color-primary)' : '1px solid var(--color-border)'}; border-radius: 10px; padding: 0.7rem 0.9rem; transition: all 0.18s;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem;">
+                  <span style="font-size: 0.78rem; font-weight: 800; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.3rem;">
+                    <i class="ri-store-2-line" style="color: ${cs.isSelected ? 'var(--color-primary)' : '#10b981'};"></i> ${cs.name}
+                  </span>
+                  <span style="font-size: 0.66rem; font-weight: 700; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.1rem 0.45rem; border-radius: 99px;">${cs.volume.toFixed(2)} m³</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; color: var(--color-text-muted);">
+                  <span>Disp: <strong style="color: var(--color-text-main);">${cs.available.toLocaleString('es-CL')}</strong> (${cs.skus} SKUs)</span>
+                  <span>30d: <strong style="color: var(--color-primary);">${cs.orders30d.toLocaleString('es-CL')} ped.</strong></span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    window._clientDashboardAnalytics = {
+      storageTimeline60,
+      avgStorage30d,
+      salesPeriodMap,
+      monthlySeries6m
+    };
 
     // Obtener Noticias (Noticias 2.0 / Mini Blog)
     let newsHtml = '';
     if (!news || news.length === 0) {
       newsHtml = '<div style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">No hay noticias recientes.</div>';
     } else {
-      // Ordenar: Pinned primero, luego por fecha descendente
       const sortedNews = [...news].sort((a, b) => {
         if (a.is_pinned && !b.is_pinned) return -1;
         if (!a.is_pinned && b.is_pinned) return 1;
@@ -2437,33 +3218,30 @@ async function renderDashboard() {
         else if (cat.includes('Guía') || cat.includes('Tutorial')) { badgeClass = 'news-tag-guide'; badgeIcon = 'ri-lightbulb-line'; }
         else if (cat.includes('Comercial') || cat.includes('Novedad')) { badgeClass = 'news-tag-commercial'; badgeIcon = 'ri-sparkling-line'; }
 
-        // Clean plain text excerpt from HTML body
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = n.body || '';
         const plainText = (tempDiv.textContent || tempDiv.innerText || '').trim();
-        const excerpt = plainText.length > 130 ? plainText.substring(0, 130) + '...' : plainText;
-
-        // Reading time
+        const excerpt = plainText.length > 120 ? plainText.substring(0, 120) + '...' : plainText;
         const wordCount = plainText.split(/\s+/).filter(Boolean).length;
         const readTime = Math.max(1, Math.ceil(wordCount / 180));
 
         return `
-          <div class="news-post-card news-item-clickable ${n.is_pinned ? 'is-pinned-card' : ''}" data-id="${n.id}">
+          <div class="news-post-card news-item-clickable ${n.is_pinned ? 'is-pinned-card' : ''}" data-id="${n.id}" style="padding: 0.9rem 1rem;">
             ${n.cover_image ? `<img src="${n.cover_image}" alt="${n.title}" class="news-card-cover" onerror="this.style.display='none'">` : ''}
-            <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; color: var(--color-text-muted); flex-wrap: wrap; gap: 0.5rem;">
-              <div style="display: flex; align-items: center; gap: 0.4rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.72rem; color: var(--color-text-muted); flex-wrap: wrap; gap: 0.4rem;">
+              <div style="display: flex; align-items: center; gap: 0.35rem;">
                 <span class="news-tag ${badgeClass}"><i class="${badgeIcon}"></i> ${cat}</span>
                 ${n.is_pinned ? `<span class="news-pinned-tag"><i class="ri-pushpin-fill"></i> Fijado</span>` : ''}
               </div>
-              <span class="news-read-time"><i class="ri-time-line"></i> ${readTime} min lectura</span>
+              <span class="news-read-time"><i class="ri-time-line"></i> ${readTime} min</span>
             </div>
-            <h4 style="margin: 0; font-size: 1.05rem; color: var(--color-text-main); font-weight: 700; line-height: 1.35; letter-spacing: -0.2px;">${n.title}</h4>
-            ${n.subtitle ? `<div style="font-size: 0.825rem; font-weight: 600; color: var(--color-primary);">${n.subtitle}</div>` : ''}
-            <p style="margin: 0; font-size: 0.825rem; color: var(--color-text-muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${excerpt}</p>
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.25rem; font-size: 0.75rem; color: var(--color-text-muted);">
+            <h4 style="margin: 0.25rem 0 0 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 700; line-height: 1.35;">${n.title}</h4>
+            ${n.subtitle ? `<div style="font-size: 0.78rem; font-weight: 600; color: var(--color-primary);">${n.subtitle}</div>` : ''}
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${excerpt}</p>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.35rem; font-size: 0.72rem; color: var(--color-text-muted);">
               <span><i class="ri-calendar-line"></i> ${new Date(n.created_at).toLocaleDateString('es-CL')}</span>
-              <span style="color: var(--color-primary); font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
-                Leer artículo <i class="ri-arrow-right-line"></i>
+              <span style="color: var(--color-primary); font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;">
+                Leer <i class="ri-arrow-right-line"></i>
               </span>
             </div>
           </div>
@@ -2521,124 +3299,177 @@ async function renderDashboard() {
       currentPeriodPending = currentPeriodTotal - currentPeriodPaid;
     }
 
-    let billingHtml = '';
-    if (billingEnabled && activePeriod) {
-      let statusBadge = '';
-      let alertBanner = '';
+    // Construir bloque lateral de Cubicaje (m³) & Estado de Cuenta (Propuesta B integrada en C+)
+    const branchListForBar = Object.values(branchStats);
+    const safeTotalVol = totalVolume > 0 ? totalVolume : 1;
+    const volumeSegmentsHtml = branchListForBar.map(b => {
+      const pct = totalVolume > 0 ? Math.max(0, (b.volume / safeTotalVol) * 100) : 25;
+      return `<div style="width: ${pct.toFixed(1)}%; background: ${b.color}; height: 100%; transition: width 0.3s;" title="${b.shortName}: ${b.volume.toFixed(2)} m³ (${pct.toFixed(0)}%)"></div>`;
+    }).join('');
+    const volumeLegendHtml = branchListForBar.map(b => `
+      <span style="display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600;">
+        <span style="width: 8px; height: 8px; border-radius: 50%; background: ${b.color}; display: inline-block;"></span>
+        ${b.shortName}: <strong style="color: var(--color-text-main);">${b.volume.toFixed(2)} m³</strong>
+      </span>
+    `).join('');
 
-      if (hasOverduePayments) {
-        statusBadge = `
-          <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; color: var(--color-danger); font-size: 0.8rem; background: rgba(239, 68, 68, 0.1); padding: 0.35rem 0.75rem; border-radius: 50px;">
-            <i class="ri-error-warning-fill" style="font-size: 1rem;"></i> Pago Atrasado
-          </span>
-        `;
-        let overdueServices = [];
-        if (pendingFulfillmentAny) overdueServices.push('Fulfillment');
-        if (pendingEnviameAny) overdueServices.push('Envíame');
-        alertBanner = `
-          <div style="background: rgba(239, 68, 68, 0.15); border-left: 4px solid var(--color-danger); padding: 1rem; border-radius: 4px; margin-top: 1.5rem; display: flex; align-items: center; gap: 0.75rem; text-align: left; width: 100%;">
-            <i class="ri-alert-fill" style="color: var(--color-danger); font-size: 1.5rem; flex-shrink: 0;"></i>
-            <div style="font-size: 0.9rem; color: var(--color-text-main);">
-              <strong>¡Atención!</strong> Tienes pagos atrasados pendientes para el/los servicios de <strong>${overdueServices.join(' y ')}</strong>. Por favor, regulariza tu cuenta a la brevedad para evitar suspensiones de servicio.
-            </div>
-          </div>
-        `;
-      } else if (totalPendingAllPeriods > 0) {
-        statusBadge = `
-          <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; color: var(--color-warning); font-size: 0.8rem; background: rgba(245, 158, 11, 0.1); padding: 0.35rem 0.75rem; border-radius: 50px;">
-            <i class="ri-time-fill" style="font-size: 1rem;"></i> Saldo Pendiente
-          </span>
-        `;
-        let pendingServices = [];
-        if (pendingFulfillmentAny) pendingServices.push('Fulfillment');
-        if (pendingEnviameAny) pendingServices.push('Envíame');
-        alertBanner = `
-          <div style="background: rgba(245, 158, 11, 0.1); border-left: 4px solid var(--color-warning); padding: 1rem; border-radius: 4px; margin-top: 1.5rem; display: flex; align-items: center; gap: 0.75rem; text-align: left; width: 100%;">
-            <i class="ri-information-fill" style="color: var(--color-warning); font-size: 1.5rem; flex-shrink: 0;"></i>
-            <div style="font-size: 0.9rem; color: var(--color-text-main);">
-              Tienes un saldo total pendiente de cobro de <strong>$${totalPendingAllPeriods.toLocaleString()}</strong> correspondiente a los servicios de <strong>${pendingServices.join(' y ')}</strong>.
-            </div>
-          </div>
-        `;
-      } else {
-        statusBadge = `
-          <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; color: var(--color-success); font-size: 0.8rem; background: rgba(16, 185, 129, 0.1); padding: 0.35rem 0.75rem; border-radius: 50px;">
-            <i class="ri-checkbox-circle-fill" style="font-size: 1rem;"></i> Al Día
-          </span>
-        `;
-      }
-
-      billingHtml = `
-        <div class="card" style="display: flex; flex-direction: column;">
-          <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem;">
-            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-              <h3 style="margin: 0;"><i class="ri-bill-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Facturación y Estado de Cuenta</h3>
-              <span style="font-size: 0.8rem; color: var(--color-text-muted); background: var(--color-bg-secondary); padding: 0.25rem 0.75rem; border-radius: 4px;">Periodo: ${activePeriod.name}</span>
-            </div>
-            ${statusBadge}
-          </div>
-          <div class="card-body" style="padding: 1.5rem;">
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem;">
-              <div style="background: var(--color-bg-secondary); padding: 1.25rem; border-radius: 8px; border: 1px solid var(--color-border); text-align: center;">
-                <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.25rem;">Total Facturado del Mes</div>
-                <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-main);">$${currentPeriodTotal.toLocaleString()}</div>
-              </div>
-              <div style="background: var(--color-bg-secondary); padding: 1.25rem; border-radius: 8px; border: 1px solid var(--color-border); text-align: center;">
-                <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.25rem;">Abonado/Pagado</div>
-                <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-success);">$${currentPeriodPaid.toLocaleString()}</div>
-              </div>
-              <div style="background: var(--color-bg-secondary); padding: 1.25rem; border-radius: 8px; border: 1px solid var(--color-border); text-align: center;">
-                <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.25rem;">Saldo Pendiente del Mes</div>
-                <div style="font-size: 1.5rem; font-weight: 700; color: ${currentPeriodPending > 0 ? 'var(--color-warning)' : 'var(--color-text-main)'};">$${currentPeriodPending.toLocaleString()}</div>
-              </div>
-              <div style="display: flex; align-items: center; justify-content: center;">
-                <button class="btn btn-primary" style="width: 100%; max-width: 200px; padding: 0.75rem 1rem; border-radius: 8px;" id="dashboard-to-billing-btn">
-                  <i class="ri-receipt-line" style="margin-right: 0.5rem;"></i> Detalle de Facturas
-                </button>
-              </div>
-            </div>
-            ${alertBanner}
-          </div>
+    let billingStatusBadge = `
+      <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; color: var(--color-success); font-size: 0.74rem; background: rgba(16, 185, 129, 0.12); padding: 0.25rem 0.65rem; border-radius: 99px;">
+        <i class="ri-checkbox-circle-fill"></i> Al Día
+      </span>
+    `;
+    let billingAlertBanner = '';
+    if (hasOverduePayments) {
+      billingStatusBadge = `
+        <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; color: var(--color-danger); font-size: 0.74rem; background: rgba(239, 68, 68, 0.12); padding: 0.25rem 0.65rem; border-radius: 99px;">
+          <i class="ri-error-warning-fill"></i> Pago Atrasado
+        </span>
+      `;
+      const overdueServices = [];
+      if (pendingFulfillmentAny) overdueServices.push('Fulfillment');
+      if (pendingEnviameAny) overdueServices.push('Envíame');
+      billingAlertBanner = `
+        <div style="background: rgba(239, 68, 68, 0.1); border-left: 3px solid var(--color-danger); padding: 0.65rem 0.8rem; border-radius: 6px; font-size: 0.76rem; color: var(--color-text-main); line-height: 1.4;">
+          <strong style="color: var(--color-danger);">¡Atención!</strong> Pagos atrasados pendientes en <strong>${overdueServices.join(' y ') || 'Facturación'}</strong>.
+        </div>
+      `;
+    } else if (totalPendingAllPeriods > 0) {
+      billingStatusBadge = `
+        <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; color: var(--color-warning); font-size: 0.74rem; background: rgba(245, 158, 11, 0.12); padding: 0.25rem 0.65rem; border-radius: 99px;">
+          <i class="ri-time-fill"></i> Saldo Pendiente
+        </span>
+      `;
+      const pendingServices = [];
+      if (pendingFulfillmentAny) pendingServices.push('Fulfillment');
+      if (pendingEnviameAny) pendingServices.push('Envíame');
+      billingAlertBanner = `
+        <div style="background: rgba(245, 158, 11, 0.1); border-left: 3px solid var(--color-warning); padding: 0.65rem 0.8rem; border-radius: 6px; font-size: 0.76rem; color: var(--color-text-main); line-height: 1.4;">
+          Saldo pendiente total: <strong>$${totalPendingAllPeriods.toLocaleString('es-CL')}</strong> (${pendingServices.join(' y ') || 'Servicios WMS'}).
         </div>
       `;
     }
 
+    const cubicajeAndBillingHtml = `
+      <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
+        <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding: 1rem 1.25rem;">
+          <h3 style="margin: 0; font-size: 0.96rem; font-weight: 700; display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-box-3-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Cubicaje (m³) & Estado de Cuenta
+          </h3>
+          ${billingEnabled && activePeriod ? billingStatusBadge : `<span style="font-size: 0.72rem; font-weight: 700; color: var(--color-primary); background: rgba(37, 99, 235, 0.1); padding: 0.2rem 0.55rem; border-radius: 99px;">${Object.keys(aggregatedProducts).length} SKUs</span>`}
+        </div>
+        <div class="card-body" style="padding: 1.15rem 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+          <!-- Bloque de Cubicaje por Sucursal -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.9rem 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.45rem;">
+              <span style="font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted);">Volumen Físico Ocupado</span>
+              <span style="font-size: 1.25rem; font-weight: 800; color: var(--color-text-main);">${totalVolume.toFixed(2)} m³</span>
+            </div>
+            <div style="height: 8px; border-radius: 99px; background: var(--color-border); overflow: hidden; display: flex; margin-bottom: 0.6rem;">
+              ${volumeSegmentsHtml}
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.55rem 0.85rem;">
+              ${volumeLegendHtml}
+            </div>
+          </div>
+
+          ${billingEnabled && activePeriod ? `
+            <!-- Bloque de Facturación Activa -->
+            <div style="display: flex; flex-direction: column; gap: 0.6rem; border-top: 1px dashed var(--color-border); padding-top: 0.85rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.35rem;">
+                <span style="font-size: 0.76rem; font-weight: 700; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.35rem;">
+                  Periodo Activo
+                  ${parentConglomerateName ? `<span style="font-size: 0.66rem; font-weight: 700; color: #7c3aed; background: rgba(139, 92, 246, 0.12); border: 1px solid rgba(139, 92, 246, 0.28); padding: 0.1rem 0.45rem; border-radius: 99px;" title="La facturación de este comercio se emite de forma consolidada bajo el Holding ${parentConglomerateName}"><i class="ri-hotel-line"></i> Holding ${parentConglomerateName}</span>` : ''}
+                </span>
+                <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); background: var(--color-bg); padding: 0.15rem 0.55rem; border-radius: 6px; border: 1px solid var(--color-border);">${activePeriod.name}</span>
+              </div>
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;">
+                <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.55rem; text-align: center;">
+                  <div style="font-size: 0.68rem; color: var(--color-text-muted);">Facturado</div>
+                  <div style="font-size: 0.88rem; font-weight: 800; color: var(--color-text-main); margin-top: 2px;">$${currentPeriodTotal.toLocaleString('es-CL')}</div>
+                </div>
+                <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.55rem; text-align: center;">
+                  <div style="font-size: 0.68rem; color: var(--color-text-muted);">Abonado</div>
+                  <div style="font-size: 0.88rem; font-weight: 800; color: var(--color-success); margin-top: 2px;">$${currentPeriodPaid.toLocaleString('es-CL')}</div>
+                </div>
+                <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.55rem; text-align: center;">
+                  <div style="font-size: 0.68rem; color: var(--color-text-muted);">Pendiente</div>
+                  <div style="font-size: 0.88rem; font-weight: 800; color: ${currentPeriodPending > 0 ? 'var(--color-warning)' : 'var(--color-text-main)'}; margin-top: 2px;">$${currentPeriodPending.toLocaleString('es-CL')}</div>
+                </div>
+              </div>
+              ${billingAlertBanner}
+              <button class="btn btn-primary" style="width: 100%; padding: 0.55rem 0.85rem; font-size: 0.8rem; font-weight: 700; border-radius: 8px; margin-top: 0.15rem;" id="dashboard-to-billing-btn">
+                <i class="ri-receipt-line" style="margin-right: 0.35rem;"></i> Ir a Facturación y Estado de Cuenta
+              </button>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+
+    // Tabla de Alertas de Stock Crítico + Días de Cobertura Estimada (Runway 30d)
     let lowStockHtml = '';
     if (lowStockItems.length === 0) {
-      lowStockHtml = '<div style="padding: 2rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem;"><i class="ri-checkbox-circle-line" style="color: var(--color-success); margin-right: 0.5rem; font-size: 1.2rem; vertical-align: middle;"></i>Todos los productos tienen stock suficiente.</div>';
+      lowStockHtml = `
+        <div style="padding: 2.25rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem;">
+          <i class="ri-checkbox-circle-line" style="color: var(--color-success); margin-right: 0.4rem; font-size: 1.25rem; vertical-align: middle;"></i>
+          Todos tus productos tienen cobertura saludable y stock por sobre el mínimo crítico.
+        </div>
+      `;
     } else {
       lowStockHtml = `
         <table class="table" style="width: 100%; border-collapse: collapse;">
           <thead>
-            <tr style="border-bottom: 1px solid var(--color-border); text-align: left;">
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted);">SKU</th>
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted);">Producto</th>
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); text-align: center;">Stock Disp.</th>
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); text-align: center;">Estado</th>
+            <tr style="border-bottom: 1px solid var(--color-border); text-align: left; background: var(--color-bg);">
+              <th style="padding: 0.65rem 0.9rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted);">SKU / Producto</th>
+              <th style="padding: 0.65rem 0.75rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted); text-align: center;">Disp. / Crít.</th>
+              <th style="padding: 0.65rem 0.75rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted); text-align: center;">Vel. 30d</th>
+              <th style="padding: 0.65rem 0.75rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted);">Días Cobertura (Runway)</th>
+              <th style="padding: 0.65rem 0.9rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted); text-align: right;">Sugerido (30d)</th>
             </tr>
           </thead>
           <tbody>
-            ${lowStockItems.slice(0, 5).map(item => {
-              const pct = item.critico > 0 ? (item.available / item.critico) * 100 : 0;
-              let badgeColor = 'var(--color-danger)';
-              let badgeText = 'Crítico';
-              if (item.available < 0) {
-                badgeColor = '#e11d48';
-                badgeText = 'Insuficiente';
-              } else if (item.available === 0) {
-                badgeColor = '#ef4444';
-                badgeText = 'Sin Stock';
-              } else if (pct > 50) {
-                badgeColor = 'var(--color-warning)';
-                badgeText = 'Advertencia';
+            ${lowStockItems.slice(0, 6).map(item => {
+              let runwayBadgeBg = 'rgba(16, 185, 129, 0.12)';
+              let runwayBadgeColor = 'var(--color-success)';
+              let runwayText = item.runwayDays >= 999 ? '∞ Sin rotación' : `~${item.runwayDays} días`;
+              let barPct = item.runwayDays >= 999 ? 100 : Math.min(100, Math.round((item.runwayDays / 30) * 100));
+
+              if (item.available <= 0) {
+                runwayBadgeBg = 'rgba(239, 68, 68, 0.15)';
+                runwayBadgeColor = 'var(--color-danger)';
+                runwayText = item.available < 0 ? 'Quiebre (-' + Math.abs(item.available) + ')' : '0 días (Agotado)';
+                barPct = 5;
+              } else if (item.runwayDays <= 5) {
+                runwayBadgeBg = 'rgba(239, 68, 68, 0.14)';
+                runwayBadgeColor = 'var(--color-danger)';
+              } else if (item.runwayDays <= 14) {
+                runwayBadgeBg = 'rgba(245, 158, 11, 0.14)';
+                runwayBadgeColor = 'var(--color-warning)';
               }
+
               return `
                 <tr style="border-bottom: 1px solid var(--color-border);">
-                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
-                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; color: var(--color-text-main);">${item.name}</td>
-                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center; font-weight: bold; color: ${item.available <= 0 ? 'red' : 'inherit'}">${item.available} ${item.critico > 0 ? `<span style="font-weight: normal; color: var(--color-text-muted); font-size: 0.75rem;">/ crít. ${item.critico}</span>` : `<span style="font-weight: normal; color: var(--color-text-muted); font-size: 0.75rem;">(sin crít.)</span>`}</td>
-                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center;">
-                    <span style="background: ${badgeColor}22; color: ${badgeColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${badgeText}</span>
+                  <td style="padding: 0.65rem 0.9rem; vertical-align: middle;">
+                    <div style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-main); max-width: 210px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${item.name}">${item.name}</div>
+                    <div style="font-size: 0.72rem; color: var(--color-text-muted); font-family: monospace;">${item.sku}</div>
+                  </td>
+                  <td style="padding: 0.65rem 0.75rem; font-size: 0.82rem; text-align: center; vertical-align: middle; font-weight: 700; color: ${item.available <= 0 ? 'var(--color-danger)' : 'var(--color-text-main)'};">
+                    ${item.available} <span style="font-weight: 500; color: var(--color-text-muted); font-size: 0.72rem;">/ ${item.critico || 0}</span>
+                  </td>
+                  <td style="padding: 0.65rem 0.75rem; font-size: 0.78rem; text-align: center; vertical-align: middle; color: var(--color-text-main);">
+                    <strong>${item.velocityDaily.toFixed(1)}</strong> <span style="font-size: 0.68rem; color: var(--color-text-muted);">u/día</span>
+                    <div style="font-size: 0.66rem; color: var(--color-text-muted);">(${item.units30d} u/30d)</div>
+                  </td>
+                  <td style="padding: 0.65rem 0.75rem; vertical-align: middle; min-width: 145px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; margin-bottom: 4px;">
+                      <span style="background: ${runwayBadgeBg}; color: ${runwayBadgeColor}; padding: 0.15rem 0.45rem; border-radius: 99px; font-size: 0.7rem; font-weight: 700;">${runwayText}</span>
+                    </div>
+                    <div style="height: 5px; background: var(--color-border); border-radius: 99px; overflow: hidden;">
+                      <div style="width: ${barPct}%; height: 100%; background: ${runwayBadgeColor}; border-radius: 99px;"></div>
+                    </div>
+                  </td>
+                  <td style="padding: 0.65rem 0.9rem; font-size: 0.8rem; text-align: right; vertical-align: middle; font-weight: 700; color: var(--color-primary);">
+                    ${item.suggestedReplenish > 0 ? `+${item.suggestedReplenish.toLocaleString('es-CL')} u.` : '<span style="color: var(--color-text-muted); font-weight: 500;">—</span>'}
                   </td>
                 </tr>
               `;
@@ -2648,90 +3479,97 @@ async function renderDashboard() {
       `;
     }
 
-    function getDeclarationStatusBadge(status) {
-      let bg = 'var(--badge-neutral-bg)';
-      let color = 'var(--badge-neutral-text)';
-      let border = '1px solid var(--color-border)';
-      let displayName = status;
-      
+    // Stepper de Ingresos de Stock (Propuesta A integrada en Propuesta C+)
+    function getDeclarationStepInfo(status) {
+      let stepIndex = 1;
+      let badgeBg = 'rgba(59, 130, 246, 0.12)';
+      let badgeColor = 'var(--color-primary)';
+      let shortStatus = status || 'Creada';
+
       switch (status) {
         case 'Creada':
-          bg = 'rgba(59, 130, 246, 0.1)';
-          color = 'var(--color-primary)';
-          border = '1px solid rgba(59, 130, 246, 0.2)';
+          stepIndex = 1;
+          shortStatus = '1. Declarada';
           break;
         case 'Bodega Asignada':
-          bg = 'rgba(79, 70, 229, 0.1)';
-          color = '#4f46e5';
-          border = '1px solid rgba(79, 70, 229, 0.2)';
-          displayName = 'Asignada';
+          stepIndex = 2;
+          badgeBg = 'rgba(99, 102, 241, 0.12)';
+          badgeColor = '#4f46e5';
+          shortStatus = '2. Bodega Asignada';
           break;
         case 'En Recepción - Pendiente Conteo':
-          bg = 'rgba(245, 158, 11, 0.1)';
-          color = 'var(--color-warning)';
-          border = '1px solid rgba(245, 158, 11, 0.2)';
-          displayName = 'En Recepción';
-          break;
         case 'En proceso de conteo/clasificación':
-          bg = 'rgba(6, 182, 212, 0.1)';
-          color = '#06b6d4';
-          border = '1px solid rgba(6, 182, 212, 0.2)';
-          displayName = 'En Conteo';
+          stepIndex = 3;
+          badgeBg = 'rgba(245, 158, 11, 0.14)';
+          badgeColor = 'var(--color-warning)';
+          shortStatus = '3. En Recepción / Conteo';
           break;
         case 'Recibido Conforme':
-          bg = 'rgba(16, 185, 129, 0.1)';
-          color = 'var(--color-success)';
-          border = '1px solid rgba(16, 185, 129, 0.2)';
-          displayName = 'Recibido';
+          stepIndex = 4;
+          badgeBg = 'rgba(16, 185, 129, 0.14)';
+          badgeColor = 'var(--color-success)';
+          shortStatus = '4. Recibido Conforme';
           break;
         case 'Recibido con Incidencias':
-          bg = 'rgba(239, 68, 68, 0.1)';
-          color = 'var(--color-danger)';
-          border = '1px solid rgba(239, 68, 68, 0.2)';
-          displayName = 'Incidencias';
+          stepIndex = 4;
+          badgeBg = 'rgba(239, 68, 68, 0.14)';
+          badgeColor = 'var(--color-danger)';
+          shortStatus = '4. Con Incidencias';
           break;
       }
-      
-      return `<span style="background: ${bg}; color: ${color}; border: ${border}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600; display: inline-block; white-space: nowrap; vertical-align: middle;">${displayName}</span>`;
+      return { stepIndex, badgeBg, badgeColor, shortStatus };
     }
 
     let recentDeclarationsHtml = '';
     if (recentDecs.length === 0) {
-      recentDeclarationsHtml = '<div style="padding: 2rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem;">No hay ingresos declarados recientes.</div>';
-    } else {
       recentDeclarationsHtml = `
-        <table class="table" style="width: 100%; border-collapse: collapse;">
-          <thead>
-            <tr style="border-bottom: 1px solid var(--color-border); text-align: left;">
-              <th style="padding: 0.5rem 0.6rem; font-size: 0.75rem; color: var(--color-text-muted); vertical-align: middle;">Ingreso</th>
-              <th style="padding: 0.5rem 0.6rem; font-size: 0.75rem; color: var(--color-text-muted); vertical-align: middle; white-space: nowrap;">ETA / Llegada</th>
-              <th style="padding: 0.5rem 0.6rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: center; vertical-align: middle; white-space: nowrap;">Cant.</th>
-              <th style="padding: 0.5rem 0.6rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: right; vertical-align: middle; white-space: nowrap;">Volumen</th>
-              <th style="padding: 0.5rem 0.6rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: center; vertical-align: middle; white-space: nowrap;">Estado</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${recentDecs.map(dec => {
-              let etaText = '';
-              if (dec.estimated_arrival_type === 'exact' && dec.estimated_arrival_date) {
-                const parts = dec.estimated_arrival_date.split('-');
-                etaText = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dec.estimated_arrival_date;
-              } else {
-                etaText = dec.estimated_arrival_period || '—';
-              }
-              const vol = parseFloat(dec.volume_declared || 0);
-              return `
-                <tr style="border-bottom: 1px solid var(--color-border);">
-                  <td style="padding: 0.5rem 0.6rem; font-size: 0.8rem; font-weight: 600; color: var(--color-text-main); vertical-align: middle; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${dec.title}">${dec.title}</td>
-                  <td style="padding: 0.5rem 0.6rem; font-size: 0.8rem; color: var(--color-text-muted); vertical-align: middle; white-space: nowrap;">${etaText}</td>
-                  <td style="padding: 0.5rem 0.6rem; font-size: 0.8rem; text-align: center; color: var(--color-text-main); vertical-align: middle; white-space: nowrap;">${(dec.quantity_declared || 0).toLocaleString()}</td>
-                  <td style="padding: 0.5rem 0.6rem; font-size: 0.8rem; text-align: right; color: var(--color-text-muted); vertical-align: middle; white-space: nowrap;">${vol.toFixed(2)} m³</td>
-                  <td style="padding: 0.5rem 0.6rem; font-size: 0.8rem; text-align: center; vertical-align: middle; white-space: nowrap;">${getDeclarationStatusBadge(dec.status)}</td>
-                </tr>
-              `;
-            }).join('')}
-          </tbody>
-        </table>
+        <div style="padding: 1.75rem 1.25rem; text-align: center; color: var(--color-text-muted); font-size: 0.86rem;">
+          <i class="ri-inbox-archive-line" style="font-size: 1.5rem; display: block; margin-bottom: 0.35rem; color: var(--color-primary); opacity: 0.7;"></i>
+          No tienes declaraciones de ingreso recientes. Usa el botón superior para anunciar tu próxima carga.
+        </div>
+      `;
+    } else {
+      const stepLabels = ['Declarada', 'Bodega Asignada', 'Recepción / Conteo', 'Recibido'];
+      recentDeclarationsHtml = `
+        <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem 1.25rem;">
+          ${recentDecs.slice(0, 3).map(dec => {
+            let etaText = 'Por confirmar';
+            if (dec.estimated_arrival_type === 'exact' && dec.estimated_arrival_date) {
+              const parts = dec.estimated_arrival_date.split('-');
+              etaText = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dec.estimated_arrival_date;
+            } else if (dec.estimated_arrival_period) {
+              etaText = dec.estimated_arrival_period;
+            }
+            const vol = parseFloat(dec.volume_declared || 0);
+            const info = getDeclarationStepInfo(dec.status);
+            return `
+              <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.85rem 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.55rem;">
+                  <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0;">
+                    <span style="font-size: 0.86rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px;" title="${dec.title}">${dec.title}</span>
+                    <span style="font-size: 0.74rem; color: var(--color-text-muted); white-space: nowrap;">• ${(dec.quantity_declared || 0).toLocaleString('es-CL')} uds (${vol.toFixed(2)} m³) • ETA: <strong>${etaText}</strong></span>
+                  </div>
+                  <span style="background: ${info.badgeBg}; color: ${info.badgeColor}; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.72rem; font-weight: 700; white-space: nowrap;">${info.shortStatus}</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
+                  ${stepLabels.map((lbl, idx) => {
+                    const stepNum = idx + 1;
+                    const isDone = stepNum < info.stepIndex || (info.stepIndex === 4 && stepNum === 4);
+                    const isCurrent = stepNum === info.stepIndex && info.stepIndex < 4;
+                    const barColor = isDone ? 'var(--color-success)' : (isCurrent ? 'var(--color-primary)' : 'var(--color-border)');
+                    const textColor = isDone ? 'var(--color-success)' : (isCurrent ? 'var(--color-primary)' : 'var(--color-text-muted)');
+                    return `
+                      <div>
+                        <div style="height: 5px; border-radius: 99px; background: ${barColor}; margin-bottom: 4px;"></div>
+                        <div style="font-size: 0.66rem; font-weight: ${isDone || isCurrent ? '700' : '500'}; color: ${textColor}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${stepNum}. ${lbl}</div>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
       `;
     }
 
@@ -2827,27 +3665,129 @@ async function renderDashboard() {
         <table class="table" style="width: 100%; border-collapse: collapse;">
           <thead>
             <tr style="border-bottom: 1px solid var(--color-border); text-align: left;">
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); vertical-align: middle;">SKU</th>
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); vertical-align: middle;">Producto</th>
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); text-align: center; vertical-align: middle;">Stock</th>
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); text-align: right; vertical-align: middle;">Vol. Unit.</th>
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); text-align: right; vertical-align: middle;">Vol. Total</th>
+              <th style="padding: 0.65rem 1rem; font-size: 0.75rem; color: var(--color-text-muted); vertical-align: middle;">SKU</th>
+              <th style="padding: 0.65rem 1rem; font-size: 0.75rem; color: var(--color-text-muted); vertical-align: middle;">Producto</th>
+              <th style="padding: 0.65rem 1rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: center; vertical-align: middle;">Stock</th>
+              <th style="padding: 0.65rem 1rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: right; vertical-align: middle;">Vol. Unit.</th>
+              <th style="padding: 0.65rem 1rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: right; vertical-align: middle;">Vol. Total</th>
             </tr>
           </thead>
           <tbody>
             ${topVolumeProducts.map(item => `
               <tr style="border-bottom: 1px solid var(--color-border);">
-                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); vertical-align: middle;">${item.sku}</td>
-                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; color: var(--color-text-muted); vertical-align: middle; max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${item.name}">${item.name}</td>
-                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center; color: var(--color-text-main); vertical-align: middle;">${item.quantity.toLocaleString()}</td>
-                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: right; color: var(--color-text-muted); vertical-align: middle;">${item.volumenUnitario.toFixed(5)} m³</td>
-                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: right; font-weight: 700; color: var(--color-primary); vertical-align: middle;">${item.volumenTotal.toFixed(3)} m³</td>
+                <td style="padding: 0.65rem 1rem; font-size: 0.82rem; font-weight: 600; color: var(--color-text-main); vertical-align: middle;">${item.sku}</td>
+                <td style="padding: 0.65rem 1rem; font-size: 0.82rem; color: var(--color-text-muted); vertical-align: middle; max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${item.name}">${item.name}</td>
+                <td style="padding: 0.65rem 1rem; font-size: 0.82rem; text-align: center; color: var(--color-text-main); vertical-align: middle;">${item.quantity.toLocaleString('es-CL')}</td>
+                <td style="padding: 0.65rem 1rem; font-size: 0.82rem; text-align: right; color: var(--color-text-muted); vertical-align: middle;">${item.volumenUnitario.toFixed(5)} m³</td>
+                <td style="padding: 0.65rem 1rem; font-size: 0.82rem; text-align: right; font-weight: 700; color: var(--color-primary); vertical-align: middle;">${item.volumenTotal.toFixed(3)} m³</td>
               </tr>
             `).join('')}
           </tbody>
         </table>
       `;
     }
+
+    // Construir tarjetas de Desglose Rápido por Sucursal Física
+    const branchesCardsHtml = Object.values(branchStats).map(b => `
+      <div class="card" style="margin-bottom: 0; padding: 0.9rem 1.1rem; border-left: 4px solid ${b.color}; display: flex; flex-direction: column; gap: 0.35rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 0.76rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="${b.icon}" style="color: ${b.color}; font-size: 0.95rem;"></i> ${b.name}
+          </span>
+          <span style="font-size: 0.68rem; font-weight: 700; background: ${b.color}18; color: ${b.color}; padding: 0.15rem 0.5rem; border-radius: 99px;">${b.skusSet.size} SKUs</span>
+        </div>
+        <div style="display: flex; align-items: baseline; justify-content: space-between; margin-top: 0.1rem;">
+          <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main);">${b.units.toLocaleString('es-CL')} <span style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted);">uds</span></div>
+          <div style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted);">${b.volume.toFixed(2)} m³</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; color: var(--color-text-muted); border-top: 1px dashed var(--color-border); padding-top: 0.35rem; margin-top: 0.1rem;">
+          <span>Disp: <strong style="color: var(--color-success);">${b.available.toLocaleString('es-CL')}</strong></span>
+          <span>En picking: <strong style="color: ${b.activeOrders > 0 ? 'var(--color-primary)' : 'var(--color-text-muted)'};">${b.activeOrders} ped.</strong></span>
+        </div>
+      </div>
+    `).join('');
+
+    // Construir barras de Despachos por Operador Logístico
+    const totalCourierOrders = Object.values(courierStats).reduce((acc, c) => acc + c.total, 0);
+    const couriersBarsHtml = Object.values(courierStats).map(c => {
+      const sharePct = totalCourierOrders > 0 ? Math.round((c.total / totalCourierOrders) * 100) : 0;
+      const donePct = c.total > 0 ? Math.round((c.completed / c.total) * 100) : 100;
+      return `
+        <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem;">
+            <span style="font-weight: 700; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.4rem;">
+              <i class="${c.icon}" style="color: ${c.color};"></i> ${c.label}
+            </span>
+            <span style="font-size: 0.74rem; color: var(--color-text-muted);">
+              <strong style="color: var(--color-text-main);">${c.total.toLocaleString('es-CL')}</strong> envíos (${sharePct}%) • <span style="color: var(--color-success); font-weight: 700;">${donePct}% desp.</span>
+            </span>
+          </div>
+          <div style="height: 7px; background: var(--color-border); border-radius: 99px; overflow: hidden;">
+            <div style="width: ${Math.max(c.total > 0 ? 4 : 0, sharePct)}%; height: 100%; background: ${c.color}; border-radius: 99px;"></div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Construir Bloque 1: Hub Unificado en Pestañas (Calendario Operativo + Noticias WMS)
+    const todayFormatted = new Date().toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' });
+    const todayIsoStr = new Date().toISOString().split('T')[0];
+    const upcomingEvent = (events || []).find(e => (e.event_date || '') >= todayIsoStr);
+    const upcomingEventText = upcomingEvent
+      ? `Próximo hito: <strong>${upcomingEvent.title}</strong> (${new Date(upcomingEvent.event_date + 'T12:00:00').toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })})`
+      : 'Todos los andenes y couriers operando en horario normal';
+
+    const unifiedCalendarNewsHtml = `
+      <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0; overflow: hidden;">
+        <!-- Franja fija de estado operativo de hoy -->
+        <div style="background: linear-gradient(90deg, rgba(16, 185, 129, 0.12), rgba(37, 99, 235, 0.08)); border-bottom: 1px solid var(--color-border); padding: 0.7rem 1.15rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.76rem; font-weight: 700; color: var(--color-text-main);">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--color-success); box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2); display: inline-block;"></span>
+            <span>Hoy (${todayFormatted}): <strong style="color: var(--color-success);">Operación Normal</strong></span>
+          </div>
+          <span style="font-size: 0.7rem; color: var(--color-text-muted);">${upcomingEventText}</span>
+        </div>
+
+        <!-- Selector de Pestañas (Calendario vs Noticias) -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; background: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 0.35rem; gap: 0.35rem;">
+          <button type="button" id="client-hub-tab-cal" onclick="
+            document.getElementById('client-hub-pane-cal').style.display='flex';
+            document.getElementById('client-hub-pane-news').style.display='none';
+            this.style.background='var(--color-surface)';
+            this.style.color='var(--color-primary)';
+            this.style.boxShadow='var(--shadow-sm)';
+            const other=document.getElementById('client-hub-tab-news');
+            if(other){other.style.background='transparent';other.style.color='var(--color-text-muted)';other.style.boxShadow='none';}
+          " style="border: none; border-radius: 8px; padding: 0.5rem 0.65rem; font-size: 0.78rem; font-weight: 700; cursor: pointer; background: var(--color-surface); color: var(--color-primary); box-shadow: var(--shadow-sm); display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; transition: all 0.2s;">
+            <i class="ri-calendar-event-line"></i> Calendario (${(events || []).length})
+          </button>
+          <button type="button" id="client-hub-tab-news" onclick="
+            document.getElementById('client-hub-pane-cal').style.display='none';
+            document.getElementById('client-hub-pane-news').style.display='block';
+            this.style.background='var(--color-surface)';
+            this.style.color='var(--color-primary)';
+            this.style.boxShadow='var(--shadow-sm)';
+            const other=document.getElementById('client-hub-tab-cal');
+            if(other){other.style.background='transparent';other.style.color='var(--color-text-muted)';other.style.boxShadow='none';}
+          " style="border: none; border-radius: 8px; padding: 0.5rem 0.65rem; font-size: 0.78rem; font-weight: 700; cursor: pointer; background: transparent; color: var(--color-text-muted); display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; transition: all 0.2s;">
+            <i class="ri-newspaper-line"></i> Noticias WMS (${(news || []).length})
+          </button>
+        </div>
+
+        <!-- Pane 1: Calendario Operativo -->
+        <div id="client-hub-pane-cal" style="display: flex; flex-direction: column;">
+          <div id="calendar-grid-container" style="border-bottom: 1px solid var(--color-border); min-height: 270px;">
+            <div style="color: var(--color-text-muted); font-size: 0.85rem; padding: 2rem; text-align: center;"><i class="ri-loader-4-line ri-spin" style="margin-right: 0.5rem;"></i> Cargando calendario...</div>
+          </div>
+          <div id="calendar-list-container" style="min-height: 150px; max-height: 230px; overflow-y: auto;"></div>
+        </div>
+
+        <!-- Pane 2: Noticias del WMS -->
+        <div id="client-hub-pane-news" style="display: none; max-height: 460px; overflow-y: auto; padding: 0.5rem 0;">
+          ${newsHtml}
+        </div>
+      </div>
+    `;
 
     let onboardingHtml = '';
     if (!onboardingChecklist) {
@@ -2866,19 +3806,119 @@ async function renderDashboard() {
       : (onboardingChecklist.dismissed !== true);
 
     if (onboardingChecklist && isGuideActive) {
+      const startOpenClass = window._keepOnboardingDrawerOpen ? 'is-open' : '';
+      const tabHiddenClass = window._keepOnboardingDrawerOpen ? 'is-hidden-tab' : '';
+      window._keepOnboardingDrawerOpen = false;
+
       onboardingHtml = `
-        <!-- Guía de Inicio Onboarding -->
+        <!-- Guía de Inicio Onboarding (Pestaña Lateral en Borde Derecho + Drawer Desplegable) -->
         <style>
-          /* Contenedor principal de la tarjeta */
+          /* Pestaña acoplada al borde derecho de la pantalla */
+          .onboarding-edge-tab {
+            position: fixed;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 1045;
+            background: linear-gradient(135deg, var(--color-primary) 0%, #7c3aed 100%);
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            border-right: none;
+            border-radius: 14px 0 0 14px;
+            padding: 0.75rem 0.7rem 0.75rem 0.85rem;
+            cursor: pointer;
+            box-shadow: -6px 8px 24px rgba(94, 23, 235, 0.28);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.45rem;
+            transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+            user-select: none;
+          }
+          .onboarding-edge-tab:hover {
+            padding-right: 1.05rem;
+            box-shadow: -8px 12px 30px rgba(94, 23, 235, 0.4);
+            filter: brightness(1.05);
+          }
+          .onboarding-edge-tab.is-hidden-tab {
+            transform: translateY(-50%) translateX(120%);
+            opacity: 0;
+            pointer-events: none;
+          }
+          .onboarding-edge-tab-icon {
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.18);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.15rem;
+            color: #ffffff;
+          }
+          .onboarding-edge-tab-label {
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            transform: rotate(180deg);
+            font-size: 0.74rem;
+            font-weight: 800;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            white-space: nowrap;
+            margin: 0.15rem 0;
+          }
+          .onboarding-edge-tab-pct {
+            background: #ffffff;
+            color: var(--color-primary);
+            font-size: 0.7rem;
+            font-weight: 800;
+            padding: 0.18rem 0.42rem;
+            border-radius: 99px;
+            line-height: 1.1;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+          }
+
+          /* Backdrop del Drawer */
+          .onboarding-drawer-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.42);
+            backdrop-filter: blur(3px);
+            z-index: 1048;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.28s ease;
+          }
+          .onboarding-drawer-backdrop.is-open {
+            opacity: 1;
+            pointer-events: auto;
+          }
+
+          /* Contenedor deslizable (Drawer) de la tarjeta de Onboarding */
           .premium-onboarding-card {
-            margin-bottom: 2.25rem;
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            bottom: 1rem;
+            width: min(820px, calc(100vw - 2rem));
+            max-height: calc(100vh - 2rem);
+            z-index: 1050;
+            margin-bottom: 0;
             border-radius: 16px;
-            border: 1px solid rgba(94, 23, 235, 0.12);
+            border: 1px solid rgba(94, 23, 235, 0.18);
             background: var(--color-surface);
-            overflow: hidden;
-            position: relative;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.02);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow-y: auto;
+            overflow-x: hidden;
+            box-shadow: -16px 0 48px rgba(15, 23, 42, 0.22);
+            transform: translateX(calc(100% + 2rem));
+            opacity: 0;
+            pointer-events: none;
+            transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s ease;
+          }
+          .premium-onboarding-card.is-open {
+            transform: translateX(0);
+            opacity: 1;
+            pointer-events: auto;
           }
           
           /* Línea decorativa del lado izquierdo */
@@ -2894,31 +3934,34 @@ async function renderDashboard() {
 
           /* Adaptación a Modo Oscuro */
           [data-theme="dark"] .premium-onboarding-card {
-            border-color: rgba(168, 85, 247, 0.25);
-            background: radial-gradient(120% 120% at 50% 10%, rgba(94, 23, 235, 0.06) 0%, rgba(0, 0, 0, 0) 60%), var(--color-surface);
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+            border-color: rgba(168, 85, 247, 0.28);
+            background: radial-gradient(120% 120% at 50% 10%, rgba(94, 23, 235, 0.08) 0%, rgba(0, 0, 0, 0) 60%), var(--color-surface);
+            box-shadow: -16px 0 50px rgba(0, 0, 0, 0.6);
           }
 
           /* Adaptación a Modo Claro (Alta visibilidad y contraste) */
           html:not([data-theme="dark"]) .premium-onboarding-card {
-            border: 1.5px solid rgba(94, 23, 235, 0.16);
+            border: 1.5px solid rgba(94, 23, 235, 0.18);
             background: linear-gradient(135deg, rgba(94, 23, 235, 0.015) 0%, #ffffff 100%);
-            box-shadow: 0 16px 36px rgba(94, 23, 235, 0.07);
+            box-shadow: -16px 0 48px rgba(94, 23, 235, 0.15);
           }
 
           /* Cabecera del contenedor */
           .onboarding-banner-header {
-            background: linear-gradient(90deg, rgba(94, 23, 235, 0.03) 0%, rgba(168, 85, 247, 0.03) 100%);
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            background: var(--color-surface);
             border-bottom: 1px solid var(--color-border);
-            padding: 1.5rem;
+            padding: 1.25rem 1.5rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            gap: 1.5rem;
+            gap: 1rem;
             flex-wrap: wrap;
           }
           [data-theme="dark"] .onboarding-banner-header {
-            background: linear-gradient(90deg, rgba(94, 23, 235, 0.1) 0%, rgba(168, 85, 247, 0.06) 100%);
+            background: var(--color-surface);
           }
 
           /* Fila de cada paso */
@@ -3011,7 +4054,19 @@ async function renderDashboard() {
           }
         </style>
 
-        <div class="premium-onboarding-card" id="onboarding-checklist-card">
+        <!-- Pestaña Flotante en el Borde Derecho de la Pantalla -->
+        <div class="onboarding-edge-tab ${tabHiddenClass}" id="onboarding-edge-tab" onclick="window.toggleOnboardingDrawer(true)" title="Haz clic para desplegar la Guía de Inicio: Configura tu WMS">
+          <div class="onboarding-edge-tab-icon">
+            <i class="ri-rocket-fill"></i>
+          </div>
+          <span class="onboarding-edge-tab-label">Guía WMS</span>
+          <span class="onboarding-edge-tab-pct" id="onboarding-edge-tab-pct">0%</span>
+        </div>
+
+        <!-- Backdrop para cerrar al hacer clic fuera -->
+        <div class="onboarding-drawer-backdrop ${startOpenClass}" id="onboarding-drawer-backdrop" onclick="window.toggleOnboardingDrawer(false)"></div>
+
+        <div class="premium-onboarding-card ${startOpenClass}" id="onboarding-checklist-card">
           <!-- Cabecera de la Tarjeta -->
           <div class="onboarding-banner-header">
             <div style="display: flex; align-items: center; gap: 0.85rem;">
@@ -3030,9 +4085,14 @@ async function renderDashboard() {
                 <p style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Completa estos pasos clave para activar tus despachos e ingresos en Stocka</p>
               </div>
             </div>
-            <button class="btn btn-outline" id="btn-dismiss-onboarding-checklist" onclick="window.dismissOnboardingChecklist()" style="padding: 0.4rem 0.8rem; font-size: 0.75rem; border-color: var(--color-border); border-radius: var(--radius-md); color: var(--color-text-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; transition: all 0.2s; font-weight: 600; background: var(--color-surface);">
-              <i class="ri-eye-off-line"></i> Ocultar guía
-            </button>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <button type="button" class="btn btn-primary btn-sm" onclick="window.toggleOnboardingDrawer(false)" style="padding: 0.42rem 0.85rem; font-size: 0.76rem; border-radius: var(--radius-md); cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;">
+                <i class="ri-contract-right-line"></i> Minimizar a pestaña
+              </button>
+              <button type="button" class="btn btn-outline" id="btn-dismiss-onboarding-checklist" onclick="window.dismissOnboardingChecklist()" title="Ocultar permanentemente la guía" style="padding: 0.4rem 0.75rem; font-size: 0.74rem; border-color: var(--color-border); border-radius: var(--radius-md); color: var(--color-text-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; transition: all 0.2s; font-weight: 600; background: var(--color-surface);">
+                <i class="ri-eye-off-line"></i> No mostrar más
+              </button>
+            </div>
           </div>
           
           <div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
@@ -3314,169 +4374,403 @@ async function renderDashboard() {
       return;
     }
     appContent.innerHTML = getObserverBanner() + `
-      <div class="dashboard-layout-split">
-        <!-- Columna Izquierda: Área Principal -->
-        <div class="dashboard-main-col" style="display: flex; flex-direction: column; gap: 2rem;">
-          
-          ${onboardingHtml}
+      <div style="display: flex; flex-direction: column; gap: 1.35rem;">
+        ${onboardingHtml}
 
-          <!-- Hero Banner -->
-          <div class="dashboard-hero" style="margin-bottom: 0;">
-            <div class="dashboard-hero-content" style="width: 100%;">
-              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; width: 100%; margin-bottom: 0.5rem;">
-                <h2 style="margin: 0;">Te damos la bienvenida al WMS 3.0 de Stocka</h2>
-                <div style="display: flex; align-items: center; gap: 0.75rem;">
-                  ${isCached ? `<span style="font-size: 0.72rem; color: rgba(255, 255, 255, 0.85); background: rgba(0, 0, 0, 0.25); padding: 0.25rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid rgba(255, 255, 255, 0.1);"><i class="ri-history-line" style="font-size: 0.85rem;"></i> Caché (${cacheTimeStr})</span>` : ''}
-                  <button id="refresh-dashboard-btn" style="padding: 0.45rem 0.9rem; font-size: 0.75rem; font-weight: 600; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem; background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.25); color: white; cursor: pointer; transition: all 0.2s; backdrop-filter: blur(4px);" onmouseover="this.style.background='rgba(255, 255, 255, 0.25)'" onmouseout="this.style.background='rgba(255, 255, 255, 0.15)'">
-                    <i class="ri-refresh-line"></i> Actualizar
+        <!-- Cabecera Ejecutiva Pulse 360° (Adaptable a Modo Claro y Modo Oscuro + Soporte Multi-Comercio y Conglomerado) -->
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; background: var(--color-surface); padding: 1.1rem 1.45rem; border-radius: 12px; border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.3rem;">
+              <span style="background: rgba(37, 99, 235, 0.1); color: var(--color-primary); padding: 0.18rem 0.6rem; border-radius: 99px; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid rgba(37, 99, 235, 0.22); display: inline-flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-radar-line"></i> Pulse 360° • Centro de Control Logístico
+              </span>
+              ${assignedComercios.length > 1 && activeDashboardScope === 'ALL'
+                ? `<span style="background: rgba(16, 185, 129, 0.12); color: #059669; padding: 0.18rem 0.65rem; border-radius: 99px; font-size: 0.72rem; font-weight: 700; border: 1px solid rgba(16, 185, 129, 0.3); display: inline-flex; align-items: center; gap: 0.3rem;"><i class="ri-apps-2-line"></i> Consolidado (${assignedComercios.length} comercios)</span>`
+                : (targetCommerce ? `<span style="background: rgba(16, 185, 129, 0.12); color: #059669; padding: 0.18rem 0.65rem; border-radius: 99px; font-size: 0.72rem; font-weight: 700; border: 1px solid rgba(16, 185, 129, 0.3); display: inline-flex; align-items: center; gap: 0.3rem;"><i class="ri-store-2-line"></i> ${isFilteringSingleCommerce ? activeDashboardScope : targetCommerce}</span>` : '')
+              }
+              ${parentConglomerateName ? `<span style="background: rgba(139, 92, 246, 0.12); color: #7c3aed; padding: 0.18rem 0.65rem; border-radius: 99px; font-size: 0.71rem; font-weight: 700; border: 1px solid rgba(139, 92, 246, 0.3); display: inline-flex; align-items: center; gap: 0.3rem;" title="Este comercio pertenece al Conglomerado / Holding ${parentConglomerateName}"><i class="ri-hotel-line"></i> Holding: ${parentConglomerateName}</span>` : ''}
+              ${isCached ? `<span style="font-size: 0.7rem; color: var(--color-text-muted); background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.18rem 0.55rem; border-radius: 99px; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600;"><i class="ri-history-line"></i> Caché (${cacheTimeStr})</span>` : ''}
+            </div>
+            <h2 style="margin: 0; font-size: 1.4rem; font-weight: 800; color: var(--color-text-main); letter-spacing: -0.02em;">Estado Operativo y Salud de Inventario</h2>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.82rem; color: var(--color-text-muted); max-width: 720px;">Seguimiento en tiempo real de preparación de pedidos, cobertura proyectada a 30 días, distribución por sucursal física e ingresos en andén.</p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
+            ${assignedComercios.length > 1 ? `
+              <div style="display: inline-flex; align-items: center; gap: 0.35rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0 0.55rem; height: 36px;">
+                <i class="ri-store-2-line" style="color: var(--color-primary); font-size: 0.9rem;"></i>
+                <select onchange="window.handleClientDashboardCommerceScope(this.value)" style="border: none; background: transparent; color: var(--color-text-main); font-size: 0.78rem; font-weight: 700; outline: none; cursor: pointer; padding-right: 0.25rem;">
+                  <option value="ALL" ${activeDashboardScope === 'ALL' ? 'selected' : ''}>🏢 Consolidado (${parentConglomerateName || 'Todos'}: ${assignedComercios.length})</option>
+                  ${assignedComercios.map(c => `<option value="${window.escapeHtmlAttr(c)}" ${activeDashboardScope !== 'ALL' && c.toLowerCase() === String(activeDashboardScope).toLowerCase() ? 'selected' : ''}>🏪 ${c}</option>`).join('')}
+                </select>
+              </div>
+            ` : ''}
+            <button type="button" class="btn btn-primary btn-sm" onclick="window.openInventoryCoverageModule ? window.openInventoryCoverageModule() : document.querySelector('[data-view=\\'inventory_coverage\\']')?.click()" style="height: 36px; padding: 0 0.9rem; font-size: 0.78rem; font-weight: 700; border-radius: 8px; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-line-chart-line"></i> Cobertura 30d
+            </button>
+            <button type="button" onclick="document.querySelector('[data-view=\\'orders\\']')?.click()" style="height: 36px; padding: 0 0.85rem; font-size: 0.78rem; font-weight: 600; border-radius: 8px; display: inline-flex; align-items: center; gap: 0.35rem; background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main); cursor: pointer;">
+              <i class="ri-box-3-line" style="color: var(--color-primary);"></i> Mis Pedidos
+            </button>
+            <button id="refresh-dashboard-btn" style="height: 36px; padding: 0 0.8rem; font-size: 0.78rem; font-weight: 600; border-radius: 8px; display: inline-flex; align-items: center; gap: 0.35rem; background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main); cursor: pointer;">
+              <i class="ri-refresh-line"></i> Actualizar
+            </button>
+          </div>
+        </div>
+
+        ${multiCommerceBreakdownHtml}
+
+        <!-- Franja Ejecutiva de 5 KPIs Logísticos -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 0.95rem;">
+          <!-- KPI 1: Cola Outbound Activa -->
+          <div class="stat-card-modern yellow" style="cursor: pointer;" onclick="document.querySelector('[data-view=\\'orders\\']')?.click()">
+            <div class="icon-wrapper"><i class="ri-Instance-line ri-time-line"></i></div>
+            <div style="min-width: 0;">
+              <div class="stat-value-modern">${activeOrders.toLocaleString('es-CL')}</div>
+              <div class="stat-label-modern">Pedidos en Proceso</div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 2px;">${pipelineToProcess} por proc. • ${pipelineInPrep} prep. • ${pipelineReady} listos</div>
+            </div>
+          </div>
+
+          <!-- KPI 2: Despachados / Completados -->
+          <div class="stat-card-modern purple" style="cursor: pointer;" onclick="document.querySelector('[data-view=\\'orders\\']')?.click()">
+            <div class="icon-wrapper"><i class="ri-truck-line"></i></div>
+            <div style="min-width: 0;">
+              <div class="stat-value-modern">${completedOrders.toLocaleString('es-CL')}</div>
+              <div class="stat-label-modern">Despachados (60d)</div>
+              <div style="font-size: 0.7rem; color: var(--color-success); font-weight: 600; margin-top: 2px;">${pipelineDelivered.toLocaleString('es-CL')} entregados • ${pipelineDispatched.toLocaleString('es-CL')} en ruta</div>
+            </div>
+          </div>
+
+          <!-- KPI 3: Stock Disponible vs Físico -->
+          <div class="stat-card-modern green" style="cursor: pointer;" onclick="document.querySelector('[data-view=\\'inventory\\']')?.click()">
+            <div class="icon-wrapper"><i class="ri-check-double-line"></i></div>
+            <div style="min-width: 0;">
+              <div class="stat-value-modern">${availableStock.toLocaleString('es-CL')}</div>
+              <div class="stat-label-modern">Stock Disponible</div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 2px;">Físico: <strong>${totalStock.toLocaleString('es-CL')}</strong> • Comp: ${totalCommitted.toLocaleString('es-CL')}</div>
+            </div>
+          </div>
+
+          <!-- KPI 4: Stock Crítico & Runway < 7d -->
+          <div class="stat-card-modern red" style="cursor: pointer;" onclick="window.openInventoryCoverageModule ? window.openInventoryCoverageModule() : document.querySelector('[data-view=\\'inventory_coverage\\']')?.click()">
+            <div class="icon-wrapper"><i class="ri-error-warning-line"></i></div>
+            <div style="min-width: 0;">
+              <div class="stat-value-modern">${lowStockCount}</div>
+              <div class="stat-label-modern">Stock Crítico / Alerta</div>
+              <div style="font-size: 0.7rem; color: var(--color-danger); font-weight: 600; margin-top: 2px;">${criticalRunwayCount} SKUs con &lt; 7 días cobertura</div>
+            </div>
+          </div>
+
+          <!-- KPI 5: Volumen Ocupado + Variación % -->
+          <div class="stat-card-modern indigo" style="cursor: pointer;" onclick="document.querySelector('[data-view=\\'volumen_diario\\']')?.click()" title="Ver evolución de Volumen Diario">
+            <div class="icon-wrapper"><i class="ri-ruler-2-line"></i></div>
+            <div style="min-width: 0;">
+              <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                <div class="stat-value-modern">${totalVolume.toFixed(2)} m³</div>
+                ${renderPctBadgeHtml(storageVar24hPct, '24h')}
+              </div>
+              <div class="stat-label-modern">Almacenamiento Actual</div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 2px;">Prom. 30d: <strong>${avgStorage30d.toFixed(2)} m³</strong> • 7d: ${storageVar7dPct >= 0 ? '+' : ''}${storageVar7dPct.toFixed(1)}%</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desglose Rápido por Sucursal Física -->
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; flex-wrap: wrap; gap: 0.5rem;">
+            <h3 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem;">
+              <i class="ri-building-2-line" style="color: var(--color-primary);"></i> Desglose Rápido por Sucursal Física
+            </h3>
+            <span style="font-size: 0.74rem; color: var(--color-text-muted);">Distribución de unidades físicas, volumen ocupado y carga de picking por bodega</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.9rem;">
+            ${branchesCardsHtml}
+          </div>
+        </div>
+
+        <!-- Cuerpo Principal 2 Columnas (Operaciones + Sidebar) -->
+        <div class="dashboard-layout-split">
+          <!-- Columna Izquierda: Operación Logística y Salud de Stock -->
+          <div class="dashboard-main-col" style="display: flex; flex-direction: column; gap: 1.35rem;">
+
+            <!-- 0. Centro de Gráficas: Almacenamiento Diario (con Variaciones %) + Ventas por Periodo y Mensuales -->
+            <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
+              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding: 0.95rem 1.25rem; flex-wrap: wrap; gap: 0.65rem;">
+                <div>
+                  <h3 style="margin: 0; font-size: 1rem; font-weight: 800; display: flex; align-items: center; gap: 0.45rem;">
+                    <i class="ri-line-chart-line" style="color: var(--color-primary);"></i> Evolución de Almacenamiento Diario (m³) y Variaciones Porcentuales
+                  </h3>
+                  <p style="margin: 0.15rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">Seguimiento diario de ocupación volumétrica en bodega, promedio ponderado y variaciones porcentuales</p>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                  <div style="display: inline-flex; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 2px;">
+                    <button type="button" class="client-storage-range-btn" data-days="14" onclick="window.switchClientStorageRange(14)" style="border: none; background: transparent; color: var(--color-text-muted); font-size: 0.72rem; font-weight: 700; padding: 0.28rem 0.6rem; border-radius: 6px; cursor: pointer;">14D</button>
+                    <button type="button" class="client-storage-range-btn active" data-days="30" onclick="window.switchClientStorageRange(30)" style="border: none; background: var(--color-primary); color: #fff; font-size: 0.72rem; font-weight: 700; padding: 0.28rem 0.6rem; border-radius: 6px; cursor: pointer;">30D</button>
+                    <button type="button" class="client-storage-range-btn" data-days="60" onclick="window.switchClientStorageRange(60)" style="border: none; background: transparent; color: var(--color-text-muted); font-size: 0.72rem; font-weight: 700; padding: 0.28rem 0.6rem; border-radius: 6px; cursor: pointer;">60D</button>
+                  </div>
+                  <button type="button" class="btn btn-outline btn-sm" onclick="document.querySelector('[data-view=\\'volumen_diario\\']')?.click()" style="font-size: 0.73rem; padding: 0.32rem 0.7rem; font-weight: 700;">
+                    <i class="ri-external-link-line"></i> Ver Módulo Completo
                   </button>
                 </div>
               </div>
-              <p>Un nuevo centro de operaciones para la gestión de tu comercio, con la información centralizada, integraciones y más! Nos encontramos en pleno desarrollo y pronto lanzaremos nuevas novedades.</p>
+              <div class="card-body" style="padding: 1.15rem 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+                <!-- Franja de Variaciones Porcentuales de Almacenamiento -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 0.65rem;">
+                  <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.65rem 0.85rem;">
+                    <div style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Almacenamiento Hoy</div>
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 0.4rem; margin-top: 0.2rem;">
+                      <span style="font-size: 1.15rem; font-weight: 800; color: var(--color-primary);">${volTodayVal.toFixed(3)} m³</span>
+                      <span style="font-size: 0.68rem; color: var(--color-text-muted);">En vivo</span>
+                    </div>
+                  </div>
+                  <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.65rem 0.85rem;">
+                    <div style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Variación 24h (vs. Ayer)</div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; margin-top: 0.25rem;">
+                      ${renderPctBadgeHtml(storageVar24hPct)}
+                      <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-main);">${storageDelta24hM3 >= 0 ? '+' : ''}${storageDelta24hM3.toFixed(3)} m³</span>
+                    </div>
+                  </div>
+                  <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.65rem 0.85rem;">
+                    <div style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Variación 7 Días</div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; margin-top: 0.25rem;">
+                      ${renderPctBadgeHtml(storageVar7dPct)}
+                      <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-main);">${storageDelta7dM3 >= 0 ? '+' : ''}${storageDelta7dM3.toFixed(3)} m³</span>
+                    </div>
+                  </div>
+                  <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.65rem 0.85rem;">
+                    <div style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Variación 30 Días</div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; margin-top: 0.25rem;">
+                      ${renderPctBadgeHtml(storageVar30dPct)}
+                      <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-main);">${storageDelta30dM3 >= 0 ? '+' : ''}${storageDelta30dM3.toFixed(3)} m³</span>
+                    </div>
+                  </div>
+                  <div style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.22); border-radius: 10px; padding: 0.65rem 0.85rem;">
+                    <div style="font-size: 0.68rem; font-weight: 700; color: #059669; text-transform: uppercase;">Promedio Diario (30d)</div>
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 0.35rem; margin-top: 0.2rem;">
+                      <span style="font-size: 1.08rem; font-weight: 800; color: #059669;">${avgStorage30d.toFixed(3)} m³</span>
+                      <span style="font-size: 0.66rem; color: var(--color-text-muted);">Mín ${minStorage30d.toFixed(1)} / Máx ${maxStorage30d.toFixed(1)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Canvas Gráfico Almacenamiento Diario -->
+                <div style="position: relative; height: 225px; width: 100%;">
+                  <canvas id="client-storage-daily-chart"></canvas>
+                </div>
+              </div>
             </div>
-            <div class="dashboard-hero-image"></div>
-          </div>
 
-          <!-- Métricas Principales -->
-          <div>
-            <h3 style="margin-bottom: 1rem; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main);">Métricas Principales</h3>
-            <div class="stat-grid-modern">
-              
-              <!-- Stock Físico -->
-              <div class="stat-card-modern blue">
-                <div class="icon-wrapper"><i class="ri-box-3-line"></i></div>
-                <div>
-                  <div class="stat-value-modern">${totalStock}</div>
-                  <div class="stat-label-modern">Stock Físico Total</div>
+            <!-- 0.B. Grid de 2 Gráficos de Ventas: Cantidad de Ventas por Periodo (7D/14D/30D) + Ventas Mensuales (6M) -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.15rem;">
+              <!-- Gráfico Izquierdo: Cantidad de Ventas por Periodo (7D / 14D / 30D) -->
+              <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
+                <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding: 0.9rem 1.15rem; flex-wrap: wrap; gap: 0.5rem;">
+                  <div>
+                    <h3 style="margin: 0; font-size: 0.95rem; font-weight: 800; display: flex; align-items: center; gap: 0.4rem;">
+                      <i class="ri-bar-chart-grouped-line" style="color: var(--color-primary);"></i> Ventas por Periodo
+                    </h3>
+                    <p style="margin: 0.1rem 0 0 0; font-size: 0.72rem; color: var(--color-text-muted);">Pedidos y unidades diarias vs. periodo previo</p>
+                  </div>
+                  <div style="display: inline-flex; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 2px;">
+                    <button type="button" class="client-sales-period-btn" data-days="7" onclick="window.switchClientSalesPeriod(7)" style="border: none; background: transparent; color: var(--color-text-muted); font-size: 0.71rem; font-weight: 700; padding: 0.25rem 0.55rem; border-radius: 6px; cursor: pointer;">7 Días</button>
+                    <button type="button" class="client-sales-period-btn active" data-days="14" onclick="window.switchClientSalesPeriod(14)" style="border: none; background: var(--color-primary); color: #fff; font-size: 0.71rem; font-weight: 700; padding: 0.25rem 0.55rem; border-radius: 6px; cursor: pointer;">14 Días</button>
+                    <button type="button" class="client-sales-period-btn" data-days="30" onclick="window.switchClientSalesPeriod(30)" style="border: none; background: transparent; color: var(--color-text-muted); font-size: 0.71rem; font-weight: 700; padding: 0.25rem 0.55rem; border-radius: 6px; cursor: pointer;">30 Días</button>
+                  </div>
                 </div>
-              </div>
-              
-              <!-- Stock Disponible -->
-              <div class="stat-card-modern green">
-                <div class="icon-wrapper"><i class="ri-check-double-line"></i></div>
-                <div>
-                  <div class="stat-value-modern">${availableStock}</div>
-                  <div class="stat-label-modern">Stock Disponible</div>
-                </div>
-              </div>
-              
-              <!-- Pedidos en Proceso -->
-              <div class="stat-card-modern yellow">
-                <div class="icon-wrapper"><i class="ri-time-line"></i></div>
-                <div>
-                  <div class="stat-value-modern">${activeOrders}</div>
-                  <div class="stat-label-modern">Pedidos en Proceso</div>
-                </div>
-              </div>
-              
-              <!-- Pedidos Completados -->
-              <div class="stat-card-modern purple">
-                <div class="icon-wrapper"><i class="ri-truck-line"></i></div>
-                <div>
-                  <div class="stat-value-modern">${completedOrders}</div>
-                  <div class="stat-label-modern">Pedidos Completados</div>
-                </div>
-              </div>
-              
-              <!-- Volumen Ocupado -->
-              <div class="stat-card-modern indigo">
-                <div class="icon-wrapper"><i class="ri-ruler-2-line"></i></div>
-                <div>
-                  <div class="stat-value-modern">${totalVolume.toFixed(2)} m³</div>
-                  <div class="stat-label-modern">Volumen Ocupado</div>
+                <div class="card-body" style="padding: 1rem 1.15rem; display: flex; flex-direction: column; gap: 0.85rem;">
+                  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;">
+                    <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.55rem 0.65rem;">
+                      <div style="font-size: 0.66rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Pedidos Periodo</div>
+                      <div id="client-sales-period-orders-val" style="font-size: 1.05rem; font-weight: 800; color: var(--color-text-main); margin: 2px 0;">${salesPeriodMap[14].currOrdersTotal.toLocaleString('es-CL')}</div>
+                      <div id="client-sales-period-orders-pct">${salesPeriodMap[14].ordersBadgeHtml}</div>
+                    </div>
+                    <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.55rem 0.65rem;">
+                      <div style="font-size: 0.66rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Unidades Vendidas</div>
+                      <div id="client-sales-period-units-val" style="font-size: 1.05rem; font-weight: 800; color: var(--color-primary); margin: 2px 0;">${salesPeriodMap[14].currUnitsTotal.toLocaleString('es-CL')}</div>
+                      <div id="client-sales-period-units-pct">${salesPeriodMap[14].unitsBadgeHtml}</div>
+                    </div>
+                    <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.55rem 0.65rem;">
+                      <div style="font-size: 0.66rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Ritmo Diario</div>
+                      <div id="client-sales-period-avg-val" style="font-size: 1.05rem; font-weight: 800; color: var(--color-text-main); margin: 2px 0;">${salesPeriodMap[14].avgDailyOrders.toFixed(1)} <span style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted);">ped/día</span></div>
+                      <div id="client-sales-period-avg-sub" style="font-size: 0.68rem; color: var(--color-text-muted);">${salesPeriodMap[14].avgSubText}</div>
+                    </div>
+                  </div>
+                  <div style="position: relative; height: 215px; width: 100%;">
+                    <canvas id="client-sales-period-chart"></canvas>
+                  </div>
                 </div>
               </div>
 
-              <!-- Ítems Stock Bajo -->
-              <div class="stat-card-modern red">
-                <div class="icon-wrapper"><i class="ri-error-warning-line"></i></div>
-                <div>
-                  <div class="stat-value-modern">${lowStockCount}</div>
-                  <div class="stat-label-modern">Stock Crítico</div>
+              <!-- Gráfico Derecho: Evolución de Ventas Mensuales (Últimos 6 Meses) -->
+              <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
+                <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding: 0.9rem 1.15rem; flex-wrap: wrap; gap: 0.5rem;">
+                  <div>
+                    <h3 style="margin: 0; font-size: 0.95rem; font-weight: 800; display: flex; align-items: center; gap: 0.4rem;">
+                      <i class="ri-calendar-todo-line" style="color: #8b5cf6;"></i> Ventas Mensuales (Últimos 6 Meses)
+                    </h3>
+                    <p style="margin: 0.1rem 0 0 0; font-size: 0.72rem; color: var(--color-text-muted);">Comparativa mensual de pedidos y unidades con variación MoM %</p>
+                  </div>
+                  <span style="font-size: 0.7rem; font-weight: 700; color: #8b5cf6; background: rgba(139, 92, 246, 0.1); padding: 0.22rem 0.55rem; border-radius: 99px;">Histórico 6M</span>
+                </div>
+                <div class="card-body" style="padding: 1rem 1.15rem; display: flex; flex-direction: column; gap: 0.85rem;">
+                  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;">
+                    <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.55rem 0.65rem;">
+                      <div style="font-size: 0.66rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Mes Actual (${currMonthItem.label})</div>
+                      <div style="font-size: 1.05rem; font-weight: 800; color: var(--color-text-main); margin: 2px 0;">${currMonthItem.orders.toLocaleString('es-CL')} <span style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted);">ped.</span></div>
+                      <div>${momOrdersBadgeHtml}</div>
+                    </div>
+                    <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.55rem 0.65rem;">
+                      <div style="font-size: 0.66rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Unidades Mes Actual</div>
+                      <div style="font-size: 1.05rem; font-weight: 800; color: #8b5cf6; margin: 2px 0;">${currMonthItem.units.toLocaleString('es-CL')} <span style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted);">uds.</span></div>
+                      <div>${momUnitsBadgeHtml}</div>
+                    </div>
+                    <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.55rem 0.65rem;">
+                      <div style="font-size: 0.66rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Promedio (${activeMonthsCount || 1}m act.)</div>
+                      <div style="font-size: 1.05rem; font-weight: 800; color: var(--color-text-main); margin: 2px 0;">${avgMonthlyOrders.toLocaleString('es-CL')} <span style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted);">ped/mes</span></div>
+                      <div style="font-size: 0.68rem; color: var(--color-text-muted);">Peak: <strong>${peakMonthItem.label}</strong> (${peakMonthItem.orders.toLocaleString('es-CL')})</div>
+                    </div>
+                  </div>
+                  <div style="position: relative; height: 215px; width: 100%;">
+                    <canvas id="client-sales-monthly-chart"></canvas>
+                  </div>
                 </div>
               </div>
-
             </div>
-          </div>
 
-          <!-- Fila con Stock Crítico (50%) y Últimos Ingresos (50%) -->
-          <div class="dashboard-tables-split-half">
-            <!-- Card 1: Alertas de Stock Crítico -->
+            <!-- 1. Pipeline de Fulfillment en Vivo + Despachos por Operador Logístico -->
             <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
-              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-                <h3 style="margin: 0; font-size: 1rem;"><i class="ri-alert-line" style="margin-right: 0.5rem; color: var(--color-danger);"></i> Alertas de Stock Crítico</h3>
+              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding: 1rem 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div>
+                  <h3 style="margin: 0; font-size: 1rem; font-weight: 800; display: flex; align-items: center; gap: 0.45rem;">
+                    <i class="ri-flow-chart" style="color: var(--color-primary);"></i> Flujo de Fulfillment & Despachos por Operador Logístico
+                  </h3>
+                  <p style="margin: 0.15rem 0 0 0; font-size: 0.76rem; color: var(--color-text-muted);">Estado del embudo operativo y participación por courier en los últimos 60 días</p>
+                </div>
+                <button type="button" class="btn btn-outline btn-sm" onclick="document.querySelector('[data-view=\\'orders\\']')?.click()" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; font-weight: 700;">
+                  Ver Todos los Pedidos <i class="ri-arrow-right-line"></i>
+                </button>
+              </div>
+              <div class="card-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                <!-- Pipeline 5 etapas -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); gap: 0.65rem;">
+                  <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-top: 3px solid #f59e0b; border-radius: 10px; padding: 0.75rem 0.85rem;">
+                    <div style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">1. Por Procesar</div>
+                    <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.2rem;">${pipelineToProcess.toLocaleString('es-CL')}</div>
+                    <div style="font-size: 0.68rem; color: #d97706; font-weight: 600;">En recepción WMS</div>
+                  </div>
+                  <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-top: 3px solid #3b82f6; border-radius: 10px; padding: 0.75rem 0.85rem;">
+                    <div style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">2. En Preparación</div>
+                    <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.2rem;">${pipelineInPrep.toLocaleString('es-CL')}</div>
+                    <div style="font-size: 0.68rem; color: #2563eb; font-weight: 600;">Picking y packing</div>
+                  </div>
+                  <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-top: 3px solid #8b5cf6; border-radius: 10px; padding: 0.75rem 0.85rem;">
+                    <div style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">3. Listos en Andén</div>
+                    <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.2rem;">${pipelineReady.toLocaleString('es-CL')}</div>
+                    <div style="font-size: 0.68rem; color: #7c3aed; font-weight: 600;">Esperando retiro</div>
+                  </div>
+                  <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-top: 3px solid #06b6d4; border-radius: 10px; padding: 0.75rem 0.85rem;">
+                    <div style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">4. En Ruta</div>
+                    <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.2rem;">${pipelineDispatched.toLocaleString('es-CL')}</div>
+                    <div style="font-size: 0.68rem; color: #0891b2; font-weight: 600;">Despachados</div>
+                  </div>
+                  <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-top: 3px solid #10b981; border-radius: 10px; padding: 0.75rem 0.85rem;">
+                    <div style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">5. Entregados</div>
+                    <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-success); margin-top: 0.2rem;">${pipelineDelivered.toLocaleString('es-CL')}</div>
+                    <div style="font-size: 0.68rem; color: var(--color-success); font-weight: 600;">Ciclo finalizado</div>
+                  </div>
+                </div>
+
+                <!-- Despachos por Operador Logístico -->
+                <div style="border-top: 1px dashed var(--color-border); padding-top: 1rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                    <span style="font-size: 0.82rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                      <i class="ri-truck-fill" style="color: var(--color-primary);"></i> Despachos por Operador Logístico (Couriers)
+                    </span>
+                    <span style="font-size: 0.72rem; color: var(--color-text-muted);">${totalCourierOrders.toLocaleString('es-CL')} órdenes analizadas</span>
+                  </div>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.85rem 1.35rem;">
+                    ${couriersBarsHtml}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. Alertas de Stock Crítico & Días de Cobertura Estimada (Runway 30d) -->
+            <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
+              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding: 1rem 1.25rem; flex-wrap: wrap; gap: 0.65rem;">
+                <div>
+                  <h3 style="margin: 0; font-size: 1rem; font-weight: 800; display: flex; align-items: center; gap: 0.45rem;">
+                    <i class="ri-timer-flash-line" style="color: var(--color-danger);"></i> Stock Crítico y Días de Cobertura Estimada (Runway 30d)
+                  </h3>
+                  <p style="margin: 0.15rem 0 0 0; font-size: 0.76rem; color: var(--color-text-muted);">Cálculo automático basado en la velocidad de venta diaria de los últimos 30 días</p>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" onclick="window.openInventoryCoverageModule ? window.openInventoryCoverageModule() : document.querySelector('[data-view=\\'inventory_coverage\\']')?.click()" style="font-size: 0.76rem; padding: 0.45rem 0.9rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 8px;">
+                  <i class="ri-bar-chart-box-line"></i> Abrir Módulo Completo de Cobertura y Catálogo
+                </button>
               </div>
               <div class="card-body table-responsive" style="padding: 0;">
                 ${lowStockHtml}
               </div>
             </div>
 
-            <!-- Card 2: Últimos Ingresos de Stock -->
+            <!-- 3. Stepper de Ingresos de Stock (Propuesta A) -->
             <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
-              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-                <h3 style="margin: 0; font-size: 1rem;"><i class="ri-history-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Últimos Ingresos de Stock</h3>
+              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding: 1rem 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div>
+                  <h3 style="margin: 0; font-size: 1rem; font-weight: 800; display: flex; align-items: center; gap: 0.45rem;">
+                    <i class="ri-inbox-unarchive-line" style="color: var(--color-primary);"></i> Stepper de Ingresos de Stock (Declaraciones en Curso)
+                  </h3>
+                  <p style="margin: 0.15rem 0 0 0; font-size: 0.76rem; color: var(--color-text-muted);">Trazabilidad paso a paso desde el anuncio de carga hasta la recepción conforme</p>
+                </div>
+                <button type="button" class="btn btn-outline btn-sm" onclick="document.querySelector('[data-view=\\'declarations\\']')?.click()" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; font-weight: 700;">
+                  <i class="ri-add-circle-line"></i> Declarar Nuevo Ingreso
+                </button>
               </div>
-              <div class="card-body table-responsive" style="padding: 0;">
+              <div class="card-body" style="padding: 0;">
                 ${recentDeclarationsHtml}
               </div>
             </div>
-          </div>
 
-          <!-- Fila con Integraciones (35%) y Top 10 Volumen (65%) -->
-          <div class="dashboard-tables-split">
-            <!-- Card 1: Integraciones Activas -->
+            <!-- 4. Panel en Pestañas: Top 10 Volumen (m³) & Integraciones Activas -->
             <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
-              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-                <h3 style="margin: 0; font-size: 1rem;"><i class="ri-links-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Integraciones</h3>
+              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding: 0.75rem 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.4rem;">
+                  <button type="button" id="client-tab-btn-vol" onclick="
+                    document.getElementById('client-tab-pane-vol').style.display='block';
+                    document.getElementById('client-tab-pane-int').style.display='none';
+                    this.style.background='rgba(37, 99, 235, 0.1)';
+                    this.style.color='var(--color-primary)';
+                    const o=document.getElementById('client-tab-btn-int');
+                    if(o){o.style.background='transparent';o.style.color='var(--color-text-muted)';}
+                  " style="border: none; border-radius: 8px; padding: 0.45rem 0.85rem; font-size: 0.82rem; font-weight: 700; cursor: pointer; background: rgba(37, 99, 235, 0.1); color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-ruler-2-line"></i> Top 10 Productos por Volumen (m³)
+                  </button>
+                  <button type="button" id="client-tab-btn-int" onclick="
+                    document.getElementById('client-tab-pane-vol').style.display='none';
+                    document.getElementById('client-tab-pane-int').style.display='block';
+                    this.style.background='rgba(37, 99, 235, 0.1)';
+                    this.style.color='var(--color-primary)';
+                    const o=document.getElementById('client-tab-btn-vol');
+                    if(o){o.style.background='transparent';o.style.color='var(--color-text-muted)';}
+                  " style="border: none; border-radius: 8px; padding: 0.45rem 0.85rem; font-size: 0.82rem; font-weight: 700; cursor: pointer; background: transparent; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-links-line"></i> Canales e Integraciones (${activeIntList.length})
+                  </button>
+                </div>
               </div>
-              <div class="card-body table-responsive" style="padding: 0;">
+              <div id="client-tab-pane-vol" class="card-body table-responsive" style="padding: 0;">
+                ${topVolumeHtml}
+              </div>
+              <div id="client-tab-pane-int" class="card-body table-responsive" style="padding: 0; display: none;">
                 ${integrationsHtml}
               </div>
             </div>
 
-            <!-- Card 2: Top 10 Productos por Volumen -->
-            <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
-              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-                <h3 style="margin: 0; font-size: 1rem;"><i class="ri-ruler-2-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Top 10 Productos por Volumen (m³)</h3>
-              </div>
-              <div class="card-body table-responsive" style="padding: 0;">
-                ${topVolumeHtml}
-              </div>
-            </div>
           </div>
 
-          <!-- Facturación -->
-          ${billingHtml}
-
-        </div>
-
-        <!-- Columna Derecha: Sidebar (Calendario + Noticias) -->
-        <div class="dashboard-sidebar-col" style="display: flex; flex-direction: column; gap: 2rem;">
-          
-          <!-- Calendario de Operaciones (Single Column Stacked Layout) -->
-          <div class="card" style="display: flex; flex-direction: column;">
-            <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-              <h3 style="margin: 0; font-size: 1rem;"><i class="ri-calendar-event-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Calendario</h3>
-            </div>
-            <div class="card-body" style="padding: 0; display: flex; flex-direction: column;">
-              <div id="calendar-grid-container" style="border-bottom: 1px solid var(--color-border); min-height: 290px;">
-                <div style="color: var(--color-text-muted); font-size: 0.85rem; padding: 2rem; text-align: center;"><i class="ri-loader-4-line ri-spin" style="margin-right: 0.5rem;"></i> Cargando calendario...</div>
-              </div>
-              <div id="calendar-list-container" style="min-height: 180px;">
-              </div>
-            </div>
+          <!-- Columna Derecha: Sidebar (Cubicaje & Estado de Cuenta + Bloque 1 Calendario/Noticias) -->
+          <div class="dashboard-sidebar-col" style="display: flex; flex-direction: column; gap: 1.35rem;">
+            ${cubicajeAndBillingHtml}
+            ${unifiedCalendarNewsHtml}
           </div>
-
-          <!-- Noticias del Sistema -->
-          <div class="card" style="display: flex; flex-direction: column;">
-            <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-              <h3 style="margin: 0; font-size: 1rem;"><i class="ri-newspaper-line" style="margin-right: 0.5rem; color: var(--color-accent);"></i> Noticias del WMS</h3>
-            </div>
-            <div class="card-body" style="padding: 0; flex: 1; max-height: 400px; overflow-y: auto;">
-              ${newsHtml}
-            </div>
-          </div>
-
         </div>
       </div>
     `;
@@ -3510,6 +4804,305 @@ async function renderDashboard() {
         renderDashboard();
       });
     }
+
+    // Inicializar y controlar los 3 gráficos interactivos del Dashboard Cliente
+    window.switchClientStorageRange = function(daysCount) {
+      const payload = window._clientDashboardAnalytics;
+      if (!payload || !window._clientStorageChartInstance) return;
+
+      document.querySelectorAll('.client-storage-range-btn').forEach(btn => {
+        const isActive = Number(btn.getAttribute('data-days')) === Number(daysCount);
+        btn.classList.toggle('active', isActive);
+        btn.style.background = isActive ? 'var(--color-primary)' : 'transparent';
+        btn.style.color = isActive ? '#ffffff' : 'var(--color-text-muted)';
+      });
+
+      const slice = payload.storageTimeline60.slice(-daysCount);
+      const labels = slice.map(d => d.label);
+      const values = slice.map(d => Number(d.volume.toFixed(4)));
+      const avgVal = values.length > 0 ? values.reduce((s, v) => s + v, 0) / values.length : 0;
+      const avgLine = values.map(() => Number(avgVal.toFixed(4)));
+
+      const chart = window._clientStorageChartInstance;
+      chart.data.labels = labels;
+      chart.data.datasets[0].data = values;
+      chart.data.datasets[1].data = avgLine;
+      chart.update();
+    };
+
+    window.switchClientSalesPeriod = function(daysCount) {
+      const payload = window._clientDashboardAnalytics;
+      if (!payload || !payload.salesPeriodMap[daysCount]) return;
+
+      document.querySelectorAll('.client-sales-period-btn').forEach(btn => {
+        const isActive = Number(btn.getAttribute('data-days')) === Number(daysCount);
+        btn.classList.toggle('active', isActive);
+        btn.style.background = isActive ? 'var(--color-primary)' : 'transparent';
+        btn.style.color = isActive ? '#ffffff' : 'var(--color-text-muted)';
+      });
+
+      const info = payload.salesPeriodMap[daysCount];
+      const ordValEl = document.getElementById('client-sales-period-orders-val');
+      const ordPctEl = document.getElementById('client-sales-period-orders-pct');
+      const uniValEl = document.getElementById('client-sales-period-units-val');
+      const uniPctEl = document.getElementById('client-sales-period-units-pct');
+      const avgValEl = document.getElementById('client-sales-period-avg-val');
+      const avgSubEl = document.getElementById('client-sales-period-avg-sub');
+
+      if (ordValEl) ordValEl.textContent = info.currOrdersTotal.toLocaleString('es-CL');
+      if (ordPctEl) ordPctEl.innerHTML = info.ordersBadgeHtml;
+      if (uniValEl) uniValEl.textContent = info.currUnitsTotal.toLocaleString('es-CL');
+      if (uniPctEl) uniPctEl.innerHTML = info.unitsBadgeHtml;
+      if (avgValEl) avgValEl.innerHTML = `${info.avgDailyOrders.toFixed(1)} <span style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted);">ped/día</span>`;
+      if (avgSubEl) avgSubEl.textContent = info.avgSubText || `${info.avgDailyUnits.toFixed(1)} uds/día prom.`;
+
+      const chart = window._clientSalesPeriodChartInstance;
+      if (chart) {
+        chart.data.labels = info.labels;
+        chart.data.datasets[0].data = info.ordersArr;
+        chart.data.datasets[1].data = info.unitsArr;
+        chart.update();
+      }
+    };
+
+    (async () => {
+      try {
+        await loadChartJS();
+        if (!isStillOnDashboard() || !window.Chart) return;
+        const payload = window._clientDashboardAnalytics;
+        if (!payload) return;
+
+        // 1. Gráfico de Almacenamiento Diario (m³) + Variación % en tooltip
+        const storageCtx = document.getElementById('client-storage-daily-chart');
+        if (storageCtx) {
+          if (window._clientStorageChartInstance) window._clientStorageChartInstance.destroy();
+          const slice30 = payload.storageTimeline60.slice(-30);
+          const labels30 = slice30.map(d => d.label);
+          const values30 = slice30.map(d => Number(d.volume.toFixed(4)));
+          const avg30 = values30.length > 0 ? values30.reduce((s, v) => s + v, 0) / values30.length : 0;
+          const avgLine30 = values30.map(() => Number(avg30.toFixed(4)));
+
+          const ctx2d = storageCtx.getContext('2d');
+          const grad = ctx2d.createLinearGradient(0, 0, 0, 220);
+          grad.addColorStop(0, 'rgba(37, 99, 235, 0.28)');
+          grad.addColorStop(1, 'rgba(37, 99, 235, 0.01)');
+
+          window._clientStorageChartInstance = new Chart(storageCtx, {
+            type: 'line',
+            data: {
+              labels: labels30,
+              datasets: [
+                {
+                  label: 'Almacenamiento Diario (m³)',
+                  data: values30,
+                  borderColor: '#2563eb',
+                  backgroundColor: grad,
+                  borderWidth: 2.5,
+                  fill: true,
+                  tension: 0.32,
+                  pointRadius: (ctx) => ctx.dataIndex === ctx.dataset.data.length - 1 ? 5 : 2.5,
+                  pointBackgroundColor: (ctx) => ctx.dataIndex === ctx.dataset.data.length - 1 ? '#f43f5e' : '#2563eb'
+                },
+                {
+                  label: 'Promedio del Periodo (m³)',
+                  data: avgLine30,
+                  borderColor: '#10b981',
+                  borderWidth: 1.5,
+                  borderDash: [5, 5],
+                  pointRadius: 0,
+                  fill: false
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              interaction: { mode: 'index', intersect: false },
+              plugins: {
+                legend: {
+                  display: true,
+                  position: 'top',
+                  align: 'end',
+                  labels: { boxWidth: 10, usePointStyle: true, font: { size: 11 } }
+                },
+                tooltip: {
+                  callbacks: {
+                    label: function(context) {
+                      const val = Number(context.parsed.y || 0);
+                      if (context.datasetIndex === 1) {
+                        return ` Promedio: ${val.toFixed(3)} m³`;
+                      }
+                      const idx = context.dataIndex;
+                      const dataArr = context.dataset.data;
+                      let deltaText = '';
+                      if (idx > 0 && dataArr[idx - 1] > 0) {
+                        const prev = dataArr[idx - 1];
+                        const pct = ((val - prev) / prev) * 100;
+                        const sign = pct >= 0 ? '+' : '';
+                        deltaText = ` (${sign}${pct.toFixed(2)}% vs día ant.)`;
+                      }
+                      return ` Volumen: ${val.toFixed(3)} m³${deltaText}`;
+                    }
+                  }
+                }
+              },
+              scales: {
+                x: { grid: { display: false }, ticks: { font: { size: 10 }, maxTicksLimit: 10 } },
+                y: {
+                  beginAtZero: false,
+                  grid: { color: 'rgba(148, 163, 184, 0.12)' },
+                  ticks: {
+                    font: { size: 10 },
+                    callback: (v) => Number(v).toFixed(2) + ' m³'
+                  }
+                }
+              }
+            }
+          });
+        }
+
+        // 2. Gráfico de Cantidad de Ventas por Periodo (7D / 14D / 30D)
+        const salesPeriodCtx = document.getElementById('client-sales-period-chart');
+        if (salesPeriodCtx) {
+          if (window._clientSalesPeriodChartInstance) window._clientSalesPeriodChartInstance.destroy();
+          const p14 = payload.salesPeriodMap[14];
+          window._clientSalesPeriodChartInstance = new Chart(salesPeriodCtx, {
+            data: {
+              labels: p14.labels,
+              datasets: [
+                {
+                  type: 'bar',
+                  label: 'Pedidos',
+                  data: p14.ordersArr,
+                  backgroundColor: 'rgba(37, 99, 235, 0.78)',
+                  borderRadius: 5,
+                  maxBarThickness: 22,
+                  yAxisID: 'y'
+                },
+                {
+                  type: 'line',
+                  label: 'Unidades Vendidas',
+                  data: p14.unitsArr,
+                  borderColor: '#10b981',
+                  backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                  borderWidth: 2,
+                  tension: 0.35,
+                  pointRadius: 3,
+                  yAxisID: 'y1'
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              interaction: { mode: 'index', intersect: false },
+              plugins: {
+                legend: {
+                  display: true,
+                  position: 'top',
+                  align: 'end',
+                  labels: { boxWidth: 10, usePointStyle: true, font: { size: 10 } }
+                }
+              },
+              scales: {
+                x: { grid: { display: false }, ticks: { font: { size: 10 }, maxTicksLimit: 8 } },
+                y: {
+                  beginAtZero: true,
+                  position: 'left',
+                  grid: { color: 'rgba(148, 163, 184, 0.12)' },
+                  ticks: { precision: 0, font: { size: 10 } }
+                },
+                y1: {
+                  beginAtZero: true,
+                  position: 'right',
+                  grid: { drawOnChartArea: false },
+                  ticks: { precision: 0, font: { size: 10 } }
+                }
+              }
+            }
+          });
+        }
+
+        // 3. Gráfico de Ventas Mensuales (Últimos 6 Meses)
+        const monthlyCtx = document.getElementById('client-sales-monthly-chart');
+        if (monthlyCtx) {
+          if (window._clientSalesMonthlyChartInstance) window._clientSalesMonthlyChartInstance.destroy();
+          const mSeries = payload.monthlySeries6m;
+          window._clientSalesMonthlyChartInstance = new Chart(monthlyCtx, {
+            data: {
+              labels: mSeries.map(m => m.label),
+              datasets: [
+                {
+                  type: 'bar',
+                  label: 'Pedidos del Mes',
+                  data: mSeries.map(m => m.orders),
+                  backgroundColor: 'rgba(139, 92, 246, 0.8)',
+                  borderRadius: 6,
+                  maxBarThickness: 28,
+                  yAxisID: 'y'
+                },
+                {
+                  type: 'line',
+                  label: 'Unidades del Mes',
+                  data: mSeries.map(m => m.units),
+                  borderColor: '#f59e0b',
+                  backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                  borderWidth: 2.2,
+                  tension: 0.3,
+                  pointRadius: 3.5,
+                  yAxisID: 'y1'
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              interaction: { mode: 'index', intersect: false },
+              plugins: {
+                legend: {
+                  display: true,
+                  position: 'top',
+                  align: 'end',
+                  labels: { boxWidth: 10, usePointStyle: true, font: { size: 10 } }
+                },
+                tooltip: {
+                  callbacks: {
+                    afterBody: function(items) {
+                      const idx = items[0]?.dataIndex;
+                      if (idx > 0 && mSeries[idx - 1]?.orders > 0) {
+                        const curr = mSeries[idx].orders;
+                        const prev = mSeries[idx - 1].orders;
+                        const pct = ((curr - prev) / prev) * 100;
+                        const sign = pct >= 0 ? '+' : '';
+                        return `Variación MoM: ${sign}${pct.toFixed(1)}% vs ${mSeries[idx - 1].label}`;
+                      }
+                      return '';
+                    }
+                  }
+                }
+              },
+              scales: {
+                x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+                y: {
+                  beginAtZero: true,
+                  position: 'left',
+                  grid: { color: 'rgba(148, 163, 184, 0.12)' },
+                  ticks: { precision: 0, font: { size: 10 } }
+                },
+                y1: {
+                  beginAtZero: true,
+                  position: 'right',
+                  grid: { drawOnChartArea: false },
+                  ticks: { precision: 0, font: { size: 10 } }
+                }
+              }
+            }
+          });
+        }
+      } catch (chartErr) {
+        console.warn('[Dashboard Cliente] Error inicializando gráficas:', chartErr);
+      }
+    })();
 
     if (onboardingChecklist && onboardingChecklist.dismissed !== true) {
       window.updateOnboardingProgress();
@@ -24821,80 +26414,436 @@ window.openPickupsDetail = function(dataStr) {
 };
 
 ﻿
-// ====== PUNTO DE VENTAS ======
+// ====== PUNTO DE VENTAS (CLIENTE) ======
 let salesCurrentPage = 1;
 const salesPageSize = 50;
+window.clientPosSalesCache = new Map();
+window.clientPosCommerceConfigsMap = null;
+window.clientPosPricingConfig = null;
+window.clientPosLinkedOrdersMap = new Map();
+window.clientPosBillingPeriods = [];
+
+// Helpers compartidos de Máquina POS, Comisión (+IVA) y Periodo de Abono (compatibles con pos_admin.js y billing_generator.js)
+window.POS_MONTH_NAMES_ES = window.POS_MONTH_NAMES_ES || [
+  'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+  'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
+];
+
+window.derivePosPeriodFromDate = window.derivePosPeriodFromDate || function(dateVal) {
+  const d = dateVal ? new Date(dateVal) : new Date();
+  if (isNaN(d.getTime())) {
+    const now = new Date();
+    return `${window.POS_MONTH_NAMES_ES[now.getMonth()]} ${now.getFullYear()}`;
+  }
+  return `${window.POS_MONTH_NAMES_ES[d.getMonth()]} ${d.getFullYear()}`;
+};
+
+window.cleanPosSaleComments = window.cleanPosSaleComments || function(rawComments) {
+  if (!rawComments) return '';
+  return String(rawComments)
+    .replace(/\s*\[WMS-ORD:\s*[^\]]+\]/gi, '')
+    .replace(/\s*\[Terminal:\s*[^\]]+\]/gi, '')
+    .replace(/\s*\[ABONO-PER:\s*[^\]]+\]/gi, '')
+    .replace(/\s*\[TX-CODE:\s*[^\]]+\]/gi, '')
+    .trim();
+};
+
+window.sanitizePosTransactionCode = window.sanitizePosTransactionCode || function(rawCode) {
+  if (!rawCode) return '';
+  return String(rawCode).replace(/\s+/g, '').replace(/[\[\]]/g, '').toUpperCase();
+};
+
+window.resolvePosSaleTransactionCode = window.resolvePosSaleTransactionCode || function(sale, linkedOrder) {
+  const commentStr = String(sale?.comentarios || '');
+  const tagMatch = commentStr.match(/\[TX-CODE:\s*([^\]]+)\]/i);
+  if (tagMatch && tagMatch[1]) {
+    return window.sanitizePosTransactionCode(tagMatch[1]);
+  }
+  const ordTx = linkedOrder?.raw_shopify_data?.pos_tx_code;
+  if (ordTx) {
+    return window.sanitizePosTransactionCode(ordTx);
+  }
+  return '';
+};
+
+window.resolvePosMachineColor = window.resolvePosMachineColor || function(colorName, customHex) {
+  if (customHex && /^#[0-9A-Fa-f]{6}$/.test(customHex)) return customHex;
+  const raw = (colorName || '').trim().toLowerCase();
+  const map = {
+    'azul': '#2563eb', 'rojo': '#dc2626', 'amarillo': '#eab308', 'verde': '#16a34a',
+    'morado': '#9333ea', 'naranjo': '#ea580c', 'naranja': '#ea580c', 'negro': '#1e293b',
+    'blanco': '#cbd5e1', 'gris': '#64748b', 'rosado': '#ec4899', 'rosa': '#ec4899',
+    'celeste': '#0ea5e9', 'turquesa': '#14b8a6'
+  };
+  for (const [k, hex] of Object.entries(map)) {
+    if (raw.includes(k)) return hex;
+  }
+  return '#2563eb';
+};
+
+window.getPosMachineSvg = window.getPosMachineSvg || function(colorHex = '#2563eb', size = 22) {
+  return `
+    <svg width="${size}" height="${size}" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink: 0; display: block;">
+      <path d="M22 10V4C22 2.89543 22.8954 2 24 2H40C41.1046 2 42 2.89543 42 4V10H22Z" fill="#f8fafc" stroke="#1e293b" stroke-width="2.5" stroke-linejoin="round"/>
+      <rect x="14" y="8" width="36" height="52" rx="7" fill="${colorHex}" stroke="#1e293b" stroke-width="3"/>
+      <rect x="19" y="14" width="26" height="16" rx="3" fill="#e0f2fe" stroke="#1e293b" stroke-width="2.5"/>
+      <rect x="20" y="35" width="6" height="5" rx="1.2" fill="#ffffff" stroke="#1e293b" stroke-width="1.8"/>
+      <rect x="29" y="35" width="6" height="5" rx="1.2" fill="#ffffff" stroke="#1e293b" stroke-width="1.8"/>
+      <rect x="38" y="35" width="6" height="5" rx="1.2" fill="#ffffff" stroke="#1e293b" stroke-width="1.8"/>
+      <rect x="20" y="43" width="6" height="5" rx="1.2" fill="#ffffff" stroke="#1e293b" stroke-width="1.8"/>
+      <rect x="29" y="43" width="6" height="5" rx="1.2" fill="#ffffff" stroke="#1e293b" stroke-width="1.8"/>
+      <rect x="38" y="43" width="6" height="5" rx="1.2" fill="#ffffff" stroke="#1e293b" stroke-width="1.8"/>
+      <rect x="20" y="51" width="6" height="5" rx="1.2" fill="#ef4444" stroke="#1e293b" stroke-width="1.8"/>
+      <rect x="29" y="51" width="6" height="5" rx="1.2" fill="#eab308" stroke="#1e293b" stroke-width="1.8"/>
+      <rect x="38" y="51" width="6" height="5" rx="1.2" fill="#22c55e" stroke="#1e293b" stroke-width="1.8"/>
+    </svg>
+  `;
+};
+
+window.resolvePosSaleMachineInfo = window.resolvePosSaleMachineInfo || function(sale, commerceConfigsMap, linkedOrder) {
+  const commerceName = (sale?.comercio || '').trim();
+  const modoPago = (sale?.modo_pago || '').trim();
+  const modoPagoLower = modoPago.toLowerCase();
+  const isDebit = modoPagoLower.includes('débito') || modoPagoLower.includes('debito');
+  const isCredit = modoPagoLower.includes('crédito') || modoPagoLower.includes('credito');
+  const isCardSale = isDebit || isCredit || modoPagoLower.includes('tarjeta');
+  const isTransfer = modoPagoLower.includes('transferencia');
+  const isCash = modoPagoLower.includes('efectivo');
+
+  let commConfig = null;
+  const mapToUse = commerceConfigsMap || window.clientPosCommerceConfigsMap || window.loadedCommerceConfigsMap || {};
+  if (commerceName && mapToUse) {
+    const foundKey = Object.keys(mapToUse).find(k => k.trim().toLowerCase() === commerceName.toLowerCase());
+    if (foundKey) commConfig = mapToUse[foundKey];
+  }
+  const ob = commConfig?.onboarding_checklist || {};
+  const configuredMachine = ob.pos_machine || {};
+  const orderMachine = linkedOrder?.raw_shopify_data?.pos_machine || null;
+
+  let commentTerminal = '';
+  const termMatch = String(sale?.comentarios || '').match(/\[Terminal:\s*([^\]]+)\]/i);
+  if (termMatch && termMatch[1]) {
+    commentTerminal = termMatch[1].trim();
+  }
+
+  const brand = (orderMachine?.brand || configuredMachine.brand || (commentTerminal ? commentTerminal.split(' ')[0] : '') || (isCardSale ? 'Transbank' : '')).trim();
+  const model = (orderMachine?.model || configuredMachine.model || '').trim();
+  const color = (orderMachine?.color || configuredMachine.color || '').trim();
+  const colorHex = orderMachine?.color_hex || configuredMachine.color_hex || null;
+  const rawOwner = (orderMachine?.owner || configuredMachine.owner || (isCardSale ? 'STOCKA' : (commerceName || 'COMERCIO'))).trim();
+  const ownerUpper = rawOwner.toUpperCase();
+  const isStockaOwned = isCardSale ? (ownerUpper.includes('STOCKA') || !ownerUpper) : false;
+
+  if (!isCardSale) {
+    if (isTransfer) {
+      const bank = ob.pos_bank_transfer || {};
+      const bankHolder = (bank.holder_name || '').trim();
+      const isStockaBank = bankHolder.toUpperCase().includes('STOCKA');
+      return {
+        isCardSale: false, isDebit: false, isCredit: false, isTransfer: true, isCash: false,
+        brand: bank.bank ? `Transferencia (${bank.bank})` : 'Transferencia Bancaria',
+        model: bank.account_number || '',
+        color: 'Morado', colorHex: '#6366f1',
+        owner: isStockaBank ? 'STOCKA' : (commerceName || 'COMERCIO'),
+        isStockaOwned: isStockaBank,
+        hasExplicitMachine: Boolean(bank.bank || bank.account_number),
+        notes: bank.notes || ''
+      };
+    }
+    return {
+      isCardSale: false, isDebit: false, isCredit: false, isTransfer: false, isCash: isCash,
+      brand: isCash ? 'Caja Efectivo Sucursal' : (modoPago || 'Otro Medio'),
+      model: '', color: 'Verde', colorHex: '#10b981',
+      owner: commerceName || 'COMERCIO',
+      isStockaOwned: false,
+      hasExplicitMachine: false,
+      notes: ''
+    };
+  }
+
+  return {
+    isCardSale: true,
+    isDebit,
+    isCredit,
+    isTransfer: false,
+    isCash: false,
+    brand: brand || 'Transbank POS',
+    model: model || '',
+    color: color || 'Azul',
+    colorHex: colorHex,
+    owner: isStockaOwned ? 'STOCKA' : (rawOwner || commerceName || 'COMERCIO'),
+    isStockaOwned,
+    hasExplicitMachine: Boolean(configuredMachine.brand || configuredMachine.model || orderMachine?.brand || orderMachine?.model),
+    notes: configuredMachine.notes || ''
+  };
+};
+
+window.calculatePosSaleFinancials = window.calculatePosSaleFinancials || function(sale, machineInfo, pricingConfig) {
+  const montoTotal = Math.max(0, Math.round(Number(sale?.monto_total) || 0));
+  const mInfo = machineInfo || window.resolvePosSaleMachineInfo(sale);
+  const pConfig = pricingConfig || window.clientPosPricingConfig || window.posCachedPricingConfig || {};
+
+  const debitPct = (pConfig.pos_fee_debit_pct !== undefined && pConfig.pos_fee_debit_pct !== null)
+    ? Number(pConfig.pos_fee_debit_pct) : 2.5;
+  const creditPct = (pConfig.pos_fee_credit_pct !== undefined && pConfig.pos_fee_credit_pct !== null)
+    ? Number(pConfig.pos_fee_credit_pct) : 3.5;
+
+  if (mInfo.isCardSale && mInfo.isStockaOwned) {
+    const feePct = mInfo.isCredit ? creditPct : debitPct;
+    const commissionNet = Math.round(montoTotal * (feePct / 100));
+    const commissionIva = Math.round(commissionNet * 0.19);
+    const commissionTotal = commissionNet + commissionIva;
+    const sellerPayout = Math.max(0, montoTotal - commissionTotal);
+
+    return {
+      montoTotal,
+      appliesStockaPosSettlement: true,
+      feePct,
+      feeTypeLabel: mInfo.isCredit ? 'Crédito' : 'Débito',
+      commissionNet,
+      commissionIva,
+      commissionTotal,
+      sellerPayout,
+      abonoAmount: sellerPayout,
+      reasonLabel: 'Abono Fulfillment (Máquina Stocka)'
+    };
+  }
+
+  return {
+    montoTotal,
+    appliesStockaPosSettlement: false,
+    feePct: 0,
+    feeTypeLabel: mInfo.isCardSale ? 'Máquina Propia Seller' : (mInfo.isCash ? 'Efectivo en Sucursal' : 'Transferencia Directa'),
+    commissionNet: 0,
+    commissionIva: 0,
+    commissionTotal: 0,
+    sellerPayout: montoTotal,
+    abonoAmount: 0,
+    reasonLabel: mInfo.isCardSale
+      ? `Recaudación Directa (${mInfo.owner})`
+      : (mInfo.isCash ? 'Retiro Efectivo por Comercio' : 'Transferencia Directa Comercio')
+  };
+};
+
+window.resolvePosSaleAbonoPeriod = window.resolvePosSaleAbonoPeriod || function(sale, linkedOrder, machineInfo, financials) {
+  const mInfo = machineInfo || window.resolvePosSaleMachineInfo(sale, null, linkedOrder);
+  const fin = financials || window.calculatePosSaleFinancials(sale, mInfo);
+
+  const commentStr = String(sale?.comentarios || '');
+  const tagMatch = commentStr.match(/\[ABONO-PER:\s*([^\]]+)\]/i);
+  if (tagMatch && tagMatch[1]) {
+    const val = tagMatch[1].trim().toUpperCase();
+    if (val === 'SIN_ABONO' || val === 'PAGO_DIRECTO' || val === 'NINGUNO') {
+      return { period: 'SIN_ABONO', isExplicit: true, isAbono: false, label: 'Pago Directo Seller (Sin Abono)' };
+    }
+    return { period: val, isExplicit: true, isAbono: true, label: val };
+  }
+
+  const rawAbonoPer = linkedOrder?.raw_shopify_data?.pos_abono_period;
+  if (rawAbonoPer) {
+    const val = String(rawAbonoPer).trim().toUpperCase();
+    if (val === 'SIN_ABONO' || val === 'PAGO_DIRECTO' || val === 'NINGUNO') {
+      return { period: 'SIN_ABONO', isExplicit: true, isAbono: false, label: 'Pago Directo Seller (Sin Abono)' };
+    }
+    return { period: val, isExplicit: true, isAbono: true, label: val };
+  }
+
+  if (!fin.appliesStockaPosSettlement) {
+    return {
+      period: 'SIN_ABONO',
+      isExplicit: false,
+      isAbono: false,
+      label: 'Recaudación Directa Seller'
+    };
+  }
+
+  if (linkedOrder?.periodo_facturacion && String(linkedOrder.periodo_facturacion).trim()) {
+    const ordPer = String(linkedOrder.periodo_facturacion).trim().toUpperCase();
+    return { period: ordPer, isExplicit: false, isAbono: true, label: ordPer };
+  }
+
+  const derived = window.derivePosPeriodFromDate(sale?.created_at);
+  return { period: derived, isExplicit: false, isAbono: true, label: derived };
+};
+
+async function ensureClientPosMetadataLoaded() {
+  try {
+    if (!window.clientPosCommerceConfigsMap) {
+      const { data: cacs } = await supabase.from('commerce_additional_config').select('*');
+      const map = {};
+      if (Array.isArray(cacs)) {
+        cacs.forEach(c => {
+          if (c.comercio) map[c.comercio.trim()] = c;
+        });
+      }
+      window.clientPosCommerceConfigsMap = map;
+    }
+  } catch (e) {
+    console.warn('Aviso cargando commerce_additional_config en POS Cliente:', e);
+    if (!window.clientPosCommerceConfigsMap) window.clientPosCommerceConfigsMap = {};
+  }
+
+  try {
+    if (!window.clientPosPricingConfig) {
+      const { data: pRow } = await supabase.from('pricing_config').select('*').eq('id', 1).maybeSingle();
+      window.clientPosPricingConfig = pRow || { pos_fee_debit_pct: 2.5, pos_fee_credit_pct: 3.5 };
+    }
+  } catch (e) {
+    if (!window.clientPosPricingConfig) window.clientPosPricingConfig = { pos_fee_debit_pct: 2.5, pos_fee_credit_pct: 3.5 };
+  }
+
+  try {
+    if (!window.clientPosBillingPeriods || window.clientPosBillingPeriods.length === 0) {
+      const { data: bPeriods } = await supabase.from('billing_periods').select('*').order('created_at', { ascending: false });
+      window.clientPosBillingPeriods = bPeriods || [];
+    }
+  } catch (e) {}
+}
 
 window.renderSales = async function() {
   const content = document.getElementById('app-content');
   
   content.innerHTML = getObserverBanner() + `
-    <div style="margin-bottom: 2rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end;">
+    <div style="margin-bottom: 1.35rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end;">
       <div>
-        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Punto de Ventas (POS)</h2>
-        <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
-          Revisa las ventas realizadas en sucursales en tiempo real.
+        <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.35rem;">
+          <h2 style="font-size: 1.65rem; font-weight: 800; margin: 0; color: var(--color-text-main);">Punto de Ventas Físico (POS)</h2>
+          <span style="background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.72rem; font-weight: 800; padding: 0.2rem 0.6rem; border-radius: 99px; display: inline-flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-store-2-line"></i> Sucursal Ñuñoa
+          </span>
+        </div>
+        <p style="color: var(--color-text-muted); font-size: 0.92rem; max-width: 820px; line-height: 1.5; margin: 0;">
+          Revisa tus ventas presenciales en tiempo real, la máquina de pago utilizada, el cálculo de comisiones POS (+IVA) y el monto neto abonado a tu servicio de fulfillment por periodo de facturación.
         </p>
       </div>
-      <div style="display: flex; gap: 0.5rem; align-items: center;">
-        <button id="btn-info-export-sales" class="btn" style="background-color: rgba(59, 130, 246, 0.15); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.5rem 1rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 99px; font-weight: 700; transition: all 0.2s; cursor: pointer;" title="¿Cómo exportar?">
-          <i class="ri-information-line" style="font-size: 1.15rem;"></i> Info
+      <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+        <button id="btn-info-export-sales" class="btn" style="background-color: rgba(59, 130, 246, 0.12); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.45rem 0.9rem; display: flex; align-items: center; gap: 0.35rem; border-radius: 99px; font-weight: 700; font-size: 0.82rem; cursor: pointer;" title="Información sobre liquidación POS y exportación">
+          <i class="ri-information-line" style="font-size: 1.05rem;"></i> Condiciones POS
         </button>
-        <button id="btn-export-sales-csv" class="btn btn-outline" style="background-color: white; color: #10b981; border-color: #10b981;">
+        <button id="btn-export-sales-csv" class="btn btn-outline" style="background-color: white; color: #10b981; border-color: #10b981; font-size: 0.82rem; padding: 0.45rem 0.85rem;">
           <i class="ri-file-text-line" style="margin-right: 0.25rem;"></i> CSV
         </button>
-        <button id="btn-export-sales-excel" class="btn btn-outline" style="background-color: white; color: #059669; border-color: #059669;">
+        <button id="btn-export-sales-excel" class="btn btn-outline" style="background-color: white; color: #059669; border-color: #059669; font-size: 0.82rem; padding: 0.45rem 0.85rem;">
           <i class="ri-file-excel-2-line" style="margin-right: 0.25rem;"></i> Excel
         </button>
       </div>
     </div>
 
+    <!-- KPIs de Ventas y Liquidación POS -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 1rem; margin-bottom: 1.15rem;">
+      <div class="card" style="margin: 0; border-left: 4px solid #3b82f6;">
+        <div class="card-body" style="padding: 1rem 1.15rem; display: flex; align-items: center; gap: 0.85rem;">
+          <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(59, 130, 246, 0.12); color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
+            <i class="ri-shopping-bag-3-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--color-text-muted); font-weight: 700;" id="client-pos-kpi-label-count">Ventas Registradas</div>
+            <div style="font-size: 1.45rem; font-weight: 800; color: var(--color-text-main); line-height: 1.2;" id="client-pos-kpi-count">0</div>
+            <div style="font-size: 0.72rem; color: var(--color-text-muted);" id="client-pos-kpi-units">0 unidades vendidas</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin: 0; border-left: 4px solid #10b981;">
+        <div class="card-body" style="padding: 1rem 1.15rem; display: flex; align-items: center; gap: 0.85rem;">
+          <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(16, 185, 129, 0.12); color: #059669; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
+            <i class="ri-money-dollar-circle-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--color-text-muted); font-weight: 700;">Monto Bruto Ventas</div>
+            <div style="font-size: 1.45rem; font-weight: 800; color: #10b981; line-height: 1.2;" id="client-pos-kpi-gross">$0</div>
+            <div style="font-size: 0.72rem; color: var(--color-text-muted);" id="client-pos-kpi-gross-sub">Total pagado por clientes</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin: 0; border-left: 4px solid #ef4444;">
+        <div class="card-body" style="padding: 1rem 1.15rem; display: flex; align-items: center; gap: 0.85rem;">
+          <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(239, 68, 68, 0.1); color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
+            <i class="ri-percent-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--color-text-muted); font-weight: 700;">Comisión POS Stocka (+IVA)</div>
+            <div style="font-size: 1.45rem; font-weight: 800; color: #dc2626; line-height: 1.2;" id="client-pos-kpi-commission">$0</div>
+            <div style="font-size: 0.72rem; color: var(--color-text-muted);" id="client-pos-kpi-commission-sub">Débito 2.50% · Crédito 3.50% + IVA</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin: 0; border-left: 4px solid #059669; background: linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, var(--color-surface) 100%);">
+        <div class="card-body" style="padding: 1rem 1.15rem; display: flex; align-items: center; gap: 0.85rem;">
+          <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(5, 150, 105, 0.14); color: #047857; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
+            <i class="ri-hand-coin-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.4px; color: #047857; font-weight: 800;">Pago al Seller / Abono Fulfillment</div>
+            <div style="font-size: 1.45rem; font-weight: 900; color: #059669; line-height: 1.2;" id="client-pos-kpi-abono">$0</div>
+            <div style="font-size: 0.72rem; color: var(--color-text-muted);" id="client-pos-kpi-abono-sub">Abonado a facturación fulfillment</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Banner de Configuración de Máquina POS del Comercio -->
+    <div id="client-pos-machine-banner" style="display: none; margin-bottom: 1.15rem;"></div>
+
     <!-- Filtros -->
-    <div class="card" style="margin-bottom: 1.5rem;">
-      <div class="card-body" style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;">
-        <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Buscador General</label>
-          <input type="text" id="filter-sales-search" class="form-input" placeholder="Buscar por código, cliente, correo, sucursal...">
-        </div>
-        <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Modo de Pago</label>
-          <select id="filter-sales-payment" class="form-input">
-            <option value="">Todos</option>
-            <option value="Tarjeta de Débito">Tarjeta de Débito</option>
-            <option value="Tarjeta de Crédito">Tarjeta de Crédito</option>
-            <option value="Efectivo">Efectivo</option>
-            <option value="Transferencia">Transferencia</option>
-          </select>
-        </div>
-        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Desde Fecha</label>
-          <input type="date" id="filter-sales-date-from" class="form-input">
-        </div>
-        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Hasta Fecha</label>
-          <input type="date" id="filter-sales-date-to" class="form-input">
+    <div class="card" style="margin-bottom: 1.25rem;">
+      <div class="card-body" style="padding: 1rem 1.25rem;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 0.85rem; align-items: end;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.75rem; font-weight: 600;">Buscador General</label>
+            <input type="text" id="filter-sales-search" class="form-input" placeholder="Código, cliente, correo, SKU...">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.75rem; font-weight: 600;">Modo de Pago</label>
+            <select id="filter-sales-payment" class="form-input">
+              <option value="">Todos los Modos</option>
+              <option value="Tarjeta de Débito">Tarjeta de Débito</option>
+              <option value="Tarjeta de Crédito">Tarjeta de Crédito</option>
+              <option value="Efectivo">Efectivo</option>
+              <option value="Transferencia">Transferencia</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.75rem; font-weight: 600;">Periodo Facturación (Abono)</label>
+            <select id="filter-sales-abono-period" class="form-input">
+              <option value="">Todos los Periodos</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.75rem; font-weight: 600;">Desde Fecha</label>
+            <input type="date" id="filter-sales-date-from" class="form-input">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.75rem; font-weight: 600;">Hasta Fecha</label>
+            <input type="date" id="filter-sales-date-to" class="form-input">
+          </div>
         </div>
       </div>
     </div>
 
     <!-- Data Table -->
     <div class="card">
-      <div class="card-body table-responsive">
-        <table class="data-table">
+      <div class="card-body table-responsive" style="padding: 0;">
+        <table class="data-table" style="width: 100%; border-collapse: collapse;">
           <thead>
             <tr>
-              <th>Fecha Venta</th>
+              <th>Fecha y Hora</th>
               <th>Código Venta</th>
               <th>Comercio</th>
               <th>Cliente</th>
-              <th>Sucursal</th>
-              <th>Monto Total</th>
-              <th>Modo Pago</th>
-              <th>Acciones</th>
+              <th>Productos</th>
+              <th style="text-align: right;">Total Pagado</th>
+              <th>Pago y Doc.</th>
+              <th>Máquina de Pago</th>
+              <th style="text-align: right;">Pago al Seller / Abono (+IVA)</th>
+              <th>Periodo Facturación (Abono)</th>
+              <th style="text-align: center;">Acciones</th>
             </tr>
           </thead>
           <tbody id="sales-tbody">
-            <tr><td colspan="8" class="text-center" style="padding: 2rem;">Cargando...</td></tr>
+            <tr><td colspan="11" class="text-center" style="padding: 2rem;">Cargando...</td></tr>
           </tbody>
         </table>
       </div>
@@ -24910,22 +26859,53 @@ window.renderSales = async function() {
     </div>
   `;
 
-  // Listeners de Filtros
-  const filters = ['filter-sales-payment', 'filter-sales-date-from', 'filter-sales-date-to'];
-  filters.forEach(id => {
-    document.getElementById(id).addEventListener('change', () => {
-      salesCurrentPage = 1;
-      fetchAndRenderSalesData();
+  await ensureClientPosMetadataLoaded();
+
+  // Poblar selector de Periodo de Facturación (Abono)
+  const periodSel = document.getElementById('filter-sales-abono-period');
+  if (periodSel) {
+    const now = new Date();
+    const periodSet = new Set([
+      window.derivePosPeriodFromDate(now),
+      window.derivePosPeriodFromDate(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+      'OCTUBRE 2026',
+      'NOVIEMBRE 2026'
+    ]);
+    (window.clientPosBillingPeriods || []).forEach(bp => {
+      if (bp?.name) periodSet.add(String(bp.name).trim().toUpperCase());
     });
+    periodSel.innerHTML = '<option value="">Todos los Periodos</option>';
+    Array.from(periodSet).forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = `Abono en: ${p}`;
+      periodSel.appendChild(opt);
+    });
+    const optDirect = document.createElement('option');
+    optDirect.value = 'SIN_ABONO';
+    optDirect.textContent = 'Recaudación Directa Seller (Sin Abono)';
+    periodSel.appendChild(optDirect);
+  }
+
+  // Listeners de Filtros
+  const filters = ['filter-sales-payment', 'filter-sales-abono-period', 'filter-sales-date-from', 'filter-sales-date-to'];
+  filters.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('change', () => {
+        salesCurrentPage = 1;
+        fetchAndRenderSalesData();
+      });
+    }
   });
 
   let searchTimeout;
-  document.getElementById('filter-sales-search').addEventListener('input', (e) => {
+  document.getElementById('filter-sales-search').addEventListener('input', () => {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
       salesCurrentPage = 1;
       fetchAndRenderSalesData();
-    }, 400);
+    }, 350);
   });
 
   // Listeners Paginación
@@ -24945,13 +26925,22 @@ window.renderSales = async function() {
   document.getElementById('btn-export-sales-csv').addEventListener('click', () => exportSalesData('csv'));
   document.getElementById('btn-export-sales-excel').addEventListener('click', () => exportSalesData('excel'));
   document.getElementById('btn-info-export-sales').addEventListener('click', () => {
+    const debitPct = Number(window.clientPosPricingConfig?.pos_fee_debit_pct ?? 2.5);
+    const creditPct = Number(window.clientPosPricingConfig?.pos_fee_credit_pct ?? 3.5);
     showInfoModal(
-      'Guía de Exportación',
-      `<ol style="margin: 0; padding-left: 1.5rem;">
-         <li style="margin-bottom: 0.5rem;">Utiliza el buscador para acotar tu búsqueda.</li>
-         <li style="margin-bottom: 0.5rem;">Haz clic en <strong>"CSV"</strong> o <strong>"Excel"</strong> para descargar el reporte.</li>
-         <li>El archivo generado sólo contendrá las ventas que coincidan con los filtros actuales en pantalla.</li>
-       </ol>`
+      'Punto de Venta Físico (POS) y Liquidación de Abonos',
+      `<div style="font-size: 0.9rem; line-height: 1.55;">
+         <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 0.85rem 1rem; margin-bottom: 1rem;">
+           <strong style="color: #047857; display: block; margin-bottom: 0.35rem;">Comisiones POS Vigentes (Máquina Propiedad de Stocka)</strong>
+           <ul style="margin: 0; padding-left: 1.25rem;">
+             <li><strong>Tarjeta de Débito:</strong> ${debitPct.toFixed(2)}% + IVA sobre el monto bruto cobrado.</li>
+             <li><strong>Tarjeta de Crédito:</strong> ${creditPct.toFixed(2)}% + IVA sobre el monto bruto cobrado.</li>
+             <li><strong>Abono al Servicio de Fulfillment:</strong> El monto neto recaudado (Total Venta − Comisión POS con IVA) se abona directamente a tu estado de pago de fulfillment en el <strong>Periodo de Facturación</strong> indicado.</li>
+           </ul>
+         </div>
+         <p style="margin-bottom: 0.5rem;"><strong>Máquina Propia del Comercio / Transferencia Directa / Efectivo:</strong></p>
+         <p style="margin-top: 0; color: var(--color-text-muted);">Cuando el pago se procesa en un terminal propio de tu comercio o por transferencia directa a tu cuenta bancaria, la recaudación ingresa 100% a tu comercio sin comisión POS de Stocka ($0).</p>
+       </div>`
     );
   });
 
@@ -24960,10 +26949,10 @@ window.renderSales = async function() {
 };
 
 function buildSalesQuery(query) {
-  const fSearch = document.getElementById('filter-sales-search').value.trim();
-  const fPayment = document.getElementById('filter-sales-payment').value;
-  const fFrom = document.getElementById('filter-sales-date-from').value;
-  const fTo = document.getElementById('filter-sales-date-to').value;
+  const fSearch = document.getElementById('filter-sales-search')?.value.trim() || '';
+  const fPayment = document.getElementById('filter-sales-payment')?.value || '';
+  const fFrom = document.getElementById('filter-sales-date-from')?.value || '';
+  const fTo = document.getElementById('filter-sales-date-to')?.value || '';
 
   if (currentCompany) {
     const companyList = [];
@@ -24981,7 +26970,7 @@ function buildSalesQuery(query) {
   }
   if (fPayment) query = query.eq('modo_pago', fPayment);
   if (fSearch) {
-    query = query.or(`codigo_venta.ilike.%${fSearch}%,nombre_cliente.ilike.%${fSearch}%,correo_cliente.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%`);
+    query = query.or(`codigo_venta.ilike.%${fSearch}%,nombre_cliente.ilike.%${fSearch}%,correo_cliente.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%,productos.ilike.%${fSearch}%,comentarios.ilike.%${fSearch}%`);
   }
   
   if (fFrom) query = query.gte('created_at', fFrom + 'T00:00:00.000Z');
@@ -24990,40 +26979,236 @@ function buildSalesQuery(query) {
   return query;
 }
 
+function renderClientPosMachineBanner(salesList) {
+  const bannerEl = document.getElementById('client-pos-machine-banner');
+  if (!bannerEl) return;
+
+  if (!currentCompany) {
+    bannerEl.style.display = 'none';
+    return;
+  }
+
+  const companyNames = currentCompany.split(',').map(c => c.trim()).filter(Boolean);
+  const mapToUse = window.clientPosCommerceConfigsMap || {};
+  const cardsHtml = [];
+
+  // Agrupar abono por periodo
+  const periodTotals = {};
+  (salesList || []).forEach(s => {
+    const fin = s._posFinancials;
+    const abono = s._posAbonoInfo;
+    if (fin && abono && abono.isAbono && abono.period && abono.period !== 'SIN_ABONO' && fin.appliesStockaPosSettlement) {
+      periodTotals[abono.period] = (periodTotals[abono.period] || 0) + fin.sellerPayout;
+    }
+  });
+
+  companyNames.forEach(commName => {
+    const foundKey = Object.keys(mapToUse).find(k => k.trim().toLowerCase() === commName.toLowerCase());
+    const cfg = foundKey ? mapToUse[foundKey] : null;
+    const ob = cfg?.onboarding_checklist || {};
+    const machine = ob.pos_machine || {};
+    if (!ob.pos_active && !machine.brand && !machine.model && (salesList || []).filter(s => (s.comercio || '').toLowerCase() === commName.toLowerCase()).length === 0) {
+      return;
+    }
+
+    const brand = machine.brand || 'Transbank';
+    const model = machine.model || '';
+    const color = machine.color || 'Azul';
+    const owner = machine.owner || 'STOCKA';
+    const isStockaOwned = String(owner).toUpperCase().includes('STOCKA');
+    const dotColor = window.resolvePosMachineColor(color, machine.color_hex);
+
+    cardsHtml.push(`
+      <div style="display: inline-flex; align-items: center; gap: 0.65rem; background: #ffffff; border: 1.5px solid ${dotColor}55; border-left: 4px solid ${dotColor}; border-radius: 10px; padding: 0.55rem 0.85rem; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+        ${window.getPosMachineSvg(dotColor, 28)}
+        <div>
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <strong style="font-size: 0.82rem; color: #0f172a;">${escapeHtml(commName)}:</strong>
+            <span style="font-size: 0.82rem; font-weight: 700; color: #1e293b;">${escapeHtml(brand)}</span>
+            ${model ? `<span style="background: ${dotColor}; color: #fff; font-family: monospace; font-size: 0.75rem; font-weight: 900; padding: 0.08rem 0.4rem; border-radius: 4px;">#${escapeHtml(model)}</span>` : ''}
+            <span style="font-size: 0.7rem; color: var(--color-text-muted);">(${escapeHtml(color)})</span>
+          </div>
+          <div style="font-size: 0.7rem; font-weight: 700; color: ${isStockaOwned ? '#2563eb' : '#7c3aed'}; margin-top: 2px;">
+            ${isStockaOwned ? 'Propiedad de STOCKA · Recaudación se abona a tu facturación de Fulfillment' : 'Propiedad de ' + escapeHtml(owner) + ' · Recaudación directa a tu comercio ($0 comisión Stocka)'}
+          </div>
+        </div>
+      </div>
+    `);
+  });
+
+  const periodBadges = Object.entries(periodTotals).map(([per, amt]) => `
+    <span style="display: inline-flex; align-items: center; gap: 0.35rem; background: rgba(16, 185, 129, 0.12); color: #047857; border: 1px solid rgba(16, 185, 129, 0.35); padding: 0.25rem 0.65rem; border-radius: 99px; font-size: 0.75rem; font-weight: 800;">
+      <i class="ri-calendar-check-line"></i> Abono ${escapeHtml(per)}: $${Number(amt).toLocaleString('es-CL')}
+    </span>
+  `).join('');
+
+  if (cardsHtml.length === 0 && !periodBadges) {
+    bannerEl.style.display = 'none';
+    return;
+  }
+
+  bannerEl.style.display = 'block';
+  bannerEl.innerHTML = `
+    <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.85rem 1.15rem; display: flex; align-items: center; justify-content: space-between; gap: 0.85rem; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+        <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 800; color: var(--color-text-muted); letter-spacing: 0.4px;">
+          <i class="ri-terminal-box-line"></i> Máquina(s) de Pago Asignada(s):
+        </span>
+        ${cardsHtml.join('')}
+      </div>
+      ${periodBadges ? `<div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">${periodBadges}</div>` : ''}
+    </div>
+  `;
+}
+
 async function fetchAndRenderSalesData() {
   const tbody = document.getElementById('sales-tbody');
   const btnPrev = document.getElementById('btn-sales-prev');
   const btnNext = document.getElementById('btn-sales-next');
   const info = document.getElementById('sales-pagination-info');
 
-  tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding: 2rem;">Cargando...</td></tr>';
-  btnPrev.disabled = true;
-  btnNext.disabled = true;
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="11" class="text-center" style="padding: 2rem;">Cargando ventas POS...</td></tr>';
+  if (btnPrev) btnPrev.disabled = true;
+  if (btnNext) btnNext.disabled = true;
 
   try {
-    let query = supabase.from('store_sales').select('*', { count: 'exact' });
+    await ensureClientPosMetadataLoaded();
+
+    let query = supabase.from('store_sales').select('*').order('created_at', { ascending: false });
     query = buildSalesQuery(query);
 
-    const from = (salesCurrentPage - 1) * salesPageSize;
-    const to = from + salesPageSize - 1;
-
-    query = query.order('created_at', { ascending: false }).range(from, to);
-
-    const { data: sales, error, count } = await query;
+    const { data: allMatchingSales, error } = await query;
     if (error) throw error;
 
-    let html = '';
-    if (!sales || sales.length === 0) {
-      html = '<tr><td colspan="8" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay registros encontrados.</td></tr>';
-    } else {
-      sales.forEach(s => {
-        const d = new Date(s.created_at);
-        const dateStr = d.toLocaleDateString() + ' ' + d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
-        
-        let montoFmt = s.monto_total ? '$' + Number(s.monto_total).toLocaleString('es-CL') : 'N/A';
+    // Buscar pedidos WMS vinculados para conocer periodo_facturacion si existe
+    const saleCodes = Array.from(new Set((allMatchingSales || []).map(s => (s.codigo_venta || '').trim()).filter(Boolean)));
+    const linkedOrdersByCode = new Map();
+    if (saleCodes.length > 0) {
+      try {
+        const { data: linkedOrds } = await supabase
+          .from('orders')
+          .select('id, external_order_number, comercio, periodo_facturacion, raw_shopify_data')
+          .in('external_order_number', saleCodes.slice(0, 200));
+        if (Array.isArray(linkedOrds)) {
+          linkedOrds.forEach(o => {
+            if (o.external_order_number) linkedOrdersByCode.set(String(o.external_order_number).trim().toUpperCase(), o);
+          });
+        }
+      } catch (e) {}
+    }
+    window.clientPosLinkedOrdersMap = linkedOrdersByCode;
 
-        let safeData = '{}';
-        try { safeData = encodeURIComponent(JSON.stringify(s)); } catch(e){}
+    // Enriquecer cada venta con máquina POS, comisión (+IVA) y periodo de abono
+    const fAbonoPeriod = document.getElementById('filter-sales-abono-period')?.value || '';
+    const enrichedSales = [];
+
+    (allMatchingSales || []).forEach(s => {
+      const codeKey = String(s.codigo_venta || '').trim().toUpperCase();
+      const linkedOrder = linkedOrdersByCode.get(codeKey) || null;
+      const machineInfo = window.resolvePosSaleMachineInfo(s, window.clientPosCommerceConfigsMap, linkedOrder);
+      const financials = window.calculatePosSaleFinancials(s, machineInfo, window.clientPosPricingConfig);
+      const abonoInfo = window.resolvePosSaleAbonoPeriod(s, linkedOrder, machineInfo, financials);
+      const txCode = window.resolvePosSaleTransactionCode(s, linkedOrder);
+
+      s._posMachineInfo = machineInfo;
+      s._posFinancials = financials;
+      s._posAbonoInfo = abonoInfo;
+      s._posTxCode = txCode;
+
+      if (fAbonoPeriod) {
+        if (fAbonoPeriod === 'SIN_ABONO') {
+          if (abonoInfo.isAbono && abonoInfo.period !== 'SIN_ABONO') return;
+        } else {
+          if (abonoInfo.period !== fAbonoPeriod) return;
+        }
+      }
+      enrichedSales.push(s);
+    });
+
+    // Asegurar que todos los periodos detectados aparezcan en el filtro
+    const periodSel = document.getElementById('filter-sales-abono-period');
+    if (periodSel) {
+      const existingOpts = new Set(Array.from(periodSel.options).map(o => o.value));
+      (allMatchingSales || []).forEach(s => {
+        const per = s._posAbonoInfo?.period;
+        if (per && per !== 'SIN_ABONO' && !existingOpts.has(per)) {
+          const opt = document.createElement('option');
+          opt.value = per;
+          opt.textContent = `Abono en: ${per}`;
+          periodSel.insertBefore(opt, periodSel.lastElementChild);
+          existingOpts.add(per);
+        }
+      });
+    }
+
+    // Actualizar KPIs
+    let totalGross = 0;
+    let totalCommission = 0;
+    let totalNetAbono = 0;
+    let totalUnits = 0;
+    let abonoSalesCount = 0;
+
+    enrichedSales.forEach(s => {
+      const fin = s._posFinancials;
+      const ab = s._posAbonoInfo;
+      totalGross += fin.montoTotal;
+      totalCommission += fin.commissionTotal;
+      if (ab.isAbono && fin.appliesStockaPosSettlement) {
+        totalNetAbono += fin.sellerPayout;
+        abonoSalesCount++;
+      }
+      if (s.productos) {
+        try {
+          let p = typeof s.productos === 'string' ? JSON.parse(s.productos) : s.productos;
+          if (Array.isArray(p)) {
+            p.forEach(item => { totalUnits += (parseInt(item.cantidad, 10) || 1); });
+          }
+        } catch (e) {}
+      }
+    });
+
+    const fmtCLP = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('es-CL');
+    const elCount = document.getElementById('client-pos-kpi-count');
+    const elUnits = document.getElementById('client-pos-kpi-units');
+    const elGross = document.getElementById('client-pos-kpi-gross');
+    const elComm = document.getElementById('client-pos-kpi-commission');
+    const elAbono = document.getElementById('client-pos-kpi-abono');
+    const elAbonoSub = document.getElementById('client-pos-kpi-abono-sub');
+
+    if (elCount) elCount.textContent = enrichedSales.length.toLocaleString('es-CL');
+    if (elUnits) elUnits.textContent = `${totalUnits.toLocaleString('es-CL')} unidades vendidas`;
+    if (elGross) elGross.textContent = fmtCLP(totalGross);
+    if (elComm) elComm.textContent = fmtCLP(totalCommission);
+    if (elAbono) elAbono.textContent = fmtCLP(totalNetAbono);
+    if (elAbonoSub) {
+      elAbonoSub.textContent = fAbonoPeriod && fAbonoPeriod !== 'SIN_ABONO'
+        ? `Abono en ${fAbonoPeriod} (${abonoSalesCount} venta${abonoSalesCount === 1 ? '' : 's'})`
+        : `${abonoSalesCount} venta(s) abonada(s) al servicio`;
+    }
+
+    renderClientPosMachineBanner(enrichedSales);
+
+    const count = enrichedSales.length;
+    const from = (salesCurrentPage - 1) * salesPageSize;
+    const to = from + salesPageSize;
+    const pageSales = enrichedSales.slice(from, to);
+
+    window.clientPosSalesCache.clear();
+    let html = '';
+
+    if (pageSales.length === 0) {
+      html = '<tr><td colspan="11" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">No hay ventas registradas con los filtros seleccionados.</td></tr>';
+    } else {
+      pageSales.forEach(s => {
+        window.clientPosSalesCache.set(String(s.id), s);
+        const d = new Date(s.created_at);
+        const dateStr = d.toLocaleDateString('es-CL') + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+        const montoFmt = fmtCLP(s.monto_total);
+
+        const machineInfo = s._posMachineInfo;
+        const fin = s._posFinancials;
+        const abonoInfo = s._posAbonoInfo;
 
         let badgeClass = 'badge-neutral';
         const pago = (s.modo_pago || '').toLowerCase();
@@ -25031,17 +27216,123 @@ async function fetchAndRenderSalesData() {
         else if (pago.includes('tarjeta') || pago.includes('crédito') || pago.includes('débito')) badgeClass = 'badge-info';
         else if (pago.includes('transferencia')) badgeClass = 'badge-warning';
 
+        // Resumen de productos
+        let prodSummaryHtml = '<span class="text-muted">Sin detalle</span>';
+        if (s.productos) {
+          try {
+            let parsed = typeof s.productos === 'string' ? JSON.parse(s.productos) : s.productos;
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              prodSummaryHtml = parsed.slice(0, 2).map(p => `
+                <div style="font-size: 0.78rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px;" title="${escapeHtml((p.cantidad || 1) + 'x ' + (p.producto || p.name || ''))}">
+                  <strong>${p.cantidad || 1}x</strong> ${escapeHtml(p.producto || p.name || 'Producto')}
+                </div>
+              `).join('');
+              if (parsed.length > 2) {
+                prodSummaryHtml += `<div style="font-size: 0.7rem; color: var(--color-primary); font-weight: 600;">+${parsed.length - 2} producto(s) más</div>`;
+              }
+            }
+          } catch (e) {}
+        }
+
+        // Columna Máquina de Pago
+        const dotColor = window.resolvePosMachineColor(machineInfo.color, machineInfo.colorHex);
+        let machineColHtml = '';
+        if (machineInfo.isCardSale) {
+          machineColHtml = `
+            <div style="display: flex; align-items: center; gap: 0.45rem;">
+              <div style="width: 26px; height: 26px; border-radius: 6px; background: ${dotColor}18; border: 1.5px solid ${dotColor}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                ${window.getPosMachineSvg(dotColor, 18)}
+              </div>
+              <div style="line-height: 1.2;">
+                <div style="display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;">
+                  <strong style="font-size: 0.77rem; color: var(--color-text-main);">${escapeHtml(machineInfo.brand)}</strong>
+                  ${machineInfo.model ? `<span style="background: ${dotColor}; color: #fff; font-family: monospace; font-size: 0.68rem; font-weight: 900; padding: 0.05rem 0.35rem; border-radius: 4px;">#${escapeHtml(machineInfo.model)}</span>` : ''}
+                </div>
+                <span style="display: inline-block; margin-top: 2px; font-size: 0.64rem; font-weight: 800; padding: 0.05rem 0.38rem; border-radius: 4px; background: ${machineInfo.isStockaOwned ? 'rgba(37, 99, 235, 0.1)' : 'rgba(124, 58, 237, 0.1)'}; color: ${machineInfo.isStockaOwned ? '#1d4ed8' : '#6d28d9'};">
+                  ${machineInfo.isStockaOwned ? 'Propiedad de STOCKA' : 'Propiedad de ' + escapeHtml(machineInfo.owner)}
+                </span>
+              </div>
+            </div>
+          `;
+        } else {
+          machineColHtml = `
+            <div style="font-size: 0.75rem; color: var(--color-text-muted); line-height: 1.25;">
+              <strong style="color: var(--color-text-main); display: block;">${escapeHtml(machineInfo.brand)}</strong>
+              <span style="font-size: 0.66rem;">Directo ${escapeHtml(machineInfo.owner)}</span>
+            </div>
+          `;
+        }
+
+        // Columna Pago al Seller / Abono (+IVA)
+        let sellerPayoutColHtml = '';
+        if (fin.appliesStockaPosSettlement) {
+          sellerPayoutColHtml = `
+            <div style="text-align: right; line-height: 1.25;">
+              <div style="font-weight: 900; color: #059669; font-size: 0.94rem;">${fmtCLP(fin.sellerPayout)}</div>
+              <div style="font-size: 0.67rem; color: #dc2626; font-weight: 600;">
+                Com. ${fin.feePct.toFixed(2)}%+IVA: -${fmtCLP(fin.commissionTotal)}
+              </div>
+              <div style="font-size: 0.63rem; color: var(--color-text-muted);">
+                (Neto ${fmtCLP(fin.commissionNet)} + IVA ${fmtCLP(fin.commissionIva)})
+              </div>
+            </div>
+          `;
+        } else {
+          sellerPayoutColHtml = `
+            <div style="text-align: right; line-height: 1.25;">
+              <div style="font-weight: 700; color: #64748b; font-size: 0.84rem;">${fmtCLP(fin.sellerPayout)}</div>
+              <span style="display: inline-block; font-size: 0.64rem; background: rgba(100, 116, 139, 0.1); color: #475569; padding: 0.08rem 0.38rem; border-radius: 4px; font-weight: 700;">
+                ${escapeHtml(fin.feeTypeLabel)} ($0 com.)
+              </span>
+            </div>
+          `;
+        }
+
+        // Columna Periodo Facturación (Abono) y Código de Transacción
+        const txCode = s._posTxCode || window.resolvePosSaleTransactionCode(s, null);
+        const txBadgeHtml = txCode
+          ? `<span style="display: inline-flex; align-items: center; gap: 3px; font-family: monospace; font-size: 0.68rem; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 0.12rem 0.45rem; border-radius: 5px; width: fit-content;" title="Código de Transacción Único">
+               <i class="ri-key-2-line"></i> TX: ${escapeHtml(txCode)}
+             </span>`
+          : '';
+
+        const periodColHtml = abonoInfo.isAbono && abonoInfo.period !== 'SIN_ABONO'
+          ? `<div style="display: inline-flex; flex-direction: column; gap: 3px;">
+               <span style="background: rgba(16, 185, 129, 0.12); color: #047857; border: 1px solid rgba(16, 185, 129, 0.35); font-size: 0.72rem; font-weight: 800; padding: 0.2rem 0.55rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap;">
+                 <i class="ri-calendar-check-line"></i> ${escapeHtml(abonoInfo.period)}
+               </span>
+               ${txBadgeHtml}
+               <span style="font-size: 0.64rem; color: #059669; font-weight: 700;">Abono al servicio Fulfillment</span>
+             </div>`
+          : `<div style="display: inline-flex; flex-direction: column; gap: 3px;">
+               <span style="background: rgba(100, 116, 139, 0.1); color: #64748b; font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 6px; display: inline-block;">
+                 Recaudación Directa Seller
+               </span>
+               ${txBadgeHtml}
+             </div>`;
+
         html += `
           <tr style="transition: background-color 0.2s;">
-            <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
-            <td><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${s.codigo_venta || 'N/A'}</span></td>
-            <td><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${s.comercio || 'N/A'}</td>
-            <td><i class="ri-user-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.nombre_cliente || 'N/A'}</td>
-            <td><i class="ri-map-pin-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.sucursal || 'N/A'}</td>
-            <td><strong style="color: #10b981; font-size: 1.05rem;">${montoFmt}</strong></td>
-            <td><span class="badge ${badgeClass}">${s.modo_pago || 'N/A'}</span></td>
+            <td style="white-space: nowrap; font-size: 0.8rem;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
+            <td><span style="font-family: monospace; font-size: 0.82rem; font-weight: 700; background: var(--color-bg); padding: 0.22rem 0.45rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">${escapeHtml(s.codigo_venta || 'N/A')}</span></td>
+            <td style="font-weight: 700; font-size: 0.82rem;">${escapeHtml(s.comercio || 'N/A')}</td>
             <td>
-              <button class="btn btn-outline" onclick="window.openSalesDetail('${safeData}')" style="padding: 0.25rem 0.75rem; font-size: 0.8rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.25rem;"></i> Detalle</button>
+              <div style="font-weight: 600; font-size: 0.83rem; color: var(--color-text-main);">${escapeHtml(s.nombre_cliente || 'Consumidor Final')}</div>
+              ${s.correo_cliente ? `<div style="font-size: 0.72rem; color: var(--color-text-muted);">${escapeHtml(s.correo_cliente)}</div>` : ''}
+            </td>
+            <td>${prodSummaryHtml}</td>
+            <td style="text-align: right;"><strong style="color: #10b981; font-size: 0.96rem;">${montoFmt}</strong></td>
+            <td>
+              <div style="display: flex; flex-direction: column; gap: 0.2rem; align-items: flex-start;">
+                <span class="badge ${badgeClass}" style="font-size: 0.7rem;">${escapeHtml(s.modo_pago || 'N/A')}</span>
+                <span style="font-size: 0.66rem; color: var(--color-text-muted); font-weight: 600;">${escapeHtml(s.documento_tipo || 'BOLETA')}</span>
+              </div>
+            </td>
+            <td>${machineColHtml}</td>
+            <td>${sellerPayoutColHtml}</td>
+            <td>${periodColHtml}</td>
+            <td style="text-align: center;">
+              <button class="btn btn-outline" onclick="window.openSalesDetail('${escapeHtml(String(s.id))}')" style="padding: 0.25rem 0.65rem; font-size: 0.76rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.2rem;"></i> Detalle</button>
             </td>
           </tr>
         `;
@@ -25051,38 +27342,61 @@ async function fetchAndRenderSalesData() {
     tbody.innerHTML = html;
     
     const currentEnd = Math.min(from + salesPageSize, count || 0);
-    info.textContent = `Mostrando ${count === 0 ? 0 : from + 1} a ${currentEnd} de ${count || 0} registros`;
+    if (info) info.textContent = `Mostrando ${count === 0 ? 0 : from + 1} a ${currentEnd} de ${count || 0} registros`;
     
-    btnPrev.disabled = salesCurrentPage <= 1;
-    btnNext.disabled = currentEnd >= (count || 0);
+    if (btnPrev) btnPrev.disabled = salesCurrentPage <= 1;
+    if (btnNext) btnNext.disabled = currentEnd >= (count || 0);
 
   } catch (err) {
     console.error('Error:', err);
-    tbody.innerHTML = `<tr><td colspan="8" class="text-center text-danger" style="padding: 2rem;">Error: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" class="text-center text-danger" style="padding: 2rem;">Error: ${err.message}</td></tr>`;
   }
 }
 
 async function exportSalesData(format) {
   try {
+    await ensureClientPosMetadataLoaded();
     const info = document.getElementById('sales-pagination-info');
-    const oldText = info.textContent;
-    info.textContent = 'Preparando exportación...';
+    const oldText = info ? info.textContent : '';
+    if (info) info.textContent = 'Preparando exportación...';
     
     let query = supabase.from('store_sales').select('*').order('created_at', { ascending: false });
     query = buildSalesQuery(query);
     
     const { data, error } = await query;
     if (error) throw error;
+
+    const fAbonoPeriod = document.getElementById('filter-sales-abono-period')?.value || '';
+    const filtered = (data || []).filter(s => {
+      const codeKey = String(s.codigo_venta || '').trim().toUpperCase();
+      const linkedOrder = window.clientPosLinkedOrdersMap?.get(codeKey) || null;
+      const mInfo = window.resolvePosSaleMachineInfo(s, window.clientPosCommerceConfigsMap, linkedOrder);
+      const fin = window.calculatePosSaleFinancials(s, mInfo, window.clientPosPricingConfig);
+      const ab = window.resolvePosSaleAbonoPeriod(s, linkedOrder, mInfo, fin);
+      s._posMachineInfo = mInfo;
+      s._posFinancials = fin;
+      s._posAbonoInfo = ab;
+      s._posTxCode = window.resolvePosSaleTransactionCode(s, linkedOrder);
+
+      if (fAbonoPeriod) {
+        if (fAbonoPeriod === 'SIN_ABONO') return !ab.isAbono || ab.period === 'SIN_ABONO';
+        return ab.period === fAbonoPeriod;
+      }
+      return true;
+    });
     
-    if (!data || data.length === 0) {
+    if (!filtered || filtered.length === 0) {
       alert('No hay datos para exportar con estos filtros.');
-      info.textContent = oldText;
+      if (info) info.textContent = oldText;
       return;
     }
 
-    const rows = data.map(s => {
+    const rows = filtered.map(s => {
       const d = new Date(s.created_at);
-      const dateStr = d.toLocaleDateString() + ' ' + d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+      const dateStr = d.toLocaleDateString('es-CL') + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+      const mInfo = s._posMachineInfo;
+      const fin = s._posFinancials;
+      const ab = s._posAbonoInfo;
       
       let prodStr = '';
       if (s.productos) {
@@ -25090,30 +27404,38 @@ async function exportSalesData(format) {
           let parsed = s.productos;
           if (typeof parsed === 'string') parsed = JSON.parse(parsed);
           if (Array.isArray(parsed)) {
-            prodStr = parsed.map(p => `${p.cantidad || 1}x ${p.producto || 'N/A'}`).join(' || ');
+            prodStr = parsed.map(p => `${p.cantidad || 1}x ${p.producto || p.name || 'N/A'}`).join(' || ');
           }
         } catch(e) {}
       }
 
       return {
-        'ID': s.id,
-        'Fecha Venta': dateStr,
         'Código Venta': s.codigo_venta,
+        'Fecha Venta': dateStr,
         'Comercio': s.comercio,
         'Sucursal': s.sucursal,
-        'Monto Total': s.monto_total,
+        'Monto Total Bruto ($)': fin.montoTotal,
         'Modo Pago': s.modo_pago,
         'Documento': s.documento_tipo,
+        'Máquina POS': mInfo.brand,
+        'N° Terminal': mInfo.model ? `#${mInfo.model}` : '',
+        'Propiedad Máquina': mInfo.isCardSale ? (mInfo.isStockaOwned ? 'Propiedad de STOCKA' : `Propiedad de ${mInfo.owner}`) : mInfo.owner,
+        '% Comisión POS': fin.appliesStockaPosSettlement ? `${fin.feePct.toFixed(2)}%` : '0%',
+        'Comisión Neta ($)': fin.commissionNet,
+        'IVA Comisión ($)': fin.commissionIva,
+        'Comisión Total + IVA ($)': fin.commissionTotal,
+        'Pago al Seller / Abono Neto ($)': fin.sellerPayout,
+        'Periodo Facturación (Abono)': ab.isAbono ? ab.period : 'Recaudación Directa Seller (Sin Abono)',
+        'Código Transacción': s._posTxCode || '',
         'Nombre Cliente': s.nombre_cliente,
         'Correo Cliente': s.correo_cliente,
         'Teléfono': s.telefono_cliente,
-        'Vendedor (Creado Por)': s.creado_por,
         'Productos': prodStr,
-        'Comentarios': s.comentarios,
-        'RUT Facturación': s.rut_facturacion,
-        'Razón Social': s.razon_social_facturacion,
-        'Giro': s.giro_facturacion,
-        'Dirección Facturación': s.direccion_facturacion
+        'Observaciones': window.cleanPosSaleComments(s.comentarios),
+        'RUT Facturación': s.rut_facturacion || '',
+        'Razón Social': s.razon_social_facturacion || '',
+        'Giro': s.giro_facturacion || '',
+        'Dirección Facturación': s.direccion_facturacion || ''
       };
     });
 
@@ -25122,7 +27444,7 @@ async function exportSalesData(format) {
 
     if (format === 'csv') {
       const headers = Object.keys(rows[0]);
-      const csvRows = rows.map(r => headers.map(h => `"${(r[h] || '').toString().replace(/"/g, '""')}"`).join(','));
+      const csvRows = rows.map(r => headers.map(h => `"${(r[h] ?? '').toString().replace(/"/g, '""')}"`).join(','));
       const csvContent = "\ufeff" + [headers.join(','), ...csvRows].join('\n');
       
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -25137,26 +27459,40 @@ async function exportSalesData(format) {
     } else if (format === 'excel') {
       if (typeof XLSX === 'undefined') {
         alert('Librería de Excel no está cargada.');
-        info.textContent = oldText;
+        if (info) info.textContent = oldText;
         return;
       }
       const worksheet = XLSX.utils.json_to_sheet(rows);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Punto Ventas");
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Punto Ventas POS");
       XLSX.writeFile(workbook, `${filename}.xlsx`);
     }
 
-    info.textContent = oldText;
+    if (info) info.textContent = oldText;
   } catch(e) {
     console.error('Error Exporting:', e);
     alert('Error al exportar: ' + e.message);
   }
 }
 
-window.openSalesDetail = function(dataStr) {
+window.openSalesDetail = function(idOrDataStr) {
   try {
-    const data = JSON.parse(decodeURIComponent(dataStr));
-    
+    let data = null;
+    if (window.clientPosSalesCache && window.clientPosSalesCache.has(String(idOrDataStr))) {
+      data = window.clientPosSalesCache.get(String(idOrDataStr));
+    } else {
+      data = JSON.parse(decodeURIComponent(idOrDataStr));
+    }
+    if (!data) return;
+
+    const codeKey = String(data.codigo_venta || '').trim().toUpperCase();
+    const linkedOrder = window.clientPosLinkedOrdersMap?.get(codeKey) || null;
+    const mInfo = data._posMachineInfo || window.resolvePosSaleMachineInfo(data, window.clientPosCommerceConfigsMap, linkedOrder);
+    const fin = data._posFinancials || window.calculatePosSaleFinancials(data, mInfo, window.clientPosPricingConfig);
+    const ab = data._posAbonoInfo || window.resolvePosSaleAbonoPeriod(data, linkedOrder, mInfo, fin);
+    const txCode = data._posTxCode || window.resolvePosSaleTransactionCode(data, linkedOrder);
+    const fmtCLP = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('es-CL');
+
     let prodHtml = '<ul style="margin: 0; padding-left: 1.2rem; color: var(--color-text-main);">';
     if (data.productos) {
       try {
@@ -25164,7 +27500,8 @@ window.openSalesDetail = function(dataStr) {
         if (typeof parsed === 'string') parsed = JSON.parse(parsed);
         if (Array.isArray(parsed)) {
           parsed.forEach(p => {
-            prodHtml += `<li style="margin-bottom: 0.25rem;"><strong>${p.cantidad || 1}x</strong> ${p.producto || 'N/A'}</li>`;
+            const sub = (Number(p.cantidad) || 1) * (Number(p.precio) || 0);
+            prodHtml += `<li style="margin-bottom: 0.3rem;"><strong>${p.cantidad || 1}x</strong> ${escapeHtml(p.producto || p.name || 'N/A')} ${sub > 0 ? `<span style="color:#059669;font-weight:700;">(${fmtCLP(sub)})</span>` : ''}</li>`;
           });
         }
       } catch(e) {}
@@ -25177,35 +27514,69 @@ window.openSalesDetail = function(dataStr) {
         <div style="grid-column: 1 / -1; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); padding: 1rem; border-radius: var(--radius-md); margin-top: 0.5rem;">
           <h4 style="margin: 0 0 0.75rem 0; color: #3b82f6; font-size: 0.9rem; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-file-list-3-line"></i> Datos de Facturación</h4>
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
-            <div><span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">RUT</span><strong style="color: var(--color-text-main); font-size: 0.9rem;">${data.rut_facturacion || '-'}</strong></div>
-            <div><span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Razón Social</span><strong style="color: var(--color-text-main); font-size: 0.9rem;">${data.razon_social_facturacion || '-'}</strong></div>
-            <div><span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Giro</span><strong style="color: var(--color-text-main); font-size: 0.9rem;">${data.giro_facturacion || '-'}</strong></div>
-            <div style="grid-column: 1 / -1;"><span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Dirección</span><strong style="color: var(--color-text-main); font-size: 0.9rem;">${data.direccion_facturacion || '-'}</strong></div>
+            <div><span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">RUT</span><strong style="color: var(--color-text-main); font-size: 0.9rem;">${escapeHtml(data.rut_facturacion || '-')}</strong></div>
+            <div><span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Razón Social</span><strong style="color: var(--color-text-main); font-size: 0.9rem;">${escapeHtml(data.razon_social_facturacion || '-')}</strong></div>
+            <div><span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Giro</span><strong style="color: var(--color-text-main); font-size: 0.9rem;">${escapeHtml(data.giro_facturacion || '-')}</strong></div>
+            <div style="grid-column: 1 / -1;"><span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Dirección</span><strong style="color: var(--color-text-main); font-size: 0.9rem;">${escapeHtml(data.direccion_facturacion || '-')}</strong></div>
           </div>
         </div>
       `;
     }
 
-    let montoFmt = data.monto_total ? '$' + Number(data.monto_total).toLocaleString('es-CL') : 'N/A';
+    const montoFmt = fmtCLP(data.monto_total);
+    const dotColor = window.resolvePosMachineColor(mInfo.color, mInfo.colorHex);
 
-    let content = `
+    const content = `
       <div style="display: flex; flex-direction: column; gap: 1rem; text-align: left; padding: 0.5rem 0;">
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; background: var(--color-surface-hover); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
           <div>
             <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Código de Venta</span>
-            <span style="font-family: monospace; font-size: 1.1rem; font-weight: 600; color: var(--color-text-main);">${data.codigo_venta || '-'}</span>
+            <span style="font-family: monospace; font-size: 1.15rem; font-weight: 700; color: var(--color-primary);">${escapeHtml(data.codigo_venta || '-')}</span>
           </div>
-          <div>
-            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Total Pagado</span>
-            <span style="font-size: 1.25rem; font-weight: 700; color: #10b981;">${montoFmt}</span>
+          <div style="text-align: right;">
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Total Pagado (Bruto)</span>
+            <span style="font-size: 1.35rem; font-weight: 800; color: #10b981;">${montoFmt}</span>
           </div>
           <div>
             <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Documento y Pago</span>
-            <span style="font-size: 0.9rem; font-weight: 500; color: var(--color-text-main);"><i class="ri-bank-card-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${data.modo_pago || '-'} <small>(${data.documento_tipo || '-'})</small></span>
+            <span style="font-size: 0.9rem; font-weight: 600; color: var(--color-text-main);"><i class="ri-bank-card-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${escapeHtml(data.modo_pago || '-')} <small>(${escapeHtml(data.documento_tipo || '-')})</small></span>
           </div>
-          <div>
-            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Vendedor</span>
-            <span style="font-size: 0.9rem; font-weight: 500; color: var(--color-text-main);"><i class="ri-user-star-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${data.creado_por || '-'}</span>
+          <div style="text-align: right;">
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Periodo de Abono</span>
+            <span style="font-size: 0.85rem; font-weight: 800; color: ${ab.isAbono ? '#059669' : '#64748b'}; display: block;">
+              ${ab.isAbono ? '📅 ' + escapeHtml(ab.period) : 'Recaudación Directa Seller'}
+            </span>
+            ${txCode ? `<span style="display: inline-block; margin-top: 3px; font-family: monospace; font-size: 0.73rem; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 0.1rem 0.45rem; border-radius: 4px;"><i class="ri-key-2-line"></i> TX: ${escapeHtml(txCode)}</span>` : ''}
+          </div>
+        </div>
+
+        <!-- Desglose Máquina POS y Pago Neto al Seller -->
+        <div style="background: rgba(16, 185, 129, 0.06); border: 1.5px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-md); padding: 0.95rem 1.1rem;">
+          <h4 style="margin: 0 0 0.65rem 0; font-size: 0.85rem; color: #047857; font-weight: 800; display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-scales-3-line"></i> Liquidación POS y Abono a Servicio de Fulfillment
+          </h4>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem;">
+            <div style="background: #fff; border: 1px solid var(--color-border); border-left: 3px solid ${dotColor}; border-radius: 6px; padding: 0.55rem 0.7rem;">
+              <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Máquina de Pago</span>
+              <strong style="font-size: 0.85rem; color: #0f172a;">${escapeHtml(mInfo.brand)}${mInfo.model ? ' #' + escapeHtml(mInfo.model) : ''}</strong>
+              <span style="font-size: 0.68rem; color: ${mInfo.isStockaOwned ? '#2563eb' : '#7c3aed'}; font-weight: 700; display: block;">
+                ${mInfo.isCardSale ? (mInfo.isStockaOwned ? 'Propiedad de STOCKA' : 'Propiedad de ' + escapeHtml(mInfo.owner)) : escapeHtml(mInfo.owner)}
+              </span>
+            </div>
+            <div style="background: #fff; border: 1px solid var(--color-border); border-left: 3px solid #dc2626; border-radius: 6px; padding: 0.55rem 0.7rem;">
+              <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Comisión POS (${fin.appliesStockaPosSettlement ? fin.feePct.toFixed(2) + '% + IVA' : '0%'})</span>
+              <strong style="font-size: 0.92rem; color: ${fin.appliesStockaPosSettlement ? '#dc2626' : '#64748b'};">${fin.appliesStockaPosSettlement ? '-' + fmtCLP(fin.commissionTotal) : '$0'}</strong>
+              <span style="font-size: 0.66rem; color: var(--color-text-muted); display: block;">
+                ${fin.appliesStockaPosSettlement ? `Neto ${fmtCLP(fin.commissionNet)} + IVA ${fmtCLP(fin.commissionIva)}` : 'Sin comisión Stocka'}
+              </span>
+            </div>
+            <div style="background: #fff; border: 1px solid rgba(16, 185, 129, 0.35); border-left: 3px solid #10b981; border-radius: 6px; padding: 0.55rem 0.7rem;">
+              <span style="font-size: 0.68rem; text-transform: uppercase; color: #047857; font-weight: 800; display: block;">Pago al Seller (Abono Neto)</span>
+              <strong style="font-size: 1.05rem; color: #059669; font-weight: 900;">${fmtCLP(fin.sellerPayout)}</strong>
+              <span style="font-size: 0.66rem; color: #047857; display: block;">
+                ${ab.isAbono ? 'Abonado en ' + escapeHtml(ab.period) : 'Recaudado directo por Seller'}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -25215,11 +27586,11 @@ window.openSalesDetail = function(dataStr) {
             <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem;">
               <div>
                 <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Comercio</span>
-                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.comercio || '-'}</strong>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${escapeHtml(data.comercio || '-')}</strong>
               </div>
               <div>
                 <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Sucursal</span>
-                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.sucursal || '-'}</strong>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${escapeHtml(data.sucursal || 'Ñuñoa')}</strong>
               </div>
             </div>
           </div>
@@ -25229,11 +27600,11 @@ window.openSalesDetail = function(dataStr) {
             <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem;">
               <div>
                 <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Nombre</span>
-                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.nombre_cliente || '-'}</strong>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${escapeHtml(data.nombre_cliente || '-')}</strong>
               </div>
               <div>
                 <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Contacto</span>
-                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.correo_cliente || '-'}<br>${data.telefono_cliente || '-'}</strong>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${escapeHtml(data.correo_cliente || '-')}<br>${escapeHtml(data.telefono_cliente || '-')}</strong>
               </div>
             </div>
           </div>
@@ -25251,7 +27622,7 @@ window.openSalesDetail = function(dataStr) {
     `;
 
     if (typeof showInfoModal === 'function') {
-      showInfoModal('Detalle de Venta', content);
+      showInfoModal('Detalle de Venta POS', content);
     } else {
       alert("Venta: " + data.codigo_venta + "\nTotal: " + montoFmt);
     }

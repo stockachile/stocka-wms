@@ -5417,6 +5417,11 @@ async function init() {
           } else if (view === 'inventory_admin') {
             viewTitle.textContent = 'Inventario';
             renderAdminInventory();
+          } else if (view === 'inventory_coverage_admin' || view === 'inventory_coverage') {
+            viewTitle.textContent = 'Cobertura de Inventario y Salud de Catálogo (30d)';
+            if (typeof window.renderInventoryCoverageAdmin === 'function') {
+              window.renderInventoryCoverageAdmin();
+            }
           } else if (view === 'inventory_count') {
             viewTitle.textContent = 'Conteo de Inventario Móvil';
             if (typeof window.renderInventoryCountAdmin === 'function') {
@@ -5576,7 +5581,8 @@ async function init() {
             view === 'dashboard' || view === 'workspace' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' ||
             view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator' ||
             view === 'returns_admin' || view === 'pos_admin' || view === 'tickets_admin' ||
-            view === 'movements_admin' || view === 'surveys_admin' || view === 'inventory_count';
+            view === 'movements_admin' || view === 'surveys_admin' || view === 'inventory_count' ||
+            view === 'inventory_coverage_admin' || view === 'inventory_coverage';
 
           if (isAllowed) {
             if (parentLi) parentLi.style.display = '';
@@ -40976,18 +40982,24 @@ async function renderAdminDashboard() {
 
     // 2. Renderizar contenedor base
     appContent.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 2rem; background: var(--color-surface); padding: 1rem; border-radius: 8px; border: 1px solid var(--color-border);">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.35rem; background: var(--color-surface); padding: 1rem 1.35rem; border-radius: 12px; border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
         <div>
-          <h2 style="font-size: 1.5rem; font-weight: 700; margin: 0; color: var(--color-text-main);">Dashboard Admin</h2>
-          <p style="color: var(--color-text-muted); font-size: 0.85rem; margin: 0.25rem 0 0 0;">Métricas y operaciones logísticas consolidadas en tiempo real.</p>
+          <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.2rem;">
+            <span style="background: rgba(37, 99, 235, 0.1); color: var(--color-primary); font-size: 0.7rem; font-weight: 800; padding: 0.15rem 0.55rem; border-radius: 99px; text-transform: uppercase; letter-spacing: 0.04em;"><i class="ri-radar-line"></i> Torre de Control WMS</span>
+          </div>
+          <h2 style="font-size: 1.4rem; font-weight: 800; margin: 0; color: var(--color-text-main); letter-spacing: -0.02em;">Dashboard Operativo Admin (Pulse 360°)</h2>
+          <p style="color: var(--color-text-muted); font-size: 0.82rem; margin: 0.15rem 0 0 0;">Control multibodega, flujo de fulfillment, cobertura proyectada a 30 días e ingresos en andén.</p>
         </div>
-        <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
           <div id="admin-cache-indicator" style="display: flex; align-items: center; gap: 0.5rem;"></div>
-          <button id="admin-refresh-dashboard-btn" style="padding: 0; width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.1rem; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: pointer; transition: all 0.2s;" onmouseover="this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="this.style.backgroundColor='transparent'" title="Refrescar datos desde el servidor">
+          <button type="button" onclick="window.openInventoryCoverageModule ? window.openInventoryCoverageModule(document.getElementById('admin-dashboard-commerce-select')?.value || '') : document.querySelector('[data-view=\\'inventory_coverage_admin\\']')?.click()" class="btn btn-primary btn-sm" style="height: 38px; padding: 0 0.9rem; font-size: 0.78rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 8px;">
+            <i class="ri-line-chart-line"></i> Módulo Cobertura 30d
+          </button>
+          <button id="admin-refresh-dashboard-btn" style="padding: 0; width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.1rem; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: pointer; transition: all 0.2s;" onmouseover="this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="this.style.backgroundColor='transparent'" title="Refrescar datos desde el servidor">
             <i class="ri-refresh-line"></i>
           </button>
-          <label style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-muted); white-space: nowrap; margin: 0;">Comercio:</label>
-          <select id="admin-dashboard-commerce-select" class="form-input" style="width: 250px; margin: 0; height: 38px; padding: 0.375rem 0.75rem;">
+          <label style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-muted); white-space: nowrap; margin: 0;">Comercio:</label>
+          <select id="admin-dashboard-commerce-select" class="form-input" style="width: 240px; margin: 0; height: 38px; padding: 0.375rem 0.75rem; border-radius: 8px; font-weight: 600;">
             <option value="">-- Todos los Comercios --</option>
             ${(comercios || []).map(c => `<option value="${c.nombre}">${c.nombre}</option>`).join('')}
           </select>
@@ -41010,7 +41022,7 @@ async function renderAdminDashboard() {
     if (refreshBtn) {
       refreshBtn.addEventListener('click', () => {
         const val = commerceSelect ? commerceSelect.value : '';
-        const key = 'admin_dashboard_' + (val || 'all');
+        const key = 'admin_dashboard_v3_' + (val || 'all');
         window.clearDashboardCache(key);
         fetchAndRenderAdminMetrics(val);
       });
@@ -41029,7 +41041,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
   const contentDiv = document.getElementById('admin-metrics-dashboard-content');
   if (!contentDiv) return;
 
-  const cacheKey = 'admin_dashboard_' + (selectedCommerce || 'all');
+  const cacheKey = 'admin_dashboard_v3_' + (selectedCommerce || 'all');
   const cached = window.getDashboardCache(cacheKey, 300000); // 5 min TTL
 
   let results, news;
@@ -41062,57 +41074,81 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
         .limit(5000);
 
       const { data: activeInv, error: invErr } = await invQuery;
-      if (invErr) throw invErr;
+      if (invErr) console.warn('Aviso consultando inventario activo:', invErr);
 
       // 2. Extraer IDs de productos activos
       const activeProductIds = [...new Set((activeInv || []).map(i => i.product_id).filter(Boolean))];
 
-      // 3. Consultar productos en lotes rápidos y productos con stock crítico
+      // 3. Consultar productos en lotes amplios (500) y productos con stock crítico
       const productSelect = 'id, sku, name, comercio, stock_critico, volumen, length, width, height, is_virtual';
       const prodPromises = [];
-      const chunkSize = 200;
+      const chunkSize = 500;
       for (let i = 0; i < activeProductIds.length; i += chunkSize) {
         const chunk = activeProductIds.slice(i, i + chunkSize);
         let q = supabase.from('products').select(productSelect).in('id', chunk);
         if (selectedCommerce) q = q.eq('comercio', selectedCommerce);
-        prodPromises.push(q);
+        prodPromises.push(q.then(res => res, () => ({ data: [] })));
       }
 
       // También traer productos con alerta de stock crítico configurado
       let critQ = supabase.from('products').select(productSelect).gt('stock_critico', 0).limit(500);
       if (selectedCommerce) critQ = critQ.eq('comercio', selectedCommerce);
-      prodPromises.push(critQ);
+      prodPromises.push(critQ.then(res => res, () => ({ data: [] })));
 
-      // Consultas secundarias acotadas
-      let ordQuery = supabase.from('orders').select('id, status, comercio').gte('created_at', new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString());
+      // Consultas secundarias acotadas y sin joins pesados en orders para evitar statement timeout
+      const thirtyDaysAgoIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const orderScalarSelect = 'id, status, estado_wms, created_at, sku, cantidad, comercio, courier, operador, shipping_method, categoria_entrega, external_platform, origen, sucursal_pickeo';
+
+      const runSafeOrdersQuery = async () => {
+        let q1 = supabase.from('orders').select(orderScalarSelect).gte('created_at', thirtyDaysAgoIso).limit(1000);
+        if (selectedCommerce) q1 = q1.eq('comercio', selectedCommerce);
+        const res1 = await q1.then(r => r, err => ({ data: null, error: err }));
+        if (!res1.error && Array.isArray(res1.data)) return res1;
+
+        console.warn('[Admin Dashboard] Reintentando consulta de órdenes con ventana reducida (14d)...', res1.error?.message || '');
+        const fourteenDaysAgoIso = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+        let q2 = supabase.from('orders').select(orderScalarSelect).gte('created_at', fourteenDaysAgoIso).limit(600);
+        if (selectedCommerce) q2 = q2.eq('comercio', selectedCommerce);
+        return q2.then(r => r, err => ({ data: [], error: err }));
+      };
+
       let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio, is_active, last_sync_at, last_sync_error, username, access_token, refresh_token');
       let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at, comercio').order('created_at', { ascending: false }).limit(5);
+      const warehousesQuery = supabase.from('warehouses').select('id, name').order('name').then(res => res, () => ({ data: [] }));
 
-      // Consulta de pedidos manuales pendientes en estado WMS 'En procesamiento'
+      // Consulta ligera de pedidos manuales pendientes en estado WMS 'En procesamiento' (sin regex múltiples sobre 90d)
       let manualOrdersQuery = supabase
         .from('orders')
         .select('id, external_order_number, comercio, customer_name, customer_phone, origen, external_platform, status, estado_wms, created_at, shipping_method, operador, cantidad, sku, item')
-        .gte('created_at', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString())
-        .or('origen.ilike.%manual%,external_platform.ilike.%manual%,origen.ilike.%inversa%,external_platform.ilike.%inversa%,external_order_number.like.LI-%')
-        .ilike('estado_wms', '%procesamiento%')
-        .not('status', 'in', '("cancelado","anulado")')
-        .order('created_at', { ascending: false })
-        .limit(200);
+        .eq('estado_wms', 'En procesamiento')
+        .gte('created_at', thirtyDaysAgoIso)
+        .limit(80);
 
       if (selectedCommerce) {
-        ordQuery = ordQuery.eq('comercio', selectedCommerce);
         intQuery = intQuery.eq('comercio', selectedCommerce);
         decQuery = decQuery.eq('comercio', selectedCommerce);
         manualOrdersQuery = manualOrdersQuery.eq('comercio', selectedCommerce);
       }
 
-      const [prodChunks, ordRes, intRes, decRes, manualOrdersRes, newsRes] = await Promise.all([
+      const [prodChunks, ordRes, intRes, decRes, manualOrdersRes, newsRes, warehousesRes] = await Promise.all([
         Promise.all(prodPromises),
-        ordQuery,
-        intQuery,
-        decQuery,
-        manualOrdersQuery,
-        supabase.from('dashboard_news').select('*').order('created_at', { ascending: false })
+        runSafeOrdersQuery(),
+        intQuery.then(r => r, err => ({ data: [], error: err })),
+        decQuery.then(r => r, err => ({ data: [], error: err })),
+        manualOrdersQuery.then(r => {
+          if (r && Array.isArray(r.data)) {
+            const filteredManual = r.data.filter(o => {
+              const st = String(o.status || '').toLowerCase();
+              if (st === 'cancelado' || st === 'anulado') return false;
+              const orig = `${o.origen || ''} ${o.external_platform || ''} ${o.external_order_number || ''}`.toLowerCase();
+              return orig.includes('manual') || orig.includes('inversa') || orig.includes('li-');
+            });
+            return { data: filteredManual, error: null };
+          }
+          return { data: [], error: r?.error };
+        }, err => ({ data: [], error: err })),
+        supabase.from('dashboard_news').select('*').order('created_at', { ascending: false }).then(r => r, () => ({ data: [] })),
+        warehousesQuery
       ]);
 
       const productsMap = {};
@@ -41126,7 +41162,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
 
       news = newsRes?.data || [];
 
-      results = [{ data: productsMap, rawInv: activeInv || [] }, ordRes, intRes, decRes, manualOrdersRes];
+      results = [{ data: productsMap, rawInv: activeInv || [], warehouses: warehousesRes?.data || [] }, ordRes || { data: [] }, intRes || { data: [] }, decRes || { data: [] }, manualOrdersRes || { data: [] }];
 
       window.setDashboardCache(cacheKey, {
         results: results,
@@ -41137,37 +41173,159 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
     }
 
     const prodDataRes = results[0];
-    const ordRes = results[1];
-    const intRes = results[2];
-    const decRes = results[3];
+    const ordRes = results[1] || { data: [] };
+    const intRes = results[2] || { data: [] };
+    const decRes = results[3] || { data: [] };
     const manualOrdersRes = results[4] || { data: [] };
 
-    if (ordRes.error) throw ordRes.error;
-    if (intRes.error) throw intRes.error;
-    if (decRes.error) throw decRes.error;
-    if (manualOrdersRes.error) console.warn('Error fetching manual orders in dashboard:', manualOrdersRes.error);
+    if (ordRes.error) console.warn('Aviso en consulta de órdenes del dashboard:', ordRes.error);
+    if (intRes.error) console.warn('Aviso en consulta de integraciones del dashboard:', intRes.error);
+    if (decRes.error) console.warn('Aviso en consulta de declaraciones del dashboard:', decRes.error);
+    if (manualOrdersRes.error) console.warn('Aviso en consulta de pedidos manuales del dashboard:', manualOrdersRes.error);
 
+    const productsMap = prodDataRes.data || {};
+    const activeInv = prodDataRes.rawInv || [];
+    const warehousesList = prodDataRes.warehouses || [];
+    const warehouseNameById = {};
+    warehousesList.forEach(w => {
+      if (w && w.id) warehouseNameById[w.id] = w.name || 'Bodega';
+    });
 
-    // 4. Calcular métricas de inventario
+    function normalizeAdminBranchKey(rawName, whId) {
+      if (whId === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09') return 'Bodega Central';
+      const n = String(rawName || '').toLowerCase();
+      if (n.includes('ñuñoa') || n.includes('nunoa')) return 'Ñuñoa';
+      if (n.includes('reina')) return 'La Reina';
+      if (n.includes('recoleta')) return 'Recoleta';
+      if (n.includes('central') || n.includes('hub') || n.includes('principal') || n.includes('bodega')) return 'Bodega Central';
+      return rawName || 'Bodega Central';
+    }
+
+    const branchStats = {
+      'Ñuñoa': { name: 'Sucursal Ñuñoa', shortName: 'Ñuñoa', icon: 'ri-store-2-line', color: '#2563eb', units: 0, available: 0, skusSet: new Set(), volume: 0, activeOrders: 0 },
+      'La Reina': { name: 'Sucursal La Reina', shortName: 'La Reina', icon: 'ri-building-4-line', color: '#8b5cf6', units: 0, available: 0, skusSet: new Set(), volume: 0, activeOrders: 0 },
+      'Recoleta': { name: 'Sucursal Recoleta', shortName: 'Recoleta', icon: 'ri-community-line', color: '#10b981', units: 0, available: 0, skusSet: new Set(), volume: 0, activeOrders: 0 },
+      'Bodega Central': { name: 'Hub Bodega Central', shortName: 'Bodega Central', icon: 'ri-archive-drawer-line', color: '#f59e0b', units: 0, available: 0, skusSet: new Set(), volume: 0, activeOrders: 0 }
+    };
+
+    // Calcular métricas de órdenes, pipeline 5 etapas, operadores logísticos y velocidad 30d por SKU
+    const thirtyDaysAgoMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const sales30dBySku = {};
+    let activeOrders = 0;
+    let completedOrders = 0;
+    let pipelineToProcess = 0;
+    let pipelineInPrep = 0;
+    let pipelineReady = 0;
+    let pipelineDispatched = 0;
+    let pipelineDelivered = 0;
+
+    const courierStats = {
+      bluex: { label: 'Blue Express / Envíame', color: '#2563eb', icon: 'ri-truck-line', total: 0, completed: 0 },
+      meli: { label: 'Mercado Envíos / Flex', color: '#eab308', icon: 'ri-flashlight-line', total: 0, completed: 0 },
+      starken: { label: 'Starken / Chilexpress', color: '#f97316', icon: 'ri-compass-3-line', total: 0, completed: 0 },
+      optiroute: { label: 'Flota Propia / Optiroute', color: '#8b5cf6', icon: 'ri-route-line', total: 0, completed: 0 },
+      other: { label: 'Retiro / Marketplaces', color: '#10b981', icon: 'ri-store-3-line', total: 0, completed: 0 }
+    };
+
+    (ordRes.data || []).forEach(o => {
+      const st = String(o.status || '').toLowerCase().trim();
+      const wmsSt = String(o.estado_wms || '').toLowerCase().trim();
+      if (st === 'cancelado' || wmsSt === 'cancelado') return;
+
+      if (st === 'para procesar' || wmsSt === 'para procesar') {
+        pipelineToProcess++;
+        activeOrders++;
+      } else if (st === 'en preparación' || wmsSt === 'en preparación') {
+        pipelineInPrep++;
+        activeOrders++;
+      } else if (st === 'preparado' || st === 'listo para retiro' || wmsSt === 'pickeado') {
+        pipelineReady++;
+        activeOrders++;
+      } else if (st === 'despachado' || st === 'en tránsito' || st === 'en transito') {
+        pipelineDispatched++;
+        completedOrders++;
+      } else if (st === 'entregado' || st === 'retirado') {
+        pipelineDelivered++;
+        completedOrders++;
+      }
+
+      if (['para procesar', 'en preparación', 'preparado'].includes(st)) {
+        const orderBranch = o.sucursal_pickeo ? normalizeAdminBranchKey(o.sucursal_pickeo) : null;
+        if (orderBranch && branchStats[orderBranch]) {
+          branchStats[orderBranch].activeOrders++;
+        }
+      }
+
+      const cText = `${o.courier || ''} ${o.operador || ''} ${o.shipping_method || ''} ${o.categoria_entrega || ''} ${o.external_platform || ''} ${o.origen || ''}`.toLowerCase();
+      const isDone = ['despachado', 'en tránsito', 'en transito', 'entregado', 'retirado'].includes(st);
+      if (cText.includes('blue') || cText.includes('bx') || cText.includes('enviame') || cText.includes('envíame')) {
+        courierStats.bluex.total++;
+        if (isDone) courierStats.bluex.completed++;
+      } else if (cText.includes('mercado') || cText.includes('meli') || cText.includes('flex') || cText.includes('urbano')) {
+        courierStats.meli.total++;
+        if (isDone) courierStats.meli.completed++;
+      } else if (cText.includes('starken') || cText.includes('chilexpress') || cText.includes('correos')) {
+        courierStats.starken.total++;
+        if (isDone) courierStats.starken.completed++;
+      } else if (cText.includes('optiroute') || cText.includes('reparto') || cText.includes('sameday') || cText.includes('nextday') || cText.includes('flota')) {
+        courierStats.optiroute.total++;
+        if (isDone) courierStats.optiroute.completed++;
+      } else {
+        courierStats.other.total++;
+        if (isDone) courierStats.other.completed++;
+      }
+
+      const createdMs = o.created_at ? new Date(o.created_at).getTime() : 0;
+      if (createdMs >= thirtyDaysAgoMs && o.sku) {
+        const rawSkuStr = String(o.sku).trim();
+        const totalQty = Math.max(1, Number(o.cantidad) || 1);
+        if (rawSkuStr.includes(',')) {
+          const parts = rawSkuStr.split(',').map(s => s.trim()).filter(Boolean);
+          const perPartQty = Math.max(1, Math.round(totalQty / (parts.length || 1)));
+          parts.forEach(partSku => {
+            sales30dBySku[partSku] = (sales30dBySku[partSku] || 0) + perPartQty;
+          });
+        } else {
+          sales30dBySku[rawSkuStr] = (sales30dBySku[rawSkuStr] || 0) + totalQty;
+        }
+      }
+    });
+
+    // 4. Calcular métricas de inventario y desglose por sucursal física
     let totalStock = 0;
     let availableStock = 0;
+    let totalCommitted = 0;
     let lowStockCount = 0;
+    let criticalRunwayCount = 0;
     let totalVolume = 0;
     const lowStockItems = [];
     const productVolumeMap = {};
     const missingDimVolProducts = [];
 
-    const productsMap = prodDataRes.data || {};
-    const activeInv = prodDataRes.rawInv || [];
-
-    // Mapear inventario agregado por producto
+    // Mapear inventario agregado por producto y por sucursal física
     const productInvMap = {};
     activeInv.forEach(i => {
+      const prod = productsMap[i.product_id];
+      if (selectedCommerce && (!prod || prod.comercio !== selectedCommerce)) return;
+
       if (!productInvMap[i.product_id]) {
         productInvMap[i.product_id] = { quantity: 0, committed_quantity: 0 };
       }
-      productInvMap[i.product_id].quantity += (i.quantity || 0);
-      productInvMap[i.product_id].committed_quantity += (i.committed_quantity || 0);
+      const qty = Number(i.quantity || 0);
+      const comm = Number(i.committed_quantity || 0);
+      productInvMap[i.product_id].quantity += qty;
+      productInvMap[i.product_id].committed_quantity += comm;
+
+      const rawWhName = warehouseNameById[i.warehouse_id] || 'Bodega Central';
+      const bKey = normalizeAdminBranchKey(rawWhName, i.warehouse_id);
+      if (!branchStats[bKey]) {
+        branchStats[bKey] = { name: rawWhName, shortName: rawWhName, icon: 'ri-building-2-line', color: '#06b6d4', units: 0, available: 0, skusSet: new Set(), volume: 0, activeOrders: 0 };
+      }
+      const unitVol = prod ? parseFloat(prod.volumen || 0) : 0;
+      branchStats[bKey].units += qty;
+      branchStats[bKey].available += (qty - comm);
+      branchStats[bKey].volume += qty * unitVol;
+      if (qty > 0 && prod?.sku) branchStats[bKey].skusSet.add(prod.sku);
     });
 
     Object.values(productsMap).forEach(prod => {
@@ -41180,19 +41338,40 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       const vol = parseFloat(prod.volumen || 0);
 
       totalStock += quantity;
+      totalCommitted += committed;
       availableStock += available;
       totalVolume += quantity * vol;
+
+      const units30d = sales30dBySku[prod.sku] || 0;
+      const velocityDaily = units30d / 30;
+      const runwayDays = velocityDaily > 0 ? Math.max(0, Math.round(available / velocityDaily)) : (available > 0 ? 999 : 0);
+      const suggestedReplenish = velocityDaily > 0
+        ? Math.max(0, Math.ceil((velocityDaily * 30) - Math.max(0, available)))
+        : Math.max(0, (prod.stock_critico || 0) - Math.max(0, available));
 
       if (prod.is_virtual !== true) {
         const isCritical = (prod.stock_critico || 0) > 0 && available <= prod.stock_critico;
         const isInsufficient = committed > 0 && available <= 0;
+        const isLowRunway = velocityDaily > 0 && runwayDays <= 14;
+
         if (isCritical || isInsufficient) {
           lowStockCount++;
+        }
+        if ((velocityDaily > 0 && runwayDays < 7) || isInsufficient) {
+          criticalRunwayCount++;
+        }
+
+        if (isCritical || isInsufficient || isLowRunway) {
           lowStockItems.push({
             sku: prod.sku || 'Sin SKU',
             name: prod.name || 'Sin Nombre',
+            comercio: prod.comercio || '—',
             available: available,
-            critico: prod.stock_critico || 0
+            critico: prod.stock_critico || 0,
+            units30d: units30d,
+            velocityDaily: velocityDaily,
+            runwayDays: runwayDays,
+            suggestedReplenish: suggestedReplenish
           });
         }
 
@@ -41218,6 +41397,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
           productVolumeMap[prod.sku] = {
             sku: prod.sku,
             name: prod.name,
+            comercio: prod.comercio || '—',
             quantity: 0,
             volumenUnitario: vol,
             volumenTotal: 0
@@ -41228,60 +41408,83 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       }
     });
 
+    lowStockItems.sort((a, b) => {
+      if (a.available <= 0 && b.available > 0) return -1;
+      if (b.available <= 0 && a.available > 0) return 1;
+      if (a.runwayDays !== b.runwayDays) return a.runwayDays - b.runwayDays;
+      return a.available - b.available;
+    });
+
     window.adminMissingDimVolProducts = missingDimVolProducts;
 
     const topVolumeProducts = Object.values(productVolumeMap)
       .sort((a, b) => b.volumenTotal - a.volumenTotal)
       .slice(0, 10);
 
-    // 5. Calcular métricas de órdenes
-    let activeOrders = 0;
-    let completedOrders = 0;
-    if (ordRes.data) {
-      ordRes.data.forEach(o => {
-        if (['en preparación', 'para procesar', 'preparado'].includes(o.status)) activeOrders++;
-        if (['despachado', 'entregado', 'retirado'].includes(o.status)) completedOrders++;
-      });
-    }
-
     // 6. Construir tablas HTML secundarias
-    // Alertas de Stock Crítico
+    // Alertas de Stock Crítico + Días de Cobertura Estimada (Runway 30d)
     let lowStockHtml = '';
     if (lowStockItems.length === 0) {
-      lowStockHtml = '<div style="padding: 2rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem;"><i class="ri-checkbox-circle-line" style="color: var(--color-success); margin-right: 0.5rem; font-size: 1.2rem; vertical-align: middle;"></i>Todos los productos tienen stock suficiente.</div>';
+      lowStockHtml = '<div style="padding: 2rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem;"><i class="ri-checkbox-circle-line" style="color: var(--color-success); margin-right: 0.5rem; font-size: 1.2rem; vertical-align: middle;"></i>Todos los productos tienen cobertura saludable y stock suficiente.</div>';
     } else {
       lowStockHtml = `
         <table class="table" style="width: 100%; border-collapse: collapse;">
           <thead>
-            <tr style="border-bottom: 1px solid var(--color-border); text-align: left;">
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted);">SKU</th>
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted);">Producto</th>
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); text-align: center;">Stock Disp.</th>
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); text-align: center;">Estado</th>
+            <tr style="border-bottom: 1px solid var(--color-border); text-align: left; background: var(--color-bg);">
+              <th style="padding: 0.65rem 0.9rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted);">SKU / Producto</th>
+              <th style="padding: 0.65rem 0.75rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted);">Comercio</th>
+              <th style="padding: 0.65rem 0.75rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted); text-align: center;">Disp. / Crít.</th>
+              <th style="padding: 0.65rem 0.75rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted); text-align: center;">Vel. 30d</th>
+              <th style="padding: 0.65rem 0.75rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted);">Días Cobertura (Runway)</th>
+              <th style="padding: 0.65rem 0.9rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted); text-align: right;">Sugerido (30d)</th>
             </tr>
           </thead>
           <tbody>
-            ${lowStockItems.slice(0, 5).map(item => {
-              const pct = item.critico > 0 ? (item.available / item.critico) * 100 : 0;
-              let badgeColor = 'var(--color-danger)';
-              let badgeText = 'Crítico';
-              if (item.available < 0) {
-                badgeColor = '#e11d48';
-                badgeText = 'Insuficiente';
-              } else if (item.available === 0) {
-                badgeColor = '#ef4444';
-                badgeText = 'Sin Stock';
-              } else if (pct > 50) {
-                badgeColor = 'var(--color-warning)';
-                badgeText = 'Advertencia';
+            ${lowStockItems.slice(0, 7).map(item => {
+              let runwayBadgeBg = 'rgba(16, 185, 129, 0.12)';
+              let runwayBadgeColor = 'var(--color-success)';
+              let runwayText = item.runwayDays >= 999 ? '∞ Sin rotación' : `~${item.runwayDays} días`;
+              let barPct = item.runwayDays >= 999 ? 100 : Math.min(100, Math.round((item.runwayDays / 30) * 100));
+
+              if (item.available <= 0) {
+                runwayBadgeBg = 'rgba(239, 68, 68, 0.15)';
+                runwayBadgeColor = 'var(--color-danger)';
+                runwayText = item.available < 0 ? 'Quiebre (-' + Math.abs(item.available) + ')' : '0 días (Agotado)';
+                barPct = 5;
+              } else if (item.runwayDays <= 5) {
+                runwayBadgeBg = 'rgba(239, 68, 68, 0.14)';
+                runwayBadgeColor = 'var(--color-danger)';
+              } else if (item.runwayDays <= 14) {
+                runwayBadgeBg = 'rgba(245, 158, 11, 0.14)';
+                runwayBadgeColor = 'var(--color-warning)';
               }
+
               return `
                 <tr style="border-bottom: 1px solid var(--color-border);">
-                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
-                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; color: var(--color-text-main);">${item.name}</td>
-                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center; font-weight: bold; color: ${item.available <= 0 ? 'red' : 'inherit'}">${item.available} ${item.critico > 0 ? `<span style="font-weight: normal; color: var(--color-text-muted); font-size: 0.75rem;">/ crít. ${item.critico}</span>` : `<span style="font-weight: normal; color: var(--color-text-muted); font-size: 0.75rem;">(sin crít.)</span>`}</td>
-                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center;">
-                    <span style="background: ${badgeColor}22; color: ${badgeColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${badgeText}</span>
+                  <td style="padding: 0.65rem 0.9rem; vertical-align: middle;">
+                    <div style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-main); max-width: 195px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
+                    <div style="font-size: 0.72rem; color: var(--color-text-muted); font-family: monospace;">${escapeHtml(item.sku)}</div>
+                  </td>
+                  <td style="padding: 0.65rem 0.75rem; vertical-align: middle;">
+                    <span style="background: rgba(37, 99, 235, 0.08); color: var(--color-primary); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600; white-space: nowrap;">${escapeHtml(item.comercio)}</span>
+                  </td>
+                  <td style="padding: 0.65rem 0.75rem; font-size: 0.82rem; text-align: center; vertical-align: middle; font-weight: 700; color: ${item.available <= 0 ? 'var(--color-danger)' : 'var(--color-text-main)'};">
+                    ${item.available} <span style="font-weight: 500; color: var(--color-text-muted); font-size: 0.72rem;">/ ${item.critico || 0}</span>
+                  </td>
+                  <td style="padding: 0.65rem 0.75rem; font-size: 0.78rem; text-align: center; vertical-align: middle; color: var(--color-text-main);">
+                    <strong>${item.velocityDaily.toFixed(1)}</strong> <span style="font-size: 0.68rem; color: var(--color-text-muted);">u/día</span>
+                    <div style="font-size: 0.66rem; color: var(--color-text-muted);">(${item.units30d} u/30d)</div>
+                  </td>
+                  <td style="padding: 0.65rem 0.75rem; vertical-align: middle; min-width: 140px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; margin-bottom: 4px;">
+                      <span style="background: ${runwayBadgeBg}; color: ${runwayBadgeColor}; padding: 0.15rem 0.45rem; border-radius: 99px; font-size: 0.7rem; font-weight: 700;">${runwayText}</span>
+                    </div>
+                    <div style="height: 5px; background: var(--color-border); border-radius: 99px; overflow: hidden;">
+                      <div style="width: ${barPct}%; height: 100%; background: ${runwayBadgeColor}; border-radius: 99px;"></div>
+                    </div>
+                  </td>
+                  <td style="padding: 0.65rem 0.9rem; font-size: 0.8rem; text-align: right; vertical-align: middle; font-weight: 700; color: var(--color-primary);">
+                    ${item.suggestedReplenish > 0 ? `+${item.suggestedReplenish.toLocaleString('es-CL')} u.` : '<span style="color: var(--color-text-muted); font-weight: 500;">—</span>'}
                   </td>
                 </tr>
               `;
@@ -41291,92 +41494,94 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       `;
     }
 
-    // Últimos Ingresos (Declaraciones)
-    function getDeclarationStatusBadge(status) {
-      let bg = 'var(--badge-neutral-bg)';
-      let color = 'var(--badge-neutral-text)';
-      let border = '1px solid var(--color-border)';
-      let displayName = status;
-      
+    // Stepper de Ingresos de Stock (Declaraciones en Andén - Propuesta A integrada en C+)
+    function getAdminDeclarationStepInfo(status) {
+      let stepIndex = 1;
+      let badgeBg = 'rgba(59, 130, 246, 0.12)';
+      let badgeColor = 'var(--color-primary)';
+      let shortStatus = status || 'Creada';
+
       switch (status) {
         case 'Creada':
-          bg = 'rgba(59, 130, 246, 0.1)';
-          color = 'var(--color-primary)';
-          border = '1px solid rgba(59, 130, 246, 0.2)';
+          stepIndex = 1;
+          shortStatus = '1. Declarada';
           break;
         case 'Bodega Asignada':
-          bg = 'rgba(79, 70, 229, 0.1)';
-          color = '#4f46e5';
-          border = '1px solid rgba(79, 70, 229, 0.2)';
-          displayName = 'Asignada';
+          stepIndex = 2;
+          badgeBg = 'rgba(99, 102, 241, 0.12)';
+          badgeColor = '#4f46e5';
+          shortStatus = '2. Bodega Asignada';
           break;
         case 'En Recepción - Pendiente Conteo':
-          bg = 'rgba(245, 158, 11, 0.1)';
-          color = 'var(--color-warning)';
-          border = '1px solid rgba(245, 158, 11, 0.2)';
-          displayName = 'En Recepción';
-          break;
         case 'En proceso de conteo/clasificación':
-          bg = 'rgba(6, 182, 212, 0.1)';
-          color = '#06b6d4';
-          border = '1px solid rgba(6, 182, 212, 0.2)';
-          displayName = 'En Conteo';
+          stepIndex = 3;
+          badgeBg = 'rgba(245, 158, 11, 0.14)';
+          badgeColor = 'var(--color-warning)';
+          shortStatus = '3. En Recepción / Conteo';
           break;
         case 'Recibido Conforme':
-          bg = 'rgba(16, 185, 129, 0.1)';
-          color = 'var(--color-success)';
-          border = '1px solid rgba(16, 185, 129, 0.2)';
-          displayName = 'Recibido';
+          stepIndex = 4;
+          badgeBg = 'rgba(16, 185, 129, 0.14)';
+          badgeColor = 'var(--color-success)';
+          shortStatus = '4. Recibido Conforme';
           break;
         case 'Recibido con Incidencias':
-          bg = 'rgba(239, 68, 68, 0.1)';
-          color = 'var(--color-danger)';
-          border = '1px solid rgba(239, 68, 68, 0.2)';
-          displayName = 'Incidencias';
+          stepIndex = 4;
+          badgeBg = 'rgba(239, 68, 68, 0.14)';
+          badgeColor = 'var(--color-danger)';
+          shortStatus = '4. Con Incidencias';
           break;
       }
-      
-      return `<span style="background: ${bg}; color: ${color}; border: ${border}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600; display: inline-block; white-space: nowrap; vertical-align: middle;">${displayName}</span>`;
+      return { stepIndex, badgeBg, badgeColor, shortStatus };
     }
 
     let recentDeclarationsHtml = '';
     const recentDecs = decRes.data || [];
     if (recentDecs.length === 0) {
-      recentDeclarationsHtml = '<div style="padding: 2rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem;">No hay ingresos declarados recientes.</div>';
+      recentDeclarationsHtml = '<div style="padding: 1.75rem 1.25rem; text-align: center; color: var(--color-text-muted); font-size: 0.88rem;">No hay ingresos declarados recientes.</div>';
     } else {
+      const stepLabels = ['Declarada', 'Bodega Asignada', 'Recepción / Conteo', 'Recibido'];
       recentDeclarationsHtml = `
-        <table class="table" style="width: 100%; border-collapse: collapse;">
-          <thead>
-            <tr style="border-bottom: 1px solid var(--color-border); text-align: left;">
-              <th style="padding: 0.5rem 0.6rem; font-size: 0.75rem; color: var(--color-text-muted); vertical-align: middle;">Ingreso</th>
-              <th style="padding: 0.5rem 0.6rem; font-size: 0.75rem; color: var(--color-text-muted); vertical-align: middle; white-space: nowrap;">ETA / Llegada</th>
-              <th style="padding: 0.5rem 0.6rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: center; vertical-align: middle; white-space: nowrap;">Cant.</th>
-              <th style="padding: 0.5rem 0.6rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: right; vertical-align: middle; white-space: nowrap;">Volumen</th>
-              <th style="padding: 0.5rem 0.6rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: center; vertical-align: middle; white-space: nowrap;">Estado</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${recentDecs.map(dec => {
-              let etaText = '';
-              if (dec.estimated_arrival_type === 'exact' && dec.estimated_arrival_date) {
-                const parts = dec.estimated_arrival_date.split('-');
-                etaText = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dec.estimated_arrival_date;
-              } else {
-                etaText = dec.estimated_arrival_period || '—';
-              }
-              const vol = parseFloat(dec.volume_declared || 0);
-              return `
-                <tr style="border-bottom: 1px solid var(--color-border);">
-                  <td style="padding: 0.5rem 0.6rem; font-size: 0.8rem; font-weight: 600; color: var(--color-text-main); vertical-align: middle; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${dec.title}">${dec.title}</td>
-                  <td style="padding: 0.5rem 0.6rem; font-size: 0.8rem; color: var(--color-text-muted); vertical-align: middle; white-space: nowrap;">${etaText}</td>
-                  <td style="padding: 0.5rem 0.6rem; font-size: 0.8rem; text-align: center; color: var(--color-text-main); vertical-align: middle; white-space: nowrap;">${(dec.quantity_declared || 0).toLocaleString()}</td>
-                  <td style="padding: 0.5rem 0.6rem; font-size: 0.8rem; text-align: right; color: var(--color-text-muted); vertical-align: middle; white-space: nowrap;">${vol.toFixed(2)} m³</td>
-                  <td style="padding: 0.5rem 0.6rem; font-size: 0.8rem; text-align: center; vertical-align: middle; white-space: nowrap;">${getDeclarationStatusBadge(dec.status)}</td>
-                </tr>
-              `;
-            }).join('')}
-          </tbody>
-        </table>
+        <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem 1.25rem;">
+          ${recentDecs.slice(0, 4).map(dec => {
+            let etaText = 'Por confirmar';
+            if (dec.estimated_arrival_type === 'exact' && dec.estimated_arrival_date) {
+              const parts = dec.estimated_arrival_date.split('-');
+              etaText = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dec.estimated_arrival_date;
+            } else if (dec.estimated_arrival_period) {
+              etaText = dec.estimated_arrival_period;
+            }
+            const vol = parseFloat(dec.volume_declared || 0);
+            const info = getAdminDeclarationStepInfo(dec.status);
+            return `
+              <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.85rem 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.55rem;">
+                  <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0; flex-wrap: wrap;">
+                    ${dec.comercio ? `<span style="background: rgba(37, 99, 235, 0.1); color: var(--color-primary); padding: 0.12rem 0.45rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700;">${escapeHtml(dec.comercio)}</span>` : ''}
+                    <span style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px;" title="${escapeHtml(dec.title)}">${escapeHtml(dec.title)}</span>
+                    <span style="font-size: 0.74rem; color: var(--color-text-muted); white-space: nowrap;">• ${(dec.quantity_declared || 0).toLocaleString('es-CL')} uds (${vol.toFixed(2)} m³) • ETA: <strong>${etaText}</strong></span>
+                  </div>
+                  <span style="background: ${info.badgeBg}; color: ${info.badgeColor}; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.72rem; font-weight: 700; white-space: nowrap;">${info.shortStatus}</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
+                  ${stepLabels.map((lbl, idx) => {
+                    const stepNum = idx + 1;
+                    const isDone = stepNum < info.stepIndex || (info.stepIndex === 4 && stepNum === 4);
+                    const isCurrent = stepNum === info.stepIndex && info.stepIndex < 4;
+                    const barColor = isDone ? 'var(--color-success)' : (isCurrent ? 'var(--color-primary)' : 'var(--color-border)');
+                    const textColor = isDone ? 'var(--color-success)' : (isCurrent ? 'var(--color-primary)' : 'var(--color-text-muted)');
+                    return `
+                      <div>
+                        <div style="height: 5px; border-radius: 99px; background: ${barColor}; margin-bottom: 4px;"></div>
+                        <div style="font-size: 0.66rem; font-weight: ${isDone || isCurrent ? '700' : '500'}; color: ${textColor}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${stepNum}. ${lbl}</div>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
       `;
     }
 
@@ -41571,36 +41776,6 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       `;
     }
 
-    // Banner de Alerta de Salud de Integraciones (si hay integraciones en estado crítico/rojo)
-    let integrationAlertBannerHtml = '';
-    if (healthSummaries.red > 0) {
-      const previewStores = problemIntegrations.slice(0, 3).map(p => `<strong>${escapeHtml(p.comercio)}</strong> (${p.platform}: ${escapeHtml(p.health.label)})`).join(', ');
-      const extraCount = healthSummaries.red > 3 ? ` y ${healthSummaries.red - 3} más` : '';
-      
-      integrationAlertBannerHtml = `
-        <div class="alert" style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.09) 0%, rgba(239, 68, 68, 0.03) 100%); border: 1px solid rgba(239, 68, 68, 0.35); border-left: 5px solid var(--color-danger); border-radius: var(--radius-md); padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; box-shadow: var(--shadow-sm); flex-wrap: wrap;">
-          <div style="display: flex; align-items: center; gap: 0.85rem;">
-            <div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(239, 68, 68, 0.18); color: var(--color-danger); display: flex; align-items: center; justify-content: center; font-size: 1.35rem; flex-shrink: 0;">
-              <i class="ri-error-warning-fill"></i>
-            </div>
-            <div>
-              <strong style="color: var(--color-text-main); display: block; font-size: 0.96rem; letter-spacing: -0.2px;">
-                Semáforo de Integraciones: ${healthSummaries.red} conexión(es) requieren atención
-              </strong>
-              <span style="font-size: 0.825rem; color: var(--color-text-muted); display: block; margin-top: 0.15rem;">
-                Hay tiendas con errores de sincronización o credenciales vencidas: ${previewStores}${extraCount}.
-              </span>
-            </div>
-          </div>
-          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-            <button class="btn btn-sm btn-danger" onclick="document.querySelector('[data-view=integrations]')?.click()" style="font-size: 0.8rem; font-weight: 700; padding: 0.45rem 0.9rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;">
-              <i class="ri-plug-line"></i> Resolver en Integraciones
-            </button>
-          </div>
-        </div>
-      `;
-    }
-
     // Top 10 Productos por Volumen
     let topVolumeHtml = '';
     if (topVolumeProducts.length === 0) {
@@ -41688,28 +41863,11 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       }).join('');
     }
 
-    let missingDimVolBannerHtml = '';
-    if (missingDimVolProducts.length > 0) {
-      missingDimVolBannerHtml = `
-        <div class="alert alert-warning" style="background: rgba(245, 158, 11, 0.1); border: 1px solid var(--color-warning); border-radius: var(--radius-md); padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; display: flex; align-items: flex-start; gap: 1rem; box-shadow: var(--shadow-sm);">
-          <i class="ri-alert-line" style="color: var(--color-warning); font-size: 1.75rem; margin-top: 0.15rem; flex-shrink: 0;"></i>
-          <div style="flex: 1;">
-            <strong style="color: var(--color-text-main); display: block; font-size: 1rem; margin-bottom: 0.25rem;">Atención: Productos con Stock sin Medidas ni Volumen</strong>
-            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; margin-bottom: 0.75rem; line-height: 1.5;">
-              Hay <strong>${missingDimVolProducts.length}</strong> producto(s) con stock mayor a cero que no tienen definidas sus dimensiones ni su volumen.
-            </span>
-            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-              <button class="btn btn-warning btn-sm" onclick="window.showMissingDimensionsModal()" style="font-size: 0.8rem; background: var(--color-warning); color: #000; font-weight: 600; padding: 0.4rem 0.8rem; border: none; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
-                <i class="ri-list-settings-line"></i> Ver y Corregir Productos
-              </button>
-              <button class="btn btn-primary btn-sm" onclick="window.openAdminProductDimensionsModal(null, 'missing')" style="font-size: 0.8rem; background: #059669; border-color: #059669; font-weight: 600; padding: 0.4rem 0.8rem; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
-                <i class="ri-file-download-line"></i> Emitir Hoja de Dimensiones (PDF / Excel)
-              </button>
-            </div>
-          </div>
-        </div>
-      `;
-    }
+    // ========================================================
+    // FRANJA COMPACTA UNIFICADA DE ALERTAS OPERATIVAS (1 SOLA LÍNEA)
+    // ========================================================
+    const pendingManualOrders = manualOrdersRes?.data || [];
+    const pendingManualCount = pendingManualOrders.length;
 
     let centralStockUnits = 0;
     let centralStockSkus = 0;
@@ -41721,34 +41879,6 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
         }
       });
     }
-
-    let centralStockBannerHtml = '';
-    if (centralStockUnits > 0) {
-      centralStockBannerHtml = `
-        <div class="alert" style="background: rgba(245, 158, 11, 0.08); border: 1px solid var(--color-warning); border-radius: var(--radius-md); padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; box-shadow: var(--shadow-sm); flex-wrap: wrap;">
-          <div style="display: flex; align-items: center; gap: 1rem;">
-            <div style="width: 42px; height: 42px; border-radius: 50%; background: rgba(245, 158, 11, 0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-              <i class="ri-arrow-left-right-line" style="color: var(--color-warning); font-size: 1.5rem;"></i>
-            </div>
-            <div>
-              <strong style="color: var(--color-text-main); display: block; font-size: 0.95rem;">Hub Bodega Central: Stock Pendiente de Derivación</strong>
-              <span style="font-size: 0.825rem; color: var(--color-text-muted); display: block; margin-top: 0.15rem;">
-                Hay <strong>${centralStockUnits.toLocaleString('es-CL')}</strong> unidades físicas (${centralStockSkus} SKUs) en Bodega Central (Hub Virtual) que deben derivarse a sucursales físicas (Ñuñoa, La Reina, Recoleta) para poder preparar pedidos.
-              </span>
-            </div>
-          </div>
-          <button class="btn btn-warning btn-sm" onclick="document.querySelector('[data-view=reassign_admin]')?.click()" style="font-size: 0.8rem; background: var(--color-warning); color: #000; font-weight: 700; padding: 0.45rem 0.9rem; border: none; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;">
-            <i class="ri-arrow-left-right-line"></i> Reubicar Stock en Sucursales
-          </button>
-        </div>
-      `;
-    }
-
-    // ========================================================
-    // CÁLCULO Y RENDERIZADO DE PEDIDOS MANUALES EN PROCESAMIENTO
-    // ========================================================
-    const pendingManualOrders = manualOrdersRes?.data || [];
-    const pendingManualCount = pendingManualOrders.length;
 
     function getElapsedTimeText(isoDateStr) {
       if (!isoDateStr) return '';
@@ -41766,34 +41896,112 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       return `Hace ${diffDays} días`;
     }
 
-    let manualOrdersBannerHtml = '';
-    if (pendingManualCount > 0) {
-      manualOrdersBannerHtml = `
-        <div class="alert" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(245, 158, 11, 0.04) 100%); border: 1px solid rgba(245, 158, 11, 0.45); border-left: 5px solid var(--color-warning); border-radius: var(--radius-md); padding: 1.1rem 1.35rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; box-shadow: var(--shadow-sm); flex-wrap: wrap;">
-          <div style="display: flex; align-items: center; gap: 0.9rem;">
-            <div style="width: 42px; height: 42px; border-radius: 50%; background: rgba(245, 158, 11, 0.2); color: #b45309; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0;">
-              <i class="ri-hand-coin-line"></i>
-            </div>
-            <div>
-              <strong style="color: var(--color-text-main); display: block; font-size: 0.98rem; letter-spacing: -0.2px;">
-                Pedidos Manuales Pendientes: ${pendingManualCount} orden(es) en "En procesamiento"
-              </strong>
-              <span style="font-size: 0.835rem; color: var(--color-text-muted); display: block; margin-top: 0.15rem;">
-                Hay pedidos ingresados manualmente al WMS que requieren revisión operativa para enviarse a preparación.
-              </span>
+    const compactAlertChips = [];
+
+    // 1. Chip: Semáforo de Integraciones
+    if (healthSummaries.red > 0) {
+      const previewStoresPlain = problemIntegrations
+        .slice(0, 4)
+        .map(p => `${p.comercio} (${p.platform}: ${p.health.label})`)
+        .join(', ') + (healthSummaries.red > 4 ? ` y ${healthSummaries.red - 4} más` : '');
+
+      compactAlertChips.push(`
+        <div style="display: inline-flex; align-items: center; justify-content: space-between; gap: 0.55rem; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.28); border-left: 3px solid var(--color-danger); border-radius: 8px; padding: 0.35rem 0.65rem; flex: 1 1 260px; min-width: 0;" title="${escapeHtml(previewStoresPlain)}">
+          <div style="display: flex; align-items: center; gap: 0.45rem; min-width: 0; overflow: hidden;">
+            <i class="ri-error-warning-fill" style="color: var(--color-danger); font-size: 1rem; flex-shrink: 0;"></i>
+            <div style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.76rem; color: var(--color-text-main);">
+              <strong>Integraciones:</strong> ${healthSummaries.red} con error <span style="color: var(--color-text-muted); font-size: 0.7rem;">(${escapeHtml(problemIntegrations.slice(0, 2).map(p => p.comercio).join(', '))}${healthSummaries.red > 2 ? '…' : ''})</span>
             </div>
           </div>
-          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-            <button class="btn btn-warning btn-sm" onclick="window.goToManualOrdersManager('${selectedCommerce ? escapeHtml(selectedCommerce) : ''}')" style="font-size: 0.8rem; font-weight: 700; padding: 0.45rem 0.9rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; background: var(--color-warning); color: #000; border: none; cursor: pointer;">
-              <i class="ri-external-link-line"></i> Gestionar en WMS
+          <button type="button" onclick="document.querySelector('[data-view=integrations]')?.click()" style="background: var(--color-danger); color: #fff; border: none; border-radius: 6px; padding: 0.24rem 0.55rem; font-size: 0.7rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; flex-shrink: 0;">
+            <i class="ri-plug-line"></i> Resolver
+          </button>
+        </div>
+      `);
+    }
+
+    // 2. Chip: Hub Bodega Central
+    if (centralStockUnits > 0) {
+      compactAlertChips.push(`
+        <div style="display: inline-flex; align-items: center; justify-content: space-between; gap: 0.55rem; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.3); border-left: 3px solid var(--color-warning); border-radius: 8px; padding: 0.35rem 0.65rem; flex: 1 1 260px; min-width: 0;" title="Unidades en Bodega Central (Hub Virtual) que deben derivarse a sucursales físicas (Ñuñoa, La Reina, Recoleta)">
+          <div style="display: flex; align-items: center; gap: 0.45rem; min-width: 0; overflow: hidden;">
+            <i class="ri-arrow-left-right-line" style="color: #d97706; font-size: 1rem; flex-shrink: 0;"></i>
+            <div style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.76rem; color: var(--color-text-main);">
+              <strong>Hub Central:</strong> ${centralStockUnits.toLocaleString('es-CL')} uds <span style="color: var(--color-text-muted); font-size: 0.7rem;">(${centralStockSkus} SKUs por derivar)</span>
+            </div>
+          </div>
+          <button type="button" onclick="document.querySelector('[data-view=reassign_admin]')?.click()" style="background: var(--color-warning); color: #000; border: none; border-radius: 6px; padding: 0.24rem 0.55rem; font-size: 0.7rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; flex-shrink: 0;">
+            <i class="ri-arrow-left-right-line"></i> Reubicar
+          </button>
+        </div>
+      `);
+    }
+
+    // 3. Chip: Productos sin Medidas ni Volumen
+    if (missingDimVolProducts.length > 0) {
+      compactAlertChips.push(`
+        <div style="display: inline-flex; align-items: center; justify-content: space-between; gap: 0.55rem; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.3); border-left: 3px solid #f59e0b; border-radius: 8px; padding: 0.35rem 0.65rem; flex: 1 1 280px; min-width: 0;" title="Productos con stock mayor a cero que no tienen definidas sus dimensiones ni su volumen">
+          <div style="display: flex; align-items: center; gap: 0.45rem; min-width: 0; overflow: hidden;">
+            <i class="ri-ruler-2-line" style="color: #d97706; font-size: 1rem; flex-shrink: 0;"></i>
+            <div style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.76rem; color: var(--color-text-main);">
+              <strong>Sin Medidas:</strong> ${missingDimVolProducts.length} SKUs <span style="color: var(--color-text-muted); font-size: 0.7rem;">con stock &gt; 0</span>
+            </div>
+          </div>
+          <div style="display: inline-flex; align-items: center; gap: 0.3rem; flex-shrink: 0;">
+            <button type="button" onclick="window.showMissingDimensionsModal()" style="background: var(--color-warning); color: #000; border: none; border-radius: 6px; padding: 0.24rem 0.5rem; font-size: 0.7rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; white-space: nowrap;" title="Ver y Corregir Productos">
+              <i class="ri-list-settings-line"></i> Corregir
             </button>
-            <button class="btn btn-sm btn-outline" onclick="window.triggerDashboardManualOrdersStoxWA(this)" style="font-size: 0.8rem; font-weight: 600; padding: 0.45rem 0.85rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; background: var(--color-surface); cursor: pointer;" title="Enviar o probar alerta de Stox al grupo NOTIFICACIONES STOX vía WhatsApp">
-              <i class="ri-whatsapp-line" style="color: #25D366; font-size: 1.05rem;"></i> Notificar por Stox
+            <button type="button" onclick="window.openAdminProductDimensionsModal(null, 'missing')" style="background: #059669; color: #fff; border: none; border-radius: 6px; padding: 0.24rem 0.45rem; font-size: 0.7rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; white-space: nowrap;" title="Emitir Hoja de Dimensiones (PDF / Excel)">
+              <i class="ri-file-download-line"></i> Hoja
             </button>
           </div>
         </div>
-      `;
+      `);
     }
+
+    // 4. Chip: Pedidos Manuales Pendientes
+    if (pendingManualCount > 0) {
+      compactAlertChips.push(`
+        <div style="display: inline-flex; align-items: center; justify-content: space-between; gap: 0.55rem; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.35); border-left: 3px solid #d97706; border-radius: 8px; padding: 0.35rem 0.65rem; flex: 1 1 260px; min-width: 0;" title="Pedidos ingresados manualmente en estado En procesamiento">
+          <div style="display: flex; align-items: center; gap: 0.45rem; min-width: 0; overflow: hidden;">
+            <i class="ri-hand-coin-line" style="color: #b45309; font-size: 1rem; flex-shrink: 0;"></i>
+            <div style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.76rem; color: var(--color-text-main);">
+              <strong>Manuales:</strong> ${pendingManualCount} en proc.
+            </div>
+          </div>
+          <div style="display: inline-flex; align-items: center; gap: 0.3rem; flex-shrink: 0;">
+            <button type="button" onclick="window.goToManualOrdersManager('${selectedCommerce ? escapeHtml(selectedCommerce) : ''}')" style="background: var(--color-warning); color: #000; border: none; border-radius: 6px; padding: 0.24rem 0.5rem; font-size: 0.7rem; font-weight: 700; cursor: pointer; white-space: nowrap;">
+              Gestionar
+            </button>
+            <button type="button" onclick="window.triggerDashboardManualOrdersStoxWA(this)" style="background: var(--color-surface); color: #25D366; border: 1px solid var(--color-border); border-radius: 6px; padding: 0.22rem 0.42rem; font-size: 0.75rem; cursor: pointer;" title="Notificar por Stox WhatsApp">
+              <i class="ri-whatsapp-line"></i>
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    const unifiedAlertsStripHtml = compactAlertChips.length > 0 ? `
+      <div id="admin-compact-alerts-bar" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.45rem 0.6rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.45rem; box-shadow: var(--shadow-sm);">
+        <div style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.72rem; font-weight: 800; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em; padding: 0 0.35rem;">
+          <i class="ri-notification-badge-line" style="color: var(--color-warning); font-size: 0.95rem;"></i>
+          <span>Avisos (${compactAlertChips.length})</span>
+        </div>
+        <div id="admin-compact-alerts-chips" style="display: flex; flex: 1; flex-wrap: wrap; gap: 0.45rem; min-width: 240px;">
+          ${compactAlertChips.join('')}
+        </div>
+        <button type="button" onclick="
+          const chips = document.getElementById('admin-compact-alerts-chips');
+          if (chips) {
+            const hidden = chips.style.display === 'none';
+            chips.style.display = hidden ? 'flex' : 'none';
+            this.innerHTML = hidden ? '<i class=\\'ri-arrow-up-s-line\\'></i>' : '<i class=\\'ri-arrow-down-s-line\\'></i> Mostrar';
+          }
+        " style="background: transparent; border: 1px solid var(--color-border); color: var(--color-text-muted); border-radius: 6px; padding: 0.2rem 0.45rem; font-size: 0.7rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;" title="Minimizar / Expandir barra de avisos">
+          <i class="ri-arrow-up-s-line"></i>
+        </button>
+      </div>
+    ` : '';
 
     let manualOrdersRowsHtml = '';
     if (pendingManualCount === 0) {
@@ -41876,184 +42084,393 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       `;
     }
 
-    const manualOrdersCardHtml = `
-      <div class="card" id="section-manual-orders-card" style="display: flex; flex-direction: column; margin-bottom: 0;">
-        <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
-          <div style="display: flex; align-items: center; gap: 0.6rem;">
-            <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(245, 158, 11, 0.15); color: #b45309; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
-              <i class="ri-hand-coin-line"></i>
-            </div>
-            <div>
-              <h3 style="margin: 0; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem;">
-                Pedidos Manuales Pendientes (WMS: En procesamiento)
-                ${pendingManualCount > 0 
-                  ? `<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #b45309; font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 99px;">${pendingManualCount} pendientes</span>`
-                  : `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #059669; font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 99px;">Al día</span>`
-                }
-              </h3>
-              <p style="margin: 0; font-size: 0.78rem; color: var(--color-text-muted);">Pedidos creados manualmente en el WMS que requieren validación para avanzar a preparación.</p>
-            </div>
+    // Construir tarjetas de Desglose Rápido por Sucursal Física (Admin)
+    const branchesCardsHtml = Object.values(branchStats).map(b => {
+      const isCentral = b.shortName === 'Bodega Central';
+      return `
+        <div class="card" style="margin-bottom: 0; padding: 0.9rem 1.1rem; border-left: 4px solid ${b.color}; display: flex; flex-direction: column; gap: 0.35rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.76rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="${b.icon}" style="color: ${b.color}; font-size: 0.95rem;"></i> ${b.name}
+            </span>
+            <span style="font-size: 0.68rem; font-weight: 700; background: ${b.color}18; color: ${b.color}; padding: 0.15rem 0.5rem; border-radius: 99px;">${b.skusSet.size} SKUs</span>
           </div>
-          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-            <button onclick="window.goToManualOrdersManager('${selectedCommerce ? escapeHtml(selectedCommerce) : ''}')" class="btn btn-sm btn-outline" style="font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.25rem;">
-              <i class="ri-external-link-line"></i> Ir al Gestor de Pedidos
-            </button>
-            <button onclick="window.triggerDashboardManualOrdersStoxWA(this)" class="btn btn-sm btn-outline" style="font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.25rem;" title="Enviar alerta Stox al grupo NOTIFICACIONES STOX por WhatsApp">
-              <i class="ri-whatsapp-line" style="color: #25D366;"></i> Notificar por Stox
-            </button>
+          <div style="display: flex; align-items: baseline; justify-content: space-between; margin-top: 0.1rem;">
+            <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main);">${b.units.toLocaleString('es-CL')} <span style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted);">uds</span></div>
+            <div style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted);">${b.volume.toFixed(2)} m³</div>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; color: var(--color-text-muted); border-top: 1px dashed var(--color-border); padding-top: 0.35rem; margin-top: 0.1rem;">
+            <span>Disp: <strong style="color: var(--color-success);">${b.available.toLocaleString('es-CL')}</strong></span>
+            ${isCentral && b.units > 0
+              ? `<button type="button" onclick="document.querySelector('[data-view=reassign_admin]')?.click()" style="background: rgba(245, 158, 11, 0.15); color: #b45309; border: none; border-radius: 4px; padding: 0.1rem 0.45rem; font-size: 0.68rem; font-weight: 700; cursor: pointer;">Derivar Stock →</button>`
+              : `<span>En picking: <strong style="color: ${b.activeOrders > 0 ? 'var(--color-primary)' : 'var(--color-text-muted)'};">${b.activeOrders} ped.</strong></span>`
+            }
           </div>
         </div>
-        <div class="card-body" style="padding: 0;">
-          ${manualOrdersRowsHtml}
+      `;
+    }).join('');
+
+    // Construir barras de Despachos por Operador Logístico (Admin)
+    const totalCourierOrders = Object.values(courierStats).reduce((acc, c) => acc + c.total, 0);
+    const couriersBarsHtml = Object.values(courierStats).map(c => {
+      const sharePct = totalCourierOrders > 0 ? Math.round((c.total / totalCourierOrders) * 100) : 0;
+      const donePct = c.total > 0 ? Math.round((c.completed / c.total) * 100) : 100;
+      return `
+        <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem;">
+            <span style="font-weight: 700; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.4rem;">
+              <i class="${c.icon}" style="color: ${c.color};"></i> ${c.label}
+            </span>
+            <span style="font-size: 0.74rem; color: var(--color-text-muted);">
+              <strong style="color: var(--color-text-main);">${c.total.toLocaleString('es-CL')}</strong> envíos (${sharePct}%) • <span style="color: var(--color-success); font-weight: 700;">${donePct}% desp.</span>
+            </span>
+          </div>
+          <div style="height: 7px; background: var(--color-border); border-radius: 99px; overflow: hidden;">
+            <div style="width: ${Math.max(c.total > 0 ? 4 : 0, sharePct)}%; height: 100%; background: ${c.color}; border-radius: 99px;"></div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Construir tarjeta lateral de Cubicaje Consolidado (m³) & Resumen Operativo / Facturación
+    const branchListForBar = Object.values(branchStats);
+    const safeTotalVol = totalVolume > 0 ? totalVolume : 1;
+    const volumeSegmentsHtml = branchListForBar.map(b => {
+      const pct = totalVolume > 0 ? Math.max(0, (b.volume / safeTotalVol) * 100) : 25;
+      return `<div style="width: ${pct.toFixed(1)}%; background: ${b.color}; height: 100%; transition: width 0.3s;" title="${b.shortName}: ${b.volume.toFixed(2)} m³ (${pct.toFixed(0)}%)"></div>`;
+    }).join('');
+    const volumeLegendHtml = branchListForBar.map(b => `
+      <span style="display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600;">
+        <span style="width: 8px; height: 8px; border-radius: 50%; background: ${b.color}; display: inline-block;"></span>
+        ${b.shortName}: <strong style="color: var(--color-text-main);">${b.volume.toFixed(2)} m³</strong>
+      </span>
+    `).join('');
+
+    const adminCubicajeCardHtml = `
+      <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
+        <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding: 1rem 1.25rem;">
+          <h3 style="margin: 0; font-size: 0.96rem; font-weight: 700; display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-box-3-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Cubicaje (m³) & Salud Operativa
+          </h3>
+          <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-primary); background: rgba(37, 99, 235, 0.1); padding: 0.2rem 0.55rem; border-radius: 99px;">${Object.keys(productsMap).length} SKUs</span>
+        </div>
+        <div class="card-body" style="padding: 1.15rem 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.9rem 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.45rem;">
+              <span style="font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted);">Volumen Físico Consolidado</span>
+              <span style="font-size: 1.25rem; font-weight: 800; color: var(--color-text-main);">${totalVolume.toFixed(2)} m³</span>
+            </div>
+            <div style="height: 8px; border-radius: 99px; background: var(--color-border); overflow: hidden; display: flex; margin-bottom: 0.6rem;">
+              ${volumeSegmentsHtml}
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.55rem 0.85rem;">
+              ${volumeLegendHtml}
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; border-top: 1px dashed var(--color-border); padding-top: 0.85rem;">
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.55rem; text-align: center;">
+              <div style="font-size: 0.68rem; color: var(--color-text-muted);">Integraciones OK</div>
+              <div style="font-size: 0.92rem; font-weight: 800; color: var(--color-success); margin-top: 2px;">${healthSummaries.green}/${allIntegrationsList.length}</div>
+            </div>
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.55rem; text-align: center;">
+              <div style="font-size: 0.68rem; color: var(--color-text-muted);">Manuales Pend.</div>
+              <div style="font-size: 0.92rem; font-weight: 800; color: ${pendingManualCount > 0 ? 'var(--color-warning)' : 'var(--color-text-main)'}; margin-top: 2px;">${pendingManualCount}</div>
+            </div>
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.55rem; text-align: center;">
+              <div style="font-size: 0.68rem; color: var(--color-text-muted);">Sin Medidas</div>
+              <div style="font-size: 0.92rem; font-weight: 800; color: ${missingDimVolProducts.length > 0 ? 'var(--color-danger)' : 'var(--color-text-main)'}; margin-top: 2px;">${missingDimVolProducts.length}</div>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.5rem;">
+            <button type="button" class="btn btn-primary" onclick="document.querySelector('[data-view=billing_admin]')?.click()" style="flex: 1; padding: 0.5rem 0.65rem; font-size: 0.76rem; font-weight: 700; border-radius: 8px;">
+              <i class="ri-bill-line"></i> Facturación y Cobros
+            </button>
+            <button type="button" class="btn btn-outline" onclick="document.querySelector('[data-view=reassign_admin]')?.click()" style="flex: 1; padding: 0.5rem 0.65rem; font-size: 0.76rem; font-weight: 700; border-radius: 8px;">
+              <i class="ri-arrow-left-right-line"></i> Reubicar Stock
+            </button>
+          </div>
         </div>
       </div>
     `;
 
-    // 8. Renderizar el HTML completo del dashboard
+    // Construir Bloque 1: Hub Unificado en Pestañas (Calendario Operativo + Noticias WMS)
+    const todayFormatted = new Date().toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' });
+    const adminUnifiedCalendarNewsHtml = `
+      <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0; overflow: hidden;">
+        <!-- Franja fija de estado operativo de hoy -->
+        <div style="background: linear-gradient(90deg, rgba(16, 185, 129, 0.12), rgba(37, 99, 235, 0.08)); border-bottom: 1px solid var(--color-border); padding: 0.7rem 1.15rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.76rem; font-weight: 700; color: var(--color-text-main);">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--color-success); box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2); display: inline-block;"></span>
+            <span>Hoy (${todayFormatted}): <strong style="color: var(--color-success);">Bodegas Operativas</strong></span>
+          </div>
+          <span style="font-size: 0.7rem; color: var(--color-text-muted);">Corte picking SameDay 13:00 • Courier 16:30</span>
+        </div>
+
+        <!-- Selector de Pestañas (Calendario vs Noticias) -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; background: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 0.35rem; gap: 0.35rem;">
+          <button type="button" id="admin-hub-tab-cal" onclick="
+            document.getElementById('admin-hub-pane-cal').style.display='block';
+            document.getElementById('admin-hub-pane-news').style.display='none';
+            this.style.background='var(--color-surface)';
+            this.style.color='var(--color-primary)';
+            this.style.boxShadow='var(--shadow-sm)';
+            const other=document.getElementById('admin-hub-tab-news');
+            if(other){other.style.background='transparent';other.style.color='var(--color-text-muted)';other.style.boxShadow='none';}
+          " style="border: none; border-radius: 8px; padding: 0.5rem 0.65rem; font-size: 0.78rem; font-weight: 700; cursor: pointer; background: var(--color-surface); color: var(--color-primary); box-shadow: var(--shadow-sm); display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; transition: all 0.2s;">
+            <i class="ri-calendar-event-line"></i> Calendario Operativo
+          </button>
+          <button type="button" id="admin-hub-tab-news" onclick="
+            document.getElementById('admin-hub-pane-cal').style.display='none';
+            document.getElementById('admin-hub-pane-news').style.display='block';
+            this.style.background='var(--color-surface)';
+            this.style.color='var(--color-primary)';
+            this.style.boxShadow='var(--shadow-sm)';
+            const other=document.getElementById('admin-hub-tab-cal');
+            if(other){other.style.background='transparent';other.style.color='var(--color-text-muted)';other.style.boxShadow='none';}
+          " style="border: none; border-radius: 8px; padding: 0.5rem 0.65rem; font-size: 0.78rem; font-weight: 700; cursor: pointer; background: transparent; color: var(--color-text-muted); display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; transition: all 0.2s;">
+            <i class="ri-newspaper-line"></i> Noticias WMS (${(news || []).length})
+          </button>
+        </div>
+
+        <!-- Pane 1: Calendario Operativo -->
+        <div id="admin-hub-pane-cal" style="display: block;">
+          <div id="admin-dashboard-calendar-grid" style="border-bottom: 1px solid var(--color-border); padding: 1rem;">
+            <div style="text-align: center; color: var(--color-text-muted);"><i class="ri-loader-4-line ri-spin"></i> Cargando calendario...</div>
+          </div>
+          <div id="admin-dashboard-calendar-list" style="max-height: 240px; overflow-y: auto;"></div>
+        </div>
+
+        <!-- Pane 2: Noticias Recientes -->
+        <div id="admin-hub-pane-news" style="display: none; max-height: 480px; overflow-y: auto; padding: 0.5rem 0;">
+          ${newsHtml}
+        </div>
+      </div>
+    `;
+
+    // 8. Renderizar el HTML completo del dashboard (Propuesta C+ Pulse 360°)
     if (loaderInterval) clearInterval(loaderInterval);
     contentDiv.innerHTML = `
-      ${integrationAlertBannerHtml}
-      ${centralStockBannerHtml}
-      ${missingDimVolBannerHtml}
-      ${manualOrdersBannerHtml}
-      <div class="dashboard-layout-split">
-        <!-- Columna Izquierda: Área Principal -->
-        <div class="dashboard-main-col" style="display: flex; flex-direction: column; gap: 2rem;">
-          
-          <!-- Hero Banner -->
-          <div class="dashboard-hero" style="margin-bottom: 0;">
-            <div class="dashboard-hero-content">
-              <h2>Te damos la bienvenida al WMS 3.0 de Stocka</h2>
-              <p>Vista consolidada de control administrativo. Selecciona un comercio del filtro superior si deseas analizar los datos operacionales de una tienda en particular.</p>
-            </div>
-            <div class="dashboard-hero-image"></div>
-          </div>
+      <div style="display: flex; flex-direction: column; gap: 1.15rem;">
+        ${unifiedAlertsStripHtml}
 
-          <!-- Métricas Principales -->
-          <div>
-            <h3 style="margin-bottom: 1rem; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main);">Métricas Principales</h3>
-            <div class="stat-grid-modern">
-              <div class="stat-card-modern blue">
-                <div class="icon-wrapper"><i class="ri-box-3-line"></i></div>
-                <div>
-                  <div class="stat-value-modern">${totalStock}</div>
-                  <div class="stat-label-modern">Stock Físico Total</div>
-                </div>
-              </div>
-              <div class="stat-card-modern green">
-                <div class="icon-wrapper"><i class="ri-check-double-line"></i></div>
-                <div>
-                  <div class="stat-value-modern">${availableStock}</div>
-                  <div class="stat-label-modern">Stock Disponible</div>
-                </div>
-              </div>
-              <div class="stat-card-modern yellow">
-                <div class="icon-wrapper"><i class="ri-time-line"></i></div>
-                <div>
-                  <div class="stat-value-modern">${activeOrders}</div>
-                  <div class="stat-label-modern">Pedidos en Proceso</div>
-                </div>
-              </div>
-              <div class="stat-card-modern purple">
-                <div class="icon-wrapper"><i class="ri-truck-line"></i></div>
-                <div>
-                  <div class="stat-value-modern">${completedOrders}</div>
-                  <div class="stat-label-modern">Pedidos Completados</div>
-                </div>
-              </div>
-              <div class="stat-card-modern ${pendingManualCount > 0 ? 'yellow' : 'green'}" style="cursor: pointer;" onclick="document.getElementById('section-manual-orders-card')?.scrollIntoView({ behavior: 'smooth' })" title="Haz clic para ver los pedidos manuales pendientes">
-                <div class="icon-wrapper"><i class="ri-hand-coin-line"></i></div>
-                <div>
-                  <div class="stat-value-modern">${pendingManualCount}</div>
-                  <div class="stat-label-modern">Manuales Pendientes</div>
-                </div>
-              </div>
-              <div class="stat-card-modern indigo">
-                <div class="icon-wrapper"><i class="ri-ruler-2-line"></i></div>
-                <div>
-                  <div class="stat-value-modern">${totalVolume.toFixed(2)} m³</div>
-                  <div class="stat-label-modern">Volumen Ocupado</div>
-                </div>
-              </div>
-              <div class="stat-card-modern red">
-                <div class="icon-wrapper"><i class="ri-error-warning-line"></i></div>
-                <div>
-                  <div class="stat-value-modern">${lowStockCount}</div>
-                  <div class="stat-label-modern">Stock Crítico</div>
-                </div>
-              </div>
+        <!-- Franja Ejecutiva de 5 KPIs Consolidados del WMS -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 0.95rem;">
+          <!-- KPI 1: Cola Outbound Activa -->
+          <div class="stat-card-modern yellow" style="cursor: pointer;" onclick="document.querySelector('[data-view=orders_admin]')?.click()">
+            <div class="icon-wrapper"><i class="ri-time-line"></i></div>
+            <div style="min-width: 0;">
+              <div class="stat-value-modern">${activeOrders.toLocaleString('es-CL')}</div>
+              <div class="stat-label-modern">Pedidos en Proceso</div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 2px;">${pipelineToProcess} por proc. • ${pipelineInPrep} prep. • ${pipelineReady} listos</div>
             </div>
           </div>
 
-          <!-- Espacio de Pedidos Manuales Pendientes -->
-          ${manualOrdersCardHtml}
+          <!-- KPI 2: Despachados / Completados -->
+          <div class="stat-card-modern purple" style="cursor: pointer;" onclick="document.querySelector('[data-view=orders_admin]')?.click()">
+            <div class="icon-wrapper"><i class="ri-truck-line"></i></div>
+            <div style="min-width: 0;">
+              <div class="stat-value-modern">${completedOrders.toLocaleString('es-CL')}</div>
+              <div class="stat-label-modern">Despachados (60d)</div>
+              <div style="font-size: 0.7rem; color: var(--color-success); font-weight: 600; margin-top: 2px;">${pipelineDelivered.toLocaleString('es-CL')} entregados • ${pipelineDispatched.toLocaleString('es-CL')} en ruta</div>
+            </div>
+          </div>
 
+          <!-- KPI 3: Stock Disponible vs Físico -->
+          <div class="stat-card-modern green" style="cursor: pointer;" onclick="document.querySelector('[data-view=inventory_admin]')?.click()">
+            <div class="icon-wrapper"><i class="ri-check-double-line"></i></div>
+            <div style="min-width: 0;">
+              <div class="stat-value-modern">${availableStock.toLocaleString('es-CL')}</div>
+              <div class="stat-label-modern">Stock Disponible</div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 2px;">Físico: <strong>${totalStock.toLocaleString('es-CL')}</strong> • Comp: ${totalCommitted.toLocaleString('es-CL')}</div>
+            </div>
+          </div>
 
-          <!-- Fila con Stock Crítico (50%) y Últimos Ingresos (50%) -->
-          <div class="dashboard-tables-split-half">
+          <!-- KPI 4: Stock Crítico & Runway < 7d -->
+          <div class="stat-card-modern red" style="cursor: pointer;" onclick="window.openInventoryCoverageModule ? window.openInventoryCoverageModule('${selectedCommerce ? escapeHtml(selectedCommerce) : ''}') : document.querySelector('[data-view=inventory_coverage_admin]')?.click()">
+            <div class="icon-wrapper"><i class="ri-error-warning-line"></i></div>
+            <div style="min-width: 0;">
+              <div class="stat-value-modern">${lowStockCount}</div>
+              <div class="stat-label-modern">Stock Crítico / Alerta</div>
+              <div style="font-size: 0.7rem; color: var(--color-danger); font-weight: 600; margin-top: 2px;">${criticalRunwayCount} SKUs con &lt; 7 días cobertura</div>
+            </div>
+          </div>
+
+          <!-- KPI 5: Volumen Ocupado -->
+          <div class="stat-card-modern indigo">
+            <div class="icon-wrapper"><i class="ri-ruler-2-line"></i></div>
+            <div style="min-width: 0;">
+              <div class="stat-value-modern">${totalVolume.toFixed(2)} m³</div>
+              <div class="stat-label-modern">Volumen Ocupado</div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 2px;">Manuales pend: <strong>${pendingManualCount}</strong></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desglose Rápido por Sucursal Física -->
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; flex-wrap: wrap; gap: 0.5rem;">
+            <h3 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem;">
+              <i class="ri-building-2-line" style="color: var(--color-primary);"></i> Desglose Rápido por Sucursal Física
+            </h3>
+            <span style="font-size: 0.74rem; color: var(--color-text-muted);">Existencias físicas, cubicaje m³ y carga de preparación activa por bodega</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.9rem;">
+            ${branchesCardsHtml}
+          </div>
+        </div>
+
+        <!-- Layout Principal 2 Columnas -->
+        <div class="dashboard-layout-split">
+          <!-- Columna Izquierda: Área Operativa Principal -->
+          <div class="dashboard-main-col" style="display: flex; flex-direction: column; gap: 1.35rem;">
+
+            <!-- 1. Flujo Global de Fulfillment + Despachos por Operador Logístico -->
             <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
-              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-                <h3 style="margin: 0; font-size: 1rem;"><i class="ri-alert-line" style="margin-right: 0.5rem; color: var(--color-danger);"></i> Alertas de Stock Crítico</h3>
+              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding: 1rem 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div>
+                  <h3 style="margin: 0; font-size: 1rem; font-weight: 800; display: flex; align-items: center; gap: 0.45rem;">
+                    <i class="ri-flow-chart" style="color: var(--color-primary);"></i> Flujo Global de Fulfillment & Despachos por Operador Logístico
+                  </h3>
+                  <p style="margin: 0.15rem 0 0 0; font-size: 0.76rem; color: var(--color-text-muted);">Embudo operativo en tiempo real y distribución por courier en los últimos 60 días</p>
+                </div>
+                <button type="button" class="btn btn-outline btn-sm" onclick="document.querySelector('[data-view=orders_admin]')?.click()" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; font-weight: 700;">
+                  Ir al Gestor de Pedidos <i class="ri-arrow-right-line"></i>
+                </button>
+              </div>
+              <div class="card-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); gap: 0.65rem;">
+                  <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-top: 3px solid #f59e0b; border-radius: 10px; padding: 0.75rem 0.85rem;">
+                    <div style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">1. Por Procesar</div>
+                    <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.2rem;">${pipelineToProcess.toLocaleString('es-CL')}</div>
+                    <div style="font-size: 0.68rem; color: #d97706; font-weight: 600;">Cola recepción</div>
+                  </div>
+                  <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-top: 3px solid #3b82f6; border-radius: 10px; padding: 0.75rem 0.85rem;">
+                    <div style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">2. En Preparación</div>
+                    <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.2rem;">${pipelineInPrep.toLocaleString('es-CL')}</div>
+                    <div style="font-size: 0.68rem; color: #2563eb; font-weight: 600;">En mesón / picking</div>
+                  </div>
+                  <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-top: 3px solid #8b5cf6; border-radius: 10px; padding: 0.75rem 0.85rem;">
+                    <div style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">3. Listos en Andén</div>
+                    <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.2rem;">${pipelineReady.toLocaleString('es-CL')}</div>
+                    <div style="font-size: 0.68rem; color: #7c3aed; font-weight: 600;">Esperando retiro</div>
+                  </div>
+                  <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-top: 3px solid #06b6d4; border-radius: 10px; padding: 0.75rem 0.85rem;">
+                    <div style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">4. En Ruta</div>
+                    <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.2rem;">${pipelineDispatched.toLocaleString('es-CL')}</div>
+                    <div style="font-size: 0.68rem; color: #0891b2; font-weight: 600;">Despachados</div>
+                  </div>
+                  <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-top: 3px solid #10b981; border-radius: 10px; padding: 0.75rem 0.85rem;">
+                    <div style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">5. Entregados</div>
+                    <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-success); margin-top: 0.2rem;">${pipelineDelivered.toLocaleString('es-CL')}</div>
+                    <div style="font-size: 0.68rem; color: var(--color-success); font-weight: 600;">Ciclo finalizado</div>
+                  </div>
+                </div>
+
+                <div style="border-top: 1px dashed var(--color-border); padding-top: 1rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                    <span style="font-size: 0.82rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                      <i class="ri-truck-fill" style="color: var(--color-primary);"></i> Despachos por Operador Logístico (Couriers)
+                    </span>
+                    <span style="font-size: 0.72rem; color: var(--color-text-muted);">${totalCourierOrders.toLocaleString('es-CL')} órdenes analizadas</span>
+                  </div>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.85rem 1.35rem;">
+                    ${couriersBarsHtml}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. Alertas de Stock Crítico & Días de Cobertura Estimada (Runway 30d) -->
+            <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
+              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding: 1rem 1.25rem; flex-wrap: wrap; gap: 0.65rem;">
+                <div>
+                  <h3 style="margin: 0; font-size: 1rem; font-weight: 800; display: flex; align-items: center; gap: 0.45rem;">
+                    <i class="ri-timer-flash-line" style="color: var(--color-danger);"></i> Stock Crítico y Días de Cobertura Estimada (Runway 30d)
+                  </h3>
+                  <p style="margin: 0.15rem 0 0 0; font-size: 0.76rem; color: var(--color-text-muted);">Cálculo automático basado en la velocidad de venta diaria de los últimos 30 días</p>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" onclick="window.openInventoryCoverageModule ? window.openInventoryCoverageModule('${selectedCommerce ? escapeHtml(selectedCommerce) : ''}') : document.querySelector('[data-view=\\'inventory_coverage_admin\\']')?.click()" style="font-size: 0.76rem; padding: 0.45rem 0.9rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 8px;">
+                  <i class="ri-bar-chart-box-line"></i> Abrir Módulo Completo de Cobertura y Catálogo
+                </button>
               </div>
               <div class="card-body table-responsive" style="padding: 0;">
                 ${lowStockHtml}
               </div>
             </div>
+
+            <!-- 3. Stepper de Ingresos de Stock (Declaraciones en Andén) -->
             <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
-              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-                <h3 style="margin: 0; font-size: 1rem;"><i class="ri-history-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Últimos Ingresos de Stock</h3>
+              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding: 1rem 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div>
+                  <h3 style="margin: 0; font-size: 1rem; font-weight: 800; display: flex; align-items: center; gap: 0.45rem;">
+                    <i class="ri-inbox-unarchive-line" style="color: var(--color-primary);"></i> Stepper de Ingresos de Stock (Declaraciones en Andén)
+                  </h3>
+                  <p style="margin: 0.15rem 0 0 0; font-size: 0.76rem; color: var(--color-text-muted);">Últimas cargas anunciadas por los comercios y avance de recepción / conteo</p>
+                </div>
+                <button type="button" class="btn btn-outline btn-sm" onclick="document.querySelector('[data-view=declarations_admin]')?.click()" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; font-weight: 700;">
+                  Gestionar Recepciones <i class="ri-arrow-right-line"></i>
+                </button>
               </div>
-              <div class="card-body table-responsive" style="padding: 0;">
+              <div class="card-body" style="padding: 0;">
                 ${recentDeclarationsHtml}
               </div>
             </div>
-          </div>
 
-          <!-- Fila con Integraciones (35%) y Top 10 Volumen (65%) -->
-          <div class="dashboard-tables-split">
-            <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
-              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-                <h3 style="margin: 0; font-size: 1rem;"><i class="ri-sensor-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Semáforo de Integraciones</h3>
+            <!-- 4. Panel de Control Operativo en Pestañas (Integraciones / Manuales / Top Volumen) -->
+            <div class="card" id="section-manual-orders-card" style="display: flex; flex-direction: column; margin-bottom: 0;">
+              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding: 0.75rem 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                  <button type="button" id="admin-tab-btn-int" onclick="
+                    document.getElementById('admin-tab-pane-int').style.display='block';
+                    document.getElementById('admin-tab-pane-man').style.display='none';
+                    document.getElementById('admin-tab-pane-vol').style.display='none';
+                    this.style.background='rgba(37, 99, 235, 0.1)';
+                    this.style.color='var(--color-primary)';
+                    ['admin-tab-btn-man','admin-tab-btn-vol'].forEach(id=>{const el=document.getElementById(id);if(el){el.style.background='transparent';el.style.color='var(--color-text-muted)';}});
+                  " style="border: none; border-radius: 8px; padding: 0.45rem 0.85rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; background: rgba(37, 99, 235, 0.1); color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-sensor-line"></i> Semáforo de Integraciones (${allIntegrationsList.length})
+                  </button>
+                  <button type="button" id="admin-tab-btn-man" onclick="
+                    document.getElementById('admin-tab-pane-int').style.display='none';
+                    document.getElementById('admin-tab-pane-man').style.display='block';
+                    document.getElementById('admin-tab-pane-vol').style.display='none';
+                    this.style.background='rgba(37, 99, 235, 0.1)';
+                    this.style.color='var(--color-primary)';
+                    ['admin-tab-btn-int','admin-tab-btn-vol'].forEach(id=>{const el=document.getElementById(id);if(el){el.style.background='transparent';el.style.color='var(--color-text-muted)';}});
+                  " style="border: none; border-radius: 8px; padding: 0.45rem 0.85rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; background: transparent; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-hand-coin-line"></i> Manuales Pendientes (${pendingManualCount})
+                  </button>
+                  <button type="button" id="admin-tab-btn-vol" onclick="
+                    document.getElementById('admin-tab-pane-int').style.display='none';
+                    document.getElementById('admin-tab-pane-man').style.display='none';
+                    document.getElementById('admin-tab-pane-vol').style.display='block';
+                    this.style.background='rgba(37, 99, 235, 0.1)';
+                    this.style.color='var(--color-primary)';
+                    ['admin-tab-btn-int','admin-tab-btn-man'].forEach(id=>{const el=document.getElementById(id);if(el){el.style.background='transparent';el.style.color='var(--color-text-muted)';}});
+                  " style="border: none; border-radius: 8px; padding: 0.45rem 0.85rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; background: transparent; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-ruler-2-line"></i> Top 10 Volumen (m³)
+                  </button>
+                </div>
               </div>
-              <div class="card-body table-responsive" style="padding: 0;">
+              <div id="admin-tab-pane-int" class="card-body table-responsive" style="padding: 0;">
                 ${integrationsHtml}
               </div>
-            </div>
-            <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
-              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-                <h3 style="margin: 0; font-size: 1rem;"><i class="ri-ruler-2-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Top 10 Productos por Volumen (m³)</h3>
+              <div id="admin-tab-pane-man" class="card-body" style="padding: 0; display: none;">
+                ${manualOrdersRowsHtml}
               </div>
-              <div class="card-body table-responsive" style="padding: 0;">
+              <div id="admin-tab-pane-vol" class="card-body table-responsive" style="padding: 0; display: none;">
                 ${topVolumeHtml}
               </div>
             </div>
+
           </div>
 
-        </div>
-
-        <!-- Columna Derecha: Sidebar (Calendario + Noticias) -->
-        <div class="dashboard-sidebar-col" style="display: flex; flex-direction: column; gap: 2rem;">
-          <!-- Calendario de Operaciones -->
-          <div class="card" style="display: flex; flex-direction: column;">
-            <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-              <h3 style="margin: 0; font-size: 1rem;"><i class="ri-calendar-event-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Calendario</h3>
-            </div>
-            <div class="card-body" style="padding: 0;">
-              <div id="admin-dashboard-calendar-grid" style="border-bottom: 1px solid var(--color-border); padding: 1rem;">
-                <div style="text-align: center; color: var(--color-text-muted);"><i class="ri-loader-4-line ri-spin"></i> Cargando calendario...</div>
-              </div>
-              <div id="admin-dashboard-calendar-list"></div>
-            </div>
-          </div>
-
-          <!-- Noticias Recientes -->
-          <div class="card" style="display: flex; flex-direction: column;">
-            <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-              <h3 style="margin: 0; font-size: 1rem;"><i class="ri-newspaper-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Noticias Recientes</h3>
-            </div>
-            <div class="card-body" style="padding: 0; display: flex; flex-direction: column; max-height: 480px; overflow-y: auto;">
-              ${newsHtml}
-            </div>
+          <!-- Columna Derecha: Sidebar (Cubicaje & Salud Operativa + Bloque 1 Calendario/Noticias) -->
+          <div class="dashboard-sidebar-col" style="display: flex; flex-direction: column; gap: 1.35rem;">
+            ${adminCubicajeCardHtml}
+            ${adminUnifiedCalendarNewsHtml}
           </div>
         </div>
       </div>
@@ -100041,13 +100458,15 @@ window.updateWmsMonitorUI = async function() {
 
     // Consultar lightdata_envios recientes si el panel está abierto o la caché tiene más de 20s
     if (isPanelVisible || !window.wmsMonitorState.lastLdFetchAt || (nowMs - window.wmsMonitorState.lastLdFetchAt > 20000)) {
+      const ldCutoffIso = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
       fetchPromises.push(
         supabase
           .from('lightdata_envios')
           .select('id, tracking, comercio, nombre_destinatario, updated_at')
+          .gte('updated_at', ldCutoffIso)
           .not('tracking', 'is', null)
           .order('updated_at', { ascending: false })
-          .limit(120)
+          .limit(60)
           .then(res => {
             if (!res.error && Array.isArray(res.data)) {
               window.wmsMonitorState.recentLightdataEnvios = res.data;

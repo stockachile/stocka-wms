@@ -28,10 +28,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   currentPricingConfig = await loadPricingConfig(supabaseClient);
   
-  // Mostrar UF configurada
-  if (currentPricingConfig && currentPricingConfig.uf_value) {
-    const ufDisplay = document.getElementById('uf-display-val');
-    if (ufDisplay) ufDisplay.textContent = formatCLP(currentPricingConfig.uf_value);
+  // Mostrar UF configurada y sincronizar textos dinámicos del tarifario
+  if (currentPricingConfig) {
+    if (currentPricingConfig.uf_value) {
+      const ufDisplay = document.getElementById('uf-display-val');
+      if (ufDisplay) ufDisplay.textContent = formatCLP(currentPricingConfig.uf_value);
+    }
+    syncDynamicPricingUI(currentPricingConfig);
   }
 
   // 2. Comprobar parámetros de URL si existen (?pedidos=X&volumen=Y)
@@ -76,6 +79,117 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 4. Primer cálculo y render inicial
   recalculateAndRender();
 });
+
+/**
+ * Sincroniza dinámicamente las etiquetas, escalas de descuentos y opciones del DOM
+ * con la configuración activa del Tarifario & Cotizador.
+ */
+function syncDynamicPricingUI(cfg) {
+  if (!cfg) return;
+
+  // 1. Escala de Descuentos en Almacenamiento (badges)
+  const scaleStatusEl = document.getElementById('label-discount-scale-status');
+  const scaleWrapper = scaleStatusEl?.parentElement?.nextElementSibling;
+  if (scaleWrapper && Array.isArray(cfg.storage_discounts) && cfg.storage_discounts.length > 0) {
+    scaleWrapper.innerHTML = cfg.storage_discounts.map(d => {
+      const rangeText = d.max >= 999999 ? `+${Math.floor(d.min)} m³` : `${d.min}-${d.max} m³`;
+      return `<span class="badge" style="font-size: 0.72rem; padding: 0.25rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border);">${rangeText}: <strong>${d.discount_pct}%</strong></span>`;
+    }).join('');
+  }
+
+  // 2. Parámetros avanzados de pedidos (SKU, Unidades, Venta Protegida, Catálogo, Marketplace)
+  const rules = cfg.pick_pack_rules || {};
+  const skuInput = document.getElementById('input-sku-per-order');
+  if (skuInput && skuInput.nextElementSibling) {
+    skuInput.nextElementSibling.textContent = `Tarifa base incluye hasta ${rules.base_included_sku ?? 3} SKU. +${formatCLP(rules.surcharge_extra_sku ?? 100)} por SKU adicional.`;
+  }
+  const unitsInput = document.getElementById('input-units-per-order');
+  if (unitsInput && unitsInput.nextElementSibling) {
+    unitsInput.nextElementSibling.textContent = `Tarifa base incluye hasta ${rules.base_included_units ?? 10} unidades. +${formatCLP(rules.surcharge_extra_unit ?? 50)} por unidad adicional.`;
+  }
+  const switchProtected = document.getElementById('switch-protected-sale');
+  const protectedGroup = switchProtected?.closest('.switch-container')?.querySelector('.switch-label-group');
+  if (protectedGroup) {
+    const titleEl = protectedGroup.querySelector('.switch-title');
+    const descEl = protectedGroup.querySelector('.switch-desc');
+    if (titleEl) titleEl.innerHTML = `<i class="ri-shield-check-line" style="color: var(--color-accent);"></i> Venta Protegida (Ticket de venta &lt; ${formatCLP(rules.protected_ticket_threshold ?? 10000)})`;
+    if (descEl) descEl.textContent = `Si el valor de venta promedio es menor a ${formatCLP(rules.protected_ticket_threshold ?? 10000)}, accedes a tarifa base mínima de ${formatCLP(rules.protected_ticket_base_rate ?? 650)} + IVA.`;
+  }
+  const switchCat = document.getElementById('switch-catalogue-100');
+  const catGroup = switchCat?.closest('.switch-container')?.querySelector('.switch-label-group');
+  if (catGroup) {
+    const titleEl = catGroup.querySelector('.switch-title');
+    const descEl = catGroup.querySelector('.switch-desc');
+    const catThreshold = rules.catalogue_sku_threshold ?? 100;
+    const catExempt = rules.catalogue_exempt_max_units ?? 2;
+    if (titleEl) titleEl.innerHTML = `<i class="ri-layout-grid-line"></i> Catálogo amplio en bodega (+${catThreshold} SKU distintos)`;
+    if (descEl) descEl.textContent = `Aplica recargo de ${formatCLP(rules.surcharge_catalogue_over_100_sku ?? 100)} por pedido procesado (exento en ventas de hasta ${catExempt} unidades).`;
+  }
+  const switchMkt = document.getElementById('switch-marketplace-collect');
+  const mktGroup = switchMkt?.closest('.switch-container')?.querySelector('.switch-label-group');
+  if (mktGroup) {
+    const titleEl = mktGroup.querySelector('.switch-title');
+    if (titleEl) titleEl.innerHTML = `<i class="ri-truck-line"></i> Entrega en centros de envío Marketplace / Collect (+ ${formatCLP(rules.surcharge_marketplace_collect ?? 100)})`;
+  }
+
+  // 3. Selector de Peso Promedio a Regiones
+  const selectRegional = document.getElementById('select-regional-weight');
+  if (selectRegional && Array.isArray(cfg.regional_shipping?.weight_brackets) && cfg.regional_shipping.weight_brackets.length > 0) {
+    const currentVal = selectRegional.value || '1_3kg';
+    selectRegional.innerHTML = cfg.regional_shipping.weight_brackets.map(wb => {
+      const isDefault = wb.id === currentVal;
+      const star = wb.id === '1_3kg' ? ' ⭐' : '';
+      return `<option value="${wb.id}" ${isDefault ? 'selected' : ''}>${wb.label} — Promedio ~${formatCLP(wb.avg_rate)} + IVA (${wb.cheapest_courier || 'Starken'})${star}</option>`;
+    }).join('');
+  }
+
+  // 4. Textos de Despacho, Insumos y Servicios
+  const shipSameDayInput = document.getElementById('input-shipments-sameday');
+  if (shipSameDayInput && shipSameDayInput.nextElementSibling && cfg.shipping?.same_day_rm !== undefined) {
+    shipSameDayInput.nextElementSibling.textContent = `${formatCLP(cfg.shipping.same_day_rm)} + IVA por paquete en 36 comunas de Santiago.`;
+  }
+  const shipCourierInput = document.getElementById('input-shipments-courier');
+  if (shipCourierInput && shipCourierInput.nextElementSibling && cfg.shipping?.enviame_integration_fee !== undefined) {
+    shipCourierInput.nextElementSibling.textContent = `Cargo integración ${formatCLP(cfg.shipping.enviame_integration_fee)}/orden + costo de flete courier optimizado.`;
+  }
+  const pickupExpressInput = document.getElementById('input-pickups-express');
+  if (pickupExpressInput && pickupExpressInput.nextElementSibling && cfg.shipping?.pickup_express_base !== undefined) {
+    pickupExpressInput.nextElementSibling.textContent = `${formatCLP(cfg.shipping.pickup_express_base)} + IVA base. (El retiro estándar con 60 min de aviso es 100% gratuito).`;
+  }
+  const bubbleInput = document.getElementById('input-bubble-wrap');
+  if (bubbleInput) {
+    const bwRoll = cfg.supplies?.bubble_wrap_roll;
+    const costPerCm = bwRoll?.cost_per_linear_cm ?? cfg.supplies?.bubble_wrap_linear_cm ?? 3.6;
+    const costPerM = bwRoll?.cost_per_linear_m ?? cfg.supplies?.bubble_wrap_sqm ?? 360;
+    const widthCm = bwRoll?.roll_width_cm ?? 100;
+    const lblEl = document.querySelector('label[for="input-bubble-wrap"]');
+    if (lblEl) lblEl.textContent = `Plástico Burbuja (metros lineales · ancho ${widthCm} cm)`;
+    if (bubbleInput.nextElementSibling) {
+      bubbleInput.nextElementSibling.textContent = `$${costPerCm.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 4 })} / cm lineal (${formatCLP(costPerM)} + IVA por metro)`;
+    }
+  }
+
+  // Renderizar dinámicamente todas las cajas configuradas por tamaño y precio unitario
+  const boxSInput = document.getElementById('input-box-s');
+  const suppliesGrid = boxSInput?.closest('.form-grid-2');
+  if (suppliesGrid && Array.isArray(cfg.supplies?.boxes) && cfg.supplies.boxes.length > 0) {
+    const bubbleGroup = bubbleInput?.closest('.form-group');
+    const boxesHtml = cfg.supplies.boxes.map(bx => `
+      <div class="form-group">
+        <label for="input-box-${bx.id}" class="form-label">${bx.name} (${bx.length_cm}×${bx.width_cm}×${bx.height_cm} cm)</label>
+        <input type="number" id="input-box-${bx.id}" data-supply-box-id="${bx.id}" class="form-input dynamic-supply-box-input" value="0" min="0" placeholder="0">
+        <small style="color: var(--color-text-muted); font-size: 0.72rem;">${formatCLP(bx.unit_price)} + IVA c/u</small>
+      </div>
+    `).join('');
+    suppliesGrid.innerHTML = (bubbleGroup ? bubbleGroup.outerHTML : '') + boxesHtml;
+    suppliesGrid.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('input', recalculateAndRender);
+      inp.addEventListener('change', recalculateAndRender);
+    });
+  } else if (boxSInput && boxSInput.nextElementSibling && cfg.supplies?.box_s !== undefined) {
+    boxSInput.nextElementSibling.textContent = `${formatCLP(cfg.supplies.box_s)} + IVA c/u`;
+  }
+}
 
 /**
  * Configuración de Eventos de la Interfaz
@@ -383,6 +497,14 @@ function recalculateAndRender() {
     const monthlyOrders = parseInt(elOrdersNumber?.value, 10) || 0;
     const storageVolumeM3 = getCalculatedStorageVolume();
 
+    const boxQuantities = {};
+    document.querySelectorAll('.dynamic-supply-box-input').forEach(inp => {
+      const bxId = inp.getAttribute('data-supply-box-id');
+      if (bxId) boxQuantities[bxId] = parseInt(inp.value, 10) || 0;
+    });
+
+    const bubbleMeters = parseFloat(document.getElementById('input-bubble-wrap')?.value) || 0;
+
     const inputs = {
       monthlyOrders,
       storageVolumeM3,
@@ -395,8 +517,10 @@ function recalculateAndRender() {
       shipmentsCourier: parseInt(document.getElementById('input-shipments-courier')?.value, 10) || 0,
       regionalWeightBracket: document.getElementById('select-regional-weight')?.value || '1_3kg',
       pickupsExpress: parseInt(document.getElementById('input-pickups-express')?.value, 10) || 0,
-      bubbleWrapSqm: parseFloat(document.getElementById('input-bubble-wrap')?.value) || 0,
-      boxesS: parseInt(document.getElementById('input-box-s')?.value, 10) || 0,
+      bubbleWrapLinearCm: bubbleMeters * 100,
+      bubbleWrapSqm: bubbleMeters,
+      boxQuantities: Object.keys(boxQuantities).length > 0 ? boxQuantities : undefined,
+      boxesS: parseInt(document.getElementById('input-box-s')?.value || document.getElementById('input-box-box_s')?.value, 10) || 0,
       hasPosService: document.getElementById('check-pos-service')?.checked || false,
       hasVitrinaService: document.getElementById('check-vitrina-service')?.checked || false,
       unloadingVolumeM3: parseFloat(document.getElementById('input-unloading-m3')?.value) || 0
@@ -474,8 +598,11 @@ function renderQuotation(res) {
     } else {
       badgeStorageDiscount.style.display = 'none';
       if (labelDiscountScaleStatus) {
-        const needed = (10 - res.storage.volumeM3).toFixed(1);
-        labelDiscountScaleStatus.textContent = `Alcanza 10 m³ (te faltan ${needed} m³) para 18% OFF`;
+        const firstDiscount = currentPricingConfig?.storage_discounts?.[0] || { min: 10, discount_pct: 18 };
+        const minTarget = firstDiscount.min ?? 10;
+        const pctTarget = firstDiscount.discount_pct ?? 18;
+        const needed = Math.max(0.1, minTarget - res.storage.volumeM3).toFixed(1);
+        labelDiscountScaleStatus.textContent = `Alcanza ${minTarget} m³ (te faltan ${needed} m³) para ${pctTarget}% OFF`;
         labelDiscountScaleStatus.style.color = 'var(--color-accent)';
       }
     }

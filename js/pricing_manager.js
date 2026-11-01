@@ -38,6 +38,8 @@ export const DEFAULT_PRICING_CONFIG = {
     protected_ticket_threshold: 10000, // Ticket menor a $10.000 (venta protegida)
     protected_ticket_base_rate: 650, // Tarifa base rebajada para venta protegida ($650)
     surcharge_marketplace_collect: 100, // $100 por entrega en centro de envío / courier marketplace
+    catalogue_sku_threshold: 100, // Umbral de SKU en catálogo (> 100 SKU)
+    catalogue_exempt_max_units: 2, // Exento en pedidos con <= 2 unidades
     surcharge_catalogue_over_100_sku: 100, // $100 por pedido si catálogo > 100 SKU (aplica si >2 unidades)
     surcharge_ml_full_labeling: 100 // $100 por ítem etiquetado para envíos FULL
   },
@@ -46,7 +48,11 @@ export const DEFAULT_PRICING_CONFIG = {
   fixed_service_fee: {
     exemption_min_orders: 75, // Si pedidos >= 75 -> Costo fijo $0
     exemption_min_volume: 1.5, // Si volumen >= 1.5 m3 -> Costo fijo $0
+    tier1_max_orders: 50, // < 50 pedidos para Tramo 1
+    tier1_max_volume: 1.0, // < 1.0 m3 para Tramo 1
     tier1_fee_uf: 1.5, // 1.5 UF si volumen < 1 m3 Y pedidos < 50
+    tier2_max_orders: 75, // < 75 pedidos para Tramo 2
+    tier2_max_volume: 1.5, // < 1.5 m3 para Tramo 2
     tier2_fee_uf: 0.9 // 0.9 UF si no supera 1.5 m3 O 75 pedidos
   },
 
@@ -68,12 +74,28 @@ export const DEFAULT_PRICING_CONFIG = {
     { key: 'FLEX', name: 'Flex', price: 3200, is_billable: true, description: 'Mercado Envíos Flex a todo destino' },
     { key: 'ENVIAME_REGION', name: 'Envíame / Región', price: 0, is_billable: false, description: 'Despacho externo / regiones (flete $0 en fulfillment)' },
     { key: 'CENTRO_ENVIOS', name: 'Centro de Envíos', price: 0, is_billable: false, description: 'Mercado Envíos Centro de Envíos / Colecta Marketplace' },
-    { key: 'RETIRO', name: 'Retiro', price: 0, is_billable: false, description: 'Retiro presencial en bodega' }
+    { key: 'RETIRO', name: 'Retiro', price: 0, is_billable: false, description: 'Retiro presencial en bodega' },
+    { key: 'POS', name: 'Punto de Venta (POS)', price: 0, is_billable: false, description: 'Entrega presencial en Punto de Venta físico ($0 despacho · Base Prep. $1.490)' }
   ],
 
-  // 6. Insumos Opcionales (Empaque adicional no estándar)
+  // 6. Insumos Opcionales y Materiales de Embalaje Configurables (Cajas por tamaño y Plástico Burbuja)
   supplies: {
+    bubble_wrap_roll: {
+      roll_cost: 36000,        // Costo del rollo ($ CLP + IVA)
+      roll_width_cm: 100,      // Ancho del rollo en cm (ej. 100 cm = 1,0 m)
+      roll_length_m: 100,      // Metros totales del rollo (ej. 100 m = 10.000 cm)
+      cost_per_linear_cm: 3.6, // Costo lineal por cm ($) = roll_cost / (roll_length_m * 100)
+      cost_per_linear_m: 360,  // Costo lineal por metro ($) = cost_per_linear_cm * 100
+      cost_per_sqm: 360        // Costo por m2 ($)
+    },
+    boxes: [
+      { id: 'box_xs', name: 'Caja XS', length_cm: 10, width_cm: 10, height_cm: 10, unit_price: 280 },
+      { id: 'box_s',  name: 'Caja S',  length_cm: 20, width_cm: 20, height_cm: 20, unit_price: 450 },
+      { id: 'box_m',  name: 'Caja M',  length_cm: 30, width_cm: 30, height_cm: 30, unit_price: 990 },
+      { id: 'box_l',  name: 'Caja L',  length_cm: 40, width_cm: 30, height_cm: 30, unit_price: 1490 }
+    ],
     bubble_wrap_sqm: 360, // m2 plástico burbuja ($360 + IVA)
+    bubble_wrap_linear_cm: 3.6, // cm lineal plástico burbuja ($3,60 + IVA)
     box_xs: 280, // Caja XS 10x10x10 cm ($280 + IVA)
     box_s: 450, // Caja S 20x20x20 cm ($450 + IVA)
     box_m: 990 // Caja M 30x30x30 cm ($990 + IVA)
@@ -255,11 +277,66 @@ export function sanitizeAndMergeConfig(customConfig) {
     }
   }
 
-  // Validar supplies
+  // Validar supplies (Cajas por tamaño y Plástico Burbuja por cm lineal)
   if (!merged.supplies || typeof merged.supplies !== 'object') {
     merged.supplies = defaults.supplies;
   } else {
     merged.supplies = { ...defaults.supplies, ...merged.supplies };
+
+    // Sanitizar rollo de plástico burbuja y calcular costo lineal por cm
+    const defRoll = defaults.supplies.bubble_wrap_roll;
+    const rawRoll = merged.supplies.bubble_wrap_roll && typeof merged.supplies.bubble_wrap_roll === 'object'
+      ? { ...defRoll, ...merged.supplies.bubble_wrap_roll }
+      : { ...defRoll };
+
+    const rollCost = Math.max(0, parseFloat(rawRoll.roll_cost) || defRoll.roll_cost);
+    const rollWidthCm = Math.max(1, parseFloat(rawRoll.roll_width_cm) || defRoll.roll_width_cm);
+    const rollLengthM = Math.max(0.1, parseFloat(rawRoll.roll_length_m) || defRoll.roll_length_m);
+    const totalLinearCm = rollLengthM * 100;
+    const costPerLinearCm = Number((rollCost / totalLinearCm).toFixed(4));
+    const costPerLinearM = Number((costPerLinearCm * 100).toFixed(2));
+    const totalSqm = rollLengthM * (rollWidthCm / 100);
+    const costPerSqm = totalSqm > 0 ? Math.round(rollCost / totalSqm) : 360;
+
+    merged.supplies.bubble_wrap_roll = {
+      roll_cost: rollCost,
+      roll_width_cm: rollWidthCm,
+      roll_length_m: rollLengthM,
+      cost_per_linear_cm: costPerLinearCm,
+      cost_per_linear_m: costPerLinearM,
+      cost_per_sqm: costPerSqm
+    };
+    merged.supplies.bubble_wrap_linear_cm = costPerLinearCm;
+    merged.supplies.bubble_wrap_sqm = costPerSqm;
+
+    // Sanitizar catálogo de cajas de distinto tamaño
+    if (!Array.isArray(merged.supplies.boxes) || merged.supplies.boxes.length === 0) {
+      merged.supplies.boxes = defaults.supplies.boxes.map(b => ({ ...b }));
+      // Respetar precios legacy si habían sido editados previamente
+      const bxXs = merged.supplies.boxes.find(b => b.id === 'box_xs');
+      const bxS = merged.supplies.boxes.find(b => b.id === 'box_s');
+      const bxM = merged.supplies.boxes.find(b => b.id === 'box_m');
+      if (bxXs && merged.supplies.box_xs) bxXs.unit_price = merged.supplies.box_xs;
+      if (bxS && merged.supplies.box_s) bxS.unit_price = merged.supplies.box_s;
+      if (bxM && merged.supplies.box_m) bxM.unit_price = merged.supplies.box_m;
+    } else {
+      merged.supplies.boxes = merged.supplies.boxes.map((b, i) => ({
+        id: String(b.id || `box_${i + 1}`).trim(),
+        name: String(b.name || `Caja #${i + 1}`).trim(),
+        length_cm: Math.max(1, parseFloat(b.length_cm) || 20),
+        width_cm: Math.max(1, parseFloat(b.width_cm) || 20),
+        height_cm: Math.max(1, parseFloat(b.height_cm) || 20),
+        unit_price: Math.max(0, parseInt(b.unit_price, 10) || 0)
+      }));
+    }
+
+    // Sincronizar referencias rápidas legacy
+    const foundXs = merged.supplies.boxes.find(b => b.id === 'box_xs');
+    const foundS = merged.supplies.boxes.find(b => b.id === 'box_s') || merged.supplies.boxes[0];
+    const foundM = merged.supplies.boxes.find(b => b.id === 'box_m');
+    if (foundXs) merged.supplies.box_xs = foundXs.unit_price;
+    if (foundS) merged.supplies.box_s = foundS.unit_price;
+    if (foundM) merged.supplies.box_m = foundM.unit_price;
   }
 
   // Validar services
@@ -311,6 +388,11 @@ export function sanitizeAndMergeConfig(customConfig) {
  */
 export function getDeliveryTypes(config = null) {
   if (config && Array.isArray(config.delivery_types) && config.delivery_types.length > 0) {
+    const hasPos = config.delivery_types.some(dt => dt && dt.key === 'POS');
+    if (!hasPos) {
+      const posType = DEFAULT_PRICING_CONFIG.delivery_types.find(dt => dt.key === 'POS');
+      if (posType) return [...config.delivery_types, posType];
+    }
     return config.delivery_types;
   }
   return DEFAULT_PRICING_CONFIG.delivery_types;
@@ -320,9 +402,10 @@ export function getDeliveryTypes(config = null) {
  * Carga la configuración de precios desde Supabase o localStorage con fallback a la configuración por defecto.
  */
 export async function loadPricingConfig(supabaseClient = null) {
-  let loadedConfig = null;
+  let supabaseConfig = null;
+  let localConfig = null;
 
-  // Intentar cargar desde Supabase si hay cliente disponible
+  // 1. Intentar cargar desde Supabase si hay cliente disponible
   if (supabaseClient) {
     try {
       const { data, error } = await supabaseClient
@@ -332,38 +415,48 @@ export async function loadPricingConfig(supabaseClient = null) {
         .maybeSingle();
 
       if (!error && data && data.data && typeof data.data === 'object') {
-        loadedConfig = data.data;
+        supabaseConfig = data.data;
       }
     } catch (e) {
       console.warn("No se pudo conectar a pricing_config en Supabase, usando almacenamiento local:", e);
     }
   }
 
-  // Fallback a localStorage
-  if (!loadedConfig) {
-    try {
-      const local = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
-      if (local) {
-        const parsed = JSON.parse(local);
-        if (parsed && typeof parsed === 'object') {
-          loadedConfig = parsed;
-        }
+  // 2. Leer también desde localStorage
+  try {
+    const local = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+    if (local) {
+      const parsed = JSON.parse(local);
+      if (parsed && typeof parsed === 'object') {
+        localConfig = parsed;
       }
-    } catch (e) {
-      console.warn("Error leyendo pricing config de localStorage:", e);
+    }
+  } catch (e) {
+    console.warn("Error leyendo pricing config de localStorage:", e);
+  }
+
+  // 3. Elegir la versión más reciente entre Supabase y localStorage
+  let loadedConfig = supabaseConfig || localConfig;
+  if (supabaseConfig && localConfig) {
+    const supaTime = supabaseConfig.updated_at ? new Date(supabaseConfig.updated_at).getTime() : 0;
+    const localTime = localConfig.updated_at ? new Date(localConfig.updated_at).getTime() : 0;
+    if (localTime > supaTime) {
+      loadedConfig = localConfig;
     }
   }
 
   // Sanitizar y fusionar siempre con los defaults para evitar campos faltantes
   const finalConfig = sanitizeAndMergeConfig(loadedConfig);
 
-  // Actualizar UF en vivo para garantizar cálculo exacto con la UF real del día
-  try {
-    const liveUf = await getLiveUfValue();
-    if (liveUf && liveUf > 30000) {
-      finalConfig.uf_value = liveUf;
-    }
-  } catch (e) {}
+  // Actualizar UF en vivo solo si no fue fijada manualmente por el administrador
+  if (!finalConfig.uf_is_manual) {
+    try {
+      const liveUf = await getLiveUfValue();
+      if (liveUf && liveUf > 30000) {
+        finalConfig.uf_value = liveUf;
+      }
+    } catch (e) {}
+  }
 
   // Guardar versión sanitizada completa en localStorage
   try {
@@ -401,12 +494,12 @@ export async function savePricingConfig(newConfig, supabaseClient = null) {
         }, { onConflict: 'config_key' });
 
       if (error) {
-        console.error("Error guardando pricing_config en Supabase:", error);
-        return { success: false, error: error.message };
+        console.warn("Aviso guardando pricing_config en Supabase (guardado en almacenamiento local):", error);
+        return { success: true, warning: error.message };
       }
     } catch (e) {
-      console.error("Excepción al guardar pricing_config en Supabase:", e);
-      return { success: false, error: e.message };
+      console.warn("Excepción al guardar pricing_config en Supabase (guardado en almacenamiento local):", e);
+      return { success: true, warning: e.message };
     }
   }
 
@@ -457,14 +550,16 @@ export function calculateQuotation(inputs, customConfig = null) {
   const baseStorageM3Rate = activeRange.storage_m3;
   const grossStorageCost = storageVolumeM3 * baseStorageM3Rate;
 
-  // Determinar descuento por volumen de almacenamiento (> 10 m3)
+  // Determinar descuento por volumen de almacenamiento (> min del primer tramo)
+  const firstDiscountMin = config.storage_discounts?.[0]?.min ?? 10;
   let storageDiscountPct = 0;
-  let storageDiscountLabel = "Sin descuento (< 10 m³)";
+  let storageDiscountLabel = `Sin descuento (< ${firstDiscountMin} m³)`;
   if (config.storage_discounts && config.storage_discounts.length > 0) {
     for (const d of config.storage_discounts) {
       if (storageVolumeM3 >= d.min && storageVolumeM3 <= d.max) {
         storageDiscountPct = d.discount_pct;
-        storageDiscountLabel = `${d.discount_pct}% dcto por volumen (${d.min} - ${d.max === 999999 ? '+60' : d.max} m³)`;
+        const maxLabel = d.max >= 999999 ? `+${Math.floor(d.min)}` : d.max;
+        storageDiscountLabel = `${d.discount_pct}% dcto por volumen (${d.min} - ${maxLabel} m³)`;
         break;
       }
     }
@@ -475,7 +570,7 @@ export function calculateQuotation(inputs, customConfig = null) {
   // 3. Cálculo de Pick & Pack (Preparación de Pedidos)
   const isProtectedSale = !!inputs.isProtectedSale; // Ticket < $10.000
   const basePickPackRate = isProtectedSale 
-    ? (config.pick_pack_rules.protected_ticket_base_rate || 650)
+    ? (config.pick_pack_rules.protected_ticket_base_rate ?? 650)
     : activeRange.pick_pack_base;
 
   const skuPerOrder = Math.max(1, parseInt(inputs.skuPerOrder, 10) || 1);
@@ -484,25 +579,30 @@ export function calculateQuotation(inputs, customConfig = null) {
   const hasOver100SkuCatalogue = !!inputs.hasOver100SkuCatalogue;
 
   // Recargos unitarios por pedido
-  const extraSkuCount = Math.max(0, skuPerOrder - (config.pick_pack_rules.base_included_sku || 3));
-  const surchargeExtraSku = extraSkuCount * (config.pick_pack_rules.surcharge_extra_sku || 100);
+  const extraSkuCount = Math.max(0, skuPerOrder - (config.pick_pack_rules.base_included_sku ?? 3));
+  const surchargeExtraSku = extraSkuCount * (config.pick_pack_rules.surcharge_extra_sku ?? 100);
 
-  const extraUnitsCount = Math.max(0, unitsPerOrder - (config.pick_pack_rules.base_included_units || 10));
-  const surchargeExtraUnits = extraUnitsCount * (config.pick_pack_rules.surcharge_extra_unit || 50);
+  const extraUnitsCount = Math.max(0, unitsPerOrder - (config.pick_pack_rules.base_included_units ?? 10));
+  const surchargeExtraUnits = extraUnitsCount * (config.pick_pack_rules.surcharge_extra_unit ?? 50);
 
-  const surchargeMarketplace = isMarketplaceCollect ? (config.pick_pack_rules.surcharge_marketplace_collect || 100) : 0;
+  const surchargeMarketplace = isMarketplaceCollect ? (config.pick_pack_rules.surcharge_marketplace_collect ?? 100) : 0;
   
-  // Recargo por catálogo > 100 SKU no aplica en pedidos con 2 o menos unidades
-  const surchargeCatalogue = (hasOver100SkuCatalogue && unitsPerOrder > 2) 
-    ? (config.pick_pack_rules.surcharge_catalogue_over_100_sku || 100) 
+  // Recargo por catálogo > X SKU no aplica en pedidos con <= Y unidades
+  const exemptMaxUnits = config.pick_pack_rules.catalogue_exempt_max_units ?? 2;
+  const surchargeCatalogue = (hasOver100SkuCatalogue && unitsPerOrder > exemptMaxUnits) 
+    ? (config.pick_pack_rules.surcharge_catalogue_over_100_sku ?? 100) 
     : 0;
 
   const unitPickPackCost = basePickPackRate + surchargeExtraSku + surchargeExtraUnits + surchargeMarketplace + surchargeCatalogue;
   const totalPickPackCost = monthlyOrders * unitPickPackCost;
 
   // 4. Cálculo de Costo Fijo Mensual de Servicio
-  const minOrdersExemption = config.fixed_service_fee.exemption_min_orders || 75;
-  const minVolumeExemption = config.fixed_service_fee.exemption_min_volume || 1.5;
+  const minOrdersExemption = config.fixed_service_fee.exemption_min_orders ?? 75;
+  const minVolumeExemption = config.fixed_service_fee.exemption_min_volume ?? 1.5;
+  const tier1MaxOrders = config.fixed_service_fee.tier1_max_orders ?? 50;
+  const tier1MaxVolume = config.fixed_service_fee.tier1_max_volume ?? 1.0;
+  const tier2MaxOrders = config.fixed_service_fee.tier2_max_orders ?? minOrdersExemption;
+  const tier2MaxVolume = config.fixed_service_fee.tier2_max_volume ?? minVolumeExemption;
   
   let fixedFeeExempt = false;
   let fixedFeeUF = 0;
@@ -513,15 +613,15 @@ export function calculateQuotation(inputs, customConfig = null) {
     fixedFeeExempt = true;
     fixedFeeUF = 0;
     fixedFeeCLP = 0;
-    fixedFeeReason = `Exento ($0) por alcanzar ${monthlyOrders >= minOrdersExemption ? '≥ 75 pedidos' : '≥ 1.5 m³ de almacenamiento'}`;
-  } else if (storageVolumeM3 < 1.0 && monthlyOrders < 50) {
-    fixedFeeUF = config.fixed_service_fee.tier1_fee_uf || 1.5;
+    fixedFeeReason = `Exento ($0) por alcanzar ${monthlyOrders >= minOrdersExemption ? `≥ ${minOrdersExemption} pedidos` : `≥ ${minVolumeExemption} m³ de almacenamiento`}`;
+  } else if (storageVolumeM3 < tier1MaxVolume && monthlyOrders < tier1MaxOrders) {
+    fixedFeeUF = config.fixed_service_fee.tier1_fee_uf ?? 1.5;
     fixedFeeCLP = Math.round(fixedFeeUF * ufValue);
-    fixedFeeReason = `Costo variable 1.5 UF (${formatCLP(fixedFeeCLP)}) por operar con < 50 pedidos y < 1 m³`;
+    fixedFeeReason = `Costo variable ${fixedFeeUF} UF (${formatCLP(fixedFeeCLP)}) por operar con < ${tier1MaxOrders} pedidos y < ${tier1MaxVolume} m³`;
   } else {
-    fixedFeeUF = config.fixed_service_fee.tier2_fee_uf || 0.9;
+    fixedFeeUF = config.fixed_service_fee.tier2_fee_uf ?? 0.9;
     fixedFeeCLP = Math.round(fixedFeeUF * ufValue);
-    fixedFeeReason = `Costo variable 0.9 UF (${formatCLP(fixedFeeCLP)}) por operar con < 75 pedidos y < 1.5 m³`;
+    fixedFeeReason = `Costo variable ${fixedFeeUF} UF (${formatCLP(fixedFeeCLP)}) por operar con < ${tier2MaxOrders} pedidos o < ${tier2MaxVolume} m³`;
   }
 
   // 5. Despachos y Envíos Proyectados
@@ -553,14 +653,29 @@ export function calculateQuotation(inputs, customConfig = null) {
 
   // 6. Insumos y Servicios Adicionales
   const bubbleWrapSqm = Math.max(0, parseFloat(inputs.bubbleWrapSqm) || 0);
+  const bubbleWrapLinearCm = Math.max(0, parseFloat(inputs.bubbleWrapLinearCm) || 0);
+  const costPerLinearCm = config.supplies.bubble_wrap_roll?.cost_per_linear_cm ?? config.supplies.bubble_wrap_linear_cm ?? 3.6;
+  const costBubbleWrap = bubbleWrapLinearCm > 0
+    ? (bubbleWrapLinearCm * costPerLinearCm)
+    : (bubbleWrapSqm * (config.supplies.bubble_wrap_sqm || 360));
+
   const boxesXs = Math.max(0, parseInt(inputs.boxesXs, 10) || 0);
   const boxesS = Math.max(0, parseInt(inputs.boxesS, 10) || 0);
   const boxesM = Math.max(0, parseInt(inputs.boxesM, 10) || 0);
 
-  const costSupplies = (bubbleWrapSqm * (config.supplies.bubble_wrap_sqm || 360)) +
-    (boxesXs * (config.supplies.box_xs || 280)) +
-    (boxesS * (config.supplies.box_s || 450)) +
-    (boxesM * (config.supplies.box_m || 990));
+  let costBoxes = 0;
+  if (inputs.boxQuantities && typeof inputs.boxQuantities === 'object' && Array.isArray(config.supplies.boxes)) {
+    config.supplies.boxes.forEach(bx => {
+      const q = Math.max(0, parseInt(inputs.boxQuantities[bx.id], 10) || 0);
+      costBoxes += q * (bx.unit_price || 0);
+    });
+  } else {
+    costBoxes = (boxesXs * (config.supplies.box_xs || 280)) +
+      (boxesS * (config.supplies.box_s || 450)) +
+      (boxesM * (config.supplies.box_m || 990));
+  }
+
+  const costSupplies = costBubbleWrap + costBoxes;
 
   // Servicios Adicionales en Sucursal
   const hasPosService = !!inputs.hasPosService;
