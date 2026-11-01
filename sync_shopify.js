@@ -209,7 +209,7 @@ async function syncOrders(integration) {
     warehouseId = whRelation?.warehouse_id || null;
   }
 
-  // Cargar equivalencias de SKU
+  // Cargar equivalencias de SKU (soportando coincidencia exacta con espacios y sin espacios)
   const skuMap = {};
   try {
     const { data: equivalences } = await supabase
@@ -219,10 +219,20 @@ async function syncOrders(integration) {
     
     if (equivalences) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const pTrim = e.platform_sku.trim();
+          const mTrim = e.master_sku.trim();
+          skuMap[pTrim] = mTrim;
+          skuMap[pTrim.replace(/\s+/g, '')] = mTrim;
+        }
       });
       equivalences.filter(e => e.platform === 'Shopify').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const pTrim = e.platform_sku.trim();
+          const mTrim = e.master_sku.trim();
+          skuMap[pTrim] = mTrim;
+          skuMap[pTrim.replace(/\s+/g, '')] = mTrim;
+        }
       });
     }
   } catch (err) {
@@ -377,6 +387,7 @@ async function syncOrders(integration) {
         const currentWmsStatus = (existingOrder.estado_wms || '').toLowerCase().trim();
         const currentStatus = (existingOrder.status || '').toLowerCase().trim();
         const isProtectedStatus = ['en preparación', 'pickeado', 'despachado', 'entregado', 'retirado', 'cancelado', 'incidencia'].includes(currentWmsStatus) ||
+                                  (currentWmsStatus === 'archivado' && (existingOrder.cantidad || 0) > 0) ||
                                   ['despachado', 'entregado', 'retirado', 'cancelado'].includes(currentStatus);
 
         if (isProtectedStatus) {
@@ -503,17 +514,19 @@ async function syncOrders(integration) {
           continue;
         }
 
-        let cleanSku = (item.sku || "").trim().replace(/\s+/g, '');
-        let mappedSku = skuMap[cleanSku] || cleanSku;
-        let hasEquivalence = !!skuMap[cleanSku];
-        let fallbackSku = item.variant_id ? String(item.variant_id) : (item.id ? String(item.id) : 'NO-SKU');
-        let searchSku = mappedSku || fallbackSku;
+        const fallbackSku = item.variant_id ? String(item.variant_id) : (item.id ? String(item.id) : 'NO-SKU');
+        const rawSku = (item.sku || fallbackSku).trim();
+        const cleanSku = rawSku.replace(/\s+/g, '');
+        const mappedSku = skuMap[rawSku] || skuMap[cleanSku] || rawSku;
+        const hasEquivalence = !!(skuMap[rawSku] || skuMap[cleanSku]);
+        const searchSku = mappedSku || fallbackSku;
 
         // Omitir si fue eliminado manualmente en WMS
         const searchLower = searchSku.toLowerCase();
+        const rawLower = rawSku.toLowerCase();
         const cleanLower = cleanSku.toLowerCase();
         const varLower = (item.variant_id ? String(item.variant_id) : '').toLowerCase();
-        if (manualDeletedSet.has(searchLower) || manualDeletedSet.has(cleanLower) || (varLower && manualDeletedSet.has(varLower))) {
+        if (manualDeletedSet.has(searchLower) || manualDeletedSet.has(rawLower) || manualDeletedSet.has(cleanLower) || (varLower && manualDeletedSet.has(varLower))) {
           console.log(`[Shopify Sync] Omitiendo SKU ${searchSku} (${item.title}) por protección de eliminación manual en WMS.`);
           continue;
         }
@@ -521,25 +534,47 @@ async function syncOrders(integration) {
         // Respetar cantidad manual si existe
         for (const [mSku, mQty] of Object.entries(manualEdits.modified_quantities || {})) {
           const mLower = mSku.trim().toLowerCase();
-          if (mLower === searchLower || mLower === cleanLower || mLower === varLower) {
+          if (mLower === searchLower || mLower === rawLower || mLower === cleanLower || mLower === varLower) {
             effectiveQty = mQty;
             console.log(`[Shopify Sync] SKU ${searchSku} mantiene cantidad manual WMS (${mQty})`);
             break;
           }
         }
 
-        // Buscar producto en catálogo por comercio y sku
-        let query = supabase.from('products')
-          .select('id, is_pack')
-          .eq('sku', searchSku)
+        // Buscar producto en catálogo por comercio y sku (exacto con espacios o versión sin espacios)
+        const productSkuCandidates = Array.from(new Set([
+          searchSku,
+          searchSku.replace(/\s+/g, '')
+        ].filter(Boolean)));
+
+        const { data: foundProducts } = await supabase.from('products')
+          .select('id, sku, is_pack, barcode_wms, description')
+          .in('sku', productSkuCandidates)
           .eq('comercio', integration.comercio);
 
-        const { data: foundProduct } = await query.maybeSingle();
-        let product = foundProduct;
+        let product = null;
+        if (foundProducts && foundProducts.length > 0) {
+          product =
+            foundProducts.find(p => p.barcode_wms && p.sku === searchSku) ||
+            foundProducts.find(p => p.barcode_wms) ||
+            foundProducts.find(p => p.sku === searchSku && !(p.description || '').startsWith('Creado automáticamente')) ||
+            foundProducts.find(p => p.sku === searchSku) ||
+            foundProducts[0];
+        }
+
+        if (!product && searchSku) {
+          const { data: ilikeProd } = await supabase.from('products')
+            .select('id, sku, is_pack, barcode_wms, description')
+            .eq('comercio', integration.comercio)
+            .ilike('sku', searchSku)
+            .limit(1)
+            .maybeSingle();
+          if (ilikeProd) product = ilikeProd;
+        }
 
         // Auto-crear producto si no existe
         if (!product) {
-          const targetSku = hasEquivalence ? mappedSku : (item.sku || fallbackSku);
+          const targetSku = hasEquivalence ? mappedSku : (rawSku || fallbackSku);
           const { data: newProd, error: prodErr } = await supabase
             .from('products')
             .insert([{
@@ -548,7 +583,7 @@ async function syncOrders(integration) {
               sku: targetSku,
               name: `${item.title}${item.variant_title && item.variant_title !== 'Default Title' ? ' - ' + item.variant_title : ''}`,
               price: item.price ? parseFloat(item.price) : 0,
-              description: 'Creado automáticamente desde sincronización de Shopify' + (hasEquivalence ? ` (Equivalencia de SKU: ${cleanSku})` : ''),
+              description: 'Creado automáticamente desde sincronización de Shopify' + (hasEquivalence ? ` (Equivalencia de SKU: ${rawSku})` : ''),
               status: 'active'
             }])
             .select('id, is_pack')
@@ -668,6 +703,7 @@ async function syncProducts(integration) {
   let url = `https://${integration.shop_url}/admin/api/2024-04/products.json?limit=250`;
   const seenSkus = new Set();
   const productsToUpsert = [];
+  const orphanVariantIdsToClean = [];
   let pageCount = 0;
 
   try {
@@ -689,8 +725,6 @@ async function syncProducts(integration) {
       const data = await response.json();
       const products = data.products || [];
       console.log(`Se encontraron ${products.length} productos base en la página ${pageCount}.`);
-
-      const orphanVariantIdsToClean = [];
 
       for (const product of products) {
         // Intentar obtener la imagen principal del producto

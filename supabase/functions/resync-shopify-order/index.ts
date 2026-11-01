@@ -232,7 +232,7 @@ serve(async (req) => {
       return true;
     });
 
-    // Cargar equivalencias de SKU para este comercio
+    // Cargar equivalencias de SKU para este comercio (con y sin espacios)
     const skuMap: Record<string, string> = {};
     try {
       const { data: equivalences } = await supabase
@@ -240,9 +240,20 @@ serve(async (req) => {
         .select("platform_sku, master_sku, platform")
         .eq("comercio", order.comercio);
       if (equivalences) {
-        equivalences.forEach((e: any) => {
-          if (e.platform_sku && (e.platform === "Todas" || e.platform === "Shopify")) {
-            skuMap[e.platform_sku.trim().replace(/\s+/g, "")] = e.master_sku.trim();
+        equivalences.filter((e: any) => e.platform === "Todas").forEach((e: any) => {
+          if (e.platform_sku && e.master_sku) {
+            const pTrim = e.platform_sku.trim();
+            const mTrim = e.master_sku.trim();
+            skuMap[pTrim] = mTrim;
+            skuMap[pTrim.replace(/\s+/g, "")] = mTrim;
+          }
+        });
+        equivalences.filter((e: any) => e.platform === "Shopify").forEach((e: any) => {
+          if (e.platform_sku && e.master_sku) {
+            const pTrim = e.platform_sku.trim();
+            const mTrim = e.master_sku.trim();
+            skuMap[pTrim] = mTrim;
+            skuMap[pTrim.replace(/\s+/g, "")] = mTrim;
           }
         });
       }
@@ -300,39 +311,82 @@ serve(async (req) => {
 
     for (const item of activeItems) {
       let effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
-      const cleanSku = (item.sku || "").trim().replace(/\s+/g, "");
-      const mappedSku = skuMap[cleanSku] || cleanSku;
       const fallbackSku = item.variant_id ? String(item.variant_id) : (item.id ? String(item.id) : "NO-SKU");
+      const rawSku = (item.sku || fallbackSku).trim();
+      const cleanSku = rawSku.replace(/\s+/g, "");
+      const mappedSku = skuMap[rawSku] || skuMap[cleanSku] || rawSku;
+      const hasEquivalence = !!(skuMap[rawSku] || skuMap[cleanSku]);
       const searchSku = mappedSku || fallbackSku;
 
       // Verificar si hay cantidad modificada manualmente en WMS
+      const searchLower = searchSku.toLowerCase();
+      const rawLower = rawSku.toLowerCase();
       const cleanLower = cleanSku.toLowerCase();
       const varLower = (item.variant_id?.toString() || '').toLowerCase();
       for (const [mSku, mQty] of Object.entries(manualEdits.modified_quantities || {})) {
         const mLower = mSku.trim().toLowerCase();
-        if (mLower === cleanLower || mLower === varLower) {
+        if (mLower === searchLower || mLower === rawLower || mLower === cleanLower || mLower === varLower) {
           effectiveQty = mQty;
           protectedManualLogs.push(`SKU ${searchSku} mantiene cantidad manual WMS (${mQty}) en lugar de Shopify (${item.current_quantity || item.quantity}).`);
           break;
         }
       }
 
-      let { data: prod } = await supabase
+      const productSkuCandidates = Array.from(new Set([
+        searchSku,
+        searchSku.replace(/\s+/g, "")
+      ].filter(Boolean)));
+
+      const { data: foundProducts } = await supabase
         .from("products")
-        .select("id, sku, name")
-        .eq("sku", searchSku)
-        .eq("comercio", order.comercio)
-        .maybeSingle();
+        .select("id, sku, name, barcode_wms, description")
+        .in("sku", productSkuCandidates)
+        .eq("comercio", order.comercio);
+
+      let prod: any = null;
+      if (foundProducts && foundProducts.length > 0) {
+        prod =
+          foundProducts.find((p: any) => p.barcode_wms && p.sku === searchSku) ||
+          foundProducts.find((p: any) => p.barcode_wms) ||
+          foundProducts.find((p: any) => p.sku === searchSku && !(p.description || "").startsWith("Creado automáticamente")) ||
+          foundProducts.find((p: any) => p.sku === searchSku) ||
+          foundProducts[0];
+      }
+
+      if (!prod && searchSku) {
+        const { data: ilikeProd } = await supabase
+          .from("products")
+          .select("id, sku, name, barcode_wms, description")
+          .eq("comercio", order.comercio)
+          .ilike("sku", searchSku)
+          .limit(1)
+          .maybeSingle();
+        if (ilikeProd) prod = ilikeProd;
+      }
 
       if (!prod) {
+        const targetSku = hasEquivalence ? mappedSku : (rawSku || fallbackSku);
+        let catalogMerchantId = order.merchant_id || integ.merchant_id;
+        try {
+          const { data: siblingProd } = await supabase
+            .from("products")
+            .select("merchant_id")
+            .eq("comercio", order.comercio)
+            .not("barcode_wms", "is", null)
+            .limit(1)
+            .maybeSingle();
+          if (siblingProd?.merchant_id) catalogMerchantId = siblingProd.merchant_id;
+        } catch (_) {}
+
         const { data: newProd } = await supabase
           .from("products")
           .insert([{
-            merchant_id: integ.merchant_id,
+            merchant_id: catalogMerchantId,
             comercio: order.comercio,
-            sku: searchSku,
+            sku: targetSku,
             name: `${item.title}${item.variant_title && item.variant_title !== "Default Title" ? " - " + item.variant_title : ""}`,
             price: item.price ? parseFloat(item.price) : 0,
+            description: "Creado automáticamente desde sincronización de Shopify" + (hasEquivalence ? ` (Equivalencia de SKU: ${rawSku})` : ""),
             status: "active"
           }])
           .select("id, sku, name")

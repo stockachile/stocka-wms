@@ -700,23 +700,65 @@ async function syncShopifyOrders(integration: any): Promise<number> {
         const targetSku = (item.sku || item.variant_id?.toString() || "").trim();
         if (!targetSku) continue;
 
-        let { data: product } = await supabase
-          .from("products")
-          .select("id")
-          .eq("sku", targetSku)
+        const cleanSku = targetSku.replace(/\s+/g, "");
+        let mappedSku = targetSku;
+        let hasEquivalence = false;
+        const candidateEqSkus = targetSku !== cleanSku ? [targetSku, cleanSku] : [targetSku];
+        const { data: eqData } = await supabase
+          .from("sku_equivalences")
+          .select("master_sku, platform")
           .eq("comercio", integration.comercio)
-          .maybeSingle();
+          .in("platform_sku", candidateEqSkus)
+          .in("platform", ["Shopify", "Todas"]);
+
+        if (eqData && eqData.length > 0) {
+          const exactMatch = eqData.find((e: any) => e.platform === "Shopify");
+          mappedSku = (exactMatch ? exactMatch.master_sku : eqData[0].master_sku).trim();
+          hasEquivalence = true;
+        }
+
+        const productSkuCandidates = mappedSku !== mappedSku.replace(/\s+/g, "")
+          ? [mappedSku, mappedSku.replace(/\s+/g, "")]
+          : [mappedSku];
+
+        const { data: foundProducts } = await supabase
+          .from("products")
+          .select("id, sku, barcode_wms, description")
+          .in("sku", productSkuCandidates)
+          .eq("comercio", integration.comercio);
+
+        let product: any = null;
+        if (foundProducts && foundProducts.length > 0) {
+          product =
+            foundProducts.find((p: any) => p.barcode_wms && p.sku === mappedSku) ||
+            foundProducts.find((p: any) => p.barcode_wms) ||
+            foundProducts.find((p: any) => p.sku === mappedSku && !(p.description || "").startsWith("Creado automáticamente")) ||
+            foundProducts.find((p: any) => p.sku === mappedSku) ||
+            foundProducts[0];
+        }
+
+        if (!product && mappedSku) {
+          const { data: ilikeProd } = await supabase
+            .from("products")
+            .select("id, sku, barcode_wms, description")
+            .eq("comercio", integration.comercio)
+            .ilike("sku", mappedSku)
+            .limit(1)
+            .maybeSingle();
+          if (ilikeProd) product = ilikeProd;
+        }
 
         if (!product) {
+          const finalSku = hasEquivalence ? mappedSku : targetSku;
           const { data: newProd } = await supabase
             .from("products")
             .insert([{
               merchant_id: integration.merchant_id,
               comercio: integration.comercio,
-              sku: targetSku,
+              sku: finalSku,
               name: `${item.title}${item.variant_title && item.variant_title !== 'Default Title' ? ' - ' + item.variant_title : ''}`,
               price: item.price ? parseFloat(item.price) : 0,
-              description: "Creado automáticamente desde sincronización inicial de Shopify",
+              description: "Creado automáticamente desde sincronización inicial de Shopify" + (hasEquivalence ? ` (Equivalencia de SKU: ${targetSku})` : ""),
               status: "active"
             }])
             .select("id")

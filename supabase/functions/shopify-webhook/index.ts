@@ -378,17 +378,33 @@ async function handleOrderCreate(merchantId, comercio, order) {
       }
     }
 
-    // Buscar el producto en el catálogo por SKU (exacto o sin espacios)
+    // Buscar el producto en el catálogo por SKU (exacto o sin espacios, priorizando producto maestro con barcode_wms)
     const productSkuCandidates = mappedSku !== mappedSku.replace(/\s+/g, '')
       ? [mappedSku, mappedSku.replace(/\s+/g, '')]
       : [mappedSku];
     const { data: foundProducts } = await supabase.from("products")
-      .select("id, sku")
+      .select("id, sku, barcode_wms, description")
       .in("sku", productSkuCandidates)
-      .eq("comercio", comercio)
-      .limit(1);
+      .eq("comercio", comercio);
     
-    product = foundProducts && foundProducts.length > 0 ? foundProducts[0] : null;
+    if (foundProducts && foundProducts.length > 0) {
+      product =
+        foundProducts.find((p: any) => p.barcode_wms && p.sku === mappedSku) ||
+        foundProducts.find((p: any) => p.barcode_wms) ||
+        foundProducts.find((p: any) => p.sku === mappedSku && !(p.description || "").startsWith("Creado automáticamente")) ||
+        foundProducts.find((p: any) => p.sku === mappedSku) ||
+        foundProducts[0];
+    }
+
+    if (!product && mappedSku) {
+      const { data: ilikeProd } = await supabase.from("products")
+        .select("id, sku, barcode_wms, description")
+        .eq("comercio", comercio)
+        .ilike("sku", mappedSku)
+        .limit(1)
+        .maybeSingle();
+      if (ilikeProd) product = ilikeProd;
+    }
 
     // Auto-crear producto si no existe en el catálogo
     if (!product) {
@@ -824,17 +840,33 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
         }
       }
 
-      // Buscar el producto en el catálogo (exacto o sin espacios)
+      // Buscar el producto en el catálogo (exacto o sin espacios, priorizando producto maestro con barcode_wms)
       const productSkuCandidates = mappedSku !== mappedSku.replace(/\s+/g, '')
         ? [mappedSku, mappedSku.replace(/\s+/g, '')]
         : [mappedSku];
       const { data: foundProducts } = await supabase.from("products")
-        .select("id, sku, name")
+        .select("id, sku, name, barcode_wms, description")
         .in("sku", productSkuCandidates)
-        .eq("comercio", comercio)
-        .limit(1);
+        .eq("comercio", comercio);
       
-      product = foundProducts && foundProducts.length > 0 ? foundProducts[0] : null;
+      if (foundProducts && foundProducts.length > 0) {
+        product =
+          foundProducts.find((p: any) => p.barcode_wms && p.sku === mappedSku) ||
+          foundProducts.find((p: any) => p.barcode_wms) ||
+          foundProducts.find((p: any) => p.sku === mappedSku && !(p.description || "").startsWith("Creado automáticamente")) ||
+          foundProducts.find((p: any) => p.sku === mappedSku) ||
+          foundProducts[0];
+      }
+
+      if (!product && mappedSku) {
+        const { data: ilikeProd } = await supabase.from("products")
+          .select("id, sku, name, barcode_wms, description")
+          .eq("comercio", comercio)
+          .ilike("sku", mappedSku)
+          .limit(1)
+          .maybeSingle();
+        if (ilikeProd) product = ilikeProd;
+      }
 
       // Auto-crear producto si no existe
       if (!product) {
