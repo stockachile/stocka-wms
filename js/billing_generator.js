@@ -1357,6 +1357,56 @@ export function isPosSaleOrder(order) {
 }
 window.isPosSaleOrder = isPosSaleOrder;
 
+// Resolver la Categoría de Pedido canónica para el Gestor de Facturación
+export function resolveOrderBillingCategoria(order) {
+  if (!order) return 'DISTRIBUCIÓN';
+  if (isPosSaleOrder(order)) return 'SHOP POINT (POS)';
+
+  const rawCat = String(order.categoriaEntrega || order.categoria_entrega || '').trim().toUpperCase();
+  if (rawCat === 'SHOP POINT (POS)' || rawCat === 'SHOP POINT' || rawCat === 'POS') {
+    return 'SHOP POINT (POS)';
+  }
+
+  const orderNum = String(order.external_order_number || order.orderNumber || order.externalOrderNumber || '').trim().toUpperCase();
+  const plat = String(order.external_platform || order.platform || order.externalPlatform || '').trim().toUpperCase();
+  const shipMethod = String(order.shipping_method || order.shippingMethod || '').trim().toUpperCase();
+  if (
+    rawCat.includes('INVERSA') ||
+    plat.includes('INVERSA') ||
+    orderNum.startsWith('LI-') ||
+    order.raw_shopify_data?.is_reverse_logistics ||
+    shipMethod.includes('LOGISTICA INVERSA') ||
+    shipMethod.includes('LOGÍSTICA INVERSA')
+  ) {
+    return 'LOGÍSTICA INVERSA';
+  }
+
+  const ag = String(order.agenda || '').trim().toUpperCase();
+  const deliv = String(order.deliveryType || '').trim().toUpperCase();
+  if (rawCat === 'RETIRO' || deliv === 'RETIRO' || ag.includes('RETIRO')) {
+    return 'RETIRO';
+  }
+
+  return 'DISTRIBUCIÓN';
+}
+window.resolveOrderBillingCategoria = resolveOrderBillingCategoria;
+
+// Generar el badge HTML estilizado para la columna Categoría de Pedido en las tablas tipo Excel
+export function getBillingOrderCategoriaBadgeHTML(order) {
+  const cat = resolveOrderBillingCategoria(order);
+  if (cat === 'SHOP POINT (POS)') {
+    return `<span class="bg-order-cat-badge bg-cat-pos" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(14, 165, 233, 0.12); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.35); padding: 2px 7px; border-radius: 5px; font-size: 0.68rem; font-weight: 800; white-space: nowrap;" title="Categoría: Shop Point (Punto de Venta)"><i class="ri-shopping-cart-2-line"></i> Shop Point (POS)</span>`;
+  }
+  if (cat === 'LOGÍSTICA INVERSA') {
+    return `<span class="bg-order-cat-badge bg-cat-reverse" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(124, 58, 237, 0.12); color: #7c3aed; border: 1px solid rgba(124, 58, 237, 0.32); padding: 2px 7px; border-radius: 5px; font-size: 0.68rem; font-weight: 800; white-space: nowrap;" title="Categoría: Logística Inversa"><i class="ri-arrow-left-right-line"></i> Logística Inversa</span>`;
+  }
+  if (cat === 'RETIRO') {
+    return `<span class="bg-order-cat-badge bg-cat-retiro" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.35); padding: 2px 7px; border-radius: 5px; font-size: 0.68rem; font-weight: 800; white-space: nowrap;" title="Categoría: Retiro en Bodega / Sucursal"><i class="ri-store-2-line"></i> Retiro</span>`;
+  }
+  return `<span class="bg-order-cat-badge bg-cat-dist" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(37, 99, 235, 0.10); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.28); padding: 2px 7px; border-radius: 5px; font-size: 0.68rem; font-weight: 800; white-space: nowrap;" title="Categoría: Distribución"><i class="ri-truck-line"></i> Distribución</span>`;
+}
+window.getBillingOrderCategoriaBadgeHTML = getBillingOrderCategoriaBadgeHTML;
+
 // Calcular desglose métrico por tienda dentro de un conglomerado
 export function computeConglomerateStoreBreakdown(orders = [], bState = {}) {
   const children = bState.conglomerateChildren || [];
@@ -3256,7 +3306,11 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       skuCount: finalSkuCount,
       unitsCount: finalUnitsCount,
       isMarketplace,
-      categoriaEntrega: isPosOrder ? 'SHOP POINT (POS)' : (ord.categoria_entrega || 'DISTRIBUCIÓN'),
+      categoriaEntrega: resolveOrderBillingCategoria({
+        ...ord,
+        isPosOrder,
+        deliveryType: finalDeliveryType
+      }),
       operador: (ord.operador && String(ord.operador).trim() !== '' && String(ord.operador).trim() !== '—') ? String(ord.operador).trim() : (isPosOrder ? 'POS Sucursal' : ''),
       agenda: (ord.agenda && String(ord.agenda).trim() !== '' && String(ord.agenda).trim() !== '—') ? String(ord.agenda).trim() : '',
       shippingMethod: (ord.shipping_method && String(ord.shipping_method).trim() !== '' && String(ord.shipping_method).trim() !== '—') ? String(ord.shipping_method).trim() : (isPosOrder ? 'Entrega en Punto Físico' : ''),
@@ -4809,7 +4863,7 @@ export function exportBillingToExcel(customState = null) {
   const customColHeaders = customColsList.map(col => `${(col.name || 'RECARGO').toUpperCase()} (${col.mode === 'per_unit' ? '$/UNID' : 'GLOBAL'} $)`);
 
   const ordersHeaders = [
-    "N°", "REF. ORIGEN", "PLATAFORMA", "TIENDA / COMERCIO", "ID PEDIDO", "FECHA", "AGENDA", "DESTINO / COMUNA", "OPERADOR", "MÉTODO ENVÍO",
+    "N°", "REF. ORIGEN", "PLATAFORMA", "CATEGORÍA PEDIDO", "TIENDA / COMERCIO", "ID PEDIDO", "FECHA", "AGENDA", "DESTINO / COMUNA", "OPERADOR", "MÉTODO ENVÍO",
     "TICKET VENTA ($)", "TIPO ENTREGA", "SKUS", "UNIDADES", "MKT?",
     "TARIFA BASE ($)", "REC. SKU ($)", "REC. UNID ($)", "REC. MKT ($)",
     ...customColHeaders,
@@ -4820,6 +4874,7 @@ export function exportBillingToExcel(customState = null) {
     idx + 1,
     o.orderNumber || o.externalOrderNumber || o.id,
     o.platform || o.externalPlatform || 'Manual',
+    resolveOrderBillingCategoria(o),
     o.comercio || b.currentCommerce || '—',
     o.id,
     o.date,
@@ -7201,8 +7256,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
                     <input type="checkbox" id="bg-master-inclusion-checkbox" title="Marcar / Desmarcar todos los pedidos visibles" onchange="window.toggleAllVisibleOrdersInclusion(this.checked)" style="cursor: pointer; width: 15px; height: 15px; accent-color: #5f06fa;">
                   </th>
                   <th style="width: 42px; text-align: center;">N°</th>
-                  <th style="min-width: 250px;">ID Pedido / Agenda</th>
-                  <th style="min-width: 220px;">Destino / Operador / Método</th>
+                  <th style="min-width: 245px;">ID Pedido / Agenda</th>
+                  <th style="width: 135px; min-width: 125px; text-align: center;">Categoría</th>
+                  <th style="min-width: 215px;">Destino / Operador / Método</th>
                   <th style="width: 125px; text-align: right;">Ticket Venta ($)</th>
                   <th style="width: 175px;">
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
@@ -7257,6 +7313,11 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
                         <option value="with">Con Agenda</option>
                       </select>
                     </div>
+                  </th>
+                  <th style="padding: 3px 4px; text-align: center;">
+                    <select id="bg-col-filter-categoria" class="bg-col-filter-select" onchange="window.applyBgColumnFilters()" style="width: 100%;" title="Filtrar por Categoría de Pedido">
+                      <option value="">Todas las Categorías</option>
+                    </select>
                   </th>
                   <th style="padding: 3px 6px;">
                     <input type="text" id="bg-col-filter-dest" class="bg-col-filter-input" placeholder="Comuna, Operador o Método..." oninput="window.applyBgColumnFilters()">
@@ -9046,7 +9107,7 @@ export function renderOrdersTableUI() {
   if (orders.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="${16 + customCols.length}" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
+        <td colspan="${17 + customCols.length}" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
           <i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; color: #5f06fa;"></i>
           No se encontraron pedidos asignados al periodo <strong>${escapeHtml(billingState.currentPeriodName || '')}</strong> para este comercio.<br>
           <span style="font-size: 0.8rem; margin-top: 0.25rem; display: inline-block;">Asigna el periodo en el <strong>Gestor de Pedidos</strong> para que aparezcan aquí automáticamente.</span>
@@ -9055,6 +9116,7 @@ export function renderOrdersTableUI() {
     `;
     updateQuickPillCounts([]);
     updateAgendaFilterOptions([]);
+    updateCategoriaFilterOptions([]);
     updateStoreFilterOptions([]);
     updateDeliveryFilterOptions();
     const countBadge = document.getElementById('bg-filter-count-badge');
@@ -9113,6 +9175,8 @@ export function renderOrdersTableUI() {
     }).join('');
 
     const isOrderPos = Boolean(o.isPosOrder || isPosSaleOrder(o));
+    const orderCategoria = resolveOrderBillingCategoria(o);
+    o.categoriaEntrega = orderCategoria;
 
     return `
       <tr ${rowClass} id="bg-row-${o.id}" data-id="${o.id}"
@@ -9121,6 +9185,7 @@ export function renderOrdersTableUI() {
           data-date="${escapeHtml((o.date || '').toLowerCase())}"
           data-agenda="${escapeHtml(agendaText.toLowerCase())}"
           data-has-agenda="${hasAgenda ? '1' : '0'}"
+          data-categoria="${escapeHtml(orderCategoria)}"
           data-wms="${escapeHtml((wmsStatusText || '').toLowerCase())}"
           data-dest="${escapeHtml((o.destination || '').toLowerCase())}"
           data-operador="${escapeHtml(operadorText.toLowerCase())}"
@@ -9155,6 +9220,9 @@ export function renderOrdersTableUI() {
           <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 2px;">
             <i class="ri-calendar-line"></i> ${escapeHtml(o.date)}
           </div>
+        </td>
+        <td style="text-align: center; white-space: nowrap;">
+          ${getBillingOrderCategoriaBadgeHTML(o)}
         </td>
         <td>
           <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
@@ -9223,9 +9291,10 @@ export function renderOrdersTableUI() {
     `;
   }).join('');
 
-  // 3. Actualizar conteos de filtros rápidos y opciones dinámicas de agendas y tipos de entrega
+  // 3. Actualizar conteos de filtros rápidos y opciones dinámicas de agendas, categorías y tipos de entrega
   updateQuickPillCounts(orders);
   updateAgendaFilterOptions(orders);
+  updateCategoriaFilterOptions(orders);
   updateStoreFilterOptions(orders);
   updateDeliveryFilterOptions(orders);
 
@@ -9240,6 +9309,7 @@ export function renderOrdersTableUI() {
     setVal('bg-col-filter-order', window.bgFilterState.order);
     setVal('bg-col-filter-store', window.bgFilterState.store);
     setVal('bg-col-filter-agenda', window.bgFilterState.agenda);
+    setVal('bg-col-filter-categoria', window.bgFilterState.categoria);
     setVal('bg-col-filter-dest', window.bgFilterState.dest);
     setVal('bg-col-filter-ticket-min', window.bgFilterState.ticketMin);
     setVal('bg-col-filter-ticket-max', window.bgFilterState.ticketMax);
@@ -13339,6 +13409,46 @@ function updateAgendaFilterOptions(orders) {
   }
 }
 
+// Actualizar dinámicamente las opciones del selector de Categoría de Pedido
+function updateCategoriaFilterOptions(orders = null) {
+  const select = document.getElementById('bg-col-filter-categoria');
+  if (!select) return;
+
+  const currentVal = select.value || (window.bgFilterState?.categoria || '');
+  const ordersList = orders || billingState.orders || [];
+  const countMap = {
+    'DISTRIBUCIÓN': 0,
+    'RETIRO': 0,
+    'SHOP POINT (POS)': 0,
+    'LOGÍSTICA INVERSA': 0
+  };
+
+  ordersList.forEach(o => {
+    const cat = resolveOrderBillingCategoria(o);
+    countMap[cat] = (countMap[cat] || 0) + 1;
+  });
+
+  const categoriesCatalog = [
+    { key: 'DISTRIBUCIÓN', label: 'Distribución' },
+    { key: 'RETIRO', label: 'Retiro' },
+    { key: 'SHOP POINT (POS)', label: 'Shop Point (POS)' },
+    { key: 'LOGÍSTICA INVERSA', label: 'Logística Inversa' }
+  ];
+
+  let optionsHTML = '<option value="">Todas las Categorías</option>';
+  categoriesCatalog.forEach(c => {
+    const isSel = currentVal === c.key;
+    const count = countMap[c.key] || 0;
+    optionsHTML += `<option value="${escapeHtml(c.key)}" ${isSel ? 'selected' : ''}>${escapeHtml(c.label)}${ordersList.length > 0 ? ` (${count})` : ''}</option>`;
+  });
+
+  select.innerHTML = optionsHTML;
+  if (currentVal) {
+    const matchOpt = Array.from(select.options).find(o => o.value === currentVal);
+    if (matchOpt) select.value = matchOpt.value;
+  }
+}
+
 // Actualizar dinámicamente las opciones del selector de Tipo de Entrega
 function updateDeliveryFilterOptions(orders = null) {
   const select = document.getElementById('bg-col-filter-delivery');
@@ -13374,6 +13484,7 @@ window.applyBgColumnFilters = function() {
   const orderInput = document.getElementById('bg-col-filter-order');
   const storeSelect = document.getElementById('bg-col-filter-store');
   const agendaSelect = document.getElementById('bg-col-filter-agenda');
+  const categoriaSelect = document.getElementById('bg-col-filter-categoria');
   const destInput = document.getElementById('bg-col-filter-dest');
   const ticketMinInput = document.getElementById('bg-col-filter-ticket-min');
   const ticketMaxInput = document.getElementById('bg-col-filter-ticket-max');
@@ -13387,6 +13498,7 @@ window.applyBgColumnFilters = function() {
   const orderQuery = (orderInput ? orderInput.value : (window.bgFilterState?.order || '')).toLowerCase().trim();
   const storeFilter = (storeSelect ? storeSelect.value : (window.bgFilterState?.store || '')).toLowerCase().trim();
   const agendaFilter = agendaSelect ? agendaSelect.value : (window.bgFilterState?.agenda || '');
+  const categoriaFilter = categoriaSelect ? categoriaSelect.value : (window.bgFilterState?.categoria || '');
 
   // Sincronizar estado de tienda seleccionada si cambió desde el dropdown
   if (billingState.isConglomerate && storeSelect) {
@@ -13420,6 +13532,7 @@ window.applyBgColumnFilters = function() {
     order: orderQuery,
     store: storeFilter,
     agenda: agendaFilter,
+    categoria: categoriaFilter,
     dest: destQuery,
     ticketMin: ticketMinVal,
     ticketMax: ticketMaxVal,
@@ -13472,6 +13585,14 @@ window.applyBgColumnFilters = function() {
         if (!matchesExact && !matchesWord && !rowAgenda.startsWith(targetAgenda) && !rowAgenda.endsWith(targetAgenda)) {
           match = false;
         }
+      }
+    }
+
+    // 3b. Categoría de Pedido (DISTRIBUCIÓN, RETIRO, SHOP POINT (POS), LOGÍSTICA INVERSA)
+    if (match && categoriaFilter) {
+      const rowCat = (r.getAttribute('data-categoria') || 'DISTRIBUCIÓN').trim().toUpperCase();
+      if (rowCat !== categoriaFilter.trim().toUpperCase()) {
+        match = false;
       }
     }
 
@@ -13552,7 +13673,7 @@ window.applyBgColumnFilters = function() {
     }
   }
 
-  const isAnyFilterActive = !!(globalQuery || incFilter || orderQuery || storeFilter || agendaFilter || destQuery || !isNaN(ticketMin) || !isNaN(ticketMax) || deliveryFilter || !isNaN(skusMin) || !isNaN(unitsMin) || mktFilter);
+  const isAnyFilterActive = !!(globalQuery || incFilter || orderQuery || storeFilter || agendaFilter || categoriaFilter || destQuery || !isNaN(ticketMin) || !isNaN(ticketMax) || deliveryFilter || !isNaN(skusMin) || !isNaN(unitsMin) || mktFilter);
   const clearBtn = document.getElementById('bg-btn-clear-all-filters');
   if (clearBtn) {
     clearBtn.style.display = isAnyFilterActive ? 'inline-flex' : 'none';
@@ -13567,6 +13688,7 @@ window.clearBgTableFilters = function(resetQuickButtons = true) {
     'bg-col-filter-order',
     'bg-col-filter-store',
     'bg-col-filter-agenda',
+    'bg-col-filter-categoria',
     'bg-col-filter-dest',
     'bg-col-filter-ticket-min',
     'bg-col-filter-ticket-max',
@@ -15001,6 +15123,7 @@ export function sanitizeSnapshotOrdersMarketplace(snapshot, config = null) {
   snapshot.orders.forEach(o => {
     const customTotal = computeOrderCustomSurchargesTotal(o, customCols);
     const isPos = isPosSaleOrder(o);
+    o.categoriaEntrega = resolveOrderBillingCategoria(o);
 
     if (isPos) {
       let posChanged = false;
@@ -15561,6 +15684,7 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
                     <th style="width: 40px; text-align: center;">N°</th>
                     <th style="min-width: 140px;">Ref. Pedido</th>
                     <th style="min-width: 120px; text-align: center;">Plataforma</th>
+                    <th style="min-width: 125px; text-align: center;">Categoría</th>
                     <th style="min-width: 95px;">Fecha</th>
                     <th style="min-width: 120px;">Agenda</th>
                     <th style="min-width: 160px;">Destino / Comuna</th>
@@ -15604,6 +15728,9 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
                       <td style="text-align: center;">
                         ${getPlatformBadgeHTML(platformName)}
                       </td>
+                      <td style="text-align: center; white-space: nowrap;">
+                        ${getBillingOrderCategoriaBadgeHTML(o)}
+                      </td>
                       <td class="cm-cell-date">${escapeHtml(o.date || '—')}</td>
                       <td class="cm-cell-agenda ${o.agenda ? '' : 'empty'}">${escapeHtml(o.agenda || 'Sin agenda')}</td>
                       <td class="cm-cell-dest">${escapeHtml(o.destination || 'Santiago')}</td>
@@ -15626,7 +15753,7 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
                       <td class="cm-cell-total">${formatCLP(o.orderTotal || 0)}</td>
                     </tr>
                     `;
-                  }).join('') || `<tr><td colspan="${13 + customCols.length}" style="text-align: center; padding: 2rem; color: #94a3b8;">No se registraron pedidos en el periodo.</td></tr>`}
+                  }).join('') || `<tr><td colspan="${14 + customCols.length}" style="text-align: center; padding: 2rem; color: #94a3b8;">No se registraron pedidos en el periodo.</td></tr>`}
                 </tbody>
               </table>
             </div>

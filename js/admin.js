@@ -13684,20 +13684,22 @@ window.applyWmsFiltersAndRender = function() {
       }
       
       shipmentStatusHtml = `
-        <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-          <strong>Estado Despacho:</strong> 
-          <span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.3px;">
-            ${globStatus}
-          </span>
-          ${platformBadge}
-          ${displayRawStatus && displayRawStatus !== '-' ? `<span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; background: var(--color-surface); padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">${displayRawStatus}</span>` : ''}
-        </p>
-        <p style="margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--color-text-muted);">
-          <strong>Sincronización Courier:</strong> ${shipment.updated_at ? new Date(shipment.updated_at).toLocaleString() : '-'}
-        </p>
+        <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+          <div style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <strong style="color: var(--color-text-main);">Estado:</strong> 
+            <span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: var(--radius-sm); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.3px;">
+              ${globStatus}
+            </span>
+            ${platformBadge}
+            ${displayRawStatus && displayRawStatus !== '-' ? `<span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600; background: var(--color-surface); padding: 0.1rem 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">${displayRawStatus}</span>` : ''}
+          </div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted);">
+            <strong>Sincronización:</strong> ${shipment.updated_at ? new Date(shipment.updated_at).toLocaleString() : '-'}
+          </div>
+        </div>
       `;
     } else {
-      shipmentStatusHtml = `<p style="margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--color-text-muted); font-style: italic;">Sin información de despacho unificado</p>`;
+      shipmentStatusHtml = `<p style="margin: 0; font-size: 0.78rem; color: var(--color-text-muted); font-style: italic;">Sin información de despacho unificado</p>`;
     }
 
     // Fila compacta de Estado informado por el Operador Courier para la celda de Estado WMS/Origen
@@ -14043,12 +14045,15 @@ window.applyWmsFiltersAndRender = function() {
     else if (order.raw_ripley_data) rawData = order.raw_ripley_data;
 
     let rawJsonBtnHtml = '';
+    let rawJsonHeaderBtnHtml = '';
     if (rawData) {
-      rawJsonBtnHtml = `
-        <button onclick="window.toggleRawOrderJson('${order.id}')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; margin-top: 1rem; width: 100%; justify-content: center; font-weight: 600;">
-          <i class="ri-code-s-slash-line"></i> Ver JSON de Integración
+      rawJsonHeaderBtnHtml = `
+        <button onclick="window.toggleRawOrderJson('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.7rem; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 600; border-radius: 4px; cursor: pointer;" title="Ver JSON de Integración">
+          <i class="ri-code-s-slash-line"></i> JSON
         </button>
-        <div id="raw-json-${order.id}" style="display: none; margin-top: 0.5rem; text-align: left; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; white-space: pre-wrap; word-break: break-all;">
+      `;
+      rawJsonBtnHtml = `
+        <div id="raw-json-${order.id}" style="display: none; margin-top: 0.25rem; text-align: left; background: var(--color-bg); padding: 0.65rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.72rem; white-space: pre-wrap; word-break: break-all;">
           ${JSON.stringify(rawData, null, 2)}
         </div>
       `;
@@ -14121,11 +14126,11 @@ window.applyWmsFiltersAndRender = function() {
     const origStatus = window.getOriginalPlatformStatus(order);
     if (origStatus) {
       originalPlatformStatusHtml = `
-        <div style="display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.25rem; text-align: left;">
-          <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Estado en Plataforma:</span>
-          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; flex-wrap: wrap;">
+          <span style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-Equalizer-line" style="font-size: 0.85rem;"></i> Estado Plataforma:</span>
+          <div style="display: flex; gap: 0.25rem; flex-wrap: wrap; justify-content: flex-end;">
             ${origStatus.details.map(d => `
-              <span class="badge" style="background-color: ${d.color}15; color: ${d.color}; border: 1px solid ${d.color}33; font-size: 0.7rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.3px;">
+              <span class="badge" style="background-color: ${d.color}15; color: ${d.color}; border: 1px solid ${d.color}33; font-size: 0.68rem; font-weight: 700; padding: 0.08rem 0.38rem; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.2px;">
                 ${d.label}: ${d.value}
               </span>
             `).join('')}
@@ -14497,6 +14502,9 @@ window.applyWmsFiltersAndRender = function() {
                     <button onclick="window.openWmsOrderModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-color: #c084fc; color: #7e22ce; background: rgba(147, 51, 234, 0.05);" title="Abrir Ficha Completa del Pedido">
                       <i class="ri-file-user-line"></i> Ficha Completa
                     </button>
+                    <button onclick="window.openOrderShippingQuoteModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-color: #10b981; color: #059669; background: rgba(16, 185, 129, 0.08);" title="Cotizar envío con la información de este pedido (comuna, productos, peso y volumen)">
+                      <i class="ri-calculator-line"></i> Cotizar Envío
+                    </button>
                     <button onclick="window.editWmsOrderShippingDetails('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.4rem; font-size: 0.725rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
                       <i class="ri-edit-line"></i> Editar
                     </button>
@@ -14715,92 +14723,101 @@ window.applyWmsFiltersAndRender = function() {
                 </div>
               </div>
 
-              <!-- Col 3: Integración y Logística (Diseño Premium Dinámico) -->
-              <div class="order-detail-card" style="background: var(--color-surface); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 0.9rem;">
-                <h4 style="margin: 0; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; font-weight: 700;">
-                  <i class="ri-git-repository-commits-line" style="font-size: 1.1rem;"></i> Integración y Despacho
+              <!-- Col 3: Integración y Logística (Diseño Compacto y Ordenado) -->
+              <div class="order-detail-card" style="background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 0.65rem;">
+                <h4 style="margin: 0; border-bottom: 1px solid var(--color-border); padding-bottom: 0.45rem; color: var(--color-primary); font-size: 0.92rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-weight: 700; flex-wrap: wrap;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                    <i class="ri-git-repository-commits-line" style="font-size: 1.05rem;"></i> Integración y Despacho
+                  </span>
+                  <div style="display: inline-flex; align-items: center; gap: 0.3rem;">
+                    ${(order.external_platform === 'Shopify' || order.origen === 'Shopify' || (order.raw_shopify_data && !order.raw_shopify_data.manual_order && !order.raw_shopify_data.is_reverse_logistics && !order.raw_shopify_data.is_pos_sale)) ? `
+                      <button id="btn-resync-shopify-${order.id}" onclick="window.resyncShopifyOrder('${order.id}')" class="btn btn-outline btn-sm" style="font-size: 0.68rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem; border-color: #96bf48; color: #446513; background: rgba(150, 191, 72, 0.08); padding: 0.15rem 0.45rem; border-radius: 4px; cursor: pointer;" title="Actualizar pedido directamente desde Shopify">
+                        <i class="ri-refresh-line"></i> Sync Shopify
+                      </button>
+                    ` : ''}
+                    ${rawJsonHeaderBtnHtml}
+                  </div>
                 </h4>
                 
-                <!-- Grupo 1: Origen de la Orden -->
-                <div style="background: var(--color-bg); padding: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.5rem;">
-                  <div style="display: flex; align-items: center; justify-content: space-between;">
-                    <span style="font-size: 0.825rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-instance-line" style="font-size: 0.9rem;"></i> Plataforma:</span>
-                    <span>${originHtml}</span>
-                  </div>
-                  <div style="display: flex; align-items: center; justify-content: space-between;">
-                    <span style="font-size: 0.825rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-hashtag" style="font-size: 0.9rem;"></i> ID Pedido:</span>
-                    <span style="font-family: monospace; font-size: 0.875rem; font-weight: 700; color: var(--color-text-main); background: var(--color-surface); padding: 0.1rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border);">${order.external_order_number || '-'}</span>
+                <!-- Grupo 1: Origen de la Orden (Compacto) -->
+                <div style="background: var(--color-bg); padding: 0.6rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.35rem;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                    <span style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-instance-line" style="font-size: 0.85rem;"></i> Plataforma:</span>
+                    <div style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                      <span>${originHtml}</span>
+                      <span style="font-family: monospace; font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); background: var(--color-surface); padding: 0.08rem 0.38rem; border-radius: 4px; border: 1px solid var(--color-border);" title="ID Pedido en plataforma">${order.external_order_number || '-'}</span>
+                    </div>
                   </div>
                   ${window.renderOrderManualCreatorHtml ? window.renderOrderManualCreatorHtml(order) : ''}
                   ${originalPlatformStatusHtml}
                   ${customPlatformTagsHtml ? `
-                    <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.25rem; padding-top: 0.45rem; border-top: 1px dashed var(--color-border); text-align: left;">
-                      <span style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.3rem;">
-                        <i class="ri-price-tag-3-line" style="font-size: 0.9rem; color: var(--color-primary);"></i> Etiquetas de Plataforma (${rawStoreTags.size}):
+                    <div style="display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.15rem; padding-top: 0.35rem; border-top: 1px dashed var(--color-border); text-align: left;">
+                      <span style="font-size: 0.74rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">
+                        <i class="ri-price-tag-3-line" style="font-size: 0.85rem; color: var(--color-primary);"></i> Etiquetas (${rawStoreTags.size}):
                       </span>
-                      <div style="display: flex; gap: 0.3rem; flex-wrap: wrap;">
+                      <div style="display: flex; gap: 0.25rem; flex-wrap: wrap;">
                         ${customPlatformTagsHtml}
                       </div>
                     </div>
                   ` : ''}
-                  ${(order.external_platform === 'Shopify' || order.origen === 'Shopify' || (order.raw_shopify_data && !order.raw_shopify_data.manual_order && !order.raw_shopify_data.is_reverse_logistics && !order.raw_shopify_data.is_pos_sale)) ? `
-                    <div style="margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px dashed var(--color-border);">
-                      <button id="btn-resync-shopify-${order.id}" onclick="window.resyncShopifyOrder('${order.id}')" class="btn btn-outline btn-sm" style="width: 100%; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; border-color: #96bf48; color: #446513; background: rgba(150, 191, 72, 0.08); padding: 0.35rem 0.5rem; border-radius: 4px; cursor: pointer; transition: all 0.2s;" title="Llama a la actualización del pedido directamente desde Shopify">
-                        <i class="ri-refresh-line"></i> Actualizar desde Shopify
-                      </button>
+                </div>
+
+                <!-- Grupo 2: Courier, Tracking y Auto Track Unificados -->
+                <div style="background: var(--color-bg); padding: 0.65rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.5rem;">
+                  <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.6rem; align-items: start;">
+                    <div style="display: flex; flex-direction: column; gap: 0.15rem; text-align: left; min-width: 0;">
+                      <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Courier Asignado</span>
+                      <span style="font-size: 0.84rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        <i class="ri-ship-2-line" style="color: var(--color-primary); flex-shrink: 0;"></i>
+                        <span style="overflow: hidden; text-overflow: ellipsis;">${courierName === 'Courier' ? 'No asignado' : courierName}</span>
+                      </span>
                     </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 0.15rem; text-align: left; min-width: 0;">
+                      <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Seguimiento</span>
+                      <div style="font-size: 0.82rem; min-width: 0; overflow: hidden;">${trackingHtml}</div>
+                    </div>
+                  </div>
+
+                  <!-- Auto Track integrado -->
+                  <div style="border-top: 1px dashed var(--color-border); padding-top: 0.45rem; text-align: left;">
+                    <div style="margin: 0 0 0.25rem 0; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; display: flex; align-items: center; gap: 0.3rem;">
+                      <i class="ri-radar-line" style="color: var(--color-success); font-size: 0.88rem;"></i> Auto Track (Monitoreo)
+                    </div>
+                    ${shipmentStatusHtml}
+                  </div>
+                </div>
+
+                <!-- Grupo 3: Acciones Logísticas en Grid Compacto (2 columnas) -->
+                <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.38rem;">
+                  <button onclick="window.editWmsOrderCourierAndTracking('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.32rem 0.45rem; font-size: 0.73rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); white-space: nowrap;" title="Editar Courier y Tracking">
+                    <i class="ri-edit-line"></i> Editar Envío
+                  </button>
+                  <button onclick="window.openOrderShippingQuoteModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.32rem 0.45rem; font-size: 0.73rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: #10b981; color: #059669; background: rgba(16, 185, 129, 0.06); white-space: nowrap;" title="Cotizar envío con la comuna, productos, peso y volumen de este pedido">
+                    <i class="ri-calculator-line"></i> Cotizar Envío
+                  </button>
+                  <button onclick="window.showShippingLabelModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.32rem 0.45rem; font-size: 0.73rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: var(--color-primary); color: var(--color-primary); white-space: nowrap;" title="Imprimir etiqueta interna Stocka">
+                    <i class="ri-printer-line"></i> Etiqueta Stocka
+                  </button>
+                  <button onclick="window.wmsCreateManifestFromSingleOrder('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.32rem 0.45rem; font-size: 0.73rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: #2563eb; color: #2563eb; background: rgba(37, 99, 235, 0.04); white-space: nowrap;" title="Generar manifiesto de retiro para este pedido">
+                    <i class="ri-file-paper-2-line"></i> Crear Manifiesto
+                  </button>
+                  <button onclick="window.openQuickBranchExchangeReceiptModal('${(order.external_order_number || order.id || '').replace(/'/g, "\\'")}')" class="btn btn-outline btn-sm" style="padding: 0.32rem 0.45rem; font-size: 0.73rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: #7c3aed; color: #7c3aed; background: rgba(124, 58, 237, 0.05); white-space: nowrap;" title="Generar o imprimir comprobante de cambio / devolución realizado en Sucursal Ñuñoa para este pedido">
+                    <i class="ri-file-list-3-line"></i> Cambio Sucursal
+                  </button>
+                  ${order.label_url || order.tracking_number || (order.courier === 'LIGHTDATA' || order.courier === 'PENDIENTE_LIGHTDATA' || order.operador === 'ALPHA') ? `
+                    <div style="display: flex; min-width: 0;">
+                      ${labelHtml}
+                    </div>
+                  ` : ''}
+                  ${(order.enviame_delivery_id || ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS'].includes((order.operador || '').toUpperCase()) || ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS'].includes((order.courier || '').toUpperCase()) || ['RELAJARTE', 'DORMILONES', 'JOYAS GLOSS', 'THE SKIN STORE', 'MAGIC MAKEUP', 'DGORAL', 'HI TECH', 'FLORACTIVE'].includes((order.comercio || '').toUpperCase()) || order.enviame_status) ? `
+                    <button id="btn-resync-enviame-${order.id}" onclick="window.resyncEnviameOrder('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.32rem 0.45rem; font-size: 0.73rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: #ea580c; color: #ea580c; background: rgba(234, 88, 12, 0.05); white-space: nowrap;" title="Consultar en Envíame para obtener courier oficial, tracking real y etiqueta">
+                      <i class="ri-refresh-line"></i> Sync Envíame
+                    </button>
                   ` : ''}
                 </div>
 
-                <!-- Grupo 2: Courier y Tracking -->
-                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-                  <div style="display: flex; flex-direction: column; gap: 0.25rem; text-align: left;">
-                    <span style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600;">Courier Asignado:</span>
-                    <span style="font-size: 0.9rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
-                      <i class="ri-ship-2-line" style="color: var(--color-primary);"></i> ${courierName === 'Courier' ? 'No asignado' : courierName}
-                    </span>
-                  </div>
-
-                  <div style="display: flex; flex-direction: column; gap: 0.25rem; text-align: left;">
-                    <span style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600;">Seguimiento (Tracking):</span>
-                    <div>${trackingHtml}</div>
-                  </div>
-
-                  <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.25rem;">
-                    <div style="display: flex; gap: 0.5rem; align-items: stretch;">
-                      <button onclick="window.editWmsOrderCourierAndTracking('${order.id}')" class="btn btn-outline btn-sm" style="flex: 1; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;">
-                        <i class="ri-edit-line"></i> Editar Envío
-                      </button>
-                      ${order.label_url || order.tracking_number || (order.courier === 'LIGHTDATA' || order.courier === 'PENDIENTE_LIGHTDATA' || order.operador === 'ALPHA') ? `
-                        <div style="flex: 1; display: flex;">
-                          ${labelHtml}
-                        </div>
-                      ` : ''}
-                    </div>
-                    <button onclick="window.showShippingLabelModal('${order.id}')" class="btn btn-outline btn-sm" style="width: 100%; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: var(--color-primary); color: var(--color-primary); transition: all 0.2s;">
-                      <i class="ri-printer-line"></i> Etiqueta Stocka
-                    </button>
-                    <button onclick="window.openQuickBranchExchangeReceiptModal('${(order.external_order_number || order.id || '').replace(/'/g, "\\'")}')" class="btn btn-outline btn-sm" style="width: 100%; margin-top: 0.35rem; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: #7c3aed; color: #7c3aed; background: rgba(124, 58, 237, 0.05); transition: all 0.2s;" title="Generar o imprimir comprobante de cambio / devolución realizado en Sucursal Ñuñoa para este pedido"><i class="ri-file-list-3-line"></i> Comprobante Cambio Sucursal</button>
-                    <button onclick="window.wmsCreateManifestFromSingleOrder('${order.id}')" class="btn btn-outline btn-sm" style="width: 100%; margin-top: 0.35rem; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: #2563eb; color: #2563eb; background: rgba(37, 99, 235, 0.04); transition: all 0.2s;" title="Generar manifiesto de retiro para este pedido">
-                      <i class="ri-file-paper-2-line"></i> Crear Manifiesto
-                    </button>
-                    ${(order.enviame_delivery_id || ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS'].includes((order.operador || '').toUpperCase()) || ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS'].includes((order.courier || '').toUpperCase()) || ['RELAJARTE', 'DORMILONES', 'JOYAS GLOSS', 'THE SKIN STORE', 'MAGIC MAKEUP', 'DGORAL', 'HI TECH', 'FLORACTIVE'].includes((order.comercio || '').toUpperCase()) || order.enviame_status) ? `
-                      <button id="btn-resync-enviame-${order.id}" onclick="window.resyncEnviameOrder('${order.id}')" class="btn btn-outline btn-sm" style="width: 100%; margin-top: 0.35rem; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: #ea580c; color: #ea580c; background: rgba(234, 88, 12, 0.05); transition: all 0.2s;" title="Consultar en Envíame para obtener courier oficial, tracking real y etiqueta">
-                        <i class="ri-refresh-line"></i> Consultar Envíame
-                      </button>
-                    ` : ''}
-                  </div>
-                </div>
-
-                <!-- Grupo 3: Auto Track -->
-                <div style="background: var(--color-bg); padding: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); text-align: left;">
-                  <h5 style="margin: 0 0 0.5rem 0; font-size: 0.78rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 0.35rem;">
-                    <i class="ri-radar-line" style="color: var(--color-success); font-size: 0.95rem;"></i> Auto Track (Monitoreo)
-                  </h5>
-                  ${shipmentStatusHtml}
-                </div>
-
-                <!-- Botón de datos crudos -->
+                <!-- Contenedor colapsable de datos crudos JSON -->
                 ${rawJsonBtnHtml}
               </div>
 
@@ -98473,11 +98490,11 @@ window.loadNewOrderProductsAdmin = async function(selectedCommerce) {
     if (typeof window.fetchAllSupabaseRows === 'function') {
       products = await window.fetchAllSupabaseRows(
         'products',
-        'id, name, sku, price, volumen, weight, status',
+        'id, name, sku, price, volumen, weight, length, width, height, status, is_virtual',
         q => selectedCommerce ? q.eq('comercio', selectedCommerce).order('name') : q.eq('comercio', 'no asignado').order('name')
       );
     } else {
-      let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status').order('name');
+      let query = supabase.from('products').select('id, name, sku, price, volumen, weight, length, width, height, status, is_virtual').order('name');
       if (selectedCommerce) {
         query = query.eq('comercio', selectedCommerce);
       } else {
@@ -98488,13 +98505,23 @@ window.loadNewOrderProductsAdmin = async function(selectedCommerce) {
       products = pData || [];
     }
     
-    // Map weight column to peso for consistency with calculation helpers
+    // Map weight column to peso and compute volumen from dimensions if needed
     window.tempClientProductsList = (products || [])
-      .filter(p => p.status !== 'archived')
-      .map(p => ({
-        ...p,
-        peso: p.weight
-      }));
+      .filter(p => p.status !== 'archived' && !p.is_virtual)
+      .map(p => {
+        let vol = parseFloat(p.volumen) || 0;
+        const l = parseFloat(p.length) || 0;
+        const w = parseFloat(p.width) || 0;
+        const h = parseFloat(p.height) || 0;
+        if (vol <= 0 && l > 0 && w > 0 && h > 0) {
+          vol = (l * w * h) / 1000000;
+        }
+        return {
+          ...p,
+          volumen: vol > 0 ? vol : 0,
+          peso: parseFloat(p.weight) || 0
+        };
+      });
   } catch (err) {
     console.error("Error al cargar productos de cotizador admin:", err.message);
     window.tempClientProductsList = [];
@@ -98648,18 +98675,39 @@ window.renderCotizadorAdmin = async function() {
           </div>
         </div>
 
-        <div style="border-top: 1px solid var(--color-border); padding-top: 1rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
-          <div class="form-group" style="margin: 0; width: 320px;">
-            <label class="form-label" style="font-size: 0.85rem; font-weight: 700; margin-bottom: 0.35rem;">Seleccionar Comercio Activo <span style="color: var(--color-danger);">*</span></label>
-            <select id="quote-admin-commerce-select" class="form-input" style="font-size: 0.9rem; padding: 0.45rem;">
-              <option value="" disabled selected>-- Elige un Comercio --</option>
-              ${comercios.map(c => `<option value="${c.nombre}">${c.nombre}</option>`).join('')}
-            </select>
+        <div style="border-top: 1px solid var(--color-border); padding-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.25rem; align-items: end;">
+          <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+            <label class="form-label" style="font-size: 0.85rem; font-weight: 700; margin: 0;">Seleccionar Comercio Activo <span style="color: var(--color-danger);">*</span></label>
+            <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+              <select id="quote-admin-commerce-select" class="form-input" style="font-size: 0.9rem; padding: 0.48rem 0.65rem; min-width: 240px; flex: 1;">
+                <option value="" disabled selected>-- Elige un Comercio --</option>
+                ${comercios.map(c => `<option value="${c.nombre}">${c.nombre}</option>`).join('')}
+              </select>
+              <div id="quote-admin-catalog-status" style="font-size: 0.8rem; color: var(--color-text-muted); font-style: italic;">
+                Selecciona un comercio para cargar su catálogo.
+              </div>
+            </div>
           </div>
-          <div id="quote-admin-catalog-status" style="font-size: 0.85rem; color: var(--color-text-muted); font-style: italic; margin-top: 1.5rem;">
-            Selecciona un comercio para cargar su catálogo de productos.
+
+          <!-- Cotizar un Pedido Existente con la info del pedido mismo -->
+          <div style="display: flex; flex-direction: column; gap: 0.35rem; position: relative; background: rgba(var(--color-primary-rgb), 0.04); padding: 0.75rem 0.95rem; border-radius: var(--radius-md); border: 1px dashed rgba(var(--color-primary-rgb), 0.35);">
+            <label class="form-label" style="font-size: 0.82rem; font-weight: 700; margin: 0; color: var(--color-primary); display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-file-search-line"></i> Cotizar un Pedido Existente (Autocompletar con datos del pedido)
+            </label>
+            <div style="display: flex; gap: 0.5rem; align-items: center; position: relative;">
+              <div style="position: relative; flex: 1;">
+                <input type="text" id="quote-admin-order-search" class="form-input" placeholder="🔍 Buscar por N° de pedido (#1234), cliente, comuna o ID..." style="font-size: 0.85rem; padding: 0.45rem 0.7rem; width: 100%; background: var(--color-surface);" autocomplete="off">
+                <div id="quote-admin-order-dropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; max-height: 280px; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); z-index: 1050; margin-top: 4px;"></div>
+              </div>
+              <button type="button" id="btn-quote-admin-load-order" class="btn btn-primary" style="padding: 0.45rem 0.9rem; font-size: 0.82rem; font-weight: 700; white-space: nowrap; display: flex; align-items: center; gap: 0.3rem; height: 36px;">
+                <i class="ri-download-2-line"></i> Cargar Pedido
+              </button>
+            </div>
           </div>
         </div>
+
+        <!-- Banner de Pedido Cargado -->
+        <div id="quote-loaded-order-banner" style="display: none;"></div>
       </div>
 
       <!-- Panel de Actualización de Tarifas (Solo para administradores) -->
@@ -98771,12 +98819,28 @@ window.renderCotizadorAdmin = async function() {
                 </div>
               </div>
             </div>
+
+            <!-- Barra informativa de comparación de peso (Físico vs Volumétrico) -->
+            <div id="quote-weight-compare-info" style="background: var(--color-bg); padding: 0.65rem 0.9rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-border); display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem; color: var(--color-text-muted); flex-wrap: wrap; gap: 0.5rem;">
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-scales-line" style="color: var(--color-primary); font-size: 1rem;"></i>
+                <span>Peso Físico: <strong id="quote-info-phys-weight" style="color: var(--color-text-main);">1.0 Kg</strong></span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-box-3-line" style="color: var(--color-primary); font-size: 1rem;"></i>
+                <span>Peso Volumétrico: <strong id="quote-info-vol-weight" style="color: var(--color-text-muted);">0.1 Kg</strong></span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.35rem; background: rgba(var(--color-primary-rgb), 0.1); color: var(--color-primary); padding: 0.2rem 0.6rem; border-radius: 999px; font-weight: 700;">
+                <span>Tarifa aplicada por:</span>
+                <span id="quote-info-applied-weight">1.0 Kg</span>
+              </div>
+            </div>
           </div>
 
           <!-- Card: Selección Opcional de Productos -->
           <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 1.25rem;">
             <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem; text-align: left;">
-              <i class="ri-shopping-basket-2-line"></i> Simular según Productos del Catálogo (Opcional)
+              <i class="ri-shopping-basket-2-line"></i> Productos del Pedido / Simulación por Catálogo
             </h4>
 
             <div style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; text-align: left;">
@@ -98804,15 +98868,16 @@ window.renderCotizadorAdmin = async function() {
                   <tr style="border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); text-align: left; background: var(--color-surface-hover);">
                     <th style="padding: 0.5rem 0.75rem;">SKU</th>
                     <th style="padding: 0.5rem 0.75rem;">Nombre Producto</th>
-                    <th style="padding: 0.5rem 0.75rem; text-align: center; width: 80px;">Cant</th>
-                    <th style="padding: 0.5rem 0.75rem; text-align: right; width: 100px;">Precio Unit</th>
-                    <th style="padding: 0.5rem 0.75rem; text-align: right; width: 120px;">Total</th>
-                    <th style="padding: 0.5rem 0.75rem; text-align: center; width: 50px;"></th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: center; width: 70px;">Cant</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: right; width: 120px;">Peso / Vol. Unit</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: right; width: 95px;">Precio Unit</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: right; width: 105px;">Total</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: center; width: 45px;"></th>
                   </tr>
                 </thead>
                 <tbody id="quote-order-items-tbody">
                   <tr>
-                    <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem; font-style: italic;">
+                    <td colspan="7" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem; font-style: italic;">
                       Ningún producto agregado. El peso y volumen se tomarán de los valores ingresados arriba.
                     </td>
                   </tr>
@@ -99370,6 +99435,170 @@ window.initQuoteFormListenersAdmin = function() {
       }
     });
   }
+
+  // Buscador de Pedido Existente para Cotizar
+  const orderSearchInput = document.getElementById('quote-admin-order-search');
+  const orderDropdown = document.getElementById('quote-admin-order-dropdown');
+  const btnLoadOrder = document.getElementById('btn-quote-admin-load-order');
+
+  if (orderSearchInput && orderDropdown) {
+    let searchTimeout = null;
+
+    const renderOrderResults = (ordersList) => {
+      if (!ordersList || ordersList.length === 0) {
+        orderDropdown.innerHTML = '<div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.82rem; font-style: italic;">No se encontraron pedidos coincidentes.</div>';
+        orderDropdown.style.display = 'block';
+        return;
+      }
+
+      const esc = window.escapeHtml || (s => String(s || ''));
+      orderDropdown.innerHTML = ordersList.slice(0, 25).map(o => {
+        const orderNum = o.external_order_number || `#${(o.id || '').slice(0, 8)}`;
+        const clientName = o.shipping_name || o.client || 'Sin nombre';
+        const commerceName = o.comercio || 'Sin comercio';
+        const city = o.shipping_city || 'Sin comuna';
+        const status = o.status || 'nuevo';
+        return `
+          <div class="quote-order-search-option" data-order-id="${o.id}" style="padding: 0.6rem 0.85rem; cursor: pointer; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; transition: background 0.15s;" onmouseover="this.style.background='var(--color-bg)'" onmouseout="this.style.background='transparent'">
+            <div style="display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; text-align: left;">
+              <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                <span style="font-weight: 800; color: var(--color-primary); font-family: monospace; font-size: 0.88rem;">${esc(orderNum)}</span>
+                <span style="font-size: 0.72rem; background: rgba(var(--color-primary-rgb), 0.1); color: var(--color-primary); padding: 1px 6px; border-radius: 999px; font-weight: 700;">${esc(commerceName)}</span>
+                <span style="font-size: 0.7rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600;">• ${esc(status)}</span>
+              </div>
+              <div style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                <i class="ri-user-line" style="color: var(--color-text-muted);"></i> ${esc(clientName)}
+              </div>
+            </div>
+            <div style="text-align: right; flex-shrink: 0;">
+              <span style="font-size: 0.76rem; font-weight: 700; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.2rem; background: var(--color-bg); padding: 2px 8px; border-radius: 6px; border: 1px solid var(--color-border);">
+                <i class="ri-map-pin-2-line" style="color: var(--color-primary);"></i> ${esc(city)}
+              </span>
+            </div>
+          </div>
+        `;
+      }).join('');
+      orderDropdown.style.display = 'block';
+
+      orderDropdown.querySelectorAll('.quote-order-search-option').forEach(opt => {
+        opt.onclick = function() {
+          const oid = this.getAttribute('data-order-id');
+          orderDropdown.style.display = 'none';
+          window.loadOrderIntoQuoteAdmin(oid);
+        };
+      });
+    };
+
+    const performOrderSearch = async (rawTerm) => {
+      const term = (rawTerm || '').trim();
+      const selectedComm = commSelect ? commSelect.value : '';
+
+      // 1. Buscar primero en memoria (window.loadedOrders)
+      let localMatches = Array.isArray(window.loadedOrders) ? [...window.loadedOrders] : [];
+      if (selectedComm) {
+        const commFiltered = localMatches.filter(o => (o.comercio || '').toLowerCase() === selectedComm.toLowerCase());
+        if (commFiltered.length > 0 || !term) {
+          localMatches = commFiltered;
+        }
+      }
+
+      if (term) {
+        const cleanTerm = term.toLowerCase();
+        localMatches = localMatches.filter(o => {
+          const ext = (o.external_order_number || '').toLowerCase();
+          const idStr = (o.id || '').toLowerCase();
+          const name = (o.shipping_name || o.client || '').toLowerCase();
+          const city = (o.shipping_city || '').toLowerCase();
+          const comm = (o.comercio || '').toLowerCase();
+          return ext.includes(cleanTerm) || idStr.includes(cleanTerm) || name.includes(cleanTerm) || city.includes(cleanTerm) || comm.includes(cleanTerm);
+        });
+      }
+
+      if (!term && localMatches.length > 0) {
+        renderOrderResults(localMatches.slice(0, 20));
+        return;
+      }
+
+      // 2. Complementar con búsqueda en Supabase si hay texto o si no hay pedidos en memoria
+      try {
+        let query = supabase
+          .from('orders')
+          .select('id, external_order_number, comercio, client, shipping_name, shipping_city, shipping_address, shipping_region, shipping_method, operador, status, created_at')
+          .order('created_at', { ascending: false })
+          .limit(25);
+
+        if (term) {
+          const sanitized = term.replace(/[%_]/g, '');
+          query = query.or(`external_order_number.ilike.%${sanitized}%,shipping_name.ilike.%${sanitized}%,client.ilike.%${sanitized}%,shipping_city.ilike.%${sanitized}%,comercio.ilike.%${sanitized}%`);
+        } else if (selectedComm) {
+          query = query.eq('comercio', selectedComm);
+        }
+
+        const { data: remoteOrders, error } = await query;
+        if (!error && Array.isArray(remoteOrders)) {
+          const seenIds = new Set(localMatches.map(o => o.id));
+          remoteOrders.forEach(ro => {
+            if (!seenIds.has(ro.id)) {
+              localMatches.push(ro);
+              seenIds.add(ro.id);
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('Error buscando pedidos para cotizador:', e);
+      }
+
+      renderOrderResults(localMatches);
+    };
+
+    orderSearchInput.addEventListener('focus', () => {
+      performOrderSearch(orderSearchInput.value);
+    });
+
+    orderSearchInput.addEventListener('input', () => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        performOrderSearch(orderSearchInput.value);
+      }, 220);
+    });
+
+    orderSearchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        orderDropdown.style.display = 'none';
+        if (orderSearchInput.value.trim()) {
+          window.loadOrderIntoQuoteAdmin(orderSearchInput.value.trim());
+        }
+      }
+    });
+
+    if (btnLoadOrder) {
+      btnLoadOrder.addEventListener('click', () => {
+        orderDropdown.style.display = 'none';
+        const val = orderSearchInput.value.trim();
+        if (!val) {
+          performOrderSearch('');
+          return;
+        }
+        window.loadOrderIntoQuoteAdmin(val);
+      });
+    }
+
+    document.addEventListener('click', (e) => {
+      if (e.target !== orderSearchInput && e.target !== orderDropdown && !orderDropdown.contains(e.target) && e.target !== btnLoadOrder) {
+        orderDropdown.style.display = 'none';
+      }
+    });
+  }
+
+  // Si venimos redirigidos desde Torre de Control u Hoja de Pedido con un pedido preseleccionado
+  if (window.pendingQuoteOrderIdAdmin) {
+    const pendingId = window.pendingQuoteOrderIdAdmin;
+    window.pendingQuoteOrderIdAdmin = null;
+    setTimeout(() => {
+      window.loadOrderIntoQuoteAdmin(pendingId);
+    }, 80);
+  }
 };
 
 window.processRatesExcelAdmin = function(file) {
@@ -99551,20 +99780,28 @@ window.processRatesExcelAdmin = function(file) {
 
 window.resetQuoteFormAdmin = function() {
   window.tempQuoteItems = [];
+  window.currentQuotedOrderAdmin = null;
   const commSelect = document.getElementById('quote-admin-commerce-select');
   const cityInput = document.getElementById('quote-cust-city');
   const weightInput = document.getElementById('quote-total-weight-input');
   const volInput = document.getElementById('quote-total-volume-estimated');
   const mainSec = document.getElementById('quote-admin-main-section');
   const catStatus = document.getElementById('quote-admin-catalog-status');
+  const orderSearchInput = document.getElementById('quote-admin-order-search');
+  const orderBanner = document.getElementById('quote-loaded-order-banner');
   
   if (commSelect) commSelect.value = '';
   if (cityInput) cityInput.value = '';
   if (weightInput) weightInput.value = '1.0';
   if (volInput) volInput.value = '0.00050';
+  if (orderSearchInput) orderSearchInput.value = '';
+  if (orderBanner) {
+    orderBanner.style.display = 'none';
+    orderBanner.innerHTML = '';
+  }
   
   if (catStatus) {
-    catStatus.innerHTML = 'Selecciona un comercio para cargar su catálogo de productos.';
+    catStatus.innerHTML = 'Selecciona un comercio para cargar su catálogo.';
   }
   if (mainSec) {
     mainSec.style.opacity = '0.5';
@@ -99588,7 +99825,7 @@ window.renderQuoteItemsTableAdmin = function() {
   if (window.tempQuoteItems.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem; font-style: italic;">
+        <td colspan="7" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem; font-style: italic;">
           Ningún producto agregado. El peso y volumen se tomarán de los valores ingresados arriba.
         </td>
       </tr>
@@ -99602,14 +99839,23 @@ window.renderQuoteItemsTableAdmin = function() {
 
   window.tempQuoteItems.forEach((item, idx) => {
     const subtotal = item.quantity * item.price;
-    totalVol += item.quantity * (item.volumen || 0.0001);
-    totalWeight += item.quantity * (item.peso || 0.5);
+    const unitVol = item.volumen > 0 ? item.volumen : 0.0001;
+    const unitWeight = item.peso > 0 ? item.peso : 0.5;
+    totalVol += item.quantity * unitVol;
+    totalWeight += item.quantity * unitWeight;
+
+    const fallbackBadge = (item.usedDefaultWeight || item.usedDefaultVol)
+      ? `<span title="Producto sin peso o volumen configurado en catálogo (usando estimado base)" style="font-size: 0.65rem; background: rgba(245, 158, 11, 0.15); color: #d97706; padding: 1px 5px; border-radius: 4px; margin-left: 4px; font-weight: 700;">Est.</span>`
+      : '';
 
     htmlItems += `
       <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-surface); text-align: left;">
-        <td style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
+        <td style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main); font-family: monospace;">${item.sku}</td>
         <td style="padding: 0.5rem 0.75rem; color: var(--color-text-main);">${item.name}</td>
         <td style="padding: 0.5rem 0.75rem; text-align: center; font-weight: 600; color: var(--color-text-main);">${item.quantity}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: right; color: var(--color-text-muted); font-family: monospace; font-size: 0.78rem;">
+          ${unitWeight.toFixed(2)} Kg / ${unitVol.toFixed(4)} m³${fallbackBadge}
+        </td>
         <td style="padding: 0.5rem 0.75rem; text-align: right; color: var(--color-text-muted);">${window.formatCLP(item.price)}</td>
         <td style="padding: 0.5rem 0.75rem; text-align: right; font-weight: 600; color: var(--color-text-main);">${window.formatCLP(subtotal)}</td>
         <td style="padding: 0.5rem 0.75rem; text-align: center;">
@@ -99640,7 +99886,7 @@ window.renderQuoteItemsTableAdmin = function() {
   }
 
   const weightInput = document.getElementById('quote-total-weight-input');
-  if (weightInput) weightInput.value = totalWeight.toFixed(1);
+  if (weightInput) weightInput.value = Math.max(0.1, Number(totalWeight.toFixed(2))).toFixed(1);
 
   window.runQuoteCalculatorAdmin();
 };
@@ -99675,8 +99921,10 @@ window.addQuoteOrderItemAdmin = function() {
       name: product.name,
       quantity: qty,
       price: product.price || 0,
-      volumen: product.volumen || 0.0001,
-      peso: product.peso || 0.5
+      volumen: product.volumen > 0 ? product.volumen : 0.0001,
+      peso: product.peso > 0 ? product.peso : 0.5,
+      usedDefaultVol: !(product.volumen > 0),
+      usedDefaultWeight: !(product.peso > 0)
     });
   }
 
@@ -99800,12 +100048,15 @@ window.runQuoteCalculatorAdmin = function() {
     return;
   }
 
-  const normalizedCity = city.toLowerCase()
+  const normalizedCityRaw = city.toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/ñ/g, 'n')
     .replace(/[^a-z\s]/g, '')
     .trim();
+  const normalizedCity = typeof window.resolveComunaAlias === 'function'
+    ? window.resolveComunaAlias(normalizedCityRaw)
+    : normalizedCityRaw;
 
   let ratesData = null;
   if (window.shippingRates) {
@@ -99946,7 +100197,7 @@ window.runQuoteCalculatorAdmin = function() {
       if (opt.courier === 'STARKEN') courierIcon = 'ri-send-plane-2-line';
       else if (opt.courier === 'CHILEXPRESS') courierIcon = 'ri-plane-line';
 
-      listHtml = `
+      listHtml += `
         <label class="courier-option-card ${isSelected ? 'selected-courier' : ''}">
           <div style="display: flex; align-items: center; gap: 0.75rem;">
             <div class="courier-logo-circle" style="background: ${isSelected ? 'rgba(var(--color-primary-rgb), 0.12)' : 'var(--color-bg)'}; color: ${isSelected ? 'var(--color-primary)' : 'var(--color-text-muted)'};">
@@ -99964,13 +100215,18 @@ window.runQuoteCalculatorAdmin = function() {
           </div>
           <span style="font-weight: 700; color: ${isSelected ? 'var(--color-primary)' : 'var(--color-text-main)'}; font-size: 0.95rem;">${window.formatCLP(optTotal)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">c/IVA</span></span>
         </label>
-      ` + listHtml;
+      `;
     });
 
     optionsList.innerHTML = listHtml;
 
     const radios = optionsList.querySelectorAll('input[name="quote-courier-option"]');
     const updatePrices = () => {
+      optionsList.querySelectorAll('.courier-option-card').forEach(card => {
+        const rad = card.querySelector('input[name="quote-courier-option"]');
+        if (rad && rad.checked) card.classList.add('selected-courier');
+        else card.classList.remove('selected-courier');
+      });
       const selectedRadio = optionsList.querySelector('input[name="quote-courier-option"]:checked');
       if (!selectedRadio) return;
 
@@ -99992,6 +100248,806 @@ window.runQuoteCalculatorAdmin = function() {
 
     updatePrices();
   }
+};
+
+// =========================================================================
+// COTIZAR UN PEDIDO CON LA INFO DEL PEDIDO MISMO (MÓDULO COTIZADOR + TORRE DE CONTROL)
+// =========================================================================
+
+window.extractOrderDataForShippingQuote = async function(orderOrId) {
+  let order = null;
+  if (orderOrId && typeof orderOrId === 'object' && orderOrId.id) {
+    order = orderOrId;
+  } else {
+    const searchVal = String(orderOrId || '').trim();
+    if (!searchVal) return null;
+
+    // 1. Intentar encontrar en memoria primero
+    if (Array.isArray(window.loadedOrders)) {
+      order = window.loadedOrders.find(o =>
+        String(o.id) === searchVal ||
+        String(o.external_order_number || '').toLowerCase() === searchVal.toLowerCase() ||
+        String(o.external_order_number || '').replace(/^#/, '').toLowerCase() === searchVal.replace(/^#/, '').toLowerCase()
+      );
+    }
+
+    // 2. Consultar en Supabase con relaciones completas de productos (incluyendo weight, volumen, length, width, height)
+    const selectCols = `
+      *,
+      order_items (
+        id, quantity, product_id, warehouse_id, tag, is_gift, campaign_id,
+        products (id, name, sku, price, volumen, weight, length, width, height, is_virtual)
+      )
+    `;
+    try {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(searchVal);
+      if (isUuid || (order && order.id)) {
+        const targetId = isUuid ? searchVal : order.id;
+        const { data: dbOrder, error } = await supabase
+          .from('orders')
+          .select(selectCols)
+          .eq('id', targetId)
+          .maybeSingle();
+        if (!error && dbOrder) order = dbOrder;
+      } else {
+        const cleanNum = searchVal.replace(/^#/, '');
+        const { data: dbOrders, error } = await supabase
+          .from('orders')
+          .select(selectCols)
+          .or(`external_order_number.ilike.${searchVal},external_order_number.ilike.#${cleanNum},external_order_number.ilike.${cleanNum}`)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (!error && Array.isArray(dbOrders) && dbOrders.length > 0) {
+          order = dbOrders[0];
+        }
+      }
+    } catch (err) {
+      console.warn('Error consultando pedido para cotización:', err);
+    }
+  }
+
+  if (!order) return null;
+
+  // Resolver comuna canónica según window.shippingRates y resolveComunaAlias
+  const rawCity = (order.shipping_city || '').trim();
+  const normRaw = rawCity.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ñ/g, 'n')
+    .replace(/[^a-z\s]/g, '')
+    .trim();
+  const resolvedNorm = typeof window.resolveComunaAlias === 'function'
+    ? window.resolveComunaAlias(normRaw)
+    : normRaw;
+
+  let canonicalComuna = rawCity;
+  if (window.shippingRates && resolvedNorm) {
+    const matchRate = Object.values(window.shippingRates).find(r => {
+      const nrc = (r.comuna || '').toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/ñ/g, 'n')
+        .replace(/[^a-z\s]/g, '')
+        .trim();
+      return nrc === resolvedNorm;
+    });
+    if (matchRate && matchRate.comuna) {
+      canonicalComuna = matchRate.comuna;
+    }
+  }
+
+  // Extraer pesos desde raw_shopify_data si algún producto no tiene peso configurado
+  const shopifyLineWeightsKg = {};
+  const rawShopify = order.raw_shopify_data || {};
+  if (Array.isArray(rawShopify.line_items)) {
+    rawShopify.line_items.forEach(li => {
+      const skuKey = String(li.sku || '').trim().toUpperCase();
+      const grams = parseFloat(li.grams) || 0;
+      if (skuKey && grams > 0) {
+        shopifyLineWeightsKg[skuKey] = grams / 1000;
+      }
+    });
+  }
+
+  // Construir lista de ítems físicos activos del pedido
+  const quoteItems = [];
+  const activeOrderItems = (order.order_items || []).filter(oi => {
+    if (typeof window.isOrderItemEliminated === 'function' && window.isOrderItemEliminated(order, oi)) return false;
+    if (oi.products && oi.products.is_virtual) return false;
+    return true;
+  });
+
+  if (activeOrderItems.length > 0) {
+    activeOrderItems.forEach(oi => {
+      const p = oi.products || {};
+      const qty = Math.max(1, parseInt(oi.quantity, 10) || 1);
+      const sku = p.sku || 'S/SKU';
+      const name = p.name || 'Producto';
+      const price = parseFloat(p.price) || 0;
+
+      let vol = parseFloat(p.volumen) || 0;
+      const l = parseFloat(p.length) || 0;
+      const w = parseFloat(p.width) || 0;
+      const h = parseFloat(p.height) || 0;
+      if (vol <= 0 && l > 0 && w > 0 && h > 0) {
+        vol = (l * w * h) / 1000000;
+      }
+      const usedDefaultVol = !(vol > 0);
+      if (usedDefaultVol) vol = 0.0001;
+
+      let peso = parseFloat(p.weight) || parseFloat(p.peso) || 0;
+      if (peso <= 0 && sku && shopifyLineWeightsKg[sku.toUpperCase()]) {
+        peso = shopifyLineWeightsKg[sku.toUpperCase()];
+      }
+      const usedDefaultWeight = !(peso > 0);
+      if (usedDefaultWeight) peso = 0.5;
+
+      const existing = quoteItems.find(it => (it.product_id && it.product_id === (oi.product_id || p.id)) || (it.sku === sku && it.name === name));
+      if (existing) {
+        existing.quantity += qty;
+      } else {
+        quoteItems.push({
+          product_id: oi.product_id || p.id || sku,
+          sku,
+          name,
+          quantity: qty,
+          price,
+          volumen: vol,
+          peso,
+          length: l,
+          width: w,
+          height: h,
+          usedDefaultVol,
+          usedDefaultWeight
+        });
+      }
+    });
+  } else if (order.sku || order.item) {
+    // Fallback para pedidos antiguos sin filas en order_items
+    const qty = Math.max(1, parseInt(order.cantidad, 10) || 1);
+    const unitPrice = qty > 0 ? Math.round((parseFloat(order.total_value) || 0) / qty) : 0;
+    const skuKey = String(order.sku || '').trim().toUpperCase();
+    const shopifyW = skuKey && shopifyLineWeightsKg[skuKey] ? shopifyLineWeightsKg[skuKey] : 0;
+    quoteItems.push({
+      product_id: order.sku || 'legacy-item',
+      sku: order.sku || 'S/SKU',
+      name: order.item || 'Producto del pedido',
+      quantity: qty,
+      price: unitPrice,
+      volumen: 0.0001,
+      peso: shopifyW > 0 ? shopifyW : 0.5,
+      usedDefaultVol: true,
+      usedDefaultWeight: !(shopifyW > 0)
+    });
+  }
+
+  let totalWeight = 0;
+  let totalVolume = 0;
+  let totalUnits = 0;
+  let hasFallbackDims = false;
+
+  quoteItems.forEach(it => {
+    totalUnits += it.quantity;
+    totalWeight += it.quantity * (it.peso || 0.5);
+    totalVolume += it.quantity * (it.volumen || 0.0001);
+    if (it.usedDefaultVol || it.usedDefaultWeight) hasFallbackDims = true;
+  });
+
+  // Si Shopify reporta total_weight en gramos y ningún producto tenía peso configurado, usar total_weight de Shopify
+  const shopifyTotalGrams = parseFloat(rawShopify.total_weight) || 0;
+  if (shopifyTotalGrams > 0 && quoteItems.every(it => it.usedDefaultWeight)) {
+    totalWeight = Math.max(0.1, shopifyTotalGrams / 1000);
+  }
+
+  if (totalWeight <= 0) totalWeight = 1.0;
+  if (totalVolume <= 0) totalVolume = 0.0005;
+
+  // Determinar modalidad de envío según método/dirección/operador del pedido
+  const methodStr = `${order.shipping_method || ''} ${order.shipping_address || ''} ${order.notes || ''}`.toLowerCase();
+  const opStr = (order.operador || '').toUpperCase();
+  let shippingType = 'domicilio';
+  let sucursalCourier = 'STARKEN';
+  let paymentCondition = 'pagado';
+
+  if (methodStr.includes('punto stocka') || methodStr.includes('retiro en local') || methodStr.includes('campo de deportes')) {
+    shippingType = 'punto_stocka';
+  } else if (methodStr.includes('transporte propio') || opStr === 'PROPIO') {
+    shippingType = 'transporte_propio';
+  } else if (methodStr.includes('sucursal') || methodStr.includes('agencia')) {
+    shippingType = 'sucursal';
+    if (opStr.includes('CHILEXPRESS') || methodStr.includes('chilexpress')) {
+      sucursalCourier = 'CHILEXPRESS';
+    } else {
+      sucursalCourier = 'STARKEN';
+    }
+  }
+
+  if (methodStr.includes('por pagar')) {
+    paymentCondition = 'por_pagar';
+  }
+
+  return {
+    order,
+    orderId: order.id,
+    orderNumber: order.external_order_number || `#${String(order.id).slice(0, 8)}`,
+    comercio: order.comercio || '',
+    clientName: order.shipping_name || order.client || 'Sin nombre',
+    address: [order.shipping_address, order.shipping_address_2].filter(Boolean).join(', ') || 'Sin dirección',
+    rawCity,
+    canonicalComuna,
+    region: order.shipping_region || '',
+    currentCourier: order.operador || 'Sin asignar',
+    shippingMethod: order.shipping_method || 'Estándar',
+    shippingType,
+    sucursalCourier,
+    paymentCondition,
+    quoteItems,
+    totalUnits,
+    totalWeight: Math.max(0.1, Number(totalWeight.toFixed(2))),
+    totalVolume: Number(totalVolume.toFixed(5)),
+    hasFallbackDims
+  };
+};
+
+window.clearLoadedOrderQuoteAdmin = function() {
+  window.currentQuotedOrderAdmin = null;
+  const orderBanner = document.getElementById('quote-loaded-order-banner');
+  const orderSearchInput = document.getElementById('quote-admin-order-search');
+  if (orderBanner) {
+    orderBanner.style.display = 'none';
+    orderBanner.innerHTML = '';
+  }
+  if (orderSearchInput) orderSearchInput.value = '';
+};
+
+window.loadOrderIntoQuoteAdmin = async function(orderOrId) {
+  const orderBanner = document.getElementById('quote-loaded-order-banner');
+  if (orderBanner) {
+    orderBanner.style.display = 'block';
+    orderBanner.innerHTML = `
+      <div style="padding: 0.75rem 1rem; border-radius: var(--radius-md); background: rgba(var(--color-primary-rgb), 0.06); border: 1px solid rgba(var(--color-primary-rgb), 0.25); color: var(--color-primary); font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
+        <i class="ri-loader-4-line" style="animation: wms-spin 1s linear infinite; display: inline-block; font-size: 1.1rem;"></i>
+        Cargando datos e ítems del pedido para cotizar...
+      </div>
+    `;
+  }
+
+  const data = await window.extractOrderDataForShippingQuote(orderOrId);
+  if (!data) {
+    if (orderBanner) {
+      orderBanner.style.display = 'none';
+      orderBanner.innerHTML = '';
+    }
+    if (typeof Swal !== 'undefined') {
+      Swal.fire('Pedido no encontrado', 'No se encontró un pedido con ese identificador o número.', 'warning');
+    }
+    return;
+  }
+
+  window.currentQuotedOrderAdmin = data;
+
+  const commSelect = document.getElementById('quote-admin-commerce-select');
+  const mainSec = document.getElementById('quote-admin-main-section');
+  const catStatus = document.getElementById('quote-admin-catalog-status');
+  const orderSearchInput = document.getElementById('quote-admin-order-search');
+
+  if (orderSearchInput) {
+    orderSearchInput.value = `${data.orderNumber} - ${data.clientName} (${data.canonicalComuna || 'Sin comuna'})`;
+  }
+
+  // Seleccionar comercio del pedido y cargar su catálogo
+  if (commSelect && data.comercio) {
+    let optExists = Array.from(commSelect.options).some(o => o.value === data.comercio);
+    if (!optExists) {
+      const newOpt = document.createElement('option');
+      newOpt.value = data.comercio;
+      newOpt.textContent = data.comercio;
+      commSelect.appendChild(newOpt);
+    }
+    commSelect.value = data.comercio;
+    await window.loadNewOrderProductsAdmin(data.comercio);
+    if (catStatus) {
+      catStatus.innerHTML = `<span style="color: var(--color-success); font-weight: 600;"><i class="ri-checkbox-circle-line"></i> Catálogo ${data.comercio}: ${window.tempClientProductsList.length} productos</span>`;
+    }
+  }
+
+  if (mainSec) {
+    mainSec.style.opacity = '1';
+    mainSec.style.pointerEvents = 'auto';
+  }
+
+  // Completar Comuna de Destino
+  const cityInput = document.getElementById('quote-cust-city');
+  if (cityInput) {
+    cityInput.value = data.canonicalComuna || data.rawCity || '';
+  }
+
+  // Completar Modalidad de Entrega y Pago
+  const typeRadio = document.querySelector(`input[name="quote-shipping-type"][value="${data.shippingType}"]`);
+  if (typeRadio) {
+    typeRadio.checked = true;
+    typeRadio.dispatchEvent(new Event('change'));
+  }
+  const sucursalCourierEl = document.getElementById('quote-sucursal-courier');
+  if (sucursalCourierEl && data.sucursalCourier) {
+    sucursalCourierEl.value = data.sucursalCourier;
+  }
+  const payRadio = document.querySelector(`input[name="quote-shipping-payment"][value="${data.paymentCondition}"]`);
+  if (payRadio) {
+    payRadio.checked = true;
+    payRadio.dispatchEvent(new Event('change'));
+  }
+
+  // Cargar ítems del pedido y actualizar Peso y Volumen
+  window.tempQuoteItems = data.quoteItems.map(it => ({ ...it }));
+  window.renderQuoteItemsTableAdmin();
+
+  const weightInput = document.getElementById('quote-total-weight-input');
+  const volInput = document.getElementById('quote-total-volume-estimated');
+  if (weightInput) weightInput.value = data.totalWeight.toFixed(1);
+  if (volInput) volInput.value = data.totalVolume.toFixed(5);
+
+  window.runQuoteCalculatorAdmin();
+
+  // Renderizar banner resumen del pedido cargado
+  if (orderBanner) {
+    const esc = window.escapeHtml || (s => String(s || ''));
+    const fallbackNotice = data.hasFallbackDims
+      ? `<div style="margin-top: 0.45rem; font-size: 0.75rem; color: #b45309; background: rgba(245, 158, 11, 0.12); padding: 0.35rem 0.65rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+           <i class="ri-information-line"></i> Algunos SKUs del pedido no tienen peso/volumen configurado en catálogo; se aplicó estimado base (puedes ajustarlo manualmente abajo).
+         </div>`
+      : '';
+
+    orderBanner.style.display = 'block';
+    orderBanner.innerHTML = `
+      <div style="padding: 0.9rem 1.1rem; border-radius: var(--radius-md); background: linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.08), rgba(34, 197, 94, 0.06)); border: 1.5px solid rgba(var(--color-primary-rgb), 0.35); display: flex; flex-direction: column; gap: 0.35rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+            <span style="background: var(--color-primary); color: white; font-weight: 800; font-size: 0.8rem; padding: 0.2rem 0.6rem; border-radius: 6px; font-family: monospace; display: inline-flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-file-list-3-line"></i> PEDIDO ${esc(data.orderNumber)}
+            </span>
+            <span style="font-weight: 700; font-size: 0.88rem; color: var(--color-text-main);">${esc(data.clientName)}</span>
+            <span style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600;">• Comercio: <strong style="color: var(--color-primary);">${esc(data.comercio || 'N/A')}</strong></span>
+            <span style="font-size: 0.78rem; color: var(--color-text-muted);">• Dirección: <strong>${esc(data.address)} (${esc(data.canonicalComuna || 'Sin comuna')})</strong></span>
+            <span style="font-size: 0.76rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 1px 7px; border-radius: 999px; color: var(--color-text-main); font-weight: 600;">
+              Courier actual: ${esc(data.currentCourier)}
+            </span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.45rem;">
+            <button type="button" onclick="window.assignSelectedCourierFromQuoteModuleAdmin('${data.orderId}')" class="btn btn-primary" style="padding: 0.32rem 0.75rem; font-size: 0.76rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-truck-line"></i> Asignar Courier Seleccionado al Pedido
+            </button>
+            <button type="button" onclick="window.clearLoadedOrderQuoteAdmin()" class="btn btn-outline" style="padding: 0.3rem 0.6rem; font-size: 0.75rem; font-weight: 600;">
+              <i class="ri-close-line"></i> Quitar
+            </button>
+          </div>
+        </div>
+        ${fallbackNotice}
+      </div>
+    `;
+  }
+};
+
+window.assignSelectedCourierFromQuoteModuleAdmin = async function(orderId) {
+  const selectedRadio = document.querySelector('#quote-courier-options-list input[name="quote-courier-option"]:checked');
+  if (!selectedRadio) {
+    Swal.fire('Sin courier seleccionado', 'Selecciona una opción de courier en el panel derecho antes de asignarlo al pedido.', 'warning');
+    return;
+  }
+  const chosenCourier = selectedRadio.value;
+  await window.assignQuotedCourierToOrder(orderId, chosenCourier);
+};
+
+window.assignQuotedCourierToOrder = async function(orderId, chosenCourier) {
+  if (!orderId || !chosenCourier) return;
+  try {
+    const { error } = await supabase
+      .from('orders')
+      .update({ operador: chosenCourier })
+      .eq('id', orderId);
+    if (error) throw error;
+
+    // Actualizar en memoria si está en window.loadedOrders
+    if (Array.isArray(window.loadedOrders)) {
+      const localOrd = window.loadedOrders.find(o => String(o.id) === String(orderId));
+      if (localOrd) localOrd.operador = chosenCourier;
+    }
+
+    const opSelect = document.getElementById(`operator-select-${orderId}`);
+    if (opSelect) opSelect.value = chosenCourier;
+
+    if (typeof window.showToast === 'function') {
+      window.showToast(`Courier ${chosenCourier} asignado al pedido exitosamente.`, 'success');
+    } else if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `Courier ${chosenCourier} asignado al pedido`,
+        showConfirmButton: false,
+        timer: 2500
+      });
+    }
+  } catch (err) {
+    console.error('Error al asignar courier desde cotizador:', err);
+    if (typeof Swal !== 'undefined') {
+      Swal.fire('Error', `No se pudo asignar el courier al pedido: ${err.message || err}`, 'error');
+    }
+  }
+};
+
+window.openOrderInCotizadorModule = function(orderId) {
+  if (!orderId) return;
+  if (typeof Swal !== 'undefined' && Swal.isVisible()) {
+    Swal.close();
+  }
+  window.pendingQuoteOrderIdAdmin = orderId;
+
+  // Activar ítem de navegación lateral si existe
+  const navLinks = document.querySelectorAll('.nav-links li');
+  navLinks.forEach(li => {
+    if (li.getAttribute('data-view') === 'cotizador_admin') {
+      navLinks.forEach(item => item.classList.remove('active'));
+      li.classList.add('active');
+    }
+  });
+
+  const viewTitle = document.getElementById('view-title');
+  if (viewTitle) viewTitle.textContent = 'Cotizador de Envíos';
+
+  if (typeof window.renderCotizadorAdmin === 'function') {
+    window.renderCotizadorAdmin();
+  }
+};
+
+window.openOrderShippingQuoteModal = async function(orderId) {
+  if (!orderId) return;
+
+  Swal.fire({
+    title: 'Calculando Cotización del Pedido...',
+    html: '<div style="padding: 1rem;"><i class="ri-loader-4-line" style="font-size: 2rem; color: var(--color-primary); animation: wms-spin 1s linear infinite; display: inline-block;"></i><p style="margin-top: 0.5rem; color: var(--color-text-muted); font-size: 0.85rem;">Extrayendo destino, productos, peso y cubicaje del pedido...</p></div>',
+    showConfirmButton: false,
+    allowOutsideClick: false
+  });
+
+  const data = await window.extractOrderDataForShippingQuote(orderId);
+  if (!data) {
+    Swal.fire('Error', 'No se pudo cargar la información del pedido para cotizar.', 'error');
+    return;
+  }
+
+  const esc = window.escapeHtml || (s => String(s || ''));
+  let comunasList = [];
+  if (window.shippingRates) {
+    comunasList = Object.values(window.shippingRates)
+      .map(r => r.comuna)
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  }
+
+  const itemsRowsHtml = data.quoteItems.length > 0
+    ? data.quoteItems.map(it => {
+        const subWeight = (it.quantity * it.peso).toFixed(2);
+        const subVol = (it.quantity * it.volumen).toFixed(4);
+        const estBadge = (it.usedDefaultWeight || it.usedDefaultVol)
+          ? `<span title="Sin peso/volumen en catálogo (estimado base)" style="font-size: 0.62rem; background: rgba(245, 158, 11, 0.16); color: #d97706; padding: 1px 4px; border-radius: 4px; margin-left: 3px; font-weight: 700;">Est.</span>`
+          : '';
+        return `
+          <tr style="border-bottom: 1px solid var(--color-border); font-size: 0.78rem;">
+            <td style="padding: 0.4rem 0.55rem; font-family: monospace; font-weight: 700; color: var(--color-primary); text-align: left;">${esc(it.sku)}</td>
+            <td style="padding: 0.4rem 0.55rem; color: var(--color-text-main); text-align: left;">${esc(it.name)}</td>
+            <td style="padding: 0.4rem 0.55rem; text-align: center; font-weight: 700;">${it.quantity}</td>
+            <td style="padding: 0.4rem 0.55rem; text-align: right; font-family: monospace; color: var(--color-text-muted);">${subWeight} Kg / ${subVol} m³${estBadge}</td>
+          </tr>
+        `;
+      }).join('')
+    : `<tr><td colspan="4" style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-style: italic;">Sin ítems detallados (usando peso/volumen base).</td></tr>`;
+
+  const modalHtml = `
+    <div style="text-align: left; display: flex; flex-direction: column; gap: 1rem; font-family: inherit; color: var(--color-text-main);">
+      <!-- Cabecera resumen del pedido -->
+      <div style="background: rgba(var(--color-primary-rgb), 0.06); border: 1px solid rgba(var(--color-primary-rgb), 0.25); border-radius: 10px; padding: 0.85rem 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+        <div style="display: flex; flex-direction: column; gap: 0.2rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span style="background: var(--color-primary); color: #fff; font-weight: 800; font-size: 0.8rem; padding: 2px 8px; border-radius: 6px; font-family: monospace;">${esc(data.orderNumber)}</span>
+            <span style="font-weight: 700; font-size: 0.92rem;">${esc(data.clientName)}</span>
+            <span style="font-size: 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 1px 8px; border-radius: 999px; font-weight: 600; color: var(--color-primary);">${esc(data.comercio || 'Sin comercio')}</span>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--color-text-muted);">
+            <i class="ri-map-pin-2-line" style="color: var(--color-primary);"></i> ${esc(data.address)} • <strong>${esc(data.canonicalComuna || 'Sin comuna')}</strong>
+            <span style="margin-left: 0.5rem;">| Courier actual: <strong>${esc(data.currentCourier)}</strong></span>
+          </div>
+        </div>
+        <button type="button" onclick="window.openOrderInCotizadorModule('${data.orderId}')" class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.76rem; font-weight: 700; color: var(--color-primary); border-color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer;">
+          <i class="ri-external-link-line"></i> Abrir en Módulo Cotizador
+        </button>
+      </div>
+
+      <!-- Controles interactivos de simulación -->
+      <div style="display: grid; grid-template-columns: 1.2fr 0.7fr 0.7fr 0.9fr; gap: 0.75rem; align-items: end; background: var(--color-surface); padding: 0.85rem; border-radius: 10px; border: 1px solid var(--color-border);">
+        <div>
+          <label style="display: block; font-size: 0.74rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 0.25rem;">Comuna Destino</label>
+          <input type="text" id="modal-quote-city" list="modal-quote-comunas-datalist" class="form-input" value="${esc(data.canonicalComuna)}" placeholder="Comuna..." style="font-size: 0.84rem; padding: 0.4rem 0.6rem; width: 100%;">
+          <datalist id="modal-quote-comunas-datalist">
+            ${comunasList.map(c => `<option value="${esc(c)}"></option>`).join('')}
+          </datalist>
+        </div>
+        <div>
+          <label style="display: block; font-size: 0.74rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 0.25rem;">Peso Físico (Kg)</label>
+          <input type="number" id="modal-quote-weight" class="form-input" min="0.1" step="0.1" value="${data.totalWeight.toFixed(1)}" style="font-size: 0.85rem; padding: 0.4rem 0.6rem; width: 100%; font-family: monospace; font-weight: 700; text-align: right;">
+        </div>
+        <div>
+          <label style="display: block; font-size: 0.74rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 0.25rem;">Volumen (m³)</label>
+          <input type="number" id="modal-quote-volume" class="form-input" min="0.0001" step="0.0001" value="${data.totalVolume.toFixed(5)}" style="font-size: 0.85rem; padding: 0.4rem 0.6rem; width: 100%; font-family: monospace; font-weight: 700; text-align: right;">
+        </div>
+        <div>
+          <label style="display: block; font-size: 0.74rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 0.25rem;">Modalidad</label>
+          <select id="modal-quote-shipping-type" class="form-input" style="font-size: 0.82rem; padding: 0.4rem 0.5rem; width: 100%;">
+            <option value="domicilio" ${data.shippingType === 'domicilio' ? 'selected' : ''}>A Domicilio</option>
+            <option value="sucursal_starken" ${data.shippingType === 'sucursal' && data.sucursalCourier === 'STARKEN' ? 'selected' : ''}>Sucursal Starken</option>
+            <option value="sucursal_chilexpress" ${data.shippingType === 'sucursal' && data.sucursalCourier === 'CHILEXPRESS' ? 'selected' : ''}>Sucursal Chilexpress</option>
+            <option value="punto_stocka" ${data.shippingType === 'punto_stocka' ? 'selected' : ''}>Punto STOCKA</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Barra de comparación de peso físico vs volumétrico -->
+      <div style="background: var(--color-bg); padding: 0.5rem 0.85rem; border-radius: 8px; border: 1px dashed var(--color-border); display: flex; align-items: center; justify-content: space-between; font-size: 0.76rem; color: var(--color-text-muted); flex-wrap: wrap; gap: 0.5rem;">
+        <span><i class="ri-scales-3-line" style="color: var(--color-primary);"></i> Peso Físico: <strong id="modal-quote-phys-w" style="color: var(--color-text-main);">0.0 Kg</strong></span>
+        <span><i class="ri-box-3-line" style="color: var(--color-primary);"></i> Peso Volumétrico (m³ × 250): <strong id="modal-quote-vol-w">0.0 Kg</strong></span>
+        <span style="background: rgba(var(--color-primary-rgb), 0.12); color: var(--color-primary); padding: 2px 8px; border-radius: 999px; font-weight: 700;">
+          Peso Tarifado: <span id="modal-quote-applied-w">0.0 Kg</span>
+        </span>
+      </div>
+
+      <!-- Ítems del pedido -->
+      <details style="border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); overflow: hidden;" open>
+        <summary style="padding: 0.55rem 0.85rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; background: var(--color-bg); display: flex; align-items: center; justify-content: space-between;">
+          <span><i class="ri-shopping-basket-2-line" style="color: var(--color-primary);"></i> Productos del Pedido (${data.totalUnits} unid.)</span>
+          ${data.hasFallbackDims ? '<span style="font-size: 0.7rem; color: #d97706; font-weight: 600;"><i class="ri-alert-line"></i> Incluye peso/vol estimado</span>' : ''}
+        </summary>
+        <div style="max-height: 150px; overflow-y: auto;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--color-border); font-size: 0.72rem; color: var(--color-text-muted); background: var(--color-surface);">
+                <th style="padding: 0.35rem 0.55rem; text-align: left;">SKU</th>
+                <th style="padding: 0.35rem 0.55rem; text-align: left;">Producto</th>
+                <th style="padding: 0.35rem 0.55rem; text-align: center;">Cant</th>
+                <th style="padding: 0.35rem 0.55rem; text-align: right;">Peso / Vol Total</th>
+              </tr>
+            </thead>
+            <tbody>${itemsRowsHtml}</tbody>
+          </table>
+        </div>
+      </details>
+
+      <!-- Resultados de Tarifas y Couriers -->
+      <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+        <div id="modal-quote-coverage-badge" style="padding: 0.5rem 0.75rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600;"></div>
+        <div id="modal-quote-options-list" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+      </div>
+
+      <!-- Resumen Neto / IVA / Total -->
+      <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+        <div style="display: flex; gap: 1.25rem; font-size: 0.82rem; color: var(--color-text-muted);">
+          <span>Neto: <strong id="modal-quote-net" style="color: var(--color-text-main);">$0</strong></span>
+          <span>IVA (19%): <strong id="modal-quote-tax" style="color: var(--color-text-main);">$0</strong></span>
+          <span style="font-size: 0.92rem; color: var(--color-text-main); font-weight: 700;">Total c/IVA: <strong id="modal-quote-total" style="color: var(--color-primary); font-size: 1.05rem;">$0</strong></span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <button type="button" id="btn-modal-assign-courier" class="btn btn-primary" style="padding: 0.45rem 0.95rem; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer;">
+            <i class="ri-check-double-line"></i> Asignar Courier Seleccionado al Pedido
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  Swal.fire({
+    title: `<span style="font-size: 1.15rem; font-weight: 800; display: flex; align-items: center; gap: 0.45rem;"><i class="ri-calculator-line" style="color: var(--color-primary);"></i> Cotización de Envío del Pedido ${esc(data.orderNumber)}</span>`,
+    html: modalHtml,
+    width: '760px',
+    showConfirmButton: true,
+    confirmButtonText: 'Cerrar',
+    confirmButtonColor: '#64748b',
+    didOpen: () => {
+      const cityEl = document.getElementById('modal-quote-city');
+      const weightEl = document.getElementById('modal-quote-weight');
+      const volEl = document.getElementById('modal-quote-volume');
+      const typeEl = document.getElementById('modal-quote-shipping-type');
+      const badgeEl = document.getElementById('modal-quote-coverage-badge');
+      const listEl = document.getElementById('modal-quote-options-list');
+      const netEl = document.getElementById('modal-quote-net');
+      const taxEl = document.getElementById('modal-quote-tax');
+      const totalEl = document.getElementById('modal-quote-total');
+      const btnAssign = document.getElementById('btn-modal-assign-courier');
+
+      const recalculateModalQuote = () => {
+        const rawCityVal = (cityEl.value || '').trim();
+        const w = Math.max(0.1, parseFloat(weightEl.value) || 0.5);
+        const v = Math.max(0, parseFloat(volEl.value) || 0.0001);
+        const mode = typeEl.value;
+
+        const volW = v * 250;
+        const appW = Math.max(w, volW);
+
+        document.getElementById('modal-quote-phys-w').textContent = `${w.toFixed(2)} Kg`;
+        document.getElementById('modal-quote-vol-w').textContent = `${volW.toFixed(2)} Kg`;
+        document.getElementById('modal-quote-applied-w').textContent = `${appW.toFixed(2)} Kg`;
+
+        if (mode === 'punto_stocka') {
+          badgeEl.style.background = 'rgba(34, 197, 94, 0.12)';
+          badgeEl.style.color = '#16a34a';
+          badgeEl.innerHTML = '<i class="ri-checkbox-circle-line"></i> Retiro en Punto STOCKA (Campo de Deportes 405, Ñuñoa) — Sin costo de despacho';
+          listEl.innerHTML = `
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.65rem 0.9rem; border-radius: 8px; border: 1.5px solid #22c55e; background: rgba(34, 197, 94, 0.05); cursor: pointer;">
+              <span style="font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem;">
+                <input type="radio" name="modal-quote-courier-opt" value="STOCKA" checked data-net="0"> Retiro en Punto STOCKA
+              </span>
+              <span style="font-weight: 800; color: #16a34a;">Gratis ($0)</span>
+            </label>
+          `;
+          netEl.textContent = '$0';
+          taxEl.textContent = '$0';
+          totalEl.textContent = '$0';
+          return;
+        }
+
+        if (!rawCityVal) {
+          badgeEl.style.background = 'rgba(239, 68, 68, 0.1)';
+          badgeEl.style.color = '#ef4444';
+          badgeEl.innerHTML = '<i class="ri-error-warning-line"></i> Ingresa una comuna de destino para calcular las tarifas.';
+          listEl.innerHTML = '';
+          netEl.textContent = '$0';
+          taxEl.textContent = '$0';
+          totalEl.textContent = '$0';
+          return;
+        }
+
+        const normInput = rawCityVal.toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/ñ/g, 'n')
+          .replace(/[^a-z\s]/g, '')
+          .trim();
+        const normCity = typeof window.resolveComunaAlias === 'function'
+          ? window.resolveComunaAlias(normInput)
+          : normInput;
+
+        let ratesData = null;
+        if (window.shippingRates) {
+          ratesData = Object.values(window.shippingRates).find(r => {
+            const nrc = (r.comuna || '').toLowerCase()
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .replace(/ñ/g, 'n')
+              .replace(/[^a-z\s]/g, '')
+              .trim();
+            return nrc === normCity;
+          });
+        }
+
+        const isRm = typeof window.isRmCoverage === 'function' && window.isRmCoverage(normCity);
+        let bracket = '0-1';
+        if (appW <= 1.0) bracket = '0-1';
+        else if (appW <= 3.0) bracket = '1-3';
+        else if (appW <= 6.0) bracket = '3-6';
+        else if (appW <= 9.0) bracket = '6-9';
+        else if (appW <= 12.0) bracket = '9-12';
+        else if (appW <= 15.0) bracket = '12-15';
+        else bracket = '15-18';
+
+        const options = [];
+
+        // Si es RM y modalidad domicilio, ofrecer STOCKA Same Day y también mostrar alternativas de courier si existen en tabla
+        if (isRm && mode === 'domicilio') {
+          const isColina = normCity === 'colina';
+          let stockaNet = isColina ? 3490 : 3200;
+          if (v > 0.125 || appW > 10.0) {
+            stockaNet = isColina ? 6980 : 6200;
+          }
+          options.push({
+            courier: 'STOCKA',
+            label: 'STOCKA Same Day (Flex)',
+            net: stockaNet,
+            transit: 'Entrega el mismo día / 24 hrs',
+            badge: 'Recomendado RM'
+          });
+        }
+
+        if (ratesData && ratesData.rates && ratesData.rates[bracket]) {
+          const br = ratesData.rates[bracket];
+          const extraSurcharge = appW > 18.0 ? Math.ceil(appW - 18.0) * 1000 : 0;
+
+          if (mode === 'sucursal_starken') {
+            if (br.starken) options.push({ courier: 'STARKEN', label: 'Starken Sucursal', net: br.starken + extraSurcharge, transit: window.getTransitTimeText('STARKEN', ratesData) });
+          } else if (mode === 'sucursal_chilexpress') {
+            if (br.chilexpress) options.push({ courier: 'CHILEXPRESS', label: 'Chilexpress Sucursal', net: br.chilexpress + extraSurcharge, transit: window.getTransitTimeText('CHILEXPRESS', ratesData) });
+          } else {
+            if (br.starken) options.push({ courier: 'STARKEN', label: 'Starken Next Day', net: br.starken + extraSurcharge, transit: window.getTransitTimeText('STARKEN', ratesData) });
+            if (br.bluexpress) options.push({ courier: 'BLUEXPRESS', label: 'Bluexpress Standard', net: br.bluexpress + extraSurcharge, transit: window.getTransitTimeText('BLUEXPRESS', ratesData) });
+            if (br.chilexpress) options.push({ courier: 'CHILEXPRESS', label: 'Chilexpress Aéreo', net: br.chilexpress + extraSurcharge, transit: window.getTransitTimeText('CHILEXPRESS', ratesData) });
+          }
+        }
+
+        if (options.length === 0) {
+          badgeEl.style.background = 'rgba(239, 68, 68, 0.1)';
+          badgeEl.style.color = '#ef4444';
+          badgeEl.innerHTML = `<i class="ri-alert-line"></i> No se encontraron tarifas automáticas para "${esc(rawCityVal)}" en esta modalidad.`;
+          listEl.innerHTML = '';
+          netEl.textContent = '$0';
+          taxEl.textContent = '$0';
+          totalEl.textContent = '$0';
+          return;
+        }
+
+        options.sort((a, b) => a.net - b.net);
+
+        badgeEl.style.background = isRm && mode === 'domicilio' ? 'rgba(34, 197, 94, 0.12)' : 'rgba(59, 130, 246, 0.12)';
+        badgeEl.style.color = isRm && mode === 'domicilio' ? '#16a34a' : '#2563eb';
+        badgeEl.innerHTML = isRm && mode === 'domicilio'
+          ? `<i class="ri-checkbox-circle-line"></i> Cobertura RM detectada (${esc(ratesData?.comuna || rawCityVal)}) — Tramo ${bracket} Kg`
+          : `<i class="ri-road-map-line"></i> Cobertura Nacional (${esc(ratesData?.comuna || rawCityVal)}) — Tramo ${bracket} Kg`;
+
+        listEl.innerHTML = options.map((opt, idx) => {
+          const isBest = idx === 0;
+          const totalC = Math.round(opt.net * 1.19);
+          const tagHtml = opt.badge
+            ? `<span style="font-size: 0.65rem; background: var(--color-primary); color: #fff; padding: 1px 6px; border-radius: 999px; font-weight: 700;">${opt.badge}</span>`
+            : isBest
+              ? `<span style="font-size: 0.65rem; background: #22c55e; color: #fff; padding: 1px 6px; border-radius: 999px; font-weight: 700;">Más Económico</span>`
+              : '';
+          return `
+            <label class="modal-quote-opt-card" style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.85rem; border-radius: 8px; border: 1.5px solid ${isBest ? 'var(--color-primary)' : 'var(--color-border)'}; background: ${isBest ? 'rgba(var(--color-primary-rgb), 0.05)' : 'var(--color-surface)'}; cursor: pointer; transition: all 0.15s;">
+              <div style="display: flex; flex-direction: column; gap: 0.15rem;">
+                <span style="font-weight: 700; font-size: 0.84rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                  <input type="radio" name="modal-quote-courier-opt" value="${opt.courier}" ${isBest ? 'checked' : ''} data-net="${opt.net}">
+                  ${opt.label} ${tagHtml}
+                </span>
+                <span style="font-size: 0.73rem; color: var(--color-text-muted); padding-left: 1.35rem;">
+                  <i class="ri-time-line"></i> ${opt.transit} • Neto: ${window.formatCLP(opt.net)}
+                </span>
+              </div>
+              <div style="text-align: right;">
+                <span style="font-weight: 800; font-size: 0.92rem; color: var(--color-primary);">${window.formatCLP(totalC)}</span>
+                <span style="font-size: 0.68rem; color: var(--color-text-muted); display: block;">c/IVA</span>
+              </div>
+            </label>
+          `;
+        }).join('');
+
+        const updateModalTotals = () => {
+          const checked = listEl.querySelector('input[name="modal-quote-courier-opt"]:checked');
+          if (!checked) return;
+          const n = parseFloat(checked.getAttribute('data-net') || '0');
+          const t = n * 0.19;
+          netEl.textContent = window.formatCLP(n);
+          taxEl.textContent = window.formatCLP(t);
+          totalEl.textContent = window.formatCLP(n + t);
+        };
+
+        listEl.querySelectorAll('input[name="modal-quote-courier-opt"]').forEach(r => {
+          r.addEventListener('change', updateModalTotals);
+        });
+        updateModalTotals();
+      };
+
+      cityEl.addEventListener('input', recalculateModalQuote);
+      weightEl.addEventListener('input', recalculateModalQuote);
+      volEl.addEventListener('input', recalculateModalQuote);
+      typeEl.addEventListener('change', recalculateModalQuote);
+
+      if (btnAssign) {
+        btnAssign.addEventListener('click', async () => {
+          const checked = listEl.querySelector('input[name="modal-quote-courier-opt"]:checked');
+          if (!checked) return;
+          await window.assignQuotedCourierToOrder(data.orderId, checked.value);
+        });
+      }
+
+      recalculateModalQuote();
+    }
+  });
 };
 
 window.showMissingDimensionsModal = function() {
@@ -104787,7 +105843,7 @@ async function handleRloFormSubmit(e) {
       showDenyButton: true,
       denyButtonText: '<i class="ri-file-list-3-line"></i> Crear Comprobante Sucursal',
       denyButtonColor: '#4f46e5',
-      preDeny: () => { if (typeof window.openQuickBranchExchangeReceiptModal === 'function') window.openQuickBranchExchangeReceiptModal(refOrder); },
+      preDeny: () => { setTimeout(() => { if (typeof window.openQuickBranchExchangeReceiptModal === 'function') window.openQuickBranchExchangeReceiptModal(insertedRl || refPedido); }, 60); return true; },
       text: isFinalizado ? 
         'El movimiento de logística inversa ha quedado confirmado y la orden fue generada como Despachada en el WMS, actualizando el inventario.' :
         'El pedido de logística inversa ha sido registrado exitosamente y se generó la orden correspondiente en el WMS.',

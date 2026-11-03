@@ -1046,10 +1046,23 @@
       const hasNote = Boolean(adminNote && String(adminNote).trim());
       const safeNote = String(adminNote || '').replace(/"/g, '&quot;');
 
+      const stockAlert = typeof window.checkOrderStockAlert === 'function'
+        ? window.checkOrderStockAlert(order)
+        : null;
+      let stockMiniBadgeHtml = '';
+      if (stockAlert?.hasStockAlert) {
+        const safeStockTip = String((stockAlert.stockAlertDetails || []).join(', ') || 'Sin stock disponible').replace(/"/g, '&quot;');
+        stockMiniBadgeHtml = `<span style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; border-radius: 3px; padding: 0 3px; font-size: 0.6rem; font-weight: 800; display: inline-flex; align-items: center; gap: 2px; line-height: 1.2;" title="SIN STOCK: ${safeStockTip}"><i class="ri-alert-fill" style="font-size: 0.65rem;"></i>S/S</span>`;
+      } else if (stockAlert?.hasOverdemandAlert) {
+        const safeOverTip = String((stockAlert.overdemandDetails || []).join(' | ') || 'Sobredemanda de stock').replace(/"/g, '&quot;');
+        stockMiniBadgeHtml = `<span style="background: #fff1f2; color: #be123c; border: 1px solid #fda4af; border-radius: 3px; padding: 0 3px; font-size: 0.6rem; font-weight: 800; display: inline-flex; align-items: center; gap: 2px; line-height: 1.2;" title="RIESGO SOBREDEMANDA: ${safeOverTip}"><i class="ri-scales-3-line" style="font-size: 0.65rem;"></i>SOB</span>`;
+      }
+
       return `
         <div class="excel-cell-content" style="font-family: monospace; font-weight: 700; color: var(--color-primary, #6366f1); white-space: nowrap; font-size: 0.76rem; display: flex; align-items: center; justify-content: space-between; gap: 0.25rem; width: 100%; cursor: pointer;" title="Abrir Ficha Completa del Pedido (#${rawVal})" onclick="if(window.openWmsOrderModal){window.openWmsOrderModal('${orderIdStr}'); event.stopPropagation();}">
-          <span style="text-decoration: underline; text-underline-offset: 2px;">${rawVal}</span>
+          <span style="text-decoration: underline; text-underline-offset: 2px; overflow: hidden; text-overflow: ellipsis;">${rawVal}</span>
           <div style="display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;">
+            ${stockMiniBadgeHtml}
             <button type="button" onclick="event.stopPropagation(); if(window.openOrderAdminNoteModal){window.openOrderAdminNoteModal('${orderIdStr}');}" class="btn-order-admin-note-trigger" data-order-id="${orderIdStr}" style="background: none; border: none; padding: 0 1px; cursor: pointer; color: ${hasNote ? '#4f46e5' : 'rgba(148, 163, 184, 0.65)'}; font-size: 0.82rem; display: inline-flex; align-items: center; transition: color 0.15s ease;" title="${hasNote ? `Nota Interna Admin: ${safeNote} (Clic para ver/editar)` : 'Añadir Nota Interna Admin'}">
               <i class="${hasNote ? 'ri-lock-2-fill' : 'ri-lock-2-line'}"></i>
             </button>
@@ -3671,22 +3684,26 @@
     try {
       const sb = getSupabase();
       if (!sb) return;
+      window.loadedCommerceConfigsMap = window.loadedCommerceConfigsMap || {};
       const { data, error } = await sb
         .from('comercios_adicional_config')
-        .select('comercio, optiroute_proveedor, plat_siglas_config');
+        .select('comercio, optiroute_proveedor, plat_siglas_config, inventario_seguimiento, inventario_inicio_pedidos, default_warehouse_id');
 
       if (error) {
         // Si la columna optiroute_proveedor no existe aún en PostgreSQL, consultar con fallback
         if (error.code === '42703' || (error.message && error.message.includes('optiroute_proveedor'))) {
           const { data: dataFallback } = await sb
             .from('comercios_adicional_config')
-            .select('comercio, plat_siglas_config');
+            .select('comercio, plat_siglas_config, inventario_seguimiento, inventario_inicio_pedidos, default_warehouse_id');
           if (dataFallback && Array.isArray(dataFallback)) {
             dataFallback.forEach(item => {
               if (item && item.comercio) {
                 const opti = (item.plat_siglas_config?.optiroute_proveedor || '').trim();
                 if (opti) {
                   window.optirouteMerchantsConfigMap[String(item.comercio).trim().toUpperCase()] = opti;
+                }
+                if (!window.loadedCommerceConfigsMap[item.comercio]) {
+                  window.loadedCommerceConfigsMap[item.comercio] = item;
                 }
               }
             });
@@ -3702,6 +3719,10 @@
             if (opti) {
               window.optirouteMerchantsConfigMap[String(item.comercio).trim().toUpperCase()] = opti;
             }
+            window.loadedCommerceConfigsMap[item.comercio] = {
+              ...(window.loadedCommerceConfigsMap[item.comercio] || {}),
+              ...item
+            };
           }
         });
       }
@@ -3848,6 +3869,720 @@
   window.getOptirouteProveedor = getOptirouteProveedor;
   window.loadOptirouteMerchantsConfig = loadOptirouteMerchantsConfig;
 
+  function getOptirouteCommerceConfig(comercioName) {
+    if (!comercioName || !window.loadedCommerceConfigsMap) return null;
+    if (window.loadedCommerceConfigsMap[comercioName]) {
+      return window.loadedCommerceConfigsMap[comercioName];
+    }
+    const clean = String(comercioName).trim().toLowerCase();
+    for (const [k, v] of Object.entries(window.loadedCommerceConfigsMap)) {
+      if (String(k).trim().toLowerCase() === clean) return v;
+    }
+    return null;
+  }
+
+  // ==========================================================================
+  // 13.c Validación Previa de Stock para Rutas Optiroute
+  // Verifica en tiempo real:
+  //   1. Sin Stock Físico (total o en la sucursal asignada)
+  //   2. Quiebre en Lote (competencia por el mismo SKU entre pedidos seleccionados)
+  //   3. Riesgo de Sobredemanda Global (Físico < Comprometido + En Mesa)
+  // ==========================================================================
+  window.validateOrdersStockForOptiroute = async function(ordersList) {
+    const CENTRAL_WH_ID = 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09';
+    const emptyRes = {
+      allResults: [],
+      byOrderIdMap: new Map(),
+      safeOrders: [],
+      criticalOrders: [],
+      warningOrders: [],
+      affectedOrders: [],
+      hasCritical: false,
+      hasWarning: false,
+      hasAnyAlert: false
+    };
+
+    if (!Array.isArray(ordersList) || ordersList.length === 0) return emptyRes;
+
+    try {
+      await loadOptirouteMerchantsConfig();
+    } catch (eCfg) {
+      console.warn('Aviso cargando config de comercios en validación de stock Optiroute:', eCfg);
+    }
+
+    const sb = getSupabase();
+    const resolvedOrders = ordersList.map(rawOrder => {
+      return (window.loadedOrders || []).find(lo => String(lo.id) === String(rawOrder.id)) || rawOrder;
+    });
+
+    // 1. Asegurar que todos los pedidos tengan order_items cargados en memoria
+    const missingItemOrderIds = resolvedOrders
+      .filter(o => o && o.id && !Array.isArray(o.order_items))
+      .map(o => o.id);
+
+    if (missingItemOrderIds.length > 0 && sb) {
+      try {
+        const { data: missingData } = await sb
+          .from('orders')
+          .select('id, status, estado_wms, sucursal_pickeo, stock_descontado, order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, products (id, sku, name, is_virtual))')
+          .in('id', missingItemOrderIds);
+        if (Array.isArray(missingData)) {
+          const mapById = new Map(missingData.map(d => [String(d.id), d]));
+          resolvedOrders.forEach(o => {
+            const dbOrd = mapById.get(String(o.id));
+            if (dbOrd && Array.isArray(dbOrd.order_items)) {
+              o.order_items = dbOrd.order_items;
+            }
+          });
+        }
+      } catch (errItems) {
+        console.warn('Aviso cargando order_items faltantes para validación Optiroute:', errItems);
+      }
+    }
+
+    // 2. Recopilar product_ids físicos de pedidos que requieren control de stock
+    const allProductIds = new Set();
+    resolvedOrders.forEach(o => {
+      if (!o) return;
+      const st = String(o.status || '').toLowerCase().trim();
+      const wms = String(o.estado_wms || '').toLowerCase().trim();
+      const isTerminalOrDiscounted = ['despachado', 'entregado', 'retirado', 'cancelado'].includes(st)
+        || ['despachado', 'cancelado', 'archivado'].includes(wms)
+        || !!o.stock_descontado;
+      if (isTerminalOrDiscounted) return;
+
+      const config = getOptirouteCommerceConfig(o.comercio);
+      const shouldTrack = typeof window.shouldProcessOrderStockLocal === 'function'
+        ? window.shouldProcessOrderStockLocal(o, config, window.loadedOrders, false)
+        : !!(config && config.inventario_seguimiento);
+      if (!shouldTrack) return;
+
+      (o.order_items || []).forEach(oi => {
+        const isEliminated = typeof window.isOrderItemEliminated === 'function' && window.isOrderItemEliminated(o, oi);
+        if (oi && oi.product_id && !oi.products?.is_virtual && !isEliminated) {
+          allProductIds.add(oi.product_id);
+        }
+      });
+    });
+
+    // 3. Consultar inventario en vivo desde Supabase para tener cifras exactas
+    const prodTotals = {};
+    const invByProdWh = {};
+    const uniqueProductIds = Array.from(allProductIds);
+
+    if (uniqueProductIds.length > 0 && sb) {
+      window.loadedOrdersInventoryMap = window.loadedOrdersInventoryMap || {};
+      window.loadedProductTotalInventoryMap = window.loadedProductTotalInventoryMap || {};
+      window.loadedProductInventoryMetricsMap = window.loadedProductInventoryMetricsMap || {};
+
+      uniqueProductIds.forEach(pid => {
+        prodTotals[pid] = { physical: 0, committed: 0, reserved: 0, byWh: {} };
+        window.loadedProductTotalInventoryMap[pid] = 0;
+        window.loadedProductInventoryMetricsMap[pid] = { physical: 0, committed: 0, reserved: 0 };
+      });
+
+      const chunkSize = 100;
+      for (let i = 0; i < uniqueProductIds.length; i += chunkSize) {
+        const chunk = uniqueProductIds.slice(i, i + chunkSize);
+        try {
+          const { data: invData, error: invErr } = await sb
+            .from('inventory')
+            .select('product_id, warehouse_id, quantity, committed_quantity, reserved_quantity')
+            .in('product_id', chunk);
+
+          if (!invErr && Array.isArray(invData)) {
+            invData.forEach(inv => {
+              const pid = inv.product_id;
+              const wid = inv.warehouse_id;
+              const qty = Number(inv.quantity) || 0;
+              const comm = Number(inv.committed_quantity) || 0;
+              const res = Number(inv.reserved_quantity) || 0;
+
+              invByProdWh[`${pid}_${wid}`] = qty;
+              if (!prodTotals[pid]) {
+                prodTotals[pid] = { physical: 0, committed: 0, reserved: 0, byWh: {} };
+              }
+              prodTotals[pid].physical += qty;
+              prodTotals[pid].committed += comm;
+              prodTotals[pid].reserved += res;
+              prodTotals[pid].byWh[wid] = qty;
+
+              // Sincronizar cachés globales de inventario del WMS
+              window.loadedOrdersInventoryMap[`${pid}_${wid}`] = qty;
+              window.loadedProductTotalInventoryMap[pid] = prodTotals[pid].physical;
+              window.loadedProductInventoryMetricsMap[pid] = {
+                physical: prodTotals[pid].physical,
+                committed: prodTotals[pid].committed,
+                reserved: prodTotals[pid].reserved
+              };
+              window.loadedOrdersInventoryMap[`__metrics_${pid}`] = window.loadedProductInventoryMetricsMap[pid];
+            });
+          }
+        } catch (errInv) {
+          console.warn('Error consultando inventario en vivo para ruta Optiroute:', errInv);
+        }
+      }
+    }
+
+    // 4. Evaluar cada pedido seleccionado (individualmente, acumulado en lote y sobredemanda global)
+    const batchUsedTotalByProd = {};
+    const batchUsedWhByProd = {};
+    const allResults = [];
+    const byOrderIdMap = new Map();
+    const safeOrders = [];
+    const criticalOrders = [];
+    const warningOrders = [];
+    const affectedOrders = [];
+
+    for (const o of resolvedOrders) {
+      if (!o) continue;
+      delete o._wmsStockAlert; // Limpiar caché previa para recalcular con datos frescos
+
+      const orderIdStr = String(o.id);
+      const ref = getOptirouteReference(o);
+      const st = String(o.status || '').toLowerCase().trim();
+      const wms = String(o.estado_wms || 'En procesamiento').trim();
+      const wmsLower = wms.toLowerCase();
+      const isPickeado = wmsLower === 'pickeado' || st === 'preparado' || st === 'pickeado';
+      const isTerminalOrDiscounted = ['despachado', 'entregado', 'retirado', 'cancelado'].includes(st)
+        || ['despachado', 'cancelado', 'archivado'].includes(wmsLower)
+        || !!o.stock_descontado;
+
+      const config = getOptirouteCommerceConfig(o.comercio);
+      const shouldTrack = typeof window.shouldProcessOrderStockLocal === 'function'
+        ? window.shouldProcessOrderStockLocal(o, config, window.loadedOrders, false)
+        : !!(config && config.inventario_seguimiento);
+
+      if (isTerminalOrDiscounted || !shouldTrack) {
+        const resObj = {
+          order: o,
+          orderId: orderIdStr,
+          ref,
+          status: 'ok',
+          severity: 'none',
+          badgeLabel: o.stock_descontado ? 'Stock descontado' : 'Stock OK',
+          issues: []
+        };
+        allResults.push(resObj);
+        byOrderIdMap.set(orderIdStr, resObj);
+        safeOrders.push(o);
+        continue;
+      }
+
+      // Agrupar ítems físicos por product_id dentro del pedido
+      const physicalItems = (o.order_items || []).filter(oi => {
+        const isElim = typeof window.isOrderItemEliminated === 'function' && window.isOrderItemEliminated(o, oi);
+        return oi && !oi.products?.is_virtual && !isElim;
+      });
+
+      const groupedItemsMap = new Map();
+      physicalItems.forEach(oi => {
+        const pid = oi.product_id || `unmapped_${oi.products?.sku || Math.random()}`;
+        const qty = Number(oi.quantity) || 1;
+        if (!groupedItemsMap.has(pid)) {
+          groupedItemsMap.set(pid, {
+            product_id: oi.product_id || null,
+            sku: oi.products?.sku || 'Sin SKU',
+            name: oi.products?.name || 'Producto',
+            requestedQty: 0,
+            warehouseId: oi.warehouse_id || null
+          });
+        }
+        groupedItemsMap.get(pid).requestedQty += qty;
+      });
+
+      const orderIssues = [];
+      let checkedPriorMovement = false;
+      let hasPriorOutMovement = false;
+
+      // Si el pedido tiene status explícito 'sin stock'
+      if (st === 'sin stock') {
+        orderIssues.push({
+          type: 'sin_stock',
+          severity: 'critical',
+          sku: 'PEDIDO',
+          name: 'Marcado como Sin Stock',
+          requested: 1,
+          available: 0,
+          deficit: 1,
+          warehouseName: o.sucursal_pickeo || 'Bodega',
+          detail: 'El pedido se encuentra marcado con estado "Sin Stock" en el sistema.'
+        });
+      }
+
+      for (const item of groupedItemsMap.values()) {
+        if (!item.product_id) continue;
+
+        const orderSucursalWhId = (o.sucursal_pickeo && o.sucursal_pickeo !== 'Sucursal Virtual (Hub)' && typeof window.getWarehouseIdFromSucursal === 'function')
+          ? window.getWarehouseIdFromSucursal(o.sucursal_pickeo)
+          : null;
+        const effectiveWhId = (item.warehouseId && item.warehouseId !== CENTRAL_WH_ID)
+          ? item.warehouseId
+          : (orderSucursalWhId && orderSucursalWhId !== CENTRAL_WH_ID ? orderSucursalWhId : null);
+
+        const effectiveWhName = effectiveWhId
+          ? (typeof window.getWarehouseNameFromId === 'function' ? window.getWarehouseNameFromId(effectiveWhId) : (o.sucursal_pickeo || 'Sucursal Asignada'))
+          : 'Total Bodegas';
+
+        const pMetrics = prodTotals[item.product_id] || {
+          physical: window.loadedProductTotalInventoryMap?.[item.product_id] || 0,
+          committed: window.loadedProductInventoryMetricsMap?.[item.product_id]?.committed || 0,
+          reserved: window.loadedProductInventoryMetricsMap?.[item.product_id]?.reserved || 0,
+          byWh: {}
+        };
+
+        const totalPhysical = Number(pMetrics.physical) || 0;
+        const whPhysical = effectiveWhId
+          ? (pMetrics.byWh[effectiveWhId] !== undefined ? pMetrics.byWh[effectiveWhId] : (window.loadedOrdersInventoryMap?.[`${item.product_id}_${effectiveWhId}`] || 0))
+          : totalPhysical;
+
+        const usedTotalBefore = batchUsedTotalByProd[item.product_id] || 0;
+        const usedWhBefore = effectiveWhId ? (batchUsedWhByProd[`${item.product_id}_${effectiveWhId}`] || 0) : usedTotalBefore;
+        const remTotalBefore = Math.max(0, totalPhysical - usedTotalBefore);
+        const remWhBefore = effectiveWhId ? Math.max(0, whPhysical - usedWhBefore) : remTotalBefore;
+
+        // Si aparenta falta de stock físico, verificar si el pedido ya tenía movimiento 'out' en Kardex
+        if ((totalPhysical < item.requestedQty || (effectiveWhId && whPhysical < item.requestedQty)) && !checkedPriorMovement) {
+          checkedPriorMovement = true;
+          if (typeof window.checkOrderExistingStockMovement === 'function') {
+            try {
+              const movCheck = await window.checkOrderExistingStockMovement(o);
+              if (movCheck && movCheck.hasMovement) {
+                hasPriorOutMovement = true;
+              }
+            } catch (eMov) {
+              console.warn('Aviso verificando movimiento previo de stock:', eMov);
+            }
+          }
+        }
+
+        if (hasPriorOutMovement) {
+          continue;
+        }
+
+        // Caso 1A: Sin stock físico en ninguna bodega
+        if (totalPhysical < item.requestedQty) {
+          const deficit = item.requestedQty - totalPhysical;
+          orderIssues.push({
+            type: 'sin_stock',
+            severity: 'critical',
+            sku: item.sku,
+            name: item.name,
+            requested: item.requestedQty,
+            available: totalPhysical,
+            deficit,
+            warehouseName: effectiveWhName,
+            detail: `${item.sku}: Req. ${item.requestedQty} un. / Disp. físico: ${totalPhysical} un. (Faltan ${deficit} un.)`
+          });
+          continue;
+        }
+
+        // Caso 1B: Sin stock físico suficiente en la sucursal específica asignada al pedido
+        if (effectiveWhId && whPhysical < item.requestedQty) {
+          const deficit = item.requestedQty - whPhysical;
+          const otherWhNames = [];
+          Object.entries(pMetrics.byWh || {}).forEach(([wid, q]) => {
+            if (wid !== effectiveWhId && wid !== CENTRAL_WH_ID && q > 0) {
+              const wName = typeof window.getWarehouseNameFromId === 'function' ? window.getWarehouseNameFromId(wid) : 'Otra sucursal';
+              otherWhNames.push(`${wName}: ${q} un.`);
+            }
+          });
+          const otherInfo = otherWhNames.length > 0 ? ` [Disponible en ${otherWhNames.join(', ')}]` : ` [Total otras bodegas: ${totalPhysical} un.]`;
+
+          orderIssues.push({
+            type: 'sin_stock_bodega',
+            severity: 'critical',
+            sku: item.sku,
+            name: item.name,
+            requested: item.requestedQty,
+            available: whPhysical,
+            totalPhysical,
+            deficit,
+            warehouseName: effectiveWhName,
+            detail: `${item.sku}: Req. ${item.requestedQty} un. / Disp. en ${effectiveWhName}: ${whPhysical} un.${otherInfo}`
+          });
+          continue;
+        }
+
+        // Caso 2: Quiebre por acumulación dentro del mismo lote de pedidos seleccionados para la ruta
+        if (remTotalBefore < item.requestedQty || (effectiveWhId && remWhBefore < item.requestedQty)) {
+          const availInBatch = effectiveWhId ? remWhBefore : remTotalBefore;
+          const deficit = item.requestedQty - availInBatch;
+          orderIssues.push({
+            type: 'quiebre_lote',
+            severity: 'critical',
+            sku: item.sku,
+            name: item.name,
+            requested: item.requestedQty,
+            available: availInBatch,
+            totalPhysical,
+            deficit,
+            warehouseName: effectiveWhName,
+            detail: `${item.sku}: Req. ${item.requestedQty} un., quedan ${availInBatch} un. tras cubrir otros pedidos de esta ruta (Stock físico: ${effectiveWhId ? whPhysical : totalPhysical} un.)`
+          });
+          batchUsedTotalByProd[item.product_id] = usedTotalBefore + availInBatch;
+          if (effectiveWhId) {
+            batchUsedWhByProd[`${item.product_id}_${effectiveWhId}`] = usedWhBefore + availInBatch;
+          }
+          continue;
+        }
+
+        // Descontar del acumulador del lote de la ruta
+        batchUsedTotalByProd[item.product_id] = usedTotalBefore + item.requestedQty;
+        if (effectiveWhId) {
+          batchUsedWhByProd[`${item.product_id}_${effectiveWhId}`] = usedWhBefore + item.requestedQty;
+        }
+
+        // Caso 3: Alerta de Sobredemanda Global (Físico < Comprometido + En Mesa) si el pedido aún no está Pickeado
+        const demandedTotal = (Number(pMetrics.committed) || 0) + (Number(pMetrics.reserved) || 0);
+        if (!isPickeado && totalPhysical < demandedTotal) {
+          const globalDeficit = demandedTotal - totalPhysical;
+          orderIssues.push({
+            type: 'sobredemanda',
+            severity: 'warning',
+            sku: item.sku,
+            name: item.name,
+            requested: item.requestedQty,
+            available: totalPhysical,
+            demanded: demandedTotal,
+            committed: Number(pMetrics.committed) || 0,
+            reserved: Number(pMetrics.reserved) || 0,
+            deficit: globalDeficit,
+            warehouseName: effectiveWhName,
+            detail: `${item.sku}: Físico ${totalPhysical} un. < Demanda activa ${demandedTotal} un. (Comp: ${pMetrics.committed || 0} + Mesa: ${pMetrics.reserved || 0}, Déficit global: -${globalDeficit} un.)`
+          });
+        }
+      }
+
+      const hasCriticalIssue = orderIssues.some(iss => iss.severity === 'critical');
+      const hasWarningIssue = orderIssues.some(iss => iss.severity === 'warning');
+
+      let status = 'ok';
+      let severity = 'none';
+      let badgeLabel = 'Stock OK';
+
+      if (hasCriticalIssue) {
+        const firstCrit = orderIssues.find(iss => iss.severity === 'critical');
+        status = firstCrit?.type || 'sin_stock';
+        severity = 'critical';
+        badgeLabel = status === 'quiebre_lote'
+          ? 'Quiebre en Ruta'
+          : (status === 'sin_stock_bodega' ? 'Sin Stock Sucursal' : 'Sin Stock');
+      } else if (hasWarningIssue) {
+        status = 'sobredemanda';
+        severity = 'warning';
+        badgeLabel = 'Sobredemanda';
+      }
+
+      const resObj = {
+        order: o,
+        orderId: orderIdStr,
+        ref,
+        comercio: o.comercio || '-',
+        customer: getOptirouteCustomerName(o) || '-',
+        commune: getOptirouteCommune(o) || '-',
+        estadoWms: wms,
+        status,
+        severity,
+        badgeLabel,
+        issues: orderIssues
+      };
+
+      allResults.push(resObj);
+      byOrderIdMap.set(orderIdStr, resObj);
+
+      if (severity === 'critical') {
+        criticalOrders.push(resObj);
+        affectedOrders.push(resObj);
+      } else if (severity === 'warning') {
+        warningOrders.push(resObj);
+        affectedOrders.push(resObj);
+      } else {
+        safeOrders.push(o);
+      }
+    }
+
+    return {
+      allResults,
+      byOrderIdMap,
+      safeOrders,
+      criticalOrders,
+      warningOrders,
+      affectedOrders,
+      hasCritical: criticalOrders.length > 0,
+      hasWarning: warningOrders.length > 0,
+      hasAnyAlert: affectedOrders.length > 0
+    };
+  };
+
+  function renderOrderStockStatusBadgeHtml(stockInfo) {
+    if (!stockInfo || stockInfo.severity === 'none') {
+      return `<span style="background: #dcfce7; color: #15803d; border: 1px solid #86efac; font-size: 0.66rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.2rem; white-space: nowrap;" title="${escapeHtml(stockInfo?.badgeLabel || 'Stock físico verificado y disponible')}"><i class="ri-checkbox-circle-fill"></i> OK</span>`;
+    }
+
+    const tipText = (stockInfo.issues || []).map(i => i.detail).join(' | ');
+    if (stockInfo.severity === 'critical') {
+      const isBatch = stockInfo.status === 'quiebre_lote';
+      const isBranch = stockInfo.status === 'sin_stock_bodega';
+      const bg = isBatch ? '#ffedd5' : '#fee2e2';
+      const color = isBatch ? '#c2410c' : '#b91c1c';
+      const border = isBatch ? '#fdba74' : '#fca5a5';
+      const icon = isBatch ? 'ri-stack-line' : (isBranch ? 'ri-store-2-line' : 'ri-error-warning-fill');
+      return `<span style="background: ${bg}; color: ${color}; border: 1px solid ${border}; font-size: 0.66rem; font-weight: 800; padding: 0.12rem 0.42rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.2rem; white-space: nowrap; cursor: help;" title="${escapeHtml(tipText)}"><i class="${icon}"></i> ${escapeHtml(stockInfo.badgeLabel)}</span>`;
+    }
+
+    return `<span style="background: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 0.66rem; font-weight: 800; padding: 0.12rem 0.42rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.2rem; white-space: nowrap; cursor: help;" title="${escapeHtml(tipText)}"><i class="ri-scales-3-line"></i> Sobredemanda</span>`;
+  }
+
+  // Modal interactivo de advertencia previa cuando existen pedidos que pueden no tener stock para ser enviados
+  window.showOptirouteStockValidationModal = async function(validationResult, selectedOrders) {
+    if (!validationResult || !validationResult.hasAnyAlert) {
+      return { action: 'proceed', ordersToDispatch: selectedOrders, stockValidation: validationResult };
+    }
+
+    const totalSelected = selectedOrders.length;
+    const safeCount = validationResult.safeOrders.length;
+    const critCount = validationResult.criticalOrders.length;
+    const warnCount = validationResult.warningOrders.length;
+    const affectedList = validationResult.affectedOrders || [];
+
+    // Por defecto: desmarcar los pedidos críticos (sin stock físico / quiebre en lote) y dejar marcados los de sobredemanda (salvo que todos sean sobredemanda)
+    const includedAffectedIds = new Set();
+    affectedList.forEach(item => {
+      if (item.severity === 'warning' && critCount > 0) {
+        includedAffectedIds.add(String(item.orderId));
+      }
+    });
+
+    const rowsHtml = affectedList.map((item) => {
+      const isChecked = includedAffectedIds.has(String(item.orderId));
+      const isCrit = item.severity === 'critical';
+      const badgeHtml = renderOrderStockStatusBadgeHtml(item);
+      const issuesHtml = (item.issues || []).map(iss => {
+        const dotColor = iss.severity === 'critical' ? '#dc2626' : '#d97706';
+        return `
+          <div style="font-size: 0.72rem; line-height: 1.3; color: #334155; display: flex; align-items: flex-start; gap: 0.3rem; margin-top: 2px;">
+            <span style="color: ${dotColor}; font-weight: 800;">•</span>
+            <span>${escapeHtml(iss.detail)}</span>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <tr class="opti-stock-alert-row" data-order-id="${escapeHtml(item.orderId)}" data-severity="${escapeHtml(item.severity)}" style="background: ${isCrit ? 'rgba(254, 226, 226, 0.28)' : 'rgba(254, 243, 199, 0.28)'}; border-bottom: 1px solid #e2e8f0;">
+          <td style="text-align: center; padding: 0.45rem 0.35rem; vertical-align: middle;">
+            <input type="checkbox" class="opti-stock-include-cb" data-order-id="${escapeHtml(item.orderId)}" data-severity="${escapeHtml(item.severity)}" ${isChecked ? 'checked' : ''} style="width: 16px; height: 16px; accent-color: #4f46e5; cursor: pointer;" title="Marcar para incluir de todas formas en la ruta Optiroute / Desmarcar para excluirlo" />
+          </td>
+          <td style="padding: 0.45rem 0.4rem; vertical-align: middle; white-space: nowrap;">
+            <div style="font-weight: 800; font-family: monospace; color: #1e293b; font-size: 0.8rem;">#${escapeHtml(item.ref)}</div>
+            <span style="font-size: 0.65rem; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 0.05rem 0.35rem; border-radius: 4px; border: 1px solid #cbd5e1;">${escapeHtml(item.estadoWms)}</span>
+          </td>
+          <td style="padding: 0.45rem 0.4rem; vertical-align: middle;">
+            <div style="font-weight: 700; color: #334155; font-size: 0.76rem;">${escapeHtml(item.comercio)}</div>
+            <div style="font-size: 0.7rem; color: #64748b;">${escapeHtml(item.customer)} · <strong>${escapeHtml(item.commune)}</strong></div>
+          </td>
+          <td style="padding: 0.45rem 0.4rem; vertical-align: middle; text-align: center;">
+            ${badgeHtml}
+          </td>
+          <td style="padding: 0.45rem 0.5rem; vertical-align: middle;">
+            ${issuesHtml}
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    const modalHtml = `
+      <div style="text-align: left; font-size: 0.84rem;">
+        <!-- Banner Explicativo -->
+        <div style="background: ${critCount > 0 ? '#fef2f2' : '#fffbeb'}; border: 1.5px solid ${critCount > 0 ? '#fca5a5' : '#fde68a'}; border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 0.85rem; display: flex; align-items: flex-start; gap: 0.65rem;">
+          <i class="ri-alarm-warning-fill" style="font-size: 1.45rem; color: ${critCount > 0 ? '#dc2626' : '#d97706'}; line-height: 1; margin-top: 2px;"></i>
+          <div style="flex: 1;">
+            <div style="font-weight: 800; color: ${critCount > 0 ? '#991b1b' : '#92400e'}; font-size: 0.9rem; margin-bottom: 0.2rem;">
+              Se detectaron ${affectedList.length} pedido(s) que pueden no tener stock para ser enviados
+            </div>
+            <div style="font-size: 0.78rem; color: ${critCount > 0 ? '#7f1d1d' : '#78350f'}; line-height: 1.35;">
+              Antes de enviar la ruta a <strong>Optiroute</strong>, revisa los pedidos con alerta de inventario. Por seguridad, los pedidos sin stock físico están desmarcados para no ser incluidos en la ruta, pero puedes ajustar la selección abajo.
+            </div>
+          </div>
+        </div>
+
+        <!-- Resumen KPI -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; margin-bottom: 0.85rem;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.45rem 0.6rem; text-align: center;">
+            <div style="font-size: 0.68rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Seleccionados</div>
+            <div style="font-size: 1.1rem; font-weight: 800; color: #1e293b;">${totalSelected}</div>
+          </div>
+          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 0.45rem 0.6rem; text-align: center;">
+            <div style="font-size: 0.68rem; font-weight: 700; color: #15803d; text-transform: uppercase;">Stock Seguro</div>
+            <div style="font-size: 1.1rem; font-weight: 800; color: #166534;">${safeCount}</div>
+          </div>
+          <div style="background: ${critCount > 0 ? '#fef2f2' : '#f8fafc'}; border: 1px solid ${critCount > 0 ? '#fecaca' : '#e2e8f0'}; border-radius: 8px; padding: 0.45rem 0.6rem; text-align: center;">
+            <div style="font-size: 0.68rem; font-weight: 700; color: ${critCount > 0 ? '#b91c1c' : '#64748b'}; text-transform: uppercase;">Sin Stock / Quiebre</div>
+            <div style="font-size: 1.1rem; font-weight: 800; color: ${critCount > 0 ? '#dc2626' : '#64748b'};">${critCount}</div>
+          </div>
+          <div style="background: ${warnCount > 0 ? '#fffbeb' : '#f8fafc'}; border: 1px solid ${warnCount > 0 ? '#fde68a' : '#e2e8f0'}; border-radius: 8px; padding: 0.45rem 0.6rem; text-align: center;">
+            <div style="font-size: 0.68rem; font-weight: 700; color: ${warnCount > 0 ? '#b45309' : '#64748b'}; text-transform: uppercase;">Sobredemanda</div>
+            <div style="font-size: 1.1rem; font-weight: 800; color: ${warnCount > 0 ? '#d97706' : '#64748b'};">${warnCount}</div>
+          </div>
+        </div>
+
+        <!-- Botones Rápidos de Acción sobre los Pedidos con Alerta -->
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.45rem;">
+          <div style="font-size: 0.76rem; font-weight: 700; color: #475569; text-transform: uppercase;">
+            <i class="ri-list-settings-line"></i> Pedidos con Observaciones de Stock (${affectedList.length}):
+          </div>
+          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+            ${critCount > 0 ? `
+              <button type="button" id="btn-opti-val-exclude-crit" class="popover-quick-btn" style="border-color: #fca5a5; color: #b91c1c; background: #fef2f2; font-weight: 700;">
+                🚫 Excluir Sin Stock (${critCount})
+              </button>
+            ` : ''}
+            <button type="button" id="btn-opti-val-exclude-all-alerts" class="popover-quick-btn" style="border-color: #cbd5e1; color: #334155; background: #f8fafc; font-weight: 700;">
+              🛡️ Excluir todos con alerta (${affectedList.length})
+            </button>
+            <button type="button" id="btn-opti-val-include-all-alerts" class="popover-quick-btn" style="border-color: #c7d2fe; color: #4338ca; background: #eef2ff; font-weight: 700;">
+              ☑️ Incluir todos de todas formas
+            </button>
+          </div>
+        </div>
+
+        <!-- Tabla de Pedidos Afectados -->
+        <div style="max-height: 270px; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 8px; background: #ffffff;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.76rem;">
+            <thead>
+              <tr style="background: #f1f5f9; color: #475569; font-weight: 700; text-align: left; position: sticky; top: 0; z-index: 2; border-bottom: 1px solid #cbd5e1;">
+                <th style="padding: 0.4rem 0.35rem; width: 42px; text-align: center;">Enviar</th>
+                <th style="padding: 0.4rem 0.4rem; width: 95px;">Pedido / Estado</th>
+                <th style="padding: 0.4rem 0.4rem; width: 170px;">Comercio / Cliente</th>
+                <th style="padding: 0.4rem 0.4rem; width: 115px; text-align: center;">Alerta</th>
+                <th style="padding: 0.4rem 0.5rem;">Detalle de Stock por SKU</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pie Informativo Dinámico -->
+        <div id="opti-stock-val-footer-summary" style="margin-top: 0.65rem; padding: 0.5rem 0.75rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem; color: #334155;">
+          <span>Pedidos que pasarán a la ruta Optiroute: <strong id="opti-stock-val-final-count" style="color: #4f46e5; font-size: 0.9rem;">${safeCount + includedAffectedIds.size}</strong> de ${totalSelected}</span>
+          <span id="opti-stock-val-excluded-note" style="color: #dc2626; font-weight: 600;">Se excluirán ${totalSelected - (safeCount + includedAffectedIds.size)} pedido(s)</span>
+        </div>
+      </div>
+    `;
+
+    const swalRes = await Swal.fire({
+      title: '<div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-size: 1.2rem; color: #991b1b;"><i class="ri-shield-check-line" style="color: #dc2626; font-size: 1.4rem;"></i> Validación de Stock para Ruta Optiroute</div>',
+      html: modalHtml,
+      width: '880px',
+      showCancelButton: true,
+      confirmButtonText: `<i class="ri-truck-line"></i> Continuar a Ruta (${safeCount + includedAffectedIds.size} pedidos)`,
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#4f46e5',
+      cancelButtonColor: '#64748b',
+      focusConfirm: false,
+      didOpen: () => {
+        const cbs = document.querySelectorAll('.opti-stock-include-cb');
+        const finalCountEl = document.getElementById('opti-stock-val-final-count');
+        const excludedNoteEl = document.getElementById('opti-stock-val-excluded-note');
+        const confirmBtn = Swal.getConfirmButton();
+
+        const syncCountsUi = () => {
+          includedAffectedIds.clear();
+          cbs.forEach(cb => {
+            if (cb.checked) {
+              includedAffectedIds.add(String(cb.getAttribute('data-order-id')));
+            }
+          });
+          const totalToProceed = safeCount + includedAffectedIds.size;
+          const excludedCount = totalSelected - totalToProceed;
+          if (finalCountEl) finalCountEl.textContent = String(totalToProceed);
+          if (excludedNoteEl) {
+            if (excludedCount > 0) {
+              excludedNoteEl.style.color = '#dc2626';
+              excludedNoteEl.textContent = `Se excluirán ${excludedCount} pedido(s) de la selección`;
+            } else {
+              excludedNoteEl.style.color = '#d97706';
+              excludedNoteEl.textContent = 'Se incluirán todos los pedidos (con advertencia)';
+            }
+          }
+          if (confirmBtn) {
+            if (totalToProceed === 0) {
+              confirmBtn.innerHTML = `<i class="ri-close-circle-line"></i> Desmarcar pedidos sin stock y volver`;
+              confirmBtn.style.backgroundColor = '#dc2626';
+            } else {
+              confirmBtn.innerHTML = `<i class="ri-truck-line"></i> Continuar a Ruta (${totalToProceed} pedido${totalToProceed === 1 ? '' : 's'})`;
+              confirmBtn.style.backgroundColor = '#4f46e5';
+            }
+          }
+        };
+
+        cbs.forEach(cb => {
+          cb.addEventListener('change', syncCountsUi);
+        });
+
+        document.getElementById('btn-opti-val-exclude-crit')?.addEventListener('click', () => {
+          cbs.forEach(cb => {
+            const sev = cb.getAttribute('data-severity');
+            cb.checked = (sev !== 'critical');
+          });
+          syncCountsUi();
+        });
+
+        document.getElementById('btn-opti-val-exclude-all-alerts')?.addEventListener('click', () => {
+          cbs.forEach(cb => { cb.checked = false; });
+          syncCountsUi();
+        });
+
+        document.getElementById('btn-opti-val-include-all-alerts')?.addEventListener('click', () => {
+          cbs.forEach(cb => { cb.checked = true; });
+          syncCountsUi();
+        });
+
+        syncCountsUi();
+      }
+    });
+
+    if (!swalRes.isConfirmed) {
+      return { action: 'cancel', ordersToDispatch: [], stockValidation: validationResult };
+    }
+
+    // Construir lista final de pedidos a despachar y actualizar selección en la grilla de Agendas
+    const excludedIds = new Set();
+    affectedList.forEach(item => {
+      if (!includedAffectedIds.has(String(item.orderId))) {
+        excludedIds.add(String(item.orderId));
+      }
+    });
+
+    if (excludedIds.size > 0) {
+      excludedIds.forEach(idStr => {
+        window.toggleAgendasRowSelection(idStr, false);
+        const cb = document.querySelector(`.agendas-excel-table tbody .agendas-row-cb[data-order-id="${idStr}"]`);
+        if (cb) cb.checked = false;
+      });
+    }
+
+    const ordersToDispatch = selectedOrders.filter(o => !excludedIds.has(String(o.id)));
+    if (ordersToDispatch.length === 0) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Pedidos sin stock excluidos',
+        text: 'Se han desmarcado los pedidos con falta de stock. No quedaron pedidos seleccionados para generar la ruta.',
+        timer: 2600,
+        showConfirmButton: false
+      });
+      return { action: 'excluded_all', ordersToDispatch: [], stockValidation: validationResult };
+    }
+
+    return {
+      action: 'proceed',
+      ordersToDispatch,
+      stockValidation: validationResult
+    };
+  };
+
   window.openOptirouteDispatchModal = async function() {
     const selectedIds = window.agendasGridState.selectedOrderIds ? Array.from(window.agendasGridState.selectedOrderIds) : [];
     if (selectedIds.length === 0) {
@@ -3855,23 +4590,57 @@
       return;
     }
 
-    // Asegurar que las configuraciones de proveedores de comercios estén sincronizadas
-    await loadOptirouteMerchantsConfig();
-
     const allOrders = window.loadedOrders || [];
-    const selectedOrders = allOrders.filter(o => window.agendasGridState.selectedOrderIds.has(String(o.id)));
+    let selectedOrders = allOrders.filter(o => window.agendasGridState.selectedOrderIds.has(String(o.id)));
     if (selectedOrders.length === 0) {
       Swal.fire('Atención', 'No se pudieron encontrar los datos de los pedidos seleccionados.', 'warning');
       return;
     }
 
-    // Estadísticas de comunas
-    const communeCounts = {};
-    selectedOrders.forEach(o => {
-      const c = (getOptirouteCommune(o) || 'Sin comuna').trim();
-      communeCounts[c] = (communeCounts[c] || 0) + 1;
+    // 1. Validar stock en tiempo real ANTES de abrir la configuración/envío de ruta Optiroute
+    Swal.fire({
+      title: 'Validando stock de pedidos...',
+      html: `<div style="font-size: 0.85rem; color: #475569;"><i class="ri-loader-4-line ri-spin" style="font-size: 1.1rem; vertical-align: middle; margin-right: 4px;"></i> Comprobando disponibilidad de inventario para <strong>${selectedOrders.length}</strong> pedido(s) antes de generar la ruta Optiroute...</div>`,
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
     });
-    const sortedCommunes = Object.entries(communeCounts).sort((a, b) => b[1] - a[1]);
+
+    const stockValidation = await window.validateOrdersStockForOptiroute(selectedOrders);
+    Swal.close();
+
+    // Actualizar las celdas de la grilla de Agendas para reflejar posibles badges de stock recién detectados
+    if (typeof refreshTableBodyOnly === 'function') {
+      try { refreshTableBodyOnly(); } catch (e) {}
+    }
+
+    // 2. Si existen pedidos sin stock o con riesgo de stock, mostrar modal de validación previa
+    if (stockValidation && stockValidation.hasAnyAlert) {
+      const valModalRes = await window.showOptirouteStockValidationModal(stockValidation, selectedOrders);
+      if (!valModalRes || valModalRes.action !== 'proceed' || !valModalRes.ordersToDispatch || valModalRes.ordersToDispatch.length === 0) {
+        return;
+      }
+      selectedOrders = valModalRes.ordersToDispatch;
+    }
+
+    // Re-evaluar el mapa de stock sobre los pedidos que quedaron seleccionados para la ruta
+    const activeStockValidation = await window.validateOrdersStockForOptiroute(selectedOrders);
+    const stockByOrderId = activeStockValidation.byOrderIdMap || new Map();
+
+    // Estadísticas de comunas
+    const computeCommuneStats = (ordersArr) => {
+      const counts = {};
+      ordersArr.forEach(o => {
+        const c = (getOptirouteCommune(o) || 'Sin comuna').trim();
+        counts[c] = (counts[c] || 0) + 1;
+      });
+      return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    };
+
+    const sortedCommunes = computeCommuneStats(selectedOrders);
 
     const now = new Date();
     const dd = String(now.getDate()).padStart(2, '0');
@@ -3887,16 +4656,51 @@
       routeName: defaultRouteName,
       updateOperator: true,
       operatorValue: operatorsList.includes('STOCKA X') ? 'STOCKA X' : (operatorsList[0] || 'STOCKA X'),
-      updateStatus: true
+      updateStatus: true,
+      stockValidationConfirmed: true
     };
 
-    const communePillsHtml = sortedCommunes.map(([cName, count]) => `
+    const buildCommunePillsHtml = (communesArr) => communesArr.map(([cName, count]) => `
       <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: #e0f2fe; color: #0369a1; padding: 0.2rem 0.5rem; border-radius: 9999px; font-size: 0.73rem; font-weight: 600; border: 1px solid #bae6fd;">
         ${escapeHtml(cName)} <strong style="background: #0284c7; color: white; border-radius: 99px; padding: 0.02rem 0.35rem; font-size: 0.68rem;">${count}</strong>
       </span>
     `).join('');
 
-    const previewRowsHtml = selectedOrders.map((rawOrder, idx) => {
+    const buildStockBannerHtml = (ordersArr) => {
+      const alertsInModal = ordersArr
+        .map(o => stockByOrderId.get(String(o.id)))
+        .filter(st => st && st.severity !== 'none');
+      const critInModal = alertsInModal.filter(st => st.severity === 'critical');
+      const warnInModal = alertsInModal.filter(st => st.severity === 'warning');
+
+      if (alertsInModal.length === 0) {
+        return `
+          <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 0.5rem 0.85rem; margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.78rem; color: #166534;">
+            <div style="display: flex; align-items: center; gap: 0.45rem; font-weight: 700;">
+              <i class="ri-shield-check-fill" style="font-size: 1.05rem; color: #16a34a;"></i>
+              <span>Validación de Stock OK: Todos los ${ordersArr.length} pedidos en la ruta tienen stock disponible.</span>
+            </div>
+          </div>
+        `;
+      }
+
+      return `
+        <div style="background: ${critInModal.length > 0 ? '#fef2f2' : '#fffbeb'}; border: 1.5px solid ${critInModal.length > 0 ? '#fca5a5' : '#fde68a'}; border-radius: 8px; padding: 0.6rem 0.85rem; margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 240px;">
+            <i class="ri-error-warning-fill" style="font-size: 1.25rem; color: ${critInModal.length > 0 ? '#dc2626' : '#d97706'};"></i>
+            <div style="font-size: 0.77rem; line-height: 1.3; color: ${critInModal.length > 0 ? '#991b1b' : '#92400e'};">
+              <strong>Atención:</strong> Esta ruta incluye <strong>${alertsInModal.length} pedido(s)</strong> con alerta de stock
+              (${critInModal.length > 0 ? `${critInModal.length} sin stock físico` : ''}${critInModal.length > 0 && warnInModal.length > 0 ? ', ' : ''}${warnInModal.length > 0 ? `${warnInModal.length} en sobredemanda` : ''}).
+            </div>
+          </div>
+          <button type="button" id="btn-opti-modal-remove-alerted" style="background: #ffffff; color: #dc2626; border: 1px solid #fca5a5; border-radius: 6px; padding: 0.28rem 0.65rem; font-size: 0.73rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;">
+            <i class="ri-filter-off-line"></i> Quitar ${alertsInModal.length} con alerta de stock
+          </button>
+        </div>
+      `;
+    };
+
+    const buildPreviewRowsHtml = (ordersArr) => ordersArr.map((rawOrder, idx) => {
       const o = (window.loadedOrders || []).find(lo => String(lo.id) === String(rawOrder.id)) || rawOrder;
       const ref = getOptirouteReference(o);
       const name = getOptirouteCustomerName(o);
@@ -3904,21 +4708,36 @@
       const address = getOptirouteAddress(o);
       const complement = getOptirouteComplement(o);
       const phone = getOptiroutePhone(o);
-      const email = getOptirouteEmail(o);
       const proveedor = getOptirouteProveedor(o);
+      const stInfo = stockByOrderId.get(String(o.id));
+      const stockBadge = renderOrderStockStatusBadgeHtml(stInfo);
+      const issueSummary = stInfo && stInfo.issues && stInfo.issues.length > 0
+        ? `<div style="font-size: 0.65rem; color: ${stInfo.severity === 'critical' ? '#b91c1c' : '#b45309'}; margin-top: 2px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(stInfo.issues.map(i => i.detail).join(' | '))}">${escapeHtml(stInfo.issues.map(i => `${i.sku} (${i.available}/${i.requested})`).join(', '))}</div>`
+        : '';
+      const rowBg = stInfo?.severity === 'critical'
+        ? 'background: rgba(254, 226, 226, 0.32);'
+        : (stInfo?.severity === 'warning' ? 'background: rgba(254, 243, 199, 0.3);' : '');
 
       return `
-        <tr>
+        <tr style="${rowBg}">
           <td style="text-align: center; color: var(--color-text-muted);">${idx + 1}</td>
           <td><strong>#${escapeHtml(ref)}</strong></td>
+          <td>
+            ${stockBadge}
+            ${issueSummary}
+          </td>
           <td>${escapeHtml(name || '-')}</td>
           <td><span style="background: rgba(99, 102, 241, 0.1); color: #4f46e5; font-size: 0.72rem; padding: 0.1rem 0.4rem; border-radius: 4px; font-weight: 600;">${escapeHtml(commune || '-')}</span></td>
-          <td style="max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(address + (complement ? ' ' + complement : ''))}">
+          <td style="max-width: 155px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(address + (complement ? ' ' + complement : ''))}">
             ${escapeHtml(address || '-')} ${complement ? `<small style="color: #6366f1; font-weight: 600;">(${escapeHtml(complement)})</small>` : ''}
           </td>
           <td>${escapeHtml(phone || '-')}</td>
-          <td style="max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(email)}">${escapeHtml(email || '-')}</td>
           <td><span style="font-size: 0.7rem; font-weight: 700; color: #475569;">${escapeHtml(proveedor || '-')}</span></td>
+          <td style="text-align: center;">
+            <button type="button" class="btn-opti-remove-single-order" data-order-id="${escapeHtml(String(o.id))}" style="background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 0.95rem; padding: 2px 4px; line-height: 1;" title="Quitar pedido #${escapeHtml(ref)} de esta ruta">
+              <i class="ri-close-circle-line"></i>
+            </button>
+          </td>
         </tr>
       `;
     }).join('');
@@ -3926,20 +4745,25 @@
     const modalHtml = `
       <div style="text-align: left; font-size: 0.85rem;">
         <!-- Header / Stats Bar -->
-        <div style="background: linear-gradient(135deg, #f8fafc 0%, #ede9fe 100%); border: 1px solid #e0e7ff; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.85rem; display: flex; align-items: center; justify-content: space-between;">
+        <div style="background: linear-gradient(135deg, #f8fafc 0%, #ede9fe 100%); border: 1px solid #e0e7ff; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between;">
           <div>
             <div style="font-size: 0.72rem; text-transform: uppercase; color: #6366f1; font-weight: 700; letter-spacing: 0.04em;">Despacho de Pedidos</div>
-            <div style="font-size: 1.15rem; font-weight: 800; color: #1e1b4b;">${selectedOrders.length} pedidos seleccionados</div>
+            <div id="opti-modal-selected-count-title" style="font-size: 1.15rem; font-weight: 800; color: #1e1b4b;">${selectedOrders.length} pedidos seleccionados</div>
           </div>
           <div style="text-align: right;">
             <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">Comunas involucradas:</span>
-            <div style="font-size: 0.95rem; font-weight: 700; color: #334155;">${sortedCommunes.length} comuna(s)</div>
+            <div id="opti-modal-communes-count-title" style="font-size: 0.95rem; font-weight: 700; color: #334155;">${sortedCommunes.length} comuna(s)</div>
           </div>
         </div>
 
+        <!-- Banner de Validación de Stock -->
+        <div id="opti-modal-stock-banner-wrap">
+          ${buildStockBannerHtml(selectedOrders)}
+        </div>
+
         <!-- Comunas Chips -->
-        <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.85rem; max-height: 80px; overflow-y: auto;">
-          ${communePillsHtml}
+        <div id="opti-modal-communes-pills-wrap" style="display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.85rem; max-height: 80px; overflow-y: auto;">
+          ${buildCommunePillsHtml(sortedCommunes)}
         </div>
 
         <!-- Configuración de Despacho -->
@@ -3978,7 +4802,7 @@
         </div>
 
         <!-- Tabla de Previsualización -->
-        <div style="font-weight: 700; font-size: 0.78rem; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 0.35rem;">
+        <div id="opti-modal-preview-header" style="font-weight: 700; font-size: 0.78rem; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 0.35rem;">
           <i class="ri-list-check-2"></i> Previsualización de Pedidos (${selectedOrders.length})
         </div>
         <div class="optiroute-preview-table-wrap">
@@ -3987,26 +4811,87 @@
               <tr>
                 <th style="width: 28px; text-align: center;">#</th>
                 <th>N° Pedido</th>
+                <th>Stock</th>
                 <th>Cliente</th>
                 <th>Comuna</th>
                 <th>Dirección</th>
                 <th>Teléfono</th>
-                <th>Correo</th>
                 <th>Proveedor</th>
+                <th style="width: 28px; text-align: center;"></th>
               </tr>
             </thead>
-            <tbody>
-              ${previewRowsHtml}
+            <tbody id="opti-modal-preview-tbody">
+              ${buildPreviewRowsHtml(selectedOrders)}
             </tbody>
           </table>
         </div>
       </div>
     `;
 
+    const refreshModalOrdersListUi = () => {
+      const countTitle = document.getElementById('opti-modal-selected-count-title');
+      const commTitle = document.getElementById('opti-modal-communes-count-title');
+      const commPills = document.getElementById('opti-modal-communes-pills-wrap');
+      const stockBanner = document.getElementById('opti-modal-stock-banner-wrap');
+      const previewHeader = document.getElementById('opti-modal-preview-header');
+      const tbody = document.getElementById('opti-modal-preview-tbody');
+
+      const newCommunes = computeCommuneStats(selectedOrders);
+      if (countTitle) countTitle.textContent = `${selectedOrders.length} pedidos seleccionados`;
+      if (commTitle) commTitle.textContent = `${newCommunes.length} comuna(s)`;
+      if (commPills) commPills.innerHTML = buildCommunePillsHtml(newCommunes);
+      if (stockBanner) stockBanner.innerHTML = buildStockBannerHtml(selectedOrders);
+      if (previewHeader) previewHeader.innerHTML = `<i class="ri-list-check-2"></i> Previsualización de Pedidos (${selectedOrders.length})`;
+      if (tbody) tbody.innerHTML = buildPreviewRowsHtml(selectedOrders);
+
+      attachModalDynamicOrderHandlers();
+    };
+
+    const attachModalDynamicOrderHandlers = () => {
+      document.getElementById('btn-opti-modal-remove-alerted')?.addEventListener('click', () => {
+        const toRemoveIds = [];
+        selectedOrders = selectedOrders.filter(o => {
+          const st = stockByOrderId.get(String(o.id));
+          if (st && st.severity !== 'none') {
+            toRemoveIds.push(String(o.id));
+            return false;
+          }
+          return true;
+        });
+        toRemoveIds.forEach(idStr => {
+          window.toggleAgendasRowSelection(idStr, false);
+          const cb = document.querySelector(`.agendas-excel-table tbody .agendas-row-cb[data-order-id="${idStr}"]`);
+          if (cb) cb.checked = false;
+        });
+        if (selectedOrders.length === 0) {
+          Swal.close();
+          Swal.fire('Sin pedidos para enviar', 'Se quitaron todos los pedidos con alerta de stock.', 'info');
+          return;
+        }
+        refreshModalOrdersListUi();
+      });
+
+      document.querySelectorAll('.btn-opti-remove-single-order').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idToRemove = String(btn.getAttribute('data-order-id') || '');
+          if (!idToRemove) return;
+          selectedOrders = selectedOrders.filter(o => String(o.id) !== idToRemove);
+          window.toggleAgendasRowSelection(idToRemove, false);
+          const cb = document.querySelector(`.agendas-excel-table tbody .agendas-row-cb[data-order-id="${idToRemove}"]`);
+          if (cb) cb.checked = false;
+          if (selectedOrders.length === 0) {
+            Swal.close();
+            return;
+          }
+          refreshModalOrdersListUi();
+        });
+      });
+    };
+
     const result = await Swal.fire({
       title: '<div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-size: 1.25rem;"><i class="ri-truck-fill" style="color: #4f46e5;"></i> Generar Despacho en Optiroute</div>',
       html: modalHtml,
-      width: '840px',
+      width: '880px',
       showCancelButton: true,
       showDenyButton: true,
       confirmButtonText: '<i class="ri-cloud-upload-line"></i> Enviar Directo a Optiroute API',
@@ -4031,6 +4916,8 @@
         }
         if (opSelect) opSelect.addEventListener('change', (e) => { modalConfig.operatorValue = e.target.value; });
         if (updateStatusCb) updateStatusCb.addEventListener('change', (e) => { modalConfig.updateStatus = e.target.checked; });
+
+        attachModalDynamicOrderHandlers();
       }
     });
 
@@ -4041,10 +4928,24 @@
     }
   };
 
-  window.executeOptirouteExcelDownload = async function(selectedOrders, config) {
+  window.executeOptirouteExcelDownload = async function(selectedOrders, config = {}) {
     if (typeof XLSX === 'undefined') {
       Swal.fire('Error', 'La biblioteca XLSX no está disponible.', 'error');
       return;
+    }
+
+    if (!Array.isArray(selectedOrders) || selectedOrders.length === 0) return;
+
+    // Barrera de seguridad: si se invoca sin haber pasado por la validación previa de stock, validar ahora
+    if (!config.stockValidationConfirmed) {
+      const stockCheck = await window.validateOrdersStockForOptiroute(selectedOrders);
+      if (stockCheck && stockCheck.hasAnyAlert) {
+        const valRes = await window.showOptirouteStockValidationModal(stockCheck, selectedOrders);
+        if (!valRes || valRes.action !== 'proceed' || !valRes.ordersToDispatch || valRes.ordersToDispatch.length === 0) {
+          return;
+        }
+        selectedOrders = valRes.ordersToDispatch;
+      }
     }
 
     try {
@@ -4216,7 +5117,21 @@
     return null;
   }
 
-  window.executeOptirouteApiDispatch = async function(selectedOrders, config) {
+  window.executeOptirouteApiDispatch = async function(selectedOrders, config = {}) {
+    if (!Array.isArray(selectedOrders) || selectedOrders.length === 0) return;
+
+    // Barrera de seguridad: validar stock antes de empezar a enviar pedidos a Optiroute si no fue validado previamente
+    if (!config.stockValidationConfirmed) {
+      const stockCheck = await window.validateOrdersStockForOptiroute(selectedOrders);
+      if (stockCheck && stockCheck.hasAnyAlert) {
+        const valRes = await window.showOptirouteStockValidationModal(stockCheck, selectedOrders);
+        if (!valRes || valRes.action !== 'proceed' || !valRes.ordersToDispatch || valRes.ordersToDispatch.length === 0) {
+          return;
+        }
+        selectedOrders = valRes.ordersToDispatch;
+      }
+    }
+
     cachedRecentOptiOrdersMap = null;
     // 1. Mostrar progreso inicial
     Swal.fire({

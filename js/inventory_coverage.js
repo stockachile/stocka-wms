@@ -201,7 +201,8 @@ function buildConglomeratesDirectory(mappings = []) {
 
   // Incorporar agrupaciones dinámicas desde billing_mappings
   const dynamicGroups = new Map(); // billingUpper -> { displayName, children: Set }
-  (mappings || []).forEach(m => {
+  const safeMappings = Array.isArray(mappings) ? mappings : [];
+  safeMappings.forEach(m => {
     const childRaw = String(m?.comercio_nombre || '').trim();
     const billingRaw = String(m?.billing_name || '').trim();
     if (!childRaw || !billingRaw) return;
@@ -2915,26 +2916,8 @@ window.renderInventoryCoverageAdmin = async function(options = {}) {
     viewTitle.textContent = 'Cobertura de Inventario (Runway 30d) & Salud ABC';
   }
 
-  const [allCommerces, holdingsDir] = await Promise.all([
-    fetchAdminCommercesList(!!options.forceRefresh),
-    buildConglomeratesDirectory(!!options.forceRefresh)
-  ]);
+  const allCommerces = await fetchAdminCommercesList(!!options.forceRefresh);
   icState.allCommerces = allCommerces;
-
-  // Construir lista de Conglomerados/Holdings disponibles en Admin que tengan comercios activos
-  const holdingsList = [];
-  holdingsDir.forEach((children, hKey) => {
-    const matchedChildren = children
-      .map(ch => allCommerces.find(ac => icSameCommerce(ac, ch)) || ch)
-      .filter((v, idx, arr) => arr.findIndex(x => icSameCommerce(x, v)) === idx);
-    if (matchedChildren.length > 1) {
-      holdingsList.push({
-        name: hKey,
-        children: matchedChildren
-      });
-    }
-  });
-  icState.adminHoldingsList = holdingsList.sort((a, b) => a.name.localeCompare(b.name, 'es'));
 
   if (options.commerce) {
     icState.selectedCommerce = options.commerce;

@@ -8867,8 +8867,8 @@ import supabase from './supabase.js';
 
           <div style="padding: 24px 26px;">
             <!-- Título del Comprobante -->
-            <div style="background-color: ${meta.badgeBg}; border-left: 4px solid ${meta.accentColor}; padding: 12px 16px; border-radius: 6px; margin-bottom: 18px;">
-              <div style="font-size: 15px; font-weight: 800; color: ${meta.badgeText}; text-transform: uppercase;">
+            <div style="background-color: ${meta.badgeBg}; border-left: 4px solid ${meta.badgeColor}; padding: 12px 16px; border-radius: 6px; margin-bottom: 18px;">
+              <div style="font-size: 15px; font-weight: 800; color: ${meta.badgeColor}; text-transform: uppercase;">
                 ${escapeHtml(meta.title)}
               </div>
               <div style="font-size: 12.5px; color: #334155; margin-top: 4px;">
@@ -9409,8 +9409,34 @@ import supabase from './supabase.js';
       st.incomingItems = inc.length > 0 ? inc : [{ sku: '', name: '', qty: 1, comment: '' }];
       st.outgoingItems = out;
 
-      // Default receiptType to CAMBIO_SUCURSAL so the user can always issue a change voucher right away
-      st.receiptType = 'CAMBIO_SUCURSAL';
+      // Enrich missing customer fields from original order if needed
+      if ((!st.customerEmail || !st.customerPhone || !st.customerName) && (st.origenOrderId || st.referenciaPedido)) {
+        try {
+          let origOrd = orderRecord;
+          if (!origOrd && st.origenOrderId) {
+            const { data: oById } = await supabase.from('orders').select('customer_name, customer_phone, customer_email').eq('id', st.origenOrderId).maybeSingle();
+            if (oById) origOrd = oById;
+          }
+          if (!origOrd && st.referenciaPedido) {
+            const { data: oByRef } = await supabase.from('orders').select('customer_name, customer_phone, customer_email, external_order_number').ilike('external_order_number', `%${st.referenciaPedido.trim()}%`).limit(3);
+            if (oByRef && oByRef.length > 0) {
+              origOrd = oByRef.find(o => !(o.external_order_number || '').startsWith('LI-')) || oByRef[0];
+            }
+          }
+          if (origOrd) {
+            if (!st.customerName && origOrd.customer_name) st.customerName = origOrd.customer_name;
+            if (!st.customerPhone && origOrd.customer_phone) st.customerPhone = origOrd.customer_phone;
+            if (!st.customerEmail && origOrd.customer_email) st.customerEmail = origOrd.customer_email;
+          }
+        } catch (e) {}
+      }
+
+      // Default receiptType according to movement or GLS28151
+      if (rlRecord.tipo_movimiento === 'DEVOLUCION' && out.length === 0 && String(st.referenciaPedido).toUpperCase() !== 'GLS28151') {
+        st.receiptType = 'DEVOLUCION_SUCURSAL';
+      } else {
+        st.receiptType = 'CAMBIO_SUCURSAL';
+      }
     } else if (orderRecord) {
       st.rlId = null;
       st.wmsOrderId = null;

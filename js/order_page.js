@@ -3433,6 +3433,9 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
             ${isAdmin ? `
               <!-- Botonera de Acciones de Integración y Logística (Solo Admin) -->
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.5rem; margin-top: 0.2rem;">
+                <button type="button" onclick="if (typeof window.openOrderShippingQuoteModal === 'function') window.openOrderShippingQuoteModal('${orderData.id}'); else if (typeof window.openOrderInClientCotizador === 'function') window.openOrderInClientCotizador('${orderData.id}');" class="sop-btn sop-btn-indigo" style="background: rgba(var(--color-primary-rgb), 0.12); color: var(--color-primary); border: 1px solid rgba(var(--color-primary-rgb), 0.35);">
+                  <i class="ri-calculator-line"></i> Cotizar Envío del Pedido
+                </button>
                 <button type="button" onclick="window.wmsCreateManifestFromSingleOrder('${orderData.id}')" class="sop-btn sop-btn-indigo">
                   <i class="ri-file-paper-2-line"></i> Crear Manifiesto
                 </button>
