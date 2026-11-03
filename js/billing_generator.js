@@ -1432,8 +1432,8 @@ export function computeConglomerateStoreBreakdown(orders = [], bState = {}) {
     const storeMeliFullUnits = storeMeliFullOrders.reduce((sum, o) => sum + (Math.max(1, parseInt(o.unitsCount, 10) || 1)), 0);
     const storeMeliFullNet = storeMeliFullUnits * 100;
 
-    const shippingRmCount = billableOrders.filter(o => o.deliveryType === 'RM_STK' || o.deliveryType === 'FLEX' || o.deliveryType === 'COLINA').length;
-    const shippingEnviameCount = billableOrders.filter(o => o.deliveryType === 'ENVIAME' || o.deliveryType === 'REGION' || o.deliveryType === 'ENVIAME_REGION').length;
+    const shippingRmCount = billableOrders.filter(o => (o.deliveryType === 'RM_STK' || o.deliveryType === 'FLEX' || o.deliveryType === 'COLINA') && !o.isConsolidatedSecondary && (o.shippingFreight || 0) > 0).length;
+    const shippingEnviameCount = billableOrders.filter(o => (o.deliveryType === 'ENVIAME' || o.deliveryType === 'REGION' || o.deliveryType === 'ENVIAME_REGION') && !o.isConsolidatedSecondary).length;
     const totalSalesTicket = storeOrders.reduce((sum, o) => sum + (o.ticketVenta || 0), 0);
     const avgTicket = storeOrders.length > 0 ? Math.round(totalSalesTicket / storeOrders.length) : 0;
     const mktCount = storeOrders.filter(o => o.isMarketplace).length;
@@ -2800,7 +2800,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     }
 
     // 6.2 Proyección ligera de pedidos (extrae sólo subcampos JSONB requeridos en vez de blobs completos ni LATERAL order_items)
-    const fastOrderSelectFields = 'id,created_at,external_order_number,external_platform,status,estado_wms,comercio,categoria_entrega,agenda,operador,shipping_city,shipping_address,shipping_method,total_value,sku,cantidad,item,periodo_facturacion,shopify_items:raw_shopify_data->line_items,shopify_name:raw_shopify_data->>name,shopify_total:raw_shopify_data->>total_price,woo_items:raw_woocommerce_data->line_items,woo_total:raw_woocommerce_data->>total,meli_items:raw_meli_data->order_items,meli_total:raw_meli_data->>total_amount';
+    const fastOrderSelectFields = 'id,created_at,external_order_number,external_platform,status,estado_wms,comercio,categoria_entrega,agenda,operador,shipping_city,shipping_address,shipping_method,total_value,sku,cantidad,item,periodo_facturacion,consolidation_role:raw_shopify_data->>_consolidation_role,consolidated_into_folio:raw_shopify_data->>_consolidated_into_folio,consolidated_into_id:raw_shopify_data->>_consolidated_into_order_id,consolidated_children_folios:raw_shopify_data->_consolidated_children_folios,shopify_items:raw_shopify_data->line_items,shopify_name:raw_shopify_data->>name,shopify_total:raw_shopify_data->>total_price,woo_items:raw_woocommerce_data->line_items,woo_total:raw_woocommerce_data->>total,meli_items:raw_meli_data->order_items,meli_total:raw_meli_data->>total_amount';
 
     let step = 500;
     let lastCreatedAt = null;
@@ -3226,12 +3226,25 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       ? Math.max(0, Math.round(Number(manualOrderOverride.surchargeUnits) || 0))
       : surchargeUnits;
 
+    // Detectar estado de Consolidación de Pedidos (1 Envío en Pedido Principal + N Preparaciones individuales)
+    const memLiveOrd = (window.loadedOrders && Array.isArray(window.loadedOrders))
+      ? window.loadedOrders.find(mo => String(mo.id) === String(ord.id))
+      : null;
+    const rawConsRole = memLiveOrd?.raw_shopify_data?._consolidation_role || ord.consolidation_role || ord.raw_shopify_data?._consolidation_role || null;
+    const rawConsIntoId = memLiveOrd?.consolidated_into_order_id || memLiveOrd?.raw_shopify_data?._consolidated_into_order_id || ord.consolidated_into_id || ord.consolidated_into_order_id || ord.raw_shopify_data?._consolidated_into_order_id || null;
+    const rawConsIntoFolio = memLiveOrd?.raw_shopify_data?._consolidated_into_folio || ord.consolidated_into_folio || ord.raw_shopify_data?._consolidated_into_folio || null;
+    const rawConsChildrenFolios = memLiveOrd?.raw_shopify_data?._consolidated_children_folios || ord.consolidated_children_folios || ord.raw_shopify_data?._consolidated_children_folios || [];
+
+    const isConsolidatedSecondary = Boolean(rawConsRole === 'secondary' || (rawConsIntoId && String(rawConsIntoId) !== String(ord.id)) || manualOrderOverride?.isConsolidatedSecondary);
+    const isConsolidatedPrimary = Boolean(rawConsRole === 'primary' || (Array.isArray(rawConsChildrenFolios) && rawConsChildrenFolios.length > 0) || manualOrderOverride?.isConsolidatedPrimary);
+
     const isShippingFreightManual = Boolean(manualOrderOverride?.shippingFreightManual);
     const finalDeliveryType = isPosOrder
       ? (manualOrderOverride?.deliveryType === 'POS' || !manualOrderOverride?.deliveryType || manualOrderOverride?.deliveryType === 'RETIRO' || manualOrderOverride?.deliveryType === 'ENVIAME_REGION' ? 'POS' : manualOrderOverride.deliveryType)
       : (manualOrderOverride?.deliveryType || deliveryType);
     let finalShippingFreight = shippingFreight;
-    if (isPosOrder && !isShippingFreightManual) {
+    if ((isPosOrder || isConsolidatedSecondary) && !isShippingFreightManual) {
+      // Regla de negocio: En pedidos consolidados se cobra 1 envío (en el principal) y las N preparaciones (secundario tiene flete $0)
       finalShippingFreight = 0;
     } else if (manualOrderOverride?.shippingFreight !== undefined) {
       finalShippingFreight = manualOrderOverride.shippingFreight;
@@ -3330,6 +3343,10 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       pickPackTotal: finalPickPackTotal,
       shippingFreight: finalShippingFreight,
       shippingFreightManual: isShippingFreightManual,
+      isConsolidatedPrimary,
+      isConsolidatedSecondary,
+      consolidatedIntoFolio: rawConsIntoFolio || manualOrderOverride?.consolidatedIntoFolio || null,
+      consolidatedChildrenFolios: Array.isArray(rawConsChildrenFolios) ? rawConsChildrenFolios : (manualOrderOverride?.consolidatedChildrenFolios || []),
       orderTotal: finalOrderTotal,
       isExcluded: !!isExcluded,
       estadoWms: ord.estado_wms || 'Completado',
@@ -3346,7 +3363,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   const billableShippingOrders = billableOrders.filter(o => (o.shippingFreight || 0) > 0);
   const totalRmFlexNet = billableShippingOrders.reduce((acc, o) => acc + (o.shippingFreight || 0), 0);
 
-  const enviameOrders = billableOrders.filter(o => o.deliveryType === 'ENVIAME_REGION');
+  const enviameOrders = billableOrders.filter(o => o.deliveryType === 'ENVIAME_REGION' && !o.isConsolidatedSecondary);
 
   // 9b. Detección y cálculo de Cobro de Etiqueta FULL de MELI ($100 por producto / unidad en pedidos con agenda FULL MERCADOLIBRE)
   const fullMeliOrders = billableOrders.filter(o => isFullMeliOrder(o));
@@ -9204,6 +9221,16 @@ export function renderOrdersTableUI() {
         <td>
           <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
             <strong style="color: var(--color-text-main); font-size: 0.85rem;">${escapeHtml(o.orderNumber)}</strong>
+            ${o.isConsolidatedPrimary ? `
+              <span style="background: #eef2ff; color: #4338ca; border: 1px solid #a5b4fc; font-size: 0.65rem; font-weight: 800; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Pedido Principal Consolidado: Incluye flete del envío unificado + preparación individual">
+                <i class="ri-links-fill"></i> CONSOLIDADO PRINCIPAL${Array.isArray(o.consolidatedChildrenFolios) && o.consolidatedChildrenFolios.length > 0 ? ` (+${escapeHtml(o.consolidatedChildrenFolios.join(', '))})` : ''}
+              </span>
+            ` : ''}
+            ${o.isConsolidatedSecondary ? `
+              <span style="background: #f0fdfa; color: #0f766e; border: 1px solid #5eead4; font-size: 0.65rem; font-weight: 800; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Pedido Secundario Consolidado: Se cobra preparación (Pick & Pack) y $0 de Flete de Envío (viaja en paquete principal ${escapeHtml(o.consolidatedIntoFolio || '')})">
+                <i class="ri-git-merge-line"></i> CONSOLIDADO EN ${escapeHtml(o.consolidatedIntoFolio || 'PRINCIPAL')} (FLETE $0)
+              </span>
+            ` : ''}
             ${isOrderPos ? `
               <span class="bg-order-pos-badge" title="Pedido de Punto de Venta físico (Tarifa Prep. Base $1.490 · Despacho $0)">
                 <i class="ri-store-3-fill"></i> PUNTO DE VENTA
@@ -9359,6 +9386,8 @@ window.updateBgOrderDeliveryType = function(orderId, newType) {
       order.baseRate = (billingState.pricingConfig?.services?.showroom_sale_base) || (billingState.pricingConfig?.shipping?.pickup_express_base) || 1490;
     }
     recomputeOrderPickPackWithCustomColumns(order, billingState.customColumns);
+  } else if (order.isConsolidatedSecondary && !order.shippingFreightManual) {
+    order.shippingFreight = 0;
   } else {
     order.shippingFreight = dt ? dt.price : 0;
   }

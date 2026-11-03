@@ -4017,6 +4017,33 @@ window.bulkCreateLightDataLabels = async function(btn) {
   const distinctSucs = [...new Set(selectedOrders.map(o => o.sucursal_pickeo).filter(Boolean))];
   const defaultSucursal = distinctSucs.length === 1 ? distinctSucs[0] : (distinctSucs[0] || 'Sucursal La Reina');
 
+  const unconsolidatedCandidates = selectedOrders.filter(o =>
+    typeof window.getConsolidationCandidateGroup === 'function' &&
+    window.getConsolidationCandidateGroup(o.id) &&
+    !(typeof window.getOrderConsolidationInfo === 'function' && window.getOrderConsolidationInfo(o).isConsolidated)
+  );
+  const consolidatedSecondaries = selectedOrders.filter(o =>
+    typeof window.isConsolidatedSecondaryOrder === 'function' && window.isConsolidatedSecondaryOrder(o)
+  );
+
+  const consolidationNoticeHtml = (unconsolidatedCandidates.length > 0 || consolidatedSecondaries.length > 0) ? `
+    <div style="background: #f0fdfa; border: 1.5px solid #5eead4; border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; font-size: 0.8rem; color: #134e4a; line-height: 1.4;">
+      ${unconsolidatedCandidates.length > 0 ? `
+        <div style="font-weight: 800; color: #0f766e; margin-bottom: 3px;">
+          <i class="ri-links-fill"></i> ¡Atención! Hay ${unconsolidatedCandidates.length} pedido(s) consolidables (&lt;24h) sin consolidar en esta selección
+        </div>
+        <div style="font-size: 0.75rem; color: #334155;">
+          Si deseas que viajen en 1 solo envío, cancela este paso y consolídalos primero desde el banner superior o el badge <strong>CONSOLIDABLE &lt;24H</strong>.
+        </div>
+      ` : ''}
+      ${consolidatedSecondaries.length > 0 ? `
+        <div style="font-weight: 700; color: #0f766e; ${unconsolidatedCandidates.length > 0 ? 'margin-top: 6px; padding-top: 6px; border-top: 1px dashed #99f6e4;' : ''}">
+          <i class="ri-checkbox-circle-line"></i> ${consolidatedSecondaries.length} pedido(s) secundario(s) consolidado(s) pasará(n) a Picker con su Solicitud Especial de Picking, <strong>sin emitir etiqueta duplicada</strong> en LightData.
+        </div>
+      ` : ''}
+    </div>
+  ` : '';
+
   const { value: formValues, isConfirmed } = await Swal.fire({
     title: '<i class="ri-barcode-box-line" style="color: #e91e63;"></i> Generar Etiquetas Alpha (LightData)',
     html: `
@@ -4024,6 +4051,7 @@ window.bulkCreateLightDataLabels = async function(btn) {
         <p style="margin-bottom: 0.85rem; color: var(--color-text-main, #1f2937); line-height: 1.45;">
           Se enviarán <strong>${ids.length}</strong> pedido(s) a <strong>"En preparación"</strong> (Agenda RM, Operador ALPHA) y se generarán sus etiquetas de envío en LightData.
         </p>
+        ${consolidationNoticeHtml}
 
         <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem; color: var(--color-text-main);">
           <i class="ri-store-3-line" style="color: #e91e63;"></i> Sucursal de Preparación (Picker)
@@ -4280,17 +4308,25 @@ window.bulkCreateLightDataLabels = async function(btn) {
 
     window.applyWmsFiltersAndRender();
 
-    // 2. Disparar Edge Function para generar etiquetas en segundo plano en GitHub Actions
-    await window.fetchWmsEdgeFunction('trigger-lightdata-label', {
-      method: 'POST',
-      body: JSON.stringify({ mode: targetOrderIds.length === 1 ? 'individual' : 'bulk', orderId: targetOrderIds[0], orderIds: targetOrderIds.join(',') })
+    // Filtrar pedidos secundarios consolidados para no emitir etiqueta duplicada en LightData
+    const labelTargetOrderIds = targetOrderIds.filter(id => {
+      const ord = (window.loadedOrders || []).find(o => o.id === id);
+      return !(ord && typeof window.isConsolidatedSecondaryOrder === 'function' && window.isConsolidatedSecondaryOrder(ord));
     });
-    if (typeof window.updateWmsMonitorUI === 'function') {
-      setTimeout(() => window.updateWmsMonitorUI(), 2500);
+
+    if (labelTargetOrderIds.length > 0) {
+      // 2. Disparar Edge Function para generar etiquetas en segundo plano en GitHub Actions
+      await window.fetchWmsEdgeFunction('trigger-lightdata-label', {
+        method: 'POST',
+        body: JSON.stringify({ mode: labelTargetOrderIds.length === 1 ? 'individual' : 'bulk', orderId: labelTargetOrderIds[0], orderIds: labelTargetOrderIds.join(',') })
+      });
+      if (typeof window.updateWmsMonitorUI === 'function') {
+        setTimeout(() => window.updateWmsMonitorUI(), 2500);
+      }
+      
+      // Iniciar sondeo activo para auto-refrescar pedidos masivos conforme se asignen etiquetas
+      window.pollForLightDataTracking(labelTargetOrderIds);
     }
-    
-    // Iniciar sondeo activo para auto-refrescar pedidos masivos conforme se asignen etiquetas
-    window.pollForLightDataTracking(targetOrderIds);
 
     Swal.fire({
       icon: 'success',
@@ -10418,6 +10454,14 @@ async function renderAdminOrders() {
         tags.add('DESCUADRE UDS.');
       }
 
+      // 19. Consolidado de Pedidos (<24h Mismo Cliente + Dirección)
+      const consInfo = typeof window.getOrderConsolidationInfo === 'function' ? window.getOrderConsolidationInfo(order) : null;
+      if (consInfo && consInfo.isConsolidated) {
+        tags.add('CONSOLIDADO');
+      } else if (typeof window.getConsolidationCandidateGroup === 'function' && window.getConsolidationCandidateGroup(order.id)) {
+        tags.add('CONSOLIDABLE (<24H)');
+      }
+
       order._wmsTags = Array.from(tags);
       return order._wmsTags;
     };
@@ -10442,9 +10486,15 @@ async function renderAdminOrders() {
         return true;
       });
 
+      // Asegurar detección actualizada de grupos consolidables (<24h) antes de evaluar tags
+      if (typeof window.detectConsolidatableOrders === 'function') {
+        window.detectConsolidatableOrders(window.loadedOrders || []);
+      }
+
       // Contar frecuencias de cada tag
       const tagCounts = new Map();
       orders.forEach(order => {
+        delete order._wmsTags;
         const tags = window.getOrderTags(order);
         tags.forEach(t => {
           tagCounts.set(t, (tagCounts.get(t) || 0) + 1);
@@ -10452,6 +10502,8 @@ async function renderAdminOrders() {
       });
 
       const orderPillTags = [
+        { key: 'CONSOLIDABLE (<24H)', label: 'CONSOLIDABLE (<24H · Correo + Dirección)', icon: '🔗' },
+        { key: 'CONSOLIDADO', label: 'CONSOLIDADO (Envío Unificado)', icon: '📦' },
         { key: 'DESCUADRE UDS.', label: 'DESCUADRE UDS. (Ítems ≠ UDS)', icon: '⚠️' },
         { key: 'Asignado Optiroute', label: 'Asignado Optiroute', icon: '🛣️' },
         { key: 'Con Packs', label: 'Con Packs', icon: '📦' },
@@ -11295,6 +11347,9 @@ async function renderAdminOrders() {
 
       <!-- Banner Informativo de Filtro Cobertura Comuna Destino Activo -->
       <div id="wms-active-coverage-filter-container"></div>
+
+      <!-- Banner de Oportunidad de Consolidado de Pedidos (<24h Correo + Dirección) -->
+      <div id="wms-active-consolidation-banner-container"></div>
 
       <!-- Barra de Acciones Masivas Flotante (Azul) -->
       <div id="wms-bulk-actions-container" style="position: sticky; top: 0; z-index: 950;"></div>
@@ -12674,6 +12729,16 @@ window.applyWmsFiltersAndRender = function() {
       `;
     } else {
       covBannerContainer.innerHTML = '';
+    }
+  }
+
+  // Renderizar banner de Consolidado de Pedidos (<24h Mismo Cliente + Dirección)
+  const consBannerContainer = document.getElementById('wms-active-consolidation-banner-container');
+  if (consBannerContainer) {
+    if (typeof window.renderConsolidationBannerHtml === 'function') {
+      consBannerContainer.innerHTML = window.renderConsolidationBannerHtml(filtered);
+    } else {
+      consBannerContainer.innerHTML = '';
     }
   }
 
@@ -14480,14 +14545,14 @@ window.applyWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row ${isOverdueItem ? 'wms-overdue-badges-row' : ''}" style="transition: background-color 0.2s;">
         <td colspan="13" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${overdueRowBadgeHtml}${categoryBadgeHtml}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${qtyMismatchBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${noteBadgeHtml}${adminNoteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
+            ${overdueRowBadgeHtml}${categoryBadgeHtml}${(window.getConsolidationBadgeHtml ? window.getConsolidationBadgeHtml(order) : '')}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${qtyMismatchBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${noteBadgeHtml}${adminNoteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>
       <tr id="details-${order.id}" class="order-details-row" style="display: ${isInitiallyExpanded ? 'table-row' : 'none'}; background-color: var(--color-bg);">
         <td colspan="13" style="padding: 1.25rem 1rem; border-top: none; border-bottom: 2px solid var(--color-border);">
           <div class="order-detail-container" style="display: flex; flex-direction: column; gap: 1.25rem;">
-            
+            ${(window.renderOrderDetailConsolidationCardHtml ? window.renderOrderDetailConsolidationCardHtml(order) : '')}
             <!-- Fila superior: 3 Columnas de Información -->
             <div class="order-detail-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
               
@@ -14684,6 +14749,11 @@ window.applyWmsFiltersAndRender = function() {
                     ${(window.canSplitOrder && window.canSplitOrder(order)) ? `
                       <button type="button" onclick="event.stopPropagation(); window.openSplitOrderModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; color: #7c3aed; border-color: #c4b5fd; background: rgba(124, 58, 237, 0.08); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;" title="Dividir este pedido para realizar un envío parcial de los productos disponibles">
                         <i class="ri-scissors-2-line"></i> Dividir Pedido
+                      </button>
+                    ` : ''}
+                    ${((window.getConsolidationCandidateGroup && window.getConsolidationCandidateGroup(order.id)) || (window.getOrderConsolidationInfo && window.getOrderConsolidationInfo(order).isConsolidated)) ? `
+                      <button type="button" onclick="event.stopPropagation(); window.openConsolidateOrdersModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; color: #0f766e; border-color: #5eead4; background: #f0fdfa; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;" title="Consolidar envío con pedido(s) hermano(s) realizados en <24h para el mismo cliente y dirección">
+                        <i class="ri-links-fill"></i> ${(window.getOrderConsolidationInfo && window.getOrderConsolidationInfo(order).isConsolidated) ? 'Gestionar Consolidado' : 'Consolidar Envío (<24h)'}
                       </button>
                     ` : ''}
                   </div>
@@ -77464,7 +77534,16 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
   const isSucursal = opUpper.includes('SUCURSAL') || curUpper.includes('SUCURSAL');
 
   const cleanStkTracking = String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber;
-  const resolvedTrack = window.resolveOrderTracking ? window.resolveOrderTracking(order) : (order.tracking_number || '');
+  let resolvedTrack = window.resolveOrderTracking ? window.resolveOrderTracking(order) : (order.tracking_number || '');
+
+  // Si es un Pedido Secundario Consolidado y aún no tiene tracking propio, heredar del Pedido Principal o usar identificador de consolidado
+  const isConsSec = typeof window.isConsolidatedSecondaryOrder === 'function' && window.isConsolidatedSecondaryOrder(order);
+  if (isConsSec && (!resolvedTrack || String(resolvedTrack).trim().toLowerCase() === 'no informado')) {
+    const consInfo = typeof window.getOrderConsolidationInfo === 'function' ? window.getOrderConsolidationInfo(order) : null;
+    const primaryOrd = consInfo?.primaryOrderId ? (window.loadedOrders || []).find(o => String(o.id) === String(consInfo.primaryOrderId)) : null;
+    const primaryTrack = primaryOrd ? (window.resolveOrderTracking ? window.resolveOrderTracking(primaryOrd) : primaryOrd.tracking_number) : '';
+    resolvedTrack = primaryTrack || cleanStkTracking;
+  }
 
   // Backfill tracking_number en WMS si se resolvió desde integraciones
   if (resolvedTrack && (!order.tracking_number || String(order.tracking_number).trim().toLowerCase() === 'no informado') && order.id) {

@@ -1058,10 +1058,26 @@
         stockMiniBadgeHtml = `<span style="background: #fff1f2; color: #be123c; border: 1px solid #fda4af; border-radius: 3px; padding: 0 3px; font-size: 0.6rem; font-weight: 800; display: inline-flex; align-items: center; gap: 2px; line-height: 1.2;" title="RIESGO SOBREDEMANDA: ${safeOverTip}"><i class="ri-scales-3-line" style="font-size: 0.65rem;"></i>SOB</span>`;
       }
 
+      let consolidateMiniBadgeHtml = '';
+      const consInfo = typeof window.getOrderConsolidationInfo === 'function' ? window.getOrderConsolidationInfo(order) : null;
+      const consCand = (!consInfo || !consInfo.isConsolidated) && typeof window.getConsolidationCandidateGroup === 'function'
+        ? window.getConsolidationCandidateGroup(order.id)
+        : null;
+      if (consInfo && consInfo.isConsolidated) {
+        const isPrim = consInfo.role === 'primary';
+        const tip = isPrim
+          ? `Pedido Principal Consolidado (+${(consInfo.childrenFolios || []).join(', ')})`
+          : `Pedido Secundario Consolidado en ${consInfo.primaryFolio || 'Principal'} (Flete $0)`;
+        consolidateMiniBadgeHtml = `<span onclick="event.stopPropagation(); if(window.openConsolidateOrdersModal){window.openConsolidateOrdersModal('${orderIdStr}');}" style="background: ${isPrim ? '#eef2ff' : '#ccfbf1'}; color: ${isPrim ? '#4338ca' : '#0f766e'}; border: 1px solid ${isPrim ? '#a5b4fc' : '#5eead4'}; border-radius: 3px; padding: 0 3px; font-size: 0.6rem; font-weight: 800; display: inline-flex; align-items: center; gap: 1px; line-height: 1.2; cursor: pointer;" title="${tip}"><i class="ri-links-fill" style="font-size: 0.65rem;"></i>${isPrim ? 'C-1' : 'C-2'}</span>`;
+      } else if (consCand) {
+        consolidateMiniBadgeHtml = `<span onclick="event.stopPropagation(); if(window.openConsolidateOrdersModal){window.openConsolidateOrdersModal('${orderIdStr}');}" style="background: #f0fdfa; color: #0f766e; border: 1px solid #2dd4bf; border-radius: 3px; padding: 0 3px; font-size: 0.6rem; font-weight: 800; display: inline-flex; align-items: center; gap: 1px; line-height: 1.2; cursor: pointer;" title="Consolidable <24h (${consCand.diffLabel}) · Clic para consolidar"><i class="ri-links-line" style="font-size: 0.65rem;"></i>24H</span>`;
+      }
+
       return `
         <div class="excel-cell-content" style="font-family: monospace; font-weight: 700; color: var(--color-primary, #6366f1); white-space: nowrap; font-size: 0.76rem; display: flex; align-items: center; justify-content: space-between; gap: 0.25rem; width: 100%; cursor: pointer;" title="Abrir Ficha Completa del Pedido (#${rawVal})" onclick="if(window.openWmsOrderModal){window.openWmsOrderModal('${orderIdStr}'); event.stopPropagation();}">
           <span style="text-decoration: underline; text-underline-offset: 2px; overflow: hidden; text-overflow: ellipsis;">${rawVal}</span>
           <div style="display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;">
+            ${consolidateMiniBadgeHtml}
             ${stockMiniBadgeHtml}
             <button type="button" onclick="event.stopPropagation(); if(window.openOrderAdminNoteModal){window.openOrderAdminNoteModal('${orderIdStr}');}" class="btn-order-admin-note-trigger" data-order-id="${orderIdStr}" style="background: none; border: none; padding: 0 1px; cursor: pointer; color: ${hasNote ? '#4f46e5' : 'rgba(148, 163, 184, 0.65)'}; font-size: 0.82rem; display: inline-flex; align-items: center; transition: color 0.15s ease;" title="${hasNote ? `Nota Interna Admin: ${safeNote} (Clic para ver/editar)` : 'Añadir Nota Interna Admin'}">
               <i class="${hasNote ? 'ri-lock-2-fill' : 'ri-lock-2-line'}"></i>

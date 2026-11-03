@@ -3028,8 +3028,15 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                   <i class="ri-scissors-2-line"></i> Dividir Pedido
                 </button>
               ` : ''}
+              ${!isClientPortal && ((window.getConsolidationCandidateGroup && window.getConsolidationCandidateGroup(orderData.id)) || (window.getOrderConsolidationInfo && window.getOrderConsolidationInfo(orderData).isConsolidated)) ? `
+                <button type="button" onclick="window.openConsolidateOrdersModal('${orderData.id}')" class="sop-btn" style="background: #0d9488; color: #ffffff; border: 1px solid #0f766e;">
+                  <i class="ri-links-fill"></i> ${(window.getOrderConsolidationInfo && window.getOrderConsolidationInfo(orderData).isConsolidated) ? 'Gestionar Consolidado' : 'Consolidar Envío (<24h)'}
+                </button>
+              ` : ''}
             </div>
           </div>
+
+          ${(window.renderOrderDetailConsolidationCardHtml ? window.renderOrderDetailConsolidationCardHtml(orderData) : '')}
 
           <!-- Franja de 5 KPIs Ejecutivos -->
           <div class="sop-kpi-strip">
