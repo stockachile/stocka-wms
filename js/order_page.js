@@ -2217,6 +2217,7 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
   const isAdmin = options.isAdmin !== undefined
     ? options.isAdmin
     : Boolean(document.getElementById('admin-cmd-container') || window.location.pathname.includes('admin'));
+  const isClientPortal = !isAdmin;
   const silentRefresh = Boolean(options.silentRefresh);
 
   const appContent = document.getElementById('app-content');
@@ -2624,6 +2625,54 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
             }
           } catch (e) {}
         }
+      })(),
+      // 6. Pedidos hermanos (<24h o consolidados) del mismo comercio para detección de consolidación en pestaña dedicada
+      (async () => {
+        try {
+          if (!orderData.comercio || !orderData.created_at) return;
+          const baseTime = new Date(orderData.created_at).getTime();
+          if (isNaN(baseTime)) return;
+          const minIso = new Date(baseTime - 25 * 3600 * 1000).toISOString();
+          const maxIso = new Date(baseTime + 25 * 3600 * 1000).toISOString();
+
+          const { data: siblingRows } = await supabase
+            .from('orders')
+            .select(selectStr)
+            .eq('comercio', orderData.comercio)
+            .gte('created_at', minIso)
+            .lte('created_at', maxIso)
+            .limit(30);
+
+          const mergeIntoLocalList = (rows) => {
+            if (!Array.isArray(rows) || rows.length === 0) return;
+            const targetList = isAdmin ? window.loadedOrders : window.clientLoadedOrders;
+            if (!Array.isArray(targetList)) return;
+            rows.forEach(r => {
+              if (!r || !r.id) return;
+              const idx = targetList.findIndex(o => String(o.id) === String(r.id));
+              if (idx === -1) targetList.push(r);
+            });
+          };
+
+          mergeIntoLocalList(siblingRows);
+
+          if (typeof window.getOrderConsolidationInfo === 'function') {
+            const cInfo = window.getOrderConsolidationInfo(orderData);
+            if (cInfo && cInfo.isConsolidated) {
+              const linkedIds = [
+                cInfo.primaryOrderId,
+                ...(Array.isArray(cInfo.childrenIds) ? cInfo.childrenIds : [])
+              ].filter(id => id && String(id) !== String(orderData.id));
+              if (linkedIds.length > 0) {
+                const { data: linkedRows } = await supabase
+                  .from('orders')
+                  .select(selectStr)
+                  .in('id', linkedIds);
+                mergeIntoLocalList(linkedRows);
+              }
+            }
+          }
+        } catch (e) {}
       })()
     ]);
 
@@ -3028,7 +3077,7 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                   <i class="ri-scissors-2-line"></i> Dividir Pedido
                 </button>
               ` : ''}
-              ${!isClientPortal && ((window.getConsolidationCandidateGroup && window.getConsolidationCandidateGroup(orderData.id)) || (window.getOrderConsolidationInfo && window.getOrderConsolidationInfo(orderData).isConsolidated)) ? `
+              ${isAdmin && ((window.getConsolidationCandidateGroup && window.getConsolidationCandidateGroup(orderData.id)) || (window.getOrderConsolidationInfo && window.getOrderConsolidationInfo(orderData).isConsolidated)) ? `
                 <button type="button" onclick="window.openConsolidateOrdersModal('${orderData.id}')" class="sop-btn" style="background: #0d9488; color: #ffffff; border: 1px solid #0f766e;">
                   <i class="ri-links-fill"></i> ${(window.getOrderConsolidationInfo && window.getOrderConsolidationInfo(orderData).isConsolidated) ? 'Gestionar Consolidado' : 'Consolidar Envío (<24h)'}
                 </button>
