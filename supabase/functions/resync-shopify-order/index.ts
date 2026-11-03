@@ -5,6 +5,84 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+const shopifyClientId = Deno.env.get("SHOPIFY_CLIENT_ID") ?? "4d04c58f432c53fb870d1fbcad92431c";
+const shopifyClientSecret = Deno.env.get("SHOPIFY_CLIENT_SECRET") ?? "";
+
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+
+async function getValidShopifyToken(integration: any, forceRefresh = false): Promise<string> {
+  if (!integration.refresh_token) {
+    return integration.access_token;
+  }
+
+  const shopKey = integration.shop_url;
+  const cached = tokenCache.get(shopKey);
+  const now = Date.now();
+
+  if (!forceRefresh && cached && now < (cached.expiresAt - 5 * 60 * 1000)) {
+    return cached.token;
+  }
+
+  const clientSecret = shopifyClientSecret || integration.webhook_secret;
+  if (!clientSecret) {
+    return integration.access_token;
+  }
+
+  console.log(`[Resync Shopify] Renovando token de acceso para ${integration.shop_url}...`);
+  const tokenUrl = `https://${integration.shop_url}/admin/oauth/access_token`;
+  try {
+    const params = new URLSearchParams({
+      client_id: shopifyClientId,
+      client_secret: clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: integration.refresh_token
+    });
+
+    const res = await fetch(tokenUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json"
+      },
+      body: params.toString()
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`[Resync Shopify] Error renovando token: ${res.status} - ${errorText}`);
+      return integration.access_token;
+    }
+
+    const data = await res.json();
+    console.log(`[Resync Shopify] Token renovado con éxito para ${integration.shop_url}. Expira en ${data.expires_in}s.`);
+
+    const expiresInSec = Number(data.expires_in) || 3600;
+    tokenCache.set(shopKey, {
+      token: data.access_token,
+      expiresAt: Date.now() + expiresInSec * 1000
+    });
+
+    integration.access_token = data.access_token;
+    if (data.refresh_token) {
+      integration.refresh_token = data.refresh_token;
+    }
+
+    await supabase
+      .from("merchant_integrations")
+      .update({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token || integration.refresh_token,
+        last_sync_at: new Date().toISOString()
+      })
+      .eq("id", integration.id);
+
+    return data.access_token;
+  } catch (err: any) {
+    console.error("[Resync Shopify] Excepción renovando token:", err.message);
+    return integration.access_token;
+  }
+}
+
 const WHATSAPP_API_URL = Deno.env.get("WHATSAPP_API_URL") || "https://stocka-whatsapp-bot.onrender.com";
 const WHATSAPP_API_KEY = Deno.env.get("WHATSAPP_API_KEY") || "stocka_wa_internal_secret_2026";
 const GESTION_STOCKA_GROUP_JID = "120363413357945543@g.us"; // NOTIFICACIONES STOX
@@ -104,13 +182,21 @@ serve(async (req) => {
 
     // 3. Consultar la API de Shopify desde el backend (sin restricciones de CORS)
     let shopifyOrder: any = null;
+    let token = await getValidShopifyToken(integ);
     const rawId = order.raw_shopify_data?.id;
 
     if (rawId) {
       try {
-        const resp = await fetch(`https://${integ.shop_url}/admin/api/2024-04/orders/${rawId}.json`, {
-          headers: { "X-Shopify-Access-Token": integ.access_token },
+        let resp = await fetch(`https://${integ.shop_url}/admin/api/2024-04/orders/${rawId}.json`, {
+          headers: { "X-Shopify-Access-Token": token },
         });
+        if (resp.status === 401 && integ.refresh_token) {
+          console.warn("[Resync Shopify] HTTP 401 recibido, forzando renovación de token...");
+          token = await getValidShopifyToken(integ, true);
+          resp = await fetch(`https://${integ.shop_url}/admin/api/2024-04/orders/${rawId}.json`, {
+            headers: { "X-Shopify-Access-Token": token },
+          });
+        }
         if (resp.ok) {
           const d = await resp.json();
           shopifyOrder = d.order;
@@ -124,9 +210,16 @@ serve(async (req) => {
       const orderNum = order.external_order_number || "";
       const cleanNum = orderNum.replace(/^[A-Z\s]+#/, "#");
       const encodedNum = encodeURIComponent(cleanNum || orderNum);
-      const resp = await fetch(`https://${integ.shop_url}/admin/api/2024-04/orders.json?name=${encodedNum}&status=any`, {
-        headers: { "X-Shopify-Access-Token": integ.access_token },
+      let resp = await fetch(`https://${integ.shop_url}/admin/api/2024-04/orders.json?name=${encodedNum}&status=any`, {
+        headers: { "X-Shopify-Access-Token": token },
       });
+      if (resp.status === 401 && integ.refresh_token) {
+        console.warn("[Resync Shopify] HTTP 401 recibido, forzando renovación de token...");
+        token = await getValidShopifyToken(integ, true);
+        resp = await fetch(`https://${integ.shop_url}/admin/api/2024-04/orders.json?name=${encodedNum}&status=any`, {
+          headers: { "X-Shopify-Access-Token": token },
+        });
+      }
       if (resp.ok) {
         const d = await resp.json();
         if (d.orders && d.orders.length > 0) {

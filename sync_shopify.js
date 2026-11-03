@@ -35,10 +35,20 @@ if (!SUPABASE_SERVICE_ROLE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-// Renueva de forma proactiva el token de acceso de Shopify usando el refresh token
-async function getValidShopifyToken(integration) {
+const tokenCache = new Map();
+
+// Renueva de forma proactiva el token de acceso de Shopify usando el refresh token con caché inteligente
+async function getValidShopifyToken(integration, forceRefresh = false) {
   if (!integration.refresh_token) {
     return integration.access_token;
+  }
+
+  const shopKey = integration.shop_url;
+  const cached = tokenCache.get(shopKey);
+  const now = Date.now();
+
+  if (!forceRefresh && cached && now < (cached.expiresAt - 5 * 60 * 1000)) {
+    return cached.token;
   }
 
   const clientSecret = SHOPIFY_CLIENT_SECRET || integration.webhook_secret;
@@ -50,15 +60,20 @@ async function getValidShopifyToken(integration) {
   console.log(`[Shopify Sync] Renovando token de acceso para ${integration.shop_url}...`);
   const tokenUrl = `https://${integration.shop_url}/admin/oauth/access_token`;
   try {
+    const params = new URLSearchParams({
+      client_id: SHOPIFY_CLIENT_ID,
+      client_secret: clientSecret,
+      grant_type: 'refresh_token',
+      refresh_token: integration.refresh_token
+    });
+
     const res = await fetch(tokenUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: SHOPIFY_CLIENT_ID,
-        client_secret: clientSecret,
-        grant_type: 'refresh_token',
-        refresh_token: integration.refresh_token
-      })
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json'
+      },
+      body: params.toString()
     });
 
     if (!res.ok) {
@@ -68,13 +83,25 @@ async function getValidShopifyToken(integration) {
     }
 
     const data = await res.json();
-    console.log(`[Shopify Sync] Token renovado con éxito.`);
+    console.log(`[Shopify Sync] Token renovado con éxito para ${integration.shop_url}. Expira en ${data.expires_in}s.`);
+
+    const expiresInSec = Number(data.expires_in) || 3600;
+    tokenCache.set(shopKey, {
+      token: data.access_token,
+      expiresAt: Date.now() + expiresInSec * 1000
+    });
+
+    integration.access_token = data.access_token;
+    if (data.refresh_token) {
+      integration.refresh_token = data.refresh_token;
+    }
 
     await supabase
       .from('merchant_integrations')
       .update({
         access_token: data.access_token,
-        refresh_token: data.refresh_token
+        refresh_token: data.refresh_token || integration.refresh_token,
+        last_sync_at: new Date().toISOString()
       })
       .eq('id', integration.id);
 
@@ -240,13 +267,25 @@ async function syncOrders(integration) {
   }
 
   try {
-    const response = await fetch(url, {
+    let response = await fetch(url, {
       method: 'GET',
       headers: {
         'X-Shopify-Access-Token': integration.access_token,
         'Content-Type': 'application/json'
       }
     });
+
+    if (response.status === 401 && integration.refresh_token) {
+      console.warn(`[Shopify Sync] HTTP 401 recibido en syncOrders, renovando token...`);
+      integration.access_token = await getValidShopifyToken(integration, true);
+      response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'X-Shopify-Access-Token': integration.access_token,
+          'Content-Type': 'application/json'
+        }
+      });
+    }
 
     if (!response.ok) {
       throw new Error(`Error en Shopify API: ${response.status} ${response.statusText}`);
@@ -710,13 +749,25 @@ async function syncProducts(integration) {
     while (url) {
       pageCount++;
       console.log(`[Shopify Product Sync] Cargando página ${pageCount}...`);
-      const response = await fetch(url, {
+      let response = await fetch(url, {
         method: 'GET',
         headers: {
           'X-Shopify-Access-Token': integration.access_token,
           'Content-Type': 'application/json'
         }
       });
+
+      if (response.status === 401 && integration.refresh_token) {
+        console.warn(`[Shopify Sync] HTTP 401 recibido en syncProducts, renovando token...`);
+        integration.access_token = await getValidShopifyToken(integration, true);
+        response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'X-Shopify-Access-Token': integration.access_token,
+            'Content-Type': 'application/json'
+          }
+        });
+      }
 
       if (!response.ok) {
         throw new Error(`Error en Shopify API: ${response.status} ${response.statusText}`);

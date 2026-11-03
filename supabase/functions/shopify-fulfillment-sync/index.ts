@@ -630,9 +630,19 @@ async function markQueueNeedsReauth(queueId: string, orderId: string, reason: st
     .eq("id", orderId);
 }
 
-async function getValidShopifyToken(integration: any): Promise<string> {
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+
+async function getValidShopifyToken(integration: any, forceRefresh = false): Promise<string> {
   if (!integration.refresh_token) {
     return integration.access_token;
+  }
+
+  const shopKey = integration.shop_url;
+  const cached = tokenCache.get(shopKey);
+  const now = Date.now();
+
+  if (!forceRefresh && cached && now < (cached.expiresAt - 5 * 60 * 1000)) {
+    return cached.token;
   }
 
   const clientSecret = shopifyClientSecret || integration.webhook_secret;
@@ -642,15 +652,20 @@ async function getValidShopifyToken(integration: any): Promise<string> {
 
   const tokenUrl = `https://${integration.shop_url}/admin/oauth/access_token`;
   try {
+    const params = new URLSearchParams({
+      client_id: shopifyClientId,
+      client_secret: clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: integration.refresh_token
+    });
+
     const res = await fetch(tokenUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: shopifyClientId,
-        client_secret: clientSecret,
-        grant_type: "refresh_token",
-        refresh_token: integration.refresh_token
-      })
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json"
+      },
+      body: params.toString()
     });
 
     if (!res.ok) {
@@ -660,13 +675,25 @@ async function getValidShopifyToken(integration: any): Promise<string> {
     }
 
     const data = await res.json();
-    console.log(`[Shopify Sync] Token renovado con éxito para ${integration.shop_url}`);
+    console.log(`[Shopify Sync] Token renovado con éxito para ${integration.shop_url}. Expira en ${data.expires_in}s.`);
+
+    const expiresInSec = Number(data.expires_in) || 3600;
+    tokenCache.set(shopKey, {
+      token: data.access_token,
+      expiresAt: Date.now() + expiresInSec * 1000
+    });
+
+    integration.access_token = data.access_token;
+    if (data.refresh_token) {
+      integration.refresh_token = data.refresh_token;
+    }
 
     await supabase
       .from("merchant_integrations")
       .update({
         access_token: data.access_token,
-        refresh_token: data.refresh_token
+        refresh_token: data.refresh_token || integration.refresh_token,
+        last_sync_at: new Date().toISOString()
       })
       .eq("id", integration.id);
 
