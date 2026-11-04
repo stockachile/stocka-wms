@@ -156,12 +156,6 @@ window.normalizeComunaKey = function(str) {
 };
 
 window.COMMON_COMUNA_ALIASES = {
-  'santiago centro': 'santiago',
-  'stgo': 'santiago',
-  'stgo centro': 'santiago',
-  'santiago de chile': 'santiago',
-  'santiago rm': 'santiago',
-  'stgo rm': 'santiago',
   'valpo': 'valparaiso',
   'vina': 'vina del mar',
   'vina del mar': 'vina del mar',
@@ -247,10 +241,12 @@ window.getOrderCoverageInfo = function(orderOrComuna) {
   if (typeof orderOrComuna === 'string') {
     comunaName = orderOrComuna;
   } else if (isObj) {
-    if (orderOrComuna._wmsCoverageInfo !== undefined) return orderOrComuna._wmsCoverageInfo;
     comunaName = orderOrComuna.shipping_city || orderOrComuna.comuna_destino || '';
   }
   const trimmed = String(comunaName || '').trim();
+  if (isObj && orderOrComuna._wmsCoverageInfo !== undefined && orderOrComuna._wmsCoverageComuna === trimmed) {
+    return orderOrComuna._wmsCoverageInfo;
+  }
 
   let result = null;
   // 1. Sin asignar / Comuna vacía o no coincide con ninguna comuna de Chile
@@ -307,6 +303,7 @@ window.getOrderCoverageInfo = function(orderOrComuna) {
 
   if (isObj && result) {
     orderOrComuna._wmsCoverageInfo = result;
+    orderOrComuna._wmsCoverageComuna = trimmed;
   }
   return result;
 };
@@ -77658,11 +77655,36 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
     }
   }
 
-  const finalHasPickingReq = Boolean(existingPickingState ? existingPickingState.has_picking_requests : (wmsPickingReq && Array.isArray(wmsPickingReq.items) && wmsPickingReq.items.length > 0));
-  const finalPickingReqJson = existingPickingState ? existingPickingState.picking_requests_json : (wmsPickingReq ? wmsPickingReq.items : null);
-  const finalPickingReqConfirmed = Boolean(existingPickingState ? existingPickingState.picking_requests_confirmed : (wmsPickingReq && (wmsPickingReq.status === 'completada' || (Array.isArray(wmsPickingReq.items) && wmsPickingReq.items.every(i => i.checked || i.discarded)))));
+  let finalHasPickingReq = Boolean(existingPickingState ? existingPickingState.has_picking_requests : (wmsPickingReq && Array.isArray(wmsPickingReq.items) && wmsPickingReq.items.length > 0));
+  let finalPickingReqJson = existingPickingState ? existingPickingState.picking_requests_json : (wmsPickingReq ? wmsPickingReq.items : null);
+  let finalPickingReqConfirmed = Boolean(existingPickingState ? existingPickingState.picking_requests_confirmed : (wmsPickingReq && (wmsPickingReq.status === 'completada' || (Array.isArray(wmsPickingReq.items) && wmsPickingReq.items.every(i => i.checked || i.discarded)))));
   const finalPickingReqOperator = existingPickingState ? existingPickingState.picking_requests_operator : (wmsPickingReq ? wmsPickingReq.completed_by_operator : null);
   const finalPickingReqConfirmedAt = existingPickingState ? existingPickingState.picking_requests_confirmed_at : (wmsPickingReq ? wmsPickingReq.completed_at : null);
+
+  // Garantizar que si el pedido está consolidado (<24h), lleve siempre su Solicitud Especial de Picking al Picker
+  const consInfoForPicker = typeof window.getOrderConsolidationInfo === 'function' ? window.getOrderConsolidationInfo(order) : null;
+  if (consInfoForPicker && consInfoForPicker.isConsolidated) {
+    const existingItemsArr = Array.isArray(finalPickingReqJson) ? [...finalPickingReqJson] : [];
+    const hasConsAlert = existingItemsArr.some(it => it && (it.id === 'consolidate_shipping_alert' || String(it.text || '').includes('CONSOLIDAR ENVÍO')));
+    if (!hasConsAlert) {
+      const custLabel = `${order.customer_name || 'Cliente'} (${order.shipping_address || ''}${order.shipping_city ? ', ' + order.shipping_city : ''})`;
+      const consText = consInfoForPicker.role === 'primary'
+        ? `📦 CONSOLIDAR ENVÍO: Empacar junto con pedido(s) hermano(s) ${(consInfoForPicker.childrenFolios || []).join(', ') || 'consolidado'} [${custLabel}] en UN SOLO PAQUETE FÍSICO usando la etiqueta de este pedido (${orderNumber}).`
+        : `📦 CONSOLIDAR ENVÍO: Incluir todos los productos de este pedido (${orderNumber}) dentro de la bolsa/caja del Pedido Principal ${consInfoForPicker.primaryFolio || ''} [${custLabel}]. NO despachar en paquete separado.`;
+      existingItemsArr.unshift({
+        id: 'consolidate_shipping_alert',
+        text: consText,
+        checked: false,
+        checked_by: null,
+        checked_at: null,
+        discarded: false,
+        discard_reason: null
+      });
+      finalPickingReqJson = existingItemsArr;
+      finalHasPickingReq = true;
+      finalPickingReqConfirmed = false;
+    }
+  }
 
   let pickingTag = '';
   if (finalHasPickingReq && Array.isArray(finalPickingReqJson) && finalPickingReqJson.length > 0) {
@@ -77763,7 +77785,7 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
       tracking: String(cleanTracking || '').slice(0, 255),
       operator: String(cleanOperator || '').slice(0, 100),
       totu: totu,
-      sheet_status: 'EN PREPARACIÓN',
+      sheet_status: (finalHasPickingReq && !finalPickingReqConfirmed) ? 'Pendiente (Obs)' : 'EN PREPARACIÓN',
       observation: resolveObsWithPickingTag(window.buildPickerObservation ? window.buildPickerObservation(order, prod.description) : (order.observation || prod.description || '')),
       contact_data_q: (order.customer_email || '').slice(0, 255),
       contact_data_r: (order.customer_phone || '').slice(0, 255),
@@ -77801,7 +77823,7 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
       tracking: String(cleanTracking || '').slice(0, 255),
       operator: String(cleanOperator || '').slice(0, 100),
       totu: parseInt(order.cantidad, 10) || 1,
-      sheet_status: 'EN PREPARACIÓN',
+      sheet_status: (finalHasPickingReq && !finalPickingReqConfirmed) ? 'Pendiente (Obs)' : 'EN PREPARACIÓN',
       observation: resolveObsWithPickingTag(window.buildPickerObservation ? window.buildPickerObservation(order, '') : (order.observation || '')),
       contact_data_q: (order.customer_email || '').slice(0, 255),
       contact_data_r: (order.customer_phone || '').slice(0, 255),

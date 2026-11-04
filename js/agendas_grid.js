@@ -152,9 +152,6 @@
       ? window.normalizeComunaKey(str) 
       : String(str).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ñ/g, 'n').replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
     const aliases = {
-      'santiago centro': 'santiago',
-      'stgo': 'santiago',
-      'santiago de chile': 'santiago',
       'valpo': 'valparaiso',
       'vina': 'vina del mar'
     };
@@ -192,6 +189,11 @@
         return 'RM-STK';
       }
       return 'RM';
+    }
+
+    // Si no coincide con ninguna comuna oficial de Chile, no sugerir cobertura
+    if (typeof window.isChileComuna === 'function' && !window.isChileComuna(comunaRaw)) {
+      return '';
     }
 
     // Si es una comuna fuera de la RM
@@ -2086,11 +2088,14 @@
         const cObj = allComunasMap.get(opt.toLowerCase());
         const isRM = isComunaRM(opt);
         const isStk = isComunaCoberturaStk(opt);
+        const isValidChile = typeof window.isChileComuna === 'function' ? window.isChileComuna(opt) : Boolean(cObj || isRM);
         let badgePill = '';
         if (isStk) {
           badgePill = `<span style="background: rgba(113, 23, 235, 0.12); color: #7117eb; padding: 1px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(113, 23, 235, 0.25);">RM-STK</span>`;
         } else if (isRM) {
           badgePill = `<span style="background: rgba(16, 185, 129, 0.12); color: #059669; padding: 1px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700;">RM</span>`;
+        } else if (!isValidChile) {
+          badgePill = `<span style="background: rgba(239, 68, 68, 0.12); color: #dc2626; padding: 1px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700;">Sin Asignar</span>`;
         } else {
           badgePill = `<span style="background: rgba(59, 130, 246, 0.1); color: #2563eb; padding: 1px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 600;">Región</span>`;
         }

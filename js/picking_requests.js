@@ -2069,6 +2069,7 @@ window.syncPickingRequestToPicker = async function(orderId, request) {
     if (!ordNum) return;
 
     const cleanNum = ordNum.replace(/^#/, '');
+    const digitsOnly = cleanNum.replace(/^[^0-9]+/, '');
     const searchKeysSet = new Set([
       ordNum,
       '#' + cleanNum,
@@ -2080,10 +2081,27 @@ window.syncPickingRequestToPicker = async function(orderId, request) {
     const searchKeys = Array.from(searchKeysSet);
 
     // Consultar active_orders
-    const { data: activeRows, error: actErr } = await pClient
+    let { data: activeRows, error: actErr } = await pClient
       .from('active_orders')
       .select('id, order_number, observation, sheet_status')
       .in('order_number', searchKeys);
+
+    // Fallback por sufijo numérico + comercio (ej: #11049953 en WMS vs BIT11049953 en Picker)
+    if ((!activeRows || activeRows.length === 0) && digitsOnly.length >= 4) {
+      let fallbackQuery = pClient
+        .from('active_orders')
+        .select('id, order_number, observation, sheet_status')
+        .ilike('order_number', `%${digitsOnly}`);
+      const comercioName = order.comercio || request?.comercio;
+      if (comercioName && comercioName !== 'Sin Comercio') {
+        fallbackQuery = fallbackQuery.eq('comercio', comercioName);
+      }
+      const { data: fallbackRows } = await fallbackQuery;
+      if (fallbackRows && fallbackRows.length > 0) {
+        activeRows = fallbackRows;
+        actErr = null;
+      }
+    }
 
     if (actErr || !activeRows || activeRows.length === 0) {
       console.log(`ℹ️ [PICKER SYNC] Pedido ${ordNum} aún no está activo en active_orders. Se propagará automáticamente al generarse su etiqueta o en el próximo ciclo de sincronización.`);

@@ -414,11 +414,54 @@ export function detectConsolidatableOrders(ordersList = null) {
   if (!ordersList || ordersList === window.loadedOrders) {
     window._consolidatedCandidateGroups = candidateGroups;
     window._consolidatedCandidateByOrderId = byOrderId;
+    autoHealConsolidatedOrdersPickingRequests(orders);
   }
 
   return { groups: candidateGroups, byOrderId };
 }
 window.detectConsolidatableOrders = detectConsolidatableOrders;
+
+const _healedConsolidationOrderIds = new Set();
+
+/**
+ * Auto-repara y sincroniza hacia Picker cualquier pedido que ya haya sido marcado como consolidado
+ * pero que aún no tenga su Solicitud Especial de Picking creada en `order_picking_requests` / `active_orders`.
+ */
+function autoHealConsolidatedOrdersPickingRequests(orders) {
+  if (!Array.isArray(orders) || orders.length === 0) return;
+
+  for (const order of orders) {
+    if (!order || !order.id) continue;
+    const info = getOrderConsolidationInfo(order);
+    if (!info.isConsolidated) continue;
+    if (_healedConsolidationOrderIds.has(String(order.id))) continue;
+
+    const cachedReq = window.pickingRequestsCache && typeof window.pickingRequestsCache.get === 'function'
+      ? window.pickingRequestsCache.get(order.id)
+      : null;
+    const hasConsItemInCache = cachedReq && Array.isArray(cachedReq.items) && cachedReq.items.some(it => it && (it.id === 'consolidate_shipping_alert' || String(it.text || '').includes('CONSOLIDAR ENVÍO')));
+
+    if (!order.has_picking_request || !hasConsItemInCache) {
+      _healedConsolidationOrderIds.add(String(order.id));
+      const folio = getOrderDisplayFolio(order);
+      const custLabel = `${order.customer_name || 'Cliente'} (${getOrderDisplayAddress(order)})`;
+      let checklistText = '';
+      let noteText = '';
+
+      if (info.role === 'primary') {
+        const siblings = (info.childrenFolios && info.childrenFolios.length > 0) ? info.childrenFolios.join(', ') : 'pedido hermano';
+        checklistText = `📦 CONSOLIDAR ENVÍO: Empacar junto con pedido(s) hermano(s) ${siblings} [${custLabel}] en UN SOLO PAQUETE FÍSICO usando la etiqueta de este pedido (${folio}).`;
+        noteText = `CONSOLIDADO PRINCIPAL: Unificar paquete físico con ${siblings}`;
+      } else {
+        const targetFolio = info.primaryFolio || 'Pedido Principal';
+        checklistText = `📦 CONSOLIDAR ENVÍO: Incluir todos los productos de este pedido (${folio}) dentro de la bolsa/caja del Pedido Principal ${targetFolio} [${custLabel}]. NO despachar en paquete separado; usar etiqueta de ${targetFolio}.`;
+        noteText = `CONSOLIDADO SECUNDARIO: Empacar dentro del Pedido Principal ${targetFolio}`;
+      }
+
+      upsertConsolidationPickingRequest(order, checklistText, noteText).catch(() => {});
+    }
+  }
+}
 
 function finalizeCluster(groupKey, clusterOrders, candidateGroups, byOrderId) {
   // Verificar si TODOS los pedidos del cluster ya están consolidados entre sí
@@ -1063,13 +1106,37 @@ async function upsertConsolidationPickingRequest(order, checklistText, generalNo
 
   const orderId = order.id;
   const itemId = 'consolidate_shipping_alert';
+  const extNum = String(order.external_order_number || order.numero_orden || order.id);
+  const comercioName = order.comercio || 'Sin Comercio';
+  const adminEmail = window.currentAdminUser?.email || window.currentSession?.user?.email || 'admin@stocka.cl';
+
+  const baseNewItem = {
+    id: itemId,
+    text: checklistText,
+    checked: false,
+    checked_by: null,
+    checked_at: null,
+    discarded: false,
+    discard_reason: null
+  };
+
+  let finalReqObj = {
+    order_id: orderId,
+    external_order_number: extNum,
+    comercio: comercioName,
+    status: 'pendiente',
+    items: [baseNewItem],
+    general_notes: generalNoteText || null,
+    warning_acknowledged: true,
+    created_by_email: adminEmail,
+    updated_at: new Date().toISOString()
+  };
 
   try {
     const { data: existingList } = await supabase
       .from('order_picking_requests')
       .select('*')
       .eq('order_id', orderId)
-      .in('status', ['pending', 'in_progress'])
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -1080,20 +1147,14 @@ async function upsertConsolidationPickingRequest(order, checklistText, generalNo
       const currentItems = Array.isArray(existingReq.items) ? [...existingReq.items] : [];
       const existingIdx = currentItems.findIndex(it => it && (it.id === itemId || String(it.text || '').includes('CONSOLIDAR ENVÍO')));
 
-      const newItemObj = {
-        id: itemId,
-        text: checklistText,
-        checked: false,
-        checked_by: null,
-        checked_at: null,
-        discarded: false,
-        discard_reason: null
-      };
-
       if (existingIdx >= 0) {
-        currentItems[existingIdx] = newItemObj;
+        currentItems[existingIdx] = {
+          ...currentItems[existingIdx],
+          id: itemId,
+          text: checklistText
+        };
       } else {
-        currentItems.unshift(newItemObj);
+        currentItems.unshift(baseNewItem);
       }
 
       const prevNotes = String(existingReq.general_notes || '').trim();
@@ -1101,67 +1162,137 @@ async function upsertConsolidationPickingRequest(order, checklistText, generalNo
         ? prevNotes
         : [generalNoteText, prevNotes].filter(Boolean).join(' | ');
 
+      const allChecked = currentItems.length > 0 && currentItems.every(i => i && i.checked);
+      const nextStatus = allChecked ? 'completada' : 'pendiente';
+
+      finalReqObj = {
+        ...existingReq,
+        items: currentItems,
+        general_notes: updatedNotes,
+        status: nextStatus,
+        updated_at: new Date().toISOString()
+      };
+
       const { data: updated, error: updErr } = await supabase
         .from('order_picking_requests')
         .update({
           items: currentItems,
           general_notes: updatedNotes,
-          status: 'pending',
-          updated_at: new Date().toISOString()
+          status: nextStatus,
+          updated_at: finalReqObj.updated_at
         })
         .eq('id', existingReq.id)
         .select('*')
-        .single();
+        .maybeSingle();
 
       if (!updErr && updated) {
         savedReq = updated;
+      } else if (updErr) {
+        console.warn('[ConsolidateOrders] Aviso actualizando order_picking_requests:', updErr);
       }
     } else {
-      const newItems = [
-        {
-          id: itemId,
-          text: checklistText,
-          checked: false,
-          checked_by: null,
-          checked_at: null,
-          discarded: false,
-          discard_reason: null
-        }
-      ];
+      const insertPayload = {
+        order_id: orderId,
+        external_order_number: extNum,
+        comercio: comercioName,
+        status: 'pendiente',
+        items: [baseNewItem],
+        general_notes: generalNoteText || null,
+        warning_acknowledged: true,
+        created_by_email: adminEmail,
+        updated_at: new Date().toISOString()
+      };
 
       const { data: inserted, error: insErr } = await supabase
         .from('order_picking_requests')
-        .insert({
-          order_id: orderId,
-          external_order_number: String(order.external_order_number || order.numero_orden || order.id),
-          comercio: order.comercio || 'Sin Comercio',
-          items: newItems,
-          general_notes: generalNoteText,
-          status: 'pending',
-          created_by_role: 'admin',
-          created_by_name: window.currentAdminUser?.email || 'Admin Consolidación'
-        })
+        .insert([insertPayload])
         .select('*')
-        .single();
+        .maybeSingle();
 
       if (!insErr && inserted) {
         savedReq = inserted;
+      } else if (insErr) {
+        console.warn('[ConsolidateOrders] Aviso insertando en order_picking_requests:', insErr);
       }
     }
 
-    if (savedReq) {
-      if (!window.orderPickingRequestsMap) window.orderPickingRequestsMap = {};
-      window.orderPickingRequestsMap[orderId] = savedReq;
+    const effectiveReq = savedReq || finalReqObj;
 
-      if (typeof window.syncPickingRequestToPicker === 'function') {
-        await window.syncPickingRequestToPicker(orderId, savedReq);
-      }
-      if (typeof window.refreshOrderRowPickingBadge === 'function') {
-        window.refreshOrderRowPickingBadge(orderId);
-      }
+    if (window.pickingRequestsCache && typeof window.pickingRequestsCache.set === 'function') {
+      window.pickingRequestsCache.set(orderId, effectiveReq);
+    }
+    order.has_picking_request = true;
+    order.picking_request_status = effectiveReq.status || 'pendiente';
+    supabase.from('orders').update({
+      has_picking_request: true,
+      picking_request_status: effectiveReq.status || 'pendiente'
+    }).eq('id', orderId).then(() => {}).catch(() => {});
+
+    if (typeof window.syncPickingRequestToPicker === 'function') {
+      await window.syncPickingRequestToPicker(orderId, effectiveReq);
+    } else {
+      await syncConsolidationDirectlyToPicker(order, effectiveReq);
+    }
+
+    if (typeof window.refreshOrderRowPickingBadge === 'function') {
+      window.refreshOrderRowPickingBadge(orderId);
     }
   } catch (err) {
     console.warn('[ConsolidateOrders] Aviso sincronizando Solicitud Especial de Picking:', err);
+    try {
+      await syncConsolidationDirectlyToPicker(order, finalReqObj);
+    } catch (_) {}
+  }
+}
+
+/**
+ * Sincronización directa de respaldo hacia `active_orders` de Picker cuando un pedido ya está en preparación
+ */
+async function syncConsolidationDirectlyToPicker(order, request) {
+  const PICKER_URL = 'https://hpomymtecmxujbjxqawu.supabase.co';
+  const PICKER_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ';
+  const pClient = window.pickerSupabase || (window.supabase && typeof window.supabase.createClient === 'function' ? window.supabase.createClient(PICKER_URL, PICKER_KEY) : null);
+  if (!pClient || !order) return;
+
+  const ordNum = String(order.external_order_number || order.numero_orden || '').trim();
+  if (!ordNum) return;
+
+  const cleanNum = ordNum.replace(/^#/, '');
+  const digitsOnly = cleanNum.replace(/^[^0-9]+/, '');
+  const searchKeys = Array.from(new Set([ordNum, '#' + cleanNum, cleanNum, ordNum.toUpperCase(), cleanNum.toUpperCase()]));
+
+  let { data: activeRows } = await pClient
+    .from('active_orders')
+    .select('id, order_number, observation, sheet_status')
+    .in('order_number', searchKeys);
+
+  if ((!activeRows || activeRows.length === 0) && digitsOnly.length >= 4) {
+    let q = pClient.from('active_orders').select('id, order_number, observation, sheet_status').ilike('order_number', `%${digitsOnly}`);
+    if (order.comercio) q = q.eq('comercio', order.comercio);
+    const { data: fallbackRows } = await q;
+    activeRows = fallbackRows;
+  }
+
+  if (!activeRows || activeRows.length === 0) return;
+
+  const items = Array.isArray(request?.items) ? request.items : [];
+  const hasReq = items.length > 0;
+  const pendingItems = items.filter(i => !i.checked && !i.discarded).map(i => i.text);
+  const tag = pendingItems.length > 0 ? `🚨 [SOLICITUD PICKING: ${pendingItems.join('; ')}]` : '';
+
+  for (const row of activeRows) {
+    let currentObs = String(row.observation || '').replace(/(🚨|✅|⚠️)?\s*\[SOLICITUD PICKING:[^\]]*\]\s*(\|)?\s*/gi, '').trim();
+    const newObs = tag ? (currentObs ? `${tag} | ${currentObs}` : tag) : currentObs;
+    const upd = {
+      observation: (newObs || '').slice(0, 1000),
+      has_picking_requests: hasReq,
+      picking_requests_json: hasReq ? items : null,
+      picking_requests_confirmed: false
+    };
+    if (hasReq && (row.sheet_status === 'EN PREPARACIÓN' || !row.sheet_status)) {
+      upd.sheet_status = 'Pendiente (Obs)';
+    }
+    await pClient.from('active_orders').update(upd).eq('id', row.id);
   }
 }
 
@@ -1420,10 +1551,12 @@ async function removeConsolidationPickingRequestItem(orderId) {
     const { data: existingList } = await supabase
       .from('order_picking_requests')
       .select('*')
-      .eq('order_id', orderId)
-      .in('status', ['pending', 'in_progress']);
+      .eq('order_id', orderId);
 
     if (!Array.isArray(existingList) || existingList.length === 0) return;
+
+    const allOrders = window.loadedOrders || [];
+    const ordObj = allOrders.find(o => String(o.id) === String(orderId));
 
     for (const req of existingList) {
       const items = Array.isArray(req.items) ? req.items : [];
@@ -1432,19 +1565,34 @@ async function removeConsolidationPickingRequestItem(orderId) {
 
       if (remaining.length === 0) {
         await supabase.from('order_picking_requests').delete().eq('id', req.id);
-        if (window.orderPickingRequestsMap) delete window.orderPickingRequestsMap[orderId];
+        await supabase.from('orders').update({ has_picking_request: false, picking_request_status: null }).eq('id', orderId);
+        if (window.pickingRequestsCache && typeof window.pickingRequestsCache.delete === 'function') {
+          window.pickingRequestsCache.delete(orderId);
+        }
+        if (ordObj) {
+          ordObj.has_picking_request = false;
+          ordObj.picking_request_status = null;
+        }
         if (typeof window.syncPickingRequestToPicker === 'function') {
           await window.syncPickingRequestToPicker(orderId, null);
         }
       } else {
+        const allChecked = remaining.every(i => i.checked);
+        const newSt = allChecked ? 'completada' : 'pendiente';
         const { data: updated } = await supabase
           .from('order_picking_requests')
-          .update({ items: remaining, updated_at: new Date().toISOString() })
+          .update({ items: remaining, status: newSt, updated_at: new Date().toISOString() })
           .eq('id', req.id)
           .select('*')
           .single();
         if (updated) {
-          if (window.orderPickingRequestsMap) window.orderPickingRequestsMap[orderId] = updated;
+          if (window.pickingRequestsCache && typeof window.pickingRequestsCache.set === 'function') {
+            window.pickingRequestsCache.set(orderId, updated);
+          }
+          if (ordObj) {
+            ordObj.has_picking_request = true;
+            ordObj.picking_request_status = newSt;
+          }
           if (typeof window.syncPickingRequestToPicker === 'function') {
             await window.syncPickingRequestToPicker(orderId, updated);
           }
