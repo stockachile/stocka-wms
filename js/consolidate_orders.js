@@ -414,7 +414,7 @@ export function detectConsolidatableOrders(ordersList = null) {
   if (!ordersList || ordersList === window.loadedOrders) {
     window._consolidatedCandidateGroups = candidateGroups;
     window._consolidatedCandidateByOrderId = byOrderId;
-    autoHealConsolidatedOrdersPickingRequests(orders);
+    autoHealConsolidatedOrdersPickingRequests(sourceOrders);
   }
 
   return { groups: candidateGroups, byOrderId };
