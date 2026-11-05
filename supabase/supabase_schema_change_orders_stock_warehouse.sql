@@ -34,6 +34,13 @@ DECLARE
   v_adjusted_physical_count INT := 0;
   v_kardex_updated_count INT := 0;
 BEGIN
+  -- 0. Validar que solo Administradores o service_role puedan ejecutar este RPC (VULN-19)
+  IF NOT public.is_admin()
+     AND COALESCE(current_setting('request.jwt.claim.role', true), '') <> 'service_role'
+     AND current_user NOT IN ('postgres', 'service_role') THEN
+    RAISE EXCEPTION 'Acceso denegado: Se requieren privilegios de administrador para cambiar bodegas de stock.';
+  END IF;
+
   -- 1. Determinar nombre de sucursal física asociada si se solicita sincronización
   IF p_target_warehouse_id IS NOT NULL THEN
     IF p_target_warehouse_id = '973da888-8a63-4790-a08f-919e1af41a93' THEN
@@ -187,5 +194,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Permisos de ejecución
-GRANT EXECUTE ON FUNCTION public.change_orders_stock_warehouse(UUID[], UUID, BOOLEAN) TO authenticated, service_role, anon;
+-- Permisos de ejecución restringidos a usuarios autenticados (validados por is_admin() internamente) y service_role (VULN-19)
+REVOKE ALL ON FUNCTION public.change_orders_stock_warehouse(UUID[], UUID, BOOLEAN) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.change_orders_stock_warehouse(UUID[], UUID, BOOLEAN) TO authenticated, service_role;

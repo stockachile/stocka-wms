@@ -42,7 +42,7 @@ serve(async (req) => {
     // ACCIÓN: VERIFICAR CONEXIÓN Y ESTADO DE WEBHOOKS
     // =========================================================================
     if (action === "verify_connection") {
-      return await handleVerifyConnection(merchantId, queryComercio, payload);
+      return await handleVerifyConnection(req, merchantId, queryComercio, payload);
     }
 
     // =========================================================================
@@ -169,10 +169,109 @@ serve(async (req) => {
 // FUNCIÓN DE VERIFICACIÓN DE CONEXIÓN Y DIAGNÓSTICO
 // =============================================================================
 
-async function handleVerifyConnection(merchantIdQuery: string, comercioQuery: string, payload: any) {
+function isSafeExternalStoreUrl(rawUrl: string): boolean {
   try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === "localhost" ||
+      host === "0.0.0.0" ||
+      host === "::1" ||
+      host === "[::1]" ||
+      host.endsWith(".local") ||
+      host.endsWith(".internal") ||
+      /^127\./.test(host) ||
+      /^10\./.test(host) ||
+      /^192\.168\./.test(host) ||
+      /^169\.254\./.test(host) ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function handleVerifyConnection(req: Request, merchantIdQuery: string, comercioQuery: string, payload: any) {
+  try {
+    // 1. Exigir autenticación JWT o Service Role (VULN-26)
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({
+        success: false,
+        api_connected: false,
+        error: "No autorizado: Falta cabecera Authorization."
+      }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    let isServiceOrAdmin = false;
+    let allowedComercios: string[] = [];
+
+    if (supabaseServiceKey && token === supabaseServiceKey.trim()) {
+      isServiceOrAdmin = true;
+    } else {
+      const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+      if (authErr || !user) {
+        return new Response(JSON.stringify({
+          success: false,
+          api_connected: false,
+          error: "No autorizado: Sesión inválida o expirada."
+        }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role, comercio")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (!profile) {
+        return new Response(JSON.stringify({
+          success: false,
+          api_connected: false,
+          error: "No autorizado: Perfil no encontrado."
+        }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const userComercioRaw = String(profile.comercio || "").trim();
+      if (profile.role === "admin" || userComercioRaw.toLowerCase() === "all") {
+        isServiceOrAdmin = true;
+      } else {
+        allowedComercios = userComercioRaw
+          .split(",")
+          .map((c: string) => c.trim().toLowerCase())
+          .filter(Boolean);
+      }
+    }
+
     const targetComercio = payload.comercio || comercioQuery;
     const targetMerchantId = payload.merchant_id || merchantIdQuery;
+
+    if (!isServiceOrAdmin && targetComercio) {
+      if (!allowedComercios.includes(String(targetComercio).trim().toLowerCase())) {
+        return new Response(JSON.stringify({
+          success: false,
+          api_connected: false,
+          error: "No tienes permisos sobre este comercio."
+        }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+    }
 
     let shopUrl = payload.shop_url;
     let consumerKey = payload.consumer_key;
@@ -238,6 +337,17 @@ async function handleVerifyConnection(merchantIdQuery: string, comercioQuery: st
     }
     if (baseUrl.endsWith("/")) {
       baseUrl = baseUrl.slice(0, -1);
+    }
+
+    if (!isSafeExternalStoreUrl(baseUrl)) {
+      return new Response(JSON.stringify({
+        success: false,
+        api_connected: false,
+        error: "La URL de la tienda no es un dominio público válido."
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
     }
 
     const authHeader = "Basic " + btoa(`${consumerKey.trim()}:${consumerSecret.trim()}`);

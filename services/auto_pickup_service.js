@@ -38,7 +38,10 @@ if (fs.existsSync(envPath)) {
 }
 
 const WMS_URL = process.env.SUPABASE_URL || env.SUPABASE_URL || 'https://ejtjfaucnxbikrwjwwdu.supabase.co';
-const WMS_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTgzMTE4NSwiZXhwIjoyMDk1NDA3MTg1fQ.YX4okf4XNkkVQaU0XbbRtm4SNRTqvwEVNd7ubc4PGe8';
+const WMS_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_ROLE_KEY || '';
+if (!WMS_KEY) {
+  console.warn('[AutoPickup] ⚠️ SUPABASE_SERVICE_ROLE_KEY no está configurada en el entorno (.env).');
+}
 
 const PICKER_URL = 'https://hpomymtecmxujbjxqawu.supabase.co';
 const PICKER_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ';
@@ -262,8 +265,13 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
       created_at,
       order_items (
         id,
+        product_id,
         quantity,
         warehouse_id,
+        tag,
+        is_gift,
+        campaign_id,
+        is_picking_request,
         products (
           id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms,
           send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker,
@@ -519,10 +527,54 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
   }
 
   // 3. Acción Picker: Insertar en active_orders del Picker (con reintentos automáticos)
-  const totu = physicalItems.reduce((sum, oi) => sum + (parseInt(oi.quantity, 10) || 0), 0) || 1;
+  const nonPickingPhysical = physicalItems.filter(oi => !oi.is_picking_request);
+  const pickableItems = nonPickingPhysical.length > 0 ? nonPickingPhysical : physicalItems;
+  const totu = pickableItems.reduce((sum, oi) => sum + (parseInt(oi.quantity, 10) || 0), 0) || 1;
   const pickerPayloads = [];
 
-  physicalItems.forEach(oi => {
+  // Cargar Solicitudes de Picking e ítems de campaña en modo Solicitud de Picking
+  let prItems = [];
+  try {
+    const { data: prData } = await wmsClient
+      .from('order_picking_requests')
+      .select('items, status')
+      .eq('order_id', order.id)
+      .maybeSingle();
+    if (prData && Array.isArray(prData.items)) {
+      prItems = [...prData.items];
+    }
+  } catch (_) {}
+
+  const pickingReqItems = orderItems.filter(oi => oi.is_picking_request);
+  pickingReqItems.forEach(pri => {
+    const pSku = pri.products?.sku || '-';
+    const pName = pri.products?.name || pSku;
+    const pQty = parseInt(pri.quantity, 10) || 1;
+    const reqId = pri.campaign_id ? `campaign_${pri.campaign_id}` : `item_req_${pri.product_id || pSku}`;
+    const exists = prItems.some(r => r && (r.id === reqId || (pri.campaign_id && String(r.campaign_id) === String(pri.campaign_id))));
+    if (!exists) {
+      prItems.push({
+        id: reqId,
+        text: `🎁 [Campaña] Incluir ${pQty}x ${pName} (SKU: ${pSku})`,
+        checked: false,
+        checked_at: null,
+        checked_by: null,
+        is_campaign: true,
+        campaign_id: pri.campaign_id || null,
+        gift_sku: pSku,
+        quantity: pQty
+      });
+    }
+  });
+
+  const hasPickingReqs = prItems.length > 0;
+  const pickingReqsConfirmed = hasPickingReqs && prItems.every(i => i.checked || i.discarded);
+  const baseObsText = String(order.raw_shopify_data?.note || order.raw_shopify_data?.notes || order.raw_shopify_data?.customer_note || '').trim();
+  const pendingReqTexts = prItems.filter(i => !i.checked && !i.discarded).map(i => i.text);
+  const pickingTagStr = pendingReqTexts.length > 0 ? `🚨 [SOLICITUD PICKING: ${pendingReqTexts.join('; ')}]` : '';
+  const finalObsText = (pickingTagStr ? (baseObsText ? `${pickingTagStr} | ${baseObsText}` : pickingTagStr) : baseObsText).slice(0, 1000);
+
+  pickableItems.forEach(oi => {
     const prod = oi.products || {};
     const opt = prod.options || {};
     const colorVal = prod.color || opt.color || null;
@@ -547,8 +599,8 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
       tracking: String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo,
       operator: 'SUCURSAL ÑUÑOA',
       totu: totu,
-      sheet_status: 'EN PREPARACIÓN',
-      observation: String(order.raw_shopify_data?.note || order.raw_shopify_data?.notes || order.raw_shopify_data?.customer_note || '').slice(0, 1000),
+      sheet_status: (hasPickingReqs && !pickingReqsConfirmed) ? 'Pendiente (Obs)' : 'EN PREPARACIÓN',
+      observation: finalObsText,
       fecha: new Date().toISOString().split('T')[0],
       contact_data_q: order.customer_email || '',
       contact_data_r: order.customer_phone || '',
@@ -558,7 +610,10 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
       extra_col_v: prod.image_url || '',
       comercio: order.comercio || 'STOCKA',
       created_by: 'Stox Bot (AutoPickup)',
-      picking_match_strict: prod.picking_match_strict || false
+      picking_match_strict: prod.picking_match_strict || false,
+      has_picking_requests: hasPickingReqs,
+      picking_requests_json: hasPickingReqs ? prItems : null,
+      picking_requests_confirmed: pickingReqsConfirmed
     });
   });
 

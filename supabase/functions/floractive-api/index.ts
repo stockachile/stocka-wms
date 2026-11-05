@@ -802,9 +802,9 @@ serve(async (req: Request) => {
         cliente.nombre || 
         cliente.name || 
         `${cliente.first_name || ""} ${cliente.last_name || ""}`.trim() || 
-        "Cliente Floractive"
+        `Cliente ${comercio}`
       ).trim();
-      const customerEmail = (cliente.email || "no-email@floractive.cl").trim();
+      const customerEmail = (cliente.email || `no-email@${comercio.toLowerCase().replace(/[^a-z0-9]/g, "")}.cl`).trim();
       const customerPhone = (cliente.telefono || cliente.phone || "No especificado").trim();
 
       // 4. Tipo de entrega y dirección
@@ -874,11 +874,12 @@ serve(async (req: Request) => {
       const chosenCourier = rawCourier || "Por definir (WMS Asigna)";
 
       // 7. Insertar orden en public.orders
+      const platformLabel = comercio === "FLORACTIVE" ? "Floractive API" : `${comercio} API`;
       const orderInsertData: Record<string, any> = {
         merchant_id: merchantId,
         comercio: comercio,
         external_order_number: numeroPedido,
-        external_platform: "Floractive API",
+        external_platform: platformLabel,
         payment_status: "PAID",
         total_value: finalTotalValue,
         customer_name: customerName,
@@ -888,7 +889,7 @@ serve(async (req: Request) => {
         shipping_city: shippingCity,
         shipping_complement: shippingComplement,
         shipping_method: isPickup ? "Retiro en Bodega" : chosenCourier,
-        origen: "Floractive API",
+        origen: platformLabel,
         item: flatItemName,
         cantidad: flatQuantity,
         sku: flatSku,
@@ -928,7 +929,7 @@ serve(async (req: Request) => {
         if (!product) {
           // Si el SKU no está registrado aún en WMS, lo creamos
           const itemDetail = rawItems.find((it: any) => String(it.sku).trim() === sku);
-          const productName = itemDetail?.nombre || itemDetail?.name || `Producto Floractive ${sku}`;
+          const productName = itemDetail?.nombre || itemDetail?.name || `Producto ${comercio} ${sku}`;
           const productPrice = Number(itemDetail?.precio_unitario ?? itemDetail?.precio ?? itemDetail?.price ?? 0);
 
           const { data: newProd, error: prodErr } = await supabase
@@ -1019,6 +1020,39 @@ serve(async (req: Request) => {
           success: false,
           error: "Webhook Not Configured",
           message: "No tienes una URL de webhook configurada en Stocka. Puedes enviarla en el body {\"webhook_url\": \"https://...\"} o indicarla al equipo de Stocka."
+        }, 400);
+      }
+
+      // Validar URL contra SSRF (exigir HTTPS y bloquear rangos privados/loopback) (VULN-26)
+      try {
+        const parsedWebhook = new URL(targetWebhookUrl);
+        const host = parsedWebhook.hostname.toLowerCase();
+        const isPrivateOrLocal =
+          parsedWebhook.protocol !== "https:" ||
+          host === "localhost" ||
+          host === "0.0.0.0" ||
+          host === "::1" ||
+          host === "[::1]" ||
+          host.endsWith(".local") ||
+          host.endsWith(".internal") ||
+          /^127\./.test(host) ||
+          /^10\./.test(host) ||
+          /^192\.168\./.test(host) ||
+          /^169\.254\./.test(host) ||
+          /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
+
+        if (isPrivateOrLocal) {
+          return jsonResponse({
+            success: false,
+            error: "Invalid Webhook URL",
+            message: "La URL del webhook debe utilizar HTTPS y apuntar a un dominio público válido."
+          }, 400);
+        }
+      } catch {
+        return jsonResponse({
+          success: false,
+          error: "Invalid Webhook URL",
+          message: "El formato de 'webhook_url' no es una URL HTTPS válida."
         }, 400);
       }
 

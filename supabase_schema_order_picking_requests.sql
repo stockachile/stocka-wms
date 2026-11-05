@@ -70,26 +70,58 @@ CREATE POLICY "Admins y Operarios acceso total a solicitudes de picking" ON publ
 
 DROP POLICY IF EXISTS "Clientes consultan solicitudes de su comercio" ON public.order_picking_requests;
 CREATE POLICY "Clientes consultan solicitudes de su comercio" ON public.order_picking_requests
-    FOR SELECT USING (
-        public.check_user_commerce(comercio)
-        OR created_by = auth.uid()
-        OR (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
+    FOR SELECT TO authenticated
+    USING (
+        (
+            public.check_user_commerce(comercio)
+            AND EXISTS (
+                SELECT 1 FROM public.orders o
+                WHERE o.id = order_picking_requests.order_id
+                  AND LOWER(TRIM(COALESCE(o.comercio, ''))) = LOWER(TRIM(COALESCE(order_picking_requests.comercio, '')))
+            )
+        )
+        OR (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'operario', 'picker', 'supervisor')
     );
 
 DROP POLICY IF EXISTS "Clientes crean solicitudes para su comercio" ON public.order_picking_requests;
 CREATE POLICY "Clientes crean solicitudes para su comercio" ON public.order_picking_requests
-    FOR INSERT WITH CHECK (
-        public.check_user_commerce(comercio)
-        OR created_by = auth.uid()
-        OR (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        (
+            public.check_user_commerce(comercio)
+            AND EXISTS (
+                SELECT 1 FROM public.orders o
+                WHERE o.id = order_picking_requests.order_id
+                  AND LOWER(TRIM(COALESCE(o.comercio, ''))) = LOWER(TRIM(COALESCE(order_picking_requests.comercio, '')))
+            )
+        )
+        OR (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'operario', 'picker', 'supervisor')
     );
 
 DROP POLICY IF EXISTS "Clientes actualizan solicitudes pendientes de su comercio" ON public.order_picking_requests;
 CREATE POLICY "Clientes actualizan solicitudes pendientes de su comercio" ON public.order_picking_requests
-    FOR UPDATE USING (
-        public.check_user_commerce(comercio)
-        OR created_by = auth.uid()
-        OR (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'operario', 'picker')
+    FOR UPDATE TO authenticated
+    USING (
+        (
+            public.check_user_commerce(comercio)
+            AND EXISTS (
+                SELECT 1 FROM public.orders o
+                WHERE o.id = order_picking_requests.order_id
+                  AND LOWER(TRIM(COALESCE(o.comercio, ''))) = LOWER(TRIM(COALESCE(order_picking_requests.comercio, '')))
+            )
+        )
+        OR (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'operario', 'picker', 'supervisor')
+    )
+    WITH CHECK (
+        (
+            public.check_user_commerce(comercio)
+            AND EXISTS (
+                SELECT 1 FROM public.orders o
+                WHERE o.id = order_picking_requests.order_id
+                  AND LOWER(TRIM(COALESCE(o.comercio, ''))) = LOWER(TRIM(COALESCE(order_picking_requests.comercio, '')))
+            )
+        )
+        OR (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'operario', 'picker', 'supervisor')
     );
 
 -- 4. Función y Trigger para mantener sincronizado orders.has_picking_request y picking_request_status

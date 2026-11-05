@@ -396,7 +396,7 @@ async function run() {
         raw_ripley_data,
         raw_walmart_data,
         raw_lightdata_data,
-        order_items (quantity, products(sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))
+        order_items (quantity, product_id, tag, is_gift, campaign_id, is_picking_request, products(sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))
       `)
       .eq('estado_wms', 'En preparación');
 
@@ -564,6 +564,45 @@ async function run() {
       };
     }
 
+    function getPickableOrderItems(orderItems) {
+      const allPhysical = (orderItems || []).filter(oi => !oi.products?.is_virtual);
+      const nonPicking = allPhysical.filter(oi => !oi.is_picking_request);
+      return nonPicking.length > 0 ? nonPicking : allPhysical;
+    }
+
+    function mergeCampaignPickingRequests(orderItems, baseItems) {
+      const pickingReqItems = (orderItems || []).filter(oi => oi.is_picking_request);
+      const merged = Array.isArray(baseItems) ? [...baseItems] : [];
+      pickingReqItems.forEach(pri => {
+        const pSku = pri.products?.sku || '-';
+        const pName = pri.products?.name || pSku;
+        const pQty = parseInt(pri.quantity, 10) || 1;
+        const reqId = pri.campaign_id ? `campaign_${pri.campaign_id}` : `item_req_${pri.product_id || pSku}`;
+        const idx = merged.findIndex(r => r && (r.id === reqId || (pri.campaign_id && String(r.campaign_id) === String(pri.campaign_id))));
+        const textVal = `🎁 [Campaña] Incluir ${pQty}x ${pName} (SKU: ${pSku})`;
+        if (idx === -1) {
+          merged.push({
+            id: reqId,
+            text: textVal,
+            checked: false,
+            checked_at: null,
+            checked_by: null,
+            is_campaign: true,
+            campaign_id: pri.campaign_id || null,
+            gift_sku: pSku,
+            quantity: pQty
+          });
+        } else if (merged[idx].quantity !== pQty) {
+          merged[idx] = {
+            ...merged[idx],
+            quantity: pQty,
+            text: merged[idx].text ? merged[idx].text.replace(/Incluir\s+\d+x/i, `Incluir ${pQty}x`) : textVal
+          };
+        }
+      });
+      return merged;
+    }
+
     for (const wmsOrder of wmsOrders) {
       const orderNo = String(wmsOrder.external_order_number || wmsOrder.id);
       const cleanOrderNo = orderNo.replace(/^#/, '').trim().toUpperCase();
@@ -721,11 +760,11 @@ async function run() {
         // === CASO A: El pedido ya existe en el Picker, verificar si fue modificado en el WMS ===
         console.log(`🔍 Pedido ${orderNo} activo en Picker. Comparando ítems...`);
 
-        // Estructurar ítems de WMS para comparar
+        // Estructurar ítems de WMS para comparar (excluyendo ítems de campaña en modo Solicitud de Picking)
         const wmsItemsMap = {};
         const commerceName = String(wmsOrder.comercio || '').trim().toUpperCase();
         const commerceStrict = strictComerciosSet.has(commerceName);
-        wmsOrder.order_items.forEach(oi => {
+        getPickableOrderItems(wmsOrder.order_items).forEach(oi => {
           if (oi.products?.is_virtual) return;
           const sku = resolvePickerSku(oi.products, wmsOrder, commerceStrict).trim().toUpperCase();
           if (sku) {
@@ -764,9 +803,11 @@ async function run() {
           const existingPickingReq = pickerItemsForOrder.find(pi => pi.has_picking_requests) || null;
           const cleanNo = String(orderNo).replace(/^#/, '').trim().toUpperCase();
           const wmsPr = pickingReqsMap.get(wmsOrder.id) || pickingReqsMap.get(cleanNo) || null;
-          const hasPr = Boolean(existingPickingReq ? existingPickingReq.has_picking_requests : (wmsPr && Array.isArray(wmsPr.items) && wmsPr.items.length > 0));
-          const prJson = existingPickingReq ? existingPickingReq.picking_requests_json : (wmsPr ? wmsPr.items : null);
-          const prConfirmed = Boolean(existingPickingReq ? existingPickingReq.picking_requests_confirmed : (wmsPr && (wmsPr.status === 'completada' || (Array.isArray(wmsPr.items) && wmsPr.items.every(i => i.checked || i.discarded)))));
+          const basePrItems = existingPickingReq ? existingPickingReq.picking_requests_json : (wmsPr ? wmsPr.items : null);
+          const mergedPrItems = mergeCampaignPickingRequests(wmsOrder.order_items, basePrItems);
+          const hasPr = Boolean(existingPickingReq?.has_picking_requests || mergedPrItems.length > 0);
+          const prJson = mergedPrItems.length > 0 ? mergedPrItems : null;
+          const prConfirmed = Boolean(mergedPrItems.length > 0 && mergedPrItems.every(i => i.checked || i.discarded));
           const prOp = existingPickingReq ? existingPickingReq.picking_requests_operator : (wmsPr ? wmsPr.completed_by_operator : null);
           const prAt = existingPickingReq ? existingPickingReq.picking_requests_confirmed_at : (wmsPr ? wmsPr.completed_at : null);
 
@@ -779,7 +820,7 @@ async function run() {
           // 2. Insertar los actualizados con advertencia
           const payloads = [];
           const nowStr = new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
-          const physicalItems = wmsOrder.order_items.filter(oi => !oi.products?.is_virtual);
+          const physicalItems = getPickableOrderItems(wmsOrder.order_items);
           const totu = physicalItems.reduce((sum, oi) => sum + (parseInt(oi.quantity, 10) || 0), 0) || 1;
           physicalItems.forEach(oi => {
             const prod = oi.products || {};
@@ -1034,13 +1075,14 @@ async function run() {
 
           const cleanNo = String(orderNo).replace(/^#/, '').trim().toUpperCase();
           const wmsPr = pickingReqsMap.get(wmsOrder.id) || pickingReqsMap.get(cleanNo) || null;
-          const hasPr = Boolean(wmsPr && Array.isArray(wmsPr.items) && wmsPr.items.length > 0);
-          const prJson = hasPr ? wmsPr.items : null;
-          const prConfirmed = Boolean(wmsPr && (wmsPr.status === 'completada' || (Array.isArray(wmsPr.items) && wmsPr.items.every(i => i.checked || i.discarded))));
+          const mergedPrItems = mergeCampaignPickingRequests(wmsOrder.order_items, wmsPr ? wmsPr.items : null);
+          const hasPr = mergedPrItems.length > 0;
+          const prJson = hasPr ? mergedPrItems : null;
+          const prConfirmed = Boolean(hasPr && mergedPrItems.every(i => i.checked || i.discarded));
           const prOp = wmsPr ? wmsPr.completed_by_operator : null;
           const prAt = wmsPr ? wmsPr.completed_at : null;
 
-          const physicalItems = (wmsOrder.order_items || []).filter(oi => !oi.products?.is_virtual);
+          const physicalItems = getPickableOrderItems(wmsOrder.order_items);
           const totu = physicalItems.reduce((sum, oi) => sum + (parseInt(oi.quantity, 10) || 0), 0) || 1;
           const commerceStrict = strictComerciosSet.has(String(wmsOrder.comercio || '').trim().toUpperCase());
           const defaultSucursal = wmsOrder.sucursal_pickeo || 'Sucursal Ñuñoa';

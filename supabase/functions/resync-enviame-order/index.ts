@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const API_KEY = Deno.env.get("ENVIAME_API_KEY") || "6boQAR4qOMMZxjS1DJlrnOPqj0Vp8n";
+const API_KEY = Deno.env.get("ENVIAME_API_KEY") ?? "";
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -60,6 +60,61 @@ serve(async (req) => {
   }
 
   try {
+    // 1. Validar autenticación JWT o Service Role (VULN-18)
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "No autorizado: Falta cabecera Authorization" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    let isServiceOrAdmin = false;
+    let allowedComercios: string[] = [];
+
+    if (supabaseServiceKey && token === supabaseServiceKey.trim()) {
+      isServiceOrAdmin = true;
+    } else {
+      const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+      if (authErr || !user) {
+        return new Response(JSON.stringify({ error: "No autorizado: Token inválido o expirado" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role, comercio")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (!profile) {
+        return new Response(JSON.stringify({ error: "No autorizado: Perfil no encontrado" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const userComercioRaw = String(profile.comercio || "").trim();
+      if (profile.role === "admin" || userComercioRaw.toLowerCase() === "all") {
+        isServiceOrAdmin = true;
+      } else {
+        allowedComercios = userComercioRaw
+          .split(",")
+          .map((c: string) => c.trim().toLowerCase())
+          .filter(Boolean);
+      }
+    }
+
+    if (!API_KEY) {
+      return new Response(JSON.stringify({ error: "ENVIAME_API_KEY no está configurada en los secretos del servidor" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
     const body = await req.json().catch(() => ({}));
     const orderId = body.order_id || body.orderId;
     let deliveryId = body.delivery_id || body.deliveryId;
@@ -72,19 +127,45 @@ serve(async (req) => {
       });
     }
 
+    // Los usuarios no administradores siempre deben proporcionar un order_id perteneciente a su comercio
+    if (!isServiceOrAdmin && !orderId) {
+      return new Response(JSON.stringify({ error: "Se requiere 'order_id' para usuarios de comercio" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
     let targetOrder: any = null;
 
     if (orderId) {
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(orderId));
+      const rawOrderStr = String(orderId).trim();
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawOrderStr);
       let q = supabase.from("orders").select("id, external_order_number, tracking_number, courier, operador, label_url, enviame_delivery_id, comercio");
       if (isUuid) {
-        q = q.eq("id", orderId);
+        q = q.eq("id", rawOrderStr);
       } else {
-        q = q.or(`external_order_number.eq.${orderId},external_order_number.eq.#${orderId},enviame_delivery_id.eq.${orderId}`);
+        // Sanitizar contra inyección de filtros PostgREST (eliminar comas, paréntesis, puntos y comodines)
+        const safeOrderId = rawOrderStr.replace(/[,().*"'\\]/g, "").slice(0, 80);
+        if (!safeOrderId) {
+          return new Response(JSON.stringify({ error: "Formato de 'order_id' inválido" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+        }
+        q = q.or(`external_order_number.eq.${safeOrderId},external_order_number.eq.#${safeOrderId},enviame_delivery_id.eq.${safeOrderId}`);
       }
       const { data: oList } = await q.limit(1);
       if (oList && oList.length > 0) {
         targetOrder = oList[0];
+      }
+    }
+
+    if (!isServiceOrAdmin) {
+      if (!targetOrder || !targetOrder.comercio || !allowedComercios.includes(String(targetOrder.comercio).trim().toLowerCase())) {
+        return new Response(JSON.stringify({ error: "No tienes permisos sobre el comercio de este pedido" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
       }
     }
 
@@ -167,8 +248,16 @@ serve(async (req) => {
       });
     }
 
+    const cleanDeliveryId = String(deliveryId).trim();
+    if (!/^[a-zA-Z0-9_-]{1,40}$/.test(cleanDeliveryId)) {
+      return new Response(JSON.stringify({ error: "Formato de 'delivery_id' inválido" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
     // Consultar directamente a la API de Envíame desde el backend Deno
-    const enviameRes = await fetch(`https://api.enviame.io/api/s2/v2/deliveries/${deliveryId}`, {
+    const enviameRes = await fetch(`https://api.enviame.io/api/s2/v2/deliveries/${encodeURIComponent(cleanDeliveryId)}`, {
       headers: {
         "Accept": "application/json",
         "api-key": API_KEY

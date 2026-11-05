@@ -10,7 +10,7 @@ const globalShopifyClientSecret = Deno.env.get("SHOPIFY_CLIENT_SECRET") ?? "";
 
 // Configuración de notificaciones WhatsApp
 const WHATSAPP_API_URL = Deno.env.get("WHATSAPP_API_URL") || "https://stocka-whatsapp-bot.onrender.com";
-const WHATSAPP_API_KEY = Deno.env.get("WHATSAPP_API_KEY") || "stocka_wa_internal_secret_2026";
+const WHATSAPP_API_KEY = Deno.env.get("WHATSAPP_API_KEY") ?? "";
 const GESTION_STOCKA_GROUP_JID = "120363413357945543@g.us"; // NOTIFICACIONES STOX
 
 async function notifyWhatsAppGestion(message: string) {
@@ -229,12 +229,42 @@ async function resolveShopifyOrderNumber(comercio: string, shopifyOrderName: str
   return finalOrderNumber;
 }
 
+function deriveShopifyOrderStatusFromPayload(order: any, previousStatus?: string | null): { status: string; fulfillmentId: string | null } {
+  const activeFulfillments = Array.isArray(order.fulfillments)
+    ? order.fulfillments.filter((f: any) => f && f.status !== "cancelled")
+    : [];
+  const latestFulfillmentId = activeFulfillments.length > 0 ? String(activeFulfillments[0].id) : null;
+
+  if (order.cancelled_at) {
+    return { status: "cancelled", fulfillmentId: latestFulfillmentId };
+  }
+  const fs = String(order.fulfillment_status || "").toLowerCase().trim();
+  if (fs === "fulfilled" || activeFulfillments.length > 0) {
+    return { status: "fulfilled", fulfillmentId: latestFulfillmentId };
+  }
+  if (fs === "partial") {
+    return { status: "partial", fulfillmentId: latestFulfillmentId };
+  }
+  const tags = String(order.tags || "");
+  if (tags.includes("Stocka: En Espera") || previousStatus === "on_hold") {
+    return { status: "on_hold", fulfillmentId: null };
+  }
+  if (tags.includes("Stocka: Listo para Retiro") || previousStatus === "ready_for_pickup") {
+    return { status: "ready_for_pickup", fulfillmentId: null };
+  }
+  if (tags.includes("Stocka: En Preparación") || previousStatus === "in_progress") {
+    return { status: "in_progress", fulfillmentId: null };
+  }
+  return { status: "unfulfilled", fulfillmentId: null };
+}
+
 async function handleOrderCreate(merchantId, comercio, order) {
   const finalOrderNumber = await resolveShopifyOrderNumber(comercio, order.name);
   console.log(`[Shopify Webhook] Resolviendo número de pedido para ${order.name}: ${finalOrderNumber}`);
 
   const isFulfilledInShopify = order.fulfillment_status === "fulfilled" || (order.fulfillments && order.fulfillments.length > 0);
   const isCancelledInShopify = !!order.cancelled_at;
+  const derivedShopify = deriveShopifyOrderStatusFromPayload(order, null);
 
   // Preparamos los datos del pedido principal
   const orderData: Record<string, any> = {
@@ -254,6 +284,9 @@ async function handleOrderCreate(merchantId, comercio, order) {
     shipping_complement: order.shipping_address?.address2,
     shipping_method: order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : null,
     raw_shopify_data: order,
+    shopify_order_status: derivedShopify.status,
+    shopify_fulfillment_id: derivedShopify.fulfillmentId,
+    shopify_status_updated_at: new Date().toISOString(),
     created_at: new Date(order.created_at).toISOString(),
     status: isCancelledInShopify ? "cancelado" : "para procesar",
     estado_wms: isCancelledInShopify ? "Cancelado" : "En procesamiento",
@@ -475,7 +508,7 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
   // Buscamos el estado actual del pedido en WMS
   const { data: existingOrder, error: findErr } = await supabase
     .from("orders")
-    .select("id, status, estado_wms, raw_shopify_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, categoria_entrega, origen, external_platform, agenda, operador, courier")
+    .select("id, status, estado_wms, raw_shopify_data, shopify_order_status, shopify_fulfillment_id, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, categoria_entrega, origen, external_platform, agenda, operador, courier")
     .eq("comercio", comercio)
     .in("external_platform", ["Shopify", "Punto de Venta"])
     .in("external_order_number", [order.name, finalOrderNumber])
@@ -490,11 +523,15 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
   const existingRaw = (existingOrder as any).raw_shopify_data || {};
   const isWmsItemsEdited = (existingOrder as any).wms_items_edited === true || existingRaw.wms_items_edited === true;
   const isWmsShippingEdited = (existingOrder as any).wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
+  const derivedShopify = deriveShopifyOrderStatusFromPayload(order, (existingOrder as any).shopify_order_status);
 
   // Preparamos datos a actualizar protegiendo modificaciones manuales del WMS
   const updatedData: Record<string, any> = {
     payment_status: order.financial_status,
     shipping_method: order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : null,
+    shopify_order_status: derivedShopify.status,
+    shopify_status_updated_at: new Date().toISOString(),
+    ...(derivedShopify.fulfillmentId ? { shopify_fulfillment_id: derivedShopify.fulfillmentId, shopify_fulfillment_status: "synced" } : {}),
     raw_shopify_data: {
       ...order,
       ...(existingRaw.admin_notes ? { admin_notes: existingRaw.admin_notes } : {}),

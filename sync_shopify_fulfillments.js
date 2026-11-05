@@ -233,6 +233,15 @@ async function processQueue() {
         await executeCreateFulfillment(item, integration);
       } else if (item.action_type === 'update_tracking') {
         await executeUpdateTracking(item, integration);
+      } else if (['set_on_hold', 'release_hold', 'cancel_fulfillment', 'revert_in_progress'].includes(item.action_type)) {
+        await fetch(`${SUPABASE_URL}/functions/v1/shopify-fulfillment-sync`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+          },
+          body: JSON.stringify({ queue_id: item.id, manual: true })
+        });
       }
 
       await delay(350);
@@ -291,6 +300,15 @@ async function executeSetInProgress(item, integration) {
   } catch (tagErr) {
     console.warn(`Aviso actualizando tags:`, tagErr.message);
   }
+
+  await supabase
+    .from('orders')
+    .update({
+      shopify_order_status: 'in_progress',
+      shopify_status_updated_at: new Date().toISOString(),
+      shopify_sync_last_error: null
+    })
+    .eq('id', item.order_id);
 
   await supabase
     .from('shopify_fulfillment_queue')
@@ -377,6 +395,15 @@ async function executeSetReadyForPickup(item, integration) {
   }
 
   await supabase
+    .from('orders')
+    .update({
+      shopify_order_status: 'ready_for_pickup',
+      shopify_status_updated_at: new Date().toISOString(),
+      shopify_sync_last_error: null
+    })
+    .eq('id', item.order_id);
+
+  await supabase
     .from('shopify_fulfillment_queue')
     .update({ status: 'completed', processed_at: new Date().toISOString() })
     .eq('id', item.id);
@@ -410,6 +437,8 @@ async function executeCreateFulfillment(item, integration) {
       await supabase.from('orders').update({
         shopify_fulfillment_id: existingId,
         shopify_fulfillment_status: 'synced',
+        shopify_order_status: 'fulfilled',
+        shopify_status_updated_at: new Date().toISOString(),
         shopify_sync_last_error: null
       }).eq('id', item.order_id);
       await supabase.from('shopify_fulfillment_queue').update({
@@ -465,6 +494,8 @@ async function executeCreateFulfillment(item, integration) {
   await supabase.from('orders').update({
     shopify_fulfillment_id: fulfillmentId,
     shopify_fulfillment_status: 'synced',
+    shopify_order_status: 'fulfilled',
+    shopify_status_updated_at: new Date().toISOString(),
     shopify_sync_last_error: null
   }).eq('id', item.order_id);
 
@@ -527,6 +558,8 @@ async function executeUpdateTracking(item, integration) {
   await supabase.from('orders').update({
     shopify_fulfillment_id: fulfillmentId,
     shopify_fulfillment_status: 'synced',
+    shopify_order_status: 'fulfilled',
+    shopify_status_updated_at: new Date().toISOString(),
     shopify_sync_last_error: null
   }).eq('id', item.order_id);
 

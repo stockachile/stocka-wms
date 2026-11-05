@@ -10734,6 +10734,21 @@ window.openPickerOrderHistoryModal = async function(orderId) {
       .in('pedido', searchKeys)
       .order('created_at', { ascending: false });
 
+    let pickupRecord = null;
+    try {
+      const { data: pickupRows } = await client
+        .from('sucursal_pickups')
+        .select('*')
+        .in('pedido', searchKeys)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (pickupRows && pickupRows.length > 0) {
+        pickupRecord = pickupRows[0];
+      }
+    } catch (pickupErr) {
+      console.warn('Aviso consultando sucursal_pickups en historial:', pickupErr);
+    }
+
     if (activeErr) throw activeErr;
     if (logsErr) throw logsErr;
 
@@ -10882,8 +10897,73 @@ window.openPickerOrderHistoryModal = async function(orderId) {
       `;
     }
 
+    const extractRecipientEmail = (text) => {
+      if (!text) return null;
+      const matches = String(text).match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+      return matches.find(e => !/^(info|contacto)@stocka\.cl$/i.test(e)) || null;
+    };
+
+    const formatPickupDateTime = (isoOrDateStr, fallbackDateStr = '') => {
+      if (!isoOrDateStr) return fallbackDateStr || '-';
+      const d = new Date(isoOrDateStr);
+      if (isNaN(d.getTime())) return String(isoOrDateStr);
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    };
+
+    const retiroLogEntry = (historyLogs || []).find(l =>
+      /correo de aviso enviado|aviso de retiro enviado/i.test(l.comentarios || '') ||
+      String(l.estado || '').trim().toLowerCase() === 'listo para retiro'
+    );
+
+    const isEmailNotified = Boolean(
+      pickupRecord?.avisado_x_mail ||
+      (historyLogs || []).some(l => /correo de aviso enviado|aviso de retiro enviado/i.test(l.comentarios || ''))
+    );
+
+    const resolvedNotifyEmail =
+      pickupRecord?.email_notificado ||
+      extractRecipientEmail(retiroLogEntry?.comentarios) ||
+      (isEmailNotified ? (order?.customer_email || activeItems?.[0]?.contact_data_q || null) : null);
+
+    const retiroLogFormattedDate = retiroLogEntry
+      ? (retiroLogEntry.fecha ? `${retiroLogEntry.fecha} ${retiroLogEntry.hora || ''}`.trim() : formatPickupDateTime(retiroLogEntry.created_at))
+      : '';
+
+    const resolvedNotifyDate = pickupRecord?.fecha_aviso_mail
+      ? formatPickupDateTime(pickupRecord.fecha_aviso_mail, retiroLogFormattedDate)
+      : (retiroLogFormattedDate || (pickupRecord?.updated_at ? formatPickupDateTime(pickupRecord.updated_at) : '-'));
+
+    let pickupEmailBannerHtml = '';
+    if (pickupRecord || isEmailNotified) {
+      const mailBorder = isEmailNotified ? 'rgba(79, 70, 229, 0.35)' : 'rgba(245, 158, 11, 0.35)';
+      const mailBg = isEmailNotified ? 'rgba(79, 70, 229, 0.06)' : 'rgba(245, 158, 11, 0.06)';
+      const mailColor = isEmailNotified ? '#4338ca' : '#d97706';
+
+      pickupEmailBannerHtml = `
+        <div style="background: ${mailBg}; border: 1px solid ${mailBorder}; border-radius: var(--radius-md); padding: 0.85rem; margin-bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.45rem; text-align: left;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.35rem;">
+            <span style="font-size: 0.8rem; font-weight: 700; color: ${mailColor}; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="${isEmailNotified ? 'ri-mail-check-fill' : 'ri-mail-send-line'}" style="font-size: 1rem;"></i>
+              AVISO DE PEDIDO LISTO PARA RETIRO (CORREO CLIENTE)
+            </span>
+            <span class="badge" style="background: ${isEmailNotified ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.2)'}; color: ${isEmailNotified ? '#059669' : '#b45309'}; border: 1px solid ${isEmailNotified ? 'rgba(16, 185, 129, 0.35)' : 'rgba(245, 158, 11, 0.35)'}; font-weight: 700; font-size: 0.7rem; padding: 2px 8px; border-radius: 4px;">
+              ${isEmailNotified ? 'CORREO ENVIADO ✓' : 'PENDIENTE DE ENVÍO'}
+            </span>
+          </div>
+          <div style="font-size: 0.82rem; color: var(--color-text-main); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.35rem; margin-top: 0.15rem;">
+            <span><strong>Enviado a:</strong> <span style="font-family: monospace; color: ${resolvedNotifyEmail ? '#4338ca' : 'var(--color-text-muted)'}; font-weight: 600;">${window.escapeHtml(resolvedNotifyEmail || (isEmailNotified ? 'Correo del cliente' : 'No enviado aún'))}</span></span>
+            <span><strong>Fecha y hora envío:</strong> ${isEmailNotified ? window.escapeHtml(resolvedNotifyDate) : '-'}</span>
+            ${pickupRecord?.pin_retiro ? `<span><strong>PIN Retiro:</strong> <span style="font-family: monospace; font-weight: 700; color: var(--color-primary);">${window.escapeHtml(pickupRecord.pin_retiro)}</span></span>` : ''}
+            <span><strong>Origen:</strong> <span style="font-family: monospace; font-size: 0.78rem;">info@stocka.cl</span></span>
+          </div>
+        </div>
+      `;
+    }
+
     let timelineHtml = '';
     if (hasLogs) {
+      let emailBoxRenderedInTimeline = false;
       timelineHtml = `
         <div class="picker-timeline" style="text-align: left; position: relative; padding-left: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
           <div style="position: absolute; left: 6px; top: 8px; bottom: 8px; width: 2px; background: var(--color-border);"></div>
@@ -10892,6 +10972,16 @@ window.openPickerOrderHistoryModal = async function(orderId) {
             const isPartial = String(log.estado).toUpperCase() === 'PARCIAL';
             const dotColor = isCompleted ? '#10b981' : (isPartial ? '#0ea5e9' : '#f59e0b');
             const formattedDate = log.fecha ? `${log.fecha} ${log.hora || ''}`.trim() : new Date(log.created_at).toLocaleString('es-CL');
+
+            const rawComment = String(log.comentarios || '');
+            const commentEmail = extractRecipientEmail(rawComment);
+            const isRetiroReadyLog = String(log.estado || '').trim().toLowerCase() === 'listo para retiro' || /correo de aviso enviado|aviso de retiro enviado|pin:/i.test(rawComment);
+            const showEmailAuditOnLog = Boolean(commentEmail || (!emailBoxRenderedInTimeline && isEmailNotified && isRetiroReadyLog));
+            if (showEmailAuditOnLog) emailBoxRenderedInTimeline = true;
+
+            const logEmailAddress = commentEmail || resolvedNotifyEmail || 'Correo registrado del cliente';
+            const logEmailSentTime = formattedDate || resolvedNotifyDate;
+            const cleanedComment = rawComment.replace(/\s*\|\s*Correo de aviso enviado a [^\n]+$/i, '');
 
             return `
               <div style="position: relative;">
@@ -10910,7 +11000,18 @@ window.openPickerOrderHistoryModal = async function(orderId) {
                     <span>${log.picker || 'Operario desconocido'}</span>
                     ${log.sucursal ? `<span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500;">(${log.sucursal})</span>` : ''}
                   </div>
-                  ${log.comentarios ? `<p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0.35rem 0 0 0; line-height: 1.35;">${window.escapeHtml(log.comentarios)}</p>` : ''}
+                  ${cleanedComment ? `<p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0.35rem 0 0 0; line-height: 1.35;">${window.escapeHtml(cleanedComment)}</p>` : ''}
+                  ${showEmailAuditOnLog ? `
+                    <div style="margin-top: 0.45rem; background: rgba(79, 70, 229, 0.07); border: 1px solid rgba(79, 70, 229, 0.25); border-radius: 6px; padding: 0.45rem 0.65rem; font-size: 0.78rem; color: var(--color-text-main); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.4rem;">
+                      <span style="display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; color: #4338ca;">
+                        <i class="ri-mail-check-line" style="font-size: 0.95rem;"></i>
+                        Correo de aviso enviado a: <strong style="font-family: monospace;">${window.escapeHtml(logEmailAddress)}</strong>
+                      </span>
+                      <span style="font-size: 0.73rem; color: var(--color-text-muted); font-weight: 600;">
+                        <i class="ri-time-line"></i> ${window.escapeHtml(logEmailSentTime)}
+                      </span>
+                    </div>
+                  ` : ''}
                   ${renderItemsSummaryHtml(log.items_summary)}
                 </div>
               </div>
@@ -10938,6 +11039,7 @@ window.openPickerOrderHistoryModal = async function(orderId) {
 
         ${pickingReqBannerHtml}
         ${activeBannerHtml}
+        ${pickupEmailBannerHtml}
 
         <div style="text-align: left; margin-bottom: 0.75rem;">
           <h5 style="margin: 0; font-size: 0.85rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.35rem; font-weight: 700;">
@@ -12460,7 +12562,7 @@ async function renderOrders() {
       sucursal_pickeo,
       stock_descontado,
       stock_descontado_at,
-      order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual))
+      order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, is_picking_request, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual))
     `.replace(/\s+/g, ' ').trim();
 
     window.clientEarliestFetchedDateStr = startOfMonthStr;
@@ -13468,12 +13570,14 @@ window.applyClientWmsFiltersAndRender = function() {
             warehouseName: pWhName,
             tag: oi.tag,
             is_gift: oi.is_gift,
-            campaign_id: oi.campaign_id
+            campaign_id: oi.campaign_id,
+            is_picking_request: oi.is_picking_request
           };
         } else {
           if (oi.tag) grouped[groupKey].tag = oi.tag;
           if (oi.is_gift) grouped[groupKey].is_gift = oi.is_gift;
           if (oi.campaign_id) grouped[groupKey].campaign_id = oi.campaign_id;
+          if (oi.is_picking_request) grouped[groupKey].is_picking_request = oi.is_picking_request;
         }
         grouped[groupKey].quantity += pQty;
       });
@@ -13487,9 +13591,12 @@ window.applyClientWmsFiltersAndRender = function() {
         // Determinar stock de bodega para el cliente
         const origItem = order.order_items.find(oi => (oi.products?.sku || oi.sku || 'Sin SKU') === item.sku && oi.warehouse_id === item.warehouseId);
         const tagLabel = item.tag || origItem?.tag || ((item.is_gift || item.campaign_id || origItem?.is_gift || origItem?.campaign_id) ? 'Campaña' : null);
-        const campaignBadgeHtml = tagLabel
+        const isPickingReqItem = Boolean(item.is_picking_request || origItem?.is_picking_request);
+        const campaignBadgeHtml = (tagLabel
           ? `<span class="badge" style="background-color: rgba(99, 102, 241, 0.12); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.25); font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem;" title="Artículo bonificado por campaña"><i class="ri-gift-line"></i> ${tagLabel}</span>`
-          : '';
+          : '') + (isPickingReqItem
+          ? `<span class="badge" style="background-color: rgba(14, 165, 233, 0.12); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.28); font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem;" title="Se muestra en Picker como punto a chequear (Solicitud de Picking) y descuenta stock normalmente en WMS"><i class="ri-list-check-2"></i> Solicitud Picking</span>`
+          : '');
         const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms);
         const isAlreadyDescontado = isOrderTerminalOrShipped || !!order.stock_descontado;
         if (origItem && window.isOrderItemEliminated && window.isOrderItemEliminated(order, origItem)) {
@@ -28685,27 +28792,254 @@ window.renderDeclarations = async function() {
       <div class="card" style="padding: 1.5rem; text-align: center;">
         <p style="color: var(--color-text-muted);">Como Observador, no puedes crear declaraciones de ingreso.</p>
       </div>
-    ` : `
+    ` : (() => {
+      const isInstructivoHidden = localStorage.getItem('stocka_dec_instructivo_hidden') === 'true';
+      const isRightSidebarHidden = localStorage.getItem('stocka_dec_sidebar_hidden') === 'true';
+      return `
       <div class="slide-over-overlay fullscreen-declaration-overlay" id="dec-slide-over-overlay">
         <div class="slide-over-panel fullscreen-declaration-panel" id="dec-slide-over-panel">
-          <div class="slide-over-header" style="padding: 0.85rem 1.75rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+          <div class="slide-over-header" style="padding: 0.85rem 1.75rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; flex-wrap: wrap; gap: 0.75rem;">
             <div>
               <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); font-weight: 700;" id="dec-slide-over-title">
                 <i class="ri-inbox-archive-line" style="color: var(--color-primary);"></i> Declarar Nuevo Ingreso
               </h3>
               <p style="margin: 0; margin-top: 0.25rem; font-size: 0.8rem; color: var(--color-text-muted);">Completa la información logística y los productos a recibir en bodega</p>
             </div>
-            <button type="button" class="btn btn-outline" style="border: 1px solid var(--color-border); background: var(--color-surface); padding: 0.45rem 0.9rem; font-size: 0.85rem; font-weight: 600; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem; color: var(--color-text-main); cursor: pointer; transition: all 0.2s;" onclick="closeNewDeclarationSlideOver()" title="Cerrar modal de ingreso">
-              <i class="ri-close-line" style="font-size: 1.25rem;"></i> Cerrar
-            </button>
+            <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+              <button type="button" id="btn-header-toggle-dec-instructivo" onclick="window.toggleDeclarationInstructivo()" style="background: ${isInstructivoHidden ? 'rgba(59, 130, 246, 0.1)' : 'var(--color-surface)'}; border: 1px solid ${isInstructivoHidden ? 'rgba(59, 130, 246, 0.4)' : 'var(--color-border)'}; padding: 0.42rem 0.85rem; color: ${isInstructivoHidden ? 'var(--color-primary)' : 'var(--color-text-main)'}; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; transition: all 0.2s;" title="Mostrar u ocultar el instructivo paso a paso de ingreso de stock">
+                <i id="icon-header-toggle-dec-instructivo" class="${isInstructivoHidden ? 'ri-book-open-line' : 'ri-eye-off-line'}" style="font-size: 1rem; color: var(--color-primary);"></i>
+                <span id="lbl-header-toggle-dec-instructivo">${isInstructivoHidden ? 'Ver Instructivo de Ingreso' : 'Ocultar Instructivo'}</span>
+              </button>
+              <button type="button" id="btn-info-declarations" style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.42rem 0.85rem; color: var(--color-primary); cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; transition: all 0.2s;" title="Abrir instructivo y condiciones en ventana emergente">
+                <i class="ri-window-line" style="font-size: 1rem;"></i> Instructivo en Ventana
+              </button>
+              <button type="button" id="btn-header-toggle-dec-sidebar" onclick="window.toggleDeclarationRightSidebar()" style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.42rem 0.75rem; color: var(--color-text-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 6px; font-size: 0.8rem; font-weight: 500; transition: all 0.2s;" title="Mostrar u ocultar panel lateral de resumen">
+                <i class="ri-side-bar-line" style="font-size: 1rem;"></i>
+                <span id="lbl-header-toggle-dec-sidebar">${isRightSidebarHidden ? 'Mostrar Resumen Lateral' : 'Ocultar Lateral'}</span>
+              </button>
+              <button type="button" class="btn btn-outline" style="border: 1px solid var(--color-border); background: var(--color-surface); padding: 0.45rem 0.9rem; font-size: 0.85rem; font-weight: 600; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem; color: var(--color-text-main); cursor: pointer; transition: all 0.2s;" onclick="closeNewDeclarationSlideOver()" title="Cerrar modal de ingreso">
+                <i class="ri-close-line" style="font-size: 1.25rem;"></i> Cerrar
+              </button>
+            </div>
           </div>
           <div class="slide-over-body" style="padding: 0; overflow: hidden; flex: 1; display: flex; flex-direction: row;">
             <!-- Columna Izquierda: Formulario -->
             <div id="dec-form-scroll-container" style="flex: 1; padding: 1.5rem 2rem; overflow-y: auto; display: flex; flex-direction: column;">
-              <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
-                <button type="button" id="btn-info-declarations" style="background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.35); padding: 0.3rem 0.7rem; color: var(--color-primary); cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 99px; font-size: 0.78rem; font-weight: 600; transition: all 0.2s;" title="Recomendaciones y Condiciones">
-                  <i class="ri-information-line" style="font-size: 1rem;"></i> Recomendaciones en Ventana
-                </button>
+              
+              <!-- BARRA COMPACTA CUANDO EL INSTRUCTIVO ESTÁ OCULTO -->
+              <div id="dec-instructivo-collapsed-bar" style="display: ${isInstructivoHidden ? 'flex' : 'none'}; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; background: linear-gradient(90deg, rgba(37, 99, 235, 0.08) 0%, rgba(99, 102, 241, 0.04) 100%); border: 1px solid rgba(37, 99, 235, 0.28); border-radius: 10px; padding: 0.7rem 1.1rem; margin-bottom: 1.25rem; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.04);">
+                <div style="display: flex; align-items: center; gap: 0.65rem; min-width: 240px; flex: 1;">
+                  <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(37, 99, 235, 0.15); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0;">
+                    <i class="ri-book-open-line"></i>
+                  </div>
+                  <div style="line-height: 1.35;">
+                    <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                      <span>Instructivo de Ingreso de Stock</span>
+                      <span style="font-size: 0.68rem; font-weight: 600; padding: 1px 7px; border-radius: 99px; background: rgba(100, 116, 139, 0.14); color: var(--color-text-muted);">Oculto por preferencia</span>
+                    </div>
+                    <div style="font-size: 0.78rem; color: var(--color-text-muted);">
+                      Consulta ocasionalmente el paso a paso para declarar y los puntos clave sobre cómo funcionan los ingresos en STOCKA.
+                    </div>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
+                  <button type="button" onclick="window.toggleDeclarationInstructivo(true)" style="background: var(--color-primary); color: #ffffff; border: none; padding: 0.42rem 0.9rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25); transition: all 0.2s;">
+                    <i class="ri-eye-line"></i> Abrir Instructivo
+                  </button>
+                </div>
+              </div>
+
+              <!-- PANEL EXPANDIDO DEL INSTRUCTIVO PASO A PASO Y FUNCIONAMIENTO EN STOCKA -->
+              <div id="dec-instructivo-expanded" style="display: ${isInstructivoHidden ? 'none' : 'block'}; background: var(--color-surface); border: 1.5px solid rgba(37, 99, 235, 0.3); border-radius: 12px; margin-bottom: 1.5rem; overflow: hidden; box-shadow: 0 6px 20px rgba(37, 99, 235, 0.06);">
+                <!-- Cabecera del Instructivo -->
+                <div style="padding: 1rem 1.35rem; background: linear-gradient(135deg, rgba(37, 99, 235, 0.09) 0%, rgba(99, 102, 241, 0.04) 100%); border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.85rem;">
+                  <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <div style="width: 38px; height: 38px; border-radius: 10px; background: var(--color-primary); color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0; box-shadow: 0 3px 8px rgba(37, 99, 235, 0.3);">
+                      <i class="ri-compass-3-line"></i>
+                    </div>
+                    <div>
+                      <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                        <h4 style="margin: 0; font-size: 1rem; font-weight: 800; color: var(--color-text-main);">
+                          Instructivo para Generar un Ingreso de Stock en STOCKA
+                        </h4>
+                        <span style="font-size: 0.7rem; font-weight: 700; background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 99px;">
+                          Guía Cliente
+                        </span>
+                      </div>
+                      <p style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
+                        Revisa los pasos para declarar tu mercadería y las reglas operativas de recepción. Puedes ocultar esta guía cuando ya no necesites verla cada vez.
+                      </p>
+                    </div>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <!-- Selector rápido de vista del instructivo -->
+                    <div style="display: inline-flex; background: var(--color-bg); padding: 0.2rem; border-radius: 8px; border: 1px solid var(--color-border); gap: 0.2rem;">
+                      <button type="button" class="dec-inst-tab-btn active" data-inst-tab="all" onclick="window.switchDecInstructivoTab('all')" style="border: none; background: var(--color-primary); color: #fff; font-size: 0.75rem; font-weight: 600; padding: 0.3rem 0.65rem; border-radius: 6px; cursor: pointer; transition: all 0.15s;">
+                        Vista Completa
+                      </button>
+                      <button type="button" class="dec-inst-tab-btn" data-inst-tab="steps" onclick="window.switchDecInstructivoTab('steps')" style="border: none; background: transparent; color: var(--color-text-muted); font-size: 0.75rem; font-weight: 600; padding: 0.3rem 0.65rem; border-radius: 6px; cursor: pointer; transition: all 0.15s;">
+                        1. Paso a Paso
+                      </button>
+                      <button type="button" class="dec-inst-tab-btn" data-inst-tab="rules" onclick="window.switchDecInstructivoTab('rules')" style="border: none; background: transparent; color: var(--color-text-muted); font-size: 0.75rem; font-weight: 600; padding: 0.3rem 0.65rem; border-radius: 6px; cursor: pointer; transition: all 0.15s;">
+                        2. Cómo Funciona
+                      </button>
+                    </div>
+                    <button type="button" onclick="window.toggleDeclarationInstructivo(false)" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main); padding: 0.38rem 0.75rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; transition: all 0.2s;" title="Ocultar instructivo para próximos ingresos (podrás reabrirlo cuando quieras)">
+                      <i class="ri-eye-off-line" style="color: var(--color-text-muted);"></i> Ocultar para próximos ingresos
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Cuerpo del Instructivo -->
+                <div style="padding: 1.25rem 1.35rem; display: flex; flex-direction: column; gap: 1.35rem;">
+                  
+                  <!-- SECCIÓN 1: PASO A PASO PARA CREAR UN INGRESO -->
+                  <div id="dec-inst-section-steps">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+                      <h5 style="margin: 0; font-size: 0.9rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem;">
+                        <span style="width: 22px; height: 22px; border-radius: 6px; background: rgba(37, 99, 235, 0.15); color: var(--color-primary); display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 800;">1</span>
+                        Paso a Paso para Crear tu Declaración de Ingreso
+                      </h5>
+                      <span style="font-size: 0.74rem; color: var(--color-text-muted);">Sigue estos 5 pasos en el formulario inferior</span>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 0.85rem;">
+                      <!-- Paso 1 -->
+                      <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.9rem 1rem; position: relative; overflow: hidden;">
+                        <div style="position: absolute; top: -8px; right: 4px; font-size: 2.8rem; font-weight: 900; color: rgba(37, 99, 235, 0.06); line-height: 1; pointer-events: none;">1</div>
+                        <div style="display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.4rem;">
+                          <span style="width: 24px; height: 24px; border-radius: 6px; background: rgba(37, 99, 235, 0.14); color: var(--color-primary); display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.78rem;">1</span>
+                          <strong style="font-size: 0.84rem; color: var(--color-text-main);">Comercio y Título Único</strong>
+                        </div>
+                        <p style="margin: 0; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.45;">
+                          Selecciona tu comercio y escribe un <strong>título descriptivo único</strong> (ej. <em>"Importación Calzado #3"</em>). El sistema valida que no se repita para identificar tu carga sin confusiones.
+                        </p>
+                      </div>
+
+                      <!-- Paso 2 -->
+                      <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.9rem 1rem; position: relative; overflow: hidden;">
+                        <div style="position: absolute; top: -8px; right: 4px; font-size: 2.8rem; font-weight: 900; color: rgba(16, 185, 129, 0.06); line-height: 1; pointer-events: none;">2</div>
+                        <div style="display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.4rem;">
+                          <span style="width: 24px; height: 24px; border-radius: 6px; background: rgba(16, 185, 129, 0.14); color: #059669; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.78rem;">2</span>
+                          <strong style="font-size: 0.84rem; color: var(--color-text-main);">Productos y Medidas</strong>
+                        </div>
+                        <p style="margin: 0; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.45;">
+                          Busca tus SKUs en el <strong>Catálogo Maestro</strong> o usa <strong>"Cargar por Planilla"</strong>. Si creaste artículos nuevos en tu tienda, pulsa <em>"Consultar Nuevos de Tienda"</em> o <em>"+ Crear Producto"</em>. Ingresa medidas <strong>L × An × Al (cm)</strong> si algún SKU no las tiene.
+                        </p>
+                      </div>
+
+                      <!-- Paso 3 -->
+                      <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.9rem 1rem; position: relative; overflow: hidden;">
+                        <div style="position: absolute; top: -8px; right: 4px; font-size: 2.8rem; font-weight: 900; color: rgba(139, 92, 246, 0.06); line-height: 1; pointer-events: none;">3</div>
+                        <div style="display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.4rem;">
+                          <span style="width: 24px; height: 24px; border-radius: 6px; background: rgba(139, 92, 246, 0.14); color: #7c3aed; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.78rem;">3</span>
+                          <strong style="font-size: 0.84rem; color: var(--color-text-main);">Bultos y Totales</strong>
+                        </div>
+                        <p style="margin: 0; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.45;">
+                          Indica la cantidad de <strong>Contenedores, Pallets y/o Cajas</strong> que entregarás, o marca <em>"No enviaré"</em> en los que no apliquen (mínimo 1 bulto total). Verifica las <strong>Unidades Totales</strong> y el <strong>Volumen Estimado (m³)</strong>.
+                        </p>
+                      </div>
+
+                      <!-- Paso 4 -->
+                      <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.9rem 1rem; position: relative; overflow: hidden;">
+                        <div style="position: absolute; top: -8px; right: 4px; font-size: 2.8rem; font-weight: 900; color: rgba(245, 158, 11, 0.06); line-height: 1; pointer-events: none;">4</div>
+                        <div style="display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.4rem;">
+                          <span style="width: 24px; height: 24px; border-radius: 6px; background: rgba(245, 158, 11, 0.14); color: #d97706; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.78rem;">4</span>
+                          <strong style="font-size: 0.84rem; color: var(--color-text-main);">Etiquetado y Transporte</strong>
+                        </div>
+                        <p style="margin: 0; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.45;">
+                          Indica si el stock viene con <strong>código de barras</strong> o si requiere etiquetado en bodega (<strong>$100 CLP/ud</strong>). Elige el <strong>Método de Ingreso</strong> (Courier, Proveedor, Particular o Retiro) y si necesitas <strong>Descarga Manual</strong> (<strong>0,1 UF/m³</strong>).
+                        </p>
+                      </div>
+
+                      <!-- Paso 5 -->
+                      <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.9rem 1rem; position: relative; overflow: hidden;">
+                        <div style="position: absolute; top: -8px; right: 4px; font-size: 2.8rem; font-weight: 900; color: rgba(239, 68, 68, 0.06); line-height: 1; pointer-events: none;">5</div>
+                        <div style="display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.4rem;">
+                          <span style="width: 24px; height: 24px; border-radius: 6px; background: rgba(239, 68, 68, 0.14); color: #dc2626; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.78rem;">5</span>
+                          <strong style="font-size: 0.84rem; color: var(--color-text-main);">ETA, Vista Previa y Envío</strong>
+                        </div>
+                        <p style="margin: 0; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.45;">
+                          Selecciona la <strong>Fecha Exacta</strong> (o <em>Plazo Estimativo</em> si viene en tránsito), agrega contacto/transportista y pulsa <strong>"Vista previa"</strong>. Revisa el resumen de costos y confirma para generar tu folio <code>#ING-...</code> y PDF.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- SECCIÓN 2: PUNTOS IMPORTANTES SOBRE CÓMO FUNCIONAN LOS INGRESOS EN STOCKA -->
+                  <div id="dec-inst-section-rules" style="border-top: 1px solid var(--color-border); padding-top: 1.15rem;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+                      <h5 style="margin: 0; font-size: 0.9rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem;">
+                        <span style="width: 22px; height: 22px; border-radius: 6px; background: rgba(245, 158, 11, 0.16); color: #d97706; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 800;">2</span>
+                        Puntos Importantes a Considerar: ¿Cómo funcionan los Ingresos en STOCKA?
+                      </h5>
+                      <span style="font-size: 0.74rem; color: var(--color-text-muted);">Reglas operativas, estados, plazos de disponibilización y costos</span>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.85rem;">
+                      <!-- Bloque A: Estados, Sucursal y Edición -->
+                      <div style="background: rgba(59, 130, 246, 0.04); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 10px; padding: 0.9rem 1rem;">
+                        <strong style="color: var(--color-primary); font-size: 0.84rem; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.45rem;">
+                          <i class="ri-git-Merge-line" style="font-size: 1rem;"></i> Ciclo de Estados, Bodega Asignada y Edición
+                        </strong>
+                        <ul style="margin: 0; padding-left: 1.1rem; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.48; display: flex; flex-direction: column; gap: 0.28rem;">
+                          <li><strong>Asignación de Sucursal:</strong> Al enviar tu declaración queda en estado <strong>Creada</strong>. Luego nuestro equipo asigna la bodega de destino (<strong>Bodega Asignada</strong>), cuya dirección podrás ver en el detalle del ingreso.</li>
+                          <li><strong>¿Cuándo puedo editar o eliminar?</strong> Solo mientras el ingreso esté en estado <em>Creada</em> o <em>Bodega Asignada</em>. Una vez iniciada la recepción física en bodega, se bloquea la edición.</li>
+                          <li><strong>Conteo en Paralelo y Recepción Parcial:</strong> Bodega puede activar <em>Conteo en Paralelo</em> para disponibilizar stock para ventas mientras termina de contar, o registrar <em>Recepción Parcial</em> si tu carga llega en tandas.</li>
+                        </ul>
+                      </div>
+
+                      <!-- Bloque B: Plazo de Disponibilidad (SLA) -->
+                      <div style="background: rgba(16, 185, 129, 0.04); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 10px; padding: 0.9rem 1rem;">
+                        <strong style="color: #059669; font-size: 0.84rem; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.45rem;">
+                          <i class="ri-timer-flash-line" style="font-size: 1rem;"></i> Plazo de Disponibilidad de Stock (24 a 48 hrs)
+                        </strong>
+                        <ul style="margin: 0; padding-left: 1.1rem; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.48; display: flex; flex-direction: column; gap: 0.28rem;">
+                          <li><strong>SLA Estándar:</strong> Una vez recibida físicamente la carga en andén, considera de <strong>24 a 48 horas hábiles</strong> para el conteo, control de calidad, ubicación en estantería y activación para pedidos.</li>
+                          <li><strong>Factores que amplían el plazo:</strong> Ingresos con <strong>más de 20 SKUs distintos</strong>, productos que lleguen <strong>sin código de barras</strong>, o cajas con mercadería <strong>desordenada / mezclada sin rotular</strong>.</li>
+                          <li><strong>Acta e Incidencias:</strong> Al finalizar pasará a <em>Recibido Conforme</em> o <em>Recibido con Incidencias</em> (documentando faltantes, sobrantes o mermas).</li>
+                        </ul>
+                      </div>
+
+                      <!-- Bloque C: Horarios y Reglas de Agenda (ETA) -->
+                      <div style="background: rgba(245, 158, 11, 0.04); border: 1px solid rgba(245, 158, 11, 0.22); border-radius: 10px; padding: 0.9rem 1rem;">
+                        <strong style="color: #d97706; font-size: 0.84rem; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.45rem;">
+                          <i class="ri-calendar-check-line" style="font-size: 1rem;"></i> Horarios de Bodega y Reglas de Arribo (ETA)
+                        </strong>
+                        <ul style="margin: 0; padding-left: 1.1rem; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.48; display: flex; flex-direction: column; gap: 0.28rem;">
+                          <li><strong>Horario de recepción física:</strong> Lunes a Viernes de <strong>11:00 a 16:00 hrs</strong>.</li>
+                          <li><strong>Anticipación recomendada:</strong> Al menos <strong>48 horas</strong> antes del arribo del transporte.</li>
+                          <li><strong>Sábados y Domingos:</strong> No se reciben cargas los días <strong>domingo</strong>. Los <strong>sábados</strong> exigen mínimo <strong>48 hrs de aviso</strong> y aprobación previa del equipo STOCKA.</li>
+                          <li><strong>Embarques del exterior:</strong> Declara al salir del país de origen usando <em>Plazo Estimativo</em> y actualiza a fecha exacta al confirmar llegada a puerto/aduana.</li>
+                        </ul>
+                      </div>
+
+                      <!-- Bloque D: Tarifas, Recargos y Cubicaje Real -->
+                      <div style="background: rgba(239, 68, 68, 0.04); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 10px; padding: 0.9rem 1rem;">
+                        <strong style="color: #dc2626; font-size: 0.84rem; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.45rem;">
+                          <i class="ri-scales-3-line" style="font-size: 1rem;"></i> Costos Asociados y Liquidación por Volumen Real
+                        </strong>
+                        <ul style="margin: 0; padding-left: 1.1rem; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.48; display: flex; flex-direction: column; gap: 0.28rem;">
+                          <li><strong>Volumen mayor a 1 m³:</strong> Si el ingreso supera <strong>1 m³</strong>, aplica cargo de recepción de <strong>0,1 UF por m³</strong>.</li>
+                          <li><strong>Servicios adicionales:</strong> Servicio de descarga manual en bodega (<strong>0,1 UF / m³</strong>) y servicio de etiquetado de código de barras (<strong>$100 CLP / unidad</strong>).</li>
+                          <li><strong>Recargo por aviso tardío (< 24 hrs):</strong> Declarar con menos de 24 horas de anticipación aplica un recargo de <strong>0,75 UF / m³</strong>.</li>
+                          <li><strong>Volumen Confirmado:</strong> Los costos finales en UF se liquidan según el <strong>volumen físico real (m³)</strong> corroborado por bodega al recepcionar.</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Pie del Instructivo -->
+                <div style="padding: 0.75rem 1.35rem; background: var(--color-bg); border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                  <span style="font-size: 0.76rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.4rem;">
+                    <i class="ri-information-line" style="color: var(--color-primary); font-size: 0.95rem;"></i>
+                    Si ocultas este instructivo, no se desplegará automáticamente en tus próximos ingresos, pero siempre podrás abrirlo desde el botón superior <strong>"Ver Instructivo de Ingreso"</strong>.
+                  </span>
+                  <button type="button" onclick="window.toggleDeclarationInstructivo(false)" style="background: rgba(37, 99, 235, 0.1); border: 1px solid rgba(37, 99, 235, 0.3); color: var(--color-primary); padding: 0.38rem 0.9rem; border-radius: 6px; font-size: 0.78rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; transition: all 0.2s;">
+                    <i class="ri-check-double-line"></i> Entendido, ocultar instructivo
+                  </button>
+                </div>
               </div>
 
               <form id="form-new-declaration" novalidate>
@@ -29396,10 +29730,15 @@ window.renderDeclarations = async function() {
             </div>
 
             <!-- Columna Derecha: Recomendaciones e Instrucciones -->
-            <div style="width: 380px; padding: 1.5rem 2rem; background: var(--color-bg); border-left: 1px solid var(--color-border); overflow-y: auto; display: flex; flex-direction: column; gap: 1.25rem;">
-              <h4 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem;">
-                <i class="ri-information-line"></i> Recomendaciones de Ingreso
-              </h4>
+            <div id="dec-right-recommendations-col" style="display: ${isRightSidebarHidden ? 'none' : 'flex'}; width: 380px; padding: 1.5rem 2rem; background: var(--color-bg); border-left: 1px solid var(--color-border); overflow-y: auto; flex-direction: column; gap: 1.25rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                <h4 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ri-information-line"></i> Recomendaciones de Ingreso
+                </h4>
+                <button type="button" onclick="window.toggleDeclarationRightSidebar(false)" style="background: transparent; border: 1px solid var(--color-border); color: var(--color-text-muted); border-radius: 6px; padding: 0.2rem 0.5rem; font-size: 0.72rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;" title="Ocultar este panel lateral">
+                  <i class="ri-eye-off-line"></i> Ocultar
+                </button>
+              </div>
               
               <div style="font-size: 0.8rem; line-height: 1.5; color: var(--color-text-muted); display: flex; flex-direction: column; gap: 1rem;">
                 <div style="background: rgba(59, 130, 246, 0.05); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.2);">
@@ -29425,28 +29764,33 @@ window.renderDeclarations = async function() {
                 
                 <div style="background: rgba(245, 158, 11, 0.05); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid rgba(245, 158, 11, 0.2);">
                   <strong style="color: #d97706; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; font-size: 0.85rem;">
-                    <i class="ri-calendar-check-line" style="font-size: 1rem;"></i> Reglas de Arribo (ETA)
+                    <i class="ri-calendar-check-line" style="font-size: 1rem;"></i> Reglas de Arribo (ETA) y SLA
                   </strong>
                   <ul style="margin: 0; padding-left: 1.15rem; margin-top: 0.25rem; display: flex; flex-direction: column; gap: 0.25rem;">
                     <li>El horario de recepción es de <strong>11:00 a 16:00 hrs</strong>.</li>
-                    <li>Aviso anticipado sugerido: al menos <strong>48 horas</strong>.</li>
-                    <li>No se permiten ingresos los días domingo.</li>
-                    <li>Sábados requieren aviso y coordinación previa.</li>
+                    <li>Aviso anticipado sugerido: al menos <strong>48 horas</strong> (menos de 24h aplica recargo de <strong>0,75 UF/m³</strong>).</li>
+                    <li>No se permiten ingresos los días domingo; sábados requieren coordinación y 48h de anticipación.</li>
+                    <li>Disponibilidad del stock: <strong>24 a 48 hrs hábiles</strong> tras la recepción física.</li>
                   </ul>
                 </div>
 
                 <div style="background: rgba(239, 68, 68, 0.05); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.2);">
                   <strong style="color: #dc2626; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; font-size: 0.85rem;">
-                    <i class="ri-truck-line" style="font-size: 1rem;"></i> Servicio de Descarga
+                    <i class="ri-truck-line" style="font-size: 1rem;"></i> Descarga y Etiquetado
                   </strong>
-                  Si tus bultos no vienen paletizados o requieres que el personal de bodega descargue el vehículo, debes marcar la opción de servicio de descarga. Este servicio tiene un costo adicional.
+                  Si tus bultos requieren descarga manual en bodega, activa el servicio de descarga (<strong>0,1 UF/m³</strong>). Toda unidad debe traer código de barras legible o solicitar etiquetado en bodega (<strong>$100 CLP/ud</strong>).
                 </div>
+
+                <button type="button" onclick="window.toggleDeclarationInstructivo(true)" style="width: 100%; background: var(--color-surface); border: 1px solid rgba(37, 99, 235, 0.35); color: var(--color-primary); padding: 0.55rem 0.85rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.4rem; transition: all 0.2s;">
+                  <i class="ri-book-open-line"></i> Ver Instructivo Paso a Paso Completo
+                </button>
               </div>
             </div>
           </div>
         </div>
       </div>
-    `;
+      `;
+    })();
 
     const pausedBannerHtml = isCommercePaused ? `
       <div class="alert alert-danger" style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(220, 38, 38, 0.12) 100%); border: 1.5px solid #ef4444; border-radius: 10px; padding: 1.1rem 1.35rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; box-shadow: 0 3px 10px rgba(239, 68, 68, 0.08); flex-wrap: wrap;">
@@ -29480,6 +29824,8 @@ window.renderDeclarations = async function() {
       </button>
     `);
 
+    const isMainInstructivoHidden = localStorage.getItem('stocka_dec_instructivo_hidden') === 'true';
+
     appContent.innerHTML = getObserverBanner() + `
       <div id="dec-view-container">
         ${pausedBannerHtml}
@@ -29494,11 +29840,83 @@ window.renderDeclarations = async function() {
               <h3>Mis Declaraciones de Ingreso</h3>
               <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">Historial y estado de tus ingresos declarados.</p>
             </div>
-            <div style="display: flex; gap: 0.75rem; align-items: center;">
+            <div style="display: flex; gap: 0.65rem; align-items: center; flex-wrap: wrap;">
+              <button type="button" class="btn btn-outline" id="btn-main-toggle-dec-instructivo" onclick="window.toggleDeclarationInstructivo()" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; border-color: rgba(37, 99, 235, 0.35); color: var(--color-primary); background: rgba(37, 99, 235, 0.06); display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; cursor: pointer;" title="Mostrar u ocultar el instructivo de ingresos de stock">
+                <i id="icon-main-toggle-dec-instructivo" class="${isMainInstructivoHidden ? 'ri-book-open-line' : 'ri-eye-off-line'}"></i>
+                <span id="lbl-main-toggle-dec-instructivo">${isMainInstructivoHidden ? 'Ver Instructivo de Ingreso' : 'Ocultar Instructivo'}</span>
+              </button>
               <button class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border);" id="btn-refresh-declarations">
                 <i class="ri-refresh-line"></i> Actualizar
               </button>
               ${actionButtonHtml}
+            </div>
+          </div>
+
+          <!-- Instructivo Desplegable en la Vista Principal de Declaraciones -->
+          <div id="dec-main-instructivo-section" style="display: ${isMainInstructivoHidden ? 'none' : 'block'}; margin: 0.5rem 1.5rem 1rem 1.5rem; background: linear-gradient(180deg, rgba(37, 99, 235, 0.04) 0%, rgba(37, 99, 235, 0.01) 100%); border: 1px solid rgba(37, 99, 235, 0.25); border-radius: 12px; padding: 1.15rem 1.35rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
+              <div style="display: flex; align-items: center; gap: 0.6rem;">
+                <span style="width: 30px; height: 30px; border-radius: 8px; background: var(--color-primary); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 1rem;">
+                  <i class="ri-compass-3-line"></i>
+                </span>
+                <div>
+                  <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main);">
+                    ¿Cómo generar y gestionar un Ingreso de Stock en STOCKA?
+                  </h4>
+                  <span style="font-size: 0.78rem; color: var(--color-text-muted);">Guía rápida de creación y consideraciones operativas de bodega</span>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <button type="button" onclick="window.showDeclarationsInfoModal()" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-primary); padding: 0.32rem 0.7rem; border-radius: 6px; font-size: 0.76rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;">
+                  <i class="ri-window-line"></i> Ver Detalle en Ventana
+                </button>
+                <button type="button" onclick="window.toggleDeclarationInstructivo(false)" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 0.32rem 0.7rem; border-radius: 6px; font-size: 0.76rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;" title="Ocultar instructivo para no verlo cada vez (puedes volver a abrirlo desde el botón superior)">
+                  <i class="ri-eye-off-line"></i> Ocultar instructivo
+                </button>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.75rem; margin-bottom: 0.9rem;">
+              <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.8rem 0.95rem;">
+                <strong style="font-size: 0.82rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem;">
+                  <span style="background: rgba(37, 99, 235, 0.12); padding: 1px 6px; border-radius: 4px; font-size: 0.72rem;">1</span> Declara tus Productos
+                </strong>
+                <p style="margin: 0; font-size: 0.76rem; color: var(--color-text-muted); line-height: 1.4;">
+                  Haz clic en <strong>"Hacer un ingreso"</strong>, asigna un título único y selecciona los artículos desde tu <strong>Catálogo Maestro</strong> o mediante planilla Excel de SKUs con sus medidas (L × An × Al).
+                </p>
+              </div>
+              <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.8rem 0.95rem;">
+                <strong style="font-size: 0.82rem; color: #059669; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem;">
+                  <span style="background: rgba(16, 185, 129, 0.12); padding: 1px 6px; border-radius: 4px; font-size: 0.72rem;">2</span> Bultos, Etiquetas y Envío
+                </strong>
+                <p style="margin: 0; font-size: 0.76rem; color: var(--color-text-muted); line-height: 1.4;">
+                  Detalla contenedores, pallets o cajas (mín. 1 bulto), indica si requieren etiquetado de código de barras (<strong>$100 CLP/ud</strong>), método de llegada y si necesitas descarga manual (<strong>0,1 UF/m³</strong>).
+                </p>
+              </div>
+              <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.8rem 0.95rem;">
+                <strong style="font-size: 0.82rem; color: #d97706; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem;">
+                  <span style="background: rgba(245, 158, 11, 0.14); padding: 1px 6px; border-radius: 4px; font-size: 0.72rem;">3</span> Agenda (ETA) y Sucursal
+                </strong>
+                <p style="margin: 0; font-size: 0.76rem; color: var(--color-text-muted); line-height: 1.4;">
+                  Agenda con <strong>48 hrs de anticipación</strong> (recepción Lun–Vie de <strong>11:00 a 16:00 hrs</strong>; &lt;24h tiene recargo de 0,75 UF/m³). Al asignarse bodega verás la sucursal de entrega aquí.
+                </p>
+              </div>
+              <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.8rem 0.95rem;">
+                <strong style="font-size: 0.82rem; color: #7c3aed; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem;">
+                  <span style="background: rgba(139, 92, 246, 0.14); padding: 1px 6px; border-radius: 4px; font-size: 0.72rem;">4</span> Recepción y SLA (24–48h)
+                </strong>
+                <p style="margin: 0; font-size: 0.76rem; color: var(--color-text-muted); line-height: 1.4;">
+                  Una vez recibido en bodega, el stock queda contado, ubicado y <strong>disponible para pedidos en 24 a 48 hrs hábiles</strong> (puede extenderse si supera 20 SKUs, llega desordenado o sin código de barras).
+                </p>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; justify-content: space-between; background: rgba(37, 99, 235, 0.06); border: 1px solid rgba(37, 99, 235, 0.18); border-radius: 8px; padding: 0.55rem 0.9rem; font-size: 0.76rem; color: var(--color-text-main);">
+              <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
+                <span><i class="ri-edit-circle-line" style="color: var(--color-primary);"></i> <strong>Edición permitida:</strong> Estados <em>Creada</em> y <em>Bodega Asignada</em>.</span>
+                <span><i class="ri-scales-3-line" style="color: #d97706;"></i> <strong>Volumen &gt; 1 m³:</strong> Cargo de ingreso de 0,1 UF/m³ (liquidado según volumen físico real confirmado).</span>
+              </div>
+              <span style="font-size: 0.73rem; color: var(--color-text-muted);">Al abrir <strong>"Hacer un ingreso"</strong> verás el instructivo detallado paso a paso.</span>
             </div>
           </div>
           
@@ -32676,6 +33094,105 @@ window.showDeclarationPreviewModal = function(formData, parsedProducts, warnings
   });
 };
 
+window.toggleDeclarationInstructivo = function(forceShow) {
+  const currentHidden = localStorage.getItem('stocka_dec_instructivo_hidden') === 'true';
+  const nextHidden = (typeof forceShow === 'boolean') ? !forceShow : !currentHidden;
+
+  localStorage.setItem('stocka_dec_instructivo_hidden', nextHidden ? 'true' : 'false');
+
+  // 1. Actualizar elementos dentro del slide-over "Declarar Nuevo Ingreso"
+  const expandedPanel = document.getElementById('dec-instructivo-expanded');
+  const collapsedBar = document.getElementById('dec-instructivo-collapsed-bar');
+  const headerBtn = document.getElementById('btn-header-toggle-dec-instructivo');
+  const headerIcon = document.getElementById('icon-header-toggle-dec-instructivo');
+  const headerLbl = document.getElementById('lbl-header-toggle-dec-instructivo');
+
+  if (expandedPanel) {
+    expandedPanel.style.display = nextHidden ? 'none' : 'block';
+  }
+  if (collapsedBar) {
+    collapsedBar.style.display = nextHidden ? 'flex' : 'none';
+  }
+  if (headerBtn) {
+    headerBtn.style.background = nextHidden ? 'rgba(59, 130, 246, 0.1)' : 'var(--color-surface)';
+    headerBtn.style.borderColor = nextHidden ? 'rgba(59, 130, 246, 0.4)' : 'var(--color-border)';
+    headerBtn.style.color = nextHidden ? 'var(--color-primary)' : 'var(--color-text-main)';
+  }
+  if (headerIcon) {
+    headerIcon.className = nextHidden ? 'ri-book-open-line' : 'ri-eye-off-line';
+  }
+  if (headerLbl) {
+    headerLbl.textContent = nextHidden ? 'Ver Instructivo de Ingreso' : 'Ocultar Instructivo';
+  }
+
+  // Si el usuario abrió el instructivo, hacer scroll suave al inicio del contenedor del formulario para que lo vea de inmediato
+  if (!nextHidden) {
+    const scrollContainer = document.getElementById('dec-form-scroll-container');
+    if (scrollContainer && scrollContainer.scrollTop > 120) {
+      scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
+
+  // 2. Actualizar elementos en la vista principal "Mis Declaraciones de Ingreso"
+  const mainSection = document.getElementById('dec-main-instructivo-section');
+  const mainIcon = document.getElementById('icon-main-toggle-dec-instructivo');
+  const mainLbl = document.getElementById('lbl-main-toggle-dec-instructivo');
+
+  if (mainSection) {
+    mainSection.style.display = nextHidden ? 'none' : 'block';
+  }
+  if (mainIcon) {
+    mainIcon.className = nextHidden ? 'ri-book-open-line' : 'ri-eye-off-line';
+  }
+  if (mainLbl) {
+    mainLbl.textContent = nextHidden ? 'Ver Instructivo de Ingreso' : 'Ocultar Instructivo';
+  }
+};
+
+window.switchDecInstructivoTab = function(tab) {
+  const stepsSection = document.getElementById('dec-inst-section-steps');
+  const rulesSection = document.getElementById('dec-inst-section-rules');
+
+  if (stepsSection && rulesSection) {
+    if (tab === 'steps') {
+      stepsSection.style.display = 'block';
+      rulesSection.style.display = 'none';
+    } else if (tab === 'rules') {
+      stepsSection.style.display = 'none';
+      rulesSection.style.display = 'block';
+      rulesSection.style.borderTop = 'none';
+      rulesSection.style.paddingTop = '0';
+    } else {
+      stepsSection.style.display = 'block';
+      rulesSection.style.display = 'block';
+      rulesSection.style.borderTop = '1px solid var(--color-border)';
+      rulesSection.style.paddingTop = '1.15rem';
+    }
+  }
+
+  document.querySelectorAll('.dec-inst-tab-btn').forEach(btn => {
+    const isMatch = btn.getAttribute('data-inst-tab') === tab;
+    btn.classList.toggle('active', isMatch);
+    btn.style.background = isMatch ? 'var(--color-primary)' : 'transparent';
+    btn.style.color = isMatch ? '#ffffff' : 'var(--color-text-muted)';
+  });
+};
+
+window.toggleDeclarationRightSidebar = function(forceShow) {
+  const rightCol = document.getElementById('dec-right-recommendations-col');
+  const lbl = document.getElementById('lbl-header-toggle-dec-sidebar');
+  if (!rightCol) return;
+
+  const isCurrentlyHidden = rightCol.style.display === 'none';
+  const nextHidden = (typeof forceShow === 'boolean') ? !forceShow : !isCurrentlyHidden;
+
+  localStorage.setItem('stocka_dec_sidebar_hidden', nextHidden ? 'true' : 'false');
+  rightCol.style.display = nextHidden ? 'none' : 'flex';
+  if (lbl) {
+    lbl.textContent = nextHidden ? 'Mostrar Resumen Lateral' : 'Ocultar Lateral';
+  }
+};
+
 window.showDeclarationsInfoModal = function() {
   const modalId = 'modal-declarations-info';
   let modal = document.getElementById(modalId);
@@ -32695,90 +33212,125 @@ window.showDeclarationsInfoModal = function() {
         animation: slideInUpInfo 0.3s cubic-bezier(0.16, 1, 0.3, 1);
       }
     </style>
-    <div class="modal-content dec-info-card" style="max-width: 550px; border-radius: 12px; overflow: hidden; padding: 0; box-shadow: 0 20px 40px rgba(0,0,0,0.4); border: 1px solid var(--color-border); background: var(--color-bg);">
-      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: linear-gradient(145deg, var(--color-surface) 0%, var(--color-bg) 100%); display: flex; justify-content: space-between; align-items: center;">
-        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 1.15rem; font-family: var(--font-family); color: var(--color-text-main);">
-          <i class="ri-information-line" style="color: var(--color-primary); font-size: 1.25rem;"></i>
-          Información y Recomendaciones de Ingreso
-        </h3>
-        <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="background: var(--color-surface-hover); border: none; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--color-text-muted);">
-          <i class="ri-close-line"></i>
+    <div class="modal-content dec-info-card" style="max-width: 780px; width: 95vw; border-radius: 14px; overflow: hidden; padding: 0; box-shadow: 0 20px 45px rgba(0,0,0,0.45); border: 1px solid var(--color-border); background: var(--color-bg);">
+      <div class="modal-header" style="padding: 1.15rem 1.5rem; border-bottom: 1px solid var(--color-border); background: linear-gradient(145deg, var(--color-surface) 0%, var(--color-bg) 100%); display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(37, 99, 235, 0.14); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0;">
+            <i class="ri-book-open-line"></i>
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.1rem; font-family: var(--font-family); color: var(--color-text-main); font-weight: 700;">
+              Instructivo y Condiciones de Ingreso de Stock en STOCKA
+            </h3>
+            <p style="margin: 0.15rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">
+              Pasos para declarar tu carga y aspectos clave sobre el funcionamiento de recepciones en bodega
+            </p>
+          </div>
+        </div>
+        <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="background: var(--color-surface-hover); border: none; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--color-text-muted); flex-shrink: 0;">
+          <i class="ri-close-line" style="font-size: 1.15rem;"></i>
         </button>
       </div>
-      <div class="modal-body" style="padding: 1.5rem; font-family: var(--font-family); max-height: 70vh; overflow-y: auto; font-size: 0.9rem; color: var(--color-text-main);">
-        <div style="display: flex; flex-direction: column; gap: 1rem;">
-          
-          <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
-            <div style="color: var(--color-primary); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-time-line"></i></div>
-            <div>
-              <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Aviso Anticipado</strong>
-              <span style="color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.4;">Se sugiere realizar el aviso anticipado de ingreso de stock con al menos <strong>48 horas</strong> de anticipación.</span>
+      <div class="modal-body" style="padding: 1.35rem 1.5rem; font-family: var(--font-family); max-height: 75vh; overflow-y: auto; font-size: 0.88rem; color: var(--color-text-main); display: flex; flex-direction: column; gap: 1.35rem;">
+        
+        <!-- Parte 1: Paso a Paso -->
+        <div>
+          <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; font-weight: 700; color: var(--color-primary); display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-list-ordered"></i> 1. Pasos para Crear un Ingreso de Stock
+          </h4>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+            <div style="background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+              <strong style="display: block; font-size: 0.83rem; color: var(--color-text-main); margin-bottom: 0.25rem;">Paso 1: Comercio y Título Único</strong>
+              <span style="font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.4; display: block;">Selecciona tu comercio y define un nombre descriptivo único para identificar el embarque (sin nombres duplicados).</span>
+            </div>
+            <div style="background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+              <strong style="display: block; font-size: 0.83rem; color: var(--color-text-main); margin-bottom: 0.25rem;">Paso 2: Productos y Medidas</strong>
+              <span style="font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.4; display: block;">Agrega productos desde tu <strong>Catálogo Maestro</strong> o sube una planilla de SKUs. Si falta cubicaje, ingresa Largo × Ancho × Alto (cm).</span>
+            </div>
+            <div style="background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+              <strong style="display: block; font-size: 0.83rem; color: var(--color-text-main); margin-bottom: 0.25rem;">Paso 3: Bultos y Totales</strong>
+              <span style="font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.4; display: block;">Indica la cantidad de Contenedores, Pallets o Cajas (mínimo 1 bulto) o marca <em>"No enviaré"</em>. Revisa el total de unidades y m³.</span>
+            </div>
+            <div style="background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+              <strong style="display: block; font-size: 0.83rem; color: var(--color-text-main); margin-bottom: 0.25rem;">Paso 4: Etiquetado y Transporte</strong>
+              <span style="font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.4; display: block;">Indica si requieren etiquetado de código de barras ($100 CLP/ud), el método de entrega y si necesitas descarga manual (0,1 UF/m³).</span>
+            </div>
+            <div style="background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+              <strong style="display: block; font-size: 0.83rem; color: var(--color-text-main); margin-bottom: 0.25rem;">Paso 5: ETA, Vista Previa y Envío</strong>
+              <span style="font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.4; display: block;">Elige Fecha Exacta o Plazo Estimativo, completa datos del transportista, revisa la <strong>Vista Previa</strong> de costos y confirma el envío.</span>
             </div>
           </div>
-
-          <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
-            <div style="color: var(--color-primary); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-time-line"></i></div>
-            <div>
-              <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Horarios de Ingreso</strong>
-              <span style="color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.4;">El horario establecido para la recepción física de stock en bodega es entre las <strong>11:00 y las 16:00 hrs</strong>.</span>
-            </div>
-          </div>
-
-          <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
-            <div style="color: var(--color-success); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-global-line"></i></div>
-            <div>
-              <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Ingresos desde el Exterior</strong>
-              <span style="color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.4;">Se recomienda crear la declaración en el momento en que la carga está saliendo del país de origen o cuando se informa su arribo al país.</span>
-            </div>
-          </div>
-
-          <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
-            <div style="color: var(--color-warning); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-scales-3-line"></i></div>
-            <div>
-              <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Volumen y Cargos Adicionales</strong>
-              <span style="color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.4;">Si el ingreso supera el volumen de <strong>1 m³</strong>, aplicará un cargo de ingreso de stock de <strong>0.1 UF x m³</strong>.</span>
-            </div>
-          </div>
-
-          <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
-            <div style="color: var(--color-primary); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-checkbox-circle-line"></i></div>
-            <div>
-              <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Plazo de Disponibilidad</strong>
-              <span style="color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.4;">Una vez recepcionado el stock, considere un plazo de al menos <strong>24 a 48 horas</strong> para disponibilizar los productos para pedidos (conteo, clasificación y ubicación en estanterías).</span>
-            </div>
-          </div>
-
-          <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
-            <div style="color: var(--color-danger); font-size: 1.25rem; display: flex; align-items: flex-start; padding-top: 2px;"><i class="ri-error-warning-line"></i></div>
-            <div>
-              <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Ampliación de Plazos</strong>
-              <span style="color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.4;">El plazo de disponibilidad puede ser mayor si la bodega lo sugiere. Factores que amplían los plazos:
-                <ul style="margin: 0.25rem 0 0 1.2rem; padding: 0; list-style-type: disc;">
-                  <li>Productos no identificados con código de barras.</li>
-                  <li>Ingreso con más de 20 SKU diferentes.</li>
-                  <li>El stock llega desordenado.</li>
-                </ul>
-              </span>
-            </div>
-          </div>
-
-          <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
-            <div style="color: var(--color-primary); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-notification-3-line"></i></div>
-            <div>
-              <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Seguimiento y Sucursal</strong>
-              <span style="color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.4;">Una vez creada la declaración, podrá ver en el portal las actualizaciones de su ingreso de stock, como la sucursal asignada para el ingreso.</span>
-            </div>
-          </div>
-
         </div>
+
+        <!-- Parte 2: Puntos Importantes sobre cómo funcionan los ingresos en STOCKA -->
+        <div style="border-top: 1px solid var(--color-border); padding-top: 1.1rem;">
+          <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; font-weight: 700; color: #d97706; display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-shield-star-line"></i> 2. Puntos Importantes: ¿Cómo funcionan los Ingresos en STOCKA?
+          </h4>
+          <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            
+            <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+              <div style="color: var(--color-primary); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-time-line"></i></div>
+              <div>
+                <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Horarios de Recepción y Aviso Anticipado (ETA)</strong>
+                <span style="color: var(--color-text-muted); font-size: 0.82rem; line-height: 1.45;">El horario de recepción física en bodega es de <strong>11:00 a 16:00 hrs</strong> (Lunes a Viernes). Se sugiere declarar con al menos <strong>48 horas de anticipación</strong>. Declaraciones con menos de 24 horas aplican un recargo de <strong>0,75 UF x m³</strong>. Domingos cerrado; sábados requieren mínimo 48 hrs de aviso y aprobación de STOCKA.</span>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+              <div style="color: var(--color-primary); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-notification-3-line"></i></div>
+              <div>
+                <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Asignación de Sucursal, Estados y Edición</strong>
+                <span style="color: var(--color-text-muted); font-size: 0.82rem; line-height: 1.45;">Al crear la declaración, el equipo de STOCKA asignará la sucursal de destino (estado <strong>Bodega Asignada</strong>), cuya dirección podrás consultar en el portal. Puedes <strong>editar o eliminar</strong> tu declaración mientras esté en estado <em>Creada</em> o <em>Bodega Asignada</em>; una vez iniciada la recepción física, no podrá modificarse.</span>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+              <div style="color: var(--color-success); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-checkbox-circle-line"></i></div>
+              <div>
+                <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Plazo de Disponibilidad (24 a 48 hrs) y Factores de Ampliación</strong>
+                <span style="color: var(--color-text-muted); font-size: 0.82rem; line-height: 1.45;">Una vez recepcionado físicamente el stock, considera un plazo de <strong>24 a 48 horas hábiles</strong> para que quede contado, clasificado, ubicado en estantería y disponible para pedidos. Este plazo puede ampliarse si:
+                  <ul style="margin: 0.25rem 0 0 1.2rem; padding: 0; list-style-type: disc;">
+                    <li>Los productos no vienen identificados con código de barras.</li>
+                    <li>El ingreso contiene más de 20 SKUs diferentes.</li>
+                    <li>El stock llega desordenado o mezclado sin rotular.</li>
+                  </ul>
+                </span>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+              <div style="color: var(--color-warning); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-scales-3-line"></i></div>
+              <div>
+                <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Volumen, Servicios Adicionales y Liquidación Real</strong>
+                <span style="color: var(--color-text-muted); font-size: 0.82rem; line-height: 1.45;">Si el ingreso supera <strong>1 m³</strong>, aplica un cargo de ingreso de <strong>0,1 UF x m³</strong>. El servicio de descarga manual en andén cuesta <strong>0,1 UF x m³</strong> y el etiquetado de código de barras <strong>$100 CLP por unidad</strong>. Todos los costos en UF se liquidan finalmente según el <strong>volumen físico real corroborado en bodega</strong>.</span>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+              <div style="color: #7c3aed; font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-global-line"></i></div>
+              <div>
+                <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Ingresos desde el Exterior, Conteo en Paralelo e Incidencias</strong>
+                <span style="color: var(--color-text-muted); font-size: 0.82rem; line-height: 1.45;">Para importaciones, se recomienda crear la declaración con <em>Plazo Estimativo</em> cuando la carga sale del país de origen. En bodega, si se activa <strong>Conteo en Paralelo</strong>, tu stock estará disponible para ventas mientras finaliza la revisión. Cualquier diferencia física quedará registrada en el acta de <strong>Recibido con Incidencias</strong>.</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
       </div>
-      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: flex-end;">
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+        <span style="font-size: 0.76rem; color: var(--color-text-muted);">
+          Puedes mostrar u ocultar el instructivo integrado usando el botón <strong>"Ver / Ocultar Instructivo"</strong>.
+        </span>
         <button type="button" class="btn btn-primary" onclick="document.getElementById('${modalId}').remove()" style="margin: 0;">Entendido</button>
       </div>
     </div>
-  </div>
   `;
   document.body.appendChild(modal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) modal.remove();
+  });
 };
 
 window.editDeclaration = async function(id) {
@@ -46122,11 +46674,14 @@ async function renderCampaignsTab(commerce) {
         } else if (c.gift_quantity_mode === 'order_total_qty') {
           giftQtyDisplayHtml = `<span class="badge" style="background: rgba(99, 102, 241, 0.12); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-left: 0.25rem;" title="Igual a la cantidad total de artículos del pedido (productos + otras campañas)">= Total Ítems (+Campañas)</span>`;
         }
+        const pickingReqBadgeHtml = c.send_as_picking_request
+          ? `<div style="margin-top: 0.25rem;"><span class="badge" style="background: rgba(14, 165, 233, 0.12); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.28); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;" title="Aparece en el Picker como Solicitud de Picking (Checklist) y descuenta stock normalmente en WMS"><i class="ri-list-check-2"></i> Solicitud de Picking</span></div>`
+          : '';
 
         return `
           <tr data-campaign-id="${c.id}">
             <td style="padding: 0.75rem 2rem;"><strong>${c.name}</strong></td>
-            <td style="padding: 0.75rem 2rem;"><strong>${c.gift_sku}</strong> ${giftQtyDisplayHtml}</td>
+            <td style="padding: 0.75rem 2rem;"><strong>${c.gift_sku}</strong> ${giftQtyDisplayHtml}${pickingReqBadgeHtml}</td>
             <td style="padding: 0.75rem 2rem; font-size: 0.85rem; line-height: 1.4;">${conditionsHtml}</td>
             <td style="padding: 0.75rem 2rem; font-size: 0.85rem;">${datesText}</td>
             <td style="padding: 0.75rem 2rem;">${statusBadgeHtml}</td>
@@ -46266,6 +46821,8 @@ function openCampaignModal(commerce, campaign = null) {
   const giftSkuVal = isEdit ? campaign.gift_sku : '';
   const giftQtyVal = isEdit ? (campaign.gift_quantity || 1) : 1;
   const giftQtyModeVal = isEdit && campaign.gift_quantity_mode ? campaign.gift_quantity_mode : 'fixed';
+  const sendAsPickingReqVal = isEdit && campaign.send_as_picking_request ? true : false;
+  const sendAsPickingReqChecked = sendAsPickingReqVal ? 'checked' : '';
   const minQtyVal = isEdit && campaign.min_total_quantity !== null ? campaign.min_total_quantity : '';
   const minDistinctSkusVal = isEdit && campaign.min_distinct_skus !== null ? campaign.min_distinct_skus : '';
   const nameVal = isEdit ? campaign.name : '';
@@ -46375,6 +46932,18 @@ function openCampaignModal(commerce, campaign = null) {
             ${giftQtyModeVal === 'order_products_qty'
               ? '<i class="ri-information-line" style="color: var(--color-success);"></i> Se añadirá una cantidad igual a los <strong>productos del pedido</strong> (sin contar ítems añadidos por otras campañas).'
               : '<i class="ri-information-line" style="color: #6366f1;"></i> Se añadirá una cantidad igual al <strong>total de artículos del pedido</strong> (contando productos + ítems añadidos por otras campañas).'}
+          </div>
+
+          <div style="background: rgba(14, 165, 233, 0.05); border: 1px solid rgba(14, 165, 233, 0.25); border-radius: var(--radius-md); padding: 0.85rem 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <input type="checkbox" id="campaign-send-as-picking-request" ${sendAsPickingReqChecked} style="width: 16px; height: 16px; cursor: pointer; accent-color: #0284c7;">
+              <label for="campaign-send-as-picking-request" style="font-weight: 600; cursor: pointer; user-select: none; color: #0284c7; font-size: 0.9rem; display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-list-check-2"></i> Enviar como Solicitud de Picking (Checklist en Picker)
+              </label>
+            </div>
+            <p style="margin: 0.35rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.4;">
+              Al activar esta opción, los artículos de la campaña aparecerán al operario del Picker como <strong>puntos a chequear de una Solicitud de Picking</strong> y no como productos que deba escanear/pickear. <strong>Si el ítem tiene stock, el WMS realizará la reserva y el descuento de stock normalmente.</strong>
+            </p>
           </div>
 
           <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.5rem 0;">
@@ -46524,6 +47093,7 @@ function openCampaignModal(commerce, campaign = null) {
     const giftSku = document.getElementById('campaign-gift-sku').value.trim();
     const gift_quantity_mode = document.getElementById('campaign-gift-qty-mode')?.value || 'fixed';
     const giftQty = gift_quantity_mode === 'fixed' ? (parseInt(document.getElementById('campaign-gift-qty').value) || 1) : 1;
+    const send_as_picking_request = document.getElementById('campaign-send-as-picking-request')?.checked || false;
     const is_retroactive = document.getElementById('campaign-is-retroactive')?.checked || false;
     const targetStatuses = Array.from(document.querySelectorAll('.retro-status-chk:checked')).map(c => c.value);
     const retroactive_target_statuses = targetStatuses.length > 0 ? targetStatuses : ['para procesar', 'en preparación'];
@@ -46576,6 +47146,7 @@ function openCampaignModal(commerce, campaign = null) {
       gift_sku: giftSku,
       gift_quantity: giftQty,
       gift_quantity_mode,
+      send_as_picking_request,
       conditions,
       is_retroactive,
       retroactive_target_statuses
@@ -52093,7 +52664,7 @@ window.loadOrderIntoClientQuote = async function(orderOrId) {
     const selectCols = `
       *,
       order_items (
-        id, quantity, product_id, warehouse_id, tag, is_gift, campaign_id,
+        id, quantity, product_id, warehouse_id, tag, is_gift, campaign_id, is_picking_request,
         products (id, name, sku, price, volumen, weight, length, width, height, is_virtual)
       )
     `;

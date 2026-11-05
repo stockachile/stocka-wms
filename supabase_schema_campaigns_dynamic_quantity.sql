@@ -1,20 +1,258 @@
 -- ==============================================================================
--- MIGRACIÓN: CANTIDAD DINÁMICA EN CAMPAÑAS DE REGALO (WMS STOCKA)
--- Modos soportados en gift_quantity_mode:
---   - 'fixed': Cantidad fija definida en gift_quantity (por defecto)
---   - 'order_products_qty': Igual a la cantidad de productos del pedido (sin contar regalos de otras campañas)
---   - 'order_total_qty': Igual a la cantidad total de artículos del pedido (contando productos + regalos de otras campañas)
+-- MIGRACIÓN: CANTIDAD DINÁMICA Y MODO SOLICITUD DE PICKING EN CAMPAÑAS DE REGALO (WMS STOCKA)
+-- 1) Modos soportados en gift_quantity_mode:
+--    - 'fixed': Cantidad fija definida en gift_quantity (por defecto)
+--    - 'order_products_qty': Igual a la cantidad de productos del pedido (sin contar regalos de otras campañas)
+--    - 'order_total_qty': Igual a la cantidad total de artículos del pedido (contando productos + regalos de otras campañas)
+-- 2) Modo Solicitud de Picking (send_as_picking_request):
+--    - FALSE (por defecto): El regalo se envía al Picker como un ítem pickeable normal en active_orders.
+--    - TRUE: El regalo se mantiene en public.order_items (con is_picking_request = TRUE) para que el WMS
+--      comprometa, reserve y descuente stock normalmente, pero en el Picker aparece como un punto a
+--      chequear dentro de una Solicitud de Picking en vez de un producto a escanear/pickear.
 -- ==============================================================================
 
--- 1. Agregar columna gift_quantity_mode a public.campaigns
+-- 1. Agregar columnas a public.campaigns y public.order_items
 ALTER TABLE public.campaigns
-  ADD COLUMN IF NOT EXISTS gift_quantity_mode VARCHAR(50) DEFAULT 'fixed' NOT NULL;
+  ADD COLUMN IF NOT EXISTS gift_quantity_mode VARCHAR(50) DEFAULT 'fixed' NOT NULL,
+  ADD COLUMN IF NOT EXISTS send_as_picking_request BOOLEAN DEFAULT FALSE NOT NULL;
+
+ALTER TABLE public.order_items
+  ADD COLUMN IF NOT EXISTS is_picking_request BOOLEAN DEFAULT FALSE NOT NULL;
 
 -- 2. Eliminar trigger redundante de actualización de cantidad si existe (handle_update_order_item ya gestiona el stock)
 DROP TRIGGER IF EXISTS on_order_item_quantity_updated ON public.order_items;
 
--- 3. Función auxiliar para calcular la cantidad de unidades de regalo que corresponden a un pedido
--- Eliminar sobrecarga antigua de 2 parámetros para evitar error 42725 (function is not unique)
+-- 3. Función auxiliar para sincronizar un regalo de campaña como Solicitud de Picking (Checklist) en el pedido
+CREATE OR REPLACE FUNCTION public.sync_campaign_picking_request(
+  p_order_id UUID,
+  p_campaign_id UUID,
+  p_gift_sku VARCHAR,
+  p_gift_name VARCHAR,
+  p_campaign_name VARCHAR,
+  p_quantity INTEGER
+)
+RETURNS VOID AS $$
+DECLARE
+  v_order RECORD;
+  v_existing RECORD;
+  v_item_id TEXT;
+  v_item_text TEXT;
+  v_new_item JSONB;
+  v_updated_items JSONB := '[]'::jsonb;
+  v_elem JSONB;
+  v_found BOOLEAN := FALSE;
+  v_all_checked BOOLEAN := TRUE;
+  v_any_checked BOOLEAN := FALSE;
+  v_item_checked BOOLEAN;
+  v_new_status TEXT := 'pendiente';
+BEGIN
+  IF p_order_id IS NULL OR p_campaign_id IS NULL OR COALESCE(p_quantity, 0) <= 0 THEN
+    RETURN;
+  END IF;
+
+  SELECT id, external_order_number, comercio, picking_request_status
+  INTO v_order
+  FROM public.orders
+  WHERE id = p_order_id;
+
+  IF v_order.id IS NULL THEN
+    RETURN;
+  END IF;
+
+  v_item_id := 'campaign_' || p_campaign_id::text;
+  v_item_text := '🎁 [Campaña ' || COALESCE(p_campaign_name, 'Regalo') || '] Incluir ' || p_quantity::text || 'x ' || COALESCE(p_gift_name, p_gift_sku) || ' (SKU: ' || COALESCE(p_gift_sku, '-') || ')';
+
+  SELECT * INTO v_existing
+  FROM public.order_picking_requests
+  WHERE order_id = p_order_id
+  LIMIT 1;
+
+  IF v_existing.id IS NULL THEN
+    v_new_item := jsonb_build_object(
+      'id', v_item_id,
+      'text', v_item_text,
+      'checked', FALSE,
+      'checked_at', NULL,
+      'checked_by', NULL,
+      'is_campaign', TRUE,
+      'campaign_id', p_campaign_id,
+      'gift_sku', p_gift_sku,
+      'quantity', p_quantity
+    );
+
+    INSERT INTO public.order_picking_requests (
+      order_id,
+      external_order_number,
+      comercio,
+      status,
+      items,
+      created_by_email,
+      updated_at
+    ) VALUES (
+      p_order_id,
+      COALESCE(v_order.external_order_number, p_order_id::text),
+      v_order.comercio,
+      'pendiente',
+      jsonb_build_array(v_new_item),
+      'campana@stocka.cl',
+      timezone('utc'::text, now())
+    );
+
+    v_new_status := 'pendiente';
+  ELSE
+    IF v_existing.items IS NOT NULL AND jsonb_typeof(v_existing.items) = 'array' THEN
+      FOR v_elem IN SELECT * FROM jsonb_array_elements(v_existing.items) LOOP
+        IF (v_elem->>'id') = v_item_id OR (v_elem->>'campaign_id') = p_campaign_id::text THEN
+          v_found := TRUE;
+          v_item_checked := COALESCE((v_elem->>'checked')::boolean, FALSE);
+          v_elem := v_elem || jsonb_build_object(
+            'id', v_item_id,
+            'text', v_item_text,
+            'is_campaign', TRUE,
+            'campaign_id', p_campaign_id,
+            'gift_sku', p_gift_sku,
+            'quantity', p_quantity
+          );
+        ELSE
+          v_item_checked := COALESCE((v_elem->>'checked')::boolean, FALSE);
+        END IF;
+
+        IF v_item_checked THEN
+          v_any_checked := TRUE;
+        ELSE
+          v_all_checked := FALSE;
+        END IF;
+
+        v_updated_items := v_updated_items || jsonb_build_array(v_elem);
+      END LOOP;
+    END IF;
+
+    IF NOT v_found THEN
+      v_new_item := jsonb_build_object(
+        'id', v_item_id,
+        'text', v_item_text,
+        'checked', FALSE,
+        'checked_at', NULL,
+        'checked_by', NULL,
+        'is_campaign', TRUE,
+        'campaign_id', p_campaign_id,
+        'gift_sku', p_gift_sku,
+        'quantity', p_quantity
+      );
+      v_updated_items := v_updated_items || jsonb_build_array(v_new_item);
+      v_all_checked := FALSE;
+    END IF;
+
+    IF jsonb_array_length(v_updated_items) > 0 AND v_all_checked THEN
+      v_new_status := 'completada';
+    ELSIF v_any_checked THEN
+      v_new_status := 'en_preparacion';
+    ELSE
+      v_new_status := 'pendiente';
+    END IF;
+
+    UPDATE public.order_picking_requests
+    SET items = v_updated_items,
+        status = v_new_status,
+        updated_at = timezone('utc'::text, now())
+    WHERE id = v_existing.id;
+  END IF;
+
+  UPDATE public.orders
+  SET has_picking_request = TRUE,
+      picking_request_status = v_new_status
+  WHERE id = p_order_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- 3.1 Trigger para sincronizar pedidos activos si se cambia send_as_picking_request en una campaña existente
+CREATE OR REPLACE FUNCTION public.handle_campaign_picking_mode_change()
+RETURNS trigger AS $$
+DECLARE
+  v_rec RECORD;
+  v_gift_name VARCHAR;
+  v_existing_pr RECORD;
+  v_item_id TEXT;
+  v_filtered_items JSONB;
+  v_elem JSONB;
+BEGIN
+  IF OLD.send_as_picking_request IS NOT DISTINCT FROM NEW.send_as_picking_request THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT name INTO v_gift_name
+  FROM public.products
+  WHERE LOWER(TRIM(sku)) = LOWER(TRIM(NEW.gift_sku))
+    AND LOWER(TRIM(comercio)) = LOWER(TRIM(NEW.comercio))
+  LIMIT 1;
+
+  v_item_id := 'campaign_' || NEW.id::text;
+
+  FOR v_rec IN
+    SELECT oi.id AS order_item_id, oi.order_id, oi.quantity
+    FROM public.order_items oi
+    JOIN public.orders o ON o.id = oi.order_id
+    WHERE oi.campaign_id = NEW.id
+      AND COALESCE(o.estado_wms, '') NOT IN ('Despachado', 'Cancelado', 'Archivado')
+      AND LOWER(TRIM(COALESCE(o.status, ''))) NOT IN ('despachado', 'cancelado', 'entregado', 'retirado')
+  LOOP
+    UPDATE public.order_items
+    SET is_picking_request = COALESCE(NEW.send_as_picking_request, FALSE)
+    WHERE id = v_rec.order_item_id;
+
+    IF COALESCE(NEW.send_as_picking_request, FALSE) = TRUE THEN
+      PERFORM public.sync_campaign_picking_request(
+        v_rec.order_id,
+        NEW.id,
+        NEW.gift_sku,
+        COALESCE(v_gift_name, NEW.gift_sku),
+        NEW.name,
+        v_rec.quantity
+      );
+    ELSE
+      -- Si se desactiva el modo Solicitud de Picking, remover el punto de esta campaña del checklist si no estaba verificado
+      SELECT * INTO v_existing_pr
+      FROM public.order_picking_requests
+      WHERE order_id = v_rec.order_id
+      LIMIT 1;
+
+      IF v_existing_pr.id IS NOT NULL AND v_existing_pr.items IS NOT NULL AND jsonb_typeof(v_existing_pr.items) = 'array' THEN
+        v_filtered_items := '[]'::jsonb;
+        FOR v_elem IN SELECT * FROM jsonb_array_elements(v_existing_pr.items) LOOP
+          IF (v_elem->>'id') != v_item_id AND COALESCE(v_elem->>'campaign_id', '') != NEW.id::text THEN
+            v_filtered_items := v_filtered_items || jsonb_build_array(v_elem);
+          END IF;
+        END LOOP;
+
+        IF jsonb_array_length(v_filtered_items) = 0 AND COALESCE(TRIM(v_existing_pr.general_notes), '') = '' THEN
+          DELETE FROM public.order_picking_requests WHERE id = v_existing_pr.id;
+          UPDATE public.orders
+          SET has_picking_request = FALSE,
+              picking_request_status = NULL
+          WHERE id = v_rec.order_id;
+        ELSE
+          UPDATE public.order_picking_requests
+          SET items = v_filtered_items,
+              updated_at = timezone('utc'::text, now())
+          WHERE id = v_existing_pr.id;
+        END IF;
+      END IF;
+    END IF;
+  END LOOP;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_campaign_picking_mode_changed ON public.campaigns;
+CREATE TRIGGER on_campaign_picking_mode_changed
+  AFTER UPDATE OF send_as_picking_request ON public.campaigns
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_campaign_picking_mode_change();
+
+
+-- 4. Función auxiliar para calcular la cantidad de unidades de regalo que corresponden a un pedido
 DROP FUNCTION IF EXISTS public.calculate_campaign_gift_quantity(UUID, UUID);
 
 CREATE OR REPLACE FUNCTION public.calculate_campaign_gift_quantity(
@@ -65,7 +303,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
--- 4. Actualizar expand_pack_order_items() para no fusionar regalos de campaña con ítems regulares ni entre campañas distintas
+-- 5. Actualizar expand_pack_order_items() para no fusionar regalos de campaña con ítems regulares ni entre campañas distintas
 CREATE OR REPLACE FUNCTION public.expand_pack_order_items()
 RETURNS trigger AS $$
 DECLARE
@@ -85,7 +323,8 @@ BEGIN
 
       IF v_existing_id IS NOT NULL THEN
         UPDATE public.order_items
-        SET quantity = NEW.quantity
+        SET quantity = NEW.quantity,
+            is_picking_request = COALESCE(NEW.is_picking_request, is_picking_request, FALSE)
         WHERE id = v_existing_id;
         RETURN NULL;
       END IF;
@@ -152,7 +391,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
--- 5. Actualizar validación de condiciones del pedido (evaluando productos del pedido en condiciones de cantidad/SKUs)
+-- 6. Actualizar validación de condiciones del pedido (evaluando productos del pedido en condiciones de cantidad/SKUs)
 CREATE OR REPLACE FUNCTION public.order_matches_campaign_conditions(
   p_order_id UUID,
   p_campaign_id UUID
@@ -325,16 +564,19 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
--- 6. Actualizar evaluate_campaign_rules() con soporte de cantidad dinámica y prioridad de ejecución
+-- 7. Actualizar evaluate_campaign_rules() con soporte de cantidad dinámica, prioridad y Solicitud de Picking
 CREATE OR REPLACE FUNCTION public.evaluate_campaign_rules()
 RETURNS trigger AS $$
 DECLARE
   v_comercio VARCHAR;
   v_campaign RECORD;
   v_gift_product_id UUID;
+  v_gift_product_name VARCHAR;
   v_existing_campaign_item_id UUID;
   v_existing_campaign_qty INTEGER;
   v_gift_qty INTEGER;
+  v_warehouse_id UUID;
+  v_is_picking_req BOOLEAN;
 BEGIN
   -- Si el ítem insertado/actualizado es un regalo de campaña, salir inmediatamente para evitar recursión
   IF COALESCE(NEW.is_gift, FALSE) = TRUE OR NEW.campaign_id IS NOT NULL OR COALESCE(NEW.tag, '') = 'Campaña' THEN
@@ -373,7 +615,7 @@ BEGIN
       created_at ASC
   LOOP
     -- Buscar producto de regalo
-    SELECT id INTO v_gift_product_id
+    SELECT id, name INTO v_gift_product_id, v_gift_product_name
     FROM public.products
     WHERE LOWER(TRIM(sku)) = LOWER(TRIM(v_campaign.gift_sku))
       AND LOWER(TRIM(comercio)) = LOWER(TRIM(v_comercio))
@@ -383,6 +625,8 @@ BEGIN
     IF v_gift_product_id IS NULL THEN
       CONTINUE;
     END IF;
+
+    v_is_picking_req := COALESCE(v_campaign.send_as_picking_request, FALSE);
 
     -- Buscar si este pedido ya tiene el ítem de regalo de esta campaña específica
     SELECT id, quantity INTO v_existing_campaign_item_id, v_existing_campaign_qty
@@ -407,17 +651,52 @@ BEGIN
       CONTINUE;
     END IF;
 
+    -- Resolver bodega para asegurar compromiso/descuento de stock en WMS
+    v_warehouse_id := NEW.warehouse_id;
+    IF v_warehouse_id IS NULL THEN
+      SELECT warehouse_id INTO v_warehouse_id
+      FROM public.order_items
+      WHERE order_id = NEW.order_id AND warehouse_id IS NOT NULL
+      LIMIT 1;
+    END IF;
+    IF v_warehouse_id IS NULL THEN
+      SELECT warehouse_id INTO v_warehouse_id
+      FROM public.inventory
+      WHERE product_id = v_gift_product_id
+      ORDER BY quantity DESC
+      LIMIT 1;
+    END IF;
+    IF v_warehouse_id IS NULL THEN
+      SELECT id INTO v_warehouse_id FROM public.warehouses LIMIT 1;
+    END IF;
+
     IF v_existing_campaign_item_id IS NOT NULL THEN
       -- Actualizar cantidad dinámica cuando se agregan o modifican ítems del pedido
       IF v_existing_campaign_qty IS DISTINCT FROM v_gift_qty THEN
         UPDATE public.order_items
-        SET quantity = v_gift_qty
+        SET quantity = v_gift_qty,
+            is_picking_request = v_is_picking_req
         WHERE id = v_existing_campaign_item_id;
       END IF;
     ELSE
-      -- Insertar nueva línea de regalo
-      INSERT INTO public.order_items (order_id, product_id, warehouse_id, quantity, tag, is_gift, campaign_id)
-      VALUES (NEW.order_id, v_gift_product_id, NEW.warehouse_id, v_gift_qty, 'Campaña', TRUE, v_campaign.id);
+      -- Insertar nueva línea de regalo en order_items (garantiza descuento de stock normal en WMS)
+      INSERT INTO public.order_items (
+        order_id, product_id, warehouse_id, quantity, tag, is_gift, campaign_id, is_picking_request
+      ) VALUES (
+        NEW.order_id, v_gift_product_id, v_warehouse_id, v_gift_qty, 'Campaña', TRUE, v_campaign.id, v_is_picking_req
+      );
+    END IF;
+
+    -- Si la campaña está configurada como Solicitud de Picking, crear/actualizar el checklist del pedido
+    IF v_is_picking_req THEN
+      PERFORM public.sync_campaign_picking_request(
+        NEW.order_id,
+        v_campaign.id,
+        v_campaign.gift_sku,
+        v_gift_product_name,
+        v_campaign.name,
+        v_gift_qty
+      );
     END IF;
 
   END LOOP;
@@ -434,7 +713,7 @@ CREATE TRIGGER on_order_item_after_insert
   EXECUTE FUNCTION public.evaluate_campaign_rules();
 
 
--- 7. Actualizar RPC preview_campaign_retroactive con cálculo dinámico por pedido
+-- 8. Actualizar RPC preview_campaign_retroactive con cálculo dinámico por pedido
 DROP FUNCTION IF EXISTS public.preview_campaign_retroactive(UUID, TEXT[]);
 CREATE OR REPLACE FUNCTION public.preview_campaign_retroactive(
   p_campaign_id UUID,
@@ -461,6 +740,13 @@ BEGIN
   SELECT * INTO v_campaign FROM public.campaigns WHERE id = p_campaign_id;
   IF v_campaign.id IS NULL THEN
     RETURN jsonb_build_object('error', 'Campaña no encontrada');
+  END IF;
+
+  -- Validar pertenencia al comercio de la campaña (VULN-23)
+  IF NOT public.check_user_commerce(v_campaign.comercio)
+     AND COALESCE(current_setting('request.jwt.claim.role', true), '') <> 'service_role'
+     AND current_user NOT IN ('postgres', 'service_role') THEN
+    RETURN jsonb_build_object('error', 'Acceso denegado: No tienes permisos sobre el comercio de esta campaña');
   END IF;
 
   SELECT * INTO v_gift_product 
@@ -543,6 +829,7 @@ BEGIN
     'gift_sku', v_campaign.gift_sku,
     'gift_quantity', COALESCE(p_gift_quantity, v_campaign.gift_quantity),
     'gift_quantity_mode', COALESCE(p_gift_quantity_mode, v_campaign.gift_quantity_mode, 'fixed'),
+    'send_as_picking_request', COALESCE(v_campaign.send_as_picking_request, FALSE),
     'eligible_orders_count', v_order_count,
     'total_units_required', v_total_units_required,
     'available_stock', v_available_stock,
@@ -553,7 +840,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
--- 8. Actualizar RPC apply_campaign_retroactively con cálculo dinámico por pedido
+-- 9. Actualizar RPC apply_campaign_retroactively con cálculo dinámico y soporte de Solicitud de Picking
 CREATE OR REPLACE FUNCTION public.apply_campaign_retroactively(
   p_campaign_id UUID,
   p_target_statuses TEXT[] DEFAULT ARRAY['para procesar', 'en preparación'],
@@ -579,11 +866,19 @@ DECLARE
   v_new_items TEXT;
   v_dep_item RECORD;
   v_dep_qty INTEGER;
+  v_is_picking_req BOOLEAN;
 BEGIN
   -- Cargar campaña
   SELECT * INTO v_campaign FROM public.campaigns WHERE id = p_campaign_id;
   IF v_campaign.id IS NULL THEN
     RETURN jsonb_build_object('success', FALSE, 'error', 'Campaña no encontrada');
+  END IF;
+
+  -- Validar pertenencia al comercio de la campaña (VULN-23)
+  IF NOT public.check_user_commerce(v_campaign.comercio)
+     AND COALESCE(current_setting('request.jwt.claim.role', true), '') <> 'service_role'
+     AND current_user NOT IN ('postgres', 'service_role') THEN
+    RETURN jsonb_build_object('success', FALSE, 'error', 'Acceso denegado: No tienes permisos sobre el comercio de esta campaña');
   END IF;
 
   -- Cargar producto de regalo
@@ -597,8 +892,18 @@ BEGIN
     RETURN jsonb_build_object('success', FALSE, 'error', 'El SKU de regalo no existe en los productos del comercio');
   END IF;
 
+  v_is_picking_req := COALESCE(v_campaign.send_as_picking_request, FALSE);
+
   -- Bodega por defecto en caso de que el pedido no tenga items previos
-  SELECT id INTO v_default_warehouse_id FROM public.warehouses LIMIT 1;
+  SELECT warehouse_id INTO v_default_warehouse_id
+  FROM public.inventory
+  WHERE product_id = v_gift_product.id
+  ORDER BY quantity DESC
+  LIMIT 1;
+
+  IF v_default_warehouse_id IS NULL THEN
+    SELECT id INTO v_default_warehouse_id FROM public.warehouses LIMIT 1;
+  END IF;
 
   -- Normalizar estados objetivo
   IF p_target_statuses IS NULL OR cardinality(p_target_statuses) = 0 THEN
@@ -661,15 +966,31 @@ BEGIN
       v_warehouse_id := v_default_warehouse_id;
     END IF;
 
-    -- Insertar fila de regalo de la campaña
-    INSERT INTO public.order_items (order_id, product_id, warehouse_id, quantity, tag, is_gift, campaign_id)
-    VALUES (v_order.id, v_gift_product.id, v_warehouse_id, v_order_gift_qty, 'Campaña', TRUE, v_campaign.id);
+    -- Insertar fila de regalo de la campaña en order_items (descuenta stock en WMS normalmente)
+    INSERT INTO public.order_items (
+      order_id, product_id, warehouse_id, quantity, tag, is_gift, campaign_id, is_picking_request
+    ) VALUES (
+      v_order.id, v_gift_product.id, v_warehouse_id, v_order_gift_qty, 'Campaña', TRUE, v_campaign.id, v_is_picking_req
+    );
+
+    -- Si la campaña está configurada como Solicitud de Picking, crear/actualizar el checklist del pedido
+    IF v_is_picking_req THEN
+      PERFORM public.sync_campaign_picking_request(
+        v_order.id,
+        v_campaign.id,
+        v_campaign.gift_sku,
+        v_gift_product.name,
+        v_campaign.name,
+        v_order_gift_qty
+      );
+    END IF;
 
     -- Si existen otras campañas activas en modo 'order_total_qty' ya aplicadas a este pedido, recalcular su cantidad
     FOR v_dep_item IN
-      SELECT oi.id, oi.quantity, oi.campaign_id
+      SELECT oi.id, oi.quantity, oi.campaign_id, c.name AS campaign_name, c.gift_sku, c.send_as_picking_request, p.name AS product_name
       FROM public.order_items oi
       JOIN public.campaigns c ON c.id = oi.campaign_id
+      LEFT JOIN public.products p ON p.id = oi.product_id
       WHERE oi.order_id = v_order.id
         AND oi.campaign_id != v_campaign.id
         AND c.active = TRUE
@@ -680,6 +1001,17 @@ BEGIN
         UPDATE public.order_items
         SET quantity = v_dep_qty
         WHERE id = v_dep_item.id;
+
+        IF COALESCE(v_dep_item.send_as_picking_request, FALSE) = TRUE THEN
+          PERFORM public.sync_campaign_picking_request(
+            v_order.id,
+            v_dep_item.campaign_id,
+            v_dep_item.gift_sku,
+            v_dep_item.product_name,
+            v_dep_item.campaign_name,
+            v_dep_qty
+          );
+        END IF;
       END IF;
     END LOOP;
 

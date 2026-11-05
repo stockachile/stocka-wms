@@ -17,11 +17,14 @@ COMMENT ON COLUMN public.merchant_integrations.notify_customer_on_fulfillment IS
 COMMENT ON COLUMN public.merchant_integrations.sync_intermediate_statuses IS 'Si es true, marca la orden en curso (in_progress) en Shopify al pasar a preparación/pickeado';
 COMMENT ON COLUMN public.merchant_integrations.granted_scopes IS 'Lista de scopes OAuth confirmados por la tienda en Shopify';
 
--- 2. Ampliar tabla orders con campos de auditoría de Shopify
+-- 2. Ampliar tabla orders con campos de auditoría y estado real de Shopify
 ALTER TABLE public.orders
 ADD COLUMN IF NOT EXISTS shopify_fulfillment_id TEXT,
 ADD COLUMN IF NOT EXISTS shopify_fulfillment_status TEXT, -- 'pending', 'synced', 'error'
-ADD COLUMN IF NOT EXISTS shopify_sync_last_error TEXT;
+ADD COLUMN IF NOT EXISTS shopify_sync_last_error TEXT,
+ADD COLUMN IF NOT EXISTS shopify_order_status TEXT DEFAULT 'unfulfilled', -- 'unfulfilled', 'in_progress', 'on_hold', 'ready_for_pickup', 'partial', 'fulfilled', 'cancelled'
+ADD COLUMN IF NOT EXISTS shopify_fulfillment_order_id TEXT,
+ADD COLUMN IF NOT EXISTS shopify_status_updated_at TIMESTAMP WITH TIME ZONE;
 
 -- 3. Crear Tabla de Cola Asíncrona: shopify_fulfillment_queue
 CREATE TABLE IF NOT EXISTS public.shopify_fulfillment_queue (
@@ -78,13 +81,27 @@ GRANT ALL ON public.shopify_fulfillment_queue TO postgres, service_role;
 GRANT SELECT ON public.shopify_fulfillment_queue TO authenticated;
 
 
--- Asegurar que el constraint de action_type permita 'set_ready_for_pickup' en tablas ya creadas
+-- Asegurar columnas adicionales de control manual y constraint de action_type en shopify_fulfillment_queue
+ALTER TABLE public.shopify_fulfillment_queue
+ADD COLUMN IF NOT EXISTS hold_reason TEXT,
+ADD COLUMN IF NOT EXISTS hold_notes TEXT,
+ADD COLUMN IF NOT EXISTS notify_customer BOOLEAN;
+
 ALTER TABLE public.shopify_fulfillment_queue
 DROP CONSTRAINT IF EXISTS shopify_fulfillment_queue_action_type_check;
 
 ALTER TABLE public.shopify_fulfillment_queue
 ADD CONSTRAINT shopify_fulfillment_queue_action_type_check
-CHECK (action_type IN ('create_fulfillment', 'update_tracking', 'set_in_progress', 'set_ready_for_pickup'));
+CHECK (action_type IN (
+    'create_fulfillment',
+    'update_tracking',
+    'set_in_progress',
+    'set_ready_for_pickup',
+    'set_on_hold',
+    'release_hold',
+    'cancel_fulfillment',
+    'revert_in_progress'
+));
 
 -- 5. Trigger No-Bloqueante en orders para encolar eventos automáticamente
 CREATE OR REPLACE FUNCTION public.enqueue_shopify_fulfillment_trigger_func()
@@ -312,3 +329,25 @@ AFTER INSERT OR UPDATE OF status, estado_wms, tracking_number, tracking_url, cou
 ON public.orders
 FOR EACH ROW
 EXECUTE FUNCTION public.enqueue_shopify_fulfillment_trigger_func();
+
+
+-- 6. Backfill inicial de shopify_order_status para pedidos de Shopify existentes
+UPDATE public.orders o
+SET shopify_order_status = CASE
+    WHEN (o.raw_shopify_data->>'cancelled_at') IS NOT NULL AND (o.raw_shopify_data->>'cancelled_at') != '' THEN 'cancelled'
+    WHEN o.shopify_fulfillment_status = 'synced'
+      OR (o.shopify_fulfillment_id IS NOT NULL AND TRIM(o.shopify_fulfillment_id) != '')
+      OR LOWER(COALESCE(o.raw_shopify_data->>'fulfillment_status', '')) = 'fulfilled' THEN 'fulfilled'
+    WHEN LOWER(COALESCE(o.raw_shopify_data->>'fulfillment_status', '')) = 'partial' THEN 'partial'
+    WHEN EXISTS (
+        SELECT 1 FROM public.shopify_fulfillment_queue q
+        WHERE q.order_id = o.id AND q.action_type = 'set_ready_for_pickup' AND q.status = 'completed'
+    ) OR COALESCE(o.raw_shopify_data->>'tags', '') ILIKE '%Stocka: Listo para Retiro%' THEN 'ready_for_pickup'
+    WHEN EXISTS (
+        SELECT 1 FROM public.shopify_fulfillment_queue q
+        WHERE q.order_id = o.id AND q.action_type = 'set_in_progress' AND q.status = 'completed'
+    ) OR COALESCE(o.raw_shopify_data->>'tags', '') ILIKE '%Stocka: En Preparación%' THEN 'in_progress'
+    ELSE 'unfulfilled'
+END
+WHERE (UPPER(COALESCE(o.external_platform, '')) = 'SHOPIFY' OR o.raw_shopify_data IS NOT NULL)
+  AND (o.shopify_order_status IS NULL OR o.shopify_order_status = 'unfulfilled');

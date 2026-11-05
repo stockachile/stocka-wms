@@ -29,22 +29,43 @@ CREATE INDEX IF NOT EXISTS idx_prod_locations_zero_stock ON public.product_locat
 -- 3. Habilitar RLS (Row Level Security)
 ALTER TABLE public.product_locations ENABLE ROW LEVEL SECURITY;
 
--- 4. Políticas de acceso RLS
+-- 4. Políticas de acceso RLS (restringido por comercio / rol de bodega)
 DROP POLICY IF EXISTS "Autenticados pueden ver ubicaciones" ON public.product_locations;
 CREATE POLICY "Autenticados pueden ver ubicaciones" ON public.product_locations
-  FOR SELECT USING (true);
+  FOR SELECT TO authenticated
+  USING (
+    public.is_admin()
+    OR public.check_user_commerce(comercio)
+    OR (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('operario', 'picker', 'supervisor')
+  );
 
 DROP POLICY IF EXISTS "Autenticados pueden insertar ubicaciones" ON public.product_locations;
 CREATE POLICY "Autenticados pueden insertar ubicaciones" ON public.product_locations
-  FOR INSERT WITH CHECK (true);
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    public.is_admin()
+    OR (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('operario', 'picker', 'supervisor')
+  );
 
 DROP POLICY IF EXISTS "Autenticados pueden actualizar ubicaciones" ON public.product_locations;
 CREATE POLICY "Autenticados pueden actualizar ubicaciones" ON public.product_locations
-  FOR UPDATE USING (true);
+  FOR UPDATE TO authenticated
+  USING (
+    public.is_admin()
+    OR (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('operario', 'picker', 'supervisor')
+  )
+  WITH CHECK (
+    public.is_admin()
+    OR (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('operario', 'picker', 'supervisor')
+  );
 
 DROP POLICY IF EXISTS "Autenticados pueden eliminar ubicaciones" ON public.product_locations;
 CREATE POLICY "Autenticados pueden eliminar ubicaciones" ON public.product_locations
-  FOR DELETE USING (true);
+  FOR DELETE TO authenticated
+  USING (
+    public.is_admin()
+    OR (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('operario', 'picker', 'supervisor')
+  );
 
 -- 5. Trigger para actualizar automáticamente 'updated_at'
 CREATE OR REPLACE FUNCTION public.set_product_locations_updated_at()

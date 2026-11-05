@@ -342,15 +342,27 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- B) Limpieza automática de comprobantes de pago de más de 7 días
+-- B) Limpieza automática de comprobantes de pago de más de 7 días (restringido a Admin / Service Role - VULN-23)
 CREATE OR REPLACE FUNCTION public.clean_old_receipts()
 RETURNS void AS $$
 BEGIN
+    IF NOT public.is_admin()
+       AND COALESCE(current_setting('request.jwt.claim.role', true), '') <> 'service_role'
+       AND current_user NOT IN ('postgres', 'service_role') THEN
+        RAISE EXCEPTION 'Acceso denegado: Se requieren privilegios de administrador.';
+    END IF;
+
     DELETE FROM storage.objects
     WHERE bucket_id = 'payment_receipts'
       AND created_at < (NOW() - INTERVAL '7 days');
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+REVOKE ALL ON FUNCTION public.check_overdue_payments() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.check_overdue_payments() TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.clean_old_receipts() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.clean_old_receipts() TO authenticated, service_role;
 
 -- C) Modificar la política SELECT de dashboard_notifications para no mostrar alertas programadas a futuro
 DROP POLICY IF EXISTS "Usuarios ven sus notificaciones o las generales" ON public.dashboard_notifications;
@@ -366,10 +378,37 @@ CREATE POLICY "Usuarios ven sus notificaciones o las generales" ON public.dashbo
 
 -- 8. Triggers de Automatizaciones y Notificaciones
 
--- A) Autocompletar abonos en base a cambio de estado (BEFORE UPDATE)
+-- A) Autocompletar abonos en base a cambio de estado y proteger columnas financieras ante clientes (BEFORE UPDATE - VULN-21)
 CREATE OR REPLACE FUNCTION public.tr_fn_billing_record_before_update()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- Si quien actualiza es un cliente (no admin), solo puede modificar las columnas de observación
+    IF current_user = 'authenticated' AND NOT public.is_admin() THEN
+        NEW.period_id := OLD.period_id;
+        NEW.comercio := OLD.comercio;
+        NEW.fecha_limite := OLD.fecha_limite;
+        NEW.fecha_limite_enviame := OLD.fecha_limite_enviame;
+        NEW.desglose_fulfillment := OLD.desglose_fulfillment;
+        NEW.total_fulfillment := OLD.total_fulfillment;
+        NEW.abono_fulfillment := OLD.abono_fulfillment;
+        NEW.pago_fulfillment := OLD.pago_fulfillment;
+        NEW.factura_fulfillment := OLD.factura_fulfillment;
+        NEW.num_factura := OLD.num_factura;
+        NEW.enviame := OLD.enviame;
+        NEW.abono_enviame := OLD.abono_enviame;
+        NEW.pago_enviame := OLD.pago_enviame;
+        NEW.factura_enviame := OLD.factura_enviame;
+        NEW.num_factura_enviame := OLD.num_factura_enviame;
+        NEW.fecha_pago_recibido_fulfillment := OLD.fecha_pago_recibido_fulfillment;
+        NEW.fecha_pago_recibido_enviame := OLD.fecha_pago_recibido_enviame;
+        NEW.fulfillment_link := OLD.fulfillment_link;
+        NEW.fulfillment_pdf_url := OLD.fulfillment_pdf_url;
+        NEW.enviame_pdfs := OLD.enviame_pdfs;
+        NEW.admin_response := OLD.admin_response;
+        NEW.admin_response_enviame := OLD.admin_response_enviame;
+        RETURN NEW;
+    END IF;
+
     -- Si el desglose operativo se marca como Aprobado, asegurar pago_fulfillment = 'aprobado' (si no está ya Recibido)
     IF (NEW.desglose_fulfillment = 'Aprobado' AND OLD.desglose_fulfillment IS DISTINCT FROM 'Aprobado') THEN
         IF (NEW.pago_fulfillment IS DISTINCT FROM 'Recibido') THEN
@@ -583,21 +622,23 @@ CREATE TRIGGER tr_billing_record_updated
     FOR EACH ROW
     EXECUTE FUNCTION public.tr_fn_billing_record_after_update();
 
--- Otorgar permisos sobre las tablas
+-- Otorgar permisos sobre las tablas (restringido a authenticated / service_role)
+REVOKE ALL ON public.billing_mappings, public.commerce_billing_status, public.billing_periods, public.billing_records, public.payment_reports FROM anon;
+
 GRANT ALL ON public.billing_mappings TO postgres, service_role;
-GRANT SELECT ON public.billing_mappings TO anon, authenticated;
+GRANT SELECT ON public.billing_mappings TO authenticated;
 
 GRANT ALL ON public.commerce_billing_status TO postgres, service_role;
-GRANT ALL ON public.commerce_billing_status TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.commerce_billing_status TO authenticated;
 
 GRANT ALL ON public.billing_periods TO postgres, service_role;
-GRANT SELECT ON public.billing_periods TO anon, authenticated;
+GRANT SELECT ON public.billing_periods TO authenticated;
 
 GRANT ALL ON public.billing_records TO postgres, service_role;
-GRANT ALL ON public.billing_records TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.billing_records TO authenticated;
 
 GRANT ALL ON public.payment_reports TO postgres, service_role;
-GRANT ALL ON public.payment_reports TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.payment_reports TO authenticated;
 
 -- 9. Políticas de Almacenamiento (Supabase Storage) para la carpeta de comprobantes de pago
 -- Asegurar que el bucket existe y es público para lectura
@@ -611,10 +652,11 @@ CREATE POLICY "Permitir subir comprobantes a usuarios autenticados" ON storage.o
     FOR INSERT TO authenticated
     WITH CHECK (bucket_id = 'payment_receipts');
 
--- Permitir a cualquier usuario ver/descargar los comprobantes del bucket 'payment_receipts'
+-- Permitir solo a usuarios autenticados ver/descargar comprobantes del bucket 'payment_receipts' (impide listado anónimo - VULN-27)
 DROP POLICY IF EXISTS "Permitir ver comprobantes a cualquiera" ON storage.objects;
-CREATE POLICY "Permitir ver comprobantes a cualquiera" ON storage.objects
-    FOR SELECT TO public
+DROP POLICY IF EXISTS "Permitir ver comprobantes a usuarios autenticados" ON storage.objects;
+CREATE POLICY "Permitir ver comprobantes a usuarios autenticados" ON storage.objects
+    FOR SELECT TO authenticated
     USING (bucket_id = 'payment_receipts');
 
 -- Permitir a administradores borrar o modificar objetos en el bucket 'payment_receipts'

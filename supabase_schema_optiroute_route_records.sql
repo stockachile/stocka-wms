@@ -43,17 +43,21 @@ CREATE INDEX IF NOT EXISTS idx_optiroute_records_driver ON public.optiroute_rout
 CREATE INDEX IF NOT EXISTS idx_optiroute_records_vehicle ON public.optiroute_route_records(vehicle_name);
 CREATE INDEX IF NOT EXISTS idx_optiroute_records_plan ON public.optiroute_route_records(route_plan_id);
 
--- Habilitar Row Level Security (RLS)
+-- Habilitar Row Level Security (RLS) restringido a Administradores (VULN-25)
 ALTER TABLE public.optiroute_route_records ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow select optiroute_route_records" ON public.optiroute_route_records;
-CREATE POLICY "Allow select optiroute_route_records" ON public.optiroute_route_records FOR SELECT USING (true);
+CREATE POLICY "Allow select optiroute_route_records" ON public.optiroute_route_records
+  FOR SELECT TO authenticated USING (public.is_admin());
 
 DROP POLICY IF EXISTS "Allow insert optiroute_route_records" ON public.optiroute_route_records;
-CREATE POLICY "Allow insert optiroute_route_records" ON public.optiroute_route_records FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow insert optiroute_route_records" ON public.optiroute_route_records
+  FOR INSERT TO authenticated WITH CHECK (public.is_admin());
 
 DROP POLICY IF EXISTS "Allow update optiroute_route_records" ON public.optiroute_route_records;
-CREATE POLICY "Allow update optiroute_route_records" ON public.optiroute_route_records FOR UPDATE USING (true) WITH CHECK (true);
+CREATE POLICY "Allow update optiroute_route_records" ON public.optiroute_route_records
+  FOR UPDATE TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
 
 DROP POLICY IF EXISTS "Allow delete optiroute_route_records" ON public.optiroute_route_records;
-CREATE POLICY "Allow delete optiroute_route_records" ON public.optiroute_route_records FOR DELETE USING (true);
+CREATE POLICY "Allow delete optiroute_route_records" ON public.optiroute_route_records
+  FOR DELETE TO authenticated USING (public.is_admin());

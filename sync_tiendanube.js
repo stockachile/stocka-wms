@@ -147,6 +147,7 @@ async function syncTiendanubeData() {
       console.log(`========================================`);
 
       // Resolver dinámicamente el merchant_id real usando productos del comercio
+      integration.original_merchant_id = integration.merchant_id;
       let activeMerchantId = integration.merchant_id;
       try {
         const { data: siblingProd } = await supabase
@@ -225,11 +226,55 @@ async function syncMerchantTiendanube(integration) {
     'User-Agent': 'StockaWMS (integraciones@stocka.cl)'
   };
 
+  // 0. Asegurar que los webhooks de pedidos y productos estén registrados en Tiendanube
+  await ensureTiendanubeWebhooks(integration, storeId, headers);
+
   // 1. Sincronizar Productos primero (recomendado para mapear SKUs correctamente)
   await syncProducts(integration, storeId, headers);
 
   // 2. Sincronizar Pedidos (Orders)
   await syncOrders(integration, storeId, headers, warehouseId);
+}
+
+/**
+ * Registra automáticamente en Tiendanube los webhooks de pedidos y productos hacia Supabase Edge Functions
+ */
+async function ensureTiendanubeWebhooks(integration, storeId, headers) {
+  try {
+    const webhookMerchantId = integration.original_merchant_id || integration.merchant_id;
+    const targetUrl = `${SUPABASE_URL}/functions/v1/tiendanube-webhook?merchant_id=${webhookMerchantId}`;
+    const requiredEvents = ['order/created', 'order/updated', 'product/created', 'product/updated'];
+
+    const listRes = await fetch(`https://api.tiendanube.com/v1/${storeId}/webhooks`, {
+      method: 'GET',
+      headers
+    });
+
+    if (!listRes.ok) {
+      return;
+    }
+
+    const existingWebhooks = await listRes.json();
+    const existingList = Array.isArray(existingWebhooks) ? existingWebhooks : [];
+
+    for (const ev of requiredEvents) {
+      const alreadyRegistered = existingList.some(
+        w => w.event === ev && typeof w.url === 'string' && w.url.includes('/functions/v1/tiendanube-webhook')
+      );
+      if (!alreadyRegistered) {
+        const createRes = await fetch(`https://api.tiendanube.com/v1/${storeId}/webhooks`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ event: ev, url: targetUrl })
+        });
+        if (createRes.ok) {
+          console.log(`🔔 Webhook Tiendanube registrado automáticamente: ${ev}`);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`⚠️ Aviso al verificar/registrar webhooks de Tiendanube (${storeId}):`, err.message);
+  }
 }
 
 /**
@@ -258,11 +303,13 @@ async function syncProducts(integration, storeId, headers) {
 
     const seenSkus = new Set();
     const productsToUpsert = [];
+    const masterVariantsData = [];
+
     for (const product of allProducts) {
       const mainImageUrl = product.images && product.images.length > 0 ? product.images[0].src : null;
       const status = product.published ? 'published' : 'hidden';
 
-      for (const variant of product.variants) {
+      for (const variant of (product.variants || [])) {
         let variantSku = variant.sku || '';
         let cleanSku = variantSku.trim().replace(/\s+/g, '');
         if (!cleanSku) {
@@ -292,6 +339,8 @@ async function syncProducts(integration, storeId, headers) {
         const variantNameParts = extractTiendanubeVariantValues(variant.values);
         const productName = extractTiendanubeName(product.name, 'Producto sin nombre');
         const finalName = variantNameParts.length > 0 ? `${productName} - ${variantNameParts.join(' / ')}` : productName;
+        const cleanBarcode = variant.barcode ? String(variant.barcode).trim() : null;
+        const variantPrice = parseFloat(variant.price) || 0;
 
         productsToUpsert.push({
           comercio: integration.comercio,
@@ -300,7 +349,30 @@ async function syncProducts(integration, storeId, headers) {
           name: finalName,
           image_url: imageUrl,
           status: status,
-          price: parseFloat(variant.price) || 0
+          price: variantPrice,
+          barcode: cleanBarcode
+        });
+
+        const largo = parseFloat(variant.depth) || 10;
+        const ancho = parseFloat(variant.width) || 10;
+        const alto = parseFloat(variant.height) || 10;
+        const volumen = (largo * ancho * alto) / 1000000 || 0.0001;
+        const weightKg = parseFloat(variant.weight) || null;
+
+        masterVariantsData.push({
+          sku: cleanSku,
+          name: finalName,
+          price: variantPrice,
+          barcode: cleanBarcode,
+          image_url: imageUrl,
+          largo,
+          ancho,
+          alto,
+          volumen,
+          weight: weightKg,
+          tiendanube_product_id: String(product.id),
+          tiendanube_variant_id: String(variant.id),
+          raw_tiendanube_data: variant
         });
       }
     }
@@ -315,6 +387,104 @@ async function syncProducts(integration, storeId, headers) {
         if (upsertErr) throw upsertErr;
       }
       console.log(`📥 Se han sincronizado ${productsToUpsert.length} variantes de Tiendanube en synced_products.`);
+
+      // Verificar si Tiendanube es la plataforma principal del comercio (o única activa) para auto-crear nuevos productos en el catálogo maestro (products)
+      let shouldAutoCreateInMaster = true;
+      try {
+        const { data: activeInts } = await supabase
+          .from('merchant_integrations')
+          .select('platform, is_main')
+          .eq('comercio', integration.comercio)
+          .eq('is_active', true);
+
+        const salesInts = (activeInts || []).filter(i => i.platform !== 'Optiroute');
+        const explicitMain = salesInts.find(i => i.is_main);
+        if (explicitMain && explicitMain.platform !== 'Tiendanube') {
+          shouldAutoCreateInMaster = false;
+        }
+      } catch (err) {
+        console.warn('⚠️ Aviso al verificar plataforma principal para auto-creación:', err.message);
+      }
+
+      if (shouldAutoCreateInMaster && integration.comercio) {
+        // Obtener todos los SKUs existentes en products para este comercio (paginado)
+        const existingMasterSkus = new Set();
+        let fromIdx = 0;
+        const pageSize = 1000;
+        while (true) {
+          const { data: existingBatch, error: exErr } = await supabase
+            .from('products')
+            .select('sku')
+            .eq('comercio', integration.comercio)
+            .range(fromIdx, fromIdx + pageSize - 1);
+
+          if (exErr || !existingBatch || existingBatch.length === 0) break;
+          existingBatch.forEach(p => {
+            if (p.sku) existingMasterSkus.add(String(p.sku).trim().toUpperCase());
+          });
+          if (existingBatch.length < pageSize) break;
+          fromIdx += pageSize;
+        }
+
+        // Considerar equivalencias de SKU configuradas para evitar duplicar productos ya mapeados
+        const skuMap = {};
+        try {
+          const { data: equivalences } = await supabase
+            .from('sku_equivalences')
+            .select('platform_sku, master_sku, platform')
+            .eq('comercio', integration.comercio);
+
+          if (equivalences) {
+            equivalences.filter(e => e.platform === 'Todas' || e.platform === 'Tiendanube').forEach(e => {
+              if (e.platform_sku && e.master_sku) {
+                skuMap[e.platform_sku.trim().replace(/\s+/g, '').toUpperCase()] = e.master_sku.trim().toUpperCase();
+              }
+            });
+          }
+        } catch (_) {}
+
+        const newMasterProducts = [];
+        for (const item of masterVariantsData) {
+          const upperSku = item.sku.toUpperCase();
+          const mappedUpperSku = skuMap[upperSku] || upperSku;
+          if (!existingMasterSkus.has(upperSku) && !existingMasterSkus.has(mappedUpperSku)) {
+            existingMasterSkus.add(upperSku);
+            newMasterProducts.push({
+              merchant_id: integration.merchant_id,
+              comercio: integration.comercio,
+              sku: item.sku,
+              name: item.name,
+              price: item.price,
+              barcode: item.barcode,
+              image_url: item.image_url,
+              volumen: item.volumen,
+              largo: item.largo,
+              ancho: item.ancho,
+              alto: item.alto,
+              weight: item.weight,
+              status: 'active',
+              description: 'Importado automáticamente de Tiendanube',
+              tiendanube_product_id: item.tiendanube_product_id,
+              tiendanube_variant_id: item.tiendanube_variant_id,
+              raw_tiendanube_data: item.raw_tiendanube_data
+            });
+          }
+        }
+
+        if (newMasterProducts.length > 0) {
+          for (let i = 0; i < newMasterProducts.length; i += 100) {
+            const batch = newMasterProducts.slice(i, i + 100);
+            const { error: masterInsErr } = await supabase
+              .from('products')
+              .upsert(batch, { onConflict: 'comercio,sku', ignoreDuplicates: true });
+
+            if (masterInsErr) {
+              console.error('❌ Error al auto-insertar nuevos productos de Tiendanube en products:', masterInsErr.message);
+            }
+          }
+          console.log(`✨ Se crearon automáticamente ${newMasterProducts.length} nuevos productos de Tiendanube en el catálogo maestro (products).`);
+        }
+      }
     }
   } catch (error) {
     console.error(`❌ Error sincronizando productos para Tiendanube (${storeId}):`, error.message);

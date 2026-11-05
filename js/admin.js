@@ -861,6 +861,22 @@ window.openPickerOrderHistoryModal = async function(orderId) {
       .in('pedido', searchKeys)
       .order('created_at', { ascending: false });
 
+    // 3. Consultar registro de Punto de Retiro (sucursal_pickups) para trazabilidad de correo de aviso
+    let pickupRecord = null;
+    try {
+      const { data: pickupRows } = await client
+        .from('sucursal_pickups')
+        .select('*')
+        .in('pedido', searchKeys)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (pickupRows && pickupRows.length > 0) {
+        pickupRecord = pickupRows[0];
+      }
+    } catch (pickupErr) {
+      console.warn('Aviso consultando sucursal_pickups en historial:', pickupErr);
+    }
+
     if (activeErr) throw activeErr;
     if (logsErr) throw logsErr;
 
@@ -1013,9 +1029,75 @@ window.openPickerOrderHistoryModal = async function(orderId) {
       `;
     }
 
+    // Construir bloque de notificación de correo de retiro si aplica
+    const extractRecipientEmail = (text) => {
+      if (!text) return null;
+      const matches = String(text).match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+      return matches.find(e => !/^(info|contacto)@stocka\.cl$/i.test(e)) || null;
+    };
+
+    const formatPickupDateTime = (isoOrDateStr, fallbackDateStr = '') => {
+      if (!isoOrDateStr) return fallbackDateStr || '-';
+      const d = new Date(isoOrDateStr);
+      if (isNaN(d.getTime())) return String(isoOrDateStr);
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    };
+
+    const retiroLogEntry = (historyLogs || []).find(l =>
+      /correo de aviso enviado|aviso de retiro enviado/i.test(l.comentarios || '') ||
+      String(l.estado || '').trim().toLowerCase() === 'listo para retiro'
+    );
+
+    const isEmailNotified = Boolean(
+      pickupRecord?.avisado_x_mail ||
+      (historyLogs || []).some(l => /correo de aviso enviado|aviso de retiro enviado/i.test(l.comentarios || ''))
+    );
+
+    const resolvedNotifyEmail =
+      pickupRecord?.email_notificado ||
+      extractRecipientEmail(retiroLogEntry?.comentarios) ||
+      (isEmailNotified ? (order?.customer_email || activeItems?.[0]?.contact_data_q || null) : null);
+
+    const retiroLogFormattedDate = retiroLogEntry
+      ? (retiroLogEntry.fecha ? `${retiroLogEntry.fecha} ${retiroLogEntry.hora || ''}`.trim() : formatPickupDateTime(retiroLogEntry.created_at))
+      : '';
+
+    const resolvedNotifyDate = pickupRecord?.fecha_aviso_mail
+      ? formatPickupDateTime(pickupRecord.fecha_aviso_mail, retiroLogFormattedDate)
+      : (retiroLogFormattedDate || (pickupRecord?.updated_at ? formatPickupDateTime(pickupRecord.updated_at) : '-'));
+
+    let pickupEmailBannerHtml = '';
+    if (pickupRecord || isEmailNotified) {
+      const mailBorder = isEmailNotified ? 'rgba(79, 70, 229, 0.35)' : 'rgba(245, 158, 11, 0.35)';
+      const mailBg = isEmailNotified ? 'rgba(79, 70, 229, 0.06)' : 'rgba(245, 158, 11, 0.06)';
+      const mailColor = isEmailNotified ? '#4338ca' : '#d97706';
+
+      pickupEmailBannerHtml = `
+        <div style="background: ${mailBg}; border: 1px solid ${mailBorder}; border-radius: var(--radius-md); padding: 0.85rem; margin-bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.45rem; text-align: left;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.35rem;">
+            <span style="font-size: 0.8rem; font-weight: 700; color: ${mailColor}; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="${isEmailNotified ? 'ri-mail-check-fill' : 'ri-mail-send-line'}" style="font-size: 1rem;"></i>
+              AVISO DE PEDIDO LISTO PARA RETIRO (CORREO CLIENTE)
+            </span>
+            <span class="badge" style="background: ${isEmailNotified ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.2)'}; color: ${isEmailNotified ? '#059669' : '#b45309'}; border: 1px solid ${isEmailNotified ? 'rgba(16, 185, 129, 0.35)' : 'rgba(245, 158, 11, 0.35)'}; font-weight: 700; font-size: 0.7rem; padding: 2px 8px; border-radius: 4px;">
+              ${isEmailNotified ? 'CORREO ENVIADO ✓' : 'PENDIENTE DE ENVÍO'}
+            </span>
+          </div>
+          <div style="font-size: 0.82rem; color: var(--color-text-main); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.35rem; margin-top: 0.15rem;">
+            <span><strong>Enviado a:</strong> <span style="font-family: monospace; color: ${resolvedNotifyEmail ? '#4338ca' : 'var(--color-text-muted)'}; font-weight: 600;">${window.escapeHtml(resolvedNotifyEmail || (isEmailNotified ? 'Correo del cliente' : 'No enviado aún'))}</span></span>
+            <span><strong>Fecha y hora envío:</strong> ${isEmailNotified ? window.escapeHtml(resolvedNotifyDate) : '-'}</span>
+            ${pickupRecord?.pin_retiro ? `<span><strong>PIN Retiro:</strong> <span style="font-family: monospace; font-weight: 700; color: var(--color-primary);">${window.escapeHtml(pickupRecord.pin_retiro)}</span></span>` : ''}
+            <span><strong>Origen:</strong> <span style="font-family: monospace; font-size: 0.78rem;">info@stocka.cl</span></span>
+          </div>
+        </div>
+      `;
+    }
+
     // Construir la línea de tiempo (Timeline) con historyLogs
     let timelineHtml = '';
     if (hasLogs) {
+      let emailBoxRenderedInTimeline = false;
       timelineHtml = `
         <div class="picker-timeline" style="text-align: left; position: relative; padding-left: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
           <div style="position: absolute; left: 6px; top: 8px; bottom: 8px; width: 2px; background: var(--color-border);"></div>
@@ -1024,6 +1106,16 @@ window.openPickerOrderHistoryModal = async function(orderId) {
             const isPartial = String(log.estado).toUpperCase() === 'PARCIAL';
             const dotColor = isCompleted ? '#10b981' : (isPartial ? '#0ea5e9' : '#f59e0b');
             const formattedDate = log.fecha ? `${log.fecha} ${log.hora || ''}`.trim() : new Date(log.created_at).toLocaleString('es-CL');
+
+            const rawComment = String(log.comentarios || '');
+            const commentEmail = extractRecipientEmail(rawComment);
+            const isRetiroReadyLog = String(log.estado || '').trim().toLowerCase() === 'listo para retiro' || /correo de aviso enviado|aviso de retiro enviado|pin:/i.test(rawComment);
+            const showEmailAuditOnLog = Boolean(commentEmail || (!emailBoxRenderedInTimeline && isEmailNotified && isRetiroReadyLog));
+            if (showEmailAuditOnLog) emailBoxRenderedInTimeline = true;
+
+            const logEmailAddress = commentEmail || resolvedNotifyEmail || 'Correo registrado del cliente';
+            const logEmailSentTime = formattedDate || resolvedNotifyDate;
+            const cleanedComment = rawComment.replace(/\s*\|\s*Correo de aviso enviado a [^\n]+$/i, '');
 
             return `
               <div style="position: relative;">
@@ -1042,7 +1134,18 @@ window.openPickerOrderHistoryModal = async function(orderId) {
                     <span>${log.picker || 'Operario desconocido'}</span>
                     ${log.sucursal ? `<span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500;">(${log.sucursal})</span>` : ''}
                   </div>
-                  ${log.comentarios ? `<p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0.35rem 0 0 0; line-height: 1.35;">${window.escapeHtml(log.comentarios)}</p>` : ''}
+                  ${cleanedComment ? `<p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0.35rem 0 0 0; line-height: 1.35;">${window.escapeHtml(cleanedComment)}</p>` : ''}
+                  ${showEmailAuditOnLog ? `
+                    <div style="margin-top: 0.45rem; background: rgba(79, 70, 229, 0.07); border: 1px solid rgba(79, 70, 229, 0.25); border-radius: 6px; padding: 0.45rem 0.65rem; font-size: 0.78rem; color: var(--color-text-main); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.4rem;">
+                      <span style="display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; color: #4338ca;">
+                        <i class="ri-mail-check-line" style="font-size: 0.95rem;"></i>
+                        Correo de aviso enviado a: <strong style="font-family: monospace;">${window.escapeHtml(logEmailAddress)}</strong>
+                      </span>
+                      <span style="font-size: 0.73rem; color: var(--color-text-muted); font-weight: 600;">
+                        <i class="ri-time-line"></i> ${window.escapeHtml(logEmailSentTime)}
+                      </span>
+                    </div>
+                  ` : ''}
                   ${renderItemsSummaryHtml(log.items_summary)}
                 </div>
               </div>
@@ -1071,6 +1174,7 @@ window.openPickerOrderHistoryModal = async function(orderId) {
 
         ${pickingReqBannerHtml}
         ${activeBannerHtml}
+        ${pickupEmailBannerHtml}
 
         <div style="text-align: left; margin-bottom: 0.75rem;">
           <h5 style="margin: 0; font-size: 0.85rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.35rem; font-weight: 700;">
@@ -1814,9 +1918,15 @@ window.triggerShopifyFulfillmentSync = async function(orderIds = []) {
     const validIds = Array.isArray(orderIds) ? orderIds.filter(Boolean) : [];
     const payload = validIds.length === 1 ? { order_id: validIds[0] } : { limit: Math.min(Math.max(validIds.length, 20), 50) };
 
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token || '';
+
     const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-fulfillment-sync', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
       body: JSON.stringify(payload)
     });
 
@@ -1825,12 +1935,19 @@ window.triggerShopifyFulfillmentSync = async function(orderIds = []) {
     if (data && Array.isArray(data.results) && data.results.length > 0 && window.loadedOrders) {
       let anyUpdated = false;
       for (const r of data.results) {
-        if (r.status === 'completed' && r.fulfillment_id && validIds.length === 1) {
+        if (r.status === 'completed' && validIds.length === 1) {
           const ord = window.loadedOrders.find(o => o.id === validIds[0]);
           if (ord) {
-            ord.shopify_fulfillment_id = r.fulfillment_id;
-            ord.shopify_fulfillment_status = 'synced';
+            if (r.fulfillment_id) {
+              ord.shopify_fulfillment_id = r.fulfillment_id;
+              ord.shopify_fulfillment_status = 'synced';
+            }
+            if (r.shopify_order_status) {
+              ord.shopify_order_status = r.shopify_order_status;
+              ord.shopify_status_updated_at = new Date().toISOString();
+            }
             ord.shopify_sync_last_error = null;
+            delete ord._wmsTags;
             anyUpdated = true;
           }
         }
@@ -1845,6 +1962,62 @@ window.triggerShopifyFulfillmentSync = async function(orderIds = []) {
     }
   } catch (err) {
     console.warn('[Shopify Fulfillment Sync] Aviso en disparo en segundo plano:', err);
+  }
+};
+
+// Resuelve el estado real actual del pedido en Shopify (sin asumir PREPARADO solo por estado_wms)
+window.resolveShopifyOrderStatus = function(order) {
+  if (!order) return 'unfulfilled';
+  const validStates = ['unfulfilled', 'in_progress', 'on_hold', 'ready_for_pickup', 'partial', 'fulfilled', 'cancelled'];
+  const explicit = String(order.shopify_order_status || '').toLowerCase().trim();
+  const raw = order.raw_shopify_data || {};
+
+  if (raw.cancelled_at || String(order.status || '').toLowerCase() === 'cancelado') {
+    return 'cancelled';
+  }
+  if (explicit && validStates.includes(explicit)) {
+    if (explicit === 'unfulfilled') {
+      const rawFul = String(raw.fulfillment_status || '').toLowerCase().trim();
+      if (rawFul === 'fulfilled' || order.shopify_fulfillment_status === 'synced' || order.shopify_fulfillment_id) {
+        return 'fulfilled';
+      }
+      if (rawFul === 'partial') return 'partial';
+      const tagsStr = String(raw.tags || '');
+      if (tagsStr.includes('Stocka: Listo para Retiro')) return 'ready_for_pickup';
+      if (tagsStr.includes('Stocka: En preparación')) return 'in_progress';
+    }
+    return explicit;
+  }
+
+  const rawFul = String(raw.fulfillment_status || '').toLowerCase().trim();
+  if (rawFul === 'fulfilled' || order.shopify_fulfillment_status === 'synced' || order.shopify_fulfillment_id) {
+    return 'fulfilled';
+  }
+  if (rawFul === 'partial') return 'partial';
+  const tagsStr = String(raw.tags || '');
+  if (tagsStr.includes('Stocka: Listo para Retiro')) return 'ready_for_pickup';
+  if (tagsStr.includes('Stocka: En preparación')) return 'in_progress';
+  return 'unfulfilled';
+};
+
+window.getShopifyOrderStatusMeta = function(state) {
+  const st = String(state || 'unfulfilled').toLowerCase().trim();
+  switch (st) {
+    case 'fulfilled':
+      return { key: 'fulfilled', label: 'PREPARADO', shortLabel: 'Preparado', color: '#10b981', bg: '#d1fae5', text: '#065f46', border: '#6ee7b7', icon: 'ri-checkbox-circle-fill' };
+    case 'partial':
+      return { key: 'partial', label: 'PARCIAL', shortLabel: 'Parcial', color: '#f59e0b', bg: '#fef3c7', text: '#92400e', border: '#fcd34d', icon: 'ri-pie-chart-2-fill' };
+    case 'ready_for_pickup':
+      return { key: 'ready_for_pickup', label: 'LISTO PARA RETIRO', shortLabel: 'Listo Retiro', color: '#0284c7', bg: '#e0f2fe', text: '#0369a1', border: '#7dd3fc', icon: 'ri-store-2-fill' };
+    case 'in_progress':
+      return { key: 'in_progress', label: 'EN CURSO', shortLabel: 'En curso', color: '#3b82f6', bg: '#dbeafe', text: '#1d4ed8', border: '#93c5fd', icon: 'ri-loader-2-line' };
+    case 'on_hold':
+      return { key: 'on_hold', label: 'EN ESPERA (HOLD)', shortLabel: 'En espera', color: '#d97706', bg: '#ffedd5', text: '#c2410c', border: '#fdba74', icon: 'ri-pause-circle-fill' };
+    case 'cancelled':
+      return { key: 'cancelled', label: 'CANCELADO', shortLabel: 'Cancelado', color: '#ef4444', bg: '#fee2e2', text: '#991b1b', border: '#fca5a5', icon: 'ri-close-circle-fill' };
+    case 'unfulfilled':
+    default:
+      return { key: 'unfulfilled', label: 'NO PREPARADO', shortLabel: 'No preparado', color: '#6b7280', bg: '#f1f5f9', text: '#475569', border: '#cbd5e1', icon: 'ri-time-line' };
   }
 };
 
@@ -1883,33 +2056,24 @@ window.getOriginalPlatformStatus = function(order) {
       finColor = '#f59e0b';
     }
 
-    const rawFul = String(raw.fulfillment_status || order.shopify_fulfillment_status || '').toLowerCase().trim();
-    let fulLabel = 'NO PREPARADO';
-    let fulColor = '#6b7280';
-    if (['fulfilled', 'despachado'].includes(rawFul) || order.estado_wms === 'Despachado') {
-      fulLabel = 'PREPARADO';
-      fulColor = '#10b981';
-    } else if (['partial', 'parcial'].includes(rawFul)) {
-      fulLabel = 'PARCIAL';
-      fulColor = '#f59e0b';
-    } else if (['restocked'].includes(rawFul)) {
-      fulLabel = 'DEVUELTO A STOCK';
-      fulColor = '#6b7280';
-    }
+    const shopifyState = window.resolveShopifyOrderStatus(order);
+    const shMeta = window.getShopifyOrderStatusMeta(shopifyState);
 
     const details = [
       { label: 'Pago', value: finLabel, color: finColor },
-      { label: 'Preparación', value: fulLabel, color: fulColor }
+      { label: 'Shopify', value: shMeta.label, color: shMeta.color }
     ];
 
-    if (order.shopify_fulfillment_status === 'synced' || order.shopify_fulfillment_id) {
-      details.push({ label: 'Sync WMS', value: 'Despachado en Shopify', color: '#10b981' });
+    if (order.estado_wms === 'Despachado' && shopifyState !== 'fulfilled' && shopifyState !== 'cancelled') {
+      details.push({ label: 'Alerta Sync', value: 'WMS Despachado / Shopify ' + shMeta.shortLabel, color: '#ef4444' });
     } else if (order.shopify_fulfillment_status === 'error') {
       details.push({ label: 'Sync WMS', value: 'Error Retorno', color: '#ef4444' });
     }
 
     return {
       platform: 'Shopify',
+      shopifyState: shopifyState,
+      shopifyMeta: shMeta,
       details: details
     };
   }
@@ -3080,6 +3244,11 @@ window.resyncShopifyOrder = async function(orderId) {
       tracking_url,
       courier,
       shopify_exported,
+      shopify_order_status,
+      shopify_fulfillment_id,
+      shopify_fulfillment_status,
+      shopify_sync_last_error,
+      shopify_status_updated_at,
       raw_shopify_data,
       comercio,
       categoria_entrega,
@@ -3088,7 +3257,7 @@ window.resyncShopifyOrder = async function(orderId) {
       fecha_procesamiento,
       sucursal_pickeo,
       periodo_facturacion,
-      order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
+      order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, is_picking_request, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
     `.replace(/\s+/g, ' ').trim();
 
     const { data: refreshedOrder, error: refreshErr } = await supabase
@@ -3214,10 +3383,14 @@ window.resyncEnviameOrder = async function(orderId) {
     }
 
     // Invocar la Edge Function en Supabase (servidor Deno sin restricciones CORS)
+    const { data: { session: envSession } } = await supabase.auth.getSession();
+    const envToken = envSession?.access_token || '';
+
     const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/resync-enviame-order', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(envToken ? { 'Authorization': `Bearer ${envToken}` } : {})
       },
       body: JSON.stringify({
         order_id: orderId,
@@ -5364,6 +5537,10 @@ async function init() {
         currentModules.push('inventory_count');
         updated = true;
       }
+      if (!currentModules.includes('transfers_admin')) {
+        currentModules.push('transfers_admin');
+        updated = true;
+      }
       if (!currentModules.includes('automations_admin')) {
         currentModules.push('automations_admin');
         updated = true;
@@ -5465,6 +5642,11 @@ async function init() {
           } else if (view === 'movements_admin') {
             viewTitle.textContent = 'Trazabilidad y Movimientos de Stock';
             renderAdminMovements();
+          } else if (view === 'transfers_admin') {
+            viewTitle.textContent = 'Transferencias de Stock entre Bodegas';
+            if (typeof window.renderStockTransfersAdmin === 'function') {
+              window.renderStockTransfersAdmin(document.getElementById('app-content'));
+            }
           } else if (view === 'consolidated_shipments') {
             viewTitle.textContent = 'Envíos Consolidados';
             renderConsolidatedShipments();
@@ -6794,7 +6976,7 @@ window.reassignOrderCommerce = async function(orderId, newCommerce, selectEl) {
         // Recargar items frescos de este pedido
         const { data: freshItems } = await supabase
           .from('order_items')
-          .select('quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products(id, sku, name, price, is_virtual, comercio), warehouses(name)')
+          .select('quantity, product_id, warehouse_id, tag, is_gift, campaign_id, is_picking_request, products(id, sku, name, price, is_virtual, comercio), warehouses(name)')
           .eq('order_id', orderId);
         if (freshItems) {
           ord.order_items = freshItems;
@@ -7001,7 +7183,7 @@ window.extractOrderReferencesForShipments = function(ordersList) {
 // CACHÉ LOCAL INDEXEDDB PARA TORRE DE CONTROL (SWR ACCELERATION)
 // ==========================================================
 window.wmsDbCache = {
-  dbName: 'StockaWmsCache_v1',
+  dbName: 'StockaWmsCache_v2',
   storeName: 'orders_window',
   _db: null,
 
@@ -7246,6 +7428,11 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
         tracking_url,
         courier,
         shopify_exported,
+        shopify_order_status,
+        shopify_fulfillment_id,
+        shopify_fulfillment_status,
+        shopify_sync_last_error,
+        shopify_status_updated_at,
         raw_shopify_data,
         raw_woocommerce_data,
         raw_falabella_data,
@@ -7267,7 +7454,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
         periodo_facturacion,
         stock_descontado,
         stock_descontado_at,
-        order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms))
+        order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, is_picking_request, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms))
       `.replace(/\s+/g, ' ').trim();
 
       let allOrders = [];
@@ -10374,8 +10561,24 @@ async function renderAdminOrders() {
         tags.add('SOBREDEMANDA STOCK');
       }
 
-      // 10. Fulfillment (Shopify)
-      if (order.raw_shopify_data?.fulfillment_status) {
+      // 10. Fulfillment / Estado Real en Shopify
+      const isRealShopifyOrder = (order.external_platform === 'Shopify' || order.origen === 'Shopify') &&
+        order.raw_shopify_data && !order.raw_shopify_data.manual_order &&
+        !order.raw_shopify_data.is_reverse_logistics && !order.raw_shopify_data.is_pos_sale;
+
+      if (isRealShopifyOrder && typeof window.resolveShopifyOrderStatus === 'function') {
+        const shState = window.resolveShopifyOrderStatus(order);
+        if (shState === 'fulfilled') tags.add('FULFILLED');
+        else if (shState === 'partial') tags.add('FULFILL. PARCIAL');
+        else if (shState === 'ready_for_pickup') tags.add('SHOPIFY: LISTO RETIRO');
+        else if (shState === 'in_progress') tags.add('SHOPIFY: EN CURSO');
+        else if (shState === 'on_hold') tags.add('SHOPIFY: EN ESPERA');
+        else if (shState === 'unfulfilled') tags.add('SHOPIFY: NO PREPARADO');
+
+        if (order.estado_wms === 'Despachado' && shState !== 'fulfilled' && shState !== 'cancelled') {
+          tags.add('SHOPIFY: DESFASADO');
+        }
+      } else if (order.raw_shopify_data?.fulfillment_status) {
         const fs = order.raw_shopify_data.fulfillment_status;
         if (fs === 'fulfilled') tags.add('FULFILLED');
         else if (fs === 'partial') tags.add('FULFILL. PARCIAL');
@@ -10556,7 +10759,12 @@ async function renderAdminOrders() {
       ];
 
       const otherKnownTags = [
-        { key: 'FULFILLED', label: 'FULFILLED (Shopify)', icon: '📦' },
+        { key: 'FULFILLED', label: 'Shopify: Preparado (Fulfilled)', icon: '📦' },
+        { key: 'SHOPIFY: EN CURSO', label: 'Shopify: En Curso (In Progress)', icon: '⏳' },
+        { key: 'SHOPIFY: LISTO RETIRO', label: 'Shopify: Listo para Retiro', icon: '🏪' },
+        { key: 'SHOPIFY: EN ESPERA', label: 'Shopify: En Espera (On Hold)', icon: '⏸️' },
+        { key: 'SHOPIFY: NO PREPARADO', label: 'Shopify: No Preparado (Unfulfilled)', icon: '📋' },
+        { key: 'SHOPIFY: DESFASADO', label: 'Shopify: Desfasado (WMS Despachado ≠ Shopify)', icon: '⚠️' },
         { key: 'FULFILL. PARCIAL', label: 'FULFILL. PARCIAL (Shopify)', icon: '📦' },
         { key: 'RESTOCKED', label: 'RESTOCKED (Shopify)', icon: '🔄' },
         { key: 'CANCELADO', label: 'CANCELADO', icon: '❌' }
@@ -13147,9 +13355,26 @@ window.applyWmsFiltersAndRender = function() {
       cancelBadgeHtml = `<span class="badge wms-order-tag-badge ${isCancActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('CANCELADO', event)" style="background-color: #fee2e2; color: #991b1b; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCancActive ? 'outline: 2px solid #991b1b; box-shadow: 0 0 6px rgba(153,27,27,0.4);' : ''}" title="Cancelado (Clic para filtrar)"><i class="ri-close-circle-line"></i> CANCELADO</span>`;
     }
 
-    // 3. Estado de Preparación (Fulfillment) de Shopify
+    // 3. Estado Real y Control Interactivo de Preparación (Fulfillment) de Shopify
     let fulfillmentBadgeHtml = '';
-    if (order.external_platform === 'Shopify' && rawShopify) {
+    const isRealShopifyRow = (order.external_platform === 'Shopify' || order.origen === 'Shopify') &&
+      rawShopify && !rawShopify.manual_order && !rawShopify.is_reverse_logistics && !rawShopify.is_pos_sale;
+
+    if (isRealShopifyRow && typeof window.resolveShopifyOrderStatus === 'function') {
+      const shState = window.resolveShopifyOrderStatus(order);
+      const shMeta = window.getShopifyOrderStatusMeta(shState);
+      const isDesfasado = order.estado_wms === 'Despachado' && shState !== 'fulfilled' && shState !== 'cancelled';
+      const desfasadoHtml = isDesfasado
+        ? `<span class="badge wms-order-tag-badge ${selectedTag === 'SHOPIFY: DESFASADO' ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('SHOPIFY: DESFASADO', event)" style="background-color: #fef2f2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.42rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.18rem; width: fit-content; margin-top: 0.25rem; cursor: pointer;" title="El pedido está Despachado en WMS pero en Shopify figura como '${shMeta.label}'. Clic para filtrar pedidos desfasados."><i class="ri-error-warning-fill"></i> SHOPIFY DESFASADO</span>`
+        : '';
+
+      fulfillmentBadgeHtml = `
+        <span class="badge wms-order-tag-badge" onclick="event.stopPropagation(); window.openShopifyStatusControlModal('${order.id}')" style="background-color: ${shMeta.bg}; color: ${shMeta.text}; border: 1px solid ${shMeta.border}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.filter='brightness(0.95)'" onmouseout="this.style.filter='none'" title="Estado actual en Shopify: ${shMeta.label}. Clic para cambiar o verificar estado en Shopify">
+          <i class="ri-shopping-bag-3-line"></i> SHOPIFY: ${shMeta.label} <i class="ri-edit-2-line" style="font-size: 0.72rem; margin-left: 0.1rem; opacity: 0.85;"></i>
+        </span>
+        ${desfasadoHtml}
+      `;
+    } else if (order.external_platform === 'Shopify' && rawShopify) {
       const shpfyFullStatus = rawShopify.fulfillment_status;
       if (shpfyFullStatus === 'fulfilled') {
         const isFulfillActive = selectedTag === 'FULFILLED';
@@ -13948,12 +14173,14 @@ window.applyWmsFiltersAndRender = function() {
             warehouseName: pWhName,
             tag: oi.tag,
             is_gift: oi.is_gift,
-            campaign_id: oi.campaign_id
+            campaign_id: oi.campaign_id,
+            is_picking_request: oi.is_picking_request
           };
         } else {
           if (oi.tag) grouped[groupKey].tag = oi.tag;
           if (oi.is_gift) grouped[groupKey].is_gift = oi.is_gift;
           if (oi.campaign_id) grouped[groupKey].campaign_id = oi.campaign_id;
+          if (oi.is_picking_request) grouped[groupKey].is_picking_request = oi.is_picking_request;
         }
         grouped[groupKey].quantity += pQty;
       });
@@ -13965,9 +14192,12 @@ window.applyWmsFiltersAndRender = function() {
         // Determinar stock de bodega
         const origItem = order.order_items.find(oi => (oi.products?.sku || order.sku || 'Sin SKU') === item.sku && oi.warehouse_id === item.warehouseId);
         const tagLabel = item.tag || origItem?.tag || ((item.is_gift || item.campaign_id || origItem?.is_gift || origItem?.campaign_id) ? 'Campaña' : null);
-        const campaignBadgeHtml = tagLabel
+        const isPickingReqItem = Boolean(item.is_picking_request || origItem?.is_picking_request);
+        const campaignBadgeHtml = (tagLabel
           ? `<span class="badge" style="background-color: rgba(99, 102, 241, 0.12); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.25); font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem;" title="Artículo bonificado por campaña"><i class="ri-gift-line"></i> ${tagLabel}</span>`
-          : '';
+          : '') + (isPickingReqItem
+          ? `<span class="badge" style="background-color: rgba(14, 165, 233, 0.12); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.28); font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem;" title="Se muestra en Picker como punto a chequear (Solicitud de Picking) y descuenta stock normalmente en WMS"><i class="ri-list-check-2"></i> Solicitud Picking</span>`
+          : '');
         let stockCellHtml = '';
         let rowStyle = 'border-bottom: 1px solid var(--color-border);';
 
@@ -14187,15 +14417,21 @@ window.applyWmsFiltersAndRender = function() {
     let originalPlatformStatusHtml = '';
     const origStatus = window.getOriginalPlatformStatus(order);
     if (origStatus) {
+      const canControlShopify = origStatus.platform === 'Shopify' && isRealShopifyRow;
       originalPlatformStatusHtml = `
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; flex-wrap: wrap;">
           <span style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-Equalizer-line" style="font-size: 0.85rem;"></i> Estado Plataforma:</span>
-          <div style="display: flex; gap: 0.25rem; flex-wrap: wrap; justify-content: flex-end;">
+          <div style="display: flex; gap: 0.25rem; flex-wrap: wrap; justify-content: flex-end; align-items: center;">
             ${origStatus.details.map(d => `
               <span class="badge" style="background-color: ${d.color}15; color: ${d.color}; border: 1px solid ${d.color}33; font-size: 0.68rem; font-weight: 700; padding: 0.08rem 0.38rem; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.2px;">
                 ${d.label}: ${d.value}
               </span>
             `).join('')}
+            ${canControlShopify ? `
+              <button type="button" onclick="event.stopPropagation(); window.openShopifyStatusControlModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.1rem 0.45rem; font-size: 0.68rem; font-weight: 700; border-color: #059669; color: #059669; background: rgba(16, 185, 129, 0.08); border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;" title="Cambiar estado en Shopify o verificar estado en vivo">
+                <i class="ri-shopping-bag-3-line"></i> Cambiar Estado Shopify
+              </button>
+            ` : ''}
           </div>
         </div>
       `;
@@ -15067,6 +15303,11 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
     tracking_url,
     courier,
     shopify_exported,
+    shopify_order_status,
+    shopify_fulfillment_id,
+    shopify_fulfillment_status,
+    shopify_sync_last_error,
+    shopify_status_updated_at,
     raw_shopify_data,
     raw_woocommerce_data,
     raw_falabella_data,
@@ -15088,7 +15329,7 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
     periodo_facturacion,
     stock_descontado,
     stock_descontado_at,
-    order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms))
+    order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, is_picking_request, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms))
   `.replace(/\s+/g, ' ').trim();
 
   // Helper interno para fusionar (upsert) pedidos y actualizar dependencias
@@ -15969,6 +16210,9 @@ function renderWmsBulkActionsBar() {
           <option value="Archivado">Archivado</option>
         </select>
         <button onclick="window.applyBulkWmsStatus()" class="btn btn-accent" style="background: var(--color-primary); color: white; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; box-shadow: none; border: none; cursor: pointer; border-radius: var(--radius-sm);">Aplicar</button>
+        <button onclick="window.openBulkShopifyStatusModal()" class="btn" style="background: #10b981; color: white; font-weight: 700; padding: 0.25rem 0.75rem; font-size: 0.82rem; border: 1px solid rgba(255,255,255,0.3); cursor: pointer; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.3rem; box-shadow: 0 2px 4px rgba(0,0,0,0.18);" title="Cambiar o sincronizar masivamente el estado en Shopify de los pedidos seleccionados">
+          <i class="ri-shopping-bag-3-line"></i> Estado Shopify
+        </button>
         
         <div style="display: flex; align-items: center; gap: 0.5rem; border-left: 1px solid rgba(255,255,255,0.2); padding-left: 0.5rem; margin-left: 0.5rem; flex-wrap: wrap;">
           <!-- Botón Dual / Split para Copiar Números con Opciones -->
@@ -25007,6 +25251,7 @@ async function renderAdminInventory() {
   const isStockTab = window.activeAdminInventoryTab === 'stock';
   const isReqsTab = window.activeAdminInventoryTab === 'requests';
   const isLocationsTab = window.activeAdminInventoryTab === 'locations';
+  const isTransfersTab = window.activeAdminInventoryTab === 'transfers';
 
   appContent.innerHTML = `
     <!-- PESTAÑAS DE NAVEGACIÓN EN INVENTARIO ADMIN -->
@@ -25014,6 +25259,10 @@ async function renderAdminInventory() {
       <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
         <button id="tab-admin-inv-stock" class="btn btn-outline" style="height: 40px; padding: 0.5rem 1.25rem; font-size: 0.9rem; font-weight: 600; border-radius: var(--radius-md); ${isStockTab ? 'background: var(--color-primary); color: #fff; border-color: var(--color-primary);' : 'background: transparent; color: var(--color-text-muted); border-color: var(--color-border);'}">
           <i class="ri-box-3-line" style="margin-right: 0.35rem;"></i> Stock y Catálogo
+        </button>
+        <button id="tab-admin-inv-transfers" class="btn btn-outline" style="height: 40px; padding: 0.5rem 1.25rem; font-size: 0.9rem; font-weight: 600; border-radius: var(--radius-md); ${isTransfersTab ? 'background: #4f46e5; color: #fff; border-color: #4f46e5;' : 'background: transparent; color: var(--color-text-muted); border-color: var(--color-border);'}">
+          <i class="ri-truck-line" style="margin-right: 0.35rem;"></i> Transferencias entre Bodegas
+          <span id="badge-admin-inv-transfers" style="display: none; background: #f59e0b; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 9999px; margin-left: 0.4rem;">0</span>
         </button>
         <button id="tab-admin-inv-locations" class="btn btn-outline" style="height: 40px; padding: 0.5rem 1.25rem; font-size: 0.9rem; font-weight: 600; border-radius: var(--radius-md); ${isLocationsTab ? 'background: var(--color-primary); color: #fff; border-color: var(--color-primary);' : 'background: transparent; color: var(--color-text-muted); border-color: var(--color-border);'}">
           <i class="ri-map-pin-2-line" style="margin-right: 0.35rem;"></i> Ubicaciones
@@ -25033,6 +25282,9 @@ async function renderAdminInventory() {
         <button id="btn-admin-open-dimensions-modal" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border-color: #059669; color: #059669; background: rgba(5, 150, 105, 0.06); font-weight: 600;" title="Generar Hoja / Planilla de Dimensiones y Pesaje para Bodega">
           <i class="ri-ruler-2-line"></i> Solicitud de Dimensiones
         </button>
+        <button id="btn-admin-quick-new-transfer" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border-color: #4f46e5; color: #4f46e5; background: rgba(79, 70, 229, 0.06); font-weight: 700;">
+          <i class="ri-truck-line"></i> Solicitar Transferencia
+        </button>
         <button id="btn-admin-quick-new-request" class="btn btn-primary" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; background: #6366f1; border-color: #6366f1;">
           <i class="ri-add-line"></i> Nueva Solicitud de Inventario
         </button>
@@ -25046,10 +25298,12 @@ async function renderAdminInventory() {
 
   // Listeners de pestañas
   const tabStock = document.getElementById('tab-admin-inv-stock');
+  const tabTransfers = document.getElementById('tab-admin-inv-transfers');
   const tabLocations = document.getElementById('tab-admin-inv-locations');
   const tabRequests = document.getElementById('tab-admin-inv-requests');
   const tabMobileCount = document.getElementById('tab-admin-inv-mobile-count');
   const quickNewReq = document.getElementById('btn-admin-quick-new-request');
+  const quickNewTransfer = document.getElementById('btn-admin-quick-new-transfer');
   const openDimsBtn = document.getElementById('btn-admin-open-dimensions-modal');
   const refreshGlobalBtn = document.getElementById('btn-admin-refresh-global');
 
@@ -25070,6 +25324,10 @@ async function renderAdminInventory() {
         updateAdminInventoryRequestsTabBadge();
         if (window.activeAdminInventoryTab === 'requests') {
           await renderAdminInventoryRequestsWorkspace();
+        } else if (window.activeAdminInventoryTab === 'transfers') {
+          if (typeof window.renderStockTransfersAdmin === 'function') {
+            await window.renderStockTransfersAdmin(document.getElementById('admin-inv-tab-content'));
+          }
         } else if (window.activeAdminInventoryTab === 'locations') {
           if (typeof window.renderAdminLocationsTab === 'function') {
             await window.renderAdminLocationsTab(document.getElementById('admin-inv-tab-content'));
@@ -25097,6 +25355,13 @@ async function renderAdminInventory() {
     });
   }
 
+  if (tabTransfers) {
+    tabTransfers.addEventListener('click', () => {
+      window.activeAdminInventoryTab = 'transfers';
+      renderAdminInventory();
+    });
+  }
+
   if (tabLocations) {
     tabLocations.addEventListener('click', () => {
       window.activeAdminInventoryTab = 'locations';
@@ -25117,6 +25382,20 @@ async function renderAdminInventory() {
     });
   }
 
+  if (quickNewTransfer) {
+    quickNewTransfer.addEventListener('click', () => {
+      if (typeof window.openEnhancedStockTransferModal === 'function') {
+        window.openEnhancedStockTransferModal(window.activeAdminInventoryCommerce || '', [], () => {
+          if (window.activeAdminInventoryTab === 'transfers' && typeof window.renderStockTransfersAdmin === 'function') {
+            window.renderStockTransfersAdmin(document.getElementById('admin-inv-tab-content'));
+          } else if (window.activeAdminInventoryCommerce) {
+            window.refreshAdminInventoryAfterChange(window.activeAdminInventoryCommerce);
+          }
+        });
+      }
+    });
+  }
+
   if (quickNewReq) {
     quickNewReq.addEventListener('click', () => {
       openAdminCreateInventoryRequestModal(() => {
@@ -25129,9 +25408,16 @@ async function renderAdminInventory() {
   }
 
   updateAdminInventoryRequestsTabBadge();
+  if (typeof window.fetchAllStockTransfers === 'function') {
+    window.fetchAllStockTransfers(false).catch(() => {});
+  }
 
   if (window.activeAdminInventoryTab === 'requests') {
     await renderAdminInventoryRequestsWorkspace();
+  } else if (window.activeAdminInventoryTab === 'transfers') {
+    if (typeof window.renderStockTransfersAdmin === 'function') {
+      await window.renderStockTransfersAdmin(document.getElementById('admin-inv-tab-content'));
+    }
   } else if (window.activeAdminInventoryTab === 'locations') {
     if (typeof window.renderAdminLocationsTab === 'function') {
       await window.renderAdminLocationsTab(document.getElementById('admin-inv-tab-content'));
@@ -25351,7 +25637,8 @@ async function renderAdminInventoryWorkspace(commerce, forceNetwork = false) {
       const [, products, pendingStockMap] = await Promise.all([
         warehousesPromise,
         productsPromise,
-        fetchAdminPendingStockMap(commerce)
+        fetchAdminPendingStockMap(commerce),
+        typeof window.fetchAllStockTransfers === 'function' ? window.fetchAllStockTransfers(false).catch(() => []) : Promise.resolve([])
       ]);
 
       window.adminInventoryPendingStockMap = pendingStockMap;
@@ -25781,7 +26068,10 @@ function renderAdminWarehouseLevelsPanel() {
       const wId = String(inv.warehouse_id || '');
       const phys = inv.quantity || 0;
       const comm = inv.committed_quantity || 0;
-      const res = inv.reserved_quantity || 0;
+      const trfRes = typeof window.getProductTransferReservedQty === 'function'
+        ? window.getProductTransferReservedQty(wId, prod.id, inv)
+        : (inv.transfer_reserved_quantity || 0);
+      const res = (inv.reserved_quantity || 0) + trfRes;
       const avail = phys - comm - res;
       const shelf = Math.max(0, phys - res);
 
@@ -26455,7 +26745,10 @@ function applyAdminInventoryFiltersAndSort(flat = false, ignoreFilters = false, 
     invList.forEach(inv => {
       const phys = inv.quantity || 0;
       const comm = inv.committed_quantity || 0;
-      const res = inv.reserved_quantity || 0;
+      const trfRes = typeof window.getProductTransferReservedQty === 'function'
+        ? window.getProductTransferReservedQty(inv.warehouse_id, prod.id, inv)
+        : (inv.transfer_reserved_quantity || 0);
+      const res = (inv.reserved_quantity || 0) + trfRes;
       totalPhysical += phys;
       totalCommitted += comm;
       totalReserved += res;
@@ -26467,14 +26760,24 @@ function applyAdminInventoryFiltersAndSort(flat = false, ignoreFilters = false, 
       ? 'Agotado' 
       : (totalAvailable <= (prod.stock_critico || 0) ? 'Bajo Stock' : 'En Stock');
 
-    const pendingVal = window.adminInventoryPendingStockMap ? (window.adminInventoryPendingStockMap[prod.sku.trim()] || 0) : 0;
+    const skuTrim = (prod.sku || '').trim();
+    const decPendingVal = window.adminInventoryPendingStockMap ? (window.adminInventoryPendingStockMap[skuTrim] || 0) : 0;
+    const transitSkuKey = `${(prod.comercio || window.activeAdminInventoryCommerce || '').trim()}_${skuTrim}`;
+    const transitGlobalVal = window.adminInTransitBySkuMap ? (window.adminInTransitBySkuMap[transitSkuKey] || 0) : 0;
+    const pendingVal = decPendingVal + transitGlobalVal;
     const typeStr = prod.is_virtual ? 'online' : (prod.is_pack ? 'pack' : 'fisico');
 
     if (activeWhId) {
       const whInv = invList.find(inv => String(inv.warehouse_id) === activeWhId);
       const phys = whInv ? (whInv.quantity || 0) : 0;
       const comm = whInv ? (whInv.committed_quantity || 0) : 0;
-      const res = whInv ? (whInv.reserved_quantity || 0) : 0;
+      const trfResWh = typeof window.getProductTransferReservedQty === 'function'
+        ? window.getProductTransferReservedQty(activeWhId, prod.id, whInv)
+        : (whInv?.transfer_reserved_quantity || 0);
+      const res = (whInv ? (whInv.reserved_quantity || 0) : 0) + trfResWh;
+      const whInTransit = typeof window.getProductInTransitQty === 'function'
+        ? window.getProductInTransitQty(activeWhId, prod.id, whInv)
+        : 0;
       const available = phys - comm - res;
       const subShelf = Math.max(0, phys - res);
       const whName = whInv?.warehouses?.name || activeWhObj?.name || 'Bodega';
@@ -26489,7 +26792,10 @@ function applyAdminInventoryFiltersAndSort(flat = false, ignoreFilters = false, 
         if (String(inv.warehouse_id) !== activeWhId) {
           const oPhys = inv.quantity || 0;
           const oComm = inv.committed_quantity || 0;
-          const oRes = inv.reserved_quantity || 0;
+          const oTrfRes = typeof window.getProductTransferReservedQty === 'function'
+            ? window.getProductTransferReservedQty(inv.warehouse_id, prod.id, inv)
+            : (inv.transfer_reserved_quantity || 0);
+          const oRes = (inv.reserved_quantity || 0) + oTrfRes;
           const oAvail = oPhys - oComm - oRes;
           if (oPhys > 0 || oAvail > 0) {
             const oWhObj = (window.allWarehousesList || []).find(w => String(w.id) === String(inv.warehouse_id));
@@ -26517,7 +26823,7 @@ function applyAdminInventoryFiltersAndSort(flat = false, ignoreFilters = false, 
         shelfPhysical: subShelf,
         reserved: res,
         committed: comm,
-        pending: pendingVal,
+        pending: decPendingVal + whInTransit,
         available: available,
         totalAvailable: totalAvailable,
         otherWarehousesPhysical: otherWarehousesPhysical,
@@ -31747,10 +32053,15 @@ function getMovementCategoryInfo(referenceDoc, type) {
 
 function formatMovementReferenceWithIngCode(refText) {
   if (!refText) return '-';
-  return String(refText).replace(
-    /\[(#ING-[A-Z0-9]{8})\]/gi,
-    '<span style="background: rgba(5, 150, 105, 0.12); color: #059669; border: 1px solid rgba(5, 150, 105, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-family: monospace; font-size: 0.74rem; font-weight: 700; margin: 0 2px; display: inline-block;">$1</span>'
-  );
+  return String(refText)
+    .replace(
+      /\[(#ING-[A-Z0-9]{8})\]/gi,
+      '<span style="background: rgba(5, 150, 105, 0.12); color: #059669; border: 1px solid rgba(5, 150, 105, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-family: monospace; font-size: 0.74rem; font-weight: 700; margin: 0 2px; display: inline-block;">$1</span>'
+    )
+    .replace(
+      /\[#(TRF-[A-Z0-9-]+)\]/gi,
+      '<a href="#" onclick="event.preventDefault(); if(window.openTransferDetailModal) window.openTransferDetailModal(\'$1\');" title="Ver detalle y auditoría de transferencia #$1" style="background: rgba(79, 70, 229, 0.12); color: #4f46e5; border: 1px solid rgba(79, 70, 229, 0.35); padding: 0.1rem 0.45rem; border-radius: 4px; font-family: monospace; font-size: 0.74rem; font-weight: 800; margin: 0 2px; display: inline-block; text-decoration: none; cursor: pointer;">#$1</a>'
+    );
 }
 
 // ============================================================================
@@ -68936,11 +69247,11 @@ window.showDashboardAnnualMetricDetail = function(metricType, year) {
 // Módulo de Gestión de Comercios (Admin)
 // ==========================================
 
-// Catálogo Oficial de los 45 Proveedores Registrados en Optiroute
+// Catálogo Oficial de Proveedores Registrados en Optiroute (Base + API Sync)
 const OPTIROUTE_SUPPLIERS = (typeof window !== 'undefined' && window.OPTIROUTE_SUPPLIERS) || [
   'AIRPURE', 'ANACONDA HAITI', 'ANLU STORE', 'AQUALAT', 'ASTERFAIRO', 'B4LIFE',
   'BACK IN TIME', 'BE NATIVE', 'BLESSNUSS', 'CROMO', 'DG ORAL CARE', 'DORMILONES',
-  'EL MUNDO DEL CAFE', 'FORTE MAX', 'FRUTZ', 'GLOSS', 'GRANJA MAGDALENA PET',
+  'EL MUNDO DEL CAFE', 'FORTE MAX', 'FRUTZ', 'FULL CALENDARIOS', 'GLOSS', 'GRANJA MAGDALENA PET',
   'LA MANTA CHILENA', 'LAQU', 'LIVROS', 'LUTAI', 'MAESE', 'MAGIC MAKEUP',
   'MARINA VITAL', 'MEDSKILLS', 'MENPRIME', 'MMEDD', 'MUKAVA', 'NATIVA ELEMENTS',
   'NOMAD', 'OPARD', 'POM KIDS', 'PORTONESAUTOMAT', 'RCT CHILE', 'RELAJARTE',
@@ -68949,9 +69260,199 @@ const OPTIROUTE_SUPPLIERS = (typeof window !== 'undefined' && window.OPTIROUTE_S
 ];
 if (typeof window !== 'undefined') window.OPTIROUTE_SUPPLIERS = OPTIROUTE_SUPPLIERS;
 
+/**
+ * Refresca dinámicamente los selectores <select> de Proveedor Optiroute que estén abiertos en el DOM
+ * (tanto en Crear Comercio como en Configurar Comercio) sin perder la selección actual.
+ */
+window.refreshOptirouteSupplierSelectsInDom = function(commerceName = '') {
+  const baseSuppliers = window.OPTIROUTE_SUPPLIERS || OPTIROUTE_SUPPLIERS || [];
+  const suppliersSet = new Set(baseSuppliers.map(s => String(s || '').trim().toUpperCase()).filter(Boolean));
+
+  // 1. Selector de Edición de Comercio
+  const editSelect = document.getElementById('merchant-edit-optiroute-proveedor');
+  if (editSelect) {
+    let currentVal = (editSelect.value || '').trim().toUpperCase();
+    if ((!currentVal || currentVal === 'STOCKA') && commerceName) {
+      const resolved = (typeof window.getOptirouteProveedorForComercio === 'function'
+        ? window.getOptirouteProveedorForComercio(commerceName)
+        : '') || '';
+      if (resolved && resolved.toUpperCase() !== 'STOCKA') {
+        currentVal = resolved.toUpperCase();
+      }
+    }
+    if (!currentVal) currentVal = 'STOCKA';
+    suppliersSet.add(currentVal);
+
+    const sortedEdit = Array.from(suppliersSet).sort((a, b) => a.localeCompare(b, 'es'));
+    editSelect.innerHTML = sortedEdit.map(s => {
+      const isSelected = (s === currentVal);
+      return `<option value="${s}" ${isSelected ? 'selected' : ''}>${s} ${s === 'STOCKA' ? '(Por Defecto / Stocka)' : ''}</option>`;
+    }).join('');
+
+    const editCountEl = document.getElementById('merchant-edit-optiroute-count');
+    if (editCountEl) {
+      editCountEl.textContent = `${sortedEdit.length} Proveedores disponibles`;
+    }
+  }
+
+  // 2. Selector de Creación de Comercio
+  const createSelect = document.getElementById('merchant-create-optiroute-proveedor');
+  if (createSelect) {
+    const currentCreateVal = (createSelect.value || '').trim().toUpperCase();
+    if (currentCreateVal) suppliersSet.add(currentCreateVal);
+    const sortedCreate = Array.from(suppliersSet).sort((a, b) => a.localeCompare(b, 'es'));
+    createSelect.innerHTML = `<option value="" ${!currentCreateVal ? 'selected' : ''}>-- Asignación Automática (STOCKA) --</option>` +
+      sortedCreate.map(s => `<option value="${s}" ${s === currentCreateVal ? 'selected' : ''}>${s}</option>`).join('');
+
+    const createCountEl = document.getElementById('merchant-create-optiroute-count');
+    if (createCountEl) {
+      createCountEl.textContent = `${sortedCreate.length} Proveedores disponibles`;
+    }
+  }
+};
+
+/**
+ * Fallback en caso de que window.syncOptirouteSuppliersFromApi no haya sido definido por agendas_grid.js
+ */
+if (typeof window !== 'undefined' && typeof window.syncOptirouteSuppliersFromApi !== 'function') {
+  window.syncOptirouteSuppliersFromApi = async function(options = {}) {
+    const previousSet = new Set((window.OPTIROUTE_SUPPLIERS || OPTIROUTE_SUPPLIERS || []).map(s => String(s).trim().toUpperCase()));
+    const mergedSet = new Set(previousSet);
+    const newlyAdded = [];
+    let fetchedFromApi = false;
+
+    try {
+      let token = options.token || window.activeOptirouteToken || null;
+      if (!token && typeof supabase !== 'undefined') {
+        const { data } = await supabase
+          .from('merchant_integrations')
+          .select('access_token')
+          .eq('platform', 'Optiroute')
+          .eq('is_active', true)
+          .limit(1)
+          .maybeSingle();
+        token = data?.access_token || null;
+        if (token) window.activeOptirouteToken = token;
+      }
+
+      if (token) {
+        let nextUrl = 'https://app.optiroute.cl/api/v1/stores/?per_page=200';
+        let pageGuard = 0;
+        while (nextUrl && pageGuard < 10) {
+          pageGuard++;
+          const resp = await fetch(nextUrl, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Token ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          if (!resp.ok) break;
+          const data = await resp.json();
+          const stores = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
+          fetchedFromApi = true;
+          stores.forEach(store => {
+            const cleanName = String(store?.name || '').trim().toUpperCase();
+            if (!cleanName) return;
+            if (!previousSet.has(cleanName) && !newlyAdded.includes(cleanName)) {
+              newlyAdded.push(cleanName);
+            }
+            mergedSet.add(cleanName);
+            if (store.id) {
+              window.OPTIROUTE_SUPPLIER_IDS = window.OPTIROUTE_SUPPLIER_IDS || {};
+              window.OPTIROUTE_SUPPLIER_IDS[cleanName] = Number(store.id);
+            }
+          });
+          nextUrl = (!Array.isArray(data) && data?.next) ? data.next : null;
+        }
+      }
+    } catch (e) {
+      console.warn('[Admin] Error sincronizando proveedores de Optiroute:', e);
+    }
+
+    const sortedList = Array.from(mergedSet).filter(Boolean).sort((a, b) => a.localeCompare(b, 'es'));
+    OPTIROUTE_SUPPLIERS.splice(0, OPTIROUTE_SUPPLIERS.length, ...sortedList);
+    window.OPTIROUTE_SUPPLIERS = OPTIROUTE_SUPPLIERS;
+
+    try {
+      localStorage.setItem('stocka_optiroute_suppliers_cache_v1', JSON.stringify({
+        suppliers: sortedList,
+        supplierIds: window.OPTIROUTE_SUPPLIER_IDS || {},
+        updatedAt: new Date().toISOString()
+      }));
+    } catch (eCache) {}
+
+    if (typeof window.refreshOptirouteSupplierSelectsInDom === 'function') {
+      window.refreshOptirouteSupplierSelectsInDom(options.commerceName);
+    }
+
+    return {
+      ok: fetchedFromApi,
+      count: sortedList.length,
+      newSuppliers: newlyAdded,
+      suppliers: sortedList
+    };
+  };
+}
+
+/**
+ * Handler del botón "Sincronizar desde Optiroute" en los modales de Crear y Editar Comercio
+ */
+window.handleSyncOptirouteSuppliersClick = async function(btnEl, mode = 'edit', commerceName = '') {
+  const msgEl = document.getElementById(mode === 'create' ? 'merchant-create-optiroute-sync-msg' : 'merchant-edit-optiroute-sync-msg');
+  const origHtml = btnEl ? btnEl.innerHTML : '';
+  if (btnEl) {
+    btnEl.disabled = true;
+    btnEl.innerHTML = `<i class="ri-loader-4-line spin" style="display: inline-block; animation: spin 1s linear infinite;"></i> Sincronizando...`;
+  }
+  if (msgEl) {
+    msgEl.style.display = 'none';
+  }
+
+  try {
+    const res = await window.syncOptirouteSuppliersFromApi({ force: true, commerceName });
+    if (typeof window.refreshOptirouteSupplierSelectsInDom === 'function') {
+      window.refreshOptirouteSupplierSelectsInDom(commerceName);
+    }
+    if (msgEl) {
+      msgEl.style.display = 'block';
+      if (res && res.ok) {
+        msgEl.style.color = '#16a34a';
+        if (res.newSuppliers && res.newSuppliers.length > 0) {
+          msgEl.innerHTML = `<i class="ri-checkbox-circle-fill"></i> ¡Sincronizado con Optiroute! Se encontraron <strong>${res.newSuppliers.length}</strong> nuevo(s) proveedor(es): <strong>${res.newSuppliers.join(', ')}</strong> (${res.count} en total).`;
+        } else {
+          msgEl.innerHTML = `<i class="ri-checkbox-circle-fill"></i> Catálogo sincronizado en vivo desde Optiroute (${res.count} proveedores disponibles).`;
+        }
+      } else {
+        msgEl.style.color = '#d97706';
+        msgEl.innerHTML = `<i class="ri-information-line"></i> Se cargaron ${res?.count || (window.OPTIROUTE_SUPPLIERS || []).length} proveedores disponibles en caché.`;
+      }
+      setTimeout(() => {
+        if (msgEl) msgEl.style.display = 'none';
+      }, 6500);
+    }
+  } catch (err) {
+    if (msgEl) {
+      msgEl.style.display = 'block';
+      msgEl.style.color = 'var(--color-danger)';
+      msgEl.textContent = 'No se pudo conectar con Optiroute en este momento.';
+    }
+  } finally {
+    if (btnEl) {
+      btnEl.disabled = false;
+      btnEl.innerHTML = origHtml || `<i class="ri-refresh-line"></i> Sincronizar desde Optiroute`;
+    }
+  }
+};
+
 async function renderMerchantsAdmin() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `<p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: inline-block; animation: spin 1s linear infinite;"></i> Cargando módulo de comercios...</p>`;
+
+  // Sincronizar catálogo de proveedores de Optiroute en segundo plano
+  if (typeof window.syncOptirouteSuppliersFromApi === 'function') {
+    window.syncOptirouteSuppliersFromApi({ silent: true }).catch(() => {});
+  }
 
   try {
     // 1. Cargar comercios de v_comercios_config
@@ -71768,13 +72269,20 @@ window.showMerchantCreateModal = function() {
           </div>
 
           <div class="form-group" style="margin: 0;">
-            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">
-              <i class="ri-truck-line" style="color: #4f46e5; margin-right: 0.25rem;"></i> Proveedor Optiroute
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+              <span><i class="ri-truck-line" style="color: #4f46e5; margin-right: 0.25rem;"></i> Proveedor Optiroute</span>
+              <span style="display: inline-flex; align-items: center; gap: 0.45rem;">
+                <span id="merchant-create-optiroute-count" style="font-size: 0.7rem; font-weight: normal; color: var(--color-text-muted);">${(window.OPTIROUTE_SUPPLIERS || OPTIROUTE_SUPPLIERS || []).length} Proveedores disponibles</span>
+                <button type="button" id="btn-sync-create-optiroute-suppliers" onclick="window.handleSyncOptirouteSuppliersClick(this, 'create', document.getElementById('merchant-create-name')?.value || '')" style="background: rgba(79, 70, 229, 0.08); color: #4f46e5; border: 1px solid rgba(79, 70, 229, 0.25); border-radius: 4px; padding: 2px 8px; font-size: 0.7rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; transition: all 0.15s;" title="Consultar a la API de Optiroute para traer los proveedores más recientes">
+                  <i class="ri-refresh-line"></i> Sincronizar desde Optiroute
+                </button>
+              </span>
             </label>
             <select id="merchant-create-optiroute-proveedor" class="form-input" style="width: 100%; box-sizing: border-box;">
               <option value="">-- Asignación Automática (STOCKA) --</option>
-              ${OPTIROUTE_SUPPLIERS.map(s => `<option value="${s}">${s}</option>`).join('')}
+              ${(window.OPTIROUTE_SUPPLIERS || OPTIROUTE_SUPPLIERS || []).map(s => `<option value="${s}">${s}</option>`).join('')}
             </select>
+            <div id="merchant-create-optiroute-sync-msg" style="display: none; font-size: 0.72rem; margin-top: 0.35rem; font-weight: 600;"></div>
             <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Proveedor oficial asociado en Optiroute para ruteo de despachos y planillas.</p>
           </div>
 
@@ -72044,6 +72552,9 @@ window.showMerchantCreateModal = function() {
   document.body.appendChild(modal);
   window.setupPosColorSelector('merchant-create');
   window.setupPosPaymentMethodsSelector('merchant-create');
+  if (typeof window.syncOptirouteSuppliersFromApi === 'function') {
+    window.syncOptirouteSuppliersFromApi({ silent: true }).catch(() => {});
+  }
 
   // Gestión de contactos en creación de comercio
   const pendingCreateContacts = [];
@@ -73004,20 +73515,29 @@ window.showMerchantEditModal = async function(comercioName) {
                 </div>
 
                 <div class="form-group" style="margin: 0; grid-column: 1 / -1; margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border);">
-                  <label class="merchant-form-label" style="display: flex; align-items: center; justify-content: space-between;">
+                  <label class="merchant-form-label" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
                     <span><i class="ri-truck-line" style="color: #4f46e5; margin-right: 0.25rem;"></i> Proveedor Oficial en Optiroute</span>
-                    <span style="font-size: 0.7rem; font-weight: normal; color: var(--color-text-muted);">45 Proveedores disponibles</span>
+                    <span style="display: inline-flex; align-items: center; gap: 0.5rem;">
+                      <span id="merchant-edit-optiroute-count" style="font-size: 0.7rem; font-weight: normal; color: var(--color-text-muted);">${(window.OPTIROUTE_SUPPLIERS || OPTIROUTE_SUPPLIERS || []).length} Proveedores disponibles</span>
+                      <button type="button" id="btn-sync-edit-optiroute-suppliers" onclick="window.handleSyncOptirouteSuppliersClick(this, 'edit', '${commerce.nombre.replace(/'/g, "\\'")}')" style="background: rgba(79, 70, 229, 0.08); color: #4f46e5; border: 1px solid rgba(79, 70, 229, 0.25); border-radius: 4px; padding: 2px 8px; font-size: 0.7rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; transition: all 0.15s;" title="Consultar a la API de Optiroute para traer los proveedores más recientes">
+                        <i class="ri-refresh-line"></i> Sincronizar desde Optiroute
+                      </button>
+                    </span>
                   </label>
                   <select id="merchant-edit-optiroute-proveedor" class="form-input" style="width: 100%; box-sizing: border-box; font-weight: 600;">
                     ${(() => {
-                      const currentOpti = (commerce.optiroute_proveedor || (typeof window.getOptirouteProveedorForComercio === 'function' ? window.getOptirouteProveedorForComercio(commerce.nombre) : 'STOCKA') || 'STOCKA').toUpperCase();
-                      const suppliers = window.OPTIROUTE_SUPPLIERS || OPTIROUTE_SUPPLIERS || [];
+                      const rawSavedOpti = (commerce.optiroute_proveedor || '').trim().toUpperCase();
+                      const resolvedOpti = (typeof window.getOptirouteProveedorForComercio === 'function' ? window.getOptirouteProveedorForComercio(commerce.nombre) : 'STOCKA') || 'STOCKA';
+                      const currentOpti = (rawSavedOpti && rawSavedOpti !== 'STOCKA') ? rawSavedOpti : resolvedOpti.toUpperCase();
+                      const baseSuppliers = window.OPTIROUTE_SUPPLIERS || OPTIROUTE_SUPPLIERS || [];
+                      const suppliers = Array.from(new Set([...baseSuppliers, currentOpti].filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es'));
                       return suppliers.map(s => {
                         const isSelected = (s === currentOpti);
                         return `<option value="${s}" ${isSelected ? 'selected' : ''}>${s} ${s === 'STOCKA' ? '(Por Defecto / Stocka)' : ''}</option>`;
                       }).join('');
                     })()}
                   </select>
+                  <div id="merchant-edit-optiroute-sync-msg" style="display: none; font-size: 0.72rem; margin-top: 0.35rem; font-weight: 600;"></div>
                   <p class="merchant-form-hint">Nombre oficial del proveedor en Optiroute asignado a los despachos y planillas de este comercio.</p>
                 </div>
               </div>
@@ -73375,6 +73895,9 @@ window.showMerchantEditModal = async function(comercioName) {
 
   window.setupPosColorSelector('merchant-edit');
   window.setupPosPaymentMethodsSelector('merchant-edit');
+  if (typeof window.syncOptirouteSuppliersFromApi === 'function') {
+    window.syncOptirouteSuppliersFromApi({ silent: true, commerceName: commerce.nombre }).catch(() => {});
+  }
 
   // Inicializar lista y eventos de Contactos del Comercio en Modal de Edición
   window.renderMerchantEditContactsList(comercioName);
@@ -77331,7 +77854,7 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
     try {
       const { data: freshItems } = await supabase
         .from('order_items')
-        .select('quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2)')
+        .select('quantity, product_id, warehouse_id, tag, is_gift, campaign_id, is_picking_request, products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2)')
         .eq('order_id', order.id);
       if (freshItems && freshItems.length > 0) {
         items = freshItems;
@@ -77342,7 +77865,10 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
     }
   }
 
-  const physicalItems = items.filter(item => !item.products?.is_virtual);
+  const allPhysicalItems = items.filter(item => !item.products?.is_virtual && !(window.isOrderItemEliminated && window.isOrderItemEliminated(order, item)));
+  const pickingRequestItems = items.filter(item => item.is_picking_request && !(window.isOrderItemEliminated && window.isOrderItemEliminated(order, item)));
+  const nonPickingPhysical = allPhysicalItems.filter(item => !item.is_picking_request);
+  const physicalItems = nonPickingPhysical.length > 0 ? nonPickingPhysical : allPhysicalItems;
   const totu = physicalItems.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
   const payloads = [];
 
@@ -77360,14 +77886,52 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
 
   const existingPickingState = existingItems.find(pi => pi.has_picking_requests) || null;
   const wmsPr = (order.id && window.pickingRequestsCache && window.pickingRequestsCache.get(order.id)) || null;
-  const finalHasPickingReq = Boolean(existingPickingState?.has_picking_requests || (wmsPr && Array.isArray(wmsPr.items) && wmsPr.items.length > 0));
-  const finalPickingReqJson = existingPickingState ? existingPickingState.picking_requests_json : (wmsPr ? wmsPr.items : null);
-  const finalPickingReqConfirmed = Boolean(existingPickingState ? existingPickingState.picking_requests_confirmed : (wmsPr && (wmsPr.status === 'completada' || (Array.isArray(wmsPr.items) && wmsPr.items.every(i => i.checked || i.discarded)))));
+  let finalHasPickingReq = Boolean(existingPickingState?.has_picking_requests || (wmsPr && Array.isArray(wmsPr.items) && wmsPr.items.length > 0));
+  let finalPickingReqJson = existingPickingState ? existingPickingState.picking_requests_json : (wmsPr ? wmsPr.items : null);
+  let finalPickingReqConfirmed = Boolean(existingPickingState ? existingPickingState.picking_requests_confirmed : (wmsPr && (wmsPr.status === 'completada' || (Array.isArray(wmsPr.items) && wmsPr.items.every(i => i.checked || i.discarded)))));
   const finalPickingReqOp = existingPickingState ? existingPickingState.picking_requests_operator : (wmsPr ? wmsPr.completed_by_operator : null);
   const finalPickingReqAt = existingPickingState ? existingPickingState.picking_requests_confirmed_at : (wmsPr ? wmsPr.completed_at : null);
 
+  if (pickingRequestItems.length > 0) {
+    const mergedReqs = Array.isArray(finalPickingReqJson) ? [...finalPickingReqJson] : [];
+    pickingRequestItems.forEach(pri => {
+      const pSku = pri.products?.sku || '-';
+      const pName = pri.products?.name || pSku;
+      const pQty = parseInt(pri.quantity, 10) || 1;
+      const reqId = pri.campaign_id ? `campaign_${pri.campaign_id}` : `item_req_${pri.product_id || pSku}`;
+      const idx = mergedReqs.findIndex(r => r && (r.id === reqId || (pri.campaign_id && String(r.campaign_id) === String(pri.campaign_id))));
+      const textVal = `🎁 [Campaña] Incluir ${pQty}x ${pName} (SKU: ${pSku})`;
+      if (idx === -1) {
+        mergedReqs.push({
+          id: reqId,
+          text: textVal,
+          checked: false,
+          checked_at: null,
+          checked_by: null,
+          is_campaign: true,
+          campaign_id: pri.campaign_id || null,
+          gift_sku: pSku,
+          quantity: pQty
+        });
+      } else if (mergedReqs[idx].quantity !== pQty) {
+        mergedReqs[idx] = {
+          ...mergedReqs[idx],
+          quantity: pQty,
+          text: mergedReqs[idx].text ? mergedReqs[idx].text.replace(/Incluir\s+\d+x/i, `Incluir ${pQty}x`) : textVal
+        };
+      }
+    });
+    finalPickingReqJson = mergedReqs;
+    finalHasPickingReq = mergedReqs.length > 0;
+    finalPickingReqConfirmed = mergedReqs.length > 0 && mergedReqs.every(i => i.checked || i.discarded);
+  }
+
+  const prContextForObs = finalHasPickingReq
+    ? { items: finalPickingReqJson, status: finalPickingReqConfirmed ? 'completada' : 'pendiente' }
+    : (wmsPr || existingPickingState);
+
   const finalObs = window.buildPickerObservation 
-    ? window.buildPickerObservation(order, cleanExistingObs, wmsPr || existingPickingState) 
+    ? window.buildPickerObservation(order, cleanExistingObs, prContextForObs) 
     : (cleanExistingObs || order.observation || '');
 
   for (const item of physicalItems) {
@@ -77686,6 +78250,63 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
     }
   }
 
+  let items = order.order_items || [];
+  if (order.id) {
+    try {
+      const { data: freshItems } = await supabase
+        .from('order_items')
+        .select('quantity, product_id, warehouse_id, tag, is_gift, campaign_id, is_picking_request, products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2)')
+        .eq('order_id', order.id);
+      if (freshItems && freshItems.length > 0) {
+        items = freshItems;
+        order.order_items = freshItems;
+      }
+    } catch (e) {
+      console.warn("No se pudieron recargar items para", orderNumber, e);
+    }
+  }
+
+  const allPhysicalItems = items.filter(item => !item.products?.is_virtual && !(window.isOrderItemEliminated && window.isOrderItemEliminated(order, item)));
+  const pickingRequestItems = items.filter(item => item.is_picking_request && !(window.isOrderItemEliminated && window.isOrderItemEliminated(order, item)));
+  const nonPickingPhysical = allPhysicalItems.filter(item => !item.is_picking_request);
+  const physicalItems = nonPickingPhysical.length > 0 ? nonPickingPhysical : allPhysicalItems;
+  const totu = physicalItems.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
+  const payloads = [];
+
+  if (pickingRequestItems.length > 0) {
+    const mergedReqs = Array.isArray(finalPickingReqJson) ? [...finalPickingReqJson] : [];
+    pickingRequestItems.forEach(pri => {
+      const pSku = pri.products?.sku || '-';
+      const pName = pri.products?.name || pSku;
+      const pQty = parseInt(pri.quantity, 10) || 1;
+      const reqId = pri.campaign_id ? `campaign_${pri.campaign_id}` : `item_req_${pri.product_id || pSku}`;
+      const idx = mergedReqs.findIndex(r => r && (r.id === reqId || (pri.campaign_id && String(r.campaign_id) === String(pri.campaign_id))));
+      const textVal = `🎁 [Campaña] Incluir ${pQty}x ${pName} (SKU: ${pSku})`;
+      if (idx === -1) {
+        mergedReqs.push({
+          id: reqId,
+          text: textVal,
+          checked: false,
+          checked_at: null,
+          checked_by: null,
+          is_campaign: true,
+          campaign_id: pri.campaign_id || null,
+          gift_sku: pSku,
+          quantity: pQty
+        });
+      } else if (mergedReqs[idx].quantity !== pQty) {
+        mergedReqs[idx] = {
+          ...mergedReqs[idx],
+          quantity: pQty,
+          text: mergedReqs[idx].text ? mergedReqs[idx].text.replace(/Incluir\s+\d+x/i, `Incluir ${pQty}x`) : textVal
+        };
+      }
+    });
+    finalPickingReqJson = mergedReqs;
+    finalHasPickingReq = mergedReqs.length > 0;
+    finalPickingReqConfirmed = mergedReqs.length > 0 && mergedReqs.every(i => i.checked || i.discarded);
+  }
+
   let pickingTag = '';
   if (finalHasPickingReq && Array.isArray(finalPickingReqJson) && finalPickingReqJson.length > 0) {
     const allChecked = finalPickingReqJson.every(i => i.checked);
@@ -77714,26 +78335,6 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
     .from('active_orders')
     .delete()
     .eq('order_number', orderNumber);
-
-  let items = order.order_items || [];
-  if (order.id) {
-    try {
-      const { data: freshItems } = await supabase
-        .from('order_items')
-        .select('quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2)')
-        .eq('order_id', order.id);
-      if (freshItems && freshItems.length > 0) {
-        items = freshItems;
-        order.order_items = freshItems;
-      }
-    } catch (e) {
-      console.warn("No se pudieron recargar items para", orderNumber, e);
-    }
-  }
-
-  const physicalItems = items.filter(item => !item.products?.is_virtual && !(window.isOrderItemEliminated && window.isOrderItemEliminated(order, item)));
-  const totu = physicalItems.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
-  const payloads = [];
 
   for (const item of physicalItems) {
     const prod = item.products || {};
@@ -91917,11 +92518,14 @@ async function renderCampaignsTab(commerce) {
         } else if (c.gift_quantity_mode === 'order_total_qty') {
           giftQtyDisplayHtml = `<span class="badge" style="background: rgba(99, 102, 241, 0.12); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-left: 0.25rem;" title="Igual a la cantidad total de artículos del pedido (productos + otras campañas)">= Total Ítems (+Campañas)</span>`;
         }
+        const pickingReqBadgeHtml = c.send_as_picking_request
+          ? `<div style="margin-top: 0.25rem;"><span class="badge" style="background: rgba(14, 165, 233, 0.12); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.28); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;" title="Aparece en el Picker como Solicitud de Picking (Checklist) y descuenta stock normalmente en WMS"><i class="ri-list-check-2"></i> Solicitud de Picking</span></div>`
+          : '';
 
         return `
           <tr data-campaign-id="${c.id}">
             <td style="padding: 0.75rem 2rem;"><strong>${c.name}</strong></td>
-            <td style="padding: 0.75rem 2rem;"><strong>${c.gift_sku}</strong> ${giftQtyDisplayHtml}</td>
+            <td style="padding: 0.75rem 2rem;"><strong>${c.gift_sku}</strong> ${giftQtyDisplayHtml}${pickingReqBadgeHtml}</td>
             <td style="padding: 0.75rem 2rem; font-size: 0.85rem; line-height: 1.4;">${conditionsHtml}</td>
             <td style="padding: 0.75rem 2rem; font-size: 0.85rem;">${datesText}</td>
             <td style="padding: 0.75rem 2rem;">${statusBadgeHtml}</td>
@@ -92062,6 +92666,8 @@ function openCampaignModal(commerce, campaign = null) {
   const giftSkuVal = isEdit ? campaign.gift_sku : '';
   const giftQtyVal = isEdit ? (campaign.gift_quantity || 1) : 1;
   const giftQtyModeVal = isEdit && campaign.gift_quantity_mode ? campaign.gift_quantity_mode : 'fixed';
+  const sendAsPickingReqVal = isEdit && campaign.send_as_picking_request ? true : false;
+  const sendAsPickingReqChecked = sendAsPickingReqVal ? 'checked' : '';
   const minQtyVal = isEdit && campaign.min_total_quantity !== null ? campaign.min_total_quantity : '';
   const minDistinctSkusVal = isEdit && campaign.min_distinct_skus !== null ? campaign.min_distinct_skus : '';
   const nameVal = isEdit ? campaign.name : '';
@@ -92171,6 +92777,18 @@ function openCampaignModal(commerce, campaign = null) {
             ${giftQtyModeVal === 'order_products_qty'
               ? '<i class="ri-information-line" style="color: var(--color-success);"></i> Se añadirá una cantidad igual a los <strong>productos del pedido</strong> (sin contar ítems añadidos por otras campañas).'
               : '<i class="ri-information-line" style="color: #6366f1;"></i> Se añadirá una cantidad igual al <strong>total de artículos del pedido</strong> (contando productos + ítems añadidos por otras campañas).'}
+          </div>
+
+          <div style="background: rgba(14, 165, 233, 0.05); border: 1px solid rgba(14, 165, 233, 0.25); border-radius: var(--radius-md); padding: 0.85rem 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <input type="checkbox" id="campaign-send-as-picking-request" ${sendAsPickingReqChecked} style="width: 16px; height: 16px; cursor: pointer; accent-color: #0284c7;">
+              <label for="campaign-send-as-picking-request" style="font-weight: 600; cursor: pointer; user-select: none; color: #0284c7; font-size: 0.9rem; display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-list-check-2"></i> Enviar como Solicitud de Picking (Checklist en Picker)
+              </label>
+            </div>
+            <p style="margin: 0.35rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.4;">
+              Al activar esta opción, los artículos de la campaña aparecerán al operario del Picker como <strong>puntos a chequear de una Solicitud de Picking</strong> y no como productos que deba escanear/pickear. <strong>Si el ítem tiene stock, el WMS realizará la reserva y el descuento de stock normalmente.</strong>
+            </p>
           </div>
 
           <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.5rem 0;">
@@ -92320,6 +92938,7 @@ function openCampaignModal(commerce, campaign = null) {
     const giftSku = document.getElementById('campaign-gift-sku').value.trim();
     const gift_quantity_mode = document.getElementById('campaign-gift-qty-mode')?.value || 'fixed';
     const giftQty = gift_quantity_mode === 'fixed' ? (parseInt(document.getElementById('campaign-gift-qty').value) || 1) : 1;
+    const send_as_picking_request = document.getElementById('campaign-send-as-picking-request')?.checked || false;
     const is_retroactive = document.getElementById('campaign-is-retroactive')?.checked || false;
     const targetStatuses = Array.from(document.querySelectorAll('.retro-status-chk:checked')).map(c => c.value);
     const retroactive_target_statuses = targetStatuses.length > 0 ? targetStatuses : ['para procesar', 'en preparación'];
@@ -92372,6 +92991,7 @@ function openCampaignModal(commerce, campaign = null) {
       gift_sku: giftSku,
       gift_quantity: giftQty,
       gift_quantity_mode,
+      send_as_picking_request,
       conditions,
       is_retroactive,
       retroactive_target_statuses
@@ -95253,6 +95873,9 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
 }
 
 function openBulkStockTransferModal(commerce, selectedProducts, onComplete, defaultSourceWarehouseId = null, defaultDestWarehouseId = null) {
+  if (typeof window.openEnhancedStockTransferModal === 'function') {
+    return window.openEnhancedStockTransferModal(commerce, selectedProducts, onComplete, defaultSourceWarehouseId, defaultDestWarehouseId);
+  }
   let modal = document.getElementById('modal-bulk-stock-transfer');
   if (modal) modal.remove();
 
@@ -100376,7 +100999,7 @@ window.extractOrderDataForShippingQuote = async function(orderOrId) {
     const selectCols = `
       *,
       order_items (
-        id, quantity, product_id, warehouse_id, tag, is_gift, campaign_id,
+        id, quantity, product_id, warehouse_id, tag, is_gift, campaign_id, is_picking_request,
         products (id, name, sku, price, volumen, weight, length, width, height, is_virtual)
       )
     `;
@@ -112698,4 +113321,746 @@ window.reauthorizeMerchantShopifyOAuth = function(integrationId, copyOnly = fals
   } else {
     window.open(oauthUrl, '_blank');
   }
+};
+
+// ============================================================================
+// CONTROL DE ESTADOS DE SHOPIFY DESDE TORRE DE CONTROL (INDIVIDUAL Y MASIVO)
+// ============================================================================
+
+window.getShopifyActionCatalog = function(order = null) {
+  const isRetiro = order
+    ? ((typeof window.getOrderEffectiveCategoriaEntrega === 'function' ? window.getOrderEffectiveCategoriaEntrega(order) : order.categoria_entrega) === 'RETIRO')
+    : false;
+
+  return [
+    {
+      action: 'create_fulfillment',
+      title: isRetiro ? 'Marcar como Preparado / Entregado (Retiro Completado)' : 'Marcar como Preparado / Despachado (Fulfill)',
+      shortTitle: 'Preparado (Fulfill)',
+      icon: 'ri-checkbox-circle-line',
+      color: '#10b981',
+      validFrom: ['unfulfilled', 'in_progress', 'ready_for_pickup', 'on_hold', 'partial'],
+      targetShopifyStatus: 'fulfilled',
+      suggestedWmsStatus: 'Despachado',
+      needsTracking: !isRetiro,
+      needsHoldReason: false,
+      description: isRetiro
+        ? 'Marca el pedido de retiro como Preparado (Fulfilled) en Shopify sin enviar número de seguimiento falso.'
+        : 'Crea el Fulfillment oficial en Shopify (si estaba En Espera, lo libera automáticamente) y envía el tracking y courier.'
+    },
+    {
+      action: 'set_in_progress',
+      title: 'Marcar En Curso (En preparación)',
+      shortTitle: 'En Curso',
+      icon: 'ri-loader-2-line',
+      color: '#3b82f6',
+      validFrom: ['unfulfilled', 'ready_for_pickup', 'on_hold'],
+      targetShopifyStatus: 'in_progress',
+      suggestedWmsStatus: 'En preparación',
+      needsTracking: false,
+      needsHoldReason: false,
+      description: 'Registra el estado En Curso y etiqueta el pedido en Shopify con "Stocka: En preparación".'
+    },
+    {
+      action: 'set_ready_for_pickup',
+      title: 'Marcar Listo para Retiro en Tienda',
+      shortTitle: 'Listo para Retiro',
+      icon: 'ri-store-2-line',
+      color: '#0284c7',
+      validFrom: ['unfulfilled', 'in_progress', 'on_hold'],
+      targetShopifyStatus: 'ready_for_pickup',
+      suggestedWmsStatus: 'Pickeado',
+      needsTracking: false,
+      needsHoldReason: false,
+      description: 'Ejecuta fulfillmentOrderLineItemsPreparedForPickup en Shopify (notifica al cliente si es retiro nativo) + tag "Stocka: Listo para Retiro".'
+    },
+    {
+      action: 'set_on_hold',
+      title: 'Poner En Espera (On Hold / Incidencia)',
+      shortTitle: 'En Espera (Hold)',
+      icon: 'ri-pause-circle-line',
+      color: '#d97706',
+      validFrom: ['unfulfilled', 'in_progress', 'ready_for_pickup', 'partial'],
+      targetShopifyStatus: 'on_hold',
+      suggestedWmsStatus: 'Incidencia',
+      needsTracking: false,
+      needsHoldReason: true,
+      description: 'Pausa la orden de preparación en Shopify (fulfillmentOrderHold) con motivo oficial y etiqueta "Stocka: En Espera (Incidencia)".'
+    },
+    {
+      action: 'release_hold',
+      title: 'Liberar de Espera (Release Hold)',
+      shortTitle: 'Liberar Espera',
+      icon: 'ri-play-circle-line',
+      color: '#6366f1',
+      validFrom: ['on_hold', 'in_progress', 'unfulfilled'],
+      targetShopifyStatus: 'in_progress',
+      suggestedWmsStatus: 'En preparación',
+      needsTracking: false,
+      needsHoldReason: false,
+      description: 'Libera la pausa (fulfillmentOrderReleaseHold) en Shopify y retira la etiqueta de espera.'
+    },
+    {
+      action: 'update_tracking',
+      title: 'Actualizar Tracking y Courier en Shopify',
+      shortTitle: 'Actualizar Tracking',
+      icon: 'ri-truck-line',
+      color: '#0d9488',
+      validFrom: ['fulfilled', 'partial'],
+      targetShopifyStatus: 'fulfilled',
+      suggestedWmsStatus: 'Despachado',
+      needsTracking: true,
+      needsHoldReason: false,
+      description: 'Actualiza el código de seguimiento, courier y URL en el Fulfillment ya creado en Shopify.'
+    },
+    {
+      action: 'cancel_fulfillment',
+      title: 'Cancelar Preparación en Shopify (Volver a No Preparado)',
+      shortTitle: 'Cancelar Preparación',
+      icon: 'ri-arrow-go-back-line',
+      color: '#ef4444',
+      validFrom: ['fulfilled', 'partial'],
+      targetShopifyStatus: 'unfulfilled',
+      suggestedWmsStatus: 'En procesamiento',
+      needsTracking: false,
+      needsHoldReason: false,
+      description: 'Anula el Fulfillment activo en Shopify (/fulfillments/{id}/cancel.json) y devuelve el pedido a "No preparado".'
+    },
+    {
+      action: 'revert_in_progress',
+      title: 'Revertir a No Preparado (Quitar En Curso / Listo Retiro)',
+      shortTitle: 'Revertir a No Preparado',
+      icon: 'ri-restart-line',
+      color: '#64748b',
+      validFrom: ['in_progress', 'ready_for_pickup', 'on_hold'],
+      targetShopifyStatus: 'unfulfilled',
+      suggestedWmsStatus: 'En procesamiento',
+      needsTracking: false,
+      needsHoldReason: false,
+      description: 'Quita las etiquetas de preparación/retiro de Stocka en Shopify y deja el pedido como "No preparado".'
+    }
+  ];
+};
+
+window.onShopifyControlActionChange = function(actionValue, isBulk = false) {
+  const prefix = isBulk ? 'bulk-sh-ctrl' : 'sh-ctrl';
+  const catalog = window.getShopifyActionCatalog();
+  const item = catalog.find(a => a.action === actionValue);
+
+  const trackingBox = document.getElementById(`${prefix}-tracking-box`);
+  const holdBox = document.getElementById(`${prefix}-hold-box`);
+  const descBox = document.getElementById(`${prefix}-action-desc`);
+  const wmsSyncSelect = document.getElementById(`${prefix}-wms-status-select`);
+
+  if (descBox && item) {
+    descBox.innerHTML = `<i class="${item.icon}" style="color: ${item.color}; font-size: 1rem;"></i> <span>${item.description}</span>`;
+  }
+  if (trackingBox) {
+    trackingBox.style.display = (item && (item.action === 'create_fulfillment' || item.action === 'update_tracking')) ? 'block' : 'none';
+  }
+  if (holdBox) {
+    holdBox.style.display = (item && item.needsHoldReason) ? 'block' : 'none';
+  }
+  if (wmsSyncSelect && item && item.suggestedWmsStatus) {
+    wmsSyncSelect.value = item.suggestedWmsStatus;
+  }
+};
+
+window.verifyLiveShopifyOrderStatus = async function(orderId, reopenModal = true) {
+  const btn = document.getElementById('btn-verify-live-shopify-status');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Consultando Shopify en vivo...';
+  }
+  try {
+    const { data, error } = await supabase.functions.invoke('shopify-fulfillment-sync', {
+      body: { mode: 'fetch_live_status', order_id: orderId }
+    });
+    if (error) throw error;
+    if (!data || !data.success) {
+      throw new Error(data?.error || 'No se pudo consultar el estado en vivo en Shopify.');
+    }
+
+    const ord = (window.loadedOrders || []).find(o => String(o.id) === String(orderId));
+    if (ord) {
+      ord.shopify_order_status = data.shopify_order_status;
+      ord.shopify_status_updated_at = data.updated_at || new Date().toISOString();
+      if (data.shopify_fulfillment_id !== undefined) {
+        ord.shopify_fulfillment_id = data.shopify_fulfillment_id;
+      }
+      if (data.shopify_order_status === 'fulfilled') {
+        ord.shopify_fulfillment_status = 'synced';
+      }
+      delete ord._wmsTags;
+    }
+
+    if (typeof window.applyWmsFiltersAndRender === 'function') {
+      window.applyWmsFiltersAndRender();
+    }
+
+    if (reopenModal) {
+      window.openShopifyStatusControlModal(orderId, {
+        liveCheckedMessage: data.scope_warning
+          ? `Estado verificado en Shopify: ${window.getShopifyOrderStatusMeta(data.shopify_order_status).label}. (Aviso: La tienda aún no ha autorizado el permiso write_merchant_managed_fulfillment_orders).`
+          : `Estado verificado en tiempo real con Shopify: ${window.getShopifyOrderStatusMeta(data.shopify_order_status).label}`
+      });
+    }
+  } catch (err) {
+    console.error('[Shopify Live Status] Error:', err);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ri-refresh-line"></i> Verificar en vivo con Shopify';
+    }
+    Swal.fire('Error al consultar Shopify', err.message || 'No se pudo verificar el estado en vivo.', 'error');
+  }
+};
+
+window.openShopifyStatusControlModal = async function(orderId, opts = {}) {
+  const order = (window.loadedOrders || []).find(o => String(o.id) === String(orderId));
+  if (!order) {
+    Swal.fire('Error', 'No se encontró el pedido en memoria.', 'error');
+    return;
+  }
+
+  const shState = window.resolveShopifyOrderStatus(order);
+  const shMeta = window.getShopifyOrderStatusMeta(shState);
+  const isRetiro = (typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+    ? window.getOrderEffectiveCategoriaEntrega(order)
+    : order.categoria_entrega) === 'RETIRO';
+
+  const catalog = window.getShopifyActionCatalog(order);
+  const recommendedActions = catalog.filter(a => a.validFrom.includes(shState));
+  const otherActions = catalog.filter(a => !a.validFrom.includes(shState));
+
+  // Seleccionar acción por defecto inteligente:
+  // Si el pedido ya está Despachado en WMS pero en Shopify no está fulfilled, sugerir create_fulfillment
+  let defaultAction = recommendedActions[0]?.action || catalog[0].action;
+  if (order.estado_wms === 'Despachado' && shState !== 'fulfilled') {
+    defaultAction = 'create_fulfillment';
+  } else if (order.estado_wms === 'Pickeado' && isRetiro && shState !== 'ready_for_pickup') {
+    defaultAction = 'set_ready_for_pickup';
+  } else if (order.estado_wms === 'En preparación' && shState === 'unfulfilled') {
+    defaultAction = 'set_in_progress';
+  } else if (order.estado_wms === 'Incidencia' && shState !== 'on_hold') {
+    defaultAction = 'set_on_hold';
+  }
+
+  const defaultCatalogItem = catalog.find(a => a.action === defaultAction) || catalog[0];
+
+  // Resolver tracking / courier actual del pedido para pre-llenar
+  let currentTracking = order.tracking_number || '';
+  let currentCourier = order.courier || order.operador || '';
+  let currentTrackingUrl = order.tracking_url || '';
+  if (typeof window.getOrderShipmentGlobalStatus === 'function') {
+    const sInfo = window.getOrderShipmentGlobalStatus(order);
+    if (sInfo && sInfo.shipment) {
+      if (!currentTracking && sInfo.shipment.tracking && sInfo.shipment.tracking !== 'N/A') {
+        currentTracking = sInfo.shipment.tracking;
+      }
+      if (!currentCourier && sInfo.shipment.courier) {
+        currentCourier = sInfo.shipment.courier;
+      }
+      if (!currentTrackingUrl && sInfo.shipment.tracking_url && sInfo.shipment.tracking_url !== 'N/A') {
+        currentTrackingUrl = sInfo.shipment.tracking_url;
+      }
+    }
+  }
+
+  const updatedAtText = order.shopify_status_updated_at
+    ? new Date(order.shopify_status_updated_at).toLocaleString('es-CL')
+    : 'Sin verificación reciente';
+
+  const isDesfasado = order.estado_wms === 'Despachado' && shState !== 'fulfilled' && shState !== 'cancelled';
+
+  const optionsHtml = `
+    <optgroup label="Acciones recomendadas desde '${shMeta.label}'">
+      ${recommendedActions.map(a => `<option value="${a.action}" ${a.action === defaultAction ? 'selected' : ''}>✅ ${a.title}</option>`).join('')}
+    </optgroup>
+    ${otherActions.length > 0 ? `
+      <optgroup label="Otras acciones disponibles (Forzar transición)">
+        ${otherActions.map(a => `<option value="${a.action}" ${a.action === defaultAction ? 'selected' : ''}>⚡ ${a.title}</option>`).join('')}
+      </optgroup>
+    ` : ''}
+  `;
+
+  const { value: formValues } = await Swal.fire({
+    title: `Control de Estado en Shopify · ${order.external_order_number || order.id.slice(0, 8)}`,
+    width: '640px',
+    html: `
+      <div style="text-align: left; font-size: 0.86rem; display: flex; flex-direction: column; gap: 0.85rem;">
+        ${opts.liveCheckedMessage ? `
+          <div style="background: #ecfdf5; border: 1px solid #6ee7b7; color: #065f46; padding: 0.55rem 0.75rem; border-radius: 8px; font-size: 0.78rem; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-checkbox-circle-fill" style="font-size: 1rem; color: #10b981;"></i>
+            <span>${opts.liveCheckedMessage}</span>
+          </div>
+        ` : ''}
+
+        <!-- Tarjeta de Estado Actual Comparado (WMS vs Shopify) -->
+        <div style="background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: 10px; padding: 0.85rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem;">
+            <div>
+              <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Comercio:</span>
+              <strong style="font-size: 0.88rem; color: var(--color-text-main); margin-left: 0.25rem;">${order.comercio || '-'}</strong>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted); margin-left: 0.35rem;">(${isRetiro ? '🏪 RETIRO' : '🚚 DISTRIBUCIÓN'})</span>
+            </div>
+            <button type="button" id="btn-verify-live-shopify-status" onclick="window.verifyLiveShopifyOrderStatus('${order.id}', true)" class="btn btn-outline btn-sm" style="padding: 0.22rem 0.6rem; font-size: 0.74rem; font-weight: 700; border-color: #3b82f6; color: #1d4ed8; background: #eff6ff; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-refresh-line"></i> Verificar en vivo con Shopify
+            </button>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
+            <div style="background: var(--color-surface, #ffffff); border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px; padding: 0.55rem 0.7rem;">
+              <span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase; display: block;">Estado en WMS Stocka</span>
+              <strong style="font-size: 0.92rem; color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.25rem; margin-top: 0.15rem;">
+                <i class="ri-box-3-line"></i> ${order.estado_wms || 'En procesamiento'}
+              </strong>
+            </div>
+            <div style="background: ${shMeta.bg}; border: 1.5px solid ${shMeta.border}; border-radius: 8px; padding: 0.55rem 0.7rem;">
+              <span style="font-size: 0.7rem; color: ${shMeta.text}; opacity: 0.85; font-weight: 700; text-transform: uppercase; display: block;">Estado Real en Shopify</span>
+              <strong style="font-size: 0.92rem; color: ${shMeta.text}; display: inline-flex; align-items: center; gap: 0.28rem; margin-top: 0.15rem;">
+                <i class="${shMeta.icon}"></i> ${shMeta.label}
+              </strong>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem; font-size: 0.72rem; color: var(--color-text-muted);">
+            <span>Última actualización Shopify: <strong>${updatedAtText}</strong></span>
+            ${order.shopify_fulfillment_id ? `<span>Fulfillment ID: <code>${order.shopify_fulfillment_id}</code></span>` : ''}
+          </div>
+
+          ${isDesfasado ? `
+            <div style="margin-top: 0.55rem; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 0.45rem 0.65rem; border-radius: 6px; font-size: 0.76rem; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-error-warning-fill" style="color: #ef4444; font-size: 1rem;"></i>
+              <span>Este pedido figura como <strong>Despachado</strong> en WMS pero en Shopify sigue en <strong>${shMeta.label}</strong>. Selecciona "Marcar como Preparado / Despachado (Fulfill)" para sincronizarlo.</span>
+            </div>
+          ` : ''}
+
+          ${order.shopify_sync_last_error ? `
+            <div style="margin-top: 0.55rem; background: #fffbeb; border: 1px solid #fde68a; color: #92400e; padding: 0.45rem 0.65rem; border-radius: 6px; font-size: 0.75rem;">
+              <strong>Último aviso/error de Shopify:</strong> ${window.escapeHtml ? window.escapeHtml(order.shopify_sync_last_error) : order.shopify_sync_last_error}
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- Selector de Acción a Ejecutar en Shopify -->
+        <div>
+          <label style="font-weight: 700; font-size: 0.83rem; color: var(--color-text-main); display: block; margin-bottom: 0.3rem;">
+            <i class="ri-shopping-bag-3-line" style="color: #059669;"></i> Acción de Cambio de Estado a Ejecutar en Shopify:
+          </label>
+          <select id="sh-ctrl-action-select" class="form-input" onchange="window.onShopifyControlActionChange(this.value, false)" style="width: 100%; height: 40px; font-size: 0.85rem; font-weight: 600; padding: 0.35rem 0.6rem; border: 1.5px solid #059669; border-radius: 8px;">
+            ${optionsHtml}
+          </select>
+          <div id="sh-ctrl-action-desc" style="margin-top: 0.4rem; padding: 0.5rem 0.65rem; background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px; font-size: 0.78rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem;">
+            <i class="${defaultCatalogItem.icon}" style="color: ${defaultCatalogItem.color}; font-size: 1rem;"></i>
+            <span>${defaultCatalogItem.description}</span>
+          </div>
+        </div>
+
+        <!-- Campos Contextuales para create_fulfillment / update_tracking -->
+        <div id="sh-ctrl-tracking-box" style="display: ${(defaultAction === 'create_fulfillment' || defaultAction === 'update_tracking') ? 'block' : 'none'}; background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px; padding: 0.75rem;">
+          <div style="font-weight: 700; font-size: 0.8rem; color: var(--color-text-main); margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between;">
+            <span><i class="ri-truck-line" style="color: var(--color-primary);"></i> Datos de Despacho / Seguimiento para Shopify</span>
+            ${isRetiro ? '<span style="font-size: 0.7rem; background: #fef3c7; color: #92400e; padding: 0.1rem 0.4rem; border-radius: 4px;">Pedido RETIRO (Opcional)</span>' : ''}
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem;">
+            <div>
+              <label style="font-size: 0.74rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 0.18rem;">N° de Seguimiento (Tracking)</label>
+              <input type="text" id="sh-ctrl-tracking-number" class="form-input" value="${(currentTracking || '').replace(/"/g, '&quot;')}" placeholder="${isRetiro ? 'Sin tracking (Retiro en tienda)' : 'Ej: 814928371'}" style="width: 100%; height: 34px; font-size: 0.82rem; padding: 0.25rem 0.5rem;">
+            </div>
+            <div>
+              <label style="font-size: 0.74rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 0.18rem;">Courier / Transportista</label>
+              <input type="text" id="sh-ctrl-courier-name" class="form-input" value="${(currentCourier || '').replace(/"/g, '&quot;')}" placeholder="${isRetiro ? 'Retiro en Tienda' : 'Ej: Blue Express, Starken, Alpha'}" style="width: 100%; height: 34px; font-size: 0.82rem; padding: 0.25rem 0.5rem;">
+            </div>
+            <div style="grid-column: 1 / -1;">
+              <label style="font-size: 0.74rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 0.18rem;">URL de Seguimiento (Opcional)</label>
+              <input type="text" id="sh-ctrl-tracking-url" class="form-input" value="${(currentTrackingUrl || '').replace(/"/g, '&quot;')}" placeholder="https://..." style="width: 100%; height: 34px; font-size: 0.82rem; padding: 0.25rem 0.5rem;">
+            </div>
+          </div>
+          <label style="display: flex; align-items: center; gap: 0.45rem; margin-top: 0.55rem; font-size: 0.78rem; font-weight: 600; cursor: pointer;">
+            <input type="checkbox" id="sh-ctrl-notify-customer" checked style="width: 15px; height: 15px; accent-color: #059669;">
+            <span>Enviar notificación por correo al cliente desde Shopify</span>
+          </label>
+        </div>
+
+        <!-- Campos Contextuales para set_on_hold -->
+        <div id="sh-ctrl-hold-box" style="display: ${defaultAction === 'set_on_hold' ? 'block' : 'none'}; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 0.75rem;">
+          <div style="font-weight: 700; font-size: 0.8rem; color: #92400e; margin-bottom: 0.5rem;">
+            <i class="ri-pause-circle-line"></i> Motivo de Pausa (On Hold) en Shopify
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr; gap: 0.5rem;">
+            <div>
+              <label style="font-size: 0.74rem; font-weight: 600; color: #78350f; display: block; margin-bottom: 0.18rem;">Motivo Oficial Shopify</label>
+              <select id="sh-ctrl-hold-reason" class="form-input" style="width: 100%; height: 34px; font-size: 0.82rem; padding: 0.2rem 0.5rem;">
+                <option value="INVENTORY_OUT_OF_STOCK">Sin stock disponible (INVENTORY_OUT_OF_STOCK)</option>
+                <option value="INCORRECT_ADDRESS">Dirección incorrecta o incompleta (INCORRECT_ADDRESS)</option>
+                <option value="AWAITING_PAYMENT">Esperando confirmación de pago (AWAITING_PAYMENT)</option>
+                <option value="HIGH_RISK_OF_FRAUD">Riesgo de fraude (HIGH_RISK_OF_FRAUD)</option>
+                <option value="OTHER" selected>Otro motivo operativo / Incidencia (OTHER)</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size: 0.74rem; font-weight: 600; color: #78350f; display: block; margin-bottom: 0.18rem;">Notas del Hold (Interno en Shopify)</label>
+              <input type="text" id="sh-ctrl-hold-notes" class="form-input" value="Pausado desde Stocka WMS" placeholder="Detalle de la incidencia..." style="width: 100%; height: 34px; font-size: 0.82rem; padding: 0.25rem 0.5rem;">
+            </div>
+          </div>
+        </div>
+
+        <!-- Opción para sincronizar también el Estado WMS en paralelo -->
+        <div style="background: rgba(79, 70, 229, 0.05); border: 1px solid rgba(79, 70, 229, 0.2); border-radius: 8px; padding: 0.65rem 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+          <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); cursor: pointer;">
+            <input type="checkbox" id="sh-ctrl-sync-wms-cb" style="width: 16px; height: 16px; accent-color: var(--color-primary);">
+            <span>Actualizar también el Estado WMS en Stocka a:</span>
+          </label>
+          <select id="sh-ctrl-wms-status-select" class="form-input" style="width: auto; height: 32px; font-size: 0.8rem; font-weight: 700; padding: 0.15rem 0.5rem;">
+            <option value="En procesamiento" ${defaultCatalogItem.suggestedWmsStatus === 'En procesamiento' ? 'selected' : ''}>En procesamiento</option>
+            <option value="En preparación" ${defaultCatalogItem.suggestedWmsStatus === 'En preparación' ? 'selected' : ''}>En preparación</option>
+            <option value="Pickeado" ${defaultCatalogItem.suggestedWmsStatus === 'Pickeado' ? 'selected' : ''}>Pickeado</option>
+            <option value="Despachado" ${defaultCatalogItem.suggestedWmsStatus === 'Despachado' ? 'selected' : ''}>Despachado</option>
+            <option value="Incidencia" ${defaultCatalogItem.suggestedWmsStatus === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
+          </select>
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-send-plane-fill"></i> Ejecutar en Shopify',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#059669',
+    preConfirm: () => {
+      const action = document.getElementById('sh-ctrl-action-select')?.value;
+      const trackingNumber = document.getElementById('sh-ctrl-tracking-number')?.value?.trim() || null;
+      const courierName = document.getElementById('sh-ctrl-courier-name')?.value?.trim() || null;
+      const trackingUrl = document.getElementById('sh-ctrl-tracking-url')?.value?.trim() || null;
+      const notifyCustomer = document.getElementById('sh-ctrl-notify-customer') ? document.getElementById('sh-ctrl-notify-customer').checked : true;
+      const holdReason = document.getElementById('sh-ctrl-hold-reason')?.value || 'OTHER';
+      const holdNotes = document.getElementById('sh-ctrl-hold-notes')?.value?.trim() || 'Pausado desde Stocka WMS';
+      const alsoUpdateWms = document.getElementById('sh-ctrl-sync-wms-cb')?.checked || false;
+      const targetWmsStatus = document.getElementById('sh-ctrl-wms-status-select')?.value || null;
+      return { action, trackingNumber, courierName, trackingUrl, notifyCustomer, holdReason, holdNotes, alsoUpdateWms, targetWmsStatus };
+    }
+  });
+
+  if (!formValues || !formValues.action) return;
+
+  await window.executeShopifyOrderStatusAction([order], formValues);
+};
+
+window.executeShopifyOrderStatusAction = async function(ordersList, params) {
+  if (!Array.isArray(ordersList) || ordersList.length === 0) return;
+
+  Swal.fire({
+    title: ordersList.length === 1 ? 'Ejecutando acción en Shopify...' : `Procesando ${ordersList.length} pedidos en Shopify...`,
+    html: `<div style="font-size: 0.88rem; color: var(--color-text-muted);">Comunicando en tiempo real con la API de Shopify...</div>`,
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading()
+  });
+
+  let successCount = 0;
+  let needsReauthComercios = new Set();
+  let errorsList = [];
+
+  for (const order of ordersList) {
+    try {
+      const shopifyOrderId = order.raw_shopify_data?.id ? String(order.raw_shopify_data.id) : null;
+      if (!shopifyOrderId) {
+        errorsList.push(`${order.external_order_number || order.id}: Sin ID de Shopify en raw_shopify_data`);
+        continue;
+      }
+
+      const isRetiro = (typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+        ? window.getOrderEffectiveCategoriaEntrega(order)
+        : order.categoria_entrega) === 'RETIRO';
+
+      // Resolver tracking por pedido (en modo masivo usa el de cada pedido si no se forzó uno en el modal)
+      let trkNum = params.trackingNumber || (!isRetiro ? order.tracking_number : null) || null;
+      let curName = params.courierName || (!isRetiro ? (order.courier || order.operador) : null) || null;
+      let trkUrl = params.trackingUrl || (!isRetiro ? order.tracking_url : null) || null;
+
+      if (!isRetiro && (!trkNum || !curName) && typeof window.getOrderShipmentGlobalStatus === 'function') {
+        const sInfo = window.getOrderShipmentGlobalStatus(order);
+        if (sInfo && sInfo.shipment) {
+          if (!trkNum && sInfo.shipment.tracking && sInfo.shipment.tracking !== 'N/A') trkNum = sInfo.shipment.tracking;
+          if (!curName && sInfo.shipment.courier) curName = sInfo.shipment.courier;
+          if (!trkUrl && sInfo.shipment.tracking_url && sInfo.shipment.tracking_url !== 'N/A') trkUrl = sInfo.shipment.tracking_url;
+        }
+      }
+
+      const insertPayload = {
+        order_id: order.id,
+        comercio: order.comercio,
+        shopify_order_id: shopifyOrderId,
+        action_type: params.action,
+        tracking_number: isRetiro && params.action === 'create_fulfillment' ? null : trkNum,
+        tracking_url: isRetiro && params.action === 'create_fulfillment' ? null : trkUrl,
+        courier_name: isRetiro && params.action === 'create_fulfillment' ? null : curName,
+        notify_customer: params.notifyCustomer !== undefined ? params.notifyCustomer : true,
+        hold_reason: params.action === 'set_on_hold' ? (params.holdReason || 'OTHER') : null,
+        hold_notes: params.action === 'set_on_hold' ? (params.holdNotes || null) : null,
+        status: 'pending'
+      };
+
+      const { data: queueRow, error: qErr } = await supabase
+        .from('shopify_fulfillment_queue')
+        .insert(insertPayload)
+        .select('id')
+        .single();
+
+      if (qErr) throw qErr;
+
+      const { data: syncData, error: syncErr } = await supabase.functions.invoke('shopify-fulfillment-sync', {
+        body: { queue_id: queueRow.id, manual: true }
+      });
+
+      if (syncErr) throw syncErr;
+
+      const resultItem = Array.isArray(syncData?.results) ? syncData.results[0] : null;
+      if (resultItem && resultItem.status === 'completed') {
+        successCount++;
+        if (resultItem.shopify_order_status) {
+          order.shopify_order_status = resultItem.shopify_order_status;
+          order.shopify_status_updated_at = new Date().toISOString();
+        }
+        if (resultItem.fulfillment_id) {
+          order.shopify_fulfillment_id = resultItem.fulfillment_id;
+          order.shopify_fulfillment_status = 'synced';
+        } else if (params.action === 'cancel_fulfillment' || params.action === 'revert_in_progress') {
+          order.shopify_fulfillment_id = null;
+          order.shopify_fulfillment_status = null;
+        }
+        order.shopify_sync_last_error = null;
+        delete order._wmsTags;
+
+        if (params.alsoUpdateWms && params.targetWmsStatus && order.estado_wms !== params.targetWmsStatus) {
+          await supabase
+            .from('orders')
+            .update({ estado_wms: params.targetWmsStatus })
+            .eq('id', order.id);
+          order.estado_wms = params.targetWmsStatus;
+        }
+      } else if (resultItem && resultItem.status === 'needs_reauth') {
+        needsReauthComercios.add(order.comercio);
+        errorsList.push(`${order.external_order_number || order.id} (${order.comercio}): ${resultItem.error || 'Requiere reconectar permisos OAuth en Shopify'}`);
+      } else {
+        errorsList.push(`${order.external_order_number || order.id}: ${resultItem?.error || syncData?.error || 'No se pudo completar la acción en Shopify'}`);
+      }
+    } catch (err) {
+      errorsList.push(`${order.external_order_number || order.id}: ${err.message}`);
+    }
+  }
+
+  if (typeof window.applyWmsFiltersAndRender === 'function') {
+    window.applyWmsFiltersAndRender();
+  }
+
+  if (needsReauthComercios.size > 0) {
+    const comerciosArr = Array.from(needsReauthComercios);
+    Swal.fire({
+      icon: 'warning',
+      title: 'Permiso OAuth Pendiente en Shopify',
+      html: `
+        <div style="text-align: left; font-size: 0.85rem; line-height: 1.45;">
+          <p>La tienda <strong>${comerciosArr.join(', ')}</strong> aún no ha aceptado el nuevo permiso <code>write_merchant_managed_fulfillment_orders</code> requerido por la API de Shopify para preparar/pausar órdenes de preparación.</p>
+          <p style="margin-top: 0.5rem;">El cambio quedó guardado en la cola y se ejecutará automáticamente apenas la tienda autorice el enlace OAuth desde el módulo <strong>Automatizaciones</strong>.</p>
+          ${successCount > 0 ? `<p style="margin-top: 0.5rem; color: #059669; font-weight: 700;">✅ Se actualizaron correctamente otros ${successCount} pedido(s).</p>` : ''}
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'Ir a Automatizaciones (Reconectar)',
+      cancelButtonText: 'Cerrar',
+      confirmButtonColor: '#7c3aed'
+    }).then((res) => {
+      if (res.isConfirmed) {
+        const navBtn = document.querySelector('.nav-item[data-view="automations_admin"]');
+        if (navBtn) navBtn.click();
+      }
+    });
+    return;
+  }
+
+  if (errorsList.length === 0) {
+    Swal.fire({
+      icon: 'success',
+      title: '¡Estado Actualizado en Shopify!',
+      html: `<div style="font-size: 0.88rem;">Se actualizó el estado de <strong>${successCount}</strong> pedido(s) en Shopify en tiempo real.</div>`,
+      timer: 2600,
+      showConfirmButton: false
+    });
+  } else {
+    Swal.fire({
+      icon: successCount > 0 ? 'warning' : 'error',
+      title: successCount > 0 ? `Completado parcialmente (${successCount}/${ordersList.length})` : 'No se pudo cambiar el estado en Shopify',
+      html: `
+        <div style="text-align: left; font-size: 0.82rem; max-height: 240px; overflow-y: auto;">
+          ${successCount > 0 ? `<p style="color: #059669; font-weight: 700; margin-bottom: 0.5rem;">✅ ${successCount} pedido(s) actualizados en Shopify.</p>` : ''}
+          <p style="font-weight: 700; color: #b91c1c; margin-bottom: 0.25rem;">Detalles de errores (${errorsList.length}):</p>
+          <ul style="padding-left: 1.1rem; margin: 0; color: #7f1d1d;">
+            ${errorsList.map(e => `<li>${window.escapeHtml ? window.escapeHtml(e) : e}</li>`).join('')}
+          </ul>
+        </div>
+      `
+    });
+  }
+};
+
+window.openBulkShopifyStatusModal = async function() {
+  const selectedIds = Array.from(window.wmsSelectedOrderIds || []);
+  if (selectedIds.length === 0) {
+    Swal.fire('Sin selección', 'Selecciona al menos un pedido en la Torre de Control.', 'info');
+    return;
+  }
+
+  const allSelected = (window.loadedOrders || []).filter(o => selectedIds.includes(o.id));
+  const shopifyOrders = allSelected.filter(order =>
+    (order.external_platform === 'Shopify' || order.origen === 'Shopify') &&
+    order.raw_shopify_data && !order.raw_shopify_data.manual_order &&
+    !order.raw_shopify_data.is_reverse_logistics && !order.raw_shopify_data.is_pos_sale
+  );
+
+  if (shopifyOrders.length === 0) {
+    Swal.fire('Sin pedidos de Shopify', 'Ninguno de los pedidos seleccionados corresponde a una orden nativa de Shopify.', 'warning');
+    return;
+  }
+
+  // Resumen de estados actuales de Shopify en la selección
+  const stateCounts = {};
+  shopifyOrders.forEach(o => {
+    const st = window.resolveShopifyOrderStatus(o);
+    stateCounts[st] = (stateCounts[st] || 0) + 1;
+  });
+
+  const summaryBadgesHtml = Object.entries(stateCounts).map(([st, count]) => {
+    const m = window.getShopifyOrderStatusMeta(st);
+    return `<span style="background: ${m.bg}; color: ${m.text}; border: 1px solid ${m.border}; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 99px; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="${m.icon}"></i> ${m.label}: ${count}</span>`;
+  }).join(' ');
+
+  const catalog = window.getShopifyActionCatalog();
+  const defaultItem = catalog[0];
+
+  const { value: formValues } = await Swal.fire({
+    title: `Cambio Masivo de Estado en Shopify (${shopifyOrders.length} pedidos)`,
+    width: '620px',
+    html: `
+      <div style="text-align: left; font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.85rem;">
+        <div style="background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px; padding: 0.75rem;">
+          <div style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 0.4rem;">
+            Estados actuales en Shopify de los ${shopifyOrders.length} pedidos seleccionados:
+          </div>
+          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+            ${summaryBadgesHtml}
+          </div>
+          ${allSelected.length > shopifyOrders.length ? `
+            <div style="margin-top: 0.45rem; font-size: 0.74rem; color: #d97706;">
+              * Se omitirán ${allSelected.length - shopifyOrders.length} pedido(s) seleccionados que no son de Shopify.
+            </div>
+          ` : ''}
+        </div>
+
+        <div>
+          <label style="font-weight: 700; font-size: 0.83rem; color: var(--color-text-main); display: block; margin-bottom: 0.3rem;">
+            <i class="ri-shopping-bag-3-line" style="color: #059669;"></i> Acción Masiva a Ejecutar en Shopify:
+          </label>
+          <select id="bulk-sh-ctrl-action-select" class="form-input" onchange="window.onShopifyControlActionChange(this.value, true)" style="width: 100%; height: 40px; font-size: 0.85rem; font-weight: 600; padding: 0.35rem 0.6rem; border: 1.5px solid #059669; border-radius: 8px;">
+            ${catalog.map(a => `<option value="${a.action}">${a.title}</option>`).join('')}
+            <option value="__verify_live__">🔄 Solo verificar/refrescar estado real en vivo desde Shopify</option>
+          </select>
+          <div id="bulk-sh-ctrl-action-desc" style="margin-top: 0.4rem; padding: 0.5rem 0.65rem; background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px; font-size: 0.78rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem;">
+            <i class="${defaultItem.icon}" style="color: ${defaultItem.color}; font-size: 1rem;"></i>
+            <span>${defaultItem.description} (Usará automáticamente el tracking y courier registrado en cada pedido).</span>
+          </div>
+        </div>
+
+        <div id="bulk-sh-ctrl-tracking-box" style="display: block; background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px; padding: 0.65rem 0.75rem;">
+          <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.78rem; font-weight: 600; cursor: pointer;">
+            <input type="checkbox" id="bulk-sh-ctrl-notify-customer" checked style="width: 15px; height: 15px; accent-color: #059669;">
+            <span>Notificar por correo a los clientes desde Shopify al preparar/actualizar tracking</span>
+          </label>
+        </div>
+
+        <div id="bulk-sh-ctrl-hold-box" style="display: none; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 0.75rem;">
+          <div style="display: grid; grid-template-columns: 1fr; gap: 0.45rem;">
+            <div>
+              <label style="font-size: 0.74rem; font-weight: 600; color: #78350f; display: block; margin-bottom: 0.15rem;">Motivo Oficial Shopify (On Hold)</label>
+              <select id="bulk-sh-ctrl-hold-reason" class="form-input" style="width: 100%; height: 34px; font-size: 0.82rem;">
+                <option value="INVENTORY_OUT_OF_STOCK">Sin stock disponible (INVENTORY_OUT_OF_STOCK)</option>
+                <option value="INCORRECT_ADDRESS">Dirección incorrecta o incompleta (INCORRECT_ADDRESS)</option>
+                <option value="AWAITING_PAYMENT">Esperando confirmación de pago (AWAITING_PAYMENT)</option>
+                <option value="OTHER" selected>Otro motivo operativo / Incidencia (OTHER)</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size: 0.74rem; font-weight: 600; color: #78350f; display: block; margin-bottom: 0.15rem;">Notas del Hold</label>
+              <input type="text" id="bulk-sh-ctrl-hold-notes" class="form-input" value="Pausado masivamente desde Stocka WMS" style="width: 100%; height: 34px; font-size: 0.82rem;">
+            </div>
+          </div>
+        </div>
+
+        <div style="background: rgba(79, 70, 229, 0.05); border: 1px solid rgba(79, 70, 229, 0.2); border-radius: 8px; padding: 0.65rem 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+          <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); cursor: pointer;">
+            <input type="checkbox" id="bulk-sh-ctrl-sync-wms-cb" style="width: 16px; height: 16px; accent-color: var(--color-primary);">
+            <span>Actualizar también el Estado WMS a:</span>
+          </label>
+          <select id="bulk-sh-ctrl-wms-status-select" class="form-input" style="width: auto; height: 32px; font-size: 0.8rem; font-weight: 700; padding: 0.15rem 0.5rem;">
+            <option value="En procesamiento">En procesamiento</option>
+            <option value="En preparación">En preparación</option>
+            <option value="Pickeado">Pickeado</option>
+            <option value="Despachado" selected>Despachado</option>
+            <option value="Incidencia">Incidencia</option>
+          </select>
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: `<i class="ri-send-plane-fill"></i> Ejecutar en ${shopifyOrders.length} pedido(s)`,
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#059669',
+    preConfirm: () => {
+      const action = document.getElementById('bulk-sh-ctrl-action-select')?.value;
+      const notifyCustomer = document.getElementById('bulk-sh-ctrl-notify-customer') ? document.getElementById('bulk-sh-ctrl-notify-customer').checked : true;
+      const holdReason = document.getElementById('bulk-sh-ctrl-hold-reason')?.value || 'OTHER';
+      const holdNotes = document.getElementById('bulk-sh-ctrl-hold-notes')?.value?.trim() || 'Pausado desde Stocka WMS';
+      const alsoUpdateWms = document.getElementById('bulk-sh-ctrl-sync-wms-cb')?.checked || false;
+      const targetWmsStatus = document.getElementById('bulk-sh-ctrl-wms-status-select')?.value || null;
+      return { action, notifyCustomer, holdReason, holdNotes, alsoUpdateWms, targetWmsStatus };
+    }
+  });
+
+  if (!formValues || !formValues.action) return;
+
+  if (formValues.action === '__verify_live__') {
+    Swal.fire({
+      title: `Verificando ${shopifyOrders.length} pedidos en Shopify...`,
+      html: 'Consultando estado real en vivo desde Shopify API...',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading()
+    });
+    let checked = 0;
+    for (const ord of shopifyOrders) {
+      try {
+        const { data } = await supabase.functions.invoke('shopify-fulfillment-sync', {
+          body: { mode: 'fetch_live_status', order_id: ord.id }
+        });
+        if (data && data.success) {
+          ord.shopify_order_status = data.shopify_order_status;
+          ord.shopify_status_updated_at = data.updated_at || new Date().toISOString();
+          if (data.shopify_fulfillment_id !== undefined) ord.shopify_fulfillment_id = data.shopify_fulfillment_id;
+          delete ord._wmsTags;
+          checked++;
+        }
+      } catch (e) {
+        console.warn('Error verificando pedido en vivo:', ord.id, e);
+      }
+    }
+    if (typeof window.applyWmsFiltersAndRender === 'function') {
+      window.applyWmsFiltersAndRender();
+    }
+    Swal.fire({
+      icon: 'success',
+      title: 'Verificación en vivo completada',
+      text: `Se actualizaron los estados reales de ${checked} de ${shopifyOrders.length} pedido(s) desde Shopify.`,
+      timer: 2500,
+      showConfirmButton: false
+    });
+    return;
+  }
+
+  await window.executeShopifyOrderStatusAction(shopifyOrders, formValues);
 };

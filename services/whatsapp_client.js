@@ -3,8 +3,27 @@
  * Compatible con Baileys local o Evolution API remota.
  */
 
-const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || 'https://stocka-whatsapp-bot.onrender.com';
-const WHATSAPP_API_KEY = process.env.WHATSAPP_API_KEY || 'stocka_wa_internal_secret_2026';
+const fs = require('fs');
+const path = require('path');
+
+// Cargar variables desde .env si existe y no están en process.env
+let localEnv = {};
+try {
+  const envPath = path.join(__dirname, '../.env');
+  if (fs.existsSync(envPath)) {
+    fs.readFileSync(envPath, 'utf8').split('\n').forEach(line => {
+      const m = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+      if (m) {
+        let v = (m[2] || '').trim();
+        if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
+        localEnv[m[1]] = v;
+      }
+    });
+  }
+} catch (_) {}
+
+const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || localEnv.WHATSAPP_API_URL || 'https://stocka-whatsapp-bot.onrender.com';
+const WHATSAPP_API_KEY = process.env.WHATSAPP_API_KEY || localEnv.WHATSAPP_API_KEY || '';
 
 const getHeaders = () => ({
   'Content-Type': 'application/json',

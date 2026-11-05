@@ -41,6 +41,54 @@ function extractTiendanubeCustomerName(order: any): string {
   return name || "Cliente Tiendanube";
 }
 
+function extractTiendanubeName(rawName: any, fallback = "Producto Tiendanube"): string {
+  if (!rawName) return fallback;
+  if (typeof rawName === "string") return rawName.trim();
+  if (typeof rawName === "object") {
+    return String(rawName.es || rawName.pt || Object.values(rawName)[0] || fallback).trim();
+  }
+  return String(rawName);
+}
+
+function extractTiendanubeVariantValues(variantValues: any): string[] {
+  if (!variantValues) return [];
+  const parts: string[] = [];
+  if (Array.isArray(variantValues)) {
+    for (const item of variantValues) {
+      if (!item) continue;
+      if (typeof item === "string") {
+        const trimmed = item.trim();
+        if (trimmed) parts.push(trimmed);
+      } else if (typeof item === "object") {
+        const val = item.es || item.pt || item.en || Object.values(item)[0];
+        if (val && typeof val === "string") {
+          const trimmed = val.trim();
+          if (trimmed) parts.push(trimmed);
+        }
+      }
+    }
+  } else if (typeof variantValues === "object") {
+    for (const k of Object.keys(variantValues)) {
+      const item = variantValues[k];
+      if (!item) continue;
+      if (typeof item === "string") {
+        const trimmed = item.trim();
+        if (trimmed) parts.push(trimmed);
+      } else if (typeof item === "object") {
+        const val = item.es || item.pt || item.en || Object.values(item)[0];
+        if (val && typeof val === "string") {
+          const trimmed = val.trim();
+          if (trimmed) parts.push(trimmed);
+        }
+      }
+    }
+  } else if (typeof variantValues === "string") {
+    const trimmed = variantValues.trim();
+    if (trimmed) parts.push(trimmed);
+  }
+  return parts;
+}
+
 serve(async (req) => {
   // Solo aceptamos POST
   if (req.method !== "POST") {
@@ -48,47 +96,67 @@ serve(async (req) => {
   }
 
   try {
-    // 1. Obtener cabeceras de Tiendanube obligatorias
-    const signatureHeader = req.headers.get("x-linkedstore-signature") || "";
-    const eventTopic = req.headers.get("x-linkedstore-event") || "";
+    const rawBody = await req.text();
+    let payload: any = {};
+    try {
+      payload = JSON.parse(rawBody);
+    } catch (_e) {
+      return new Response("Invalid JSON body", { status: 400 });
+    }
+
+    // 1. Obtener cabeceras de Tiendanube (o evento desde el payload)
+    const signatureHeader = req.headers.get("x-linkedstore-hmac-sha256") || req.headers.get("x-linkedstore-signature") || "";
+    const eventTopic = req.headers.get("x-linkedstore-event") || payload.event || "";
 
     if (!eventTopic) {
       return new Response("Missing Tiendanube event header", { status: 400 });
     }
 
-    // 2. Obtener merchant_id desde la URL (query parameter)
+    // 2. Obtener merchant_id desde la URL (query parameter) o buscar por store_id
     const url = new URL(req.url);
-    const merchantId = url.searchParams.get("merchant_id") || "";
+    let merchantId = url.searchParams.get("merchant_id") || "";
+    const storeIdFromPayload = payload.store_id ? String(payload.store_id).trim() : "";
 
-    if (!merchantId) {
-      console.error("Missing merchant_id in webhook URL query params");
-      return new Response("Missing merchant_id", { status: 400 });
+    let integration: any = null;
+    if (merchantId) {
+      const { data: intData, error: intError } = await supabase
+        .from("merchant_integrations")
+        .select("merchant_id, webhook_secret, comercio, access_token, shop_url, is_main")
+        .eq("merchant_id", merchantId)
+        .eq("platform", "Tiendanube")
+        .maybeSingle();
+
+      if (intError) {
+        console.error("Error fetching merchant integration:", intError);
+        return new Response("Internal Server Error", { status: 500 });
+      }
+      integration = intData;
     }
 
-    // 3. Obtener el secreto de webhook de la integración del merchant
-    const { data: integration, error: intError } = await supabase
-      .from("merchant_integrations")
-      .select("webhook_secret, comercio")
-      .eq("merchant_id", merchantId)
-      .eq("platform", "Tiendanube")
-      .maybeSingle();
+    if (!integration && storeIdFromPayload) {
+      const { data: intByStore } = await supabase
+        .from("merchant_integrations")
+        .select("merchant_id, webhook_secret, comercio, access_token, shop_url, is_main")
+        .eq("platform", "Tiendanube")
+        .ilike("shop_url", `%${storeIdFromPayload}%`)
+        .limit(1)
+        .maybeSingle();
 
-    if (intError) {
-      console.error("Error fetching merchant integration:", intError);
-      return new Response("Internal Server Error", { status: 500 });
+      if (intByStore) {
+        integration = intByStore;
+        merchantId = intByStore.merchant_id;
+      }
     }
 
     if (!integration) {
-      console.error(`Integration not configured for merchant_id: ${merchantId}`);
+      console.error(`Integration not configured for merchant_id: ${merchantId} / store_id: ${storeIdFromPayload}`);
       return new Response("Integration not configured", { status: 200 }); // Retornar 200 para evitar reintentos infinitos si el merchant se borró
     }
-
-    const rawBody = await req.text();
 
     // 4. Verificación de Seguridad HMAC (obligatoria si la integración tiene webhook_secret)
     if (integration.webhook_secret) {
       if (!signatureHeader) {
-        console.error("Falta cabecera x-linkedstore-signature en petición de Tiendanube");
+        console.error("Falta cabecera de firma HMAC en petición de Tiendanube");
         return new Response("Missing signature header", { status: 401 });
       }
 
@@ -112,17 +180,68 @@ serve(async (req) => {
       }
     }
 
-    // 5. Parsear el body JSON
-    const payload = JSON.parse(rawBody);
-    const orderNumber = payload.number ? payload.number.toString() : (payload.id ? payload.id.toString() : "N/A");
-    console.log(`Recibido Webhook Tiendanube: ${eventTopic} para orden #${orderNumber} (Comercio: ${integration.comercio})`);
+    // Resolver dinámicamente el merchant_id real del comercio si ya tiene productos creados
+    let activeMerchantId = merchantId;
+    if (integration.comercio) {
+      try {
+        const { data: siblingProd } = await supabase
+          .from("products")
+          .select("merchant_id")
+          .eq("comercio", integration.comercio)
+          .limit(1)
+          .maybeSingle();
+        if (siblingProd && siblingProd.merchant_id) {
+          activeMerchantId = siblingProd.merchant_id;
+        }
+      } catch (_) {}
+    }
+
+    const storeId = storeIdFromPayload || String(integration.shop_url || "").replace(/[^0-9]/g, "");
+    const accessToken = (integration.access_token || "").trim();
+    const apiHeaders = {
+      "Authentication": `bearer ${accessToken}`,
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+      "User-Agent": "StockaWMS (integraciones@stocka.cl)"
+    };
+
+    const resourceId = payload.id ? payload.id.toString() : "N/A";
+    console.log(`Recibido Webhook Tiendanube: ${eventTopic} para ID #${resourceId} (Comercio: ${integration.comercio})`);
 
     // 6. Lógica según el Event Topic
-    if (eventTopic === "order/created") {
-      await handleOrderCreate(merchantId, integration.comercio, payload);
+    if (eventTopic.startsWith("order/")) {
+      let fullOrder = payload;
+      if (!Array.isArray(fullOrder.products) && payload.id && storeId && accessToken) {
+        const orderRes = await fetch(`https://api.tiendanube.com/v1/${storeId}/orders/${payload.id}`, {
+          method: "GET",
+          headers: apiHeaders
+        });
+        if (orderRes.ok) {
+          fullOrder = await orderRes.json();
+        }
+      }
+
+      if (eventTopic === "order/created") {
+        await handleOrderCreate(activeMerchantId, integration.comercio, fullOrder);
+      } else {
+        await handleOrderUpdate(activeMerchantId, integration.comercio, fullOrder);
+      }
     } 
-    else if (eventTopic === "order/updated") {
-      await handleOrderUpdate(merchantId, integration.comercio, payload);
+    else if (eventTopic === "product/created" || eventTopic === "product/updated") {
+      let fullProduct = payload;
+      if (!Array.isArray(fullProduct.variants) && payload.id && storeId && accessToken) {
+        const prodRes = await fetch(`https://api.tiendanube.com/v1/${storeId}/products/${payload.id}`, {
+          method: "GET",
+          headers: apiHeaders
+        });
+        if (prodRes.ok) {
+          fullProduct = await prodRes.json();
+        }
+      }
+
+      if (fullProduct && Array.isArray(fullProduct.variants)) {
+        await handleProductSave(activeMerchantId, integration.comercio, fullProduct);
+      }
     }
 
     return new Response("Webhook processed", { status: 200 });
@@ -583,5 +702,160 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
       }
     }
     console.log(`Ítems actualizados con éxito para el pedido Tiendanube ${finalOrderNumber}`);
+  }
+}
+
+// ==========================================
+// FUNCIONES DE MANEJO DE PRODUCTOS (REAL-TIME)
+// ==========================================
+
+async function handleProductSave(merchantId: string, comercio: string, product: any) {
+  const productName = extractTiendanubeName(product.name, "Producto sin nombre");
+  console.log(`Sincronizando producto Tiendanube ID ${product.id} ("${productName}") vía Webhook para ${comercio}`);
+
+  const mainImageUrl = product.images && product.images.length > 0 ? product.images[0].src : null;
+  const status = product.published ? "published" : "hidden";
+
+  // Verificar si Tiendanube es el catálogo principal del comercio (o única plataforma activa)
+  let shouldSyncToMasterCatalog = true;
+  try {
+    const { data: activeInts } = await supabase
+      .from("merchant_integrations")
+      .select("platform, is_main")
+      .eq("comercio", comercio)
+      .eq("is_active", true);
+
+    const salesInts = (activeInts || []).filter((i: any) => i.platform !== "Optiroute");
+    const explicitMain = salesInts.find((i: any) => i.is_main);
+    if (explicitMain && explicitMain.platform !== "Tiendanube") {
+      shouldSyncToMasterCatalog = false;
+    }
+  } catch (err: any) {
+    console.warn("⚠️ Aviso al verificar plataforma principal en webhook Tiendanube:", err.message);
+  }
+
+  // Cargar equivalencias de SKU
+  const skuMap: Record<string, string> = {};
+  try {
+    const { data: equivalences } = await supabase
+      .from("sku_equivalences")
+      .select("platform_sku, master_sku, platform")
+      .eq("comercio", comercio);
+
+    if (equivalences) {
+      equivalences
+        .filter((e: any) => e.platform === "Todas" || e.platform === "Tiendanube")
+        .forEach((e: any) => {
+          if (e.platform_sku && e.master_sku) {
+            skuMap[e.platform_sku.trim().replace(/\s+/g, "").toUpperCase()] = e.master_sku.trim();
+          }
+        });
+    }
+  } catch (_) {}
+
+  const seenSkus = new Set<string>();
+  const syncedRows: any[] = [];
+
+  for (const variant of (product.variants || [])) {
+    let variantSku = variant.sku || "";
+    let cleanSku = String(variantSku).trim().replace(/\s+/g, "");
+    if (!cleanSku) {
+      cleanSku = `TN-${product.id}-${variant.id}`;
+    }
+
+    const upperSku = cleanSku.toUpperCase();
+    if (seenSkus.has(upperSku)) {
+      let suffixIndex = 1;
+      let newSku = `${cleanSku}-DUP-${suffixIndex}`;
+      while (seenSkus.has(newSku.toUpperCase())) {
+        suffixIndex++;
+        newSku = `${cleanSku}-DUP-${suffixIndex}`;
+      }
+      cleanSku = newSku;
+    }
+    seenSkus.add(cleanSku.toUpperCase());
+
+    let imageUrl = mainImageUrl;
+    if (variant.image_id && Array.isArray(product.images)) {
+      const matchedImg = product.images.find((img: any) => img.id === variant.image_id);
+      if (matchedImg && matchedImg.src) {
+        imageUrl = matchedImg.src;
+      }
+    }
+
+    const variantNameParts = extractTiendanubeVariantValues(variant.values);
+    const finalName = variantNameParts.length > 0 ? `${productName} - ${variantNameParts.join(" / ")}` : productName;
+    const cleanBarcode = variant.barcode ? String(variant.barcode).trim() : null;
+    const variantPrice = parseFloat(variant.price) || 0;
+
+    syncedRows.push({
+      comercio,
+      platform: "Tiendanube",
+      sku: cleanSku,
+      name: finalName,
+      image_url: imageUrl,
+      status,
+      price: variantPrice,
+      barcode: cleanBarcode
+    });
+
+    if (shouldSyncToMasterCatalog && comercio) {
+      const targetSku = skuMap[cleanSku.toUpperCase()] || cleanSku;
+      const { data: existingProd } = await supabase
+        .from("products")
+        .select("id")
+        .eq("comercio", comercio)
+        .ilike("sku", targetSku)
+        .limit(1)
+        .maybeSingle();
+
+      if (!existingProd) {
+        const largo = parseFloat(variant.depth) || 10;
+        const ancho = parseFloat(variant.width) || 10;
+        const alto = parseFloat(variant.height) || 10;
+        const volumen = (largo * ancho * alto) / 1000000 || 0.0001;
+        const weightKg = parseFloat(variant.weight) || null;
+
+        const { error: prodInsErr } = await supabase
+          .from("products")
+          .insert([{
+            merchant_id: merchantId,
+            comercio,
+            sku: targetSku,
+            name: finalName,
+            price: variantPrice,
+            barcode: cleanBarcode,
+            image_url: imageUrl,
+            volumen,
+            largo,
+            ancho,
+            alto,
+            weight: weightKg,
+            status: "active",
+            description: "Importado automáticamente de Tiendanube",
+            tiendanube_product_id: String(product.id),
+            tiendanube_variant_id: String(variant.id),
+            raw_tiendanube_data: variant
+          }]);
+
+        if (prodInsErr) {
+          console.error(`Error al auto-crear producto SKU ${targetSku} en products:`, prodInsErr);
+        } else {
+          console.log(`✨ Producto nuevo SKU ${targetSku} creado automáticamente en products vía Webhook Tiendanube.`);
+        }
+      }
+    }
+  }
+
+  if (syncedRows.length > 0) {
+    const { error: syncErr } = await supabase
+      .from("synced_products")
+      .upsert(syncedRows, { onConflict: "comercio,platform,sku" });
+
+    if (syncErr) {
+      console.error("Error actualizando synced_products desde webhook Tiendanube:", syncErr);
+    } else {
+      console.log(`📥 ${syncedRows.length} variante(s) actualizadas en synced_products vía Webhook Tiendanube.`);
+    }
   }
 }

@@ -84,7 +84,7 @@ async function getValidShopifyToken(integration: any, forceRefresh = false): Pro
 }
 
 const WHATSAPP_API_URL = Deno.env.get("WHATSAPP_API_URL") || "https://stocka-whatsapp-bot.onrender.com";
-const WHATSAPP_API_KEY = Deno.env.get("WHATSAPP_API_KEY") || "stocka_wa_internal_secret_2026";
+const WHATSAPP_API_KEY = Deno.env.get("WHATSAPP_API_KEY") ?? "";
 const GESTION_STOCKA_GROUP_JID = "120363413357945543@g.us"; // NOTIFICACIONES STOX
 
 const corsHeaders = {
@@ -119,6 +119,54 @@ serve(async (req) => {
   }
 
   try {
+    // Validar autenticación JWT o Service Role (VULN-20)
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "No autorizado: Falta cabecera Authorization" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    let isServiceOrAdmin = false;
+    let allowedComercios: string[] = [];
+
+    if (supabaseServiceKey && token === supabaseServiceKey.trim()) {
+      isServiceOrAdmin = true;
+    } else {
+      const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+      if (authErr || !user) {
+        return new Response(JSON.stringify({ error: "No autorizado: Sesión inválida o expirada" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role, comercio")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (!profile) {
+        return new Response(JSON.stringify({ error: "No autorizado: Perfil no encontrado" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const userComercioRaw = String(profile.comercio || "").trim();
+      if (profile.role === "admin" || userComercioRaw.toLowerCase() === "all") {
+        isServiceOrAdmin = true;
+      } else {
+        allowedComercios = userComercioRaw
+          .split(",")
+          .map((c: string) => c.trim().toLowerCase())
+          .filter(Boolean);
+      }
+    }
+
     const { order_id } = await req.json();
     if (!order_id) {
       return new Response(JSON.stringify({ error: "Parámetro 'order_id' es requerido" }), {
@@ -139,6 +187,16 @@ serve(async (req) => {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // Verificar pertenencia al comercio para usuarios no administradores
+    if (!isServiceOrAdmin) {
+      if (!order.comercio || !allowedComercios.includes(String(order.comercio).trim().toLowerCase())) {
+        return new Response(JSON.stringify({ error: "No tienes permisos sobre el comercio de este pedido" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     // Validar estado WMS

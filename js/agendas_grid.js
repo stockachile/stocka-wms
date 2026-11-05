@@ -68,7 +68,7 @@
   window.RM_36_COMMUNES = RM_36_COMMUNES;
 
   // ==========================================================================
-  // 1.c Catálogo Oficial de los 45 Proveedores Registrados en Optiroute
+  // 1.c Catálogo Oficial de Proveedores Registrados en Optiroute (Base + API Sync)
   // ==========================================================================
   const OPTIROUTE_SUPPLIERS = [
     'AIRPURE',
@@ -86,6 +86,7 @@
     'EL MUNDO DEL CAFE',
     'FORTE MAX',
     'FRUTZ',
+    'FULL CALENDARIOS',
     'GLOSS',
     'GRANJA MAGDALENA PET',
     'LA MANTA CHILENA',
@@ -3747,6 +3748,8 @@
           }
         });
       }
+      // Sincronizar también catálogo de proveedores de Optiroute en segundo plano
+      syncOptirouteSuppliersFromApi({ silent: true }).catch(() => {});
     } catch (e) {
       console.warn('Excepción al cargar configuraciones de proveedores Optiroute:', e);
     }
@@ -3759,17 +3762,19 @@
     const upperComercio = rawComercio.toUpperCase();
     const cleanUpper = upperComercio.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9]/g, '');
 
+    let dbConfiguredProv = '';
+
     // 1. Prioridad Máxima: Configuración por Comercios (window.optirouteMerchantsConfigMap cargado de DB)
     if (window.optirouteMerchantsConfigMap) {
       if (window.optirouteMerchantsConfigMap[upperComercio]) {
-        return window.optirouteMerchantsConfigMap[upperComercio];
-      }
-      if (cleanUpper) {
+        dbConfiguredProv = String(window.optirouteMerchantsConfigMap[upperComercio]).trim().toUpperCase();
+      } else if (cleanUpper) {
         for (const [key, val] of Object.entries(window.optirouteMerchantsConfigMap)) {
           if (key && val) {
             const cleanKey = key.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9]/g, '');
             if (cleanKey === cleanUpper) {
-              return val;
+              dbConfiguredProv = String(val).trim().toUpperCase();
+              break;
             }
           }
         }
@@ -3777,7 +3782,7 @@
     }
 
     // 2. Verificar si está en window.cachedAdminMerchants (datos en memoria de Administración de Comercios)
-    if (Array.isArray(window.cachedAdminMerchants)) {
+    if (!dbConfiguredProv && Array.isArray(window.cachedAdminMerchants)) {
       const foundM = window.cachedAdminMerchants.find(m => {
         const mName = (m.nombre || '').trim().toUpperCase();
         if (mName === upperComercio) return true;
@@ -3785,11 +3790,16 @@
         return cleanM === cleanUpper;
       });
       if (foundM) {
-        const customOpti = (foundM.optiroute_proveedor || foundM.plat_siglas_config?.optiroute_proveedor || '').trim();
-        if (customOpti && OPTIROUTE_SUPPLIERS.includes(customOpti)) {
-          return customOpti;
+        const customOpti = (foundM.optiroute_proveedor || foundM.plat_siglas_config?.optiroute_proveedor || '').trim().toUpperCase();
+        if (customOpti) {
+          dbConfiguredProv = customOpti;
         }
       }
+    }
+
+    // Si tiene un proveedor específico distinto al genérico 'STOCKA', retornarlo directamente
+    if (dbConfiguredProv && dbConfiguredProv !== 'STOCKA') {
+      return dbConfiguredProv;
     }
 
     // 3. Mapeo Canónico WMS -> Proveedores Optiroute
@@ -3804,19 +3814,20 @@
       }
     }
 
-    // 4. Coincidencia directa exacta en el catálogo de los 45 proveedores oficiales
-    if (OPTIROUTE_SUPPLIERS.includes(upperComercio)) {
+    // 4. Coincidencia directa exacta en el catálogo de proveedores oficiales de Optiroute
+    const suppliersCatalog = window.OPTIROUTE_SUPPLIERS || OPTIROUTE_SUPPLIERS || [];
+    if (suppliersCatalog.includes(upperComercio)) {
       return upperComercio;
     }
 
     // 5. Coincidencia normalizada (sin espacios ni caracteres especiales)
-    const normMatch = OPTIROUTE_SUPPLIERS.find(s => s.replace(/[^A-Z0-9]/g, '') === cleanUpper);
+    const normMatch = suppliersCatalog.find(s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9]/g, '') === cleanUpper);
     if (normMatch) {
       return normMatch;
     }
 
     // 6. Fallback oficial garantizado: STOCKA
-    return 'STOCKA';
+    return dbConfiguredProv || 'STOCKA';
   }
 
   function getOptirouteProveedor(order) {
@@ -3824,46 +3835,198 @@
     return getOptirouteProveedorForComercio(order.comercio);
   }
 
-  // IDs numéricos oficiales de Proveedores registrados en Optiroute
+  // IDs numéricos oficiales de Proveedores registrados en Optiroute (/api/v1/stores/)
   const OPTIROUTE_SUPPLIER_IDS = {
     'AIRPURE': 19363,
+    'ANACONDA HAITI': 20309,
+    'ANLU STORE': 21795,
+    'AQUALAT': 19942,
+    'ASTERFAIRO': 26113,
     'B4LIFE': 22356,
     'BACK IN TIME': 18412,
     'BE NATIVE': 25403,
+    'BLESSNUSS': 27356,
     'CROMO': 21108,
     'DG ORAL CARE': 25238,
     'DORMILONES': 18680,
     'EL MUNDO DEL CAFE': 20065,
     'FORTE MAX': 26901,
+    'FRUTZ': 20331,
+    'FULL CALENDARIOS': 27642,
     'GLOSS': 26394,
     'GRANJA MAGDALENA PET': 19081,
     'LA MANTA CHILENA': 25658,
     'LAQU': 20293,
     'LIVROS': 25680,
+    'LUTAI': 18785,
     'MAESE': 18792,
     'MAGIC MAKEUP': 25459,
     'MARINA VITAL': 20581,
     'MEDSKILLS': 18730,
+    'MENPRIME': 27025,
     'MMEDD': 18786,
     'MUKAVA': 19195,
     'NATIVA ELEMENTS': 20665,
+    'NOMAD': 27414,
     'OPARD': 20735,
     'POM KIDS': 26803,
     'PORTONESAUTOMAT': 20308,
     'RCT CHILE': 18754,
     'RELAJARTE': 19362,
+    'RTT DEL SUR': 19194,
     'SAGUAROSHOES': 18704,
+    'SERPA': 25883,
     'SILVER FOX': 26013,
     'SIMPLEMENTE CAFE': 25809,
     'SMILE FOR PETS': 25356,
     'STOCKA': 18647,
     'STREET GYM': 23685,
     'THE SKIN STORE': 26298,
+    'VITALITYFOODS': 22178,
     'TIENDA 1': 18584,
     'TIENDA 2': 19862,
     'TIENDA 3': 19863
   };
   window.OPTIROUTE_SUPPLIER_IDS = OPTIROUTE_SUPPLIER_IDS;
+
+  const OPTIROUTE_SUPPLIERS_CACHE_KEY = 'stocka_optiroute_suppliers_cache_v1';
+
+  // Hidratar inmediatamente desde caché local si existen proveedores sincronizados previamente
+  (function hydrateCachedOptirouteSuppliers() {
+    try {
+      const raw = localStorage.getItem(OPTIROUTE_SUPPLIERS_CACHE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.supplierIds && typeof parsed.supplierIds === 'object') {
+          Object.entries(parsed.supplierIds).forEach(([k, v]) => {
+            const cleanK = String(k || '').trim().toUpperCase();
+            if (cleanK && v) {
+              OPTIROUTE_SUPPLIER_IDS[cleanK] = Number(v);
+            }
+          });
+        }
+        const mergedSet = new Set(OPTIROUTE_SUPPLIERS.map(s => String(s).trim().toUpperCase()));
+        if (Array.isArray(parsed.suppliers)) {
+          parsed.suppliers.forEach(s => {
+            const cleanS = String(s || '').trim().toUpperCase();
+            if (cleanS) mergedSet.add(cleanS);
+          });
+        }
+        const sorted = Array.from(mergedSet).filter(Boolean).sort((a, b) => a.localeCompare(b, 'es'));
+        OPTIROUTE_SUPPLIERS.splice(0, OPTIROUTE_SUPPLIERS.length, ...sorted);
+        window.OPTIROUTE_SUPPLIERS = OPTIROUTE_SUPPLIERS;
+      }
+    } catch (e) {
+      console.warn('No se pudo leer caché local de proveedores Optiroute:', e);
+    }
+  })();
+
+  let optirouteSuppliersSyncPromise = null;
+
+  /**
+   * Consulta en vivo el endpoint https://app.optiroute.cl/api/v1/stores/ de Optiroute
+   * para traer todos los proveedores ("stores") disponibles y sus IDs numéricos oficiales.
+   */
+  async function syncOptirouteSuppliersFromApi(options = {}) {
+    if (optirouteSuppliersSyncPromise && !options.force) {
+      return optirouteSuppliersSyncPromise;
+    }
+
+    optirouteSuppliersSyncPromise = (async () => {
+      const previousSet = new Set((window.OPTIROUTE_SUPPLIERS || OPTIROUTE_SUPPLIERS || []).map(s => String(s).trim().toUpperCase()));
+      const mergedSet = new Set(previousSet);
+      const newlyAdded = [];
+      let fetchedFromApi = false;
+
+      try {
+        const token = options.token || await getOptirouteToken();
+        if (token) {
+          let nextUrl = 'https://app.optiroute.cl/api/v1/stores/?per_page=200';
+          let pageGuard = 0;
+
+          while (nextUrl && pageGuard < 10) {
+            pageGuard++;
+            const resp = await fetch(nextUrl, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Token ${token}`,
+                'Content-Type': 'application/json'
+              }
+            });
+
+            if (!resp.ok) {
+              console.warn(`[Optiroute] Respuesta HTTP ${resp.status} al consultar /api/v1/stores/`);
+              break;
+            }
+
+            const data = await resp.json();
+            const stores = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
+            fetchedFromApi = true;
+
+            stores.forEach(store => {
+              const cleanName = String(store?.name || '').trim().toUpperCase();
+              if (!cleanName) return;
+              if (!previousSet.has(cleanName) && !newlyAdded.includes(cleanName)) {
+                newlyAdded.push(cleanName);
+              }
+              mergedSet.add(cleanName);
+              if (store.id) {
+                OPTIROUTE_SUPPLIER_IDS[cleanName] = Number(store.id);
+              }
+            });
+
+            nextUrl = (!Array.isArray(data) && data?.next) ? data.next : null;
+          }
+        }
+      } catch (errApi) {
+        console.warn('[Optiroute] Aviso al sincronizar proveedores desde API /stores/:', errApi);
+      }
+
+      // Incorporar también cualquier proveedor ya configurado en comercios_adicional_config
+      if (window.optirouteMerchantsConfigMap && typeof window.optirouteMerchantsConfigMap === 'object') {
+        Object.values(window.optirouteMerchantsConfigMap).forEach(val => {
+          const cleanVal = String(val || '').trim().toUpperCase();
+          if (cleanVal) mergedSet.add(cleanVal);
+        });
+      }
+
+      const sortedList = Array.from(mergedSet).filter(Boolean).sort((a, b) => a.localeCompare(b, 'es'));
+      OPTIROUTE_SUPPLIERS.splice(0, OPTIROUTE_SUPPLIERS.length, ...sortedList);
+      window.OPTIROUTE_SUPPLIERS = OPTIROUTE_SUPPLIERS;
+      window.OPTIROUTE_SUPPLIER_IDS = OPTIROUTE_SUPPLIER_IDS;
+
+      try {
+        localStorage.setItem(OPTIROUTE_SUPPLIERS_CACHE_KEY, JSON.stringify({
+          suppliers: sortedList,
+          supplierIds: OPTIROUTE_SUPPLIER_IDS,
+          updatedAt: new Date().toISOString()
+        }));
+      } catch (eCache) {
+        // Ignorar errores de cuota de localStorage
+      }
+
+      // Si hay selectores abiertos en el DOM (Editar Comercio o Crear Comercio), refrescarlos en vivo
+      if (typeof window.refreshOptirouteSupplierSelectsInDom === 'function') {
+        window.refreshOptirouteSupplierSelectsInDom(options.commerceName);
+      }
+
+      return {
+        ok: fetchedFromApi,
+        count: sortedList.length,
+        newSuppliers: newlyAdded,
+        suppliers: sortedList,
+        supplierIds: OPTIROUTE_SUPPLIER_IDS
+      };
+    })();
+
+    try {
+      return await optirouteSuppliersSyncPromise;
+    } finally {
+      optirouteSuppliersSyncPromise = null;
+    }
+  }
+  window.syncOptirouteSuppliersFromApi = syncOptirouteSuppliersFromApi;
 
   function getOptirouteSupplierId(comercioOrProvName) {
     if (!comercioOrProvName) return OPTIROUTE_SUPPLIER_IDS['STOCKA'] || 18647;
@@ -5182,11 +5345,14 @@
     const progressLabel = document.getElementById('optiroute-progress-label');
     const progressCount = document.getElementById('optiroute-progress-count');
 
-    // 2. Obtener Token y cargar mapeos de proveedores
+    // 2. Obtener Token y cargar mapeos de proveedores (incluyendo sincronización en vivo con /api/v1/stores/)
     let token = null;
     try {
       token = await getOptirouteToken();
       await loadOptirouteMerchantsConfig();
+      if (token) {
+        await syncOptirouteSuppliersFromApi({ token, silent: true });
+      }
     } catch (errToken) {
       console.error('Error fetching Optiroute token/config:', errToken);
     }

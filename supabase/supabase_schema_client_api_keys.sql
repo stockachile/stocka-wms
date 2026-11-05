@@ -22,13 +22,28 @@ DROP POLICY IF EXISTS "Admins y Service Role gestionan API keys" ON public.clien
 CREATE POLICY "Admins y Service Role gestionan API keys" ON public.client_api_keys
   FOR ALL USING (auth.role() = 'service_role');
 
--- 3. Registro inicial de Floractive
-INSERT INTO public.client_api_keys (merchant_id, comercio, api_key)
-VALUES (
-  '2a27e3bf-a505-4c82-aef0-e3fc81b2a1e3',
-  'FLORACTIVE',
-  'stk_live_floractive_8a92f03b4e112d'
-) ON CONFLICT (api_key) DO NOTHING;
+-- 3. Registro inicial de clientes con API Key
+INSERT INTO public.client_api_keys (merchant_id, comercio, api_key, webhook_secret)
+VALUES 
+  (
+    '2a27e3bf-a505-4c82-aef0-e3fc81b2a1e3',
+    'FLORACTIVE',
+    'stk_live_floractive_8a92f03b4e112d',
+    'whsec_floractive_7f3c91a8e4b206d5c19e83a74b52f01c'
+  ),
+  (
+    'bd23767f-869d-4c52-91d0-2d2ef95cb8c0',
+    'MAGIC MAKEUP',
+    'stk_ro_magicmakeup_9c41a72e5b803f',
+    NULL
+  ),
+  (
+    'a38c5192-c9d8-41b2-b715-d22334048032',
+    'GLOBALMAC',
+    'stk_live_globalmac_6e48b19c3a72f5',
+    'whsec_globalmac_4d8a29f1c6e07b35a19284e6c7b03d1a'
+  )
+ON CONFLICT (api_key) DO NOTHING;
 
 -- 4. Índice para búsquedas ultrarrápidas de autenticación
 CREATE INDEX IF NOT EXISTS idx_client_api_keys_lookup ON public.client_api_keys (api_key, is_active);

@@ -86,8 +86,8 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace(/^Bearer\s/i, '').trim()
-    const hardcodedServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTgzMTE4NSwiZXhwIjoyMDk1NDA3MTg1fQ.YX4okf4XNkkVQaU0XbbRtm4SNRTqvwEVNd7ubc4PGe8';
-    const cleanServiceKey = (supabaseServiceKey || hardcodedServiceKey).trim();
+    // Clave de servicio obtenida exclusivamente desde variables de entorno (VULN-17)
+    const cleanServiceKey = supabaseServiceKey.trim();
 
     const supabaseClient = createClient(supabaseUrl, cleanServiceKey, {
       auth: { persistSession: false }
@@ -97,7 +97,7 @@ serve(async (req) => {
     let isAuthorized = false;
     let user = null;
 
-    if (token === cleanServiceKey || token === hardcodedServiceKey) {
+    if (cleanServiceKey && token === cleanServiceKey) {
       isAuthorized = true;
     } else {
       const { data: { user: verifiedUser }, error: authErr } = await supabaseClient.auth.getUser(token)

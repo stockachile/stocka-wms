@@ -68,25 +68,48 @@ serve(async (req) => {
     // Leemos el raw body como texto
     const rawBody = await req.text();
 
-    if (hmacHeader && integration.webhook_secret) {
-      try {
-        const keyBuf = new TextEncoder().encode(integration.webhook_secret.trim());
-        const key = await crypto.subtle.importKey(
-          "raw",
-          keyBuf,
-          { name: "HMAC", hash: "SHA-256" },
-          false,
-          ["sign"]
-        );
-        const dataBuf = new TextEncoder().encode(rawBody);
-        const signature = await crypto.subtle.sign("HMAC", key, dataBuf);
-        const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
+    if (integration.webhook_secret) {
+      if (!hmacHeader) {
+        console.error("Falta cabecera HMAC en petición de Jumpseller para merchant:", merchantId);
+        return new Response("Unauthorized: Missing HMAC signature", { status: 401 });
+      }
 
-        if (signatureBase64 !== hmacHeader) {
-          console.warn("Firma HMAC de Jumpseller no coincidió exactamente:", { received: hmacHeader, calculated: signatureBase64 });
+      try {
+        const computeHmacBase64 = async (secretStr: string) => {
+          const keyBuf = new TextEncoder().encode(secretStr.trim());
+          const key = await crypto.subtle.importKey(
+            "raw",
+            keyBuf,
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["sign"]
+          );
+          const dataBuf = new TextEncoder().encode(rawBody);
+          const signature = await crypto.subtle.sign("HMAC", key, dataBuf);
+          return btoa(String.fromCharCode(...new Uint8Array(signature)));
+        };
+
+        const sigPrimary = await computeHmacBase64(integration.webhook_secret);
+        let isValidHmac = sigPrimary === hmacHeader.trim();
+
+        // Fallback en caso de que el comercio haya configurado su auth_token como secreto de firma
+        if (!isValidHmac && integration.access_token) {
+          try {
+            const parsedCreds = JSON.parse(integration.access_token);
+            if (parsedCreds?.auth_token) {
+              const sigFallback = await computeHmacBase64(String(parsedCreds.auth_token));
+              isValidHmac = sigFallback === hmacHeader.trim();
+            }
+          } catch (_) {}
+        }
+
+        if (!isValidHmac) {
+          console.error("Firma HMAC de Jumpseller inválida para merchant:", merchantId);
+          return new Response("Unauthorized: Invalid HMAC signature", { status: 401 });
         }
       } catch (cryptoErr: any) {
-        console.warn("Error evaluando HMAC de Jumpseller:", cryptoErr.message);
+        console.error("Error evaluando HMAC de Jumpseller:", cryptoErr.message);
+        return new Response("Unauthorized: HMAC evaluation failed", { status: 401 });
       }
     }
 
@@ -390,14 +413,16 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
 
     // Alertas críticas si el pedido ya está siendo preparado o protección si ya está cerrado
     const rawStatus = (existingOrder.status || '').toLowerCase();
-    const isClosedOrDispatched = ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawStatus);
+    const rawWmsStatus = (existingOrder.estado_wms || '').toLowerCase();
+    const isClosedOrDispatched = ['despachado', 'entregado', 'retirado', 'cancelado', 'archivado'].includes(rawStatus) ||
+                                 ['despachado', 'entregado', 'retirado', 'cancelado', 'archivado'].includes(rawWmsStatus);
     const wmsStatus = existingOrder.estado_wms || existingOrder.status || 'En procesamiento';
-    const estadosCriticos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'];
+    const estadosCriticos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado', 'archivado'];
 
     if (isWmsItemsEdited) {
       console.log(`Pedido ${orderNumber} fue editado manualmente en WMS. Omitiendo sobrescritura de order_items.`);
     } else if (isClosedOrDispatched) {
-      console.log(`Pedido ${orderNumber} ya está en estado final (${existingOrder.status}). Omitiendo diffing.`);
+      console.log(`Pedido ${orderNumber} ya está en estado final (${existingOrder.estado_wms || existingOrder.status}). Omitiendo diffing.`);
     } else if (estadosCriticos.includes(wmsStatus.toLowerCase())) {
       await supabase.from("order_alerts").insert([{
         merchant_id: merchantId,
@@ -686,17 +711,55 @@ async function handleProductSave(merchantId: string, comercio: string, product: 
     console.error('⚠️ Error al cargar equivalencias de SKU:', err.message);
   }
 
+  const formatJumpsellerVariantName = (productName: string, variant: any) => {
+    const baseName = (productName || '').trim();
+    if (Array.isArray(variant?.options) && variant.options.length > 0) {
+      const sortedOpts = [...variant.options].sort(
+        (a: any, b: any) => (a.product_option_position ?? 999) - (b.product_option_position ?? 999)
+      );
+      const parts = sortedOpts
+        .map((opt: any) => {
+          const optName = (opt?.name || '').trim();
+          const optVal = (opt?.value || opt?.custom || '').trim();
+          if (optName && optVal) return `${optName}: ${optVal}`;
+          return optVal || optName;
+        })
+        .filter(Boolean);
+      if (parts.length > 0) {
+        return `${baseName} (${parts.join(', ')})`;
+      }
+    }
+    return `${baseName} - Variante ${variant.id}`;
+  };
+
+  const seenSkus = new Set<string>();
+  const getUniqueSku = (rawSku: string) => {
+    let cleanSku = String(rawSku || '').trim().replace(/\s+/g, '');
+    const upperSku = cleanSku.toUpperCase();
+    if (seenSkus.has(upperSku)) {
+      let suffixIndex = 1;
+      let newSku = `${cleanSku}-DUP-${suffixIndex}`;
+      while (seenSkus.has(newSku.toUpperCase())) {
+        suffixIndex++;
+        newSku = `${cleanSku}-DUP-${suffixIndex}`;
+      }
+      cleanSku = newSku;
+    }
+    seenSkus.add(cleanSku.toUpperCase());
+    return cleanSku;
+  };
+
   // Si no tiene variantes
   if (!product.variants || product.variants.length === 0) {
     let variantSku = product.sku || `JS-${product.id}`;
-    let cleanSku = variantSku.trim().replace(/\s+/g, '');
+    let cleanSku = getUniqueSku(variantSku);
     let mappedSku = skuMap[cleanSku] || cleanSku;
 
     const productData = {
       merchant_id: merchantId,
       comercio: comercio,
       sku: mappedSku,
-      name: product.name,
+      name: (product.name || '').trim(),
       description: product.description || "",
       price: product.price || 0,
       jumpseller_product_id: product.id.toString(),
@@ -716,14 +779,14 @@ async function handleProductSave(merchantId: string, comercio: string, product: 
       const v = vItem ? (vItem.variant || vItem) : null;
       if (!v) continue;
       let variantSku = v.sku || `JS-${product.id}-${v.id}`;
-      let cleanSku = variantSku.trim().replace(/\s+/g, '');
+      let cleanSku = getUniqueSku(variantSku);
       let mappedSku = skuMap[cleanSku] || cleanSku;
 
       const productData = {
         merchant_id: merchantId,
         comercio: comercio,
         sku: mappedSku,
-        name: `${product.name} - Variante ${v.id}`,
+        name: formatJumpsellerVariantName(product.name, v),
         description: product.description || "",
         price: v.price || product.price || 0,
         jumpseller_product_id: product.id.toString(),

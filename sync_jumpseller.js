@@ -237,8 +237,46 @@ async function syncProducts(integration, headers) {
   }
 
   const productsToUpsert = [];
+  const seenSkus = new Set();
   let page = 1;
   let hasMore = true;
+
+  const formatJumpsellerVariantName = (productName, variant) => {
+    const baseName = (productName || '').trim();
+    if (Array.isArray(variant?.options) && variant.options.length > 0) {
+      const sortedOpts = [...variant.options].sort(
+        (a, b) => (a.product_option_position ?? 999) - (b.product_option_position ?? 999)
+      );
+      const parts = sortedOpts
+        .map(opt => {
+          const optName = (opt?.name || '').trim();
+          const optVal = (opt?.value || opt?.custom || '').trim();
+          if (optName && optVal) return `${optName}: ${optVal}`;
+          return optVal || optName;
+        })
+        .filter(Boolean);
+      if (parts.length > 0) {
+        return `${baseName} (${parts.join(', ')})`;
+      }
+    }
+    return `${baseName} - Variante ${variant.id}`;
+  };
+
+  const getUniqueSku = (rawSku) => {
+    let cleanSku = String(rawSku || '').trim().replace(/\s+/g, '');
+    const upperSku = cleanSku.toUpperCase();
+    if (seenSkus.has(upperSku)) {
+      let suffixIndex = 1;
+      let newSku = `${cleanSku}-DUP-${suffixIndex}`;
+      while (seenSkus.has(newSku.toUpperCase())) {
+        suffixIndex++;
+        newSku = `${cleanSku}-DUP-${suffixIndex}`;
+      }
+      cleanSku = newSku;
+    }
+    seenSkus.add(cleanSku.toUpperCase());
+    return cleanSku;
+  };
 
   try {
     while (hasMore) {
@@ -265,13 +303,13 @@ async function syncProducts(integration, headers) {
         // Un producto en Jumpseller puede o no tener variantes
         if (!p.variants || p.variants.length === 0) {
           let variantSku = p.sku || `JS-${p.id}`;
-          let cleanSku = variantSku.trim().replace(/\s+/g, '');
+          let cleanSku = getUniqueSku(variantSku);
 
           productsToUpsert.push({
             comercio: integration.comercio,
             platform: 'Jumpseller',
             sku: cleanSku,
-            name: p.name,
+            name: (p.name || '').trim(),
             price: mainPrice,
             image_url: imageUrl,
             status: p.status || null,
@@ -283,11 +321,14 @@ async function syncProducts(integration, headers) {
             const v = variantWrapper ? (variantWrapper.variant || variantWrapper) : null;
             if (!v) continue;
             let variantSku = v.sku || `JS-${p.id}-${v.id}`;
-            let cleanSku = variantSku.trim().replace(/\s+/g, '');
+            let cleanSku = getUniqueSku(variantSku);
 
             let varImageUrl = imageUrl;
-            if (p.images && v.image_id) {
-              const matchedImg = p.images.find(img => img.id === v.image_id);
+            if (v.image && v.image.url) {
+              varImageUrl = v.image.url;
+            } else if (p.images && (v.image_id || v.image?.id)) {
+              const targetImgId = v.image_id || v.image?.id;
+              const matchedImg = p.images.find(img => img.id === targetImgId);
               if (matchedImg && matchedImg.url) {
                 varImageUrl = matchedImg.url;
               }
@@ -297,7 +338,7 @@ async function syncProducts(integration, headers) {
               comercio: integration.comercio,
               platform: 'Jumpseller',
               sku: cleanSku,
-              name: `${p.name} - Variante ${v.id}`,
+              name: formatJumpsellerVariantName(p.name, v),
               price: parseFloat(v.price) || mainPrice,
               image_url: varImageUrl,
               status: p.status || null,
@@ -324,6 +365,7 @@ async function syncProducts(integration, headers) {
 
         if (upsertErr) {
           console.error(`❌ Error en batch upsert de synced_products:`, upsertErr.message);
+          throw new Error(`Error en upsert de synced_products: ${upsertErr.message}`);
         }
       }
       console.log(`📥 Total de ${productsToUpsert.length} variantes/productos sincronizados en synced_products para ${integration.comercio}.`);
@@ -641,23 +683,23 @@ async function syncOrders(integration, headers, warehouseId) {
 
         // Auto-recuperación (Healer): Validar si ya tiene ítems guardados o si requieren reconciliación (solo si no fue editado en WMS y sigue activo)
         if (!isWmsItemsEdited && !isCancelled) {
-          const { data: existingItems, error: itemsCheckErr } = await supabase
-            .from('order_items')
-            .select('id, product_id, quantity, warehouse_id, is_gift, campaign_id, tag')
-            .eq('order_id', localOrderId);
+          const rawStatus = (existingOrder.status || '').toLowerCase();
+          const rawWmsStatus = (existingOrder.estado_wms || '').toLowerCase();
+          const isClosedOrDispatched = ['despachado', 'entregado', 'retirado', 'cancelado', 'archivado'].includes(rawStatus) ||
+                                       ['despachado', 'entregado', 'retirado', 'cancelado', 'archivado'].includes(rawWmsStatus);
+          const wmsStatus = (existingOrder.estado_wms || existingOrder.status || 'En procesamiento').toLowerCase();
+          const estadosCriticos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado', 'archivado'];
 
-          if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
-            console.log(`ℹ️ Pedido existente ${orderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);
-            shouldInsertItems = true;
-          } else if (!itemsCheckErr && existingItems && existingItems.length > 0) {
-            const rawStatus = (existingOrder.status || '').toLowerCase();
-            const rawWmsStatus = (existingOrder.estado_wms || '').toLowerCase();
-            const isClosedOrDispatched = ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawStatus) ||
-                                         ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawWmsStatus);
-            const wmsStatus = (existingOrder.estado_wms || existingOrder.status || 'En procesamiento').toLowerCase();
-            const estadosCriticos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'];
+          if (!isClosedOrDispatched && !estadosCriticos.includes(wmsStatus)) {
+            const { data: existingItems, error: itemsCheckErr } = await supabase
+              .from('order_items')
+              .select('id, product_id, quantity, warehouse_id, is_gift, campaign_id, tag')
+              .eq('order_id', localOrderId);
 
-            if (!isClosedOrDispatched && !estadosCriticos.includes(wmsStatus)) {
+            if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
+              console.log(`ℹ️ Pedido existente ${orderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);
+              shouldInsertItems = true;
+            } else if (!itemsCheckErr && existingItems && existingItems.length > 0) {
               existingItemsToReconcile = existingItems;
             }
           }

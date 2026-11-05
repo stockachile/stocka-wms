@@ -22,6 +22,20 @@ serve(async (req) => {
   }
 
   try {
+    // Validación de token secreto de webhook si está configurado en entorno (VULN-28)
+    const expectedWebhookSecret = (Deno.env.get("BREVO_WEBHOOK_SECRET") ?? "").trim();
+    if (expectedWebhookSecret) {
+      const reqUrl = new URL(req.url);
+      const queryToken = (reqUrl.searchParams.get("secret") || reqUrl.searchParams.get("token") || "").trim();
+      const authHeader = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+      if (queryToken !== expectedWebhookSecret && authHeader !== expectedWebhookSecret) {
+        return new Response(JSON.stringify({ error: "Unauthorized webhook request" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+
     const payload = await req.json();
     console.log("Recibido Webhook de Brevo:", JSON.stringify(payload));
 
@@ -29,7 +43,7 @@ serve(async (req) => {
 
     for (const evt of events) {
       const eventName = evt.event; // 'request', 'delivered', 'opened', 'clicks', 'unique_opened', 'invalid_email', etc.
-      const messageId = evt["message-id"];
+      const messageId = evt["message-id"] ? String(evt["message-id"]).trim() : "";
 
       if (messageId && eventName) {
         let dbStatus = "enviado";
@@ -45,16 +59,17 @@ serve(async (req) => {
         } else if (["invalid_email", "deferred", "hard_bounce", "soft_bounce", "blocked", "spam"].includes(eventName)) {
           dbStatus = "fallido";
         } else {
-          dbStatus = eventName;
+          dbStatus = String(eventName).slice(0, 40);
         }
 
         const eventDate = evt.date ? new Date(evt.date).toISOString() : new Date().toISOString();
-        const clickedLink = evt.link || null;
+        const rawLink = evt.link ? String(evt.link).trim() : "";
+        const clickedLink = /^https?:\/\/[^\s<>"]+$/i.test(rawLink) ? rawLink.slice(0, 300) : null;
         const recipientEmail = (evt.email || "").toLowerCase().trim();
 
         console.log(`[brevo-webhook] Evento ${eventName} (${dbStatus}) para ${recipientEmail}, messageId: ${messageId}`);
 
-        // 1. Actualizar lead_info_email_logs
+        // 1. Actualizar lead_info_email_logs (exigiendo coincidencia por message_id si existe)
         try {
           const updatePayload: any = { status: dbStatus };
           if (isOpened) updatePayload.opened_at = eventDate;
@@ -63,10 +78,13 @@ serve(async (req) => {
             if (clickedLink) updatePayload.notes = `Clic en enlace: ${clickedLink}`;
           }
 
-          if (messageId) {
-            await supabase.from("lead_info_email_logs").update(updatePayload).eq("message_id", messageId);
-          }
-          if (recipientEmail) {
+          const { data: updatedByMsg } = await supabase
+            .from("lead_info_email_logs")
+            .update(updatePayload)
+            .eq("message_id", messageId)
+            .select("id");
+
+          if ((!updatedByMsg || updatedByMsg.length === 0) && expectedWebhookSecret && recipientEmail) {
             await supabase.from("lead_info_email_logs").update(updatePayload).ilike("recipient_email", recipientEmail);
           }
         } catch (e1Err: any) {

@@ -12,15 +12,18 @@ COMMENT ON COLUMN public.comercios_adicional_config.optiroute_proveedor IS
 'Nombre exacto del proveedor registrado en el catálogo de Optiroute (45 proveedores oficiales). Si es NULL, se usa fallback a STOCKA.';
 
 -- 2. Inicializar / Mapear los comercios activos a sus proveedores oficiales de Optiroute
-UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'ANLU STORE' WHERE UPPER(TRIM(comercio)) = 'ANLU STORE';
+UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'ANACONDA HAITI' WHERE UPPER(TRIM(comercio)) = 'ANACONDA HAITI';
+UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'ANLU STORE' WHERE UPPER(TRIM(comercio)) IN ('ANLU STORE', 'ANLUSTORE');
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'AQUALAT' WHERE UPPER(TRIM(comercio)) = 'AQUALAT';
+UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'ASTERFAIRO' WHERE UPPER(TRIM(comercio)) = 'ASTERFAIRO';
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'B4LIFE' WHERE UPPER(TRIM(comercio)) = 'B4LIFE';
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'CROMO' WHERE UPPER(TRIM(comercio)) = 'CROMO';
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'DORMILONES' WHERE UPPER(TRIM(comercio)) = 'DORMILONES';
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'EL MUNDO DEL CAFE' WHERE UPPER(TRIM(comercio)) = 'EL MUNDO DEL CAFE';
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'FORTE MAX' WHERE UPPER(TRIM(comercio)) = 'FORTE MAX';
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'FRUTZ' WHERE UPPER(TRIM(comercio)) = 'FRUTZ';
-UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'GLOSS' WHERE UPPER(TRIM(comercio)) = 'GLOSS';
+UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'FULL CALENDARIOS' WHERE UPPER(TRIM(comercio)) = 'FULL CALENDARIOS';
+UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'GLOSS' WHERE UPPER(TRIM(comercio)) IN ('GLOSS', 'JOYAS GLOSS', 'GLOSS JOYAS');
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'LIVROS' WHERE UPPER(TRIM(comercio)) = 'LIVROS';
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'LUTAI' WHERE UPPER(TRIM(comercio)) = 'LUTAI';
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'MAESE' WHERE UPPER(TRIM(comercio)) IN ('MAESE', 'MAESE LABS');
@@ -34,8 +37,9 @@ UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'OPARD' WHERE
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'POM KIDS' WHERE UPPER(TRIM(comercio)) = 'POM KIDS';
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'RCT CHILE' WHERE UPPER(TRIM(comercio)) = 'RCT CHILE';
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'RELAJARTE' WHERE UPPER(TRIM(comercio)) = 'RELAJARTE';
+UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'RTT DEL SUR' WHERE UPPER(TRIM(comercio)) = 'RTT DEL SUR';
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'SAGUAROSHOES' WHERE UPPER(TRIM(comercio)) = 'SAGUAROSHOES';
-UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'SERPA' WHERE UPPER(TRIM(comercio)) = 'SERPA';
+UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'SERPA' WHERE UPPER(TRIM(comercio)) IN ('SERPA', 'SERPA LTDA', 'SERPA LIMITADA');
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'SILVER FOX' WHERE UPPER(TRIM(comercio)) = 'SILVER FOX';
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'SIMPLEMENTE CAFE' WHERE UPPER(TRIM(comercio)) = 'SIMPLEMENTE CAFE';
 UPDATE public.comercios_adicional_config SET optiroute_proveedor = 'STREET GYM' WHERE UPPER(TRIM(comercio)) = 'STREET GYM';
