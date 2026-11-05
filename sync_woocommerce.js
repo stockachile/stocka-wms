@@ -340,7 +340,7 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
       // Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id, status, estado_wms, raw_woocommerce_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
+        .select('id, status, estado_wms, operador, tracking_number, fecha_procesamiento, stock_descontado, raw_woocommerce_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
         .eq('comercio', integration.comercio)
         .eq('external_order_number', finalOrderNumber)
         .maybeSingle();
@@ -370,7 +370,7 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
         comercio: integration.comercio,
         external_order_number: finalOrderNumber,
         external_platform: 'WooCommerce',
-        payment_status: order.date_paid ? 'PAID' : 'PENDING',
+        payment_status: order.date_paid ? 'PAID' : (statusName === 'processing' || statusName === 'completed' ? 'PAID' : 'PENDING'),
         total_value: totalValue,
         customer_email: order.billing?.email || 'no-email@woocommerce.cl',
         customer_phone: order.billing?.phone || 'No especificado',
@@ -422,10 +422,20 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
           ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
         };
 
+        const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
+        const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+        const wasCancelledInWms =
+          (existingOrder.status || '').toLowerCase() === 'cancelado' ||
+          currentWmsState === 'cancelado';
+        const wasManuallyProcessedInWms =
+          Boolean(existingOrder.operador) ||
+          Boolean(existingOrder.tracking_number) ||
+          Boolean(existingOrder.fecha_procesamiento) ||
+          Boolean(existingOrder.stock_descontado) ||
+          existingRaw.wms_manually_cancelled === true;
+
         // Si el pedido se canceló en origen, actualizar su estado en WMS (protegiendo estados operacionales avanzados)
         if (isCancelled && existingOrder.status !== 'cancelado') {
-          const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
-          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
           const cancelUpdate = { ...orderDataToUpdate, status: 'cancelado' };
           if (!estadosWmsProtegidos.includes(currentWmsState)) {
             cancelUpdate.estado_wms = 'Cancelado';
@@ -435,6 +445,22 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
             .update(cancelUpdate)
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${finalOrderNumber} cancelado en WooCommerce. Actualizado en el WMS (estado_wms: ${cancelUpdate.estado_wms || existingOrder.estado_wms}).`);
+        } else if (!isCancelled && isActive && statusName !== 'pending' && wasCancelledInWms && !wasManuallyProcessedInWms && !estadosWmsProtegidos.includes(currentWmsState)) {
+          const reactivateUpdate = {
+            ...orderDataToUpdate,
+            status: 'para procesar',
+            estado_wms: 'En procesamiento'
+          };
+          await supabase
+            .from('orders')
+            .update(reactivateUpdate)
+            .eq('id', existingOrder.id);
+          existingOrder.status = 'para procesar';
+          existingOrder.estado_wms = 'En procesamiento';
+          try {
+            await supabase.rpc('recalculate_committed_stock');
+          } catch (_e) {}
+          console.log(`🔄 Pedido ${finalOrderNumber} reactivado automáticamente en el WMS tras cambiar a estado '${statusName}' en WooCommerce.`);
         } else {
           // Actualizar datos de pedido manteniendo el estado actual del WMS
           await supabase

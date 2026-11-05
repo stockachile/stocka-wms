@@ -781,13 +781,15 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
 
   console.log(`[WooCommerce Webhook] Actualizando pedido: ${finalOrderNumber}`);
 
-  const statusName = order.status || "";
-  const isCancelled = ["cancelled", "failed", "refunded"].includes(statusName);
+  const statusName = (order.status || "").toLowerCase().trim();
+  const isDelivered = statusName === "completed";
+  const isCancelled = ["cancelled", "failed", "refunded", "trash"].includes(statusName);
+  const isActive = !isDelivered && !isCancelled;
 
   // Buscar pedido en BD
   const { data: existingOrder } = await supabase
     .from("orders")
-    .select("id, status, estado_wms, raw_woocommerce_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement")
+    .select("id, status, estado_wms, operador, tracking_number, fecha_procesamiento, stock_descontado, raw_woocommerce_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement")
     .eq("comercio", comercio)
     .in("external_order_number", [baseNumber, finalOrderNumber])
     .maybeSingle();
@@ -802,7 +804,7 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
   const isWmsShippingEdited = (existingOrder as any).wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
 
   const updatedData: Record<string, any> = {
-    payment_status: order.date_paid ? "PAID" : (order.status === "processing" || order.status === "completed" ? "PAID" : "PENDING"),
+    payment_status: order.date_paid ? "PAID" : (statusName === "processing" || statusName === "completed" ? "PAID" : "PENDING"),
     shipping_method: order.shipping_lines?.[0]?.method_title || "Por definir",
     raw_woocommerce_data: {
       ...order,
@@ -827,13 +829,30 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
     updatedData.shipping_complement = [order.shipping?.address_2 || order.billing?.address_2, order.shipping?.state || order.billing?.state, order.shipping?.postcode || order.billing?.postcode].filter(Boolean).join(", ") || "";
   }
 
+  const currentWmsState = (existingOrder.estado_wms || "En procesamiento").trim().toLowerCase();
+  const estadosWmsProtegidos = ["en preparación", "pickeado", "despachado", "incidencia", "entregado", "retirado", "archivado"];
+  const wasCancelledInWms =
+    (existingOrder.status || "").toLowerCase() === "cancelado" ||
+    currentWmsState === "cancelado";
+  const wasManuallyProcessedInWms =
+    Boolean((existingOrder as any).operador) ||
+    Boolean((existingOrder as any).tracking_number) ||
+    Boolean((existingOrder as any).fecha_procesamiento) ||
+    Boolean((existingOrder as any).stock_descontado) ||
+    existingRaw.wms_manually_cancelled === true;
+
+  let wasReactivated = false;
+
   if (isCancelled && existingOrder.status !== "cancelado") {
     updatedData.status = "cancelado";
-    const currentWmsState = (existingOrder.estado_wms || "En procesamiento").trim().toLowerCase();
-    const estadosWmsProtegidos = ["en preparación", "pickeado", "despachado", "incidencia", "entregado", "retirado", "archivado"];
     if (!estadosWmsProtegidos.includes(currentWmsState)) {
       updatedData.estado_wms = "Cancelado";
     }
+  } else if (!isCancelled && isActive && statusName !== "pending" && wasCancelledInWms && !wasManuallyProcessedInWms && !estadosWmsProtegidos.includes(currentWmsState)) {
+    updatedData.status = "para procesar";
+    updatedData.estado_wms = "En procesamiento";
+    wasReactivated = true;
+    console.log(`🔄 Pedido ${finalOrderNumber} reactivado automáticamente en WMS tras cambiar a estado '${statusName}' en WooCommerce.`);
   }
 
   await supabase
@@ -841,12 +860,20 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
     .update(updatedData)
     .eq("id", existingOrder.id);
 
+  if (wasReactivated) {
+    try {
+      await supabase.rpc("recalculate_committed_stock");
+    } catch (_e) {
+      // Ignorar si falla el RPC auxiliar
+    }
+  }
+
   // Alertas críticas si el pedido ya está en preparación o posterior
-  const rawStatus = (existingOrder.status || "").toLowerCase();
-  const rawWmsStatus = (existingOrder.estado_wms || "").toLowerCase();
+  const rawStatus = ((updatedData.status || existingOrder.status) || "").toLowerCase();
+  const rawWmsStatus = ((updatedData.estado_wms || existingOrder.estado_wms) || "").toLowerCase();
   const isClosedOrDispatched = ["despachado", "entregado", "retirado", "cancelado"].includes(rawStatus) ||
                                ["despachado", "entregado", "retirado", "cancelado"].includes(rawWmsStatus);
-  const wmsStatus = existingOrder.estado_wms || existingOrder.status || "En procesamiento";
+  const wmsStatus = updatedData.estado_wms || existingOrder.estado_wms || updatedData.status || existingOrder.status || "En procesamiento";
   const estadosCriticos = ["en preparación", "pickeado", "despachado", "incidencia", "entregado", "retirado", "cancelado"];
 
   if (isClosedOrDispatched || estadosCriticos.includes(wmsStatus.toLowerCase())) {

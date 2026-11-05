@@ -507,7 +507,7 @@ async function syncOrders(integration, headers, warehouseId) {
 
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id, external_order_number, external_platform, origen, created_at, status, estado_wms, raw_jumpseller_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
+        .select('id, external_order_number, external_platform, origen, created_at, status, estado_wms, operador, tracking_number, fecha_procesamiento, stock_descontado, raw_jumpseller_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
         .eq('comercio', integration.comercio)
         .in('external_order_number', candidateNumbers)
         .in('external_platform', ['Jumpseller', 'Manual'])
@@ -658,12 +658,31 @@ async function syncOrders(integration, headers, warehouseId) {
 
         const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
         const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+        const wasCancelledInWms =
+          (existingOrder.status || '').toLowerCase() === 'cancelado' ||
+          currentWmsState === 'cancelado';
+        const wasManuallyProcessedInWms =
+          Boolean(existingOrder.operador) ||
+          Boolean(existingOrder.tracking_number) ||
+          Boolean(existingOrder.fecha_procesamiento) ||
+          Boolean(existingOrder.stock_descontado) ||
+          existingRaw.wms_manually_cancelled === true;
+
+        let wasReactivated = false;
+
         if (isCancelled && existingOrder.status !== 'cancelado') {
           orderDataToUpdate.status = 'cancelado';
           if (!estadosWmsProtegidos.includes(currentWmsState)) {
             orderDataToUpdate.estado_wms = 'Cancelado';
           }
           console.log(`🚫 Pedido local ${finalOrderNumber} marcado como cancelado en origen (estado Jumpseller: ${statusName}, estado_wms: ${orderDataToUpdate.estado_wms || existingOrder.estado_wms}).`);
+        } else if (!isCancelled && isActive && isPaid && wasCancelledInWms && !wasManuallyProcessedInWms && !estadosWmsProtegidos.includes(currentWmsState)) {
+          orderDataToUpdate.status = 'para procesar';
+          orderDataToUpdate.estado_wms = 'En procesamiento';
+          existingOrder.status = 'para procesar';
+          existingOrder.estado_wms = 'En procesamiento';
+          wasReactivated = true;
+          console.log(`🔄 Pedido local ${finalOrderNumber} reactivado automáticamente en WMS tras cambiar a estado '${statusName}' en Jumpseller.`);
         }
 
         orderDataToUpdate.raw_jumpseller_data = {
@@ -678,6 +697,11 @@ async function syncOrders(integration, headers, warehouseId) {
           .from('orders')
           .update(orderDataToUpdate)
           .eq('id', existingOrder.id);
+        if (wasReactivated) {
+          try {
+            await supabase.rpc('recalculate_committed_stock');
+          } catch (_e) {}
+        }
         console.log(`📝 Actualizado pedido local ${orderNumber}`);
         localOrderId = existingOrder.id;
 

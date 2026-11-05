@@ -475,9 +475,9 @@ BEGIN
 
   -- =========================================================================
   -- CASO 5: Transición de Elegibilidad de Stock en Estante ('En procesamiento')
-  -- (Ej: Pago confirmado de pendiente -> pagado, o pedido cancelado / reembolsado)
+  -- (Ej: Pago confirmado de pendiente -> pagado, o reactivación desde Cancelado / Archivado)
   -- =========================================================================
-  ELSIF v_new_wms = 'En procesamiento' AND v_old_wms = 'En procesamiento' THEN
+  ELSIF v_new_wms = 'En procesamiento' AND v_old_wms IN ('En procesamiento', 'Cancelado', 'Archivado', 'Incidencia') THEN
     -- A) Si antes NO comprometía y AHORA SÍ compromete (pago y pedido confirmados):
     IF NOT v_was_eligible AND v_is_eligible THEN
       FOR item IN SELECT * FROM public.order_items WHERE order_id = NEW.id LOOP
