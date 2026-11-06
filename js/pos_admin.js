@@ -1904,16 +1904,21 @@ function populateFilterPeriods() {
 }
 
 // Helper unificado para obtener listado limpio de comercios individuales (sin cadenas combinadas)
-window.getPosUniqueMerchantsList = async function() {
+window.getPosUniqueMerchantsList = async function(options = {}) {
+  const onlyActive = options && options.onlyActive === true;
   const commercesSet = new Set();
+  const inactiveSet = onlyActive && typeof window.fetchInactiveMerchantsSet === 'function'
+    ? await window.fetchInactiveMerchantsSet()
+    : new Set();
 
   // 1. Comercios cacheados en admin (desagregando cadenas con coma si existieran)
   if (window.cachedAdminMerchants && window.cachedAdminMerchants.length > 0) {
     window.cachedAdminMerchants.forEach(m => {
+      if (onlyActive && m.activo === false) return;
       if (m.nombre) {
         m.nombre.split(',').forEach(part => {
           const trimmed = part.trim();
-          if (trimmed && trimmed.toLowerCase() !== 'all' && trimmed.toLowerCase() !== 'no asignado') {
+          if (trimmed && trimmed.toLowerCase() !== 'all' && trimmed.toLowerCase() !== 'no asignado' && (!onlyActive || !inactiveSet.has(trimmed.toUpperCase()))) {
             commercesSet.add(trimmed);
           }
         });
@@ -1925,14 +1930,19 @@ window.getPosUniqueMerchantsList = async function() {
   try {
     const { data: cacList } = await supabase
       .from('comercios_adicional_config')
-      .select('comercio')
+      .select('*')
       .order('comercio');
     if (cacList) {
       cacList.forEach(c => {
+        const isCfgActive = c.activo !== false && c?.onboarding_checklist?.comercio_activo !== false;
+        if (onlyActive && !isCfgActive) {
+          if (c.comercio) inactiveSet.add(c.comercio.trim().toUpperCase());
+          return;
+        }
         if (c.comercio) {
           c.comercio.split(',').forEach(part => {
             const trimmed = part.trim();
-            if (trimmed && trimmed.toLowerCase() !== 'all' && trimmed.toLowerCase() !== 'no asignado') {
+            if (trimmed && trimmed.toLowerCase() !== 'all' && trimmed.toLowerCase() !== 'no asignado' && (!onlyActive || !inactiveSet.has(trimmed.toUpperCase()))) {
               commercesSet.add(trimmed);
             }
           });
@@ -1954,7 +1964,7 @@ window.getPosUniqueMerchantsList = async function() {
         if (p.comercio) {
           p.comercio.split(',').forEach(c => {
             const trimmed = c.trim();
-            if (trimmed && trimmed.toLowerCase() !== 'all' && trimmed.toLowerCase() !== 'no asignado') {
+            if (trimmed && trimmed.toLowerCase() !== 'all' && trimmed.toLowerCase() !== 'no asignado' && (!onlyActive || !inactiveSet.has(trimmed.toUpperCase()))) {
               commercesSet.add(trimmed);
             }
           });
@@ -2521,7 +2531,7 @@ window.openCreatePosSaleModal = async function() {
   if (commerceSelect) {
     commerceSelect.innerHTML = '<option value="">Selecciona comercio...</option>';
     try {
-      const list = await window.getPosUniqueMerchantsList();
+      const list = await window.getPosUniqueMerchantsList({ onlyActive: true });
       list.forEach(name => {
         const opt = document.createElement('option');
         opt.value = name;

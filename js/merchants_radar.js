@@ -249,11 +249,24 @@ export async function loadRadarMetadata(force = false) {
   st.isLoadingMetadata = true;
 
   try {
-    const [comRes, intRes, incRes] = await Promise.all([
+    const [comRes, intRes, incRes, cfgRes] = await Promise.all([
       supabase.from('v_comercios_config').select('nombre, sigla').order('nombre', { ascending: true }),
       supabase.from('merchant_integrations').select('id, platform, comercio, is_active, last_sync_at, last_sync_error, username'),
-      supabase.from('incidencias').select('id, comercio, title, type, severity, status, created_at').eq('status', 'pendiente')
+      supabase.from('incidencias').select('id, comercio, title, type, severity, status, created_at').eq('status', 'pendiente'),
+      supabase.from('comercios_adicional_config').select('*')
     ]);
+
+    const inactiveMerchantsSet = new Set();
+    if (cfgRes && Array.isArray(cfgRes.data)) {
+      cfgRes.data.forEach(cfg => {
+        if (!cfg || !cfg.comercio) return;
+        const isActive = cfg.activo !== false && cfg?.onboarding_checklist?.comercio_activo !== false;
+        if (!isActive) {
+          inactiveMerchantsSet.add(cfg.comercio.trim().toUpperCase());
+        }
+      });
+    }
+    st.inactiveMerchantsSet = inactiveMerchantsSet;
 
     const comMap = new Map();
     if (comRes && Array.isArray(comRes.data)) {
@@ -261,6 +274,7 @@ export async function loadRadarMetadata(force = false) {
         if (!c.nombre) return;
         const cleanName = c.nombre.trim();
         const upper = cleanName.toUpperCase();
+        if (inactiveMerchantsSet.has(upper)) return;
         comMap.set(upper, {
           nombre: cleanName,
           sigla: deriveSigla(cleanName, c.sigla)
@@ -273,6 +287,7 @@ export async function loadRadarMetadata(force = false) {
         if (!name) return;
         const cleanName = String(name).trim();
         const upper = cleanName.toUpperCase();
+        if (inactiveMerchantsSet.has(upper)) return;
         if (!comMap.has(upper)) {
           comMap.set(upper, {
             nombre: cleanName,

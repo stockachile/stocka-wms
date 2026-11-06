@@ -117,7 +117,9 @@ export const billingState = {
   conglomerateChildren: [],
   selectedAsChildStore: false,
   storeBreakdown: [],
-  activeConglomerateStoreFilter: null
+  activeConglomerateStoreFilter: null,
+  commerceObservations: [],
+  activeObservationsFilter: 'all'
 };
 
 // Inyectar estilos visuales avanzados del Gestor de Facturación
@@ -4297,7 +4299,14 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
                 <td>
                   <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
                     <div>
-                      <div style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">${escapeHtml(a.concept || 'Ajuste comercial')}</div>
+                      <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                        <span style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">${escapeHtml(a.concept || 'Ajuste comercial')}</span>
+                        ${(a.isObservationAdjustment || a.linkedObservationKey) ? `
+                          <span style="background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd; font-size: 0.67rem; font-weight: 800; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Ingresado desde Apelación / Observación de Facturación">
+                            <i class="ri-question-answer-line"></i> Apelación${a.linkedObservationPeriod ? ` (${escapeHtml(a.linkedObservationPeriod)})` : ''}
+                          </span>
+                        ` : ''}
+                      </div>
                       <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${escapeHtml(a.notes || '')}</div>
                     </div>
                     ${!isClient ? `
@@ -4323,8 +4332,8 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
                   <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                     <div>
                       <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                        <span style="background: ${ab.isPosAbono || ab.id === 'abono_pos_sales' ? '#059669' : '#10b981'}; color: #ffffff; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; display: inline-flex; align-items: center; gap: 3px;">
-                          <i class="${ab.isPosAbono || ab.id === 'abono_pos_sales' ? 'ri-store-3-line' : 'ri-hand-coin-line'}"></i> ${ab.isPosAbono || ab.id === 'abono_pos_sales' ? 'Abono Ventas POS' : 'Abono'}
+                        <span style="background: ${ab.isPosAbono || ab.id === 'abono_pos_sales' ? '#059669' : ((ab.isObservationAbono || ab.linkedObservationKey) ? '#5f06fa' : '#10b981')}; color: #ffffff; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; display: inline-flex; align-items: center; gap: 3px;">
+                          <i class="${ab.isPosAbono || ab.id === 'abono_pos_sales' ? 'ri-store-3-line' : ((ab.isObservationAbono || ab.linkedObservationKey) ? 'ri-question-answer-line' : 'ri-hand-coin-line')}"></i> ${ab.isPosAbono || ab.id === 'abono_pos_sales' ? 'Abono Ventas POS' : ((ab.isObservationAbono || ab.linkedObservationKey) ? `Saldo por Apelación${ab.linkedObservationPeriod ? ` (${escapeHtml(ab.linkedObservationPeriod)})` : ''}` : 'Abono')}
                         </span>
                         <strong style="color: #0f172a; font-size: 0.85rem;">${escapeHtml(ab.reference || 'Abono a cuenta')}</strong>
                         ${ab.voucher ? `<span style="font-size: 0.72rem; color: #047857; background: rgba(16, 185, 129, 0.12); padding: 1px 6px; border-radius: 4px; font-weight: 600;">${escapeHtml(ab.voucher)}</span>` : ''}
@@ -6973,7 +6982,10 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
     periods = pData || [];
 
     const { data: cData } = await supabase.from('v_comercios_config').select('nombre, sigla').order('nombre');
-    comercios = cData || [];
+    const inactiveSet = typeof window.fetchInactiveMerchantsSet === 'function'
+      ? await window.fetchInactiveMerchantsSet()
+      : new Set();
+    comercios = (cData || []).filter(c => c.nombre && !inactiveSet.has(c.nombre.trim().toUpperCase()));
 
     const congData = await getConglomerateMappings();
     conglomeratesMap = congData.conglomeratesMap || {};
@@ -7160,6 +7172,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
       <!-- Banner de Estado Cerrado / Confirmado / Pagado -->
       <div id="bg-lock-status-banner" style="display: none; margin-bottom: 0.5rem;"></div>
 
+      <!-- Banner de Alerta de Apelaciones / Observaciones de Facturación sin Respuesta -->
+      <div id="bg-commerce-observations-alert-banner" style="display: none; margin-bottom: 0.65rem;"></div>
+
       <!-- Banner de Conglomerado Dinámico -->
       <div id="bg-conglomerate-banner-container"></div>
 
@@ -7188,6 +7203,10 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
           <button class="bg-subnav-btn" id="bg-tab-btn-checklist" onclick="window.switchBgSubTab('checklist')">
             <i class="ri-checkbox-circle-line"></i> Checklist Global
             <span id="bg-checklist-nav-badge" style="background: rgba(95, 6, 250, 0.12); color: #5f06fa; font-size: 0.68rem; padding: 1px 6px; border-radius: 10px; font-weight: 800; margin-left: 2px;">0/0</span>
+          </button>
+          <button class="bg-subnav-btn" id="bg-tab-btn-observations" onclick="window.switchBgSubTab('observations')" title="Ver apelaciones y observaciones de facturación del comercio e ingresarlas como saldo al periodo en curso">
+            <i class="ri-question-answer-line"></i> Apelaciones / Observaciones
+            <span id="bg-observations-nav-badge" style="display: none; background: #ef4444; color: #ffffff; font-size: 0.68rem; padding: 1px 6px; border-radius: 10px; font-weight: 800; margin-left: 2px;">0</span>
           </button>
         </div>
 
@@ -7424,6 +7443,13 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
           <!-- Renderizado dinámico del Checklist Global -->
         </div>
       </div>
+
+      <!-- Contenedor 5: Apartado de Apelaciones / Observaciones del Comercio -->
+      <div id="bg-content-observations" style="display: none;">
+        <div id="bg-observations-container">
+          <!-- Renderizado dinámico de Apelaciones y Observaciones -->
+        </div>
+      </div>
       </div>
     </div>
   `;
@@ -7596,9 +7622,20 @@ export function renderGeneratorEmptyCommerceState() {
   billingState.isLocked = false;
   billingState.paymentStatus = 'Por solicitar';
   billingState.loadedFromSnapshot = false;
+  billingState.commerceObservations = [];
 
   if (typeof renderLockStatusBannerAndSyncToolbarUI === 'function') {
     renderLockStatusBannerAndSyncToolbarUI();
+  }
+
+  const obsAlertBanner = document.getElementById('bg-commerce-observations-alert-banner');
+  if (obsAlertBanner) {
+    obsAlertBanner.style.display = 'none';
+    obsAlertBanner.innerHTML = '';
+  }
+  const obsNavBadge = document.getElementById('bg-observations-nav-badge');
+  if (obsNavBadge) {
+    obsNavBadge.style.display = 'none';
   }
 
   const congBanner = document.getElementById('bg-conglomerate-banner-container');
@@ -7655,6 +7692,9 @@ export function renderGeneratorEmptyCommerceState() {
 
   const analyticsCont = document.getElementById('bg-analytics-container');
   if (analyticsCont) analyticsCont.innerHTML = emptySectionHTML;
+
+  const obsCont = document.getElementById('bg-observations-container');
+  if (obsCont) obsCont.innerHTML = emptySectionHTML;
 }
 
 // Alternar entre la Vista Resumen del Periodo y el Generador de Desgloses
@@ -7728,8 +7768,11 @@ window.switchBgMainMode = async function(mode = 'overview', commerceName = null,
   }
 };
 
-window.openBillingGeneratorFromOverview = function(commerceName, periodId = null) {
-  window.switchBgMainMode('generator', commerceName, periodId);
+window.openBillingGeneratorFromOverview = async function(commerceName, periodId = null, targetSubTab = null) {
+  await window.switchBgMainMode('generator', commerceName, periodId);
+  if (targetSubTab && typeof window.switchBgSubTab === 'function') {
+    window.switchBgSubTab(targetSubTab);
+  }
 };
 
 // Cargar y renderizar la Vista Resumen del Periodo Actual en el Gestor de Facturación
@@ -7797,12 +7840,17 @@ export async function loadAndRenderPeriodOverview(options = {}) {
       return allOrders;
     };
 
-    const [recordsRes, periodOrders] = await Promise.all([
+    const [recordsRes, periodOrders, obsRecordsRes] = await Promise.all([
       supabase.from('billing_records').select('*').eq('period_id', periodId).order('comercio', { ascending: true }),
-      fetchOrdersByPeriod()
+      fetchOrdersByPeriod(),
+      supabase
+        .from('billing_records')
+        .select('id, comercio, period_id, client_observation, observation_status, admin_response, observation_updated_at, client_observation_enviame, observation_status_enviame, admin_response_enviame, observation_updated_at_enviame, updated_at, billing_periods(name)')
+        .or('client_observation.not.is.null,client_observation_enviame.not.is.null,observation_status.eq.pendiente,observation_status_enviame.eq.pendiente')
     ]);
 
     const records = recordsRes.data || [];
+    const obsRecords = obsRecordsRes?.data || [];
 
     // Normalizador de nombre de comercio hacia cuenta de facturación (holding si aplica)
     const normalizeToBillingEntity = (rawName) => {
@@ -7819,6 +7867,84 @@ export async function loadAndRenderPeriodOverview(options = {}) {
       }
       return clean;
     };
+
+    // Mapear apelaciones / observaciones por comercio o holding
+    const unansweredObsByEntity = {};
+    const totalObsByEntity = {};
+    let totalUnansweredObservations = 0;
+
+    obsRecords.forEach(r => {
+      const entityName = normalizeToBillingEntity(r.comercio);
+      const entityKey = entityName.toUpperCase();
+      if (!entityKey) return;
+      const pName = r.billing_periods?.name || 'Periodo';
+
+      // Fulfillment observation
+      const fClient = String(r.client_observation || '').trim();
+      const fAdmin = String(r.admin_response || '').trim();
+      const fStatus = r.observation_status || 'sin_observacion';
+      const hasFulfillmentObs = fStatus === 'pendiente' || fStatus === 'respondida' || Boolean(fClient) || Boolean(fAdmin);
+      if (hasFulfillmentObs) {
+        totalObsByEntity[entityKey] = (totalObsByEntity[entityKey] || 0) + 1;
+        const isUnanswered = fStatus === 'pendiente' || (Boolean(fClient) && !Boolean(fAdmin) && fStatus !== 'sin_observacion');
+        if (isUnanswered) {
+          if (!unansweredObsByEntity[entityKey]) unansweredObsByEntity[entityKey] = [];
+          unansweredObsByEntity[entityKey].push({
+            key: `${r.id}_fulfillment`,
+            recordId: r.id,
+            comercio: r.comercio,
+            periodName: pName,
+            serviceLabel: 'Fulfillment',
+            clientObservation: fClient || '(Apelación marcada pendiente)',
+            updatedAt: r.observation_updated_at || r.updated_at
+          });
+          totalUnansweredObservations++;
+        }
+      }
+
+      // Envíame observation
+      const eClient = String(r.client_observation_enviame || '').trim();
+      const eAdmin = String(r.admin_response_enviame || '').trim();
+      const eStatus = r.observation_status_enviame || 'sin_observacion';
+      const hasEnviameObs = eStatus === 'pendiente' || eStatus === 'respondida' || Boolean(eClient) || Boolean(eAdmin);
+      if (hasEnviameObs) {
+        totalObsByEntity[entityKey] = (totalObsByEntity[entityKey] || 0) + 1;
+        const isUnanswered = eStatus === 'pendiente' || (Boolean(eClient) && !Boolean(eAdmin) && eStatus !== 'sin_observacion');
+        if (isUnanswered) {
+          if (!unansweredObsByEntity[entityKey]) unansweredObsByEntity[entityKey] = [];
+          unansweredObsByEntity[entityKey].push({
+            key: `${r.id}_enviame`,
+            recordId: r.id,
+            comercio: r.comercio,
+            periodName: pName,
+            serviceLabel: 'Envíame',
+            clientObservation: eClient || '(Apelación marcada pendiente)',
+            updatedAt: r.observation_updated_at_enviame || r.updated_at
+          });
+          totalUnansweredObservations++;
+        }
+      }
+    });
+
+    // Sincronizar indicadores 🚨 en el selector <select id="bg-select-commerce">
+    const genCommSelect = document.getElementById('bg-select-commerce');
+    if (genCommSelect) {
+      Array.from(genCommSelect.options).forEach(opt => {
+        const val = String(opt.value || '').trim();
+        if (!val) return;
+        if (!opt.getAttribute('data-base-label')) {
+          opt.setAttribute('data-base-label', opt.textContent.replace(/^🚨\s*/, '').replace(/\s*·\s*\d+\s*apelaci[oó]n.*$/i, '').trim());
+        }
+        const baseLabel = opt.getAttribute('data-base-label') || opt.textContent;
+        const entityKey = normalizeToBillingEntity(val).toUpperCase();
+        const unansList = unansweredObsByEntity[entityKey] || unansweredObsByEntity[val.toUpperCase()] || [];
+        if (unansList.length > 0) {
+          opt.textContent = `🚨 ${baseLabel} · ${unansList.length} apelación${unansList.length === 1 ? '' : 'es'} sin resp.`;
+        } else {
+          opt.textContent = baseLabel;
+        }
+      });
+    }
 
     // Contar pedidos por comercio y por tienda hija
     const ordersCountByEntity = {};
@@ -7860,8 +7986,18 @@ export async function loadAndRenderPeriodOverview(options = {}) {
       }
     });
 
-    // Agregar también cualquier comercio/holding que tenga pedidos en el periodo aunque aún no tenga fila en billing_records
+    // Agregar también cualquier comercio/holding que tenga pedidos en el periodo o apelaciones sin respuesta aunque aún no tenga fila en billing_records
     Object.keys(ordersCountByEntity).forEach(entityKey => {
+      if (!entityMap.has(entityKey)) {
+        entityMap.set(entityKey, {
+          key: entityKey,
+          comercio: entityKey,
+          rawComercioRecord: entityKey,
+          record: null
+        });
+      }
+    });
+    Object.keys(unansweredObsByEntity).forEach(entityKey => {
       if (!entityMap.has(entityKey)) {
         entityMap.set(entityKey, {
           key: entityKey,
@@ -7878,6 +8014,9 @@ export async function loadAndRenderPeriodOverview(options = {}) {
       const entityKey = entry.key;
       const ordersCount = ordersCountByEntity[entityKey] || 0;
       const childBreakdownObj = childOrdersBreakdownByEntity[entityKey] || null;
+      const unansweredObservationsList = unansweredObsByEntity[entityKey] || [];
+      const unansweredObservationsCount = unansweredObservationsList.length;
+      const totalObservationsCount = totalObsByEntity[entityKey] || 0;
 
       // Verificar si es un holding/conglomerado
       const congMatch = canonicalDisplayList.find(cg => String(cg.name).trim().toUpperCase() === entityKey);
@@ -7938,7 +8077,10 @@ export async function loadAndRenderPeriodOverview(options = {}) {
         saldoFulfillment,
         hasSnapshotLink,
         updatedAt: r?.updated_at || localDraft?.generatedAt || null,
-        lastNotifiedAt: r?.last_notified_at || null
+        lastNotifiedAt: r?.last_notified_at || null,
+        unansweredObservationsCount,
+        unansweredObservationsList,
+        totalObservationsCount
       };
     });
 
@@ -7965,6 +8107,7 @@ export async function loadAndRenderPeriodOverview(options = {}) {
     const pendingItems = items.filter(i => i.statusCategory === 'pending');
     const pendingWithOrdersItems = pendingItems.filter(i => i.ordersCount > 0);
     const exemptItems = items.filter(i => i.statusCategory === 'exempt');
+    const withUnansweredObsItems = items.filter(i => (i.unansweredObservationsCount || 0) > 0);
 
     const totalGrossAll = items.reduce((acc, i) => acc + i.totalFulfillment, 0);
     const totalNetAll = Math.round(totalGrossAll / 1.19);
@@ -7999,6 +8142,8 @@ export async function loadAndRenderPeriodOverview(options = {}) {
       pendingItems,
       pendingWithOrdersItems,
       exemptItems,
+      withUnansweredObsItems,
+      totalUnansweredObservations,
       totalGrossAll,
       totalNetAll,
       totalGrossIssued,
@@ -8058,6 +8203,7 @@ export function renderPeriodOverviewDOM() {
     if (activeFilter === 'draft' && item.statusCategory !== 'draft') return false;
     if (activeFilter === 'issued' && item.statusCategory !== 'issued') return false;
     if (activeFilter === 'exempt' && item.statusCategory !== 'exempt') return false;
+    if (activeFilter === 'observations' && (item.unansweredObservationsCount || 0) === 0) return false;
     if (searchQuery) {
       const matchName = item.comercio.toLowerCase().includes(searchQuery);
       const matchChild = (item.conglomerateChildren || []).some(c => String(c).toLowerCase().includes(searchQuery));
@@ -8086,6 +8232,57 @@ export function renderPeriodOverviewDOM() {
 
   bodyEl.innerHTML = `
     <div class="bg-overview-loaded-root">
+      ${(st.withUnansweredObsItems && st.withUnansweredObsItems.length > 0) ? `
+        <!-- Banner Global de Alerta: Apelaciones / Observaciones de Facturación sin Respuesta -->
+        <div style="background: linear-gradient(135deg, #fef2f2 0%, #fff1f2 100%); border: 1.5px solid #ef4444; border-left: 5px solid #dc2626; border-radius: 11px; padding: 0.85rem 1.15rem; margin-bottom: 1.15rem; box-shadow: 0 3px 10px rgba(239, 68, 68, 0.12);">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem;">
+            <div style="flex: 1; min-width: 280px;">
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.35rem;">
+                <span style="background: #dc2626; color: #ffffff; font-size: 0.7rem; font-weight: 900; padding: 2px 8px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px; text-transform: uppercase; letter-spacing: 0.3px;">
+                  <i class="ri-alarm-warning-fill"></i> Alerta de Apelaciones sin Respuesta
+                </span>
+                <strong style="font-size: 0.9rem; color: #991b1b;">
+                  Existen ${st.totalUnansweredObservations} observación(es) / apelación(es) pendiente(s) en ${st.withUnansweredObsItems.length} comercio(s)
+                </strong>
+              </div>
+              <div style="font-size: 0.78rem; color: #7f1d1d; margin-bottom: 0.55rem;">
+                Haz clic en cualquier comercio afectado para revisar sus observaciones y <strong>aplicarlas como saldo a favor o ajuste en el desglose del periodo en curso (${escapeHtml(st.periodName)})</strong>:
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 0.45rem;">
+                ${st.withUnansweredObsItems.map(it => {
+                  const firstObs = (it.unansweredObservationsList || [])[0];
+                  const tooltip = (it.unansweredObservationsList || [])
+                    .map(o => `[${o.periodName} · ${o.serviceLabel}] ${o.clientObservation}`)
+                    .join(' | ');
+                  return `
+                    <button type="button"
+                            onclick="window.openBillingGeneratorFromOverview('${escapeHtml(it.comercio)}', '${escapeHtml(st.periodId)}', 'observations')"
+                            title="${escapeHtml(tooltip)}"
+                            style="background: #ffffff; border: 1.5px solid #fca5a5; color: #b91c1c; border-radius: 8px; padding: 4px 10px; font-size: 0.75rem; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                      <i class="ri-question-answer-fill" style="color: #dc2626;"></i>
+                      <span>${it.isConglomerate ? '🏢 ' : ''}${escapeHtml(it.comercio)}</span>
+                      <span style="background: #fee2e2; color: #991b1b; padding: 1px 6px; border-radius: 999px; font-size: 0.68rem; font-weight: 900;">
+                        ${it.unansweredObservationsCount} sin resp.${firstObs ? ` (${escapeHtml(firstObs.periodName)})` : ''}
+                      </span>
+                      <i class="ri-arrow-right-up-line" style="font-size: 0.85rem;"></i>
+                    </button>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+            <div>
+              <button type="button"
+                      onclick="window.setBgOverviewFilter('${activeFilter === 'observations' ? 'all' : 'observations'}')"
+                      class="btn btn-sm"
+                      style="background: ${activeFilter === 'observations' ? '#991b1b' : '#dc2626'}; color: #ffffff; border: none; font-weight: 800; font-size: 0.74rem; padding: 0.45rem 0.85rem; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;">
+                <i class="ri-filter-3-line"></i>
+                <span>${activeFilter === 'observations' ? 'Mostrar Todos los Comercios' : `Filtrar Comercios con Apelación (${st.withUnansweredObsItems.length})`}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ` : ''}
+
       <!-- 1. Tarjeta de Progreso General del Periodo -->
       <div class="bg-card-container" style="padding: 1rem 1.35rem; margin-bottom: 1.15rem; background: linear-gradient(135deg, rgba(95, 6, 250, 0.04) 0%, rgba(16, 185, 129, 0.04) 100%);">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.55rem;">
@@ -8196,6 +8393,13 @@ export function renderPeriodOverviewDOM() {
                       <span style="font-size: 0.68rem; font-weight: 800; padding: 1px 6px; border-radius: 999px; background: ${hasOrders ? 'rgba(95, 6, 250, 0.1)' : '#f1f5f9'}; color: ${hasOrders ? '#5f06fa' : '#64748b'};">
                         ${item.ordersCount.toLocaleString('es-CL')} ped.
                       </span>
+                      ${(item.unansweredObservationsCount || 0) > 0 ? `
+                        <span onclick="event.stopPropagation(); window.openBillingGeneratorFromOverview('${escapeHtml(item.comercio)}', '${escapeHtml(st.periodId)}', 'observations')"
+                              title="Tiene ${item.unansweredObservationsCount} apelación(es)/observación(es) sin respuesta. Haz clic para revisar e ingresar saldo."
+                              style="font-size: 0.66rem; font-weight: 900; padding: 1px 6px; border-radius: 999px; background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                          🚨 ${item.unansweredObservationsCount} apelación${item.unansweredObservationsCount === 1 ? '' : 'es'}
+                        </span>
+                      ` : ''}
                     </div>
                     ${childBadges ? `
                       <div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(childBadges)}">
@@ -8271,6 +8475,9 @@ export function renderPeriodOverviewDOM() {
           <button type="button" class="bg-quick-filter-btn ${activeFilter === 'exempt' ? 'active' : ''}" onclick="window.setBgOverviewFilter('exempt')">
             🚫 Sin Movimiento / Exentos (${st.exemptItems.length})
           </button>
+          <button type="button" class="bg-quick-filter-btn ${activeFilter === 'observations' ? 'active' : ''}" onclick="window.setBgOverviewFilter('observations')" style="${(st.withUnansweredObsItems?.length || 0) > 0 ? 'border-color: #fca5a5; background: #fef2f2; color: #b91c1c; font-weight: 800;' : ''}">
+            🚨 Con Apelación sin Respuesta (${(st.withUnansweredObsItems || []).length})
+          </button>
         </div>
 
         <div class="bg-excel-table-container" style="max-height: 540px;">
@@ -8315,6 +8522,21 @@ export function renderPeriodOverviewDOM() {
                             ${escapeHtml(item.conglomerateChildren.join(', '))}
                           </span>
                         ` : ''}
+                        ${(item.unansweredObservationsCount || 0) > 0 ? `
+                          <button type="button"
+                                  onclick="window.openBillingGeneratorFromOverview('${escapeHtml(item.comercio)}', '${escapeHtml(st.periodId)}', 'observations')"
+                                  title="Abrir apelaciones sin respuesta de ${escapeHtml(item.comercio)} e ingresar saldo al desglose"
+                                  style="background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; font-size: 0.67rem; font-weight: 900; padding: 2px 7px; border-radius: 999px; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                            <i class="ri-alarm-warning-fill"></i> ${item.unansweredObservationsCount} apelación${item.unansweredObservationsCount === 1 ? '' : 'es'} sin resp.
+                          </button>
+                        ` : ((item.totalObservationsCount || 0) > 0 ? `
+                          <button type="button"
+                                  onclick="window.openBillingGeneratorFromOverview('${escapeHtml(item.comercio)}', '${escapeHtml(st.periodId)}', 'observations')"
+                                  title="Ver historial de observaciones respondidas (${item.totalObservationsCount})"
+                                  style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-size: 0.66rem; font-weight: 700; padding: 1px 6px; border-radius: 999px; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                            <i class="ri-question-answer-line"></i> ${item.totalObservationsCount} obs.
+                          </button>
+                        ` : '')}
                       </div>
                     </td>
                     <td style="text-align: center;">
@@ -8405,7 +8627,7 @@ window.setBgOverviewSearch = function(query) {
 
 // Función para alternar sub-pestañas
 window.switchBgSubTab = function(tabKey) {
-  const tabs = ['register', 'desglose', 'analytics', 'checklist'];
+  const tabs = ['register', 'desglose', 'analytics', 'checklist', 'observations'];
   tabs.forEach(t => {
     const btn = document.getElementById(`bg-tab-btn-${t}`);
     const content = document.getElementById(`bg-content-${t}`);
@@ -8425,7 +8647,7 @@ window.switchBgSubTab = function(tabKey) {
     regActions.style.display = (tabKey === 'register' && !billingState.isLocked) ? 'flex' : 'none';
   }
 
-  if (!billingState.currentCommerce && (tabKey === 'desglose' || tabKey === 'analytics')) {
+  if (!billingState.currentCommerce && (tabKey === 'desglose' || tabKey === 'analytics' || tabKey === 'observations')) {
     renderGeneratorEmptyCommerceState();
     return;
   }
@@ -8438,6 +8660,10 @@ window.switchBgSubTab = function(tabKey) {
   } else if (tabKey === 'checklist') {
     if (typeof renderBillingChecklistUI === 'function') {
       renderBillingChecklistUI();
+    }
+  } else if (tabKey === 'observations') {
+    if (typeof renderCommerceObservationsSectionUI === 'function') {
+      renderCommerceObservationsSectionUI();
     }
   }
 };
@@ -8651,6 +8877,11 @@ export async function executeCalculationFromUI(overrides = {}) {
       if (typeof renderBillingChecklistUI === 'function') {
         renderBillingChecklistUI();
       }
+    }
+
+    // Cargar y mostrar Alerta + Apartado de Apelaciones / Observaciones del Comercio
+    if (typeof loadAndRenderCommerceObservationsUI === 'function') {
+      await loadAndRenderCommerceObservationsUI();
     }
   } catch (err) {
     console.error('Error calculando facturación desde UI:', err);
@@ -10284,6 +10515,14 @@ function recalculateFromCurrentState() {
   const analyticsSubTab = document.getElementById('bg-subtab-analytics');
   if (analyticsSubTab && analyticsSubTab.style.display !== 'none') {
     renderBillingAnalyticsCharts();
+  }
+
+  if (typeof renderCommerceObservationsBannerUI === 'function') {
+    renderCommerceObservationsBannerUI();
+  }
+  const obsSubTab = document.getElementById('bg-content-observations');
+  if (obsSubTab && obsSubTab.style.display !== 'none' && typeof renderCommerceObservationsSectionUI === 'function') {
+    renderCommerceObservationsSectionUI();
   }
 }
 
@@ -16110,6 +16349,1044 @@ export async function downloadClientBillingExcel(recordId) {
 
   exportBillingToExcel(snapshot);
 }
+
+// ============================================================================
+// SISTEMA DE ALERTAS Y APARTADO DE APELACIONES / OBSERVACIONES EN EL GESTOR
+// (Detecta apelaciones sin respuesta e ingresa saldos al periodo en curso)
+// ============================================================================
+
+function extractSuggestedClpAmountsFromText(...texts) {
+  const combined = texts.map(t => String(t || '')).join(' ');
+  const amounts = new Set();
+  // Detectar formatos como $15.000, $ 120.500, 15.000, 25000
+  const regex = /(?:\$\s*)?(\d{1,3}(?:\.\d{3})+|\d{4,8})\b/g;
+  let match;
+  while ((match = regex.exec(combined)) !== null) {
+    const rawNum = parseInt(String(match[1]).replace(/\./g, ''), 10);
+    // Filtrar años como 2025/2026 o números fuera de rango razonable
+    if (!isNaN(rawNum) && rawNum >= 500 && rawNum <= 50000000 && rawNum !== 2024 && rawNum !== 2025 && rawNum !== 2026 && rawNum !== 2027) {
+      amounts.add(rawNum);
+    }
+  }
+  return Array.from(amounts).slice(0, 5);
+}
+
+export function getObservationAppliedEntriesInCurrentPeriod(obsKey, obs = null) {
+  const b = billingState;
+  const keyStr = String(obsKey || '').trim();
+  const tagMarker = `[OBS:${keyStr}]`;
+
+  const matchedAbonos = (Array.isArray(b.abonos) ? b.abonos : []).filter(ab => {
+    if (!ab) return false;
+    if (ab.linkedObservationKey && String(ab.linkedObservationKey) === keyStr) return true;
+    const refNotes = `${ab.reference || ''} ${ab.notes || ''} ${ab.voucher || ''}`;
+    return Boolean(keyStr && refNotes.includes(tagMarker));
+  });
+
+  const matchedAdjustments = (Array.isArray(b.adjustments) ? b.adjustments : []).filter(adj => {
+    if (!adj) return false;
+    if (adj.linkedObservationKey && String(adj.linkedObservationKey) === keyStr) return true;
+    const conceptNotes = `${adj.concept || ''} ${adj.notes || ''}`;
+    return Boolean(keyStr && conceptNotes.includes(tagMarker));
+  });
+
+  const totalAbonoApplied = matchedAbonos.reduce((acc, a) => acc + (Math.abs(Math.round(Number(a.amount))) || 0), 0);
+  const totalAdjustmentNetApplied = matchedAdjustments.reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0);
+  const totalAdjustmentGrossApplied = Math.round(totalAdjustmentNetApplied * 1.19);
+
+  return {
+    isApplied: matchedAbonos.length > 0 || matchedAdjustments.length > 0,
+    matchedAbonos,
+    matchedAdjustments,
+    totalAbonoApplied,
+    totalAdjustmentNetApplied,
+    totalAdjustmentGrossApplied
+  };
+}
+
+export async function fetchCommerceBillingObservations(commerceName) {
+  const cleanName = String(commerceName || '').trim();
+  if (!cleanName) return [];
+
+  try {
+    const groupNames = await resolveCommerceGroup(cleanName);
+    const targetUpperSet = new Set(
+      [cleanName, ...(Array.isArray(groupNames) ? groupNames : [])]
+        .map(n => String(n || '').trim().toUpperCase())
+        .filter(Boolean)
+    );
+
+    if (cleanName.toUpperCase().includes('BIG BANG') || targetUpperSet.has('BIG BANG')) {
+      ['BIG BANG', 'BIG BANG SPA', 'BACK IN TIME', 'DORMILONES', 'RELAJARTE'].forEach(s => targetUpperSet.add(s));
+    }
+    if (cleanName.toUpperCase().includes('SILVER FOX') || targetUpperSet.has('SILVER FOX')) {
+      ['SILVER FOX', 'SILVER FOX SPA', 'AURA', 'MODUS', 'HYGGE'].forEach(s => targetUpperSet.add(s));
+    }
+
+    const { data, error } = await supabase
+      .from('billing_records')
+      .select('id, comercio, period_id, total_fulfillment, abono_fulfillment, total_enviame, abono_enviame, client_observation, observation_status, admin_response, observation_updated_at, client_observation_enviame, observation_status_enviame, admin_response_enviame, observation_updated_at_enviame, updated_at, billing_periods(name)')
+      .or('client_observation.not.is.null,client_observation_enviame.not.is.null,observation_status.eq.pendiente,observation_status_enviame.eq.pendiente')
+      .order('updated_at', { ascending: false });
+
+    if (error || !data) return [];
+
+    const matchedRecords = data.filter(r => {
+      const recComm = String(r.comercio || '').trim().toUpperCase();
+      if (!recComm) return false;
+      if (targetUpperSet.has(recComm)) return true;
+      for (const tName of targetUpperSet) {
+        if (recComm.includes(tName) || tName.includes(recComm)) return true;
+      }
+      return false;
+    });
+
+    const observations = [];
+
+    matchedRecords.forEach(r => {
+      const periodName = r.billing_periods?.name || 'Periodo Anterior';
+
+      // 1. Evaluar observación de Fulfillment
+      const fClient = String(r.client_observation || '').trim();
+      const fAdmin = String(r.admin_response || '').trim();
+      const fStatus = r.observation_status || 'sin_observacion';
+      const hasFulfillmentObs = fStatus === 'pendiente' || fStatus === 'respondida' || Boolean(fClient) || Boolean(fAdmin);
+
+      if (hasFulfillmentObs) {
+        const isUnanswered = fStatus === 'pendiente' || (Boolean(fClient) && !Boolean(fAdmin) && fStatus !== 'sin_observacion');
+        observations.push({
+          key: `${r.id}_fulfillment`,
+          recordId: r.id,
+          comercio: r.comercio,
+          periodId: r.period_id,
+          periodName,
+          service: 'fulfillment',
+          serviceLabel: 'Fulfillment',
+          status: isUnanswered ? 'pendiente' : (fStatus === 'respondida' || Boolean(fAdmin) ? 'respondida' : fStatus),
+          isUnanswered,
+          clientObservation: fClient,
+          adminResponse: fAdmin,
+          updatedAt: r.observation_updated_at || r.updated_at,
+          totalServiceAmount: Math.round(Number(r.total_fulfillment) || 0),
+          suggestedAmounts: extractSuggestedClpAmountsFromText(fClient, fAdmin)
+        });
+      }
+
+      // 2. Evaluar observación de Envíame
+      const eClient = String(r.client_observation_enviame || '').trim();
+      const eAdmin = String(r.admin_response_enviame || '').trim();
+      const eStatus = r.observation_status_enviame || 'sin_observacion';
+      const hasEnviameObs = eStatus === 'pendiente' || eStatus === 'respondida' || Boolean(eClient) || Boolean(eAdmin);
+
+      if (hasEnviameObs) {
+        const isUnanswered = eStatus === 'pendiente' || (Boolean(eClient) && !Boolean(eAdmin) && eStatus !== 'sin_observacion');
+        observations.push({
+          key: `${r.id}_enviame`,
+          recordId: r.id,
+          comercio: r.comercio,
+          periodId: r.period_id,
+          periodName,
+          service: 'enviame',
+          serviceLabel: 'Envíame',
+          status: isUnanswered ? 'pendiente' : (eStatus === 'respondida' || Boolean(eAdmin) ? 'respondida' : eStatus),
+          isUnanswered,
+          clientObservation: eClient,
+          adminResponse: eAdmin,
+          updatedAt: r.observation_updated_at_enviame || r.updated_at,
+          totalServiceAmount: Math.round(Number(r.total_enviame) || 0),
+          suggestedAmounts: extractSuggestedClpAmountsFromText(eClient, eAdmin)
+        });
+      }
+    });
+
+    // Ordenar: primero las que están sin respuesta, luego por fecha más reciente
+    observations.sort((a, b) => {
+      if (a.isUnanswered !== b.isUnanswered) return a.isUnanswered ? -1 : 1;
+      const tA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const tB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      return tB - tA;
+    });
+
+    return observations;
+  } catch (err) {
+    console.warn('Error consultando observaciones del comercio en Gestor:', err);
+    return [];
+  }
+}
+
+export async function loadAndRenderCommerceObservationsUI(showToastOnRefresh = false) {
+  const b = billingState;
+  if (!b.currentCommerce) {
+    b.commerceObservations = [];
+    renderCommerceObservationsBannerUI();
+    return;
+  }
+
+  const obsList = await fetchCommerceBillingObservations(b.currentCommerce);
+  b.commerceObservations = obsList;
+
+  renderCommerceObservationsBannerUI();
+
+  const obsContainer = document.getElementById('bg-observations-container');
+  if (obsContainer) {
+    renderCommerceObservationsSectionUI();
+  }
+
+  if (showToastOnRefresh && typeof Swal !== 'undefined') {
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: `Observaciones sincronizadas (${obsList.length})`,
+      showConfirmButton: false,
+      timer: 2000
+    });
+  }
+}
+window.loadAndRenderCommerceObservationsUI = loadAndRenderCommerceObservationsUI;
+
+export function renderCommerceObservationsBannerUI() {
+  const b = billingState;
+  const banner = document.getElementById('bg-commerce-observations-alert-banner');
+  const navBadge = document.getElementById('bg-observations-nav-badge');
+  const tabBtn = document.getElementById('bg-tab-btn-observations');
+  const obsList = Array.isArray(b.commerceObservations) ? b.commerceObservations : [];
+
+  const unansweredList = obsList.filter(o => o.isUnanswered);
+  const unansweredCount = unansweredList.length;
+  const totalCount = obsList.length;
+
+  // Actualizar badge en el botón de la sub-pestaña "Apelaciones / Observaciones"
+  if (navBadge) {
+    if (unansweredCount > 0) {
+      navBadge.style.display = 'inline-block';
+      navBadge.style.background = '#ef4444';
+      navBadge.style.color = '#ffffff';
+      navBadge.textContent = `${unansweredCount} sin resp.`;
+      if (tabBtn) tabBtn.style.borderColor = 'rgba(239, 68, 68, 0.55)';
+    } else if (totalCount > 0) {
+      navBadge.style.display = 'inline-block';
+      navBadge.style.background = 'rgba(95, 6, 250, 0.14)';
+      navBadge.style.color = '#5f06fa';
+      navBadge.textContent = `${totalCount}`;
+      if (tabBtn) tabBtn.style.borderColor = '';
+    } else {
+      navBadge.style.display = 'none';
+      if (tabBtn) tabBtn.style.borderColor = '';
+    }
+  }
+
+  if (!banner) return;
+
+  if (!b.currentCommerce || totalCount === 0) {
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+    return;
+  }
+
+  // Caso 1: Existen apelaciones / observaciones SIN RESPUESTA (Alerta prominente)
+  if (unansweredCount > 0) {
+    banner.style.display = 'block';
+    banner.innerHTML = `
+      <div style="background: linear-gradient(135deg, #fef2f2 0%, #fff7ed 100%); border: 1.5px solid #ef4444; border-left: 5px solid #dc2626; border-radius: 10px; padding: 0.75rem 1rem; box-shadow: 0 3px 10px rgba(239, 68, 68, 0.12);">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.65rem; margin-bottom: 0.55rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span style="background: #dc2626; color: #ffffff; font-size: 0.7rem; font-weight: 900; padding: 3px 9px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px; text-transform: uppercase; letter-spacing: 0.3px;">
+              <i class="ri-alarm-warning-fill"></i> Apelación / Observación sin Respuesta (${unansweredCount})
+            </span>
+            <strong style="font-size: 0.86rem; color: #991b1b;">
+              ${escapeHtml(b.currentCommerce)} mantiene ${unansweredCount} observación(es) pendiente(s) de respuesta
+            </strong>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+            <button type="button"
+                    onclick="window.switchBgSubTab('observations')"
+                    class="btn btn-sm"
+                    style="background: #ffffff; color: #b91c1c; border: 1px solid #fca5a5; font-weight: 800; font-size: 0.73rem; padding: 0.32rem 0.7rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+              <i class="ri-question-answer-line"></i> Ver Apartado Completo (${totalCount})
+            </button>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 0.45rem;">
+          ${unansweredList.map(obs => {
+            const appliedInfo = getObservationAppliedEntriesInCurrentPeriod(obs.key, obs);
+            const isSamePeriod = String(obs.periodId) === String(b.currentPeriodId) || String(obs.periodName).toUpperCase() === String(b.currentPeriodName).toUpperCase();
+            return `
+              <div style="background: rgba(255, 255, 255, 0.92); border: 1px solid #fecaca; border-radius: 8px; padding: 0.55rem 0.8rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.65rem;">
+                <div style="flex: 1; min-width: 240px;">
+                  <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 3px;">
+                    <span style="font-size: 0.68rem; font-weight: 800; padding: 1px 7px; border-radius: 4px; background: ${obs.service === 'enviame' ? '#e0f2fe' : '#ede9fe'}; color: ${obs.service === 'enviame' ? '#0369a1' : '#5b21b6'};">
+                      ${obs.service === 'enviame' ? '🚚 Envíame' : '📦 Fulfillment'}
+                    </span>
+                    <span style="font-size: 0.7rem; font-weight: 800; color: #334155; background: #f1f5f9; padding: 1px 7px; border-radius: 4px;">
+                      📅 Periodo Origen: ${escapeHtml(obs.periodName)}${isSamePeriod ? ' (Periodo Actual)' : ''}
+                    </span>
+                    ${obs.comercio && obs.comercio.toUpperCase() !== b.currentCommerce.toUpperCase() ? `
+                      <span style="font-size: 0.68rem; font-weight: 700; color: #5f06fa; background: rgba(95,6,250,0.08); padding: 1px 6px; border-radius: 4px;">
+                        🏪 ${escapeHtml(obs.comercio)}
+                      </span>
+                    ` : ''}
+                    ${appliedInfo.isApplied ? `
+                      <span style="font-size: 0.68rem; font-weight: 800; background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 1px 7px; border-radius: 999px; display: inline-flex; align-items: center; gap: 3px;">
+                        <i class="ri-checkbox-circle-fill"></i> Saldo ingresado en ${escapeHtml(b.currentPeriodName)} (${formatCLP(appliedInfo.totalAbonoApplied || Math.abs(appliedInfo.totalAdjustmentGrossApplied))})
+                      </span>
+                    ` : ''}
+                  </div>
+                  <div style="font-size: 0.8rem; color: #1e293b; font-weight: 600; line-height: 1.35;">
+                    <span style="color: #dc2626; font-weight: 800;">Cliente dice:</span> "${escapeHtml(obs.clientObservation || 'Observación marcada pendiente de revisión')}"
+                  </div>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; flex-shrink: 0;">
+                  ${!b.isLocked ? `
+                    <button type="button"
+                            onclick="window.openApplyObservationToBillingModal('${escapeHtml(obs.key)}')"
+                            style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #ffffff; border: none; border-radius: 6px; padding: 0.36rem 0.7rem; font-size: 0.73rem; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 5px rgba(16, 185, 129, 0.25);"
+                            title="Ingresar esta observación al desglose de ${escapeHtml(b.currentPeriodName)} como saldo a favor (abono) o ajuste comercial y responder al comercio">
+                      <i class="ri-hand-coin-fill"></i> Ingresar como Saldo a ${escapeHtml(b.currentPeriodName)}
+                    </button>
+                  ` : ''}
+                  <button type="button"
+                          onclick="window.openReplyObservationFromGeneratorModal('${escapeHtml(obs.key)}')"
+                          style="background: #ffffff; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0.35rem 0.65rem; font-size: 0.73rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;"
+                          title="Responder observación o cambiar su estado">
+                    <i class="ri-reply-fill" style="color: #5f06fa;"></i> Responder
+                  </button>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  // Caso 2: Todas las observaciones están respondidas, pero existen observaciones asociadas al comercio
+  const appliedCount = obsList.filter(o => getObservationAppliedEntriesInCurrentPeriod(o.key, o).isApplied).length;
+  banner.style.display = 'block';
+  banner.innerHTML = `
+    <div style="background: linear-gradient(135deg, #f8fafc 0%, #f5f3ff 100%); border: 1px solid #c4b5fd; border-left: 4px solid #5f06fa; border-radius: 9px; padding: 0.5rem 0.9rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
+      <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; font-size: 0.78rem; color: #334155;">
+        <span style="background: #ede9fe; color: #5b21b6; font-weight: 800; font-size: 0.69rem; padding: 2px 8px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px;">
+          <i class="ri-question-answer-line"></i> ${totalCount} Observación(es) Registrada(s)
+        </span>
+        <span>
+          Todas las apelaciones de <strong>${escapeHtml(b.currentCommerce)}</strong> tienen respuesta registrada.
+          ${appliedCount > 0 ? `<strong style="color: #059669;">(${appliedCount} ingresada(s) como saldo en ${escapeHtml(b.currentPeriodName)})</strong>` : 'Puedes consultarlas o ingresarlas como saldo al periodo en curso.'}
+        </span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.4rem;">
+        <button type="button"
+                onclick="window.switchBgSubTab('observations')"
+                style="background: #ffffff; color: #5f06fa; border: 1px solid #c4b5fd; border-radius: 6px; padding: 3px 9px; font-size: 0.72rem; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+          <i class="ri-eye-line"></i> Ver Observaciones e Ingresar Saldo
+        </button>
+      </div>
+    </div>
+  `;
+}
+window.renderCommerceObservationsBannerUI = renderCommerceObservationsBannerUI;
+
+window.setBgObservationsFilter = function(filterKey) {
+  billingState.activeObservationsFilter = filterKey || 'all';
+  renderCommerceObservationsSectionUI();
+};
+
+export function renderCommerceObservationsSectionUI() {
+  const b = billingState;
+  const container = document.getElementById('bg-observations-container');
+  if (!container) return;
+
+  if (!b.currentCommerce) {
+    return;
+  }
+
+  const allObs = Array.isArray(b.commerceObservations) ? b.commerceObservations : [];
+  const unansweredObs = allObs.filter(o => o.isUnanswered);
+  const answeredObs = allObs.filter(o => !o.isUnanswered);
+  const activeFilter = b.activeObservationsFilter || 'all';
+
+  let totalAppliedInCurrentPeriod = 0;
+  let appliedObsCount = 0;
+  allObs.forEach(obs => {
+    const app = getObservationAppliedEntriesInCurrentPeriod(obs.key, obs);
+    if (app.isApplied) {
+      appliedObsCount++;
+      totalAppliedInCurrentPeriod += (app.totalAbonoApplied + Math.abs(app.totalAdjustmentGrossApplied));
+    }
+  });
+
+  const filteredObs = allObs.filter(obs => {
+    if (activeFilter === 'unanswered') return obs.isUnanswered;
+    if (activeFilter === 'answered') return !obs.isUnanswered;
+    if (activeFilter === 'applied') return getObservationAppliedEntriesInCurrentPeriod(obs.key, obs).isApplied;
+    return true;
+  });
+
+  container.innerHTML = `
+    <div class="bg-card-container" style="margin-bottom: 1.5rem;">
+      <!-- Cabecera del Apartado -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.1rem; padding-bottom: 0.85rem; border-bottom: 1px solid var(--color-border);">
+        <div>
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem;">
+              <i class="ri-question-answer-fill" style="color: #5f06fa; font-size: 1.25rem;"></i>
+              Apelaciones y Observaciones de Facturación — ${escapeHtml(b.currentCommerce)}
+            </h3>
+            ${unansweredObs.length > 0 ? `
+              <span style="background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; font-size: 0.72rem; font-weight: 900; padding: 2px 9px; border-radius: 999px;">
+                🚨 ${unansweredObs.length} SIN RESPUESTA
+              </span>
+            ` : (allObs.length > 0 ? `
+              <span style="background: #dcfce7; color: #15803d; border: 1px solid #86efac; font-size: 0.72rem; font-weight: 800; padding: 2px 9px; border-radius: 999px;">
+                ✅ Al día (${allObs.length} respondida${allObs.length === 1 ? '' : 's'})
+              </span>
+            ` : '')}
+          </div>
+          <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
+            Revisa las observaciones enviadas por el comercio en cualquier periodo y <strong>aplícalas directamente como saldo a favor (abono) o ajuste comercial al periodo en curso (${escapeHtml(b.currentPeriodName || 'Actual')})</strong>.
+          </p>
+        </div>
+
+        <div style="display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap;">
+          <button type="button"
+                  onclick="window.loadAndRenderCommerceObservationsUI(true)"
+                  class="btn btn-outline btn-sm"
+                  style="height: 32px; padding: 0 0.75rem; font-size: 0.76rem; font-weight: 700; border-radius: 7px; display: inline-flex; align-items: center; gap: 4px;">
+            <i class="ri-refresh-line"></i> Sincronizar Observaciones
+          </button>
+          <button type="button"
+                  onclick="window.switchBgSubTab('desglose')"
+                  class="btn btn-outline btn-sm"
+                  style="height: 32px; padding: 0 0.75rem; font-size: 0.76rem; font-weight: 700; border-radius: 7px; border-color: rgba(95,6,250,0.4); color: #5f06fa; display: inline-flex; align-items: center; gap: 4px;">
+            <i class="ri-file-list-3-line"></i> Ver Desglose de ${escapeHtml(b.currentPeriodName || 'Periodo')}
+          </button>
+        </div>
+      </div>
+
+      <!-- Tarjetas de Resumen Rápido -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-bottom: 1.1rem;">
+        <div style="background: ${unansweredObs.length > 0 ? '#fef2f2' : 'var(--color-bg)'}; border: 1px solid ${unansweredObs.length > 0 ? '#fca5a5' : 'var(--color-border)'}; border-left: 4px solid ${unansweredObs.length > 0 ? '#dc2626' : '#10b981'}; border-radius: 9px; padding: 0.75rem 0.95rem;">
+          <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: ${unansweredObs.length > 0 ? '#991b1b' : 'var(--color-text-muted)'};">Apelaciones sin Respuesta</div>
+          <div style="font-size: 1.45rem; font-weight: 900; color: ${unansweredObs.length > 0 ? '#dc2626' : '#10b981'}; margin-top: 2px;">
+            ${unansweredObs.length}
+          </div>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted);">
+            ${unansweredObs.length > 0 ? 'Requieren atención y respuesta' : 'Sin apelaciones pendientes'}
+          </div>
+        </div>
+
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-left: 4px solid #5f06fa; border-radius: 9px; padding: 0.75rem 0.95rem;">
+          <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: var(--color-text-muted);">Total Histórico Comercio</div>
+          <div style="font-size: 1.45rem; font-weight: 900; color: #5f06fa; margin-top: 2px;">
+            ${allObs.length}
+          </div>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted);">
+            ${answeredObs.length} respondida(s) · Fulfillment y Envíame
+          </div>
+        </div>
+
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-left: 4px solid #059669; border-radius: 9px; padding: 0.75rem 0.95rem;">
+          <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: var(--color-text-muted);">Saldos Aplicados en ${escapeHtml(b.currentPeriodName || 'Curso')}</div>
+          <div style="font-size: 1.45rem; font-weight: 900; color: #059669; margin-top: 2px;">
+            ${formatCLP(totalAppliedInCurrentPeriod)}
+          </div>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted);">
+            ${appliedObsCount} observación(es) ingresada(s) a este desglose
+          </div>
+        </div>
+
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-left: 4px solid #0284c7; border-radius: 9px; padding: 0.75rem 0.95rem;">
+          <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: var(--color-text-muted);">Saldo Final a Pagar (${escapeHtml(b.currentPeriodName || 'Curso')})</div>
+          <div style="font-size: 1.45rem; font-weight: 900; color: #0284c7; margin-top: 2px;">
+            ${formatCLP(b.totals?.totalToPay || 0)}
+          </div>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted);">
+            Total Factura c/IVA: ${formatCLP(b.totals?.totalGross || 0)}
+          </div>
+        </div>
+      </div>
+
+      <!-- Barra de Filtros -->
+      <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; background: var(--color-bg); padding: 0.45rem 0.75rem; border-radius: 8px; border: 1px solid var(--color-border);">
+        <span style="font-size: 0.72rem; font-weight: 800; color: var(--color-text-muted); text-transform: uppercase; margin-right: 4px;">
+          <i class="ri-filter-3-line" style="color: #5f06fa;"></i> Mostrar:
+        </span>
+        <button type="button" class="bg-quick-filter-btn ${activeFilter === 'all' ? 'active' : ''}" onclick="window.setBgObservationsFilter('all')">
+          Todas (${allObs.length})
+        </button>
+        <button type="button" class="bg-quick-filter-btn ${activeFilter === 'unanswered' ? 'active' : ''}" onclick="window.setBgObservationsFilter('unanswered')" style="${unansweredObs.length > 0 ? 'border-color: #fca5a5; color: #b91c1c; font-weight: 800;' : ''}">
+          🚨 Sin Respuesta (${unansweredObs.length})
+        </button>
+        <button type="button" class="bg-quick-filter-btn ${activeFilter === 'answered' ? 'active' : ''}" onclick="window.setBgObservationsFilter('answered')">
+          ✅ Respondidas (${answeredObs.length})
+        </button>
+        <button type="button" class="bg-quick-filter-btn ${activeFilter === 'applied' ? 'active' : ''}" onclick="window.setBgObservationsFilter('applied')">
+          💰 Ingresadas al Periodo Actual (${appliedObsCount})
+        </button>
+      </div>
+
+      <!-- Listado de Tarjetas de Observación -->
+      ${filteredObs.length === 0 ? `
+        <div style="text-align: center; padding: 2.75rem 1.5rem; background: var(--color-bg); border: 1px dashed var(--color-border); border-radius: 10px; color: var(--color-text-muted);">
+          <i class="ri-chat-check-line" style="font-size: 2.2rem; color: #10b981; display: block; margin-bottom: 0.4rem;"></i>
+          <strong style="font-size: 0.95rem; color: var(--color-text-main);">
+            ${allObs.length === 0
+              ? `No existen apelaciones ni observaciones registradas para ${escapeHtml(b.currentCommerce)}`
+              : 'No hay observaciones que coincidan con el filtro seleccionado'}
+          </strong>
+          <div style="font-size: 0.8rem; margin-top: 0.25rem;">
+            Cuando el cliente envíe una observación sobre Fulfillment o Envíame desde su portal, aparecerá automáticamente aquí con alerta para que puedas responderla o ingresarla como saldo al periodo en curso.
+          </div>
+        </div>
+      ` : `
+        <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+          ${filteredObs.map(obs => {
+            const appliedInfo = getObservationAppliedEntriesInCurrentPeriod(obs.key, obs);
+            const dateStr = obs.updatedAt
+              ? new Date(obs.updatedAt).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+              : '—';
+            const isSamePeriod = String(obs.periodId) === String(b.currentPeriodId) || String(obs.periodName).toUpperCase() === String(b.currentPeriodName).toUpperCase();
+
+            return `
+              <div style="background: var(--color-surface); border: 1.5px solid ${obs.isUnanswered ? '#fca5a5' : (appliedInfo.isApplied ? '#86efac' : 'var(--color-border)')}; border-left: 5px solid ${obs.isUnanswered ? '#dc2626' : (appliedInfo.isApplied ? '#10b981' : '#5f06fa')}; border-radius: 10px; padding: 0.95rem 1.15rem; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+                <!-- Fila Superior: Badges y Acciones -->
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.65rem; margin-bottom: 0.75rem;">
+                  <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                    ${obs.isUnanswered ? `
+                      <span style="background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; font-size: 0.7rem; font-weight: 900; padding: 2px 9px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px;">
+                        <i class="ri-alarm-warning-fill"></i> SIN RESPUESTA / PENDIENTE
+                      </span>
+                    ` : `
+                      <span style="background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; font-size: 0.7rem; font-weight: 800; padding: 2px 9px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px;">
+                        <i class="ri-checkbox-circle-fill"></i> RESPONDIDA
+                      </span>
+                    `}
+
+                    <span style="font-size: 0.72rem; font-weight: 800; padding: 2px 8px; border-radius: 6px; background: ${obs.service === 'enviame' ? '#e0f2fe' : '#ede9fe'}; color: ${obs.service === 'enviame' ? '#0369a1' : '#5b21b6'};">
+                      ${obs.service === 'enviame' ? '🚚 Servicio Envíame' : '📦 Servicio Fulfillment'}
+                    </span>
+
+                    <span style="font-size: 0.73rem; font-weight: 800; color: #1e293b; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 2px 8px; border-radius: 6px;">
+                      📅 Periodo Apelado: ${escapeHtml(obs.periodName)}${isSamePeriod ? ' (Periodo Actual)' : ''}
+                    </span>
+
+                    <span style="font-size: 0.72rem; font-weight: 700; color: #5f06fa; background: rgba(95, 6, 250, 0.08); padding: 2px 8px; border-radius: 6px;">
+                      🏪 ${escapeHtml(obs.comercio)}
+                    </span>
+
+                    ${obs.totalServiceAmount > 0 ? `
+                      <span style="font-size: 0.72rem; color: #64748b; font-weight: 600;">
+                        Cobro periodo origen: <strong>${formatCLP(obs.totalServiceAmount)}</strong>
+                      </span>
+                    ` : ''}
+
+                    <span style="font-size: 0.7rem; color: #94a3b8;">
+                      <i class="ri-time-line"></i> ${dateStr}
+                    </span>
+                  </div>
+
+                  <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                    ${!b.isLocked ? `
+                      <button type="button"
+                              onclick="window.openApplyObservationToBillingModal('${escapeHtml(obs.key)}')"
+                              class="btn btn-sm"
+                              style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #ffffff; border: none; font-weight: 800; font-size: 0.75rem; padding: 0.4rem 0.85rem; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.25);">
+                        <i class="ri-hand-coin-fill"></i>
+                        <span>${appliedInfo.isApplied ? `Agregar Otro Saldo en ${escapeHtml(b.currentPeriodName)}` : `Ingresar al Desglose (${escapeHtml(b.currentPeriodName)}) como Saldo`}</span>
+                      </button>
+                    ` : `
+                      <span style="font-size: 0.7rem; color: #64748b; font-weight: 700; background: #f1f5f9; padding: 4px 8px; border-radius: 6px;">
+                        <i class="ri-lock-line"></i> Desglose actual bloqueado
+                      </span>
+                    `}
+
+                    <button type="button"
+                            onclick="window.openReplyObservationFromGeneratorModal('${escapeHtml(obs.key)}')"
+                            class="btn btn-outline btn-sm"
+                            style="height: 31px; padding: 0 0.75rem; font-size: 0.74rem; font-weight: 700; border-radius: 7px; display: inline-flex; align-items: center; gap: 4px;">
+                      <i class="ri-reply-line" style="color: #5f06fa;"></i>
+                      <span>${obs.adminResponse ? 'Editar Respuesta / Estado' : 'Responder al Cliente'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Cuerpo: Observación del Cliente y Respuesta Admin -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem;">
+                  <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 0.65rem 0.85rem;">
+                    <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: #b45309; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+                      <i class="ri-user-voice-line"></i> Apelación / Observación del Comercio:
+                    </div>
+                    <div style="font-size: 0.83rem; color: #1e293b; white-space: pre-wrap; line-height: 1.4;">${escapeHtml(obs.clientObservation || '(Marcada como pendiente sin texto detallado)')}</div>
+                  </div>
+
+                  <div style="background: ${obs.adminResponse ? '#f0fdf4' : '#fef2f2'}; border: 1px solid ${obs.adminResponse ? '#bbf7d0' : '#fecaca'}; border-radius: 8px; padding: 0.65rem 0.85rem;">
+                    <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: ${obs.adminResponse ? '#15803d' : '#dc2626'}; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+                      <i class="${obs.adminResponse ? 'ri-shield-check-line' : 'ri-error-warning-line'}"></i> Respuesta Administración Stocka:
+                    </div>
+                    ${obs.adminResponse ? `
+                      <div style="font-size: 0.83rem; color: #065f46; white-space: pre-wrap; line-height: 1.4;">${escapeHtml(obs.adminResponse)}</div>
+                    ` : `
+                      <div style="font-size: 0.8rem; color: #b91c1c; font-style: italic;">
+                        Sin respuesta registrada aún. Puedes responder directamente o ingresar un saldo a favor en este periodo y responder en un solo paso.
+                      </div>
+                    `}
+                  </div>
+                </div>
+
+                <!-- Pie: Estado de aplicación en el desglose del periodo en curso -->
+                ${appliedInfo.isApplied ? `
+                  <div style="margin-top: 0.65rem; background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 8px; padding: 0.5rem 0.8rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 0.78rem; color: #065f46;">
+                      <i class="ri-checkbox-circle-fill" style="color: #059669; font-size: 1rem;"></i>
+                      <strong>Aplicada en el desglose en curso (${escapeHtml(b.currentPeriodName)}):</strong>
+                      ${appliedInfo.matchedAbonos.map(ab => `
+                        <span style="background: #ffffff; border: 1px solid #6ee7b7; padding: 2px 8px; border-radius: 6px; font-weight: 800; color: #047857; display: inline-flex; align-items: center; gap: 5px;">
+                          Abono / Saldo a favor: -${formatCLP(ab.amount)} (${escapeHtml(ab.reference || 'Abono')})
+                          ${!b.isLocked ? `<button type="button" onclick="window.deleteManualAbonoItem('${escapeHtml(ab.id)}')" title="Quitar este abono del desglose" style="background: transparent; border: none; color: #dc2626; cursor: pointer; padding: 0 2px; font-size: 0.85rem;"><i class="ri-close-circle-fill"></i></button>` : ''}
+                        </span>
+                      `).join('')}
+                      ${appliedInfo.matchedAdjustments.map(adj => `
+                        <span style="background: #ffffff; border: 1px solid #c4b5fd; padding: 2px 8px; border-radius: 6px; font-weight: 800; color: #5b21b6; display: inline-flex; align-items: center; gap: 5px;">
+                          Ajuste Neto: ${formatCLP(adj.amount)} (${formatCLP(Math.round(adj.amount * 1.19))} c/IVA · ${escapeHtml(adj.concept || 'Ajuste')})
+                          ${!b.isLocked ? `<button type="button" onclick="window.deleteManualAdjustmentItem('${escapeHtml(adj.id)}')" title="Quitar este ajuste del desglose" style="background: transparent; border: none; color: #dc2626; cursor: pointer; padding: 0 2px; font-size: 0.85rem;"><i class="ri-close-circle-fill"></i></button>` : ''}
+                        </span>
+                      `).join('')}
+                    </div>
+                    <button type="button" onclick="window.switchBgSubTab('desglose')" style="background: #059669; color: #ffffff; border: none; border-radius: 6px; padding: 3px 9px; font-size: 0.72rem; font-weight: 700; cursor: pointer;">
+                      Ver en Desglose Oficial →
+                    </button>
+                  </div>
+                ` : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `}
+    </div>
+  `;
+}
+window.renderCommerceObservationsSectionUI = renderCommerceObservationsSectionUI;
+
+// Modal para ingresar una apelación / observación como Saldo (Abono o Ajuste) al periodo en curso
+window.openApplyObservationToBillingModal = async function(obsKey) {
+  if (guardBillingLocked()) return;
+  const b = billingState;
+  const obsList = Array.isArray(b.commerceObservations) ? b.commerceObservations : [];
+  const obs = obsList.find(o => String(o.key) === String(obsKey));
+  if (!obs) {
+    if (typeof Swal !== 'undefined') Swal.fire('Aviso', 'No se encontró la observación seleccionada.', 'warning');
+    return;
+  }
+
+  const currentPeriodLabel = b.currentPeriodName || 'PERIODO EN CURSO';
+  const currentTotalGross = Math.round(Number(b.totals?.totalGross) || 0);
+  const currentTotalToPay = Math.round(Number(b.totals?.totalToPay) || 0);
+  const defaultSuggestedAmount = (obs.suggestedAmounts && obs.suggestedAmounts.length > 0) ? obs.suggestedAmounts[0] : '';
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const defaultConceptAbono = `Saldo a favor por apelación ${obs.serviceLabel} (${obs.periodName})`;
+  const defaultConceptAdjDiscount = `Descuento por observación ${obs.serviceLabel} (${obs.periodName})`;
+  const defaultConceptAdjCharge = `Ajuste por observación ${obs.serviceLabel} (${obs.periodName})`;
+
+  const { value: formResult } = await Swal.fire({
+    title: `<div style="display:flex;align-items:center;justify-content:center;gap:0.45rem;font-size:1.08rem;"><i class="ri-hand-coin-fill" style="color:#059669;"></i><span>Ingresar Observación como Saldo en ${escapeHtml(currentPeriodLabel)}</span></div>`,
+    width: '640px',
+    html: `
+      <div style="text-align: left; font-size: 0.86rem; color: #1e293b;">
+        <!-- Contexto de la Observación -->
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 0.9rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px;">
+            <span style="font-size: 0.72rem; font-weight: 800; color: #b45309; text-transform: uppercase;">
+              <i class="ri-question-answer-line"></i> Observación de ${escapeHtml(obs.comercio)} · ${escapeHtml(obs.serviceLabel)} (${escapeHtml(obs.periodName)})
+            </span>
+            <span style="font-size: 0.68rem; font-weight: 800; padding: 1px 7px; border-radius: 999px; background: ${obs.isUnanswered ? '#fee2e2' : '#dcfce7'}; color: ${obs.isUnanswered ? '#dc2626' : '#15803d'};">
+              ${obs.isUnanswered ? '🚨 Sin respuesta' : '✅ Respondida'}
+            </span>
+          </div>
+          <div style="font-size: 0.8rem; color: #334155; white-space: pre-wrap; max-height: 90px; overflow-y: auto; line-height: 1.35;">"${escapeHtml(obs.clientObservation || 'Apelación pendiente')}"</div>
+        </div>
+
+        <!-- 1. Tipo de Aplicación en el Desglose -->
+        <label style="font-size: 0.74rem; font-weight: 800; color: #334155; display: block; margin-bottom: 0.35rem; text-transform: uppercase;">
+          1. ¿Cómo deseas ingresar este saldo al desglose de ${escapeHtml(currentPeriodLabel)}?
+        </label>
+        <div style="display: grid; grid-template-columns: 1fr; gap: 0.45rem; margin-bottom: 0.85rem;">
+          <label id="swal-obs-mode-card-abono" style="display: flex; align-items: flex-start; gap: 8px; padding: 0.55rem 0.75rem; border-radius: 8px; border: 2px solid #10b981; background: #ecfdf5; cursor: pointer;">
+            <input type="radio" name="swal-obs-apply-mode" value="abono" checked style="margin-top: 3px; accent-color: #059669;">
+            <div>
+              <div style="font-weight: 800; font-size: 0.82rem; color: #065f46;">💰 Saldo a Favor / Abono directo al Monto a Pagar (Recomendado)</div>
+              <div style="font-size: 0.72rem; color: #047857;">Descuenta directamente del <strong>Monto a Pagar (Saldo)</strong> en ${escapeHtml(currentPeriodLabel)} sin alterar el Neto ni el IVA de la factura del mes.</div>
+            </div>
+          </label>
+
+          <label id="swal-obs-mode-card-adj-discount" style="display: flex; align-items: flex-start; gap: 8px; padding: 0.55rem 0.75rem; border-radius: 8px; border: 1.5px solid #cbd5e1; background: #ffffff; cursor: pointer;">
+            <input type="radio" name="swal-obs-apply-mode" value="adj_discount" style="margin-top: 3px; accent-color: #5f06fa;">
+            <div>
+              <div style="font-weight: 800; font-size: 0.82rem; color: #1e293b;">🏷️ Descuento Comercial en Base Neta (Reduce Neto + IVA)</div>
+              <div style="font-size: 0.72rem; color: #64748b;">Ingresa una línea negativa en los ítems del desglose oficial disminuyendo la base imponible neta.</div>
+            </div>
+          </label>
+
+          <label id="swal-obs-mode-card-adj-charge" style="display: flex; align-items: flex-start; gap: 8px; padding: 0.55rem 0.75rem; border-radius: 8px; border: 1.5px solid #cbd5e1; background: #ffffff; cursor: pointer;">
+            <input type="radio" name="swal-obs-apply-mode" value="adj_charge" style="margin-top: 3px; accent-color: #ea580c;">
+            <div>
+              <div style="font-weight: 800; font-size: 0.82rem; color: #1e293b;">➕ Cargo / Diferencia a Cobrar en Base Neta (Suma Neto + IVA)</div>
+              <div style="font-size: 0.72rem; color: #64748b;">Ingresa un cobro adicional positivo en la base neta del desglose actual.</div>
+            </div>
+          </label>
+        </div>
+
+        <!-- 2. Monto y Concepto -->
+        <div style="display: grid; grid-template-columns: 1fr 1.3fr; gap: 0.75rem; margin-bottom: 0.65rem;">
+          <div>
+            <label id="swal-obs-amount-label" style="font-size: 0.73rem; font-weight: 800; color: #334155; display: block; margin-bottom: 0.25rem;">
+              MONTO SALDO ($ CLP TOTAL):
+            </label>
+            <input id="swal-obs-amount" type="number" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.95rem; font-weight: 800; color: #047857; text-align: right;" placeholder="Ej: 15000" min="1" step="100" value="${defaultSuggestedAmount}">
+          </div>
+          <div>
+            <label style="font-size: 0.73rem; font-weight: 800; color: #334155; display: block; margin-bottom: 0.25rem;">
+              CONCEPTO EN EL DESGLOSE:
+            </label>
+            <input id="swal-obs-concept" type="text" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.82rem; font-weight: 600;" value="${escapeHtml(defaultConceptAbono)}">
+          </div>
+        </div>
+
+        ${obs.suggestedAmounts && obs.suggestedAmounts.length > 0 ? `
+          <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 0.75rem;">
+            <span style="font-size: 0.7rem; font-weight: 700; color: #64748b;">Montos detectados en el texto:</span>
+            ${obs.suggestedAmounts.map(amt => `
+              <button type="button" class="swal-obs-suggested-amt-btn" data-amt="${amt}" style="background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd; border-radius: 999px; padding: 2px 8px; font-size: 0.7rem; font-weight: 800; cursor: pointer;">
+                Usar ${formatCLP(amt)}
+              </button>
+            `).join('')}
+          </div>
+        ` : ''}
+
+        <!-- Vista Previa en Vivo del Impacto en el Periodo en Curso -->
+        <div id="swal-obs-impact-preview" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.6rem 0.85rem; margin-bottom: 0.85rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; font-size: 0.78rem;">
+          <div>
+            <span style="color: #64748b;">Saldo actual ${escapeHtml(currentPeriodLabel)}:</span>
+            <strong style="color: #334155; margin-left: 4px;">${formatCLP(currentTotalToPay)}</strong>
+          </div>
+          <div>
+            <span style="color: #64748b;">Nuevo Saldo a Pagar proyectado:</span>
+            <strong id="swal-obs-new-balance-lbl" style="color: #059669; font-size: 0.92rem; font-weight: 900; margin-left: 4px;">${formatCLP(currentTotalToPay)}</strong>
+          </div>
+        </div>
+
+        <!-- 3. Responder y Marcar como Respondida simultáneamente -->
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 0.65rem 0.85rem;">
+          <label style="display: flex; align-items: center; gap: 7px; font-weight: 800; font-size: 0.78rem; color: #166534; cursor: pointer; margin-bottom: 0.4rem;">
+            <input type="checkbox" id="swal-obs-also-reply" ${obs.isUnanswered ? 'checked' : ''} style="width: 15px; height: 15px; accent-color: #16a34a;">
+            <span>Responder observación y marcar como "✅ Respondida" al guardar</span>
+          </label>
+          <textarea id="swal-obs-reply-text" rows="2" class="swal2-textarea" style="margin: 0; width: 100%; font-size: 0.8rem; padding: 0.45rem 0.6rem; border-radius: 6px; min-height: 54px;" placeholder="Escribe la respuesta oficial que verá el comercio...">${escapeHtml(obs.adminResponse || `Se acoge observación de ${obs.periodName} y se aplica saldo a favor en el desglose del periodo ${currentPeriodLabel}.`)}</textarea>
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-check-double-line"></i> Ingresar al Desglose',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#059669',
+    focusConfirm: false,
+    didOpen: () => {
+      const radios = Array.from(document.querySelectorAll('input[name="swal-obs-apply-mode"]'));
+      const amountInp = document.getElementById('swal-obs-amount');
+      const amountLbl = document.getElementById('swal-obs-amount-label');
+      const conceptInp = document.getElementById('swal-obs-concept');
+      const newBalanceLbl = document.getElementById('swal-obs-new-balance-lbl');
+      const replyTxt = document.getElementById('swal-obs-reply-text');
+      const cardAbono = document.getElementById('swal-obs-mode-card-abono');
+      const cardDiscount = document.getElementById('swal-obs-mode-card-adj-discount');
+      const cardCharge = document.getElementById('swal-obs-mode-card-adj-charge');
+
+      const syncPreview = () => {
+        const mode = document.querySelector('input[name="swal-obs-apply-mode"]:checked')?.value || 'abono';
+        const rawAmt = Math.max(0, Math.abs(parseInt(amountInp?.value, 10) || 0));
+
+        if (cardAbono) {
+          cardAbono.style.borderColor = mode === 'abono' ? '#10b981' : '#cbd5e1';
+          cardAbono.style.background = mode === 'abono' ? '#ecfdf5' : '#ffffff';
+        }
+        if (cardDiscount) {
+          cardDiscount.style.borderColor = mode === 'adj_discount' ? '#5f06fa' : '#cbd5e1';
+          cardDiscount.style.background = mode === 'adj_discount' ? '#f5f3ff' : '#ffffff';
+        }
+        if (cardCharge) {
+          cardCharge.style.borderColor = mode === 'adj_charge' ? '#ea580c' : '#cbd5e1';
+          cardCharge.style.background = mode === 'adj_charge' ? '#fff7ed' : '#ffffff';
+        }
+
+        if (mode === 'abono') {
+          if (amountLbl) amountLbl.textContent = 'MONTO SALDO A FAVOR ($ CLP TOTAL):';
+          const projected = Math.max(0, currentTotalToPay - rawAmt);
+          if (newBalanceLbl) {
+            newBalanceLbl.textContent = `${formatCLP(projected)} (-${formatCLP(rawAmt)})`;
+            newBalanceLbl.style.color = '#059669';
+          }
+        } else if (mode === 'adj_discount') {
+          if (amountLbl) amountLbl.textContent = 'MONTO DESCUENTO NETO ($ CLP SIN IVA):';
+          const grossImpact = Math.round(rawAmt * 1.19);
+          const projected = Math.max(0, currentTotalToPay - grossImpact);
+          if (newBalanceLbl) {
+            newBalanceLbl.textContent = `${formatCLP(projected)} (-${formatCLP(rawAmt)} neto / -${formatCLP(grossImpact)} c/IVA)`;
+            newBalanceLbl.style.color = '#5f06fa';
+          }
+        } else {
+          if (amountLbl) amountLbl.textContent = 'MONTO CARGO NETO ($ CLP SIN IVA):';
+          const grossImpact = Math.round(rawAmt * 1.19);
+          const projected = currentTotalToPay + grossImpact;
+          if (newBalanceLbl) {
+            newBalanceLbl.textContent = `${formatCLP(projected)} (+${formatCLP(rawAmt)} neto / +${formatCLP(grossImpact)} c/IVA)`;
+            newBalanceLbl.style.color = '#ea580c';
+          }
+        }
+
+        if (replyTxt && !obs.adminResponse && rawAmt > 0) {
+          if (mode === 'abono') {
+            replyTxt.value = `Se acoge observación de ${obs.periodName} (${obs.serviceLabel}) y se ingresa saldo a favor por ${formatCLP(rawAmt)} en el desglose del periodo ${currentPeriodLabel}.`;
+          } else if (mode === 'adj_discount') {
+            replyTxt.value = `Se acoge observación de ${obs.periodName} (${obs.serviceLabel}) y se aplica descuento comercial neto de ${formatCLP(rawAmt)} en el desglose del periodo ${currentPeriodLabel}.`;
+          } else {
+            replyTxt.value = `Se revisa observación de ${obs.periodName} (${obs.serviceLabel}) y se incorpora ajuste neto de ${formatCLP(rawAmt)} en el desglose del periodo ${currentPeriodLabel}.`;
+          }
+        }
+      };
+
+      radios.forEach(r => {
+        r.addEventListener('change', () => {
+          const mode = r.value;
+          if (conceptInp) {
+            if (mode === 'abono') conceptInp.value = defaultConceptAbono;
+            else if (mode === 'adj_discount') conceptInp.value = defaultConceptAdjDiscount;
+            else conceptInp.value = defaultConceptAdjCharge;
+          }
+          syncPreview();
+        });
+      });
+
+      amountInp?.addEventListener('input', syncPreview);
+
+      document.querySelectorAll('.swal-obs-suggested-amt-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const val = btn.getAttribute('data-amt');
+          if (amountInp && val) {
+            amountInp.value = val;
+            syncPreview();
+          }
+        });
+      });
+
+      syncPreview();
+    },
+    preConfirm: () => {
+      const mode = document.querySelector('input[name="swal-obs-apply-mode"]:checked')?.value || 'abono';
+      const amount = Math.abs(parseInt(document.getElementById('swal-obs-amount')?.value, 10) || 0);
+      const concept = document.getElementById('swal-obs-concept')?.value?.trim() || defaultConceptAbono;
+      const alsoReply = Boolean(document.getElementById('swal-obs-also-reply')?.checked);
+      const replyText = document.getElementById('swal-obs-reply-text')?.value?.trim() || '';
+
+      if (!amount || amount <= 0) {
+        Swal.showValidationMessage('Ingresa un monto en pesos ($ CLP) mayor a 0.');
+        return false;
+      }
+      if (!concept) {
+        Swal.showValidationMessage('Ingresa un concepto o referencia para el desglose.');
+        return false;
+      }
+      if (alsoReply && !replyText) {
+        Swal.showValidationMessage('Escribe una respuesta para el cliente o desmarca la casilla de responder.');
+        return false;
+      }
+
+      return { mode, amount, concept, alsoReply, replyText };
+    }
+  });
+
+  if (!formResult) return;
+
+  const { mode, amount, concept, alsoReply, replyText } = formResult;
+  const tagNote = `[OBS:${obs.key}] Apelación ${obs.serviceLabel} (${obs.periodName}) - ${obs.comercio}`;
+
+  if (mode === 'abono') {
+    if (!Array.isArray(b.abonos)) b.abonos = [];
+    b.abonos.push({
+      id: 'abono_obs_' + Date.now(),
+      amount,
+      date: todayStr,
+      voucher: `APEL-${obs.periodName.replace(/\s+/g, '')}`,
+      reference: concept,
+      notes: tagNote,
+      isObservationAbono: true,
+      linkedObservationKey: obs.key,
+      linkedObservationPeriod: obs.periodName,
+      linkedObservationService: obs.serviceLabel
+    });
+    b.abonosSessionKey = `${b.currentPeriodId}_${b.currentCommerce}`;
+    try {
+      localStorage.setItem(`stocka_billing_abonos_${b.currentPeriodId}_${b.currentCommerce}`, JSON.stringify(b.abonos));
+    } catch (e) {}
+  } else {
+    if (!Array.isArray(b.adjustments)) b.adjustments = [];
+    const signedAmount = mode === 'adj_discount' ? -Math.abs(amount) : Math.abs(amount);
+    b.adjustments.push({
+      id: 'adj_obs_' + Date.now(),
+      concept,
+      amount: signedAmount,
+      notes: tagNote,
+      isObservationAdjustment: true,
+      linkedObservationKey: obs.key,
+      linkedObservationPeriod: obs.periodName,
+      linkedObservationService: obs.serviceLabel
+    });
+    b.adjustmentsSessionKey = `${b.currentPeriodId}_${b.currentCommerce}`;
+  }
+
+  b.isSaved = false;
+  recalculateFromCurrentState();
+
+  // Si se marcó responder y actualizar estado en billing_records
+  if (alsoReply && obs.recordId) {
+    try {
+      const isEnviame = obs.service === 'enviame';
+      const updatePayload = isEnviame
+        ? {
+            admin_response_enviame: replyText,
+            observation_status_enviame: 'respondida',
+            observation_updated_at_enviame: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        : {
+            admin_response: replyText,
+            observation_status: 'respondida',
+            observation_updated_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+
+      await supabase.from('billing_records').update(updatePayload).eq('id', obs.recordId);
+      if (typeof window.updatePendingObservationsBadge === 'function') {
+        window.updatePendingObservationsBadge();
+      }
+      loadAndRenderPeriodOverview({ silentBadgeOnly: true });
+    } catch (errUpd) {
+      console.warn('Error actualizando respuesta de observación en BD:', errUpd);
+    }
+  }
+
+  await loadAndRenderCommerceObservationsUI();
+
+  if (typeof Swal !== 'undefined') {
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: mode === 'abono' ? 'Saldo a favor ingresado al desglose' : 'Ajuste comercial ingresado al desglose',
+      text: `${concept}: ${formatCLP(amount)} aplicado en ${currentPeriodLabel} (Recuerda Guardar / Confirmar).`,
+      showConfirmButton: false,
+      timer: 3800
+    });
+  }
+};
+
+// Modal para responder o cambiar estado de una apelación / observación directamente desde el Gestor
+window.openReplyObservationFromGeneratorModal = async function(obsKey) {
+  const b = billingState;
+  const obsList = Array.isArray(b.commerceObservations) ? b.commerceObservations : [];
+  const obs = obsList.find(o => String(o.key) === String(obsKey));
+  if (!obs) return;
+
+  const { value: replyValues } = await Swal.fire({
+    title: `<div style="display:flex;align-items:center;justify-content:center;gap:0.45rem;font-size:1.05rem;"><i class="ri-question-answer-fill" style="color:#5f06fa;"></i><span>Gestionar Apelación — ${escapeHtml(obs.comercio)}</span></div>`,
+    width: '560px',
+    html: `
+      <div style="text-align: left; font-size: 0.86rem; color: #1e293b;">
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 0.65rem;">
+          <span style="background: #ede9fe; color: #5b21b6; font-weight: 800; font-size: 0.72rem; padding: 2px 8px; border-radius: 6px;">
+            ${escapeHtml(obs.serviceLabel)}
+          </span>
+          <span style="background: #f1f5f9; color: #334155; font-weight: 800; font-size: 0.72rem; padding: 2px 8px; border-radius: 6px;">
+            Periodo: ${escapeHtml(obs.periodName)}
+          </span>
+        </div>
+
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 0.65rem 0.8rem; margin-bottom: 0.85rem;">
+          <div style="font-size: 0.7rem; font-weight: 800; color: #b45309; text-transform: uppercase; margin-bottom: 3px;">
+            Observación enviada por el comercio:
+          </div>
+          <div style="font-size: 0.82rem; color: #1e293b; white-space: pre-wrap;">${escapeHtml(obs.clientObservation || '(Sin texto)')}</div>
+        </div>
+
+        <label style="font-size: 0.74rem; font-weight: 800; color: #334155; display: block; margin-bottom: 0.25rem;">
+          RESPUESTA ADMINISTRACIÓN STOCKA:
+        </label>
+        <textarea id="swal-gen-obs-response" rows="4" class="swal2-textarea" style="margin: 0 0 0.75rem 0; width: 100%; font-size: 0.84rem; padding: 0.55rem;" placeholder="Escribe la respuesta o resolución para el cliente...">${escapeHtml(obs.adminResponse || '')}</textarea>
+
+        <label style="font-size: 0.74rem; font-weight: 800; color: #334155; display: block; margin-bottom: 0.25rem;">
+          ESTADO DE LA OBSERVACIÓN:
+        </label>
+        <select id="swal-gen-obs-status" class="swal2-select" style="margin: 0; width: 100%; height: 38px; font-size: 0.84rem; font-weight: 700;">
+          <option value="respondida" ${!obs.isUnanswered || obs.status === 'respondida' ? 'selected' : ''}>✅ Respondida / Resuelta</option>
+          <option value="pendiente" ${obs.isUnanswered ? 'selected' : ''}>🚨 Pendiente de revisión (Sin respuesta)</option>
+          <option value="sin_observacion">🗑️ Cerrar / Sin observación activa</option>
+        </select>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-save-3-line"></i> Guardar Respuesta',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    preConfirm: () => {
+      const responseText = document.getElementById('swal-gen-obs-response')?.value?.trim() || '';
+      const status = document.getElementById('swal-gen-obs-status')?.value || 'respondida';
+      return { responseText, status };
+    }
+  });
+
+  if (!replyValues) return;
+
+  try {
+    const isEnviame = obs.service === 'enviame';
+    const finalStatus = (replyValues.responseText && replyValues.status === 'pendiente') ? 'respondida' : replyValues.status;
+    const payload = isEnviame
+      ? {
+          admin_response_enviame: replyValues.responseText,
+          observation_status_enviame: finalStatus,
+          observation_updated_at_enviame: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+      : {
+          admin_response: replyValues.responseText,
+          observation_status: finalStatus,
+          observation_updated_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+
+    const { error } = await supabase.from('billing_records').update(payload).eq('id', obs.recordId);
+    if (error) throw error;
+
+    await loadAndRenderCommerceObservationsUI();
+    loadAndRenderPeriodOverview({ silentBadgeOnly: true });
+    if (typeof window.updatePendingObservationsBadge === 'function') {
+      window.updatePendingObservationsBadge();
+    }
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Observación actualizada',
+      showConfirmButton: false,
+      timer: 2500
+    });
+  } catch (err) {
+    console.error('Error guardando respuesta de observación:', err);
+    Swal.fire('Error', 'No se pudo actualizar la observación: ' + (err.message || err), 'error');
+  }
+};
 
 // Exportar todas las funciones al scope global window
 window.openClientInteractiveBillingModal = openClientInteractiveBillingModal;

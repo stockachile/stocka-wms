@@ -574,20 +574,112 @@ window.getPickerStatusForOrder = function(order) {
   return null;
 };
 
+// Helper para alternar rápidamente el filtro de pedidos "En preparación" sin registro en Picker
+window.togglePrepMissingPickerFilter = function(event) {
+  if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+  const tagSelect = document.getElementById('filter-order-tag');
+  const currentTag = tagSelect ? tagSelect.value : '';
+  window.wmsActiveTab = 'En preparación';
+  window.wmsCurrentPage = 1;
+  if (tagSelect) {
+    if (currentTag === 'Picker: Sin registro') {
+      tagSelect.value = 'all';
+    } else {
+      // Asegurar que la opción exista en el select antes de seleccionarla
+      if (!Array.from(tagSelect.options).some(opt => opt.value === 'Picker: Sin registro')) {
+        const opt = document.createElement('option');
+        opt.value = 'Picker: Sin registro';
+        opt.textContent = 'Picker: Sin registro';
+        tagSelect.appendChild(opt);
+      }
+      tagSelect.value = 'Picker: Sin registro';
+    }
+  }
+  if (typeof window.applyWmsFiltersAndRender === 'function') {
+    window.applyWmsFiltersAndRender();
+  }
+};
+
+// Reinyectar masivamente en el Picker los pedidos que están "En preparación" pero tienen "Picker: Sin registro"
+window.resyncMissingPickerOrders = async function(btn) {
+  const baseOrders = typeof window.getWmsFilteredOrders === 'function'
+    ? window.getWmsFilteredOrders('estado_wms', 'Todos')
+    : (window.loadedOrders || []);
+  const missingOrders = baseOrders.filter(o => {
+    if (!o || o.estado_wms !== 'En preparación') return false;
+    const pSt = window.getPickerStatusForOrder ? window.getPickerStatusForOrder(o) : null;
+    return !pSt;
+  });
+
+  if (missingOrders.length === 0) {
+    if (window.Swal) {
+      window.Swal.fire('Todo sincronizado', 'No hay pedidos en preparación sin registro en el Picker.', 'info');
+    }
+    return;
+  }
+
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Sincronizando (${missingOrders.length})...`;
+  }
+
+  try {
+    let okCount = 0;
+    for (const ord of missingOrders) {
+      try {
+        if (typeof window.sendSingleOrderToPicker === 'function') {
+          await window.sendSingleOrderToPicker(ord, { ignoreMissingTracking: true, forceTemporaryLabel: true });
+          okCount++;
+        } else if (typeof window.propagateOrderUpdateToPicker === 'function') {
+          await window.propagateOrderUpdateToPicker(ord);
+          okCount++;
+        }
+        delete ord._wmsTags;
+      } catch (e) {
+        console.warn('[resyncMissingPickerOrders] Error sincronizando pedido:', ord.external_order_number || ord.id, e);
+      }
+    }
+
+    if (typeof window.fetchPickerOperators === 'function') {
+      await window.fetchPickerOperators(missingOrders);
+    }
+    missingOrders.forEach(o => { delete o._wmsTags; });
+    if (typeof window.applyWmsFiltersAndRender === 'function') {
+      window.applyWmsFiltersAndRender();
+    }
+    if (window.Swal) {
+      window.Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `Se reinyectaron ${okCount} pedido(s) al Picker`,
+        showConfirmButton: false,
+        timer: 3000
+      });
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+};
+
 // Helper para renderizar el badge de estado del Picker en la fila de pedidos
 window.renderPickerStatusBadge = function(order) {
   const pStatus = window.getPickerStatusForOrder(order);
   const orderId = order.id;
 
   if (!pStatus) {
-    // Si está en preparación pero no hay registro aún en Picker
+    // Si está en preparación pero no hay registro aún en Picker (alerta de desincronización con bodega física)
     if (order.estado_wms === 'En preparación') {
       const currentTag = document.getElementById('filter-order-tag')?.value || '';
       const isSinRegActive = currentTag === 'Picker: Sin registro';
       return `
-        <span class="badge wms-order-tag-badge ${isSinRegActive ? 'wms-tag-active' : ''}" style="background-color: rgba(100, 116, 139, 0.12); color: #64748b; border: 1px solid rgba(100, 116, 139, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isSinRegActive ? 'outline: 2px solid #64748b; box-shadow: 0 0 6px rgba(100,116,139,0.4);' : ''}" onclick="window.openPickerOrderHistoryModal('${orderId}'); event.stopPropagation();" title="Sin registro activo en Picker. Clic para ver auditoría.">
-          <i class="ri-inbox-archive-line"></i> Picker: Sin registro
-          <span onclick="event.stopPropagation(); window.filterByOrderTag('Picker: Sin registro', event);" title="Filtrar por Picker: Sin registro" style="margin-left: 0.2rem; cursor: pointer; opacity: 0.7; font-size: 0.75rem; display: inline-flex; align-items: center; padding: 1px 2px; border-radius: 2px;" onmouseover="this.style.opacity='1'; this.style.backgroundColor='rgba(0,0,0,0.1)';" onmouseout="this.style.opacity='0.7'; this.style.backgroundColor='transparent';"><i class="ri-filter-3-line"></i></span>
+        <span class="badge wms-order-tag-badge ${isSinRegActive ? 'wms-tag-active' : ''}" style="background-color: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.42rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isSinRegActive ? 'outline: 2px solid #dc2626; box-shadow: 0 0 6px rgba(220,38,38,0.4);' : ''}" onclick="window.openPickerOrderHistoryModal('${orderId}'); event.stopPropagation();" title="⚠️ Alerta: Este pedido está 'En preparación' pero no figura en la bodega física (Picker: Sin registro). Clic para ver auditoría o reinyectar.">
+          <i class="ri-error-warning-fill" style="color: #dc2626;"></i> Picker: Sin registro
+          <span onclick="event.stopPropagation(); window.filterByOrderTag('Picker: Sin registro', event);" title="Filtrar por Picker: Sin registro" style="margin-left: 0.2rem; cursor: pointer; opacity: 0.8; font-size: 0.75rem; display: inline-flex; align-items: center; padding: 1px 2px; border-radius: 2px;" onmouseover="this.style.opacity='1'; this.style.backgroundColor='rgba(220,38,38,0.12)';" onmouseout="this.style.opacity='0.8'; this.style.backgroundColor='transparent';"><i class="ri-filter-3-line"></i></span>
         </span>
       `;
     }
@@ -12774,11 +12866,19 @@ window.applyWmsFiltersAndRender = function() {
     'Cancelado': 0,
     'Archivado': 0
   };
+  let prepMissingPickerCount = 0;
 
   for (let i = 0; i < baseOrders.length; i++) {
-    const ew = baseOrders[i].estado_wms;
+    const o = baseOrders[i];
+    const ew = o.estado_wms;
     if (ew && tabCounts.hasOwnProperty(ew)) {
       tabCounts[ew]++;
+    }
+    if (ew === 'En preparación') {
+      const pSt = window.getPickerStatusForOrder ? window.getPickerStatusForOrder(o) : null;
+      if (!pSt) {
+        prepMissingPickerCount++;
+      }
     }
   }
 
@@ -12792,6 +12892,7 @@ window.applyWmsFiltersAndRender = function() {
     window.renderMerchantsRadar({ preserveFocus: true });
   }
 
+  const isSinRegFilterActive = selectedTag === 'Picker: Sin registro';
   const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado', 'Archivado'];
   const tabsHtml = tabs.map(tab => {
     const isActive = window.wmsActiveTab === tab;
@@ -12812,13 +12913,37 @@ window.applyWmsFiltersAndRender = function() {
     const activeSpanStyle = `background: rgba(255,255,255,0.2); color: #ffffff; padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; border: none;`;
     const inactiveSpanStyle = `padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;`;
 
+    const prepMissingAlertPillHtml = (tab === 'En preparación' && prepMissingPickerCount > 0)
+      ? `<span onclick="event.stopPropagation(); window.togglePrepMissingPickerFilter(event);" style="background: ${isSinRegFilterActive ? '#dc2626' : '#fef2f2'}; color: ${isSinRegFilterActive ? '#ffffff' : '#dc2626'}; border: 1px solid ${isSinRegFilterActive ? '#b91c1c' : '#fca5a5'}; padding: 0.12rem 0.42rem; border-radius: 9999px; font-size: 0.68rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.2rem; box-shadow: 0 1px 3px rgba(220,38,38,0.22); cursor: pointer;" title="⚠️ Alerta: ${prepMissingPickerCount} pedido(s) en 'En preparación' tienen 'Picker: Sin registro' (no existen en la bodega física asignada). Clic para filtrarlos."><i class="ri-error-warning-fill" style="font-size: 0.75rem; color: ${isSinRegFilterActive ? '#ffffff' : '#dc2626'};"></i> ${prepMissingPickerCount} sin registro</span>`
+      : '';
+
     return `
-      <button onclick="window.setWmsTab('${tab}')" style="background: ${isActive ? 'var(--color-primary)' : 'transparent'}; color: ${isActive ? '#ffffff' : 'var(--color-text-main)'}; border: ${isActive ? 'none' : '1px solid var(--color-border)'}; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.825rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+      <button onclick="window.setWmsTab('${tab}')" style="background: ${isActive ? 'var(--color-primary)' : 'transparent'}; color: ${isActive ? '#ffffff' : 'var(--color-text-main)'}; border: ${isActive ? 'none' : (tab === 'En preparación' && prepMissingPickerCount > 0 ? '1.5px solid #fca5a5' : '1px solid var(--color-border)')}; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.825rem; cursor: pointer; display: flex; align-items: center; gap: 0.45rem; transition: all 0.2s;">
         ${tab}
         <span class="${isActive ? '' : badgeClass}" style="${isActive ? activeSpanStyle : inactiveSpanStyle}">${count}</span>
+        ${prepMissingAlertPillHtml}
       </button>
     `;
   }).join('');
+
+  const prepMissingAlertBarHtml = (prepMissingPickerCount > 0 && (window.wmsActiveTab === 'En preparación' || isSinRegFilterActive))
+    ? `
+      <div style="margin-top: 0.6rem; background: #fef2f2; border: 1px solid #fecaca; border-left: 4px solid #dc2626; border-radius: var(--radius-sm); padding: 0.45rem 0.8rem; display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.78rem; color: #991b1b; line-height: 1.35;">
+          <i class="ri-error-warning-fill" style="font-size: 1rem; color: #dc2626; flex-shrink: 0;"></i>
+          <span><strong>Alerta de Bodega / Picker:</strong> Hay <strong>${prepMissingPickerCount}</strong> pedido(s) en <em>"En preparación"</em> con estado <strong>Picker: Sin registro</strong> (no figuran en ninguna bodega física asignada).</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+          <button type="button" onclick="window.togglePrepMissingPickerFilter(event)" class="btn btn-sm" style="background: ${isSinRegFilterActive ? '#dc2626' : '#ffffff'}; color: ${isSinRegFilterActive ? '#ffffff' : '#b91c1c'}; border: 1px solid #fca5a5; padding: 0.2rem 0.55rem; font-size: 0.72rem; font-weight: 700; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="${isSinRegFilterActive ? 'ri-close-circle-line' : 'ri-filter-3-line'}"></i> ${isSinRegFilterActive ? 'Quitar filtro Sin registro' : `Ver los ${prepMissingPickerCount} sin registro`}
+          </button>
+          <button type="button" onclick="window.resyncMissingPickerOrders(this)" class="btn btn-sm" style="background: #dc2626; color: #ffffff; border: 1px solid #b91c1c; padding: 0.2rem 0.6rem; font-size: 0.72rem; font-weight: 700; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;" title="Reenviar automáticamente estos pedidos al sistema Picker de su bodega asignada">
+            <i class="ri-refresh-line"></i> Reinyectar al Picker (${prepMissingPickerCount})
+          </button>
+        </div>
+      </div>
+    `
+    : '';
   
   const tabsContainer = document.getElementById('wms-tabs-container');
   if (tabsContainer) {
@@ -12826,6 +12951,7 @@ window.applyWmsFiltersAndRender = function() {
       <div style="display: flex; gap: 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
         ${tabsHtml}
       </div>
+      ${prepMissingAlertBarHtml}
     `;
   }
 
@@ -43513,6 +43639,9 @@ function buildNewsEmailHTML(newsItem) {
 
 async function fetchNewsRecipients() {
   const recipientsMap = new Map();
+  const inactiveSet = typeof window.fetchInactiveMerchantsSet === 'function'
+    ? await window.fetchInactiveMerchantsSet()
+    : new Set();
 
   try {
     const { data: profiles, error: profErr } = await supabase
@@ -43523,13 +43652,24 @@ async function fetchNewsRecipients() {
     if (!profErr && profiles) {
       profiles.forEach(p => {
         if (p.email && p.email.includes('@')) {
+          let displayComercio = p.comercio || p.company_name || '-';
+          if (p.role !== 'admin' && p.comercio && p.comercio !== 'all' && p.comercio !== 'no asignado') {
+            const rawComercios = p.comercio.split(',').map(c => c.trim()).filter(Boolean);
+            if (rawComercios.length > 0) {
+              const activeUserComercios = rawComercios.filter(c => !inactiveSet.has(c.toUpperCase()));
+              if (activeUserComercios.length === 0) {
+                return; // Todos los comercios asignados a este usuario están desactivados
+              }
+              displayComercio = activeUserComercios.join(', ');
+            }
+          }
           const emailKey = p.email.toLowerCase().trim();
           recipientsMap.set(emailKey, {
             email: emailKey,
             name: p.full_name || p.company_name || 'Usuario WMS',
             role: p.role || 'client',
             type: 'user',
-            comercio: p.comercio || p.company_name || '-'
+            comercio: displayComercio
           });
         }
       });
@@ -43547,6 +43687,9 @@ async function fetchNewsRecipients() {
 
     if (!contErr && contacts) {
       contacts.forEach(c => {
+        if (c.comercio && inactiveSet.has(c.comercio.trim().toUpperCase())) {
+          return; // Excluir contactos de comercios desactivados
+        }
         if (c.email && c.email.includes('@')) {
           const emailKey = c.email.toLowerCase().trim();
           if (recipientsMap.has(emailKey)) {
@@ -43573,11 +43716,17 @@ async function fetchNewsRecipients() {
   try {
     const { data: configs, error: cfgErr } = await supabase
       .from('comercios_adicional_config')
-      .select('comercio, rep_legal_nombre, rep_legal_email')
+      .select('*')
       .not('rep_legal_email', 'is', null);
 
     if (!cfgErr && configs) {
       configs.forEach(cfg => {
+        if (typeof window.isMerchantConfigActive === 'function' && !window.isMerchantConfigActive(cfg)) {
+          return; // Excluir representante legal de comercios desactivados
+        }
+        if (cfg.comercio && inactiveSet.has(cfg.comercio.trim().toUpperCase())) {
+          return;
+        }
         if (cfg.rep_legal_email && cfg.rep_legal_email.includes('@')) {
           const emailKey = cfg.rep_legal_email.toLowerCase().trim();
           if (recipientsMap.has(emailKey)) {
@@ -43774,7 +43923,7 @@ window.openSendNewsEmailModal = async function(newsItem) {
   });
   if (Array.isArray(window.cachedAdminMerchants)) {
     window.cachedAdminMerchants.forEach(m => {
-      if (m.nombre) commerceSet.add(m.nombre.trim());
+      if (m.nombre && m.activo !== false) commerceSet.add(m.nombre.trim());
     });
   }
   const commerceList = Array.from(commerceSet).filter(Boolean).sort((a, b) => a.localeCompare(b));
@@ -47090,10 +47239,18 @@ function buildDeclarationRowHtml(dec) {
         </div>
         ` : ''}
         ${dec.warehouses ? `
-        <div style="font-size: 0.75rem; color: var(--color-primary); font-weight: 500; margin-top: 2px;">
-          <i class="ri-map-pin-line" style="vertical-align: text-bottom; margin-right: 2px;"></i> ${dec.warehouses.name}
+        <div style="margin-top: 3px;">
+          <button type="button" onclick="window.openChangeDeclarationWarehouseModal('${dec.id}')" style="background: rgba(124, 58, 237, 0.08); border: 1px solid rgba(124, 58, 237, 0.25); border-radius: 5px; padding: 2px 7px; font-size: 0.73rem; color: #7c3aed; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; text-align: left;" title="Sucursal asignada: ${dec.warehouses.name}. Clic para cambiar sucursal y notificar al comercio">
+            <i class="ri-map-pin-line"></i> ${dec.warehouses.name} <i class="ri-arrow-left-right-line" style="font-size: 0.7rem; opacity: 0.75;"></i>
+          </button>
         </div>
-        ` : ''}
+        ` : `
+        <div style="margin-top: 3px;">
+          <button type="button" onclick="window.openChangeDeclarationWarehouseModal('${dec.id}')" style="background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: 5px; padding: 2px 7px; font-size: 0.7rem; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;" title="Asignar sucursal / bodega de destino y notificar al comercio">
+            <i class="ri-building-2-line"></i> Asignar Sucursal
+          </button>
+        </div>
+        `}
       </td>
       <td style="font-size: 0.85rem;"><i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${etaText}</td>
       <td style="font-size: 0.85rem;"><strong>${dec.quantity_declared}</strong></td>
@@ -47160,6 +47317,9 @@ function buildDeclarationRowHtml(dec) {
               </button>
               <button class="table-action-menu-item" onclick="window.editDeclarationAdmin('${dec.id}')" style="color: var(--color-primary); font-weight: 600;" title="Editar datos declarados, bultos y productos">
                 <i class="ri-edit-box-line" style="color: var(--color-primary);"></i> Editar Ingreso
+              </button>
+              <button class="table-action-menu-item" onclick="window.openChangeDeclarationWarehouseModal('${dec.id}')" style="color: #7c3aed; font-weight: 600;" title="Asignar o cambiar la sucursal de destino y notificar al comercio">
+                <i class="ri-building-2-line" style="color: #7c3aed;"></i> Cambiar Sucursal / Bodega
               </button>
               <button class="table-action-menu-item" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '${assignedPeriod.replace(/'/g, "\\'")}')">
                 <i class="ri-calendar-check-line" style="color: #5f06fa;"></i> Asignar Periodo Facturación
@@ -49211,7 +49371,23 @@ window.openBulkDeclarationStatusModal = async function() {
         try {
           const whObj = warehouses.find(w => w.id === effectiveWarehouseId) || latestDec.warehouses || null;
           const updatedDecForNotif = { ...latestDec, ...updateData, warehouses: whObj };
-          if ((nextStatus === 'Bodega Asignada' || (!latestDec.warehouse_id && effectiveWarehouseId)) && whObj && window.sendStockInboundNotification) {
+          const isBulkWarehouseChanged = Boolean(latestDec.warehouse_id && effectiveWarehouseId && String(latestDec.warehouse_id) !== String(effectiveWarehouseId));
+
+          if (isBulkWarehouseChanged && whObj && window.sendStockInboundNotification) {
+            await window.sendStockInboundNotification({
+              event: 'warehouse_changed',
+              declarationId: decId,
+              comercio: latestDec.comercio,
+              title: latestDec.title,
+              decData: updatedDecForNotif,
+              warehouse: whObj,
+              previousWarehouse: latestDec.warehouses || null,
+              status: nextStatus,
+              stageComment: autoComment
+            });
+          }
+
+          if (((nextStatus === 'Bodega Asignada' && !isBulkWarehouseChanged) || (!latestDec.warehouse_id && effectiveWarehouseId)) && whObj && window.sendStockInboundNotification) {
             await window.sendStockInboundNotification({
               event: 'warehouse_assigned',
               declarationId: decId,
@@ -49541,6 +49717,29 @@ window.renderStageTransitionController = function(dec, targetStatus) {
     if (nextStatus === 'En Recepción - Pendiente Conteo') descText = 'Registra la llegada de la carga a bodega e inicia la fase de recepción.';
     if (nextStatus === 'En proceso de conteo/clasificación') descText = 'Comienza la apertura de bultos, conteo físico y toma de medidas.';
 
+    let warehouseInlineStatusHtml = '';
+    if (nextStatus === 'Bodega Asignada') {
+      const selEl = document.getElementById('manage-dec-warehouse-select');
+      const selectedWhId = (selEl && selEl.value) ? selEl.value : (dec.warehouse_id || '');
+      const cachedWhs = window.manageDecWarehousesCache || [];
+      const foundWh = cachedWhs.find(w => String(w.id) === String(selectedWhId)) || dec.warehouses || null;
+      if (selectedWhId && foundWh) {
+        warehouseInlineStatusHtml = `
+          <div style="margin-top: 0.4rem; display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.65rem; border-radius: 999px; background: rgba(16, 185, 129, 0.14); border: 1px solid rgba(16, 185, 129, 0.35); color: #065f46; font-size: 0.74rem; font-weight: 700;">
+            <i class="ri-map-pin-2-fill" style="color: #10b981;"></i>
+            <span>Sucursal elegida: <strong>${foundWh.name} (${foundWh.comuna || ''})</strong></span>
+          </div>
+        `;
+      } else {
+        warehouseInlineStatusHtml = `
+          <div style="margin-top: 0.4rem; display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.65rem; border-radius: 999px; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); color: #b45309; font-size: 0.74rem; font-weight: 700;">
+            <i class="ri-error-warning-fill" style="color: #f59e0b;"></i>
+            <span>Paso requerido: Elige una sucursal en las tarjetas de abajo 👇</span>
+          </div>
+        `;
+      }
+    }
+
     html += `
       <div class="stage-action-card action-advance ${isSelected ? 'selected-action' : ''}" onclick="window.setTargetManageStatus('${nextStatus}', 'advance')">
         <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(16, 185, 129, 0.12); color: var(--color-success); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
@@ -49555,6 +49754,7 @@ window.renderStageTransitionController = function(dec, targetStatus) {
           <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 2px;">
             ${descText}
           </div>
+          ${warehouseInlineStatusHtml}
         </div>
       </div>
     `;
@@ -49695,6 +49895,15 @@ window.setTargetManageStatus = function(targetStatus, actionType) {
   // 3. Notificar campos dependientes
   handleManageStatusChange(targetStatus);
 
+  if (targetStatus === 'Bodega Asignada' && actionType === 'advance') {
+    const groupWarehouse = document.getElementById('manage-dec-group-warehouse');
+    if (groupWarehouse) {
+      setTimeout(() => {
+        groupWarehouse.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 60);
+    }
+  }
+
   // 4. Actualizar Indicador Dinámico sobre el Comentario
   const indicatorEl = document.getElementById('manage-dec-stage-action-indicator');
   const commentInput = document.getElementById('manage-dec-stage-comment');
@@ -49800,6 +50009,187 @@ function renderStatusActionButtons(currentStatus) {
   }
 }
 
+window.renderManageWarehouseCards = function(targetStatusOverride = null) {
+  const dec = window.currentDeclarationEditing;
+  const warehouses = window.manageDecWarehousesCache || [];
+  const cardsGrid = document.getElementById('manage-dec-warehouse-cards-grid');
+  const selectEl = document.getElementById('manage-dec-warehouse-select');
+  const groupWarehouse = document.getElementById('manage-dec-group-warehouse');
+  const spotlightBanner = document.getElementById('manage-dec-warehouse-spotlight-banner');
+  const liveSummary = document.getElementById('manage-dec-warehouse-live-summary');
+  const requiredPill = document.getElementById('manage-dec-warehouse-Required-pill');
+
+  const activeStatus = targetStatusOverride || document.getElementById('manage-dec-status')?.value || dec?.status || 'Creada';
+  const selectedWhId = (selectEl && selectEl.value) ? selectEl.value : (dec?.warehouse_id || '');
+  const selectedWh = warehouses.find(w => String(w.id) === String(selectedWhId)) || null;
+  const currentAssignedWhId = dec?.warehouse_id || '';
+  const currentAssignedWh = warehouses.find(w => String(w.id) === String(currentAssignedWhId)) || dec?.warehouses || null;
+  const isReassigning = Boolean(currentAssignedWhId && selectedWhId && String(currentAssignedWhId) !== String(selectedWhId));
+  const isAdvancingToWarehouseStage = activeStatus === 'Bodega Asignada';
+
+  // 1. Renderizar Tarjetas Interactivas de Sucursal
+  if (cardsGrid) {
+    if (warehouses.length === 0) {
+      cardsGrid.innerHTML = '';
+    } else {
+      cardsGrid.innerHTML = warehouses.map(w => {
+        const isSelected = String(w.id) === String(selectedWhId);
+        const isOriginallyAssigned = String(w.id) === String(currentAssignedWhId);
+        let statusPillHtml = '';
+
+        if (isSelected && isReassigning) {
+          statusPillHtml = `<span class="badge" style="background: #10b981; color: white; font-size: 0.65rem; font-weight: 800; padding: 2px 7px; border-radius: 999px;"><i class="ri-check-line"></i> Nueva Elección</span>`;
+        } else if (isSelected) {
+          statusPillHtml = `<span class="badge" style="background: #10b981; color: white; font-size: 0.65rem; font-weight: 800; padding: 2px 7px; border-radius: 999px;"><i class="ri-check-line"></i> Seleccionada</span>`;
+        } else if (isOriginallyAssigned) {
+          statusPillHtml = `<span class="badge" style="background: rgba(100, 116, 139, 0.14); color: #475569; font-size: 0.64rem; font-weight: 700; padding: 2px 6px; border-radius: 999px;">Asignada actual</span>`;
+        } else {
+          statusPillHtml = `<span style="font-size: 0.68rem; color: #7c3aed; font-weight: 600;">Elegir <i class="ri-arrow-right-s-line"></i></span>`;
+        }
+
+        return `
+          <div class="warehouse-choice-card ${isSelected ? 'selected' : ''}" onclick="window.selectManageDeclarationWarehouseCard('${w.id}')">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.4rem;">
+              <div style="display: flex; align-items: center; gap: 0.4rem; min-width: 0;">
+                <div style="width: 28px; height: 28px; border-radius: 7px; background: ${isSelected ? '#10b981' : 'rgba(124, 58, 237, 0.1)'}; color: ${isSelected ? '#ffffff' : '#7c3aed'}; display: flex; align-items: center; justify-content: center; font-size: 0.95rem; flex-shrink: 0;">
+                  <i class="${isSelected ? 'ri-Checkbox-circle-fill ri-checkbox-circle-fill' : 'ri-store-2-line'}"></i>
+                </div>
+                <strong style="font-size: 0.88rem; color: var(--color-text-main); line-height: 1.2; word-break: break-word;">${w.name}</strong>
+              </div>
+              ${statusPillHtml}
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 2px; font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">
+              <i class="ri-map-pin-2-line" style="color: ${isSelected ? '#059669' : '#7c3aed'};"></i>
+              <span>${w.comuna || 'Comuna'}</span>
+              ${w.address ? `<span style="opacity: 0.75; font-weight: 400;">• ${w.address}</span>` : ''}
+            </div>
+            ${w.operating_days ? `
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-time-line"></i> <span>${w.operating_days}</span>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  // 2. Actualizar Spotlight Visual cuando se marca "Avanzar a: Bodega Asignada" (o falta asignar bodega)
+  if (groupWarehouse) {
+    groupWarehouse.classList.remove('warehouse-spotlight-active', 'warehouse-spotlight-warning');
+    if (isAdvancingToWarehouseStage) {
+      if (selectedWh) {
+        groupWarehouse.classList.add('warehouse-spotlight-active');
+      } else {
+        groupWarehouse.classList.add('warehouse-spotlight-warning');
+      }
+    } else if (activeStatus !== 'Creada' && !selectedWh) {
+      groupWarehouse.classList.add('warehouse-spotlight-warning');
+    }
+  }
+
+  if (requiredPill) {
+    if (isAdvancingToWarehouseStage) {
+      requiredPill.textContent = selectedWh ? '✓ Sucursal Lista' : '⚠️ Selección Obligatoria';
+      requiredPill.style.background = selectedWh ? 'rgba(16, 185, 129, 0.16)' : 'rgba(245, 158, 11, 0.2)';
+      requiredPill.style.color = selectedWh ? '#047857' : '#b45309';
+    } else {
+      requiredPill.textContent = isReassigning ? 'Cambio Pendiente' : 'Sucursal Destino';
+      requiredPill.style.background = 'rgba(124, 58, 237, 0.12)';
+      requiredPill.style.color = '#7c3aed';
+    }
+  }
+
+  if (spotlightBanner) {
+    if (isAdvancingToWarehouseStage) {
+      spotlightBanner.style.display = 'flex';
+      if (selectedWh) {
+        spotlightBanner.style.background = 'rgba(16, 185, 129, 0.12)';
+        spotlightBanner.style.border = '1px solid rgba(16, 185, 129, 0.35)';
+        spotlightBanner.style.color = '#065f46';
+        spotlightBanner.innerHTML = `
+          <span style="display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-checkbox-circle-fill" style="font-size: 1.15rem; color: #10b981;"></i>
+            <span>Paso <strong>Bodega Asignada</strong>: Se asignará <strong>${selectedWh.name} (${selectedWh.comuna || ''})</strong> como sucursal de destino.</span>
+          </span>
+          <span class="badge" style="background: #10b981; color: white; font-size: 0.7rem; font-weight: 700;">Lista para guardar</span>
+        `;
+      } else {
+        spotlightBanner.style.background = 'rgba(245, 158, 11, 0.14)';
+        spotlightBanner.style.border = '1px solid rgba(245, 158, 11, 0.4)';
+        spotlightBanner.style.color = '#92400e';
+        spotlightBanner.innerHTML = `
+          <span style="display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-Find-replace-line ri-alert-fill" style="font-size: 1.15rem; color: #d97706;"></i>
+            <span><strong>Acción requerida:</strong> Haz clic en una de las tarjetas de abajo para elegir la sucursal antes de avanzar a <strong>Bodega Asignada</strong>.</span>
+          </span>
+          <span class="badge" style="background: #d97706; color: white; font-size: 0.7rem; font-weight: 700;">Falta elegir bodega</span>
+        `;
+      }
+    } else if (isReassigning && selectedWh) {
+      spotlightBanner.style.display = 'flex';
+      spotlightBanner.style.background = 'rgba(124, 58, 237, 0.1)';
+      spotlightBanner.style.border = '1px solid rgba(124, 58, 237, 0.3)';
+      spotlightBanner.style.color = '#5b21b6';
+      spotlightBanner.innerHTML = `
+        <span style="display: flex; align-items: center; gap: 0.45rem;">
+          <i class="ri-exchange-line" style="font-size: 1.15rem; color: #7c3aed;"></i>
+          <span>Cambio de sucursal seleccionado: <strong>${currentAssignedWh?.name || 'Anterior'}</strong> ➔ <strong>${selectedWh.name} (${selectedWh.comuna || ''})</strong></span>
+        </span>
+        <span style="font-size: 0.73rem; font-weight: 700; color: #6d28d9;">Haz clic en "Aplicar y Notificar Sucursal" o en "Guardar Cambios"</span>
+      `;
+    } else {
+      spotlightBanner.style.display = 'none';
+      spotlightBanner.innerHTML = '';
+    }
+  }
+
+  // 3. Actualizar Resumen en Vivo de la Bodega Seleccionada
+  if (liveSummary) {
+    if (selectedWh) {
+      liveSummary.style.display = 'block';
+      liveSummary.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-map-pin-user-fill" style="color: #059669; font-size: 1.05rem;"></i>
+            <div>
+              <strong style="color: var(--color-text-main);">${selectedWh.name} (${selectedWh.comuna || ''})</strong>
+              <span style="color: var(--color-text-muted); margin-left: 0.35rem;">— ${selectedWh.address || 'Dirección registrada'}</span>
+            </div>
+          </div>
+          ${selectedWh.operating_days ? `<span style="font-size: 0.74rem; color: #047857; font-weight: 600;"><i class="ri-calendar-check-line"></i> ${selectedWh.operating_days}</span>` : ''}
+        </div>
+      `;
+    } else {
+      liveSummary.style.display = 'none';
+      liveSummary.innerHTML = '';
+    }
+  }
+};
+
+window.selectManageDeclarationWarehouseCard = function(warehouseId) {
+  const selectEl = document.getElementById('manage-dec-warehouse-select');
+  if (selectEl) {
+    selectEl.value = warehouseId || '';
+  }
+  window.onManageWarehouseSelectChange(warehouseId);
+};
+
+window.onManageWarehouseSelectChange = function(warehouseId) {
+  const dec = window.currentDeclarationEditing;
+  const activeStatus = document.getElementById('manage-dec-status')?.value || dec?.status || 'Creada';
+  const alertContainer = document.getElementById('modal-dec-alert-container');
+  if (alertContainer && warehouseId) {
+    alertContainer.innerHTML = '';
+  }
+  if (typeof window.renderManageWarehouseCards === 'function') {
+    window.renderManageWarehouseCards(activeStatus);
+  }
+  if (dec && typeof window.renderStageTransitionController === 'function') {
+    window.renderStageTransitionController(dec, activeStatus);
+  }
+};
+
 function handleManageStatusChange(status) {
   const dec = window.currentDeclarationEditing;
   if (window.renderManageDeclarationProducts && dec) {
@@ -49816,17 +50206,18 @@ function handleManageStatusChange(status) {
   const volumeConfirmedInput = document.getElementById('manage-dec-volume-confirmed');
   
   const needsWarehouseSelection = status === 'Bodega Asignada' || (status !== 'Creada' && !(dec && dec.warehouse_id));
-  if (needsWarehouseSelection) {
-    if (groupWarehouse) {
-      groupWarehouse.style.display = 'block';
-      const selectEl = document.getElementById('manage-dec-warehouse-select');
-      if (selectEl) selectEl.setAttribute('required', 'required');
+  if (groupWarehouse) {
+    groupWarehouse.style.display = 'block';
+    const selectEl = document.getElementById('manage-dec-warehouse-select');
+    if (selectEl) {
+      if (needsWarehouseSelection || status !== 'Creada') {
+        selectEl.setAttribute('required', 'required');
+      } else {
+        selectEl.removeAttribute('required');
+      }
     }
-  } else {
-    if (groupWarehouse) {
-      groupWarehouse.style.display = 'none';
-      const selectEl = document.getElementById('manage-dec-warehouse-select');
-      if (selectEl) selectEl.removeAttribute('required');
+    if (typeof window.renderManageWarehouseCards === 'function') {
+      window.renderManageWarehouseCards(status);
     }
   }
 
@@ -50124,6 +50515,7 @@ window.renderDeclarationHistoryTimeline = function(dec) {
     'Recepción Parcial': 'ri-pie-chart-2-line',
     'Recibido Conforme': 'ri-checkbox-circle-fill',
     'Recibido con Incidencias': 'ri-error-warning-fill',
+    'Cambio de Sucursal': 'ri-map-pin-2-line',
     'admin_edit': 'ri-shield-check-line',
     'billing_status': 'ri-money-dollar-circle-line'
   };
@@ -50131,6 +50523,7 @@ window.renderDeclarationHistoryTimeline = function(dec) {
   const statusColors = {
     'Creada': '#64748b',
     'Bodega Asignada': '#2563eb',
+    'Cambio de Sucursal': '#2563eb',
     'En Recepción - Pendiente Conteo': '#0284c7',
     'En proceso de conteo/clasificación': '#d97706',
     'Recepción Parcial': '#d97706',
@@ -50604,11 +50997,13 @@ window.manageDeclaration = async function(id) {
       }
     }
 
-    // Cargar bodegas para el selector
+    // Cargar bodegas para el selector y tarjetas interactivas
     const { data: warehouses } = await supabase
       .from('warehouses')
       .select('id, name, address, comuna, operating_days')
       .order('name');
+
+    window.manageDecWarehousesCache = warehouses || [];
 
     const selectEl = document.getElementById('manage-dec-warehouse-select');
     if (selectEl) {
@@ -50622,6 +51017,9 @@ window.manageDeclaration = async function(id) {
     }
 
     window.currentDeclarationEditing = dec;
+    if (typeof window.renderManageWarehouseCards === 'function') {
+      window.renderManageWarehouseCards(dec.status);
+    }
 
     // Contacto y transportista
     document.getElementById('manage-dec-contact').textContent = dec.contact_info || 'No registrado';
@@ -50954,6 +51352,594 @@ window.saveDeclarationBillingDirect = async function() {
   }
 };
 
+// =========================================================================
+// CAMBIO DE SUCURSAL / BODEGA ASIGNADA PARA INGRESO DE STOCK Y NOTIFICACIÓN
+// =========================================================================
+
+window.transferDeclarationCreditedInventory = async function(dec, oldWarehouseId, newWarehouseId, oldWhName = 'Sucursal Anterior', newWhName = 'Nueva Sucursal') {
+  if (!dec || !oldWarehouseId || !newWarehouseId || String(oldWarehouseId) === String(newWarehouseId)) {
+    return { transferredUnits: 0, transferredSkus: 0 };
+  }
+
+  const isCreditedStage = ['Recibido Conforme', 'Recepción Parcial', 'Recibido con Incidencias'].includes(dec.status) || dec.parallel_count === true;
+  if (!isCreditedStage) {
+    return { transferredUnits: 0, transferredSkus: 0 };
+  }
+
+  const productsList = Array.isArray(dec.products_list) ? dec.products_list : getDeclarationProducts(dec);
+  if (!productsList || productsList.length === 0) {
+    return { transferredUnits: 0, transferredSkus: 0 };
+  }
+
+  const decShortCode = dec.id ? String(dec.id).substring(0, 8).toUpperCase() : '';
+  let transferredUnits = 0;
+  let transferredSkus = 0;
+
+  for (const item of productsList) {
+    if (!item || !item.sku) continue;
+    let creditedQty = 0;
+    if (item.qty_inventory_added !== undefined && item.qty_inventory_added !== null) {
+      creditedQty = parseInt(item.qty_inventory_added, 10) || 0;
+    } else if (['Recibido Conforme', 'Recepción Parcial', 'Recibido con Incidencias'].includes(dec.status)) {
+      creditedQty = (item.qty_confirmed !== undefined && item.qty_confirmed !== null)
+        ? (parseInt(item.qty_confirmed, 10) || 0)
+        : (parseInt(item.qty, 10) || 0);
+    }
+    if (creditedQty <= 0) continue;
+
+    try {
+      const { data: prod } = await supabase
+        .from('products')
+        .select('id')
+        .eq('comercio', dec.comercio)
+        .ilike('sku', item.sku.trim())
+        .limit(1)
+        .maybeSingle();
+
+      if (!prod || !prod.id) continue;
+
+      // 1. Descontar de la bodega anterior
+      const { data: oldInv } = await supabase
+        .from('inventory')
+        .select('id, quantity')
+        .eq('product_id', prod.id)
+        .eq('warehouse_id', oldWarehouseId)
+        .maybeSingle();
+
+      if (oldInv) {
+        const nextOldQty = Math.max(0, (oldInv.quantity || 0) - creditedQty);
+        await supabase
+          .from('inventory')
+          .update({ quantity: nextOldQty })
+          .eq('id', oldInv.id);
+
+        await supabase
+          .from('movements')
+          .insert([{
+            product_id: prod.id,
+            warehouse_id: oldWarehouseId,
+            type: 'out',
+            quantity: creditedQty,
+            reference_doc: `Traspaso por Cambio de Sucursal (${oldWhName} -> ${newWhName}) [#ING-${decShortCode}]: ${dec.title || ''}`
+          }]);
+      }
+
+      // 2. Acreditar en la nueva bodega
+      const { data: newInv } = await supabase
+        .from('inventory')
+        .select('id, quantity')
+        .eq('product_id', prod.id)
+        .eq('warehouse_id', newWarehouseId)
+        .maybeSingle();
+
+      if (newInv) {
+        await supabase
+          .from('inventory')
+          .update({ quantity: (newInv.quantity || 0) + creditedQty })
+          .eq('id', newInv.id);
+      } else {
+        await supabase
+          .from('inventory')
+          .insert([{
+            product_id: prod.id,
+            warehouse_id: newWarehouseId,
+            quantity: creditedQty,
+            committed_quantity: 0
+          }]);
+      }
+
+      await supabase
+        .from('movements')
+        .insert([{
+          product_id: prod.id,
+          warehouse_id: newWarehouseId,
+          type: 'in',
+          quantity: creditedQty,
+          reference_doc: `Traspaso por Cambio de Sucursal (${oldWhName} -> ${newWhName}) [#ING-${decShortCode}]: ${dec.title || ''}`
+        }]);
+
+      transferredUnits += creditedQty;
+      transferredSkus += 1;
+    } catch (transferErr) {
+      console.error(`Error transfiriendo inventario de SKU ${item.sku} por cambio de sucursal:`, transferErr);
+    }
+  }
+
+  return { transferredUnits, transferredSkus };
+};
+
+window.syncIntakeWarehouseInPicker = async function(decId, newWarehouseObj) {
+  if (!pickerSupabase || !decId || !newWarehouseObj) return;
+  try {
+    const orderNumber = `ING-${String(decId).substring(0, 8).toUpperCase()}`;
+    const wName = (newWarehouseObj.name || '').toLowerCase();
+    const wComuna = (newWarehouseObj.comuna || '').toLowerCase();
+    let sucursalPicker = 'Sucursal Virtual (Hub)';
+    if (wName.includes('ñuñoa') || wComuna.includes('ñuñoa')) sucursalPicker = 'Sucursal Ñuñoa';
+    else if (wName.includes('reina') || wComuna.includes('reina')) sucursalPicker = 'Sucursal La Reina';
+    else if (wName.includes('recoleta') || wComuna.includes('recoleta')) sucursalPicker = 'Sucursal Recoleta';
+
+    await pickerSupabase
+      .from('active_orders')
+      .update({ sucursal: sucursalPicker })
+      .eq('order_number', orderNumber);
+  } catch (pickerErr) {
+    console.warn('No se pudo actualizar sucursal en Picker para el ingreso:', pickerErr);
+  }
+};
+
+window.openChangeDeclarationWarehouseModal = async function(id) {
+  if (!id) return;
+
+  try {
+    if (window.Swal) {
+      window.Swal.fire({
+        title: 'Cargando sucursales...',
+        html: '<div style="padding: 1rem;"><i class="ri-loader-4-line ri-spin" style="font-size: 2.2rem; color: var(--color-primary); display: inline-block;"></i></div>',
+        allowOutsideClick: false,
+        showConfirmButton: false
+      });
+    }
+
+    const [{ data: dec, error: decError }, { data: warehouses, error: whError }] = await Promise.all([
+      supabase
+        .from('stock_declarations')
+        .select('*, profiles(company_name), warehouses(id, name, address, comuna, operating_days)')
+        .eq('id', id)
+        .single(),
+      supabase
+        .from('warehouses')
+        .select('id, name, address, comuna, operating_days')
+        .order('name')
+    ]);
+
+    if (decError) throw decError;
+    if (whError) throw whError;
+
+    const shortCode = String(dec.id || '').substring(0, 8).toUpperCase();
+    const comercioName = dec.profiles?.company_name || dec.comercio || 'Comercio';
+    const currentWh = dec.warehouses || null;
+    const hasCurrentWh = Boolean(dec.warehouse_id && currentWh);
+    const isCreditedStage = ['Recibido Conforme', 'Recepción Parcial', 'Recibido con Incidencias'].includes(dec.status) || dec.parallel_count === true;
+
+    const whOptionsHtml = (warehouses || []).map(w => {
+      const isSelected = String(w.id) === String(dec.warehouse_id || '');
+      return `<option value="${w.id}" ${isSelected ? 'selected' : ''}>${w.name} — ${w.comuna || ''} (${w.address || 'Sin dirección'})</option>`;
+    }).join('');
+
+    const { value: formValues, isConfirmed } = await Swal.fire({
+      title: hasCurrentWh ? 'Cambiar Sucursal / Bodega Asignada' : 'Asignar Sucursal / Bodega de Destino',
+      width: '620px',
+      html: `
+        <div style="text-align: left; font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.9rem; margin-top: 0.35rem;">
+          <!-- Resumen del Ingreso -->
+          <div style="background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: 10px; padding: 0.75rem 0.95rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.3rem;">
+              <span style="font-family: monospace; font-weight: 800; color: var(--color-primary, #6366f1); font-size: 0.85rem;">#ING-${shortCode}</span>
+              <span class="badge" style="background: rgba(99, 102, 241, 0.1); color: var(--color-primary, #6366f1); font-size: 0.74rem; font-weight: 700;">Etapa: ${dec.status}</span>
+            </div>
+            <div style="font-weight: 700; color: var(--color-text-main, #0f172a); font-size: 0.95rem;">${dec.title || 'Ingreso de Stock'}</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted, #64748b); margin-top: 0.15rem;">Comercio: <strong>${comercioName}</strong></div>
+            <div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px dashed var(--color-border, #cbd5e1); font-size: 0.82rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-map-pin-2-line" style="color: ${hasCurrentWh ? '#2563eb' : '#94a3b8'};"></i>
+              <span>Sucursal actual:</span>
+              ${hasCurrentWh
+                ? `<strong style="color: #1e40af;">${currentWh.name} (${currentWh.comuna || ''})</strong>`
+                : `<span style="color: #94a3b8; font-style: italic;">Sin sucursal asignada</span>`
+              }
+            </div>
+          </div>
+
+          <!-- Selector de Nueva Sucursal -->
+          <div>
+            <label style="display: block; font-size: 0.82rem; font-weight: 700; color: var(--color-text-main, #1e293b); margin-bottom: 0.35rem;">
+              <i class="ri-building-4-line" style="color: #2563eb;"></i> Seleccionar Nueva Sucursal / Bodega *
+            </label>
+            <select id="swal-change-wh-select" class="form-control" style="width: 100%; height: 42px; font-weight: 600; font-size: 0.9rem; border: 1.5px solid #93c5fd; border-radius: 8px; padding: 0 0.75rem;">
+              <option value="">-- Selecciona una Sucursal --</option>
+              ${whOptionsHtml}
+            </select>
+            <div id="swal-change-wh-preview" style="margin-top: 0.5rem; padding: 0.65rem 0.85rem; background: rgba(37, 99, 235, 0.06); border: 1px solid rgba(37, 99, 235, 0.2); border-radius: 8px; font-size: 0.8rem; color: var(--color-text-main); display: none;"></div>
+          </div>
+
+          ${dec.status === 'Creada' ? `
+            <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.8rem; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; cursor: pointer; font-size: 0.82rem; font-weight: 600; color: #065f46; margin: 0;">
+              <input type="checkbox" id="swal-change-wh-advance-stage" checked style="width: 16px; height: 16px; accent-color: #10b981; cursor: pointer;">
+              <span>Avanzar estado automáticamente de <strong>"Creada"</strong> a <strong>"Bodega Asignada"</strong></span>
+            </label>
+          ` : ''}
+
+          ${isCreditedStage && hasCurrentWh ? `
+            <div style="padding: 0.65rem 0.85rem; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; font-size: 0.8rem; color: #92400e; line-height: 1.45;">
+              <i class="ri-exchange-box-line" style="font-weight: bold;"></i> <strong>Traspaso automático de inventario:</strong> Este ingreso ya tiene unidades acreditadas en <strong>${currentWh.name}</strong>. Al cambiar la sucursal, dichas unidades se trasladarán automáticamente a la nueva bodega seleccionada dejando trazabilidad en Movimientos.
+            </div>
+          ` : ''}
+
+          <!-- Motivo / Comentario para el comercio -->
+          <div>
+            <label style="display: block; font-size: 0.82rem; font-weight: 700; color: var(--color-text-main, #1e293b); margin-bottom: 0.35rem;">
+              Motivo o indicación para el comercio (Opcional)
+            </label>
+            <textarea id="swal-change-wh-comment" class="form-control" rows="2" placeholder="Ej: Reasignado por disponibilidad de andén / capacidad operativa en sucursal..." style="width: 100%; font-size: 0.85rem; padding: 0.55rem 0.75rem; border-radius: 8px;"></textarea>
+          </div>
+
+          <!-- Checkbox de Notificación -->
+          <label style="display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.7rem 0.85rem; background: rgba(37, 99, 235, 0.07); border: 1px solid rgba(37, 99, 235, 0.25); border-radius: 8px; cursor: pointer; margin: 0;">
+            <input type="checkbox" id="swal-change-wh-notify" checked style="width: 17px; height: 17px; accent-color: #2563eb; margin-top: 2px; cursor: pointer;">
+            <div style="font-size: 0.82rem; line-height: 1.4;">
+              <strong style="color: #1e40af; display: block;">Notificar al usuario comercio (Correo + Alerta en plataforma)</strong>
+              <span style="color: var(--color-text-muted, #64748b); font-size: 0.76rem;">Se enviará un email detallado con la nueva dirección de entrega, comuna, horarios y el motivo del cambio.</span>
+            </div>
+          </label>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: '<i class="ri-check-line"></i> Guardar y Aplicar Sucursal',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#2563eb',
+      didOpen: () => {
+        const sel = document.getElementById('swal-change-wh-select');
+        const preview = document.getElementById('swal-change-wh-preview');
+        const updatePreview = () => {
+          const val = sel?.value;
+          const found = (warehouses || []).find(w => String(w.id) === String(val));
+          if (found && preview) {
+            preview.style.display = 'block';
+            preview.innerHTML = `
+              <div style="font-weight: 700; color: #1e40af; margin-bottom: 2px;"><i class="ri-map-pin-user-line"></i> ${found.name}</div>
+              <div><strong>Dirección:</strong> ${found.address || 'Por confirmar'}, ${found.comuna || ''}</div>
+              <div><strong>Días hábiles:</strong> ${found.operating_days || 'Lunes a Viernes'}</div>
+            `;
+          } else if (preview) {
+            preview.style.display = 'none';
+          }
+        };
+        if (sel) {
+          sel.addEventListener('change', updatePreview);
+          updatePreview();
+        }
+      },
+      preConfirm: () => {
+        const selectedWhId = document.getElementById('swal-change-wh-select')?.value;
+        if (!selectedWhId) {
+          Swal.showValidationMessage('Debes seleccionar una sucursal / bodega.');
+          return false;
+        }
+        const comment = document.getElementById('swal-change-wh-comment')?.value?.trim() || '';
+        const notify = document.getElementById('swal-change-wh-notify')?.checked !== false;
+        const advanceStageEl = document.getElementById('swal-change-wh-advance-stage');
+        const advanceStage = advanceStageEl ? advanceStageEl.checked : false;
+        return { selectedWhId, comment, notify, advanceStage };
+      }
+    });
+
+    if (!isConfirmed || !formValues) return;
+
+    const newWh = (warehouses || []).find(w => String(w.id) === String(formValues.selectedWhId));
+    if (!newWh) return;
+
+    const isSameWh = String(dec.warehouse_id || '') === String(newWh.id);
+    const nextStatus = (dec.status === 'Creada' && formValues.advanceStage) ? 'Bodega Asignada' : dec.status;
+
+    if (isSameWh && nextStatus === dec.status) {
+      const resendConfirm = await Swal.fire({
+        icon: 'question',
+        title: 'Misma sucursal seleccionada',
+        text: `El ingreso ya tiene asignada la bodega "${newWh.name}". ¿Deseas reenviar la notificación de sucursal al comercio de todas formas?`,
+        showCancelButton: true,
+        confirmButtonText: 'Sí, reenviar notificación',
+        cancelButtonText: 'Cancelar'
+      });
+      if (!resendConfirm.isConfirmed) return;
+    }
+
+    Swal.fire({
+      title: 'Actualizando sucursal...',
+      html: '<div style="padding: 1rem;"><i class="ri-loader-4-line ri-spin" style="font-size: 2.2rem; color: var(--color-primary); display: inline-block;"></i><p style="margin-top: 0.5rem; font-size: 0.88rem; color: var(--color-text-muted);">Guardando cambios y enviando notificaciones al comercio...</p></div>',
+      allowOutsideClick: false,
+      showConfirmButton: false
+    });
+
+    // 1. Si ya tenía stock acreditado en una bodega distinta, transferir las unidades a la nueva bodega
+    let transferResult = { transferredUnits: 0, transferredSkus: 0 };
+    if (hasCurrentWh && !isSameWh) {
+      transferResult = await window.transferDeclarationCreditedInventory(
+        dec,
+        dec.warehouse_id,
+        newWh.id,
+        currentWh?.name || 'Sucursal Anterior',
+        newWh.name
+      );
+    }
+
+    // 2. Registrar en el historial de la declaración
+    const existingHistory = Array.isArray(dec.history) ? dec.history : [];
+    const changeDescription = hasCurrentWh && !isSameWh
+      ? `[CAMBIO DE SUCURSAL] Bodega modificada de "${currentWh.name} (${currentWh.comuna || ''})" a "${newWh.name} (${newWh.comuna || ''})".`
+      : `[ASIGNACIÓN DE SUCURSAL] Bodega asignada: "${newWh.name} (${newWh.comuna || ''})".`;
+    const transferNote = transferResult.transferredUnits > 0
+      ? ` Se trasladaron automáticamente ${transferResult.transferredUnits} uds (${transferResult.transferredSkus} SKUs) al inventario de ${newWh.name}.`
+      : '';
+    const userReason = formValues.comment ? ` Motivo/Nota: ${formValues.comment}` : '';
+
+    const newHistoryEntry = {
+      status: hasCurrentWh && !isSameWh && nextStatus === dec.status ? 'Cambio de Sucursal' : nextStatus,
+      timestamp: new Date().toISOString(),
+      comment: `${changeDescription}${transferNote}${userReason}`
+    };
+
+    const updatedHistory = [...existingHistory, newHistoryEntry];
+
+    const { data: updatedDec, error: updateError } = await supabase
+      .from('stock_declarations')
+      .update({
+        warehouse_id: newWh.id,
+        status: nextStatus,
+        history: updatedHistory,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select('*, profiles(company_name), warehouses(id, name, address, comuna, operating_days)')
+      .single();
+
+    if (updateError) throw updateError;
+
+    // 3. Sincronizar con Picker si la orden estaba activa en conteo
+    await window.syncIntakeWarehouseInPicker(id, newWh);
+
+    // 4. Enviar notificación al usuario comercio (Email + Dashboard Notification)
+    if (formValues.notify && window.sendStockInboundNotification) {
+      const eventType = (hasCurrentWh && !isSameWh) ? 'warehouse_changed' : 'warehouse_assigned';
+      await window.sendStockInboundNotification({
+        event: eventType,
+        declarationId: id,
+        comercio: updatedDec.comercio,
+        title: updatedDec.title,
+        decData: updatedDec,
+        warehouse: newWh,
+        previousWarehouse: hasCurrentWh ? currentWh : null,
+        status: nextStatus,
+        stageComment: formValues.comment || (hasCurrentWh && !isSameWh
+          ? `Cambio de sucursal de ${currentWh.name} a ${newWh.name}`
+          : `Asignación de sucursal ${newWh.name}`)
+      });
+    }
+
+    // 5. Si el modal de Gestionar Ingreso está abierto para este mismo ingreso, refrescar sus controles en vivo
+    if (window.currentDeclarationEditing && String(window.currentDeclarationEditing.id) === String(id)) {
+      window.currentDeclarationEditing = updatedDec;
+      const warehouseNameEl = document.getElementById('manage-dec-warehouse-name');
+      if (warehouseNameEl) {
+        warehouseNameEl.innerHTML = `<strong>${newWh.name}</strong> <span style="font-size: 0.85rem; color: var(--color-text-muted);">(${newWh.comuna || ''}, ${newWh.address || ''})</span>`;
+      }
+      const selectEl = document.getElementById('manage-dec-warehouse-select');
+      if (selectEl) selectEl.value = newWh.id;
+
+      const statusInput = document.getElementById('manage-dec-status');
+      if (statusInput) statusInput.value = nextStatus;
+
+      if (typeof window.setTargetManageStatus === 'function') {
+        window.setTargetManageStatus(nextStatus, 'stay');
+      }
+      if (typeof window.renderDeclarationHistoryTimeline === 'function') {
+        window.renderDeclarationHistoryTimeline(updatedDec);
+      }
+    }
+
+    // 6. Refrescar tabla principal de declaraciones
+    if (typeof window.renderDeclarationsAdmin === 'function') {
+      window.renderDeclarationsAdmin();
+    }
+
+    Swal.fire({
+      icon: 'success',
+      title: hasCurrentWh && !isSameWh ? '¡Sucursal Actualizada!' : '¡Sucursal Asignada!',
+      html: `
+        <div style="font-size: 0.9rem; line-height: 1.5;">
+          <p>El ingreso <strong>#ING-${shortCode}</strong> quedó asignado a <strong>${newWh.name} (${newWh.comuna || ''})</strong>.</p>
+          ${transferResult.transferredUnits > 0 ? `<p style="color: #047857; font-weight: 600;">Se traspasaron ${transferResult.transferredUnits} unidades al inventario de ${newWh.name}.</p>` : ''}
+          ${formValues.notify ? `<p style="color: #2563eb; font-weight: 600;"><i class="ri-mail-check-line"></i> Se envió notificación por correo y alerta en plataforma al comercio.</p>` : ''}
+        </div>
+      `,
+      timer: 3200,
+      showConfirmButton: false
+    });
+  } catch (err) {
+    console.error('Error al cambiar sucursal del ingreso:', err);
+    if (window.Swal) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Error al cambiar sucursal',
+        text: err.message || String(err)
+      });
+    } else {
+      alert('Error al cambiar sucursal: ' + (err.message || err));
+    }
+  }
+};
+
+window.saveDeclarationWarehouseDirect = async function() {
+  const id = document.getElementById('manage-dec-id')?.value;
+  const selectEl = document.getElementById('manage-dec-warehouse-select');
+  const notifyCheckbox = document.getElementById('manage-dec-notify-warehouse-change');
+  const saveBtn = document.getElementById('btn-quick-save-warehouse');
+  const stageCommentInput = document.getElementById('manage-dec-stage-comment');
+
+  if (!id || !selectEl) return;
+  const newWarehouseId = selectEl.value;
+  if (!newWarehouseId) {
+    if (window.Swal) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Selecciona una sucursal',
+        text: 'Debes elegir una sucursal / bodega en el selector antes de aplicar el cambio.'
+      });
+    }
+    selectEl.focus();
+    return;
+  }
+
+  const shouldNotify = notifyCheckbox ? notifyCheckbox.checked : true;
+  const stageComment = stageCommentInput?.value?.trim() || '';
+
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="ri-loader-4-line ri-spin" style="display:inline-block; animation: spin 1s linear infinite;"></i> Aplicando...';
+  }
+
+  try {
+    const [{ data: latestDec, error: decErr }, { data: newWh, error: whErr }] = await Promise.all([
+      supabase
+        .from('stock_declarations')
+        .select('*, profiles(company_name), warehouses(id, name, address, comuna, operating_days)')
+        .eq('id', id)
+        .single(),
+      supabase
+        .from('warehouses')
+        .select('id, name, address, comuna, operating_days')
+        .eq('id', newWarehouseId)
+        .single()
+    ]);
+
+    if (decErr) throw decErr;
+    if (whErr) throw whErr;
+
+    const oldWh = latestDec.warehouses || null;
+    const hadPreviousWh = Boolean(latestDec.warehouse_id && oldWh);
+    const isReassignment = hadPreviousWh && String(latestDec.warehouse_id) !== String(newWh.id);
+
+    // Si el ingreso estaba en 'Creada', avanzarlo automáticamente a 'Bodega Asignada'
+    const nextStatus = latestDec.status === 'Creada' ? 'Bodega Asignada' : latestDec.status;
+
+    // Si ya tenía stock acreditado en otra sucursal, mover el inventario a la nueva sucursal
+    let transferResult = { transferredUnits: 0, transferredSkus: 0 };
+    if (isReassignment) {
+      transferResult = await window.transferDeclarationCreditedInventory(
+        latestDec,
+        latestDec.warehouse_id,
+        newWh.id,
+        oldWh?.name || 'Sucursal Anterior',
+        newWh.name
+      );
+    }
+
+    const existingHistory = Array.isArray(latestDec.history) ? latestDec.history : [];
+    const historyComment = isReassignment
+      ? `[CAMBIO DE SUCURSAL] Bodega modificada de "${oldWh.name} (${oldWh.comuna || ''})" a "${newWh.name} (${newWh.comuna || ''})".${transferResult.transferredUnits > 0 ? ` Se trasladaron ${transferResult.transferredUnits} uds al inventario de ${newWh.name}.` : ''}${stageComment ? ` Nota: ${stageComment}` : ''}`
+      : `[ASIGNACIÓN DE SUCURSAL] Bodega asignada: "${newWh.name} (${newWh.comuna || ''})".${stageComment ? ` Nota: ${stageComment}` : ''}`;
+
+    const updatedHistory = [
+      ...existingHistory,
+      {
+        status: isReassignment && nextStatus === latestDec.status ? 'Cambio de Sucursal' : nextStatus,
+        timestamp: new Date().toISOString(),
+        comment: historyComment
+      }
+    ];
+
+    const { data: updatedDec, error: updErr } = await supabase
+      .from('stock_declarations')
+      .update({
+        warehouse_id: newWh.id,
+        status: nextStatus,
+        history: updatedHistory,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select('*, profiles(company_name), warehouses(id, name, address, comuna, operating_days)')
+      .single();
+
+    if (updErr) throw updErr;
+
+    // Sincronizar con Picker si estaba activo
+    await window.syncIntakeWarehouseInPicker(id, newWh);
+
+    // Enviar notificación al usuario comercio
+    if (shouldNotify && window.sendStockInboundNotification) {
+      await window.sendStockInboundNotification({
+        event: isReassignment ? 'warehouse_changed' : 'warehouse_assigned',
+        declarationId: id,
+        comercio: updatedDec.comercio,
+        title: updatedDec.title,
+        decData: updatedDec,
+        warehouse: newWh,
+        previousWarehouse: isReassignment ? oldWh : null,
+        status: nextStatus,
+        stageComment: stageComment || (isReassignment ? `Cambio de sucursal de ${oldWh.name} a ${newWh.name}` : `Asignación de sucursal ${newWh.name}`)
+      });
+    }
+
+    // Actualizar estado en memoria y UI del modal abierto
+    window.currentDeclarationEditing = updatedDec;
+    const warehouseNameEl = document.getElementById('manage-dec-warehouse-name');
+    if (warehouseNameEl) {
+      warehouseNameEl.innerHTML = `<strong>${newWh.name}</strong> <span style="font-size: 0.85rem; color: var(--color-text-muted);">(${newWh.comuna || ''}, ${newWh.address || ''})</span>`;
+    }
+    const statusInput = document.getElementById('manage-dec-status');
+    if (statusInput) statusInput.value = nextStatus;
+
+    if (typeof window.setTargetManageStatus === 'function') {
+      window.setTargetManageStatus(nextStatus, 'stay');
+    }
+    if (typeof window.renderDeclarationHistoryTimeline === 'function') {
+      window.renderDeclarationHistoryTimeline(updatedDec);
+    }
+    if (typeof window.renderDeclarationsAdmin === 'function') {
+      window.renderDeclarationsAdmin();
+    }
+
+    if (window.Swal) {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: isReassignment
+          ? `Sucursal cambiada a ${newWh.name}${shouldNotify ? ' (Comercio notificado)' : ''}`
+          : `Sucursal ${newWh.name} asignada${shouldNotify ? ' (Comercio notificado)' : ''}`,
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true
+      });
+    }
+  } catch (err) {
+    console.error('Error en saveDeclarationWarehouseDirect:', err);
+    if (window.Swal) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Error al guardar sucursal',
+        text: err.message || String(err)
+      });
+    } else {
+      alert('Error al guardar sucursal: ' + (err.message || err));
+    }
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<i class="ri-send-plane-fill"></i> Aplicar y Notificar Sucursal';
+    }
+  }
+};
+
 // Event Delegation for managing declarations form submission
 document.addEventListener('submit', async (e) => {
   if (e.target && e.target.id === 'form-manage-declaration') {
@@ -51160,7 +52146,7 @@ document.addEventListener('submit', async (e) => {
       // 1. Obtener historial previo de la base de datos
       const { data: latestDec, error: fetchError } = await supabase
         .from('stock_declarations')
-        .select('status, history, products_list, file_base64, warehouse_id, title, comercio, parallel_count, parallel_count_data')
+        .select('id, status, history, products_list, file_base64, warehouse_id, title, comercio, parallel_count, parallel_count_data, warehouses(id, name, address, comuna, operating_days)')
         .eq('id', id)
         .single();
         
@@ -51172,6 +52158,9 @@ document.addEventListener('submit', async (e) => {
       const isRollback = newStep < prevStep;
       const isStay = status === prevStatus;
       const isAdvance = newStep > prevStep;
+      const isWarehouseChanged = Boolean(warehouseId && latestDec.warehouse_id && String(warehouseId) !== String(latestDec.warehouse_id));
+      const notifyWhChangeCheckbox = document.getElementById('manage-dec-notify-warehouse-change');
+      const shouldNotifyWarehouseChange = notifyWhChangeCheckbox ? notifyWhChangeCheckbox.checked : true;
 
       const decShortCode = id ? id.substring(0, 8).toUpperCase() : '';
       const getEffectiveClosedAddedQty = (p) => {
@@ -51267,12 +52256,20 @@ document.addEventListener('submit', async (e) => {
       let actionTag = '[ACTUALIZACIÓN]';
       if (isAdvance) actionTag = '[AVANCE]';
       if (isRollback) actionTag = '[RETROCESO]';
+      if (isWarehouseChanged && isStay) actionTag = '[CAMBIO DE SUCURSAL]';
+
+      let whChangeCommentPrefix = '';
+      if (isWarehouseChanged) {
+        const selectedOptionText = selectEl?.options?.[selectEl.selectedIndex]?.text || 'Nueva Sucursal';
+        const prevWhLabel = latestDec.warehouses ? `${latestDec.warehouses.name} (${latestDec.warehouses.comuna || ''})` : 'Sucursal anterior';
+        whChangeCommentPrefix = `Sucursal cambiada de "${prevWhLabel}" a "${selectedOptionText}". `;
+      }
 
       const existingHistory = latestDec.history || [];
       const newHistoryEntry = {
         status: status,
         timestamp: new Date().toISOString(),
-        comment: `${actionTag} ${stageComment}`
+        comment: `${actionTag} ${whChangeCommentPrefix}${stageComment}`
       };
 
       const cleanAdditionalCosts = Array.isArray(window.currentDeclarationAdditionalCosts)
@@ -51518,10 +52515,22 @@ document.addEventListener('submit', async (e) => {
         }
       }
 
+      // Si se cambió de sucursal y no es un retroceso (que ya revirtió el stock arriba), trasladar el stock previamente acreditado a la nueva sucursal
+      if (isWarehouseChanged && !isRollback && typeof window.transferDeclarationCreditedInventory === 'function') {
+        const selectedWhText = selectEl?.options?.[selectEl.selectedIndex]?.text || 'Nueva Sucursal';
+        await window.transferDeclarationCreditedInventory(
+          latestDec,
+          latestDec.warehouse_id,
+          warehouseId,
+          latestDec.warehouses?.name || 'Sucursal Anterior',
+          selectedWhText
+        );
+      }
+
       if (shouldProcessInventoryDeltas) {
         const productsList = updateData.products_list || getDeclarationProducts(latestDec);
         if (productsList && productsList.length > 0) {
-          const targetWarehouseId = latestDec.warehouse_id || updateData.warehouse_id;
+          const targetWarehouseId = updateData.warehouse_id || latestDec.warehouse_id;
           if (targetWarehouseId) {
             let inventoryModified = false;
 
@@ -51804,9 +52813,29 @@ document.addEventListener('submit', async (e) => {
           const title = updatedDec.title;
           const comercio = updatedDec.comercio;
           const prevStatus = latestDec.status;
+
+          // Si se cambió la sucursal asignada y la orden sigue activa, sincronizar en Picker y notificar el cambio de sucursal
+          if (isWarehouseChanged && updatedDec.warehouses) {
+            if (!isFinishingStatus && typeof window.syncIntakeWarehouseInPicker === 'function') {
+              await window.syncIntakeWarehouseInPicker(id, updatedDec.warehouses);
+            }
+            if (shouldNotifyWarehouseChange && window.sendStockInboundNotification) {
+              await window.sendStockInboundNotification({
+                event: 'warehouse_changed',
+                declarationId: id,
+                comercio: comercio,
+                title: title,
+                decData: updatedDec,
+                warehouse: updatedDec.warehouses,
+                previousWarehouse: latestDec.warehouses || null,
+                status: status,
+                stageComment: stageComment
+              });
+            }
+          }
           
-          // 3.1 Asignación de Bodega
-          if ((status === 'Bodega Asignada' || (!latestDec.warehouse_id && warehouseId)) && updatedDec.warehouses) {
+          // 3.1 Asignación inicial de Bodega
+          if (((status === 'Bodega Asignada' && !isWarehouseChanged) || (!latestDec.warehouse_id && warehouseId)) && updatedDec.warehouses) {
             if (window.sendStockInboundNotification) {
               await window.sendStockInboundNotification({
                 event: 'warehouse_assigned',
@@ -51875,8 +52904,8 @@ document.addEventListener('submit', async (e) => {
             const notifMsg = `Tu ingreso de stock "${title}" ha sido retrocedido a la etapa: "${status}".${commentText}`;
             await notifyCommerceUsers(comercio, notifTitle, notifMsg);
           }
-          // 3.6 Actualización de notas o datos dentro de la misma etapa
-          else if (isStay) {
+          // 3.6 Actualización de notas o datos dentro de la misma etapa (sin haber enviado ya notificación de cambio de sucursal)
+          else if (isStay && !isWarehouseChanged) {
             if (stageComment && stageComment.trim() && !stageComment.startsWith('Actualización de notas') && !stageComment.startsWith('Actualización de datos')) {
               const notifTitle = 'Actualización en Ingreso de Stock';
               const notifMsg = `Se registró una observación en tu ingreso de stock "${title}" (Etapa: ${status}): "${stageComment}"`;
@@ -51884,7 +52913,7 @@ document.addEventListener('submit', async (e) => {
             }
           }
           // 3.7 Cualquier otra actualización de estado
-          else {
+          else if (!isWarehouseChanged) {
             const notifTitle = 'Actualización de Estado de Ingreso';
             let commentText = stageComment ? ` Comentario: "${stageComment}"` : '';
             const notifMsg = `El estado de tu ingreso de stock "${title}" ha cambiado a: "${status}".${commentText}`;
@@ -62834,12 +63863,17 @@ window.openCreatePeriodModal = function() {
         
       if (periodErr) throw periodErr;
       
-      // 2. Obtener todos los comercios desde v_comercios_config
+      // 2. Obtener todos los comercios desde v_comercios_config y excluir comercios desactivados
       const { data: comercios, error: comerciosErr } = await supabase
         .from('v_comercios_config')
         .select('nombre');
         
       if (comerciosErr) throw comerciosErr;
+
+      const inactiveSet = typeof window.fetchInactiveMerchantsSet === 'function'
+        ? await window.fetchInactiveMerchantsSet()
+        : new Set();
+      const activeComerciosList = (comercios || []).filter(c => c.nombre && !inactiveSet.has(c.nombre.trim().toUpperCase()));
       
       // 3. Obtener mapeos de facturación agrupados
       let mappings = [];
@@ -62852,10 +63886,10 @@ window.openCreatePeriodModal = function() {
         console.warn('Advertencia al cargar mappings en creación de periodo:', err);
       }
       
-      if (comercios && comercios.length > 0) {
+      if (activeComerciosList.length > 0) {
         // Resolver nombres de facturación y filtrar duplicados usando un Set
         const uniqueBillingNames = new Set();
-        comercios.forEach(c => {
+        activeComerciosList.forEach(c => {
           const matchedMapping = mappings.find(m => m.comercio_nombre.toLowerCase() === c.nombre.toLowerCase());
           const nameToUse = matchedMapping ? matchedMapping.billing_name : c.nombre;
           uniqueBillingNames.add(nameToUse);
@@ -62905,6 +63939,15 @@ window.getBillingCommerceOptions = async function(selectedValue = null) {
       .from('v_comercios_config')
       .select('nombre, sigla');
     if (comerciosErr) throw comerciosErr;
+
+    const inactiveSet = typeof window.fetchInactiveMerchantsSet === 'function'
+      ? await window.fetchInactiveMerchantsSet()
+      : new Set();
+    const activeComercios = (comercios || []).filter(c => {
+      if (!c.nombre) return false;
+      if (selectedValue && c.nombre.trim().toLowerCase() === String(selectedValue).trim().toLowerCase()) return true;
+      return !inactiveSet.has(c.nombre.trim().toUpperCase());
+    });
     
     let mappings = [];
     try {
@@ -62919,7 +63962,7 @@ window.getBillingCommerceOptions = async function(selectedValue = null) {
     const uniqueOptions = [];
     const resolvedNamesSet = new Set();
     
-    (comercios || []).forEach(c => {
+    activeComercios.forEach(c => {
       const matchedMapping = mappings.find(m => m.comercio_nombre.toLowerCase() === c.nombre.toLowerCase());
       if (matchedMapping) {
         const holdingName = matchedMapping.billing_name;
@@ -69514,6 +70557,13 @@ async function renderMerchantsAdmin() {
     const basicComercios = (rawComercios || []).map(c => {
       const extra = configMap.get(c.nombre) || {};
       const alDia = billingMap.has(c.nombre) ? billingMap.get(c.nombre) : true;
+      const inactMeta = typeof window.getMerchantInactivationMeta === 'function'
+        ? window.getMerchantInactivationMeta(extra)
+        : {
+            activo: extra.activo !== false && extra?.onboarding_checklist?.comercio_activo !== false,
+            inactivado_at: extra.inactivado_at || extra?.onboarding_checklist?.inactivado_at || null,
+            motivo_inactivacion: extra.motivo_inactivacion || extra?.onboarding_checklist?.motivo_inactivacion || ''
+          };
 
       // Usuarios asociados: filtramos perfiles de rol client donde el comercio incluya este nombre
       const associatedUsers = (profiles || []).filter(p => {
@@ -69531,6 +70581,9 @@ async function renderMerchantsAdmin() {
         id: c.id,
         nombre: c.nombre,
         sigla: c.sigla || 'SIN SIGLA',
+        activo: inactMeta.activo,
+        inactivado_at: inactMeta.inactivado_at,
+        motivo_inactivacion: inactMeta.motivo_inactivacion,
         al_dia: alDia,
         inventario_seguimiento: extra.inventario_seguimiento || false,
         pedido_trae_sigla: extra.pedido_trae_sigla || false,
@@ -69601,8 +70654,14 @@ async function renderMerchantsAdmin() {
     });
 
     const totalComercios = comercios.length;
-    const activeComercios = comercios.filter(c => c.al_dia).length;
-    const suspendedComercios = totalComercios - activeComercios;
+    const activeMerchantsCount = comercios.filter(c => c.activo !== false).length;
+    const inactiveMerchantsCount = comercios.filter(c => c.activo === false).length;
+    const activeComercios = comercios.filter(c => c.activo !== false && c.al_dia).length;
+    const suspendedComercios = comercios.filter(c => c.activo !== false && !c.al_dia).length;
+
+    if (!window.adminMerchantsStatusFilter) {
+      window.adminMerchantsStatusFilter = 'activos';
+    }
 
     let migrationBannerHtml = '';
     if (isMigrationNeeded) {
@@ -69718,14 +70777,14 @@ async function renderMerchantsAdmin() {
     }
 
     const statsHtml = `
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
-        <div class="merchant-stat-card">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+        <div class="merchant-stat-card" style="cursor: pointer;" onclick="window.setAdminMerchantsStatusFilter('activos')" title="Filtrar comercios activos">
           <div class="merchant-stat-icon" style="background: rgba(37, 99, 235, 0.1); color: var(--color-primary);">
             <i class="ri-store-3-line"></i>
           </div>
           <div>
-            <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-main);">${totalComercios}</div>
-            <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Total Comercios</div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-main);">${activeMerchantsCount} <span style="font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500;">/ ${totalComercios}</span></div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Comercios Activos</div>
           </div>
         </div>
         <div class="merchant-stat-card">
@@ -69734,7 +70793,7 @@ async function renderMerchantsAdmin() {
           </div>
           <div>
             <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-main);">${activeComercios}</div>
-            <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Facturación Activos</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Facturación al Día</div>
           </div>
         </div>
         <div class="merchant-stat-card">
@@ -69746,6 +70805,15 @@ async function renderMerchantsAdmin() {
             <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Facturación Suspendidos</div>
           </div>
         </div>
+        <div class="merchant-stat-card" style="cursor: pointer;" onclick="window.setAdminMerchantsStatusFilter('inactivos')" title="Ver comercios desactivados">
+          <div class="merchant-stat-icon" style="background: rgba(100, 116, 139, 0.12); color: #64748b;">
+            <i class="ri-shut-down-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-main);">${inactiveMerchantsCount}</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Comercios Desactivados</div>
+          </div>
+        </div>
       </div>
     `;
 
@@ -69755,13 +70823,26 @@ async function renderMerchantsAdmin() {
 
     const renderTableRows = (list) => {
       if (list.length === 0) {
-        return `<tr><td colspan="13" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron comercios.</td></tr>`;
+        return `<tr><td colspan="14" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron comercios para este filtro.</td></tr>`;
       }
       
       return list.map(c => {
-        const billingBadge = c.al_dia 
-          ? `<span class="badge-status active"><i class="ri-checkbox-circle-line"></i> Activo</span>`
-          : `<span class="badge-status suspended"><i class="ri-close-circle-line"></i> Suspendido</span>`;
+        const isMerchantActive = c.activo !== false;
+        const inactDateStr = c.inactivado_at ? new Date(c.inactivado_at).toLocaleDateString('es-CL') : '';
+        const inactiveMerchantBadge = !isMerchantActive
+          ? `<div style="margin-top: 0.25rem;">
+               <span class="badge-status disabled" style="background: rgba(100, 116, 139, 0.15); color: #475569; border: 1px solid rgba(100, 116, 139, 0.3);" title="${window.escapeHtml(c.motivo_inactivacion ? 'Motivo: ' + c.motivo_inactivacion : 'Comercio desactivado')}">
+                 <i class="ri-shut-down-line"></i> Desactivado${inactDateStr ? ` (${inactDateStr})` : ''}
+               </span>
+               ${c.motivo_inactivacion ? `<div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.15rem; max-width: 190px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${window.escapeHtml(c.motivo_inactivacion)}">Motivo: ${window.escapeHtml(c.motivo_inactivacion)}</div>` : ''}
+             </div>`
+          : '';
+
+        const billingBadge = !isMerchantActive
+          ? `<span class="badge-status disabled" title="No participa en nuevos periodos de facturación"><i class="ri-forbid-line"></i> Baja / Inactivo</span>`
+          : (c.al_dia 
+              ? `<span class="badge-status active"><i class="ri-checkbox-circle-line"></i> Activo</span>`
+              : `<span class="badge-status suspended"><i class="ri-close-circle-line"></i> Suspendido</span>`);
         
         const invBadge = c.inventario_seguimiento
           ? `<span class="badge-status enabled"><i class="ri-check-line"></i> Activo</span>`
@@ -69776,7 +70857,7 @@ async function renderMerchantsAdmin() {
           : `<span class="badge-status disabled">Normal</span>`;
 
         const ob = c.onboarding_checklist || {};
-        const isOnboardingActive = (ob.enabled !== undefined) ? !!ob.enabled : (!ob.dismissed);
+        const isOnboardingActive = isMerchantActive && ((ob.enabled !== undefined) ? !!ob.enabled : (!ob.dismissed));
         const onboardingBadge = isOnboardingActive
           ? `<span class="badge-status active" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantOnboardingQuick('${c.nombre.replace(/'/g, "\\'")}', false)" title="Clic para desactivar Guía de Inicio en este comercio"><i class="ri-rocket-line"></i> Activo</span>`
           : `<span class="badge-status disabled" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantOnboardingQuick('${c.nombre.replace(/'/g, "\\'")}', true)" title="Clic para activar Guía de Inicio en este comercio"><i class="ri-forbid-line"></i> Inactivo</span>`;
@@ -69806,7 +70887,7 @@ async function renderMerchantsAdmin() {
           ? activeIntList.join(', ')
           : '<span style="color: var(--color-text-muted); font-style: italic;">Ninguna activa</span>';
 
-        const isPosActive = c.onboarding_checklist?.pos_active === true;
+        const isPosActive = isMerchantActive && c.onboarding_checklist?.pos_active === true;
         const posMachine = c.onboarding_checklist?.pos_machine;
         const activePosPayments = (typeof window.getMerchantActivePosPaymentMethods === 'function')
           ? window.getMerchantActivePosPaymentMethods(c.onboarding_checklist)
@@ -69821,13 +70902,23 @@ async function renderMerchantsAdmin() {
           ? `<div><span class="badge-status enabled" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantPosQuick('${c.nombre.replace(/'/g, "\\'")}', false)" title="Clic para desactivar Punto de Venta en este comercio"><i class="ri-store-3-line"></i> POS Activo</span>${machineDesc}${paymentsDesc}</div>`
           : `<div><span class="badge-status disabled" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantPosQuick('${c.nombre.replace(/'/g, "\\'")}', true)" title="Clic para activar Punto de Venta en este comercio"><i class="ri-forbid-line"></i> Sin POS</span></div>`;
 
+        const safeNameAttr = c.nombre.replace(/'/g, "\\'");
+        const toggleActiveBtn = isMerchantActive
+          ? `<button class="btn btn-outline btn-sm" onclick="window.openToggleMerchantActiveModal('${safeNameAttr}', false)" style="font-size: 0.78rem; padding: 0.35rem 0.6rem; border-color: rgba(239, 68, 68, 0.35); color: var(--color-danger); background: rgba(239, 68, 68, 0.04); font-weight: 600; cursor: pointer;" title="Desactivar comercio (detener pedidos, facturación futura y comunicados)">
+               <i class="ri-shut-down-line"></i> Desactivar
+             </button>`
+          : `<button class="btn btn-outline btn-sm" onclick="window.openToggleMerchantActiveModal('${safeNameAttr}', true)" style="font-size: 0.78rem; padding: 0.35rem 0.6rem; border-color: rgba(16, 185, 129, 0.4); color: var(--color-success); background: rgba(16, 185, 129, 0.06); font-weight: 600; cursor: pointer;" title="Reactivar comercio en el WMS">
+               <i class="ri-restart-line"></i> Reactivar
+             </button>`;
+
         return `
-          <tr>
+          <tr style="${!isMerchantActive ? 'opacity: 0.78; background: rgba(148, 163, 184, 0.04);' : ''}">
             <td style="text-align: center;">
               <input type="checkbox" class="merchant-select-checkbox" value="${c.nombre}" onchange="window.updateMerchantSelectionBar()" style="cursor: pointer; width: 16px; height: 16px;">
             </td>
             <td>
-              <strong>${c.nombre}</strong>
+              <strong style="${!isMerchantActive ? 'text-decoration: line-through; color: var(--color-text-muted);' : ''}">${c.nombre}</strong>
+              ${inactiveMerchantBadge}
               <div style="margin-top: 0.2rem;">${posPill}</div>
             </td>
             <td>${companyInfo}</td>
@@ -69839,30 +70930,71 @@ async function renderMerchantsAdmin() {
             <td>${siglaBadge}</td>
             <td>${strictBadge}</td>
             <td>
-              <button id="btn-contacts-${c.nombre.replace(/[^a-zA-Z0-9]/g, '-')}" class="btn btn-outline btn-sm" onclick="window.showMerchantBillingContactsModal('${c.nombre.replace(/'/g, "\\'")}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+              <button id="btn-contacts-${c.nombre.replace(/[^a-zA-Z0-9]/g, '-')}" class="btn btn-outline btn-sm" onclick="window.showMerchantBillingContactsModal('${safeNameAttr}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
                 <i class="ri-contacts-book-line"></i> ${c.billingContacts.length} Contactos
               </button>
             </td>
             <td>
-              <button class="btn btn-outline btn-sm" onclick="window.showMerchantUsersModal('${c.nombre}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+              <button class="btn btn-outline btn-sm" onclick="window.showMerchantUsersModal('${safeNameAttr}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
                 <i class="ri-team-line"></i> ${c.associatedUsers.length} Usuarios
               </button>
             </td>
             <td>
-              <button class="btn btn-outline btn-sm" onclick="window.showMerchantIntegrationsModal('${c.nombre}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+              <button class="btn btn-outline btn-sm" onclick="window.showMerchantIntegrationsModal('${safeNameAttr}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
                 <i class="ri-plug-line"></i> ${c.integrations.length} Integraciones
               </button>
               <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">${intDisplay}</div>
             </td>
             <td>
-              <button class="btn btn-primary btn-sm" onclick="window.showMerchantEditModal('${c.nombre}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; background: var(--color-primary); color: #ffffff; font-weight: 600; border: none; cursor: pointer;">
-                <i class="ri-edit-line"></i> Editar
-              </button>
+              <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: nowrap;">
+                <button class="btn btn-primary btn-sm" onclick="window.showMerchantEditModal('${safeNameAttr}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; background: var(--color-primary); color: #ffffff; font-weight: 600; border: none; cursor: pointer;">
+                  <i class="ri-edit-line"></i> Editar
+                </button>
+                ${toggleActiveBtn}
+              </div>
             </td>
           </tr>
         `;
       }).join('');
     };
+
+    const getFilteredMerchantsList = () => {
+      const searchEl = document.getElementById('merchant-search-input');
+      const query = (searchEl?.value || '').toLowerCase().trim();
+      const statusFilter = window.adminMerchantsStatusFilter || 'activos';
+
+      return comercios.filter(c => {
+        if (statusFilter === 'activos' && c.activo === false) return false;
+        if (statusFilter === 'inactivos' && c.activo !== false) return false;
+        if (!query) return true;
+        return (
+          c.nombre.toLowerCase().includes(query) ||
+          c.sigla.toLowerCase().includes(query) ||
+          (c.razon_social && c.razon_social.toLowerCase().includes(query)) ||
+          (c.rut && c.rut.toLowerCase().includes(query)) ||
+          (c.kam_nombre && c.kam_nombre.toLowerCase().includes(query)) ||
+          (c.kam_email && c.kam_email.toLowerCase().includes(query))
+        );
+      });
+    };
+
+    window.setAdminMerchantsStatusFilter = function(newFilter) {
+      window.adminMerchantsStatusFilter = newFilter || 'activos';
+      ['activos', 'inactivos', 'todos'].forEach(f => {
+        const btn = document.getElementById(`btn-merchant-filter-${f}`);
+        if (!btn) return;
+        const isCurrent = f === window.adminMerchantsStatusFilter;
+        btn.style.background = isCurrent ? 'var(--color-primary)' : 'transparent';
+        btn.style.color = isCurrent ? '#ffffff' : 'var(--color-text-muted)';
+        btn.style.fontWeight = isCurrent ? '700' : '600';
+      });
+      const tbody = document.getElementById('merchant-table-body');
+      if (tbody) {
+        tbody.innerHTML = renderTableRows(getFilteredMerchantsList());
+      }
+    };
+
+    const curFilter = window.adminMerchantsStatusFilter || 'activos';
 
     appContent.innerHTML = `
       ${migrationBannerHtml}
@@ -69899,6 +71031,18 @@ async function renderMerchantsAdmin() {
             </p>
           </div>
           <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <!-- Selector de Estado Operativo (Activos / Inactivos / Todos) -->
+            <div id="merchant-status-filter-group" style="display: inline-flex; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 2px; gap: 2px;">
+              <button type="button" id="btn-merchant-filter-activos" onclick="window.setAdminMerchantsStatusFilter('activos')" style="border: none; border-radius: 4px; padding: 0.35rem 0.65rem; font-size: 0.78rem; cursor: pointer; transition: all 0.15s; background: ${curFilter === 'activos' ? 'var(--color-primary)' : 'transparent'}; color: ${curFilter === 'activos' ? '#ffffff' : 'var(--color-text-muted)'}; font-weight: ${curFilter === 'activos' ? '700' : '600'};">
+                Activos (${activeMerchantsCount})
+              </button>
+              <button type="button" id="btn-merchant-filter-inactivos" onclick="window.setAdminMerchantsStatusFilter('inactivos')" style="border: none; border-radius: 4px; padding: 0.35rem 0.65rem; font-size: 0.78rem; cursor: pointer; transition: all 0.15s; background: ${curFilter === 'inactivos' ? 'var(--color-primary)' : 'transparent'}; color: ${curFilter === 'inactivos' ? '#ffffff' : 'var(--color-text-muted)'}; font-weight: ${curFilter === 'inactivos' ? '700' : '600'};">
+                Desactivados (${inactiveMerchantsCount})
+              </button>
+              <button type="button" id="btn-merchant-filter-todos" onclick="window.setAdminMerchantsStatusFilter('todos')" style="border: none; border-radius: 4px; padding: 0.35rem 0.65rem; font-size: 0.78rem; cursor: pointer; transition: all 0.15s; background: ${curFilter === 'todos' ? 'var(--color-primary)' : 'transparent'}; color: ${curFilter === 'todos' ? '#ffffff' : 'var(--color-text-muted)'}; font-weight: ${curFilter === 'todos' ? '700' : '600'};">
+                Todos (${totalComercios})
+              </button>
+            </div>
             <button class="btn btn-primary" onclick="window.showMerchantCreateModal()" style="background-color: var(--color-primary); color: #ffffff; font-weight: 600; height: 36px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border: none; cursor: pointer; padding: 0 0.75rem; border-radius: 4px;">
               <i class="ri-add-line"></i> Crear Comercio
             </button>
@@ -69950,7 +71094,7 @@ async function renderMerchantsAdmin() {
                 </tr>
               </thead>
               <tbody id="merchant-table-body">
-                ${renderTableRows(comercios)}
+                ${renderTableRows(getFilteredMerchantsList())}
               </tbody>
             </table>
           </div>
@@ -69977,17 +71121,8 @@ async function renderMerchantsAdmin() {
     const searchInput = document.getElementById('merchant-search-input');
     const tableBody = document.getElementById('merchant-table-body');
     if (searchInput && tableBody) {
-      searchInput.addEventListener('input', (e) => {
-        const query = e.target.value.toLowerCase().trim();
-        const filtered = comercios.filter(c => 
-          c.nombre.toLowerCase().includes(query) || 
-          c.sigla.toLowerCase().includes(query) ||
-          (c.razon_social && c.razon_social.toLowerCase().includes(query)) ||
-          (c.rut && c.rut.toLowerCase().includes(query)) ||
-          (c.kam_nombre && c.kam_nombre.toLowerCase().includes(query)) ||
-          (c.kam_email && c.kam_email.toLowerCase().includes(query))
-        );
-        tableBody.innerHTML = renderTableRows(filtered);
+      searchInput.addEventListener('input', () => {
+        tableBody.innerHTML = renderTableRows(getFilteredMerchantsList());
       });
     }
 
@@ -71387,6 +72522,424 @@ window.showMerchantUsersModal = function(comercioName) {
   document.body.appendChild(modal);
 };
 
+// =========================================================================
+// HELPERS Y MODAL DE ACTIVACIÓN / DESACTIVACIÓN DE COMERCIOS
+// =========================================================================
+
+window.isMerchantConfigActive = function(cfgOrMerchant) {
+  if (!cfgOrMerchant) return true;
+  if (cfgOrMerchant.activo === false) return false;
+  if (cfgOrMerchant.onboarding_checklist && cfgOrMerchant.onboarding_checklist.comercio_activo === false) return false;
+  return true;
+};
+
+window.getMerchantInactivationMeta = function(cfgOrMerchant) {
+  const activo = window.isMerchantConfigActive(cfgOrMerchant);
+  const inactivado_at = cfgOrMerchant?.inactivado_at || cfgOrMerchant?.onboarding_checklist?.inactivado_at || null;
+  const motivo_inactivacion = cfgOrMerchant?.motivo_inactivacion || cfgOrMerchant?.onboarding_checklist?.motivo_inactivacion || '';
+  return { activo, inactivado_at, motivo_inactivacion };
+};
+
+window.fetchInactiveMerchantsSet = async function() {
+  const inactiveSet = new Set();
+  try {
+    if (Array.isArray(window.cachedAdminMerchants) && window.cachedAdminMerchants.length > 0) {
+      window.cachedAdminMerchants.forEach(m => {
+        if (m && m.nombre && m.activo === false) {
+          inactiveSet.add(m.nombre.trim().toUpperCase());
+        }
+      });
+    }
+    const { data: configs, error } = await supabase
+      .from('comercios_adicional_config')
+      .select('*');
+    if (!error && Array.isArray(configs)) {
+      configs.forEach(cfg => {
+        if (cfg && cfg.comercio && !window.isMerchantConfigActive(cfg)) {
+          inactiveSet.add(cfg.comercio.trim().toUpperCase());
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('[Merchants] Error consultando comercios inactivos:', e);
+  }
+  return inactiveSet;
+};
+
+window.toggleSingleMerchantIntegration = async function(integrationId, comercioName, targetActive) {
+  const commerce = (window.cachedAdminMerchants || []).find(c => c.nombre === comercioName);
+  if (targetActive && commerce && commerce.activo === false) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Comercio Desactivado',
+      text: 'No puedes encender integraciones mientras el comercio esté desactivado. Reactiva el comercio primero.',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+    window.showMerchantIntegrationsModal(comercioName);
+    return;
+  }
+
+  try {
+    const { error } = await supabase
+      .from('merchant_integrations')
+      .update({ is_active: !!targetActive })
+      .eq('id', integrationId);
+
+    if (error) throw error;
+
+    if (commerce && Array.isArray(commerce.integrations)) {
+      const targetInt = commerce.integrations.find(i => String(i.id) === String(integrationId));
+      if (targetInt) targetInt.is_active = !!targetActive;
+    }
+
+    window.showMerchantIntegrationsModal(comercioName);
+    if (typeof renderMerchantsAdmin === 'function' && document.getElementById('merchant-table-body')) {
+      renderMerchantsAdmin();
+    }
+  } catch (err) {
+    console.error('Error actualizando estado de integración:', err);
+    Swal.fire('Error', 'No se pudo actualizar la integración: ' + (err.message || err), 'error');
+  }
+};
+
+window.openToggleMerchantActiveModal = async function(comercioName, targetActive) {
+  const isDeactivating = !targetActive;
+  const commerce = (window.cachedAdminMerchants || []).find(c => c.nombre === comercioName);
+
+  if (isDeactivating) {
+    // Mostrar spinner de diagnóstico pre-desactivación
+    Swal.fire({
+      title: `Analizando estado de ${comercioName}...`,
+      html: `<div style="padding: 1rem 0; color: var(--color-text-muted); font-size: 0.9rem;">Verificando pedidos en curso, stock físico en bodega y facturación pendiente...</div>`,
+      allowOutsideClick: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+
+    let inFlightOrdersCount = 0;
+    let stockSkusCount = 0;
+    let stockTotalUnits = 0;
+    let unpaidPeriodsCount = 0;
+    let unpaidTotalAmount = 0;
+    let activeIntegrationsCount = 0;
+
+    try {
+      // Resolver nombre de facturación si pertenece a un holding
+      let billingNames = [comercioName];
+      try {
+        const { data: mappings } = await supabase
+          .from('billing_mappings')
+          .select('comercio_nombre, billing_name');
+        const matched = (mappings || []).find(m => (m.comercio_nombre || '').trim().toLowerCase() === comercioName.trim().toLowerCase());
+        if (matched && matched.billing_name && !billingNames.includes(matched.billing_name)) {
+          billingNames.push(matched.billing_name);
+        }
+      } catch (_e) {}
+
+      const [ordersRes, productsRes, billingRes, intRes] = await Promise.all([
+        supabase
+          .from('orders')
+          .select('id, estado_wms, status')
+          .eq('comercio', comercioName)
+          .in('estado_wms', ['En procesamiento', 'En preparación', 'Pickeado', 'Listo para despacho', 'En ruta']),
+        supabase
+          .from('products')
+          .select('id, stock')
+          .eq('comercio', comercioName)
+          .gt('stock', 0),
+        supabase
+          .from('billing_records')
+          .select('id, comercio, total_fulfillment, abono_fulfillment, pago_fulfillment, enviame, abono_enviame, pago_enviame')
+          .in('comercio', billingNames),
+        supabase
+          .from('merchant_integrations')
+          .select('id, platform, is_active')
+          .eq('comercio', comercioName)
+          .eq('is_active', true)
+      ]);
+
+      if (ordersRes.data) {
+        inFlightOrdersCount = ordersRes.data.filter(o => {
+          const st = String(o.status || '').toLowerCase();
+          return !['entregado', 'cancelado', 'anulado', 'devuelto'].includes(st);
+        }).length;
+      }
+
+      if (productsRes.data) {
+        stockSkusCount = productsRes.data.length;
+        stockTotalUnits = productsRes.data.reduce((acc, p) => acc + (Number(p.stock) || 0), 0);
+      }
+
+      if (billingRes.data) {
+        billingRes.data.forEach(r => {
+          const pendFulf = Math.max(0, (Number(r.total_fulfillment) || 0) - (Number(r.abono_fulfillment) || 0));
+          const pendEnv = Math.max(0, (Number(r.enviame) || 0) - (Number(r.abono_enviame) || 0));
+          const fulfPaid = ['Recibido', 'aprobado', 'Sin movimientos'].includes(r.pago_fulfillment);
+          const envPaid = ['Recibido', 'aprobado', 'Sin movimientos'].includes(r.pago_enviame);
+          const rowPending = (!fulfPaid ? pendFulf : 0) + (!envPaid ? pendEnv : 0);
+          if (rowPending > 0) {
+            unpaidPeriodsCount++;
+            unpaidTotalAmount += rowPending;
+          }
+        });
+      }
+
+      if (intRes.data) {
+        activeIntegrationsCount = intRes.data.length;
+      }
+    } catch (diagErr) {
+      console.warn('[Merchants] Advertencia en diagnóstico pre-desactivación:', diagErr);
+    }
+
+    const hasWarnings = inFlightOrdersCount > 0 || stockTotalUnits > 0 || unpaidPeriodsCount > 0;
+    const formatClp = (n) => '$' + Math.round(n).toLocaleString('es-CL');
+
+    const { isConfirmed, value: reasonText } = await Swal.fire({
+      title: `<span style="font-size: 1.15rem; font-weight: 700; color: #0f172a;">Desactivar Comercio: ${window.escapeHtml(comercioName)}</span>`,
+      width: 620,
+      html: `
+        <div style="text-align: left; font-size: 0.85rem; color: #334155; line-height: 1.45;">
+          <div style="background: ${hasWarnings ? '#fffbeb' : '#f0fdf4'}; border: 1px solid ${hasWarnings ? '#fde68a' : '#bbf7d0'}; border-radius: 10px; padding: 0.9rem 1rem; margin-bottom: 1rem;">
+            <div style="font-weight: 700; font-size: 0.85rem; color: ${hasWarnings ? '#92400e' : '#166534'}; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="${hasWarnings ? 'ri-error-warning-fill' : 'ri-checkbox-circle-fill'}" style="font-size: 1.1rem;"></i>
+              Diagnóstico Operativo Pre-Desactivación
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem;">
+              <div style="background: #ffffff; border: 1px solid ${inFlightOrdersCount > 0 ? '#fcd34d' : '#e2e8f0'}; border-radius: 8px; padding: 0.55rem 0.65rem;">
+                <div style="font-size: 0.7rem; color: #64748b; font-weight: 600;">Pedidos en Curso</div>
+                <div style="font-size: 1rem; font-weight: 800; color: ${inFlightOrdersCount > 0 ? '#d97706' : '#16a34a'}; margin-top: 2px;">
+                  ${inFlightOrdersCount} ${inFlightOrdersCount === 1 ? 'pedido' : 'pedidos'}
+                </div>
+              </div>
+              <div style="background: #ffffff; border: 1px solid ${stockTotalUnits > 0 ? '#fcd34d' : '#e2e8f0'}; border-radius: 8px; padding: 0.55rem 0.65rem;">
+                <div style="font-size: 0.7rem; color: #64748b; font-weight: 600;">Stock en Bodega</div>
+                <div style="font-size: 1rem; font-weight: 800; color: ${stockTotalUnits > 0 ? '#d97706' : '#16a34a'}; margin-top: 2px;">
+                  ${stockTotalUnits.toLocaleString('es-CL')} un. <span style="font-size: 0.72rem; font-weight: 600; color: #64748b;">(${stockSkusCount} SKUs)</span>
+                </div>
+              </div>
+              <div style="background: #ffffff; border: 1px solid ${unpaidPeriodsCount > 0 ? '#fca5a5' : '#e2e8f0'}; border-radius: 8px; padding: 0.55rem 0.65rem;">
+                <div style="font-size: 0.7rem; color: #64748b; font-weight: 600;">Saldos Impagos</div>
+                <div style="font-size: 0.95rem; font-weight: 800; color: ${unpaidPeriodsCount > 0 ? '#dc2626' : '#16a34a'}; margin-top: 2px;">
+                  ${unpaidPeriodsCount > 0 ? `${formatClp(unpaidTotalAmount)} (${unpaidPeriodsCount})` : 'Sin deuda ($0)'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 1rem;">
+            <div style="font-weight: 700; font-size: 0.82rem; color: #0f172a; margin-bottom: 0.4rem;">
+              Efectos automáticos al desactivar este comercio:
+            </div>
+            <ul style="margin: 0; padding-left: 1.15rem; font-size: 0.8rem; color: #475569; display: flex; flex-direction: column; gap: 0.3rem;">
+              <li><strong>Cese de recepción de pedidos:</strong> Se apagarán sus <strong>${activeIntegrationsCount} integraciones activas</strong>, webhooks, llaves API y selectores de creación manual/POS.</li>
+              <li><strong>Exclusión de nuevos periodos de facturación:</strong> No se generarán registros en futuros periodos (el historial de cobros permanece intacto).</li>
+              <li><strong>Exclusión de comunicados:</strong> Sus contactos y usuarios dejarán de aparecer en envíos masivos de comunicados.</li>
+              <li><strong>Portal de cliente en solo lectura:</strong> Los usuarios podrán consultar su historial, pero no crear pedidos, ingresos de stock ni reconectar tiendas.</li>
+            </ul>
+          </div>
+
+          <div>
+            <label for="swal-merchant-inactivate-reason" style="display: block; font-size: 0.78rem; font-weight: 700; color: #1e293b; margin-bottom: 0.35rem;">
+              Motivo de desactivación (opcional):
+            </label>
+            <input type="text" id="swal-merchant-inactivate-reason" class="swal2-input" placeholder="Ej: Término de servicio, cierre de tienda, solicitud del cliente..." style="width: 100%; margin: 0; height: 38px; font-size: 0.84rem; box-sizing: border-box;">
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: '<i class="ri-shut-down-line"></i> Confirmar Desactivación',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#dc2626',
+      cancelButtonColor: '#64748b',
+      focusConfirm: false,
+      preConfirm: () => {
+        return (document.getElementById('swal-merchant-inactivate-reason')?.value || '').trim();
+      }
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      Swal.fire({
+        title: 'Desactivando comercio...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      const nowIso = new Date().toISOString();
+      const motivoClean = reasonText || null;
+
+      // 1. Obtener fila actual de comercios_adicional_config
+      const { data: existingCfg } = await supabase
+        .from('comercios_adicional_config')
+        .select('*')
+        .eq('comercio', comercioName)
+        .maybeSingle();
+
+      const oldChecklist = existingCfg?.onboarding_checklist || commerce?.onboarding_checklist || {};
+      const updatedChecklist = {
+        ...oldChecklist,
+        comercio_activo: false,
+        inactivado_at: nowIso,
+        motivo_inactivacion: motivoClean,
+        enabled: false,
+        dismissed: true,
+        pos_active: false
+      };
+
+      const upsertPayload = {
+        ...(existingCfg || {}),
+        comercio: comercioName,
+        comercio_id: existingCfg?.comercio_id || commerce?.id || null,
+        activo: false,
+        inactivado_at: nowIso,
+        motivo_inactivacion: motivoClean,
+        onboarding_checklist: updatedChecklist
+      };
+
+      let { error: cfgErr } = await supabase
+        .from('comercios_adicional_config')
+        .upsert(upsertPayload);
+
+      if (cfgErr && (cfgErr.code === '42703' || cfgErr.code === 'PGRST204' || String(cfgErr.message || '').match(/activo|inactivado_at|motivo_inactivacion/i))) {
+        delete upsertPayload.activo;
+        delete upsertPayload.inactivado_at;
+        delete upsertPayload.motivo_inactivacion;
+        const retryRes = await supabase.from('comercios_adicional_config').upsert(upsertPayload);
+        cfgErr = retryRes.error;
+      }
+
+      if (cfgErr) throw cfgErr;
+
+      // 2. Desactivar todas las integraciones del comercio
+      await supabase
+        .from('merchant_integrations')
+        .update({ is_active: false })
+        .eq('comercio', comercioName);
+
+      // 3. Desactivar llaves de API REST directas si existieran
+      try {
+        await supabase
+          .from('client_api_keys')
+          .update({ is_active: false })
+          .eq('comercio', comercioName);
+      } catch (_apiErr) {}
+
+      // Cerrar modal de edición si estaba abierto
+      const editModal = document.getElementById('modal-edit-merchant');
+      if (editModal) editModal.remove();
+
+      await Swal.fire({
+        icon: 'success',
+        title: 'Comercio Desactivado',
+        html: `El comercio <strong>${window.escapeHtml(comercioName)}</strong> fue desactivado exitosamente.<br><span style="font-size: 0.82rem; color: #64748b;">Sus integraciones quedaron apagadas y no aparecerá en nuevos periodos de facturación ni en comunicados.</span>`,
+        confirmButtonColor: 'var(--color-primary)'
+      });
+
+      if (typeof renderMerchantsAdmin === 'function') {
+        await renderMerchantsAdmin();
+      }
+    } catch (err) {
+      console.error('Error al desactivar comercio:', err);
+      Swal.fire('Error', 'No se pudo desactivar el comercio: ' + (err.message || err), 'error');
+    }
+
+  } else {
+    // REACTIVACIÓN DEL COMERCIO
+    const { isConfirmed } = await Swal.fire({
+      title: `¿Reactivar Comercio ${window.escapeHtml(comercioName)}?`,
+      html: `
+        <div style="text-align: left; font-size: 0.86rem; color: #334155; line-height: 1.5;">
+          <p style="margin: 0 0 0.75rem 0;">
+            Al reactivar <strong>${window.escapeHtml(comercioName)}</strong>:
+          </p>
+          <ul style="margin: 0 0 0.85rem 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.35rem;">
+            <li>Volverá a incluirse en <strong>nuevos periodos de facturación</strong>.</li>
+            <li>Sus contactos y usuarios volverán a aparecer en <strong>comunicados</strong>.</li>
+            <li>Se habilitará la creación de pedidos y su Portal de Clientes saldrá del modo solo lectura.</li>
+          </ul>
+          <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 0.75rem; font-size: 0.8rem; color: #1e40af;">
+            <i class="ri-shield-keyhole-line" style="font-weight: bold; margin-right: 0.25rem;"></i>
+            <strong>Seguridad de Integraciones:</strong> Sus integraciones (Shopify, MercadoLibre, etc.) se mantendrán <strong>desconectadas</strong> hasta que tú o el comercio elijan cuáles volver a encender.
+          </div>
+        </div>
+      `,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: '<i class="ri-restart-line"></i> Sí, Reactivar Comercio',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#10b981',
+      cancelButtonColor: '#64748b'
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      Swal.fire({
+        title: 'Reactivando comercio...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      const { data: existingCfg } = await supabase
+        .from('comercios_adicional_config')
+        .select('*')
+        .eq('comercio', comercioName)
+        .maybeSingle();
+
+      const oldChecklist = existingCfg?.onboarding_checklist || commerce?.onboarding_checklist || {};
+      const updatedChecklist = {
+        ...oldChecklist,
+        comercio_activo: true,
+        inactivado_at: null,
+        motivo_inactivacion: null
+      };
+
+      const upsertPayload = {
+        ...(existingCfg || {}),
+        comercio: comercioName,
+        comercio_id: existingCfg?.comercio_id || commerce?.id || null,
+        activo: true,
+        inactivado_at: null,
+        motivo_inactivacion: null,
+        onboarding_checklist: updatedChecklist
+      };
+
+      let { error: cfgErr } = await supabase
+        .from('comercios_adicional_config')
+        .upsert(upsertPayload);
+
+      if (cfgErr && (cfgErr.code === '42703' || cfgErr.code === 'PGRST204' || String(cfgErr.message || '').match(/activo|inactivado_at|motivo_inactivacion/i))) {
+        delete upsertPayload.activo;
+        delete upsertPayload.inactivado_at;
+        delete upsertPayload.motivo_inactivacion;
+        const retryRes = await supabase.from('comercios_adicional_config').upsert(upsertPayload);
+        cfgErr = retryRes.error;
+      }
+
+      if (cfgErr) throw cfgErr;
+
+      const editModal = document.getElementById('modal-edit-merchant');
+      if (editModal) editModal.remove();
+
+      await Swal.fire({
+        icon: 'success',
+        title: 'Comercio Reactivado',
+        html: `El comercio <strong>${window.escapeHtml(comercioName)}</strong> está nuevamente activo.<br><span style="font-size: 0.82rem; color: #64748b;">Puedes encender las integraciones que necesites desde el botón "Integraciones" del comercio.</span>`,
+        confirmButtonColor: 'var(--color-primary)'
+      });
+
+      if (typeof renderMerchantsAdmin === 'function') {
+        await renderMerchantsAdmin();
+      }
+    } catch (err) {
+      console.error('Error al reactivar comercio:', err);
+      Swal.fire('Error', 'No se pudo reactivar el comercio: ' + (err.message || err), 'error');
+    }
+  }
+};
+
 // Modal de Integraciones
 window.showMerchantIntegrationsModal = function(comercioName) {
   const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
@@ -71400,9 +72953,12 @@ window.showMerchantIntegrationsModal = function(comercioName) {
   modal.id = modalId;
   modal.className = 'modal-overlay active';
 
+  const isMerchantInactive = commerce.activo === false;
+  const safeCommerceAttr = comercioName.replace(/'/g, "\\'");
+
   let rowsHtml = '';
   if (commerce.integrations.length === 0) {
-    rowsHtml = `<tr><td colspan="4" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">Este comercio no posee integraciones registradas.</td></tr>`;
+    rowsHtml = `<tr><td colspan="5" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">Este comercio no posee integraciones registradas.</td></tr>`;
   } else {
     rowsHtml = commerce.integrations.map(i => {
       const activeBadge = i.is_active 
@@ -71415,17 +72971,29 @@ window.showMerchantIntegrationsModal = function(comercioName) {
           <td style="font-size: 0.8rem; word-break: break-all;">${i.shop_url || 'N/A'}</td>
           <td>${activeBadge}</td>
           <td style="font-size: 0.8rem; color: var(--color-text-muted);">${date}</td>
+          <td style="text-align: center;">
+            <label class="merchant-switch" title="${isMerchantInactive ? 'Reactiva primero el comercio para encender integraciones' : (i.is_active ? 'Desactivar integración' : 'Activar integración')}">
+              <input type="checkbox" ${i.is_active ? 'checked' : ''} ${isMerchantInactive && !i.is_active ? 'disabled' : ''} onchange="window.toggleSingleMerchantIntegration('${i.id}', '${safeCommerceAttr}', this.checked)">
+              <span class="merchant-slider"></span>
+            </label>
+          </td>
         </tr>
       `;
     }).join('');
   }
 
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 700px; width: 90%;">
+    <div class="modal-content" style="max-width: 760px; width: 92%;">
       <div class="modal-header">
         <h3 style="margin: 0;"><i class="ri-plug-line"></i> Integraciones: ${comercioName}</h3>
         <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()">&times;</button>
       </div>
+      ${isMerchantInactive ? `
+        <div style="background: rgba(245, 158, 11, 0.12); border-bottom: 1px solid rgba(245, 158, 11, 0.35); padding: 0.7rem 1.25rem; font-size: 0.82rem; color: #b45309; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-information-line" style="font-size: 1.1rem;"></i>
+          <span>Este comercio está <strong>Desactivado</strong>. Para volver a encender alguna integración, primero reactiva el comercio.</span>
+        </div>
+      ` : ''}
       <div class="modal-body" style="padding: 0; overflow-x: auto;">
         <table class="data-table" style="margin: 0; width: 100%;">
           <thead>
@@ -71434,6 +73002,7 @@ window.showMerchantIntegrationsModal = function(comercioName) {
               <th>Tienda URL</th>
               <th>Estado</th>
               <th>Fecha de Creación</th>
+              <th style="text-align: center;">Recibir Pedidos</th>
             </tr>
           </thead>
           <tbody>
@@ -73124,6 +74693,9 @@ window.showMerchantEditModal = async function(comercioName) {
                   Configurar Comercio: ${comercioName}
                 </h3>
                 <span style="font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; font-weight: 700; background: rgba(37,99,235,0.08); color: var(--color-primary); border: 1px solid rgba(37,99,235,0.2); letter-spacing: 0.5px;">${commerce.sigla || 'SIN SIGLA'}</span>
+                <span style="font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; font-weight: 600; ${commerce.activo !== false ? 'background: rgba(37,99,235,0.1); color: var(--color-primary); border: 1px solid rgba(37,99,235,0.25);' : 'background: rgba(100,116,139,0.18); color: #475569; border: 1px solid rgba(100,116,139,0.35);'}">
+                  ${commerce.activo !== false ? '● Comercio Activo' : '● Comercio Desactivado'}
+                </span>
                 <span style="font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; font-weight: 600; ${commerce.al_dia ? 'background: rgba(16,185,129,0.1); color: var(--color-success); border: 1px solid rgba(16,185,129,0.25);' : 'background: rgba(239,68,68,0.1); color: var(--color-danger); border: 1px solid rgba(239,68,68,0.25);'}">
                   ${commerce.al_dia ? '● Facturación Activa' : '● Suspendido'}
                 </span>
@@ -73211,6 +74783,25 @@ window.showMerchantEditModal = async function(comercioName) {
                   <input type="text" id="merchant-edit-rut" class="form-input" value="${commerce.rut || ''}" placeholder="Ej: 76.123.456-7" style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
                   <p class="merchant-form-hint">RUT comercial de la empresa.</p>
                 </div>
+              </div>
+
+              <!-- Estado Operativo General (Activar / Desactivar Comercio) -->
+              <div style="margin-top: 1rem; padding: 0.85rem 1rem; border-radius: var(--radius-sm); border: 1px solid ${commerce.activo !== false ? 'rgba(239, 68, 68, 0.25)' : 'rgba(16, 185, 129, 0.35)'}; background: ${commerce.activo !== false ? 'rgba(239, 68, 68, 0.03)' : 'rgba(16, 185, 129, 0.05)'}; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 240px;">
+                  <div style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                    <i class="${commerce.activo !== false ? 'ri-shut-down-line' : 'ri-restart-line'}" style="color: ${commerce.activo !== false ? 'var(--color-danger)' : 'var(--color-success)'};"></i>
+                    ${commerce.activo !== false ? 'Dar de Baja / Desactivar Comercio' : 'Comercio Desactivado (Dado de Baja)'}
+                  </div>
+                  <p style="margin: 0.2rem 0 0 0; font-size: 0.72rem; color: var(--color-text-muted); line-height: 1.35;">
+                    ${commerce.activo !== false
+                      ? 'Detiene la recepción de pedidos (apaga integraciones y webhooks), lo excluye de nuevos periodos de facturación y oculta sus contactos de los comunicados masivos.'
+                      : `Este comercio se encuentra inactivo${commerce.inactivado_at ? ' desde el ' + new Date(commerce.inactivado_at).toLocaleDateString('es-CL') : ''}${commerce.motivo_inactivacion ? ' — Motivo: ' + window.escapeHtml(commerce.motivo_inactivacion) : ''}.`}
+                  </p>
+                </div>
+                <button type="button" onclick="window.openToggleMerchantActiveModal('${commerce.nombre.replace(/'/g, "\\'")}', ${commerce.activo === false ? 'true' : 'false'})" class="btn btn-sm" style="background: ${commerce.activo !== false ? 'var(--color-danger)' : 'var(--color-success)'}; color: #ffffff; border: none; font-weight: 700; font-size: 0.78rem; padding: 0.45rem 0.9rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;">
+                  <i class="${commerce.activo !== false ? 'ri-shut-down-line' : 'ri-restart-line'}"></i>
+                  ${commerce.activo !== false ? 'Desactivar Comercio...' : 'Reactivar Comercio'}
+                </button>
               </div>
             </div>
 
@@ -82307,22 +83898,32 @@ window.loadBillingContactsTab = async function() {
       .from('profiles')
       .select('comercio')
       .eq('role', 'client');
+
+    const inactiveSet = typeof window.fetchInactiveMerchantsSet === 'function'
+      ? await window.fetchInactiveMerchantsSet()
+      : new Set();
       
     const commerceOptions = new Set();
     if (!profError && profiles) {
       profiles.forEach(p => {
         if (p.comercio && p.comercio !== 'all') {
-          p.comercio.split(',').forEach(c => commerceOptions.add(c.trim()));
+          p.comercio.split(',').forEach(c => {
+            const trimmed = c.trim();
+            if (trimmed && !inactiveSet.has(trimmed.toUpperCase())) {
+              commerceOptions.add(trimmed);
+            }
+          });
         }
       });
     }
     const commerceList = Array.from(commerceOptions).sort();
+    const activeContacts = (contacts || []).filter(c => !c.comercio || !inactiveSet.has(c.comercio.trim().toUpperCase()));
     
     let html = `
       <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); flex-wrap: wrap; gap: 1rem;">
         <div>
           <h3 style="margin: 0; font-size: 1.1rem;"><i class="ri-contacts-book-line"></i> Contactos de Facturación</h3>
-          <p style="margin: 0.15rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">Gestiona los correos de finanzas por comercio para notificaciones vía Brevo</p>
+          <p style="margin: 0.15rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">Gestiona los correos de finanzas por comercio activo para notificaciones vía Brevo</p>
         </div>
         <div>
           <button class="btn btn-primary" onclick="window.openAddContactModal(${JSON.stringify(commerceList).replace(/"/g, '&quot;')})">
@@ -82333,15 +83934,15 @@ window.loadBillingContactsTab = async function() {
       <div class="card-body table-responsive" style="padding: 0;">
     `;
     
-    if (!contacts || contacts.length === 0) {
+    if (!activeContacts || activeContacts.length === 0) {
       html += `
         <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
-          No hay contactos de facturación registrados.
+          No hay contactos de facturación registrados para comercios activos.
         </div>
       `;
     } else {
       let tableRows = '';
-      contacts.forEach(c => {
+      activeContacts.forEach(c => {
         tableRows += `
           <tr>
             <td style="font-weight: 600; color: var(--color-text-main); padding: 0.75rem 1.25rem;">${c.comercio}</td>
@@ -96740,10 +98341,13 @@ window.openCatalogBulkCreateModal = async function(preferredCommerce) {
         .order('nombre');
 
       if (!comErr && comercios) {
+        const inactiveSet = typeof window.fetchInactiveMerchantsSet === 'function'
+          ? await window.fetchInactiveMerchantsSet()
+          : new Set();
         const uniqueClients = [];
         const seen = new Set();
         comercios.forEach(c => {
-          if (c.nombre && !seen.has(c.nombre)) {
+          if (c.nombre && !seen.has(c.nombre) && !inactiveSet.has(c.nombre.trim().toUpperCase())) {
             seen.add(c.nombre);
             uniqueClients.push(c);
           }
@@ -105743,13 +107347,16 @@ window.openAdminReverseLogisticsOrderModal = async function(type) {
     
     try {
       const { data: profiles } = await supabase.from('profiles').select('comercio').neq('role', 'admin');
+      const inactiveSet = typeof window.fetchInactiveMerchantsSet === 'function'
+        ? await window.fetchInactiveMerchantsSet()
+        : new Set();
       const commercesSet = new Set();
       if (profiles) {
         profiles.forEach(p => {
           if (p.comercio) {
             p.comercio.split(',').forEach(c => {
               const trimmed = c.trim();
-              if (trimmed && trimmed.toLowerCase() !== 'no asignado' && trimmed.toLowerCase() !== 'all') {
+              if (trimmed && trimmed.toLowerCase() !== 'no asignado' && trimmed.toLowerCase() !== 'all' && !inactiveSet.has(trimmed.toUpperCase())) {
                 commercesSet.add(trimmed);
               }
             });
@@ -110001,14 +111608,19 @@ window.openCreateOrderModal = async function() {
 
       if (comErr) throw comErr;
 
-      if (comerciosData && comerciosData.length > 0) {
-        commerceSelect.innerHTML = comerciosData.map(c => `
+      const inactiveSet = typeof window.fetchInactiveMerchantsSet === 'function'
+        ? await window.fetchInactiveMerchantsSet()
+        : new Set();
+      const activeComerciosData = (comerciosData || []).filter(c => c.nombre && !inactiveSet.has(c.nombre.trim().toUpperCase()));
+
+      if (activeComerciosData.length > 0) {
+        commerceSelect.innerHTML = activeComerciosData.map(c => `
           <option value="${c.nombre}" data-sigla="${c.sigla || ''}">${c.nombre}</option>
         `).join('');
 
         // Preseleccionar si hay filtro activo en WMS
         const currentFilteredCommerce = document.getElementById('filter-commerce')?.value;
-        if (currentFilteredCommerce && comerciosData.some(c => c.nombre === currentFilteredCommerce)) {
+        if (currentFilteredCommerce && activeComerciosData.some(c => c.nombre === currentFilteredCommerce)) {
           commerceSelect.value = currentFilteredCommerce;
         }
       } else {

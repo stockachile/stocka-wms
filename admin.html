@@ -2964,9 +2964,14 @@
                 </div>
               </div>
 
-              <div>
-                <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Bodega Asignada</span>
-                <div id="manage-dec-warehouse-name" style="color: var(--color-text-main); font-weight: 500;"></div>
+              <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.6rem 0.8rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 0;">
+                  <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Sucursal / Bodega Asignada</span>
+                  <div id="manage-dec-warehouse-name" style="color: var(--color-text-main); font-weight: 500;"></div>
+                </div>
+                <button type="button" class="btn btn-outline btn-sm" onclick="window.openChangeDeclarationWarehouseModal(document.getElementById('manage-dec-id').value)" style="font-size: 0.76rem; padding: 0.35rem 0.65rem; border-color: #7c3aed; color: #7c3aed; background: rgba(124, 58, 237, 0.06); font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 6px; white-space: nowrap;" title="Asignar o cambiar la sucursal de destino y notificar al comercio">
+                  <i class="ri-building-2-line"></i> Cambiar Sucursal
+                </button>
               </div>
 
               <div style="border-top: 1px dashed var(--color-border); padding-top: 0.75rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: auto;">
@@ -3270,6 +3275,93 @@
                 </div>
               </div>
 
+              <!-- Asignación / Cambio Dinámico de Sucursal (Bodega) — Ubicado inmediatamente debajo de las acciones de etapa -->
+              <style>
+                @keyframes pulseWarehouseAttention {
+                  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.35), 0 8px 20px rgba(245, 158, 11, 0.12); }
+                  50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0), 0 8px 24px rgba(245, 158, 11, 0.22); }
+                }
+                @keyframes pulseWarehouseSelected {
+                  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.28), 0 8px 20px rgba(16, 185, 129, 0.12); }
+                  50% { box-shadow: 0 0 0 5px rgba(16, 185, 129, 0), 0 8px 24px rgba(16, 185, 129, 0.2); }
+                }
+                .warehouse-choice-card {
+                  position: relative;
+                  display: flex;
+                  flex-direction: column;
+                  gap: 0.35rem;
+                  padding: 0.8rem 0.95rem;
+                  border-radius: 10px;
+                  border: 1.5px solid var(--color-border);
+                  background: var(--color-bg);
+                  cursor: pointer;
+                  transition: all 0.18s ease;
+                  text-align: left;
+                  user-select: none;
+                }
+                .warehouse-choice-card:hover {
+                  border-color: #7c3aed;
+                  background: rgba(124, 58, 237, 0.04);
+                  transform: translateY(-2px);
+                  box-shadow: 0 6px 14px rgba(124, 58, 237, 0.1);
+                }
+                .warehouse-choice-card.selected {
+                  border: 2px solid #10b981;
+                  background: linear-gradient(135deg, rgba(16, 185, 129, 0.11) 0%, rgba(16, 185, 129, 0.03) 100%);
+                  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.16);
+                }
+                #manage-dec-group-warehouse.warehouse-spotlight-active {
+                  border: 2px solid #10b981 !important;
+                  background: linear-gradient(180deg, rgba(16, 185, 129, 0.06) 0%, var(--color-surface) 100%) !important;
+                  animation: pulseWarehouseSelected 2.6s infinite ease-in-out;
+                }
+                #manage-dec-group-warehouse.warehouse-spotlight-warning {
+                  border: 2px solid #f59e0b !important;
+                  background: linear-gradient(180deg, rgba(245, 158, 11, 0.08) 0%, var(--color-surface) 100%) !important;
+                  animation: pulseWarehouseAttention 2s infinite ease-in-out;
+                }
+              </style>
+              <div class="form-group" id="manage-dec-group-warehouse" style="background: var(--color-surface); padding: 1.15rem 1.25rem; border-radius: 12px; border: 1.5px solid var(--color-border); margin-bottom: 0; box-shadow: 0 4px 12px rgba(0,0,0,0.04); transition: all 0.25s ease;">
+                <!-- Banner de atención dinámica cuando se selecciona "Avanzar a: Bodega Asignada" -->
+                <div id="manage-dec-warehouse-spotlight-banner" style="display: none; margin-bottom: 0.85rem; padding: 0.65rem 0.9rem; border-radius: 8px; font-size: 0.82rem; font-weight: 600; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;"></div>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                  <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(124, 58, 237, 0.12); color: #7c3aed; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; flex-shrink: 0;">
+                      <i class="ri-building-2-line"></i>
+                    </div>
+                    <div>
+                      <label class="form-label" style="font-weight: 800; margin-bottom: 0; display: flex; align-items: center; gap: 0.4rem; color: var(--color-text-main); font-size: 0.95rem; line-height: 1.2;">
+                        <span>Elección de Sucursal / Bodega de Destino *</span>
+                        <span id="manage-dec-warehouse-Required-pill" class="badge" style="background: rgba(124, 58, 237, 0.12); color: #7c3aed; font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 999px;">Requerido</span>
+                      </label>
+                      <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block;">Haz clic en una tarjeta de sucursal o usa el selector desplegable</span>
+                    </div>
+                  </div>
+                  <button type="button" class="btn btn-sm" id="btn-quick-save-warehouse" onclick="window.saveDeclarationWarehouseDirect()" style="font-size: 0.76rem; padding: 0.4rem 0.85rem; background: #7c3aed; color: white; border: none; border-radius: 7px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; cursor: pointer; box-shadow: 0 2px 6px rgba(124, 58, 237, 0.25);" title="Guardar cambio de sucursal inmediatamente y notificar al comercio">
+                    <i class="ri-send-plane-fill"></i> Aplicar y Notificar Sucursal
+                  </button>
+                </div>
+
+                <!-- Grid interactivo de Tarjetas de Sucursal (Renderizado dinámicamente) -->
+                <div id="manage-dec-warehouse-cards-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.65rem; margin-bottom: 0.75rem;">
+                  <!-- Tarjetas de bodegas inyectadas por JS -->
+                </div>
+
+                <!-- Selector clásico sincronizado + Resumen de dirección seleccionada -->
+                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                  <select id="manage-dec-warehouse-select" class="form-input" style="font-weight: 700; font-size: 0.88rem; height: 40px; border-color: rgba(124, 58, 237, 0.35);" onchange="window.onManageWarehouseSelectChange(this.value)">
+                    <option value="">-- Selecciona una Sucursal / Bodega --</option>
+                  </select>
+                  <div id="manage-dec-warehouse-live-summary" style="display: none; padding: 0.65rem 0.85rem; border-radius: 8px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.28); font-size: 0.8rem; color: var(--color-text-main);"></div>
+                </div>
+
+                <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.65rem; padding-top: 0.55rem; border-top: 1px dashed var(--color-border); cursor: pointer;">
+                  <input type="checkbox" id="manage-dec-notify-warehouse-change" checked style="width: 15px; height: 15px; accent-color: #7c3aed; cursor: pointer;">
+                  <span>Notificar asignación / cambio de sucursal al usuario comercio (Correo electrónico + Alerta en plataforma)</span>
+                </label>
+              </div>
+
               <!-- Panel de Ajustes / Ingreso de Conteo -->
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.85rem; background: var(--color-surface); padding: 1rem 1.25rem; border-radius: 10px; border: 1px solid var(--color-border);">
                 <div class="form-group" id="manage-dec-group-received" style="margin-bottom: 0;">
@@ -3323,14 +3415,6 @@
                   <!-- Inputs dinámicos -->
                 </div>
                 <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.5rem 0 0 0; font-style: italic;">Indica la descripción de cada incidencia detectada en la recepción física o empaque.</p>
-              </div>
-
-              <!-- Asignación de Bodega -->
-              <div class="form-group" id="manage-dec-group-warehouse" style="display: none; background: var(--color-surface); padding: 1rem 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 0;">
-                <label class="form-label" style="font-weight: 600;">Asignar Bodega *</label>
-                <select id="manage-dec-warehouse-select" class="form-input">
-                  <option value="">-- Selecciona una Bodega --</option>
-                </select>
               </div>
 
               <!-- Comentarios Operativos de Avance y Recepción -->
@@ -4963,23 +5047,23 @@
   <script src="./js/inventory_sheets.js?v=1.0.3"></script>
   <script src="./js/export_manager.js?v=1.0.2"></script>
   <script src="./js/toast_notifications.js?v=1.0.1"></script>
-  <script src="./js/inbound_notifications.js?v=1.0.4"></script>
+  <script src="./js/inbound_notifications.js?v=1.0.5"></script>
   <script src="./js/inventory_notifications.js?v=1.0.0"></script>
   <script src="./js/integration_notifications.js?v=1.0.0"></script>
   <script type="module" src="./js/split_orders.js?v=1.0.0"></script>
   <script type="module" src="./js/consolidate_orders.js?v=1.0.2"></script>
   <script type="module" src="./js/picking_requests.js?v=1.0.4"></script>
   <script src="./js/agendas_grid.js?v=1.0.6"></script>
-  <script type="module" src="./js/merchants_radar.js?v=1.7.0"></script>
+  <script type="module" src="./js/merchants_radar.js?v=1.7.1"></script>
   <script src="./js/db-cache.js?v=1.0.0"></script>
-  <script type="module" src="./js/admin.js?v=1.5.38"></script>
+  <script type="module" src="./js/admin.js?v=1.5.42"></script>
   <script type="module" src="./js/stock_transfers.js?v=1.0.3"></script>
   <script type="module" src="./js/order_editor.js?v=1.0.1"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.5"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
-  <script type="module" src="./js/billing_generator.js?v=1.3.9"></script>
+  <script type="module" src="./js/billing_generator.js?v=1.3.10"></script>
   <script src="./js/manifests.js?v=1.0.1"></script>
-  <script type="module" src="./js/pos_admin.js?v=1.0.15"></script>
+  <script type="module" src="./js/pos_admin.js?v=1.0.16"></script>
   <script type="module" src="./js/inventory_count.js?v=1.0.10"></script>
   <script src="./js/inventory_locations.js?v=1.0.8"></script>
   <script type="module" src="./js/order_page.js?v=1.0.11"></script>

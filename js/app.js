@@ -14665,6 +14665,7 @@ async function renderIntegrations() {
     // Obtener las integraciones de este comercio y su configuración adicional
     let emailColaborador = null;
     let integrationsList = [];
+    let isCurrentIntegrationCommerceDeactivated = false;
     try {
       const [integrationsRes, configRes] = await Promise.all([
         supabase
@@ -14673,13 +14674,16 @@ async function renderIntegrations() {
           .eq('comercio', window.activeIntegrationCommerce),
         supabase
           .from('comercios_adicional_config')
-          .select('email_colaborador')
+          .select('*')
           .eq('comercio', window.activeIntegrationCommerce)
           .maybeSingle()
       ]);
       if (integrationsRes.error) throw integrationsRes.error;
       integrationsList = integrationsRes.data || [];
       emailColaborador = configRes.data ? configRes.data.email_colaborador : null;
+      if (configRes.data && (configRes.data.activo === false || configRes.data?.onboarding_checklist?.comercio_activo === false)) {
+        isCurrentIntegrationCommerceDeactivated = true;
+      }
     } catch(err) {
       console.error("Error fetching integrations/config details:", err);
       const { data, error: fetchErr } = await supabase
@@ -14688,6 +14692,21 @@ async function renderIntegrations() {
         .eq('comercio', window.activeIntegrationCommerce);
       if (fetchErr) throw fetchErr;
       integrationsList = data || [];
+    }
+
+    if (isCurrentIntegrationCommerceDeactivated) {
+      appContent.innerHTML = getObserverBanner() + `
+        <div class="card" style="margin: 2rem auto; max-width: 680px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 2rem; text-align: center;">
+          <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(100, 116, 139, 0.12); color: #475569; display: flex; align-items: center; justify-content: center; font-size: 1.75rem; margin: 0 auto 1rem auto;">
+            <i class="ri-shut-down-line"></i>
+          </div>
+          <h3 style="margin: 0 0 0.5rem 0; font-size: 1.2rem; color: var(--color-text-main);">Integraciones Deshabilitadas (${window.activeIntegrationCommerce})</h3>
+          <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted); line-height: 1.5;">
+            Este comercio se encuentra <strong>desactivado (modo solo lectura)</strong>. Sus integraciones fueron desconectadas para detener la recepción de nuevos pedidos. Si deseas reactivar tu cuenta, por favor contacta a tu ejecutivo de cuenta (KAM) en Stocka.
+          </p>
+        </div>
+      `;
+      return;
     }
 
     const shopifyIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Shopify') : null;
@@ -17998,6 +18017,13 @@ async function renderIntegrations() {
         alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
         return;
       }
+      const deactivatedList = (window.deactivatedComercios || []).map(c => c.trim().toLowerCase());
+      const rawCompanies = currentCompany ? currentCompany.split(',').map(c => c.trim()).filter(Boolean) : [];
+      const activeCompanies = rawCompanies.filter(c => !deactivatedList.includes(c.toLowerCase()));
+      if (rawCompanies.length > 0 && activeCompanies.length === 0) {
+        alert('Modo Solo Lectura: Tu comercio se encuentra desactivado y no puede crear nuevos pedidos.');
+        return;
+      }
       const modalOrder = document.getElementById('modal-order');
       const dropdownListEl = document.getElementById('order-product-dropdown-list');
       if (dropdownListEl) {
@@ -18022,8 +18048,8 @@ async function renderIntegrations() {
       if (hiddenInput) hiddenInput.value = '';
       window.renderClientNewOrderItemsTable();
 
-      // Configurar selector de comercio
-      const companies = currentCompany ? currentCompany.split(',').map(c => c.trim()).filter(Boolean) : [];
+      // Configurar selector de comercio (solo comercios activos)
+      const companies = activeCompanies.length > 0 ? activeCompanies : rawCompanies;
       const commerceSelectContainer = document.getElementById('order-commerce-select-container');
       const commerceSelect = document.getElementById('order-select-commerce');
       if (commerceSelectContainer && commerceSelect) {
@@ -36485,6 +36511,26 @@ async function checkBillingSuspension(companyStr) {
   try {
     const list = companyStr.split(',').map(c => c.trim()).filter(Boolean);
     if (list.length === 0) return;
+
+    // 0. Verificar si el comercio se encuentra desactivado (modo solo lectura)
+    try {
+      const { data: adConfigs } = await supabase
+        .from('comercios_adicional_config')
+        .select('*')
+        .in('comercio', list);
+      const deactivated = (adConfigs || [])
+        .filter(cfg => cfg && (cfg.activo === false || cfg?.onboarding_checklist?.comercio_activo === false))
+        .map(cfg => cfg.comercio);
+      window.deactivatedComercios = deactivated;
+      if (deactivated.length > 0) {
+        showDeactivatedCommerceBanner(deactivated);
+      } else {
+        const existingDeactBanner = document.getElementById('commerce-deactivated-readonly-banner');
+        if (existingDeactBanner) existingDeactBanner.remove();
+      }
+    } catch (deactErr) {
+      console.warn('Error checking commerce active status:', deactErr);
+    }
     
     const { data: mappings } = await supabase
       .from('billing_mappings')
@@ -36559,7 +36605,45 @@ async function checkBillingSuspension(companyStr) {
   }
 }
 
+function showDeactivatedCommerceBanner(deactivatedComercios) {
+  if (document.getElementById('commerce-deactivated-readonly-banner')) return;
+  const mainContent = document.querySelector('.main-content');
+  if (!mainContent) return;
+
+  injectSuspensionBannerStyles();
+
+  const banner = document.createElement('div');
+  banner.id = 'commerce-deactivated-readonly-banner';
+  banner.style.cssText = 'background: linear-gradient(135deg, #334155 0%, #1e293b 100%); color: #ffffff; padding: 0.85rem 1.75rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 2px solid #0f172a; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25); position: relative; z-index: 101;';
+  banner.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 0.9rem; flex: 1; min-width: 0;">
+      <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0;">
+        <i class="ri-shut-down-line"></i>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 0.15rem; line-height: 1.35;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <span style="background: rgba(255,255,255,0.18); color: #ffffff; font-size: 0.68rem; font-weight: 800; padding: 0.1rem 0.5rem; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.04em;">
+            Modo Solo Lectura
+          </span>
+          <span style="font-size: 0.88rem; font-weight: 600;">
+            El comercio <strong>${deactivatedComercios.join(', ')}</strong> se encuentra desactivado en el WMS.
+          </span>
+        </div>
+        <div style="font-size: 0.78rem; color: rgba(255,255,255,0.85);">
+          Puedes consultar tu historial de pedidos y facturación, pero la creación de nuevos pedidos, ingresos de stock e integraciones está deshabilitada.
+        </div>
+      </div>
+    </div>
+  `;
+  mainContent.insertBefore(banner, mainContent.firstChild);
+}
+
 async function checkIsCommercePaused(commerceName) {
+  if (window.deactivatedComercios && window.deactivatedComercios.length > 0 && commerceName) {
+    const list = commerceName.split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
+    const allDeactivated = list.length > 0 && list.every(c => window.deactivatedComercios.some(dc => dc.toLowerCase() === c));
+    if (allDeactivated) return true;
+  }
   if (window.pausedBillingComercios && window.pausedBillingComercios.length > 0) {
     if (!commerceName) return true;
     const list = commerceName.split(',').map(c => c.trim().toLowerCase());
@@ -36570,6 +36654,20 @@ async function checkIsCommercePaused(commerceName) {
   try {
     const list = commerceName.split(',').map(c => c.trim()).filter(Boolean);
     if (list.length === 0) return false;
+
+    // Verificar si el comercio está inactivo en comercios_adicional_config
+    const { data: adConfigs } = await supabase
+      .from('comercios_adicional_config')
+      .select('*')
+      .in('comercio', list);
+    if (adConfigs && adConfigs.length > 0) {
+      const inactiveNames = adConfigs
+        .filter(cfg => cfg && (cfg.activo === false || cfg?.onboarding_checklist?.comercio_activo === false))
+        .map(cfg => cfg.comercio.trim().toLowerCase());
+      if (list.every(c => inactiveNames.includes(c.toLowerCase()))) {
+        return true;
+      }
+    }
 
     const { data: mappings } = await supabase
       .from('billing_mappings')

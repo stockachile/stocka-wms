@@ -42,15 +42,16 @@ serve(async (req) => {
     // 2. Obtener la integración y su webhook_secret (Hooks Token) de Jumpseller
     const { data: integration, error: intError } = await supabase
       .from("merchant_integrations")
-      .select("webhook_secret, comercio")
+      .select("webhook_secret, comercio, access_token")
       .eq("merchant_id", merchantId)
       .eq("platform", "Jumpseller")
+      .eq("is_active", true)
       .maybeSingle();
 
     if (intError || !integration || !integration.webhook_secret) {
-      console.error("Integración o webhook_secret no encontrado para:", merchantId);
+      console.error("Integración inactiva o webhook_secret no encontrado para:", merchantId);
       // Retornar 200 para que Jumpseller no reintente indefinitely
-      return new Response("Integration not fully configured", { status: 200 }); 
+      return new Response("Integration not active or not configured", { status: 200 }); 
     }
 
     // 3. Verificación de Seguridad y Cabeceras (tolerante a formato X- y minúsculas)

@@ -124,6 +124,7 @@ serve(async (req) => {
         .select("merchant_id, webhook_secret, comercio, access_token, shop_url, is_main")
         .eq("merchant_id", merchantId)
         .eq("platform", "Tiendanube")
+        .eq("is_active", true)
         .maybeSingle();
 
       if (intError) {
@@ -138,6 +139,7 @@ serve(async (req) => {
         .from("merchant_integrations")
         .select("merchant_id, webhook_secret, comercio, access_token, shop_url, is_main")
         .eq("platform", "Tiendanube")
+        .eq("is_active", true)
         .ilike("shop_url", `%${storeIdFromPayload}%`)
         .limit(1)
         .maybeSingle();

@@ -299,12 +299,13 @@
    */
   function generateInboundEmailHtml(params) {
     const {
-      event, // 'created' | 'warehouse_assigned' | 'received' | 'completed'
+      event, // 'created' | 'warehouse_assigned' | 'warehouse_changed' | 'received' | 'completed'
       shortCode,
       comercio,
       title,
       dec,
       warehouse,
+      previousWarehouse = null,
       status,
       stageComment,
       incidentsList,
@@ -398,12 +399,17 @@
       `;
     }
 
-    // 2. EVENTO: ASIGNACIÓN DE BODEGA
-    else if (event === 'warehouse_assigned') {
-      emailSubject = `🏢 [${shortCode}] Bodega Asignada a tu Ingreso de Stock - ${comercio}`;
-      headerGradient = 'linear-gradient(135deg, #6d28d9, #8b5cf6)';
-      emailTitle = 'Bodega de Destino Asignada';
-      badgeText = 'BODEGA ASIGNADA';
+    // 2. EVENTO: ASIGNACIÓN O CAMBIO DE BODEGA / SUCURSAL
+    else if (event === 'warehouse_assigned' || event === 'warehouse_changed') {
+      const isChange = event === 'warehouse_changed' || Boolean(previousWarehouse && previousWarehouse.name);
+      emailSubject = isChange
+        ? `🏢 [${shortCode}] Cambio de Sucursal / Bodega Asignada - ${comercio}`
+        : `🏢 [${shortCode}] Bodega Asignada a tu Ingreso de Stock - ${comercio}`;
+      headerGradient = isChange
+        ? 'linear-gradient(135deg, #4f46e5, #7c3aed)'
+        : 'linear-gradient(135deg, #6d28d9, #8b5cf6)';
+      emailTitle = isChange ? 'Cambio de Sucursal / Bodega de Destino' : 'Bodega de Destino Asignada';
+      badgeText = isChange ? 'CAMBIO DE SUCURSAL' : 'BODEGA ASIGNADA';
       badgeColor = '#7c3aed';
 
       const whName = warehouse?.name || 'Bodega STOCKA';
@@ -411,18 +417,41 @@
       const whComuna = warehouse?.comuna || 'Santiago';
       const whDays = warehouse?.operating_days || 'Lunes a Viernes';
 
+      const prevWhBannerHtml = (isChange && previousWarehouse && previousWarehouse.name)
+        ? `
+          <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 14px 16px; margin-bottom: 18px; font-size: 13.5px; color: #78350f; line-height: 1.5;">
+            <strong style="display: block; margin-bottom: 4px; color: #92400e;">🔄 Actualización de Sucursal de Recepción:</strong>
+            <span>Sucursal Anterior: <strong style="text-decoration: line-through; color: #b45309;">${previousWarehouse.name}${previousWarehouse.comuna ? ` (${previousWarehouse.comuna})` : ''}</strong></span><br>
+            <span>Nueva Sucursal Asignada: <strong style="color: #065f46; background: #d1fae5; padding: 1px 6px; border-radius: 4px;">${whName} (${whComuna})</strong></span>
+          </div>
+        `
+        : '';
+
+      const commentBoxHtml = stageComment
+        ? `
+          <div style="background-color: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 6px; padding: 12px 15px; margin-bottom: 18px; font-size: 13px; color: #1e3a8a;">
+            <strong>Nota de Operaciones / Administración:</strong> "${stageComment}"
+          </div>
+        `
+        : '';
+
       bodyContentHtml = `
         <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
           Hola equipo <strong>${comercio}</strong>,<br><br>
-          Se ha asignado la bodega física de recepción para tu ingreso de stock <strong>"${title}"</strong> (${shortCode}). Ya puedes coordinar el despacho o entrega con tu transportista hacia la siguiente dirección:
+          ${isChange
+            ? `Te informamos que se ha <strong>modificado la sucursal / bodega física asignada</strong> para la recepción de tu ingreso de stock <strong>"${title}"</strong> (${shortCode}). Por favor considera la siguiente dirección actualizada para coordinar la entrega con tu transportista:`
+            : `Se ha asignado la bodega física de recepción para tu ingreso de stock <strong>"${title}"</strong> (${shortCode}). Ya puedes coordinar el despacho o entrega con tu transportista hacia la siguiente dirección:`}
         </div>
+
+        ${prevWhBannerHtml}
+        ${commentBoxHtml}
 
         <div style="background: linear-gradient(135deg, #f5f3ff, #ede9fe); border: 1.5px solid #c4b5fd; border-radius: 10px; padding: 20px; margin-bottom: 20px;">
           <h4 style="margin: 0 0 12px 0; font-size: 15px; color: #5b21b6; font-weight: 700; display: flex; align-items: center; gap: 6px;">
-            📍 Datos de la Bodega Asignada:
+            📍 ${isChange ? 'Datos de la Nueva Sucursal / Bodega Asignada:' : 'Datos de la Bodega Asignada:'}
           </h4>
           <table style="width: 100%; border-collapse: collapse; font-size: 13.5px; color: #334155;">
-            <tr style="border-bottom: 1px solid #ddd6fe;"><td style="padding: 8px 0; font-weight: 600; width: 38%;">Nombre de Bodega:</td><td style="padding: 8px 0; font-weight: 700; color: #4c1d95; font-size: 14.5px;">${whName}</td></tr>
+            <tr style="border-bottom: 1px solid #ddd6fe;"><td style="padding: 8px 0; font-weight: 600; width: 38%;">Nombre de Sucursal / Bodega:</td><td style="padding: 8px 0; font-weight: 700; color: #4c1d95; font-size: 14.5px;">${whName}</td></tr>
             <tr style="border-bottom: 1px solid #ddd6fe;"><td style="padding: 8px 0; font-weight: 600;">Dirección Completa:</td><td style="padding: 8px 0; font-weight: 600; color: #1e1b4b;">${whAddr}</td></tr>
             <tr style="border-bottom: 1px solid #ddd6fe;"><td style="padding: 8px 0; font-weight: 600;">Comuna:</td><td style="padding: 8px 0; font-weight: 600;">${whComuna}</td></tr>
             <tr style="border-bottom: 1px solid #ddd6fe;"><td style="padding: 8px 0; font-weight: 600;">Días de Operación:</td><td style="padding: 8px 0;">${whDays}</td></tr>
@@ -772,12 +801,13 @@
    */
   async function sendStockInboundNotification(options) {
     const {
-      event, // 'created' | 'warehouse_assigned' | 'received' | 'completed'
+      event, // 'created' | 'warehouse_assigned' | 'warehouse_changed' | 'received' | 'completed'
       declarationId,
       comercio,
       title = 'Ingreso de Stock',
       decData = {},
       warehouse = null,
+      previousWarehouse = null,
       status = null,
       stageComment = '',
       incidentsList = [],
@@ -818,6 +848,7 @@
         title: title,
         dec: decData,
         warehouse: warehouse,
+        previousWarehouse: previousWarehouse,
         status: status || decData.status || 'Creada',
         stageComment: stageComment,
         incidentsList: incidentsList,
@@ -873,8 +904,19 @@
       }
 
       // 5. Crear notificación in-app en dashboard_notifications
-      const inAppMsg = stageComment ? `${generated.subject}. Comentario: "${stageComment}"` : generated.subject;
-      await createInAppNotifications(comercio, `Ingreso de Stock ${shortCode}`, inAppMsg);
+      let inAppTitle = `Ingreso de Stock ${shortCode}`;
+      let inAppMsg = stageComment ? `${generated.subject}. Comentario: "${stageComment}"` : generated.subject;
+      if (event === 'warehouse_changed' && warehouse) {
+        inAppTitle = `Cambio de Sucursal — Ingreso ${shortCode}`;
+        const prevWhText = previousWarehouse && previousWarehouse.name ? ` de "${previousWarehouse.name}"` : '';
+        const newAddrText = [warehouse.address, warehouse.comuna].filter(Boolean).join(', ');
+        inAppMsg = `Se ha cambiado la sucursal asignada para tu ingreso "${title}" (${shortCode})${prevWhText} a "${warehouse.name}"${newAddrText ? ` (${newAddrText})` : ''}.${stageComment ? ` Motivo/Nota: "${stageComment}"` : ''}`;
+      } else if (event === 'warehouse_assigned' && warehouse) {
+        inAppTitle = `Sucursal Asignada — Ingreso ${shortCode}`;
+        const newAddrText = [warehouse.address, warehouse.comuna].filter(Boolean).join(', ');
+        inAppMsg = `Se ha asignado la sucursal "${warehouse.name}"${newAddrText ? ` (${newAddrText})` : ''} para tu ingreso "${title}" (${shortCode}).${stageComment ? ` Nota: "${stageComment}"` : ''}`;
+      }
+      await createInAppNotifications(comercio, inAppTitle, inAppMsg);
 
       return { success: true, recipients: recipients };
     } catch (err) {
