@@ -1,0 +1,34 @@
+name: Integrations Healthcheck & Auto-Healer Guardian
+
+on:
+  schedule:
+    # Se ejecuta cada 6 horas (10:00 UTC = 07:00 AM Chile antes del inicio operativo, 13:00, 19:00 y 01:00 Chile)
+    - cron: '0 4,10,16,22 * * *'
+  workflow_dispatch: # Permite ejecutarlo manualmente desde GitHub Actions o desde el Centro de Integraciones WMS
+
+jobs:
+  guardian:
+    name: Run Integrations Healthcheck Guardian
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Integrations Guardian
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          FORCE_DAILY_SUMMARY: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '0 4,10,16,22 * * *' }}
+        run: node audit_integrations_health.js

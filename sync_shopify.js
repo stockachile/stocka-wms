@@ -132,7 +132,30 @@ async function syncShopifyData() {
     return;
   }
 
+  // Obtener comercios inactivos para omitirlos
+  const inactiveSet = new Set();
+  try {
+    const { data: cfgs } = await supabase
+      .from('comercios_adicional_config')
+      .select('comercio, activo, onboarding_checklist');
+    if (Array.isArray(cfgs)) {
+      cfgs.forEach(c => {
+        if (!c || !c.comercio) return;
+        const isActive = c.activo !== false && c?.onboarding_checklist?.comercio_activo !== false;
+        if (!isActive) inactiveSet.add(c.comercio.trim().toUpperCase());
+      });
+    }
+  } catch (_e) {}
+
   for (const integration of integrations) {
+    if (process.env.TARGET_COMERCIO && (!integration.comercio || integration.comercio.trim().toUpperCase() !== process.env.TARGET_COMERCIO.trim().toUpperCase())) {
+      continue;
+    }
+    if (integration.comercio && inactiveSet.has(integration.comercio.trim().toUpperCase())) {
+      console.log(`⏭️ Omitiendo comercio desactivado en WMS: ${integration.comercio}`);
+      continue;
+    }
+
     console.log(`\n================================`);
     console.log(`Procesando tienda: ${integration.shop_url}`);
     console.log(`Original Merchant ID: ${integration.merchant_id}`);
@@ -163,11 +186,33 @@ async function syncShopifyData() {
     const accessToken = await getValidShopifyToken(integration);
     integration.access_token = accessToken;
 
+    let syncError = null;
+
     // 2. Extraer y Guardar Pedidos (Orders)
-    await syncOrders(integration);
+    try {
+      await syncOrders(integration);
+    } catch (ordErr) {
+      syncError = `Pedidos: ${ordErr.message}`;
+    }
     
     // 3. Extraer y Guardar Productos (Opcional por ahora, pero recomendado)
-    await syncProducts(integration);
+    if (process.env.SKIP_PRODUCTS_SYNC !== 'true') {
+      try {
+        await syncProducts(integration);
+      } catch (prodErr) {
+        syncError = syncError ? `${syncError} | Productos: ${prodErr.message}` : `Productos: ${prodErr.message}`;
+      }
+    }
+
+    try {
+      await supabase
+        .from('merchant_integrations')
+        .update({
+          last_sync_at: new Date().toISOString(),
+          last_sync_error: syncError
+        })
+        .eq('id', integration.id);
+    } catch (_e) {}
   }
 
   console.log('\nSincronización finalizada.');
@@ -733,6 +778,7 @@ async function syncOrders(integration) {
     }
   } catch (error) {
     console.error(`Error sincronizando pedidos para ${integration.shop_url}:`, error.message);
+    throw error;
   }
 }
 
@@ -897,6 +943,7 @@ async function syncProducts(integration) {
 
   } catch (error) {
     console.error(`Error sincronizando productos para ${integration.shop_url}:`, error.message);
+    throw error;
   }
 }
 

@@ -101,7 +101,8 @@ serve(async (req) => {
       'Ripley': 'sync_ripley.yml',
       'Jumpseller': 'sync_jumpseller.yml',
       'Enviame': 'sync_enviame.yml',
-      'Envíame': 'sync_enviame.yml'
+      'Envíame': 'sync_enviame.yml',
+      'HealthCheck': 'healthcheck_integrations.yml'
     }
 
     const workflowFile = workflowMap[platform]

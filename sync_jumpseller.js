@@ -73,6 +73,9 @@ async function syncJumpsellerData() {
 
     // 2. Procesar cada integración de forma independiente
     for (const integration of integrations) {
+      if (process.env.TARGET_COMERCIO && (!integration.comercio || integration.comercio.trim().toUpperCase() !== process.env.TARGET_COMERCIO.trim().toUpperCase())) {
+        continue;
+      }
       console.log(`\n========================================`);
       console.log(`👤 Merchant ID: ${integration.merchant_id}`);
       console.log(`🔌 Plataforma: ${integration.platform}`);
@@ -138,13 +141,15 @@ async function syncMerchantJumpseller(integration) {
     loginKey = creds.login_key;
     authToken = creds.auth_token;
   } catch (e) {
-    console.error(`❌ Error para Merchant ${integration.merchant_id}: Formato de access_token inválido. Debe ser un JSON conteniendo login_key y auth_token.`);
-    return;
+    const msg = `Formato de access_token inválido. Debe ser un JSON conteniendo login_key y auth_token.`;
+    console.error(`❌ Error para Merchant ${integration.merchant_id}: ${msg}`);
+    throw new Error(msg);
   }
 
   if (!loginKey || !authToken) {
-    console.error(`❌ Error para Merchant ${integration.merchant_id}: Faltan login_key o auth_token en las credenciales guardadas.`);
-    return;
+    const msg = `Faltan login_key o auth_token en las credenciales guardadas.`;
+    console.error(`❌ Error para Merchant ${integration.merchant_id}: ${msg}`);
+    throw new Error(msg);
   }
 
   // B. Obtener bodega por defecto para el cliente (priorizando comercios_adicional_config)
@@ -204,7 +209,9 @@ async function syncMerchantJumpseller(integration) {
   };
 
   // C. Sincronizar Productos primero (para asegurar mapeos en órdenes)
-  await syncProducts(integration, headers);
+  if (process.env.SKIP_PRODUCTS_SYNC !== 'true') {
+    await syncProducts(integration, headers);
+  }
 
   // D. Sincronizar Pedidos
   await syncOrders(integration, headers, warehouseId);
@@ -372,6 +379,7 @@ async function syncProducts(integration, headers) {
     }
   } catch (error) {
     console.error(`❌ Error sincronizando productos para ${integration.shop_url}:`, error.message);
+    throw error;
   }
 }
 
@@ -891,6 +899,7 @@ async function syncOrders(integration, headers, warehouseId) {
     }
   } catch (error) {
     console.error(`❌ Error sincronizando pedidos para ${integration.shop_url}:`, error.message);
+    throw error;
   }
 }
 

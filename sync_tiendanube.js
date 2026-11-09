@@ -140,6 +140,9 @@ async function syncTiendanubeData() {
 
     // 2. Procesar cada integración de forma independiente
     for (const integration of integrations) {
+      if (process.env.TARGET_COMERCIO && (!integration.comercio || integration.comercio.trim().toUpperCase() !== process.env.TARGET_COMERCIO.trim().toUpperCase())) {
+        continue;
+      }
       console.log(`\n========================================`);
       console.log(`👤 Merchant ID: ${integration.merchant_id}`);
       console.log(`🔌 Plataforma: ${integration.platform}`);
@@ -168,7 +171,25 @@ async function syncTiendanubeData() {
         integration.merchant_id = activeMerchantId;
       }
 
-      await syncMerchantTiendanube(integration);
+      try {
+        await syncMerchantTiendanube(integration);
+        await supabase
+          .from('merchant_integrations')
+          .update({
+            last_sync_at: new Date().toISOString(),
+            last_sync_error: null
+          })
+          .eq('id', integration.id);
+      } catch (merchantErr) {
+        console.error(`❌ Error sincronizando Tiendanube para ${integration.comercio}:`, merchantErr.message);
+        await supabase
+          .from('merchant_integrations')
+          .update({
+            last_sync_at: new Date().toISOString(),
+            last_sync_error: merchantErr.message
+          })
+          .eq('id', integration.id);
+      }
     }
 
     console.log('\n🎉 Sincronización Tiendanube finalizada.');
@@ -230,7 +251,9 @@ async function syncMerchantTiendanube(integration) {
   await ensureTiendanubeWebhooks(integration, storeId, headers);
 
   // 1. Sincronizar Productos primero (recomendado para mapear SKUs correctamente)
-  await syncProducts(integration, storeId, headers);
+  if (process.env.SKIP_PRODUCTS_SYNC !== 'true') {
+    await syncProducts(integration, storeId, headers);
+  }
 
   // 2. Sincronizar Pedidos (Orders)
   await syncOrders(integration, storeId, headers, warehouseId);
@@ -488,6 +511,7 @@ async function syncProducts(integration, storeId, headers) {
     }
   } catch (error) {
     console.error(`❌ Error sincronizando productos para Tiendanube (${storeId}):`, error.message);
+    throw error;
   }
 }
 
@@ -838,6 +862,7 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
     }
   } catch (error) {
     console.error(`❌ Error sincronizando pedidos para Tiendanube (${storeId}):`, error.message);
+    throw error;
   }
 }
 

@@ -55,13 +55,39 @@ async function syncWooCommerceData() {
       return;
     }
 
+    // 1.5 Obtener comercios inactivos para omitirlos
+    const inactiveSet = new Set();
+    try {
+      const { data: cfgs } = await supabase
+        .from('comercios_adicional_config')
+        .select('comercio, activo, onboarding_checklist');
+      if (Array.isArray(cfgs)) {
+        cfgs.forEach(c => {
+          if (!c || !c.comercio) return;
+          const isActive = c.activo !== false && c?.onboarding_checklist?.comercio_activo !== false;
+          if (!isActive) inactiveSet.add(c.comercio.trim().toUpperCase());
+        });
+      }
+    } catch (_e) {}
+
     // 2. Procesar cada integración de forma independiente
     for (const integration of integrations) {
+      if (process.env.TARGET_COMERCIO && (!integration.comercio || integration.comercio.trim().toUpperCase() !== process.env.TARGET_COMERCIO.trim().toUpperCase())) {
+        continue;
+      }
+      if (integration.comercio && inactiveSet.has(integration.comercio.trim().toUpperCase())) {
+        console.log(`⏭️ Omitiendo comercio desactivado en WMS: ${integration.comercio}`);
+        continue;
+      }
+
       console.log(`\n========================================`);
       console.log(`👤 Merchant ID: ${integration.merchant_id}`);
+      console.log(`🏢 Comercio: ${integration.comercio || 'N/A'}`);
       console.log(`🔌 Plataforma: ${integration.platform}`);
       console.log(`🔗 URL Tienda: ${integration.shop_url}`);
       console.log(`========================================`);
+
+      integration.original_merchant_id = integration.merchant_id;
 
       // Resolver dinámicamente el merchant_id real usando productos del comercio
       let activeMerchantId = integration.merchant_id;
@@ -84,7 +110,26 @@ async function syncWooCommerceData() {
         integration.merchant_id = activeMerchantId;
       }
 
-      await syncMerchantWooCommerce(integration);
+      try {
+        await syncMerchantWooCommerce(integration);
+        await supabase
+          .from('merchant_integrations')
+          .update({
+            last_sync_at: new Date().toISOString(),
+            last_sync_error: null
+          })
+          .eq('id', integration.id);
+        console.log(`✅ Estado de sincronización de ${integration.comercio} actualizado.`);
+      } catch (merchantErr) {
+        console.error(`❌ Error sincronizando WooCommerce para ${integration.comercio}:`, merchantErr.message);
+        await supabase
+          .from('merchant_integrations')
+          .update({
+            last_sync_at: new Date().toISOString(),
+            last_sync_error: merchantErr.message
+          })
+          .eq('id', integration.id);
+      }
     }
 
     console.log('\n🎉 Sincronización WooCommerce finalizada.');
@@ -104,37 +149,53 @@ async function syncMerchantWooCommerce(integration) {
     consumerKey = creds.consumer_key;
     consumerSecret = creds.consumer_secret;
   } catch (e) {
-    console.error(`❌ Error para Merchant ${integration.merchant_id}: Formato de access_token inválido. Debe ser un JSON conteniendo consumer_key y consumer_secret.`);
-    return;
+    const msg = `Formato de access_token inválido. Debe ser un JSON conteniendo consumer_key y consumer_secret.`;
+    console.error(`❌ Error para Merchant ${integration.merchant_id}: ${msg}`);
+    throw new Error(msg);
   }
 
   if (!consumerKey || !consumerSecret) {
-    console.error(`❌ Error para Merchant ${integration.merchant_id}: Faltan consumer_key o consumer_secret en las credenciales guardadas.`);
-    return;
+    const msg = `Faltan consumer_key o consumer_secret en las credenciales guardadas.`;
+    console.error(`❌ Error para Merchant ${integration.merchant_id}: ${msg}`);
+    throw new Error(msg);
   }
 
   // B. Obtener bodega por defecto para el cliente
   let warehouseId = null;
-  const { data: whRel, error: whErr } = await supabase
-    .from('merchants_warehouses')
-    .select('warehouse_id')
-    .eq('merchant_id', integration.merchant_id)
-    .limit(1)
-    .maybeSingle();
-
-  if (whRel) {
-    warehouseId = whRel.warehouse_id;
-  } else {
-    // Buscar la primera bodega disponible como fallback
-    const { data: defaultWh } = await supabase.from('warehouses').select('id').limit(1).maybeSingle();
-    if (defaultWh) {
-      warehouseId = defaultWh.id;
+  if (integration.comercio) {
+    const { data: adWh } = await supabase
+      .from('comercios_adicional_config')
+      .select('default_warehouse_id')
+      .eq('comercio', integration.comercio)
+      .maybeSingle();
+    if (adWh && adWh.default_warehouse_id) {
+      warehouseId = adWh.default_warehouse_id;
     }
   }
 
   if (!warehouseId) {
-    console.error(`❌ Error para Merchant ${integration.merchant_id}: No hay ninguna bodega configurada en el WMS.`);
-    return;
+    const { data: whRel } = await supabase
+      .from('merchants_warehouses')
+      .select('warehouse_id')
+      .eq('merchant_id', integration.merchant_id)
+      .limit(1)
+      .maybeSingle();
+
+    if (whRel) {
+      warehouseId = whRel.warehouse_id;
+    } else {
+      // Buscar la primera bodega disponible como fallback
+      const { data: defaultWh } = await supabase.from('warehouses').select('id').limit(1).maybeSingle();
+      if (defaultWh) {
+        warehouseId = defaultWh.id;
+      }
+    }
+  }
+
+  if (!warehouseId) {
+    const msg = `No hay ninguna bodega configurada en el WMS.`;
+    console.error(`❌ Error para Merchant ${integration.merchant_id}: ${msg}`);
+    throw new Error(msg);
   }
 
   // C. Normalizar URL base
@@ -150,14 +211,94 @@ async function syncMerchantWooCommerce(integration) {
   const headers = {
     'Authorization': authHeader,
     'Accept': 'application/json',
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
   };
 
+  // 0. Verificar y auto-reactivar/registrar Webhooks en WooCommerce (previene desactivación silenciosa tras 5 fallos)
+  await ensureWooCommerceWebhooks(integration, baseUrl, headers);
+
+  let syncErrors = [];
+
   // 1. Sincronizar Productos primero (recomendado para mapear SKUs correctamente)
-  await syncProducts(integration, baseUrl, headers);
+  if (process.env.SKIP_PRODUCTS_SYNC !== 'true') {
+    try {
+      await syncProducts(integration, baseUrl, headers);
+    } catch (prodErr) {
+      syncErrors.push(`Productos: ${prodErr.message}`);
+    }
+  }
 
   // 2. Sincronizar Pedidos (Orders)
-  await syncOrders(integration, baseUrl, headers, warehouseId);
+  try {
+    await syncOrders(integration, baseUrl, headers, warehouseId);
+  } catch (ordErr) {
+    syncErrors.push(`Pedidos: ${ordErr.message}`);
+  }
+
+  if (syncErrors.length > 0) {
+    throw new Error(syncErrors.join(' | '));
+  }
+}
+
+/**
+ * Verifica que los webhooks de WooCommerce (order.created y order.updated) estén activos.
+ * Si WooCommerce los pausó/desactivó automáticamente tras reintentos fallidos, los reactiva.
+ */
+async function ensureWooCommerceWebhooks(integration, baseUrl, headers) {
+  try {
+    const webhookMerchantId = integration.original_merchant_id || integration.merchant_id;
+    const expectedWebhookUrl = `${SUPABASE_URL}/functions/v1/woocommerce-webhook?merchant_id=${webhookMerchantId}&comercio=${encodeURIComponent(integration.comercio || '')}`;
+    const whRes = await fetch(`${baseUrl}/wp-json/wc/v3/webhooks?per_page=100`, { method: 'GET', headers });
+    if (!whRes.ok) return;
+
+    const webhooksList = await whRes.json();
+    if (!Array.isArray(webhooksList)) return;
+
+    const requiredTopics = [
+      { topic: 'order.created', name: 'WMS STOCKA - Pedido Creado' },
+      { topic: 'order.updated', name: 'WMS STOCKA - Pedido Actualizado' }
+    ];
+
+    for (const reqWh of requiredTopics) {
+      const matching = webhooksList.filter(w =>
+        w.delivery_url &&
+        (w.delivery_url.includes('/functions/v1/woocommerce-webhook') || w.delivery_url.includes('supabase.co/functions')) &&
+        (w.topic === reqWh.topic || (w.resource === 'order' && `${w.resource}.${w.event}` === reqWh.topic))
+      );
+
+      const activeOne = matching.find(w => w.status === 'active');
+      if (activeOne) continue;
+
+      const pausedOne = matching[0];
+      if (pausedOne && pausedOne.id) {
+        const reactivateRes = await fetch(`${baseUrl}/wp-json/wc/v3/webhooks/${pausedOne.id}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ status: 'active' })
+        });
+        if (reactivateRes.ok) {
+          console.log(`🛠️ [Auto-Heal] Webhook '${reqWh.topic}' estaba en estado '${pausedOne.status}' para ${integration.comercio}. Reactivado automáticamente.`);
+        }
+      } else {
+        const createRes = await fetch(`${baseUrl}/wp-json/wc/v3/webhooks`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            name: reqWh.name,
+            topic: reqWh.topic,
+            delivery_url: expectedWebhookUrl,
+            status: 'active'
+          })
+        });
+        if (createRes.ok) {
+          console.log(`🛠️ [Auto-Heal] Webhook '${reqWh.topic}' registrado automáticamente para ${integration.comercio}.`);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`⚠️ No se pudieron verificar/reactivar webhooks de WooCommerce para ${integration.comercio}:`, err.message);
+  }
 }
 
 /**
@@ -197,6 +338,7 @@ async function syncProducts(integration, baseUrl, headers) {
     }
   } catch (error) {
     console.error(`❌ Error sincronizando productos para ${integration.shop_url}:`, error.message);
+    throw error;
   }
 }
 
@@ -648,6 +790,7 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
     }
   } catch (error) {
     console.error(`❌ Error sincronizando pedidos para ${integration.shop_url}:`, error.message);
+    throw error;
   }
 }
 

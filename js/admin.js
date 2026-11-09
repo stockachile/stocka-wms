@@ -20375,7 +20375,10 @@ async function renderIntegrations() {
             </div>
           </div>
 
-          <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <button id="btn-run-guardian-healthcheck" class="btn btn-primary" style="height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; font-weight: 700; padding: 0 0.95rem; border-radius: var(--radius-md); border: none; background: linear-gradient(135deg, #059669, #10b981); color: #ffffff; cursor: pointer; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.25); transition: all 0.2s;" title="Ejecutar Agente Guardián: verifica APIs, auto-reactiva webhooks caídos y reconcilia pedidos de las últimas 72h">
+              <i class="ri-shield-check-fill"></i> Auditar Salud (Guardián)
+            </button>
             <button id="btn-refresh-integrations-view" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; font-weight: 600; padding: 0 0.9rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: pointer; transition: all 0.2s;" title="Recargar datos">
               <i class="ri-refresh-line"></i> Actualizar
             </button>
@@ -20982,7 +20985,7 @@ async function renderIntegrations() {
         }
 
         // Acciones rápidas de sincronización
-        const supportManualSync = ['MercadoLibre', 'WooCommerce', 'Falabella', 'Paris', 'Ripley', 'LightData', 'Optiroute', 'Walmart', 'Shopify', 'Tiendanube', 'BlueExpress', 'Starken', 'StarkenPro'].includes(mi.platform);
+        const supportManualSync = ['MercadoLibre', 'WooCommerce', 'Jumpseller', 'Falabella', 'Paris', 'Ripley', 'LightData', 'Optiroute', 'Walmart', 'Shopify', 'Tiendanube', 'BlueExpress', 'Starken', 'StarkenPro'].includes(mi.platform);
         if (supportManualSync && mi.is_active) {
           syncStatusHtml += `
             <div style="margin-top: 0.35rem; display: flex; gap: 0.3rem; flex-wrap: wrap;">
@@ -21257,6 +21260,55 @@ async function renderIntegrations() {
     if (btnRefreshView) {
       btnRefreshView.addEventListener('click', () => {
         renderIntegrations();
+      });
+    }
+
+    // Botón ejecutar Agente Guardián de Integraciones
+    const btnRunGuardian = document.getElementById('btn-run-guardian-healthcheck');
+    if (btnRunGuardian) {
+      btnRunGuardian.addEventListener('click', async () => {
+        const originalHtml = btnRunGuardian.innerHTML;
+        btnRunGuardian.disabled = true;
+        btnRunGuardian.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Auditando...`;
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) throw new Error('No autenticado en el WMS.');
+
+          const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/sync-integrations', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify({ platform: 'HealthCheck' })
+          });
+
+          const result = await response.json();
+          if (!response.ok) {
+            throw new Error(result.error || `Error del servidor: ${response.status}`);
+          }
+
+          if (window.Swal) {
+            Swal.fire({
+              title: '🛡️ Agente Guardián en Ejecución',
+              html: 'Se inició la auditoría profunda de integraciones.<br><br>El Guardián verificará conectividad API, <strong>auto-reactivará webhooks pausados</strong> y reconciliará pedidos de las últimas 72h. Los estados se actualizarán en unos instantes.',
+              icon: 'success',
+              confirmButtonColor: '#059669'
+            });
+          } else {
+            alert('Agente Guardián iniciado. Los estados se actualizarán en unos instantes.');
+          }
+        } catch (err) {
+          console.error(err);
+          if (window.Swal) {
+            Swal.fire('Error al iniciar Guardián', err.message, 'error');
+          } else {
+            alert(`Error al iniciar Guardián: ${err.message}`);
+          }
+        } finally {
+          btnRunGuardian.disabled = false;
+          btnRunGuardian.innerHTML = originalHtml;
+        }
       });
     }
 

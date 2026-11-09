@@ -154,6 +154,18 @@ serve(async (req) => {
       await handleWooProductSave(effectiveMerchantId, effectiveComercio, payload);
     }
 
+    if (integration.id) {
+      try {
+        await supabase
+          .from("merchant_integrations")
+          .update({
+            last_sync_at: new Date().toISOString(),
+            last_sync_error: null
+          })
+          .eq("id", integration.id);
+      } catch (_e) {}
+    }
+
     return new Response(JSON.stringify({ success: true, message: "Webhook processed" }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" }
@@ -350,11 +362,12 @@ async function handleVerifyConnection(req: Request, merchantIdQuery: string, com
       });
     }
 
-    const authHeader = "Basic " + btoa(`${consumerKey.trim()}:${consumerSecret.trim()}`);
+    const wcAuthHeader = "Basic " + btoa(`${consumerKey.trim()}:${consumerSecret.trim()}`);
     const headers = {
-      "Authorization": authHeader,
+      "Authorization": wcAuthHeader,
       "Accept": "application/json",
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
     };
 
     // 1. Probar conectividad API REST con WooCommerce
@@ -395,6 +408,8 @@ async function handleVerifyConnection(req: Request, merchantIdQuery: string, com
     let webhooksList: any[] = [];
     let hasOrderCreatedWebhook = false;
     let hasOrderUpdatedWebhook = false;
+    let pausedOrderCreatedWebhookId: number | null = null;
+    let pausedOrderUpdatedWebhookId: number | null = null;
     let writePermissions = true;
     let autoRegistered = false;
 
@@ -403,61 +418,93 @@ async function handleVerifyConnection(req: Request, merchantIdQuery: string, com
       if (whRes.ok) {
         webhooksList = await whRes.json();
         if (Array.isArray(webhooksList)) {
-          hasOrderCreatedWebhook = webhooksList.some((w: any) => 
-            w.status === "active" && 
-            w.delivery_url && (w.delivery_url.includes("/functions/v1/woocommerce-webhook") || w.delivery_url.includes("supabase.co/functions")) && 
+          const createdMatches = webhooksList.filter((w: any) =>
+            w.delivery_url && (w.delivery_url.includes("/functions/v1/woocommerce-webhook") || w.delivery_url.includes("supabase.co/functions")) &&
             (w.topic === "order.created" || (w.resource === "order" && w.event === "created"))
           );
+          hasOrderCreatedWebhook = createdMatches.some((w: any) => w.status === "active");
+          if (!hasOrderCreatedWebhook && createdMatches[0]?.id) {
+            pausedOrderCreatedWebhookId = createdMatches[0].id;
+          }
 
-          hasOrderUpdatedWebhook = webhooksList.some((w: any) => 
-            w.status === "active" && 
-            w.delivery_url && (w.delivery_url.includes("/functions/v1/woocommerce-webhook") || w.delivery_url.includes("supabase.co/functions")) && 
+          const updatedMatches = webhooksList.filter((w: any) =>
+            w.delivery_url && (w.delivery_url.includes("/functions/v1/woocommerce-webhook") || w.delivery_url.includes("supabase.co/functions")) &&
             (w.topic === "order.updated" || (w.resource === "order" && w.event === "updated"))
           );
+          hasOrderUpdatedWebhook = updatedMatches.some((w: any) => w.status === "active");
+          if (!hasOrderUpdatedWebhook && updatedMatches[0]?.id) {
+            pausedOrderUpdatedWebhookId = updatedMatches[0].id;
+          }
         }
       }
     } catch (err: any) {
       console.warn("Error consultando webhooks de WooCommerce:", err.message);
     }
 
-    // 3. Si faltan webhooks, intentar auto-registrarlos si se solicita o de manera proactiva
+    // 3. Si faltan webhooks o están pausados/desactivados, reactivarlos o auto-registrarlos de manera proactiva
     if ((!hasOrderCreatedWebhook || !hasOrderUpdatedWebhook) && payload.auto_register !== false) {
       try {
         if (!hasOrderCreatedWebhook) {
-          const createRes = await fetch(`${baseUrl}/wp-json/wc/v3/webhooks`, {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              name: "WMS STOCKA - Pedido Creado",
-              topic: "order.created",
-              delivery_url: expectedWebhookUrl,
-              status: "active"
-            })
-          });
-          if (createRes.ok) {
-            hasOrderCreatedWebhook = true;
-            autoRegistered = true;
-          } else if (createRes.status === 401) {
-            writePermissions = false;
+          if (pausedOrderCreatedWebhookId) {
+            const reactRes = await fetch(`${baseUrl}/wp-json/wc/v3/webhooks/${pausedOrderCreatedWebhookId}`, {
+              method: "PUT",
+              headers,
+              body: JSON.stringify({ status: "active" })
+            });
+            if (reactRes.ok) {
+              hasOrderCreatedWebhook = true;
+              autoRegistered = true;
+            }
+          }
+          if (!hasOrderCreatedWebhook) {
+            const createRes = await fetch(`${baseUrl}/wp-json/wc/v3/webhooks`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                name: "WMS STOCKA - Pedido Creado",
+                topic: "order.created",
+                delivery_url: expectedWebhookUrl,
+                status: "active"
+              })
+            });
+            if (createRes.ok) {
+              hasOrderCreatedWebhook = true;
+              autoRegistered = true;
+            } else if (createRes.status === 401) {
+              writePermissions = false;
+            }
           }
         }
 
         if (!hasOrderUpdatedWebhook && writePermissions) {
-          const updateRes = await fetch(`${baseUrl}/wp-json/wc/v3/webhooks`, {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              name: "WMS STOCKA - Pedido Actualizado",
-              topic: "order.updated",
-              delivery_url: expectedWebhookUrl,
-              status: "active"
-            })
-          });
-          if (updateRes.ok) {
-            hasOrderUpdatedWebhook = true;
-            autoRegistered = true;
-          } else if (updateRes.status === 401) {
-            writePermissions = false;
+          if (pausedOrderUpdatedWebhookId) {
+            const reactRes = await fetch(`${baseUrl}/wp-json/wc/v3/webhooks/${pausedOrderUpdatedWebhookId}`, {
+              method: "PUT",
+              headers,
+              body: JSON.stringify({ status: "active" })
+            });
+            if (reactRes.ok) {
+              hasOrderUpdatedWebhook = true;
+              autoRegistered = true;
+            }
+          }
+          if (!hasOrderUpdatedWebhook) {
+            const updateRes = await fetch(`${baseUrl}/wp-json/wc/v3/webhooks`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                name: "WMS STOCKA - Pedido Actualizado",
+                topic: "order.updated",
+                delivery_url: expectedWebhookUrl,
+                status: "active"
+              })
+            });
+            if (updateRes.ok) {
+              hasOrderUpdatedWebhook = true;
+              autoRegistered = true;
+            } else if (updateRes.status === 401) {
+              writePermissions = false;
+            }
           }
         }
       } catch (_e) {
@@ -669,18 +716,30 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
 
   // 2. Obtener bodega por defecto
   let warehouseId = null;
-  const { data: whRel } = await supabase
-    .from("merchants_warehouses")
-    .select("warehouse_id")
-    .eq("merchant_id", merchantId)
-    .limit(1)
-    .maybeSingle();
+  if (comercio) {
+    const { data: adWh } = await supabase
+      .from("comercios_adicional_config")
+      .select("default_warehouse_id")
+      .eq("comercio", comercio)
+      .maybeSingle();
+    if (adWh?.default_warehouse_id) {
+      warehouseId = adWh.default_warehouse_id;
+    }
+  }
+  if (!warehouseId) {
+    const { data: whRel } = await supabase
+      .from("merchants_warehouses")
+      .select("warehouse_id")
+      .eq("merchant_id", merchantId)
+      .limit(1)
+      .maybeSingle();
 
-  if (whRel) {
-    warehouseId = whRel.warehouse_id;
-  } else {
-    const { data: defaultWh } = await supabase.from("warehouses").select("id").limit(1).maybeSingle();
-    if (defaultWh) warehouseId = defaultWh.id;
+    if (whRel) {
+      warehouseId = whRel.warehouse_id;
+    } else {
+      const { data: defaultWh } = await supabase.from("warehouses").select("id").limit(1).maybeSingle();
+      if (defaultWh) warehouseId = defaultWh.id;
+    }
   }
 
   // 3. Registrar ítems en order_items (pre-expandiendo packs y consolidando cantidades por product_id)
@@ -926,17 +985,29 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
       const processedProductIds = new Set();
 
       let warehouseId = null;
-      const { data: whRel } = await supabase
-        .from("merchants_warehouses")
-        .select("warehouse_id")
-        .eq("merchant_id", merchantId)
-        .limit(1)
-        .maybeSingle();
+      if (comercio) {
+        const { data: adWh } = await supabase
+          .from("comercios_adicional_config")
+          .select("default_warehouse_id")
+          .eq("comercio", comercio)
+          .maybeSingle();
+        if (adWh?.default_warehouse_id) {
+          warehouseId = adWh.default_warehouse_id;
+        }
+      }
+      if (!warehouseId) {
+        const { data: whRel } = await supabase
+          .from("merchants_warehouses")
+          .select("warehouse_id")
+          .eq("merchant_id", merchantId)
+          .limit(1)
+          .maybeSingle();
 
-      if (whRel) warehouseId = whRel.warehouse_id;
-      else {
-        const { data: defaultWh } = await supabase.from("warehouses").select("id").limit(1).maybeSingle();
-        if (defaultWh) warehouseId = defaultWh.id;
+        if (whRel) warehouseId = whRel.warehouse_id;
+        else {
+          const { data: defaultWh } = await supabase.from("warehouses").select("id").limit(1).maybeSingle();
+          if (defaultWh) warehouseId = defaultWh.id;
+        }
       }
 
       const expectedQuantities = new Map<string, number>();

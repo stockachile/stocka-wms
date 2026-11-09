@@ -121,7 +121,25 @@ async function syncFalabellaData() {
         integration.merchant_id = activeMerchantId;
       }
 
-      await syncMerchantOrders(integration);
+      try {
+        await syncMerchantOrders(integration);
+        await supabase
+          .from('merchant_integrations')
+          .update({
+            last_sync_at: new Date().toISOString(),
+            last_sync_error: null
+          })
+          .eq('id', integration.id);
+      } catch (merchantErr) {
+        console.error(`❌ Error sincronizando Falabella para ${integration.comercio}:`, merchantErr.message);
+        await supabase
+          .from('merchant_integrations')
+          .update({
+            last_sync_at: new Date().toISOString(),
+            last_sync_error: merchantErr.message
+          })
+          .eq('id', integration.id);
+      }
     }
 
     console.log('\n🎉 Sincronización finalizada.');
@@ -591,6 +609,7 @@ async function syncMerchantOrders(integration) {
     }
   } catch (error) {
     console.error(`❌ Error sincronizando pedidos para ${integration.shop_url}:`, error.message);
+    throw error;
   }
 }
 
