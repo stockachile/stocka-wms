@@ -42016,7 +42016,7 @@ async function renderAdminDashboard() {
     if (refreshBtn) {
       refreshBtn.addEventListener('click', () => {
         const val = commerceSelect ? commerceSelect.value : '';
-        const key = 'admin_dashboard_v3_' + (val || 'all');
+        const key = 'admin_dashboard_v4_' + (val || 'all');
         window.clearDashboardCache(key);
         fetchAndRenderAdminMetrics(val);
       });
@@ -42035,7 +42035,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
   const contentDiv = document.getElementById('admin-metrics-dashboard-content');
   if (!contentDiv) return;
 
-  const cacheKey = 'admin_dashboard_v3_' + (selectedCommerce || 'all');
+  const cacheKey = 'admin_dashboard_v4_' + (selectedCommerce || 'all');
   const cached = window.getDashboardCache(cacheKey, 300000); // 5 min TTL
 
   let results, news;
@@ -42107,8 +42107,8 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       };
 
       let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio, is_active, last_sync_at, last_sync_error, username, access_token, refresh_token');
-      let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at, comercio').order('created_at', { ascending: false }).limit(5);
-      const warehousesQuery = supabase.from('warehouses').select('id, name').order('name').then(res => res, () => ({ data: [] }));
+      let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, package_count, package_type, delivery_method, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at, comercio, warehouse_id, warehouses(id, name, comuna)').order('created_at', { ascending: false }).limit(150);
+      const warehousesQuery = supabase.from('warehouses').select('id, name, comuna').order('name').then(res => res, () => ({ data: [] }));
 
       // Consulta ligera de pedidos manuales pendientes en estado WMS 'En procesamiento' (sin regex múltiples sobre 90d)
       let manualOrdersQuery = supabase
@@ -42531,13 +42531,16 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
 
     let recentDeclarationsHtml = '';
     const recentDecs = decRes.data || [];
+    window._adminDashboardDeclarations = recentDecs;
+    window._adminDashboardWarehouseMap = warehouseNameById;
+    const scheduledActiveDecsCount = recentDecs.filter(d => !['Recibido Conforme', 'Recibido con Incidencias', 'Completada', 'Cancelado'].includes(d.status)).length;
     if (recentDecs.length === 0) {
       recentDeclarationsHtml = '<div style="padding: 1.75rem 1.25rem; text-align: center; color: var(--color-text-muted); font-size: 0.88rem;">No hay ingresos declarados recientes.</div>';
     } else {
       const stepLabels = ['Declarada', 'Bodega Asignada', 'Recepción / Conteo', 'Recibido'];
       recentDeclarationsHtml = `
         <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem 1.25rem;">
-          ${recentDecs.slice(0, 4).map(dec => {
+          ${recentDecs.slice(0, 6).map(dec => {
             let etaText = 'Por confirmar';
             if (dec.estimated_arrival_type === 'exact' && dec.estimated_arrival_date) {
               const parts = dec.estimated_arrival_date.split('-');
@@ -43394,20 +43397,52 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
               </div>
             </div>
 
-            <!-- 3. Stepper de Ingresos de Stock (Declaraciones en Andén) -->
-            <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
-              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding: 1rem 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
+            <!-- 3. Calendario de Ingresos de Stock Programados & Stepper en Andén -->
+            <div class="card" id="admin-dashboard-inbound-card" style="display: flex; flex-direction: column; margin-bottom: 0;">
+              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding: 0.9rem 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
                 <div>
-                  <h3 style="margin: 0; font-size: 1rem; font-weight: 800; display: flex; align-items: center; gap: 0.45rem;">
-                    <i class="ri-inbox-unarchive-line" style="color: var(--color-primary);"></i> Stepper de Ingresos de Stock (Declaraciones en Andén)
+                  <h3 style="margin: 0; font-size: 1.02rem; font-weight: 800; display: flex; align-items: center; gap: 0.45rem;">
+                    <i class="ri-calendar-todo-fill" style="color: #7c3aed; font-size: 1.15rem;"></i> Calendario de Ingresos de Stock Programados
                   </h3>
-                  <p style="margin: 0.15rem 0 0 0; font-size: 0.76rem; color: var(--color-text-muted);">Últimas cargas anunciadas por los comercios y avance de recepción / conteo</p>
+                  <p style="margin: 0.15rem 0 0 0; font-size: 0.76rem; color: var(--color-text-muted);">Agenda mensual de llegadas programadas por comercio y sucursal física, con acceso directo a recepción</p>
                 </div>
-                <button type="button" class="btn btn-outline btn-sm" onclick="document.querySelector('[data-view=declarations_admin]')?.click()" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; font-weight: 700;">
-                  Gestionar Recepciones <i class="ri-arrow-right-line"></i>
-                </button>
+                <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                  <div style="display: inline-flex; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.2rem; gap: 0.2rem;">
+                    <button type="button" id="admin-dash-inbound-tab-cal" onclick="
+                      document.getElementById('admin-dash-inbound-pane-cal').style.display='block';
+                      document.getElementById('admin-dash-inbound-pane-stepper').style.display='none';
+                      this.style.background='var(--color-surface)';
+                      this.style.color='#7c3aed';
+                      this.style.boxShadow='var(--shadow-sm)';
+                      const stBtn=document.getElementById('admin-dash-inbound-tab-stepper');
+                      if(stBtn){stBtn.style.background='transparent';stBtn.style.color='var(--color-text-muted)';stBtn.style.boxShadow='none';}
+                    " style="border: none; border-radius: 6px; padding: 0.32rem 0.7rem; font-size: 0.75rem; font-weight: 700; cursor: pointer; background: var(--color-surface); color: #7c3aed; box-shadow: var(--shadow-sm); display: inline-flex; align-items: center; gap: 0.3rem;">
+                      <i class="ri-calendar-check-line"></i> Calendario (${scheduledActiveDecsCount})
+                    </button>
+                    <button type="button" id="admin-dash-inbound-tab-stepper" onclick="
+                      document.getElementById('admin-dash-inbound-pane-cal').style.display='none';
+                      document.getElementById('admin-dash-inbound-pane-stepper').style.display='block';
+                      this.style.background='var(--color-surface)';
+                      this.style.color='var(--color-primary)';
+                      this.style.boxShadow='var(--shadow-sm)';
+                      const calBtn=document.getElementById('admin-dash-inbound-tab-cal');
+                      if(calBtn){calBtn.style.background='transparent';calBtn.style.color='var(--color-text-muted)';calBtn.style.boxShadow='none';}
+                    " style="border: none; border-radius: 6px; padding: 0.32rem 0.7rem; font-size: 0.75rem; font-weight: 700; cursor: pointer; background: transparent; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.3rem;">
+                      <i class="ri-inbox-unarchive-line"></i> Stepper Recientes
+                    </button>
+                  </div>
+                  <button type="button" class="btn btn-primary btn-sm" onclick="window.openAdminNewDeclarationModal && window.openAdminNewDeclarationModal()" style="font-size: 0.74rem; padding: 0.35rem 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-add-circle-line"></i> Nuevo Ingreso
+                  </button>
+                  <button type="button" class="btn btn-outline btn-sm" onclick="document.querySelector('[data-view=declarations_admin]')?.click()" style="font-size: 0.74rem; padding: 0.35rem 0.75rem; font-weight: 700;">
+                    Ver Todos <i class="ri-arrow-right-line"></i>
+                  </button>
+                </div>
               </div>
-              <div class="card-body" style="padding: 0;">
+              <div id="admin-dash-inbound-pane-cal" class="card-body" style="padding: 1rem 1.15rem;">
+                <div id="admin-dashboard-inbound-calendar-container"></div>
+              </div>
+              <div id="admin-dash-inbound-pane-stepper" class="card-body" style="padding: 0; display: none;">
                 ${recentDeclarationsHtml}
               </div>
             </div>
@@ -43470,7 +43505,14 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       </div>
     `;
 
-    // 9. Inicializar Calendario
+    // 8.5 Inicializar Calendario de Ingresos de Stock Programados en Dashboard
+    if (typeof window.renderInboundStockCalendarWidget === 'function') {
+      window.renderInboundStockCalendarWidget('dashboard', 'admin-dashboard-inbound-calendar-container', window._adminDashboardDeclarations || [], {
+        warehouseMap: window._adminDashboardWarehouseMap || {}
+      });
+    }
+
+    // 9. Inicializar Calendario Operativo
     if (!window.adminCalendarState) {
       window.adminCalendarState = { currentDate: new Date(), selectedDateStr: null, events: [] };
     }
@@ -47849,6 +47891,794 @@ function getEmptyDeclarationMessage(currentTab) {
   return `<tr><td colspan="13" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);"><i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>${emptyMsg}</td></tr>`;
 }
 
+// =========================================================================
+// CALENDARIO DE INGRESOS DE STOCK PROGRAMADOS (DASHBOARD ADMIN & INGRESOS)
+// =========================================================================
+
+window._inboundStockCalendarState = window._inboundStockCalendarState || {
+  dashboard: {
+    year: new Date().getFullYear(),
+    month: new Date().getMonth(),
+    selectedDateStr: null,
+    agendaMode: 'month', // 'month' | 'today' | 'next7d' | 'overdue' | 'day'
+    warehouseFilter: 'all',
+    statusFilter: 'scheduled', // 'scheduled' | 'all' | 'completed'
+    containerId: 'admin-dashboard-inbound-calendar-container'
+  },
+  declarations: {
+    year: new Date().getFullYear(),
+    month: new Date().getMonth(),
+    selectedDateStr: null,
+    agendaMode: 'month',
+    warehouseFilter: 'all',
+    statusFilter: 'scheduled',
+    collapsed: false,
+    containerId: 'admin-dec-inbound-calendar-container'
+  }
+};
+
+window.getLocalTodayDateStr = function() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
+window.resolveDeclarationCalendarInfo = function(dec, warehouseMap = {}) {
+  const todayStr = window.getLocalTodayDateStr();
+  let dateStr = null;
+  let dateSource = 'exact'; // 'exact' | 'period' | 'created'
+  let displayEta = 'Por confirmar';
+
+  const normalizeDateToken = (raw) => {
+    if (!raw) return null;
+    const s = String(raw).trim();
+    const isoMatch = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) {
+      return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+    }
+    const latamMatch = s.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if (latamMatch) {
+      const dd = String(latamMatch[1]).padStart(2, '0');
+      const mm = String(latamMatch[2]).padStart(2, '0');
+      const yyyy = latamMatch[3];
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    return null;
+  };
+
+  const formatToLatam = (ymd) => {
+    if (!ymd || typeof ymd !== 'string') return '';
+    const p = ymd.split('-');
+    return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : ymd;
+  };
+
+  if (dec.estimated_arrival_date) {
+    const parsed = normalizeDateToken(dec.estimated_arrival_date);
+    if (parsed) {
+      dateStr = parsed;
+      dateSource = 'exact';
+      displayEta = formatToLatam(parsed);
+    }
+  }
+
+  if (!dateStr && dec.estimated_arrival_period) {
+    const parsedFromPeriod = normalizeDateToken(dec.estimated_arrival_period);
+    if (parsedFromPeriod) {
+      dateStr = parsedFromPeriod;
+      dateSource = 'period';
+      displayEta = String(dec.estimated_arrival_period).trim();
+    } else {
+      displayEta = String(dec.estimated_arrival_period).trim();
+    }
+  }
+
+  if (!dateStr) {
+    const fallbackCreated = dec.created_at ? normalizeDateToken(dec.created_at) : null;
+    dateStr = fallbackCreated || todayStr;
+    dateSource = 'created';
+    if (!dec.estimated_arrival_period) {
+      displayEta = `Creada ${formatToLatam(dateStr)}`;
+    }
+  }
+
+  const st = dec.status || 'Creada';
+  const isCompleted = ['Recibido Conforme', 'Recibido con Incidencias', 'Completada'].includes(st);
+  const isCancelled = st === 'Cancelado';
+  const isScheduledActive = !isCompleted && !isCancelled;
+
+  // Diferencia de días respecto a hoy
+  const [ty, tm, td] = todayStr.split('-').map(Number);
+  const [dy, dm, dd] = dateStr.split('-').map(Number);
+  const todayUtc = Date.UTC(ty, tm - 1, td);
+  const decUtc = Date.UTC(dy, dm - 1, dd);
+  const diffDays = Math.round((decUtc - todayUtc) / 86400000);
+
+  const isToday = diffDays === 0;
+  const isTomorrow = diffDays === 1;
+  const isOverdue = isScheduledActive && diffDays < 0;
+  const isNext7Days = diffDays >= 0 && diffDays <= 7;
+
+  // Resolver sucursal física (excluyendo Bodega Central ficticia)
+  const rawWhObj = dec.warehouses || (dec.warehouse_id && warehouseMap[dec.warehouse_id] ? { id: dec.warehouse_id, name: warehouseMap[dec.warehouse_id] } : null);
+  const isCentralOrVirtual = typeof window.isVirtualOrCentralWarehouse === 'function'
+    ? window.isVirtualOrCentralWarehouse(rawWhObj || dec.warehouse_id)
+    : (dec.warehouse_id === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09');
+
+  let branchKey = 'unassigned';
+  let branchLabel = 'Sin sucursal asignada';
+  let shortBranch = 'S/Sucursal';
+  let branchColor = '#d97706';
+  let branchBg = 'rgba(245, 158, 11, 0.12)';
+
+  if (dec.warehouse_id && !isCentralOrVirtual) {
+    const whNameRaw = (dec.warehouses?.name || warehouseMap[dec.warehouse_id] || '').trim();
+    const whComunaRaw = (dec.warehouses?.comuna || '').trim();
+    const combinedLower = `${whNameRaw} ${whComunaRaw}`.toLowerCase();
+
+    if (combinedLower.includes('ñuñoa') || combinedLower.includes('nunoa')) {
+      branchKey = 'nunoa';
+      branchLabel = whNameRaw || 'Matriz Ñuñoa';
+      shortBranch = 'Ñuñoa';
+      branchColor = '#2563eb';
+      branchBg = 'rgba(37, 99, 235, 0.12)';
+    } else if (combinedLower.includes('reina')) {
+      branchKey = 'lareina';
+      branchLabel = whNameRaw || 'CDD La Reina';
+      shortBranch = 'La Reina';
+      branchColor = '#7c3aed';
+      branchBg = 'rgba(124, 58, 237, 0.12)';
+    } else if (combinedLower.includes('recoleta')) {
+      branchKey = 'recoleta';
+      branchLabel = whNameRaw || 'CDD Recoleta';
+      shortBranch = 'Recoleta';
+      branchColor = '#059669';
+      branchBg = 'rgba(16, 185, 129, 0.12)';
+    } else if (whNameRaw) {
+      branchKey = 'other';
+      branchLabel = whNameRaw;
+      shortBranch = whNameRaw;
+      branchColor = '#0891b2';
+      branchBg = 'rgba(8, 145, 178, 0.12)';
+    }
+  }
+
+  // Estilo por etapa
+  let statusMeta = {
+    label: '1. Creada',
+    short: 'Creada',
+    color: '#2563eb',
+    bg: 'rgba(37, 99, 235, 0.1)',
+    border: 'rgba(37, 99, 235, 0.3)',
+    icon: 'ri-file-list-3-line'
+  };
+
+  if (st === 'Bodega Asignada') {
+    statusMeta = {
+      label: '2. Bodega Asignada',
+      short: 'Bod. Asignada',
+      color: '#7c3aed',
+      bg: 'rgba(124, 58, 237, 0.1)',
+      border: 'rgba(124, 58, 237, 0.32)',
+      icon: 'ri-store-2-line'
+    };
+  } else if (st === 'En Recepción - Pendiente Conteo') {
+    statusMeta = {
+      label: '3. En Recepción',
+      short: 'En Recepción',
+      color: '#d97706',
+      bg: 'rgba(245, 158, 11, 0.13)',
+      border: 'rgba(245, 158, 11, 0.35)',
+      icon: 'ri-truck-line'
+    };
+  } else if (st === 'En proceso de conteo/clasificación') {
+    statusMeta = {
+      label: '4. En Conteo',
+      short: 'En Conteo',
+      color: '#ea580c',
+      bg: 'rgba(234, 88, 12, 0.13)',
+      border: 'rgba(234, 88, 12, 0.35)',
+      icon: 'ri-calculator-line'
+    };
+  } else if (st === 'Recepción Parcial') {
+    statusMeta = {
+      label: 'Recepción Parcial',
+      short: 'Parcial',
+      color: '#0284c7',
+      bg: 'rgba(2, 132, 199, 0.12)',
+      border: 'rgba(2, 132, 199, 0.35)',
+      icon: 'ri-pie-chart-2-line'
+    };
+  } else if (st === 'Recibido Conforme' || st === 'Completada') {
+    statusMeta = {
+      label: '5. Recibido Conforme',
+      short: 'Recibido OK',
+      color: '#059669',
+      bg: 'rgba(16, 185, 129, 0.12)',
+      border: 'rgba(16, 185, 129, 0.35)',
+      icon: 'ri-checkbox-circle-line'
+    };
+  } else if (st === 'Recibido con Incidencias') {
+    statusMeta = {
+      label: '5. Con Incidencias',
+      short: 'Incidencias',
+      color: '#dc2626',
+      bg: 'rgba(239, 68, 68, 0.12)',
+      border: 'rgba(239, 68, 68, 0.35)',
+      icon: 'ri-error-warning-line'
+    };
+  }
+
+  return {
+    dateStr,
+    dateSource,
+    displayEta,
+    year: dy,
+    month: dm - 1,
+    day: dd,
+    diffDays,
+    isCompleted,
+    isCancelled,
+    isScheduledActive,
+    isToday,
+    isTomorrow,
+    isOverdue,
+    isNext7Days,
+    branchKey,
+    branchLabel,
+    shortBranch,
+    branchColor,
+    branchBg,
+    statusMeta
+  };
+};
+
+window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawDeclarations, options = {}) {
+  const stateObj = window._inboundStockCalendarState[contextKey] || window._inboundStockCalendarState.declarations;
+  if (containerId) stateObj.containerId = containerId;
+  if (rawDeclarations) stateObj.lastDeclarations = rawDeclarations;
+  if (options.warehouseMap) stateObj.warehouseMap = options.warehouseMap;
+
+  const container = document.getElementById(stateObj.containerId);
+  if (!container) return;
+
+  const declarations = Array.isArray(stateObj.lastDeclarations) ? stateObj.lastDeclarations : [];
+  const warehouseMap = stateObj.warehouseMap || window._adminDashboardWarehouseMap || {};
+  const esc = window.escapeHtml || (s => String(s || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])));
+  const todayStr = window.getLocalTodayDateStr();
+
+  // Enriquecer declaraciones con información de calendario
+  const enrichedAll = declarations
+    .filter(d => d && d.status !== 'Cancelado')
+    .map(dec => ({
+      dec,
+      cal: window.resolveDeclarationCalendarInfo(dec, warehouseMap)
+    }));
+
+  // Aplicar filtros de sucursal y estado seleccionados en el calendario
+  const filteredItems = enrichedAll.filter(({ cal }) => {
+    if (stateObj.statusFilter === 'scheduled' && !cal.isScheduledActive) return false;
+    if (stateObj.statusFilter === 'completed' && !cal.isCompleted) return false;
+    if (stateObj.warehouseFilter && stateObj.warehouseFilter !== 'all') {
+      if (cal.branchKey !== stateObj.warehouseFilter) return false;
+    }
+    return true;
+  });
+
+  // Calcular KPIs globales (sobre los ingresos filtrados por sucursal)
+  const branchFilteredActive = enrichedAll.filter(({ cal }) => {
+    if (!cal.isScheduledActive) return false;
+    if (stateObj.warehouseFilter && stateObj.warehouseFilter !== 'all' && cal.branchKey !== stateObj.warehouseFilter) return false;
+    return true;
+  });
+
+  const todayItems = branchFilteredActive.filter(x => x.cal.isToday);
+  const todayUnits = todayItems.reduce((acc, x) => acc + (parseInt(x.dec.quantity_declared, 10) || 0), 0);
+
+  const next7dItems = branchFilteredActive.filter(x => x.cal.isNext7Days);
+  const next7dUnits = next7dItems.reduce((acc, x) => acc + (parseInt(x.dec.quantity_declared, 10) || 0), 0);
+
+  const overdueItems = branchFilteredActive.filter(x => x.cal.isOverdue);
+  const overdueUnits = overdueItems.reduce((acc, x) => acc + (parseInt(x.dec.quantity_declared, 10) || 0), 0);
+
+  const viewYear = stateObj.year;
+  const viewMonth = stateObj.month;
+  const monthItems = filteredItems.filter(x => x.cal.year === viewYear && x.cal.month === viewMonth);
+  const monthUnits = monthItems.reduce((acc, x) => acc + (parseInt(x.dec.quantity_declared, 10) || 0), 0);
+  const monthVol = monthItems.reduce((acc, x) => acc + (parseFloat(x.dec.volume_declared) || 0), 0);
+
+  // Agrupar items del mes por fecha 'YYYY-MM-DD'
+  const itemsByDate = {};
+  monthItems.forEach(item => {
+    const k = item.cal.dateStr;
+    if (!itemsByDate[k]) itemsByDate[k] = [];
+    itemsByDate[k].push(item);
+  });
+
+  // Ordenar dentro de cada día: primero pendientes/activos, luego por unidades desc
+  Object.keys(itemsByDate).forEach(k => {
+    itemsByDate[k].sort((a, b) => {
+      if (a.cal.isScheduledActive !== b.cal.isScheduledActive) return a.cal.isScheduledActive ? -1 : 1;
+      return (parseInt(b.dec.quantity_declared, 10) || 0) - (parseInt(a.dec.quantity_declared, 10) || 0);
+    });
+  });
+
+  // Detectar si el mes actual está vacío pero hay ingresos en otro mes para sugerir salto rápido
+  let nearestOtherMonthHintHtml = '';
+  if (monthItems.length === 0 && filteredItems.length > 0) {
+    const sortedByDiff = [...filteredItems].sort((a, b) => Math.abs(a.cal.diffDays) - Math.abs(b.cal.diffDays));
+    const nearest = sortedByDiff[0];
+    if (nearest) {
+      const mNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+      nearestOtherMonthHintHtml = `
+        <button type="button" onclick="window.jumpInboundCalendarToYearMonth('${contextKey}', ${nearest.cal.year}, ${nearest.cal.month})" style="background: rgba(124, 58, 237, 0.1); color: #7c3aed; border: 1px solid rgba(124, 58, 237, 0.3); border-radius: 99px; padding: 0.22rem 0.65rem; font-size: 0.72rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;">
+          <i class="ri-magic-line"></i> Ir a ${mNames[nearest.cal.month]} ${nearest.cal.year} (${filteredItems.length} reg.)
+        </button>
+      `;
+    }
+  }
+
+  // Construcción de la grilla mensual (Lunes = 0 ... Domingo = 6)
+  const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const monthShortNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  const dayHeaders = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+  const firstDayOfMonth = new Date(viewYear, viewMonth, 1);
+  const startDayOffset = (firstDayOfMonth.getDay() + 6) % 7; // Lunes = 0
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+  let cellsHtml = '';
+  for (let i = 0; i < startDayOffset; i++) {
+    cellsHtml += `<div style="background: rgba(148, 163, 184, 0.04); border: 1px dashed var(--color-border); border-radius: 8px; min-height: 82px; opacity: 0.45;"></div>`;
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateKey = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const dayList = itemsByDate[dateKey] || [];
+    const isTodayCell = dateKey === todayStr;
+    const isSelectedCell = stateObj.selectedDateStr === dateKey && stateObj.agendaMode === 'day';
+    const hasOverdueInCell = dayList.some(x => x.cal.isOverdue);
+    const hasActiveInCell = dayList.some(x => x.cal.isScheduledActive);
+    const totalDayUnits = dayList.reduce((s, x) => s + (parseInt(x.dec.quantity_declared, 10) || 0), 0);
+
+    let cellBg = 'var(--color-surface)';
+    let cellBorder = '1px solid var(--color-border)';
+    let cellShadow = 'none';
+
+    if (isSelectedCell) {
+      cellBg = 'rgba(124, 58, 237, 0.06)';
+      cellBorder = '2px solid #7c3aed';
+      cellShadow = '0 0 0 3px rgba(124, 58, 237, 0.14)';
+    } else if (isTodayCell) {
+      cellBg = 'rgba(37, 99, 235, 0.05)';
+      cellBorder = '1.5px solid var(--color-primary)';
+    } else if (hasOverdueInCell) {
+      cellBg = 'rgba(239, 68, 68, 0.03)';
+      cellBorder = '1px solid rgba(239, 68, 68, 0.35)';
+    } else if (hasActiveInCell) {
+      cellBg = 'rgba(124, 58, 237, 0.025)';
+      cellBorder = '1px solid rgba(124, 58, 237, 0.25)';
+    }
+
+    const pillsHtml = dayList.slice(0, 3).map(({ dec, cal }) => {
+      const comLabel = (dec.comercio || dec.title || 'Ingreso').trim();
+      const qty = parseInt(dec.quantity_declared, 10) || 0;
+      const shortId = (dec.id || '').substring(0, 8).toUpperCase();
+      const tooltip = `#ING-${shortId} | ${comLabel} — ${dec.title || ''}\nSucursal: ${cal.branchLabel}\nUnidades: ${qty.toLocaleString('es-CL')} uds | Etapa: ${cal.statusMeta.label}\n(Clic para gestionar recepción)`;
+      return `
+        <div
+          onclick="event.stopPropagation(); window.manageDeclaration('${dec.id}')"
+          title="${esc(tooltip)}"
+          style="background: ${cal.statusMeta.bg}; border-left: 3px solid ${cal.isOverdue ? '#dc2626' : cal.statusMeta.color}; border-radius: 4px; padding: 2px 5px; font-size: 0.67rem; line-height: 1.25; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 4px; overflow: hidden; transition: transform 0.1s;"
+          onmouseover="this.style.transform='translateX(1px)'"
+          onmouseout="this.style.transform='none'"
+        >
+          <span style="font-weight: 700; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;">
+            <span style="color: ${cal.branchColor}; font-weight: 800;">[${esc(cal.shortBranch)}]</span> ${esc(comLabel)}
+          </span>
+          <span style="font-weight: 800; color: ${cal.statusMeta.color}; flex-shrink: 0; font-size: 0.64rem;">${qty}u</span>
+        </div>
+      `;
+    }).join('');
+
+    const moreCount = dayList.length > 3 ? dayList.length - 3 : 0;
+    const moreBadgeHtml = moreCount > 0 ? `
+      <div style="font-size: 0.65rem; font-weight: 700; color: #7c3aed; text-align: center; background: rgba(124, 58, 237, 0.08); border-radius: 4px; padding: 1px 4px;">
+        +${moreCount} más en este día
+      </div>
+    ` : '';
+
+    cellsHtml += `
+      <div
+        onclick="window.selectInboundCalendarDay('${contextKey}', '${dateKey}')"
+        style="background: ${cellBg}; border: ${cellBorder}; box-shadow: ${cellShadow}; border-radius: 8px; min-height: 84px; padding: 0.35rem 0.4rem; display: flex; flex-direction: column; justify-content: space-between; gap: 0.25rem; cursor: pointer; transition: all 0.15s; min-width: 0;"
+      >
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 2px;">
+          <span style="font-size: 0.74rem; font-weight: ${isTodayCell || isSelectedCell || dayList.length > 0 ? '800' : '600'}; color: ${isTodayCell ? '#fff' : (isSelectedCell ? '#7c3aed' : 'var(--color-text-main)')}; background: ${isTodayCell ? 'var(--color-primary)' : 'transparent'}; padding: ${isTodayCell ? '1px 6px' : '0'}; border-radius: 99px; display: inline-flex; align-items: center; gap: 3px;">
+            ${d}${isTodayCell ? ' <span style="font-size:0.6rem;">HOY</span>' : ''}
+          </span>
+          ${dayList.length > 0 ? `
+            <span style="font-size: 0.63rem; font-weight: 800; background: ${hasOverdueInCell ? 'rgba(239, 68, 68, 0.15)' : 'rgba(124, 58, 237, 0.14)'}; color: ${hasOverdueInCell ? '#dc2626' : '#6d28d9'}; padding: 1px 5px; border-radius: 99px; white-space: nowrap;" title="${dayList.length} ingresos • ${totalDayUnits.toLocaleString('es-CL')} unidades">
+              ${dayList.length} ing • ${totalDayUnits}u
+            </span>
+          ` : ''}
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+          ${pillsHtml}
+          ${moreBadgeHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  // Construcción de la lista de la Agenda Lateral Derecha según el modo activo
+  let agendaTitle = '';
+  let agendaSubtitle = '';
+  let agendaList = [];
+
+  if (stateObj.agendaMode === 'day' && stateObj.selectedDateStr) {
+    const p = stateObj.selectedDateStr.split('-');
+    const formattedDay = p.length === 3 ? `${parseInt(p[2], 10)} de ${monthNames[parseInt(p[1], 10) - 1]} ${p[0]}` : stateObj.selectedDateStr;
+    agendaTitle = `Ingresos del ${formattedDay}`;
+    agendaSubtitle = stateObj.selectedDateStr === todayStr ? 'Llegadas programadas para hoy' : 'Fecha seleccionada en el calendario';
+    agendaList = filteredItems.filter(x => x.cal.dateStr === stateObj.selectedDateStr);
+  } else if (stateObj.agendaMode === 'today') {
+    agendaTitle = 'Ingresos Programados para Hoy';
+    agendaSubtitle = 'Recepciones esperadas en andén hoy';
+    agendaList = todayItems;
+  } else if (stateObj.agendaMode === 'next7d') {
+    agendaTitle = 'Próximos 7 Días';
+    agendaSubtitle = 'Llegadas programadas para esta semana';
+    agendaList = [...next7dItems].sort((a, b) => a.cal.dateStr.localeCompare(b.cal.dateStr));
+  } else if (stateObj.agendaMode === 'overdue') {
+    agendaTitle = 'Ingresos con Fecha Vencida / Pendientes';
+    agendaSubtitle = 'Fecha estimada cumplida sin cierre de recepción';
+    agendaList = [...overdueItems].sort((a, b) => a.cal.dateStr.localeCompare(b.cal.dateStr));
+  } else {
+    agendaTitle = `Agenda de ${monthNames[viewMonth]} ${viewYear}`;
+    agendaSubtitle = `${monthItems.length} ${monthItems.length === 1 ? 'ingreso' : 'ingresos'} en el mes (${monthUnits.toLocaleString('es-CL')} uds • ${monthVol.toFixed(2)} m³)`;
+    agendaList = [...monthItems].sort((a, b) => {
+      // Ordenar: Hoy primero, luego próximos días, luego atrasados, luego completados por fecha
+      const rank = (c) => {
+        if (c.isToday && c.isScheduledActive) return 0;
+        if (c.diffDays > 0 && c.isScheduledActive) return 1;
+        if (c.isOverdue) return 2;
+        return 3;
+      };
+      const rA = rank(a.cal);
+      const rB = rank(b.cal);
+      if (rA !== rB) return rA - rB;
+      return a.cal.dateStr.localeCompare(b.cal.dateStr);
+    });
+  }
+
+  const activeTableDateFilter = window.adminDeclarationCalendarDateFilter || null;
+
+  const agendaCardsHtml = agendaList.length === 0 ? `
+    <div style="padding: 2.25rem 1rem; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.45rem;">
+      <div style="width: 44px; height: 44px; border-radius: 50%; background: rgba(124, 58, 237, 0.08); color: #7c3aed; display: flex; align-items: center; justify-content: center; font-size: 1.35rem;">
+        <i class="ri-calendar-check-line"></i>
+      </div>
+      <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main);">Sin ingresos para esta selección</div>
+      <div style="font-size: 0.76rem; color: var(--color-text-muted); max-width: 240px;">Puedes cambiar de día, navegar a otro mes o mostrar todos los ingresos del mes.</div>
+      ${stateObj.agendaMode !== 'month' ? `
+        <button type="button" onclick="window.setInboundCalendarAgendaMode('${contextKey}', 'month')" class="btn btn-outline btn-sm" style="margin-top: 0.35rem; font-size: 0.74rem; padding: 0.3rem 0.75rem;">
+          Ver todos los del mes (${monthItems.length})
+        </button>
+      ` : ''}
+    </div>
+  ` : agendaList.map(({ dec, cal }) => {
+    const shortId = (dec.id || '').substring(0, 8).toUpperCase();
+    const qty = parseInt(dec.quantity_declared, 10) || 0;
+    const vol = parseFloat(dec.volume_declared || 0);
+    const pkgCount = parseInt(dec.package_count, 10) || 0;
+    const pkgType = dec.package_type || 'bultos';
+    const dayBadgeText = cal.isToday
+      ? 'HOY'
+      : (cal.isTomorrow ? 'MAÑANA' : `${cal.day} ${monthShortNames[cal.month]}`);
+    const dayBadgeBg = cal.isToday
+      ? '#2563eb'
+      : (cal.isOverdue ? '#dc2626' : (cal.isTomorrow ? '#7c3aed' : 'var(--color-bg)'));
+    const dayBadgeColor = (cal.isToday || cal.isOverdue || cal.isTomorrow) ? '#ffffff' : 'var(--color-text-main)';
+
+    return `
+      <div style="background: var(--color-surface); border: 1px solid ${cal.isOverdue ? 'rgba(239, 68, 68, 0.4)' : 'var(--color-border)'}; border-left: 4px solid ${cal.isOverdue ? '#dc2626' : cal.statusMeta.color}; border-radius: 10px; padding: 0.7rem 0.8rem; display: flex; flex-direction: column; gap: 0.45rem; box-shadow: var(--shadow-sm);">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+            <span style="background: ${dayBadgeBg}; color: ${dayBadgeColor}; border: 1px solid var(--color-border); font-size: 0.66rem; font-weight: 800; padding: 0.12rem 0.45rem; border-radius: 6px; text-transform: uppercase;">
+              <i class="ri-calendar-event-line"></i> ${dayBadgeText}
+            </span>
+            ${cal.isOverdue ? `<span style="background: rgba(239, 68, 68, 0.14); color: #dc2626; font-size: 0.64rem; font-weight: 800; padding: 0.1rem 0.4rem; border-radius: 99px;">⚠️ Fecha vencida</span>` : ''}
+            <span style="font-family: monospace; font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted);">#ING-${shortId}</span>
+          </div>
+          <span style="background: ${cal.statusMeta.bg}; color: ${cal.statusMeta.color}; border: 1px solid ${cal.statusMeta.border}; padding: 0.12rem 0.5rem; border-radius: 99px; font-size: 0.67rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="${cal.statusMeta.icon}"></i> ${esc(cal.statusMeta.short)}
+          </span>
+        </div>
+
+        <div>
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.15rem;">
+            <span style="background: rgba(37, 99, 235, 0.1); color: var(--color-primary); font-size: 0.7rem; font-weight: 800; padding: 0.1rem 0.45rem; border-radius: 4px;">
+              🏢 ${esc(dec.comercio || 'Sin Comercio')}
+            </span>
+            <span style="background: ${cal.branchBg}; color: ${cal.branchColor}; font-size: 0.69rem; font-weight: 800; padding: 0.1rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;">
+              <i class="ri-map-pin-2-fill"></i> ${esc(cal.branchLabel)}
+            </span>
+          </div>
+          <div style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-main); line-height: 1.3; word-break: break-word;">
+            ${esc(dec.title || 'Declaración de Ingreso')}
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; flex-wrap: wrap; font-size: 0.72rem; color: var(--color-text-muted); background: var(--color-bg); padding: 0.35rem 0.55rem; border-radius: 6px;">
+          <span><strong>${qty.toLocaleString('es-CL')}</strong> uds</span>
+          <span>•</span>
+          <span><strong>${pkgCount}</strong> ${esc(pkgType)}</span>
+          <span>•</span>
+          <span><strong>${vol.toFixed(2)}</strong> m³</span>
+          <span>•</span>
+          <span title="Llegada estimada">ETA: <strong>${esc(cal.displayEta)}</strong></span>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 0.35rem; flex-wrap: wrap; padding-top: 0.1rem;">
+          <button type="button" onclick="window.openChangeDeclarationWarehouseModal('${dec.id}')" class="btn btn-outline btn-sm" style="padding: 0.22rem 0.5rem; font-size: 0.7rem; font-weight: 700; color: #7c3aed; border-color: rgba(124, 58, 237, 0.35); display: inline-flex; align-items: center; gap: 0.25rem;" title="Asignar o cambiar sucursal física y notificar al comercio">
+            <i class="ri-store-2-line"></i> Sucursal
+          </button>
+          <button type="button" onclick="window.manageDeclaration('${dec.id}')" class="btn btn-primary btn-sm" style="padding: 0.22rem 0.6rem; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;" title="Abrir gestión completa del ingreso">
+            <i class="ri-settings-4-line"></i> Gestionar
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <div style="display: flex; flex-direction: column; gap: 0.9rem;">
+      <!-- Franja de 4 KPIs Interactivos + Filtros y Navegación de Mes -->
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.65rem 0.85rem;">
+        <!-- Píldoras de Resumen Rápido (Clic para filtrar la Agenda Derecha) -->
+        <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+          <button type="button" onclick="window.setInboundCalendarAgendaMode('${contextKey}', 'today')" style="border: 1px solid ${stateObj.agendaMode === 'today' ? '#2563eb' : 'var(--color-border)'}; background: ${stateObj.agendaMode === 'today' ? 'rgba(37, 99, 235, 0.12)' : 'var(--color-surface)'}; border-radius: 8px; padding: 0.35rem 0.65rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; transition: all 0.15s;" title="Ver ingresos programados para Hoy">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: #2563eb; display: inline-block;"></span>
+            <span style="font-size: 0.74rem; color: var(--color-text-muted); font-weight: 600;">Hoy:</span>
+            <strong style="font-size: 0.78rem; color: var(--color-text-main);">${todayItems.length}</strong>
+            <span style="font-size: 0.68rem; color: var(--color-text-muted);">(${todayUnits.toLocaleString('es-CL')}u)</span>
+          </button>
+
+          <button type="button" onclick="window.setInboundCalendarAgendaMode('${contextKey}', 'next7d')" style="border: 1px solid ${stateObj.agendaMode === 'next7d' ? '#7c3aed' : 'var(--color-border)'}; background: ${stateObj.agendaMode === 'next7d' ? 'rgba(124, 58, 237, 0.12)' : 'var(--color-surface)'}; border-radius: 8px; padding: 0.35rem 0.65rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; transition: all 0.15s;" title="Ver ingresos programados para los próximos 7 días">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: #7c3aed; display: inline-block;"></span>
+            <span style="font-size: 0.74rem; color: var(--color-text-muted); font-weight: 600;">Próx. 7 días:</span>
+            <strong style="font-size: 0.78rem; color: var(--color-text-main);">${next7dItems.length}</strong>
+            <span style="font-size: 0.68rem; color: var(--color-text-muted);">(${next7dUnits.toLocaleString('es-CL')}u)</span>
+          </button>
+
+          <button type="button" onclick="window.setInboundCalendarAgendaMode('${contextKey}', 'month')" style="border: 1px solid ${stateObj.agendaMode === 'month' ? '#059669' : 'var(--color-border)'}; background: ${stateObj.agendaMode === 'month' ? 'rgba(16, 185, 129, 0.12)' : 'var(--color-surface)'}; border-radius: 8px; padding: 0.35rem 0.65rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; transition: all 0.15s;" title="Ver todos los ingresos del mes seleccionado">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+            <span style="font-size: 0.74rem; color: var(--color-text-muted); font-weight: 600;">En ${monthShortNames[viewMonth]}:</span>
+            <strong style="font-size: 0.78rem; color: var(--color-text-main);">${monthItems.length}</strong>
+            <span style="font-size: 0.68rem; color: var(--color-text-muted);">(${monthUnits.toLocaleString('es-CL')}u • ${monthVol.toFixed(1)}m³)</span>
+          </button>
+
+          ${overdueItems.length > 0 ? `
+            <button type="button" onclick="window.setInboundCalendarAgendaMode('${contextKey}', 'overdue')" style="border: 1px solid ${stateObj.agendaMode === 'overdue' ? '#dc2626' : 'rgba(239, 68, 68, 0.35)'}; background: ${stateObj.agendaMode === 'overdue' ? 'rgba(239, 68, 68, 0.16)' : 'rgba(239, 68, 68, 0.07)'}; border-radius: 8px; padding: 0.35rem 0.65rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; transition: all 0.15s;" title="Ingresos cuya fecha estimada ya pasó y siguen pendientes de cierre">
+              <i class="ri-alarm-warning-fill" style="color: #dc2626; font-size: 0.85rem;"></i>
+              <span style="font-size: 0.74rem; color: #b91c1c; font-weight: 700;">Por recepcionar (vencidos):</span>
+              <strong style="font-size: 0.78rem; color: #dc2626;">${overdueItems.length}</strong>
+              <span style="font-size: 0.68rem; color: #b91c1c;">(${overdueUnits.toLocaleString('es-CL')}u)</span>
+            </button>
+          ` : ''}
+
+          ${nearestOtherMonthHintHtml}
+        </div>
+
+        <!-- Filtros de Sucursal, Estado y Navegador de Mes -->
+        <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+          <select onchange="window.setInboundCalendarFilter('${contextKey}', 'warehouseFilter', this.value)" class="form-input" style="height: 32px; padding: 0 0.55rem; font-size: 0.75rem; font-weight: 600; border-radius: 7px; width: auto; min-width: 148px; margin: 0;">
+            <option value="all" ${stateObj.warehouseFilter === 'all' ? 'selected' : ''}>📍 Todas las Sucursales</option>
+            <option value="nunoa" ${stateObj.warehouseFilter === 'nunoa' ? 'selected' : ''}>🔵 Matriz Ñuñoa</option>
+            <option value="lareina" ${stateObj.warehouseFilter === 'lareina' ? 'selected' : ''}>🟣 CDD La Reina</option>
+            <option value="recoleta" ${stateObj.warehouseFilter === 'recoleta' ? 'selected' : ''}>🟢 CDD Recoleta</option>
+            <option value="unassigned" ${stateObj.warehouseFilter === 'unassigned' ? 'selected' : ''}>🟠 Sin sucursal asignada</option>
+          </select>
+
+          <select onchange="window.setInboundCalendarFilter('${contextKey}', 'statusFilter', this.value)" class="form-input" style="height: 32px; padding: 0 0.55rem; font-size: 0.75rem; font-weight: 600; border-radius: 7px; width: auto; min-width: 162px; margin: 0;">
+            <option value="scheduled" ${stateObj.statusFilter === 'scheduled' ? 'selected' : ''}>📅 Programados / En curso</option>
+            <option value="all" ${stateObj.statusFilter === 'all' ? 'selected' : ''}>📋 Todos (incl. Recibidos)</option>
+            <option value="completed" ${stateObj.statusFilter === 'completed' ? 'selected' : ''}>✅ Solo Recibidos</option>
+          </select>
+
+          <div style="display: inline-flex; align-items: center; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 2px;">
+            <button type="button" onclick="window.changeInboundCalendarMonth('${contextKey}', -1)" style="border: none; background: transparent; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: var(--color-text-main);" title="Mes anterior">
+              <i class="ri-arrow-left-s-line" style="font-size: 1rem;"></i>
+            </button>
+            <span style="font-size: 0.8rem; font-weight: 800; color: var(--color-text-main); min-width: 118px; text-align: center; padding: 0 0.35rem;">
+              ${monthNames[viewMonth]} ${viewYear}
+            </span>
+            <button type="button" onclick="window.changeInboundCalendarMonth('${contextKey}', 1)" style="border: none; background: transparent; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: var(--color-text-main);" title="Mes siguiente">
+              <i class="ri-arrow-right-s-line" style="font-size: 1rem;"></i>
+            </button>
+            <button type="button" onclick="window.resetInboundCalendarToday('${contextKey}')" style="border: none; border-left: 1px solid var(--color-border); background: transparent; height: 26px; padding: 0 0.55rem; font-size: 0.72rem; font-weight: 700; color: var(--color-primary); cursor: pointer;" title="Volver al mes actual y ver Hoy">
+              Hoy
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Layout Principal: Grilla Mensual (Izquierda) + Agenda Detallada (Derecha) -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; align-items: start;">
+        <!-- Columna 1: Grilla Mensual (ocupa más ancho en pantallas grandes mediante flex/grid) -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.75rem; min-width: 0;">
+          <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.35rem; margin-bottom: 0.4rem;">
+            ${dayHeaders.map(dh => `
+              <div style="text-align: center; font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); padding: 0.2rem 0;">
+                ${dh}
+              </div>
+            `).join('')}
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.35rem;">
+            ${cellsHtml}
+          </div>
+          <!-- Leyenda rápida de etapas y sucursales -->
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.65rem; padding-top: 0.55rem; border-top: 1px dashed var(--color-border); font-size: 0.68rem; color: var(--color-text-muted);">
+            <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+              <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #2563eb; display: inline-block;"></span> 1. Creada</span>
+              <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #7c3aed; display: inline-block;"></span> 2. Bod. Asignada</span>
+              <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #d97706; display: inline-block;"></span> 3-4. Recepción / Conteo</span>
+              <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #059669; display: inline-block;"></span> 5. Recibido</span>
+            </div>
+            <span>💡 Clic en un día para ver su agenda • Clic en un ingreso para gestionarlo</span>
+          </div>
+        </div>
+
+        <!-- Columna 2: Agenda Operativa Detallada -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; max-height: 560px;">
+          <div style="padding: 0.75rem 0.9rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <div>
+              <div style="font-size: 0.85rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-list-check-2" style="color: #7c3aed;"></i> ${esc(agendaTitle)}
+              </div>
+              <div style="font-size: 0.72rem; color: var(--color-text-muted);">${esc(agendaSubtitle)}</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              ${contextKey === 'declarations' && stateObj.agendaMode === 'day' && stateObj.selectedDateStr ? `
+                <button type="button" onclick="window.filterDeclarationsTableByCalendarDate('${ activeTableDateFilter === stateObj.selectedDateStr ? '' : stateObj.selectedDateStr }')" class="btn btn-sm ${activeTableDateFilter === stateObj.selectedDateStr ? 'btn-primary' : 'btn-outline'}" style="font-size: 0.7rem; padding: 0.24rem 0.55rem; font-weight: 700;">
+                  <i class="ri-filter-3-line"></i> ${activeTableDateFilter === stateObj.selectedDateStr ? 'Quitar filtro tabla' : 'Filtrar tabla'}
+                </button>
+              ` : ''}
+              ${stateObj.agendaMode !== 'month' ? `
+                <button type="button" onclick="window.setInboundCalendarAgendaMode('${contextKey}', 'month')" class="btn btn-outline btn-sm" style="font-size: 0.7rem; padding: 0.24rem 0.55rem; font-weight: 700;">
+                  Ver Mes (${monthItems.length})
+                </button>
+              ` : ''}
+            </div>
+          </div>
+          <div style="padding: 0.75rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.6rem; flex: 1;">
+            ${agendaCardsHtml}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+};
+
+window.changeInboundCalendarMonth = function(contextKey, delta) {
+  const st = window._inboundStockCalendarState[contextKey];
+  if (!st) return;
+  const d = new Date(st.year, st.month + delta, 1);
+  st.year = d.getFullYear();
+  st.month = d.getMonth();
+  st.selectedDateStr = null;
+  st.agendaMode = 'month';
+  window.renderInboundStockCalendarWidget(contextKey);
+};
+
+window.jumpInboundCalendarToYearMonth = function(contextKey, year, month) {
+  const st = window._inboundStockCalendarState[contextKey];
+  if (!st) return;
+  st.year = year;
+  st.month = month;
+  st.selectedDateStr = null;
+  st.agendaMode = 'month';
+  window.renderInboundStockCalendarWidget(contextKey);
+};
+
+window.resetInboundCalendarToday = function(contextKey) {
+  const st = window._inboundStockCalendarState[contextKey];
+  if (!st) return;
+  const now = new Date();
+  st.year = now.getFullYear();
+  st.month = now.getMonth();
+  st.selectedDateStr = window.getLocalTodayDateStr();
+  st.agendaMode = 'day';
+  window.renderInboundStockCalendarWidget(contextKey);
+};
+
+window.selectInboundCalendarDay = function(contextKey, dateStr) {
+  const st = window._inboundStockCalendarState[contextKey];
+  if (!st) return;
+  if (st.selectedDateStr === dateStr && st.agendaMode === 'day') {
+    st.selectedDateStr = null;
+    st.agendaMode = 'month';
+  } else {
+    st.selectedDateStr = dateStr;
+    st.agendaMode = 'day';
+  }
+  window.renderInboundStockCalendarWidget(contextKey);
+};
+
+window.setInboundCalendarAgendaMode = function(contextKey, mode) {
+  const st = window._inboundStockCalendarState[contextKey];
+  if (!st) return;
+  st.agendaMode = mode;
+  if (mode === 'today') {
+    const now = new Date();
+    st.year = now.getFullYear();
+    st.month = now.getMonth();
+    st.selectedDateStr = window.getLocalTodayDateStr();
+  } else if (mode !== 'day') {
+    st.selectedDateStr = null;
+  }
+  window.renderInboundStockCalendarWidget(contextKey);
+};
+
+window.setInboundCalendarFilter = function(contextKey, filterField, value) {
+  const st = window._inboundStockCalendarState[contextKey];
+  if (!st) return;
+  st[filterField] = value;
+  window.renderInboundStockCalendarWidget(contextKey);
+};
+
+window.toggleDeclarationsCalendarSection = function() {
+  const st = window._inboundStockCalendarState.declarations;
+  st.collapsed = !st.collapsed;
+  const sec = document.getElementById('admin-dec-scheduled-calendar-section');
+  const btn = document.getElementById('btn-toggle-dec-calendar');
+  if (sec) {
+    sec.style.display = st.collapsed ? 'none' : 'block';
+  }
+  if (btn) {
+    btn.innerHTML = st.collapsed
+      ? '<i class="ri-calendar-todo-fill" style="color: #7c3aed;"></i> Mostrar Calendario Programado'
+      : '<i class="ri-calendar-check-fill" style="color: #7c3aed;"></i> Ocultar Calendario';
+  }
+};
+
+window.filterDeclarationsTableByCalendarDate = function(dateStr) {
+  window.adminDeclarationCalendarDateFilter = dateStr || null;
+  window.filterAndRenderDeclarationsAdminTable();
+};
+
+window.refreshActiveDeclarationsView = async function() {
+  // 1. Si estamos en la vista de Gestión de Ingresos de Stock, refrescar la tabla y su calendario
+  if (document.getElementById('admin-dec-table-card')) {
+    await window.renderDeclarationsAdmin(true);
+    return;
+  }
+  // 2. Si estamos en el Dashboard Operativo Admin, recargar las declaraciones y refrescar el calendario del Dashboard sin salir del Dashboard
+  if (document.getElementById('admin-dashboard-inbound-calendar-container')) {
+    try {
+      const selectedCommerce = document.getElementById('admin-dashboard-commerce-select')?.value || '';
+      const cacheKey = 'admin_dashboard_v4_' + (selectedCommerce || 'all');
+      if (typeof window.clearDashboardCache === 'function') {
+        window.clearDashboardCache(cacheKey);
+      }
+      let q = supabase
+        .from('stock_declarations')
+        .select('id, title, status, quantity_declared, volume_declared, package_count, package_type, delivery_method, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at, comercio, warehouse_id, warehouses(id, name, comuna)')
+        .order('created_at', { ascending: false })
+        .limit(150);
+      if (selectedCommerce) q = q.eq('comercio', selectedCommerce);
+      const { data: freshDecs } = await q;
+      if (Array.isArray(freshDecs)) {
+        window._adminDashboardDeclarations = freshDecs;
+        window.renderInboundStockCalendarWidget('dashboard', 'admin-dashboard-inbound-calendar-container', freshDecs, {
+          warehouseMap: window._adminDashboardWarehouseMap || {}
+        });
+      }
+    } catch (e) {
+      console.warn('No se pudo refrescar el calendario del dashboard:', e);
+    }
+  }
+};
+
 window.filterAndRenderDeclarationsAdminTable = function() {
   const declarations = window._adminDeclarationsCache || [];
   const tbody = document.getElementById('admin-dec-table-body');
@@ -47980,6 +48810,13 @@ window.filterAndRenderDeclarationsAdminTable = function() {
       }
     }
 
+    if (window.adminDeclarationCalendarDateFilter) {
+      const calInfo = window.resolveDeclarationCalendarInfo(dec);
+      if (calInfo.dateStr !== window.adminDeclarationCalendarDateFilter) {
+        return false;
+      }
+    }
+
     if (window.adminDeclarationSearchTerm && window.adminDeclarationSearchTerm.trim()) {
       const q = window.adminDeclarationSearchTerm.trim().toLowerCase();
       const id = (dec.id || '').toLowerCase();
@@ -48054,6 +48891,33 @@ window.filterAndRenderDeclarationsAdminTable = function() {
     countBadge.textContent = `${filteredDeclarations.length} ${filteredDeclarations.length === 1 ? 'ingreso' : 'ingresos'}`;
   }
 
+  // Actualizar banner de filtro por fecha de calendario si está activo
+  const dateFilterBanner = document.getElementById('admin-dec-calendar-date-filter-banner');
+  if (dateFilterBanner) {
+    if (window.adminDeclarationCalendarDateFilter) {
+      const p = window.adminDeclarationCalendarDateFilter.split('-');
+      const disp = p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : window.adminDeclarationCalendarDateFilter;
+      dateFilterBanner.style.display = 'flex';
+      dateFilterBanner.innerHTML = `
+        <span style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #5b21b6; font-weight: 700;">
+          <i class="ri-calendar-event-fill" style="color: #7c3aed;"></i>
+          Mostrando únicamente ingresos en la tabla con llegada programada el <strong>${disp}</strong> (${filteredDeclarations.length} encontrados)
+        </span>
+        <button type="button" onclick="window.filterDeclarationsTableByCalendarDate('')" class="btn btn-sm btn-outline" style="font-size: 0.72rem; padding: 0.2rem 0.6rem; border-color: rgba(124, 58, 237, 0.35); color: #7c3aed; font-weight: 700;">
+          <i class="ri-close-line"></i> Quitar filtro de fecha
+        </button>
+      `;
+    } else {
+      dateFilterBanner.style.display = 'none';
+      dateFilterBanner.innerHTML = '';
+    }
+  }
+
+  // Renderizar / sincronizar el Calendario de Ingresos de Stock Programados en la vista de Ingresos de Stock
+  if (typeof window.renderInboundStockCalendarWidget === 'function') {
+    window.renderInboundStockCalendarWidget('declarations', 'admin-dec-inbound-calendar-container', baseDeclarationsForTabs);
+  }
+
   // Resolver CLP de manera asíncrona
   filteredDeclarations.forEach(dec => {
     (async () => {
@@ -48120,8 +48984,9 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
       return `<option value="${m}" ${isSelected}>🏢 ${m}</option>`;
     }).join('');
 
-    // Si la estructura aún no existe en appContent (o no tiene la barra de acciones masivas), la montamos
-    if (!document.getElementById('admin-dec-table-card') || !document.getElementById('admin-dec-bulk-actions-bar')) {
+    // Si la estructura aún no existe en appContent (o no tiene la barra de acciones masivas o calendario), la montamos
+    if (!document.getElementById('admin-dec-table-card') || !document.getElementById('admin-dec-bulk-actions-bar') || !document.getElementById('admin-dec-scheduled-calendar-section')) {
+      const calCollapsed = window._inboundStockCalendarState?.declarations?.collapsed === true;
       appContent.innerHTML = `
         <div class="card" id="admin-dec-table-card">
           <div class="card-header" style="border-bottom: none; padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
@@ -48129,7 +48994,12 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
               <h3>Gestión de Ingresos de Stock</h3>
               <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">Controla, clasifica, recepciona y audita la facturación de los ingresos declarados.</p>
             </div>
-            <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+              <button type="button" class="btn btn-outline" id="btn-toggle-dec-calendar" onclick="window.toggleDeclarationsCalendarSection()" style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.42rem 0.85rem; font-size: 0.83rem; font-weight: 700; border-color: rgba(124, 58, 237, 0.35); color: #6d28d9; background: rgba(124, 58, 237, 0.06); cursor: pointer;">
+                ${calCollapsed
+                  ? '<i class="ri-calendar-todo-fill" style="color: #7c3aed;"></i> Mostrar Calendario Programado'
+                  : '<i class="ri-calendar-check-fill" style="color: #7c3aed;"></i> Ocultar Calendario'}
+              </button>
               <button class="btn btn-primary" id="btn-admin-new-declaration" onclick="window.openAdminNewDeclarationModal()" style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.95rem; font-size: 0.85rem; font-weight: 600; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25); cursor: pointer;">
                 <i class="ri-add-circle-line" style="font-size: 1.1rem;"></i> Declarar Nuevo Ingreso
               </button>
@@ -48137,6 +49007,22 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
                 <i class="ri-refresh-line"></i> Actualizar
               </button>
             </div>
+          </div>
+
+          <!-- Calendario de Ingresos de Stock Programados (Integrado en Pantalla de Ingresos) -->
+          <div id="admin-dec-scheduled-calendar-section" style="display: ${calCollapsed ? 'none' : 'block'}; padding: 0.9rem 1.5rem 1.1rem 1.5rem; background: linear-gradient(180deg, rgba(124, 58, 237, 0.03) 0%, var(--color-surface) 100%); border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+              <div style="display: flex; align-items: center; gap: 0.45rem;">
+                <span style="width: 30px; height: 30px; border-radius: 8px; background: rgba(124, 58, 237, 0.12); color: #7c3aed; display: inline-flex; align-items: center; justify-content: center; font-size: 1.05rem;">
+                  <i class="ri-calendar-todo-fill"></i>
+                </span>
+                <div>
+                  <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: var(--color-text-main);">Calendario de Ingresos de Stock Programados</h4>
+                  <p style="margin: 0; font-size: 0.75rem; color: var(--color-text-muted);">Planificación de llegadas por sucursal física, unidades proyectadas y estado de recepción</p>
+                </div>
+              </div>
+            </div>
+            <div id="admin-dec-inbound-calendar-container"></div>
           </div>
 
           <!-- Toolbar de Búsqueda y Filtros de Administración -->
@@ -48200,6 +49086,9 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
           </div>
           
           <div id="admin-dec-tabs-container" class="tabs-container dec-status-tabs-container"></div>
+
+          <!-- Banner activo cuando se filtra la tabla por un día específico del calendario -->
+          <div id="admin-dec-calendar-date-filter-banner" style="display: none; padding: 0.55rem 1.5rem; background: rgba(124, 58, 237, 0.08); border-bottom: 1px solid rgba(124, 58, 237, 0.25); justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;"></div>
 
           <!-- Barra de Acciones Masivas de Ingresos -->
           <div id="admin-dec-bulk-actions-bar" style="display: none; padding: 0.65rem 1.5rem; background: linear-gradient(90deg, rgba(95, 6, 250, 0.08) 0%, rgba(37, 99, 235, 0.06) 100%); border-bottom: 1px solid rgba(95, 6, 250, 0.25);"></div>
@@ -52238,8 +53127,11 @@ window.openChangeDeclarationWarehouseModal = async function(id) {
       }
     }
 
-    // 6. Refrescar tabla principal de declaraciones
-    if (typeof window.renderDeclarationsAdmin === 'function') {
+    // 6. Refrescar vista activa (Tabla/Calendario de Ingresos o Calendario del Dashboard)
+    window._adminDeclarationsCache = null;
+    if (typeof window.refreshActiveDeclarationsView === 'function') {
+      window.refreshActiveDeclarationsView();
+    } else if (typeof window.renderDeclarationsAdmin === 'function') {
       window.renderDeclarationsAdmin();
     }
 
@@ -53437,8 +54329,13 @@ document.addEventListener('submit', async (e) => {
       window.currentDeclarationProductsEditing = null;
       window.currentDeclarationProductsEditing_id = null;
       
-      // Refrescar tabla
-      renderDeclarationsAdmin();
+      // Refrescar vista activa (Tabla/Calendario de Ingresos o Calendario del Dashboard)
+      window._adminDeclarationsCache = null;
+      if (typeof window.refreshActiveDeclarationsView === 'function') {
+        window.refreshActiveDeclarationsView();
+      } else {
+        renderDeclarationsAdmin();
+      }
     } catch (err) {
       console.error('Error updating stock reception:', err);
       let errorMsg = err.message || 'Error desconocido';
