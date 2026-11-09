@@ -244,12 +244,19 @@ async function processEnviameDelivery(d, context = {}) {
   }
 
   let trackingUrl = null;
-  if (d.links && Array.isArray(d.links)) {
+  if (validTracking) {
+    const cUpper = String(courier || '').toUpperCase();
+    if (cUpper.includes('STARKEN')) {
+      trackingUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(validTracking)}`;
+    } else if (cUpper.includes('BLUE') || cUpper === 'BX' || cUpper.includes('BLUEXPRESS')) {
+      trackingUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(validTracking)}`;
+    } else if (cUpper.includes('CHILEXPRESS') || cUpper === 'CXP') {
+      trackingUrl = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(validTracking)}`;
+    }
+  }
+  if (!trackingUrl && d.links && Array.isArray(d.links)) {
     const webLink = d.links.find(l => l.rel === 'tracking-web');
     if (webLink?.href) trackingUrl = webLink.href;
-  }
-  if (!trackingUrl && validTracking) {
-    trackingUrl = `https://tracking.enviame.io/?n=${encodeURIComponent(validTracking)}`;
   }
 
   // 1. Actualizar enviame_shipments

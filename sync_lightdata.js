@@ -266,6 +266,7 @@ async function syncLightData() {
     let dbUpsertCount = 0;
     let matchingOrdersCount = 0;
     const upsertPayloads = [];
+    const orderSyncTasks = [];
 
     for (const row of dataRows) {
       // Omitir filas vacías
@@ -315,89 +316,15 @@ async function syncLightData() {
 
       upsertPayloads.push(shipmentPayload);
 
-      // --- Sincronizar en paralelo con la tabla principal de pedidos (orders) ---
       const candidates = buildOrderCandidates(tracking, idml);
       if (candidates.length > 0) {
-        const candidateFilters = candidates.map(c => `"${c}"`).join(',');
-        let orderQuery = supabase
-          .from('orders')
-          .select('id, status, external_order_number, tracking_number, courier, operador, lightdata_status, comercio, categoria_entrega, agenda')
-          .or(`external_order_number.in.(${candidateFilters}),tracking_number.in.(${candidateFilters})`);
-
-        if (resolvedComercio) {
-          orderQuery = orderQuery.ilike('comercio', resolvedComercio);
-        }
-
-        const { data: dbOrders, error: findError } = await orderQuery;
-
-        if (dbOrders && dbOrders.length > 0) {
-          matchingOrdersCount++;
-          for (const dbOrder of dbOrders) {
-            if (String(dbOrder.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') {
-              continue;
-            }
-            const updatePayload = {
-              lightdata_status: shipmentPayload.status,
-              raw_lightdata_data: shipmentPayload
-            };
-
-            const currentTrack = String(dbOrder.tracking_number || '').trim();
-            const extNum = String(dbOrder.external_order_number || '').trim();
-            const dbCourier = String(dbOrder.courier || '').toUpperCase().trim();
-            const dbOperador = String(dbOrder.operador || '').toUpperCase().trim();
-
-            const isIgnoredCourier = dbCourier.includes('RECIBELO') || dbCourier.includes('RECÍBELO') || 
-                                     dbCourier.includes('WELIVERY') || dbCourier.includes('WOODELIVERY') || dbCourier.includes('WODELY') ||
-                                     dbOperador.includes('RECIBELO') || dbOperador.includes('RECÍBELO') || dbOperador.includes('WELIVERY');
-
-            const isAlpha = dbOperador === 'ALPHA' || dbCourier === 'LIGHTDATA' || dbCourier === 'CARRIER EXTERNO';
-            const isGenericTrack = !currentTrack || currentTrack.toLowerCase() === 'no informado' || currentTrack === extNum;
-            const isDifferentTrack = id && currentTrack && currentTrack !== id && (isAlpha || isIgnoredCourier);
-
-            if (isGenericTrack || isDifferentTrack || isIgnoredCourier || isAlpha) {
-              updatePayload.tracking_number = id;
-            }
-
-            if (shipmentPayload.tracking_url) {
-              updatePayload.tracking_url = shipmentPayload.tracking_url;
-            }
-
-            if (dbOrder.courier !== 'LIGHTDATA' && dbOrder.courier !== 'CARRIER EXTERNO') {
-              updatePayload.courier = 'CARRIER EXTERNO';
-            }
-
-            const hasLightDataStatusChange = dbOrder.lightdata_status !== shipmentPayload.status;
-            const hasCourierChange = dbOrder.courier !== 'CARRIER EXTERNO';
-            const hasTrackingChange = Boolean(updatePayload.tracking_number && updatePayload.tracking_number !== currentTrack);
-            const needsUpdate = hasLightDataStatusChange || hasCourierChange || hasTrackingChange;
-
-            if (needsUpdate) {
-              await supabase
-                .from('orders')
-                .update(updatePayload)
-                .eq('id', dbOrder.id);
-
-              if (pickerClient && extNum) {
-                const activeTrack = updatePayload.tracking_number || currentTrack || id;
-                if (activeTrack && !activeTrack.startsWith('460') && activeTrack !== extNum) {
-                  try {
-                    await pickerClient
-                      .from('active_orders')
-                      .update({ tracking: activeTrack, operator: 'ALPHA' })
-                      .in('order_number', [extNum, '#' + extNum.replace(/^#/, ''), extNum.replace(/^#/, '')]);
-                  } catch (pErr) {}
-                }
-              }
-            }
-          }
-        }
+        orderSyncTasks.push({ id, tracking, idml, resolvedComercio, shipmentPayload, candidates });
       }
     }
 
-    // Realizar la inserción/actualización masiva en la tabla dedicada lightdata_envios
+    // 4.1 Primero realizar la inserción/actualización masiva en la tabla dedicada lightdata_envios (disponibilidad inmediata para el WMS)
     if (upsertPayloads.length > 0) {
       console.log(`🚀 Subiendo ${upsertPayloads.length} registros a la tabla lightdata_envios...`);
-      // Hacemos el upsert en lotes de 100 para no saturar la API en caso de payloads muy grandes
       const batchSize = 100;
       for (let i = 0; i < upsertPayloads.length; i += batchSize) {
         const batch = upsertPayloads.slice(i, i + batchSize);
@@ -421,6 +348,93 @@ async function syncLightData() {
           dbUpsertCount += batch.length;
         }
       }
+    }
+
+    // 4.2 Sincronizar en lotes paralelos con la tabla principal de pedidos (orders)
+    const concurrency = 15;
+    for (let i = 0; i < orderSyncTasks.length; i += concurrency) {
+      const chunk = orderSyncTasks.slice(i, i + concurrency);
+      await Promise.all(chunk.map(async ({ id, resolvedComercio, shipmentPayload, candidates }) => {
+        const candidateFilters = candidates.map(c => `"${c}"`).join(',');
+        let orderQuery = supabase
+          .from('orders')
+          .select('id, status, external_order_number, tracking_number, courier, operador, lightdata_status, raw_lightdata_data, comercio, categoria_entrega, agenda')
+          .or(`external_order_number.in.(${candidateFilters}),tracking_number.in.(${candidateFilters})`);
+
+        // Solo filtrar por comercio en orders si resolvedComercio no es la cuenta genérica "Stocka 1" / "Stocka CL"
+        if (resolvedComercio && !resolvedComercio.toUpperCase().includes('STOCKA')) {
+          orderQuery = orderQuery.ilike('comercio', resolvedComercio);
+        }
+
+        const { data: dbOrders } = await orderQuery;
+
+        if (dbOrders && dbOrders.length > 0) {
+          matchingOrdersCount++;
+          for (const dbOrder of dbOrders) {
+            if (String(dbOrder.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') {
+              continue;
+            }
+            const updatePayload = {
+              lightdata_status: shipmentPayload.status,
+              raw_lightdata_data: {
+                ...(dbOrder.raw_lightdata_data || {}),
+                ...shipmentPayload,
+                did: id
+              }
+            };
+
+            const currentTrack = String(dbOrder.tracking_number || '').trim();
+            const extNum = String(dbOrder.external_order_number || '').trim();
+            const dbCourier = String(dbOrder.courier || '').toUpperCase().trim();
+            const dbOperador = String(dbOrder.operador || '').toUpperCase().trim();
+
+            const isIgnoredCourier = dbCourier.includes('RECIBELO') || dbCourier.includes('RECÍBELO') || 
+                                     dbCourier.includes('WELIVERY') || dbCourier.includes('WOODELIVERY') || dbCourier.includes('WODELY') ||
+                                     dbOperador.includes('RECIBELO') || dbOperador.includes('RECÍBELO') || dbOperador.includes('WELIVERY');
+
+            const isAlpha = dbOperador === 'ALPHA' || dbCourier === 'LIGHTDATA' || dbCourier === 'CARRIER EXTERNO';
+            const isGenericTrack = !currentTrack || currentTrack.toLowerCase() === 'no informado' || currentTrack === extNum || currentTrack.startsWith('460') || /^46\d{7,}$/.test(currentTrack);
+            const isDifferentTrack = id && currentTrack && currentTrack !== id && (isAlpha || isIgnoredCourier);
+
+            if (isGenericTrack || isDifferentTrack || isIgnoredCourier || isAlpha) {
+              updatePayload.tracking_number = id;
+            }
+
+            if (shipmentPayload.tracking_url) {
+              updatePayload.tracking_url = shipmentPayload.tracking_url;
+            }
+
+            if (dbOrder.courier !== 'LIGHTDATA' && dbOrder.courier !== 'CARRIER EXTERNO') {
+              updatePayload.courier = 'CARRIER EXTERNO';
+            }
+
+            const existingDid = String(dbOrder.raw_lightdata_data?.did || dbOrder.raw_lightdata_data?.id || '').trim();
+            const hasLightDataStatusChange = dbOrder.lightdata_status !== shipmentPayload.status || existingDid !== id;
+            const hasCourierChange = dbOrder.courier !== 'CARRIER EXTERNO' && dbOrder.courier !== 'LIGHTDATA';
+            const hasTrackingChange = Boolean(updatePayload.tracking_number && updatePayload.tracking_number !== currentTrack);
+            const needsUpdate = hasLightDataStatusChange || hasCourierChange || hasTrackingChange;
+
+            if (needsUpdate) {
+              await supabase
+                .from('orders')
+                .update(updatePayload)
+                .eq('id', dbOrder.id);
+
+              if (pickerClient && extNum) {
+                const activeTrack = updatePayload.tracking_number || currentTrack || id;
+                if (activeTrack && !activeTrack.startsWith('460') && !/^46\d{7,}$/.test(activeTrack) && activeTrack !== extNum) {
+                  try {
+                    await pickerClient
+                      .from('active_orders')
+                      .update({ tracking: activeTrack, operator: 'ALPHA' })
+                      .in('order_number', [extNum, '#' + extNum.replace(/^#/, ''), extNum.replace(/^#/, '')]);
+                  } catch (pErr) {}
+                }
+              }
+            }
+          }
+        }
+      }));
     }
 
     // 5. Eliminar el archivo Excel temporal

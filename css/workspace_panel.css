@@ -797,3 +797,159 @@ body.client-workspace-mode .wms-workspace-fab {
   font-size: 0.72rem;
   color: var(--color-text-muted);
 }
+
+/* ==========================================================================
+   DELEGACIÓN ENTRE ADMINS, PLAZOS, ESTADOS Y COMENTARIOS (PÚBLICOS / PRIVADOS)
+   ========================================================================== */
+
+.ws-task-item.is-delegated {
+  border-left: 3.5px solid #6366f1;
+}
+
+.ws-task-item.is-overdue:not(.is-done) {
+  border-left: 3.5px solid #ef4444;
+  background: rgba(239, 68, 68, 0.025);
+}
+
+.ws-badge-delegated-in {
+  background: rgba(99, 102, 241, 0.14);
+  color: #6366f1;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+}
+
+.ws-badge-delegated-out {
+  background: rgba(139, 92, 246, 0.14);
+  color: #8b5cf6;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+}
+
+.ws-badge-deadline-overdue {
+  background: rgba(239, 68, 68, 0.16);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  animation: wsPulseDanger 2s infinite;
+}
+
+.ws-badge-deadline-soon {
+  background: rgba(245, 158, 11, 0.16);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.ws-badge-deadline-ok {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.28);
+}
+
+@keyframes wsPulseDanger {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.3); }
+  50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); }
+}
+
+/* Selector rápido de estado en línea */
+.ws-status-pill-select {
+  padding: 0.18rem 0.5rem;
+  border-radius: 99px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-main);
+  cursor: pointer;
+  outline: none;
+  transition: all 0.15s;
+}
+
+.ws-status-pill-select.status-todo {
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.ws-status-pill-select.status-in_progress {
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.ws-status-pill-select.status-waiting {
+  border-color: rgba(139, 92, 246, 0.45);
+  color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.12);
+}
+
+.ws-status-pill-select.status-done {
+  border-color: rgba(16, 185, 129, 0.45);
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+/* Cajón de Comentarios por Tarea */
+.ws-comments-drawer {
+  margin-top: 0.55rem;
+  margin-left: 1.9rem;
+  padding: 0.8rem 0.95rem;
+  border-radius: 10px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.ws-comment-card {
+  padding: 0.6rem 0.8rem;
+  border-radius: 9px;
+  font-size: 0.78rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  position: relative;
+}
+
+.ws-comment-card.vis-public {
+  background: var(--color-surface);
+  border: 1px solid rgba(59, 130, 246, 0.28);
+  border-left: 3px solid #3b82f6;
+}
+
+.ws-comment-card.vis-personal {
+  background: rgba(245, 158, 11, 0.06);
+  border: 1px dashed rgba(245, 158, 11, 0.45);
+  border-left: 3px solid #f59e0b;
+}
+
+.ws-comment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ws-comment-author {
+  font-weight: 700;
+  color: var(--color-text-main);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.ws-comment-vis-badge {
+  font-size: 0.65rem;
+  padding: 0.08rem 0.42rem;
+  border-radius: 99px;
+  font-weight: 700;
+}
+
+.ws-comment-vis-badge.public {
+  background: rgba(59, 130, 246, 0.14);
+  color: #3b82f6;
+}
+
+.ws-comment-vis-badge.personal {
+  background: rgba(245, 158, 11, 0.16);
+  color: #d97706;
+}
+

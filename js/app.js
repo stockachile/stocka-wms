@@ -202,6 +202,155 @@ window.renderCopyFieldBtn = function(value, label, tooltip, customStyle) {
   return `<button type="button" onclick="event.stopPropagation(); window.copyFieldFromData(this, '${window.escapeHtml(label || '')}')" data-copy-val="${cleanVal}" class="btn-copy-field" title="${tip}" style="${baseStyle}" onmouseover="this.style.color='var(--color-primary)'; this.style.background='rgba(59, 130, 246, 0.1)';" onmouseout="this.style.color='var(--color-text-muted)'; this.style.background='transparent';"><i class="ri-file-copy-line"></i></button>`;
 };
 
+// Helper global para resolver la URL pública de seguimiento del courier (limpiando dominios rotos como tracking.enviame.io o API interna)
+window.resolveCourierPublicTrackingUrl = function(rawUrl, trackingNum, courierName, shipment, order) {
+  let url = (rawUrl && rawUrl !== 'N/A') ? String(rawUrl).trim() : '';
+  const trk = (trackingNum && trackingNum !== 'N/A' && trackingNum !== 'No informado' && trackingNum !== '-') ? String(trackingNum).trim() : '';
+  const cLower = String(courierName || shipment?.courier || order?.courier || order?.operador || '').toLowerCase().trim();
+  const srcTable = String(shipment?.source_table || '').toLowerCase();
+
+  // 1. Recuperar URL desde LightData raw_data[31] si corresponde
+  if (srcTable === 'lightdata_envios' || order?.raw_lightdata_data) {
+    if (shipment?.raw_data?.[31] && String(shipment.raw_data[31]).startsWith('http')) {
+      url = String(shipment.raw_data[31]).trim();
+    } else if (order?.raw_lightdata_data?.raw_data?.[31] && String(order.raw_lightdata_data.raw_data[31]).startsWith('http')) {
+      url = String(order.raw_lightdata_data.raw_data[31]).trim();
+    }
+  }
+
+  // 2. Limpiar enlaces de API Envíame o dominio inexistente tracking.enviame.io y priorizar portal público del courier
+  if (url && (url.includes('tracking.enviame.io') || url.includes('api.enviame.io/api/') || url.includes('api.enviame.io/s2/'))) {
+    if (trk && cLower.includes('starken')) {
+      url = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(trk)}`;
+    } else if (trk && (cLower.includes('blue') || cLower.includes('bluex'))) {
+      url = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(trk)}`;
+    } else if (trk && cLower.includes('chilexpress')) {
+      url = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(trk)}`;
+    } else {
+      const rawLinks = shipment?.raw_data?.links || shipment?.raw_payload?.links || [];
+      const webLink = Array.isArray(rawLinks) ? rawLinks.find(l => l && l.rel === 'tracking-web' && l.href && !l.href.includes('tracking.enviame.io')) : null;
+      if (webLink && webLink.href) {
+        url = String(webLink.href).trim();
+      } else if (url.includes('tracking.enviame.io') || url.includes('api.enviame.io/api/') || url.includes('api.enviame.io/s2/')) {
+        url = '';
+      }
+    }
+  }
+
+  if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+    url = '';
+  }
+
+  // 3. Fallback por courier o tabla de origen cuando no hay URL
+  if (!url && trk) {
+    if (srcTable === 'optiroute_orders' || cLower.includes('optiroute') || cLower.includes('stocka x')) {
+      url = `https://app.optiroute.cl/service_requets/tracking/${encodeURIComponent(trk)}/`;
+    } else if (srcTable === 'lightdata_envios' || cLower.includes('alpha') || cLower.includes('lightdata')) {
+      url = `https://alphagroup.lightdata.com.ar/tracking.php?token=${encodeURIComponent(trk)}d54df4s8a88`;
+    } else if (srcTable === 'starken_envios' || cLower.includes('starken')) {
+      url = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(trk)}`;
+    } else if (srcTable === 'bluex_envios' || cLower.includes('blue') || cLower.includes('bluex')) {
+      url = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(trk)}`;
+    } else if (cLower.includes('chilexpress')) {
+      url = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(trk)}`;
+    } else if (srcTable === 'mercadolibre' || cLower.includes('mercadolibre') || cLower.includes('meli')) {
+      url = `https://envios.mercadolibre.cl/seguimiento/${encodeURIComponent(trk)}`;
+    }
+  }
+
+  return url || null;
+};
+
+window.getOrderPublicTrackingPortalUrl = function(order) {
+  if (!order || !order.id) return '';
+  const originUrl = (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file:'))
+    ? window.location.origin
+    : 'https://wms.stocka.cl';
+  let url = `${originUrl}/seguimiento.html?t=${encodeURIComponent(order.id)}`;
+  if (order.comercio) {
+    url += `&comercio=${encodeURIComponent(order.comercio)}`;
+  }
+  return url;
+};
+
+window.togglePublicTrackingLinkBox = function(orderId, btnEl) {
+  const box = document.getElementById(`public-tracking-box-${orderId}`);
+  if (!box) return;
+  const isHidden = box.style.display === 'none' || !box.style.display;
+  box.style.display = isHidden ? 'flex' : 'none';
+  const btn = btnEl || document.getElementById(`btn-toggle-pub-track-${orderId}`);
+  if (btn) {
+    const labelSpan = btn.querySelector('.pub-track-btn-label');
+    const iconEl = btn.querySelector('.pub-track-btn-icon');
+    if (labelSpan) labelSpan.textContent = isHidden ? 'Ocultar enlace público' : 'Mostrar enlace público';
+    if (iconEl) iconEl.className = isHidden ? 'ri-eye-off-line pub-track-btn-icon' : 'ri-eye-line pub-track-btn-icon';
+  }
+};
+
+window.renderOrderPublicTrackingSectionHtml = function(order, courierTrackingUrl, courierName) {
+  if (!order || !order.id) return '';
+  const portalUrl = window.getOrderPublicTrackingPortalUrl(order);
+  const validCourierUrl = (courierTrackingUrl && courierTrackingUrl !== 'N/A' && courierTrackingUrl.startsWith('http')) ? courierTrackingUrl : null;
+  const primaryCopyUrl = validCourierUrl || portalUrl;
+  const escPortal = window.escapeHtmlAttr ? window.escapeHtmlAttr(portalUrl) : portalUrl;
+  const escCourier = validCourierUrl ? (window.escapeHtmlAttr ? window.escapeHtmlAttr(validCourierUrl) : validCourierUrl) : '';
+  const escPrimary = window.escapeHtmlAttr ? window.escapeHtmlAttr(primaryCopyUrl) : primaryCopyUrl;
+  const cleanCourierLabel = (courierName && courierName !== 'Seguimiento' && courierName !== 'Courier') ? courierName : 'Courier';
+
+  return `
+    <div style="border-top: 1px dashed var(--color-border); padding-top: 0.45rem; display: flex; flex-direction: column; gap: 0.4rem; text-align: left;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; flex-wrap: wrap;">
+        <button type="button" id="btn-toggle-pub-track-${order.id}" onclick="event.stopPropagation(); window.togglePublicTrackingLinkBox('${order.id}', this)" style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.28); color: var(--color-primary); padding: 0.22rem 0.55rem; border-radius: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.28rem; transition: all 0.15s;" title="Mostrar u ocultar el enlace público de seguimiento">
+          <i class="ri-eye-line pub-track-btn-icon" style="font-size: 0.82rem;"></i>
+          <span class="pub-track-btn-label">Mostrar enlace público</span>
+        </button>
+        <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+          <button type="button" onclick="event.stopPropagation(); window.copyFieldFromData(this, 'Enlace público de seguimiento')" data-copy-val="${escPortal}" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main); padding: 0.2rem 0.48rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.22rem;" title="Copiar enlace del Portal Público de Seguimiento para el cliente">
+            <i class="ri-file-copy-line" style="color: var(--color-primary);"></i> Copiar enlace
+          </button>
+          <a href="${escPortal}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-primary); padding: 0.2rem 0.48rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 0.2rem;" title="Abrir Portal Público de Seguimiento del pedido">
+            <i class="ri-external-link-line"></i> Portal
+          </a>
+        </div>
+      </div>
+
+      <div id="public-tracking-box-${order.id}" style="display: none; flex-direction: column; gap: 0.42rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.5rem 0.6rem;">
+        <div style="display: flex; flex-direction: column; gap: 0.18rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.3rem;">
+            <span style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.2px; display: inline-flex; align-items: center; gap: 0.22rem;">
+              <i class="ri-shield-check-line" style="color: var(--color-primary);"></i> Enlace Público Seguimiento (Portal Cliente)
+            </span>
+            <div style="display: inline-flex; align-items: center; gap: 0.2rem;">
+              ${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(portalUrl, 'Enlace público de seguimiento', 'Copiar enlace del portal de seguimiento', 'margin-left:0; padding:0.1rem 0.25rem; font-size:0.78rem;') : ''}
+              <a href="${escPortal}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" style="font-size: 0.72rem; color: var(--color-primary); font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 0.15rem;" title="Abrir en nueva pestaña">
+                Abrir <i class="ri-external-link-line"></i>
+              </a>
+            </div>
+          </div>
+          <input type="text" readonly value="${escPortal}" onclick="event.stopPropagation(); this.select();" style="width: 100%; font-family: monospace; font-size: 0.7rem; color: var(--color-text-main); background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 4px; padding: 0.25rem 0.45rem; outline: none; cursor: text;" />
+        </div>
+
+        ${validCourierUrl ? `
+          <div style="display: flex; flex-direction: column; gap: 0.18rem; border-top: 1px dashed var(--color-border); padding-top: 0.38rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.3rem;">
+              <span style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.2px; display: inline-flex; align-items: center; gap: 0.22rem;">
+                <i class="ri-truck-line" style="color: #059669;"></i> Enlace Directo ${window.escapeHtml ? window.escapeHtml(cleanCourierLabel) : cleanCourierLabel}
+              </span>
+              <div style="display: inline-flex; align-items: center; gap: 0.2rem;">
+                ${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(validCourierUrl, 'Enlace directo courier', 'Copiar enlace directo del courier', 'margin-left:0; padding:0.1rem 0.25rem; font-size:0.78rem;') : ''}
+                <a href="${escCourier}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" style="font-size: 0.72rem; color: #059669; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 0.15rem;" title="Abrir seguimiento en ${window.escapeHtml ? window.escapeHtml(cleanCourierLabel) : cleanCourierLabel}">
+                  Abrir <i class="ri-external-link-line"></i>
+                </a>
+              </div>
+            </div>
+            <input type="text" readonly value="${escCourier}" onclick="event.stopPropagation(); this.select();" style="width: 100%; font-family: monospace; font-size: 0.7rem; color: var(--color-text-main); background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 4px; padding: 0.25rem 0.45rem; outline: none; cursor: text;" />
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
+};
+
 // Helper para extraer y limpiar atributos válidos de notas en Shopify (omitiendo marketing, píxeles, cookies y metadatos técnicos)
 window.getValidShopifyNoteAttributesText = function(noteAttributes) {
   if (!Array.isArray(noteAttributes) || noteAttributes.length === 0) return '';
@@ -13402,6 +13551,9 @@ window.applyClientWmsFiltersAndRender = function() {
       ? `<span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: none; display: block; margin-top: 0.05rem;">${displayRawStatus}</span>` 
       : '';
 
+    let resolvedOrderTrackingUrl = null;
+    let resolvedOrderCourierName = (isIgnoredCourier ? null : ((order.courier && order.courier !== 'CARRIER EXTERNO') ? order.courier : (orderShipments.length > 0 ? orderShipments[0].courier : null)));
+
     if (orderShipments.length > 0) {
       const shipment = orderShipments[0];
       const forcedClientInfo = window.getOrderForcedTrackingInfo ? window.getOrderForcedTrackingInfo(order) : null;
@@ -13414,76 +13566,38 @@ window.applyClientWmsFiltersAndRender = function() {
           ? forcedClientInfo.courier
           : (shipment.source_table === 'lightdata_envios' ? 'ALPHA' : (shipment.courier || (shipment.source_table === 'optiroute_orders' ? 'STOCKA X' : 'Seguimiento')));
         let trackingUrl = (forcedClientInfo?.active && forcedClientInfo.tracking_url) ? forcedClientInfo.tracking_url : shipment.tracking_url;
-        if (shipment.source_table === 'optiroute_orders' && !trackingUrl && effTrack) {
-          trackingUrl = `https://app.optiroute.cl/service_requets/tracking/${encodeURIComponent(effTrack)}/`;
+        if (window.resolveCourierPublicTrackingUrl) {
+          trackingUrl = window.resolveCourierPublicTrackingUrl(trackingUrl, effTrack, courierName, shipment, order);
         }
-
-        // Recuperación de URL de seguimiento de LightData
-        if (shipment.source_table === 'lightdata_envios') {
-          if (shipment.raw_data && shipment.raw_data[31]) {
-            const ldUrl = shipment.raw_data[31];
-            if (ldUrl && ldUrl.startsWith('http')) {
-              trackingUrl = ldUrl;
-            }
-          } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[31]) {
-            const ldUrl = order.raw_lightdata_data.raw_data[31];
-            if (ldUrl && ldUrl.startsWith('http')) {
-              trackingUrl = ldUrl;
-            }
-          }
-        }
-        if (!trackingUrl && (shipment.source_table === 'lightdata_envios' || order.raw_lightdata_data)) {
-          const ldData = order.raw_lightdata_data;
-          const ldTracking = (ldData?.tracking || '').trim();
-          const ldId = String(ldData?.id || ldData?.did || '').trim();
-          const trackingNum = (effTrack || order.tracking_number || '').trim();
-          if (ldData?.tracking_url) {
-            trackingUrl = ldData.tracking_url;
-          } else if (ldData?.raw_data && ldData.raw_data[31] && String(ldData.raw_data[31]).startsWith('http')) {
-            trackingUrl = ldData.raw_data[31];
-          } else if (trackingNum && (trackingNum === ldTracking || trackingNum === ldId || ldTracking.includes(trackingNum))) {
-            trackingUrl = `https://unete.lightdata.cl/tracking?tracking=${encodeURIComponent(trackingNum)}`;
-          }
-        }
-        // Limpiar trackingUrl si corresponde al API interna de Envíame
-        if (trackingUrl && (trackingUrl.includes('api.enviame.io/s2/') || trackingUrl.includes('api.enviame.io/api/'))) {
-          trackingUrl = `https://tracking.enviame.io/?n=${encodeURIComponent(effTrack)}`;
-        }
-        if (shipment.source_table === 'bluex_envios' && !trackingUrl && effTrack) {
-          trackingUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(effTrack)}`;
-        }
-        if (shipment.source_table === 'starken_envios' && !trackingUrl && effTrack) {
-          trackingUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(effTrack)}`;
-        }
-        if (shipment.source_table === 'mercadolibre' && (!trackingUrl || trackingUrl === 'N/A') && effTrack) {
-          trackingUrl = `https://envios.mercadolibre.cl/seguimiento/${encodeURIComponent(effTrack)}`;
-        }
-        if (shipment.source_table === 'falabella' && (!trackingUrl || trackingUrl === 'N/A') && effTrack) {
-          const cLower = String(shipment.courier || order.courier || '').toLowerCase();
-          if (cLower.includes('chilexpress')) {
-            trackingUrl = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(effTrack)}`;
-          } else if (cLower.includes('blueexpress') || cLower.includes('blue express') || cLower.includes('bluex')) {
-            trackingUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(effTrack)}`;
-          } else if (cLower.includes('starken')) {
-            trackingUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(effTrack)}`;
-          }
-        }
-        // Limpiar si no es una URL real
-        if (trackingUrl && !trackingUrl.startsWith('http://') && !trackingUrl.startsWith('https://')) {
-          trackingUrl = null;
-        }
+        resolvedOrderTrackingUrl = trackingUrl;
+        resolvedOrderCourierName = courierName;
 
         const copyTrackingBtn = window.renderCopyFieldBtn 
           ? window.renderCopyFieldBtn(effTrack, 'Tracking', 'Copiar código de tracking') 
           : '';
         const trackingLink = trackingUrl && trackingUrl !== 'N/A'
-          ? `<a href="${trackingUrl}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${effTrack}</a>`
+          ? `<a href="${trackingUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${effTrack}</a>`
           : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main); font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${effTrack}</span>`;
 
         const shipStatusBadge = `<span class="badge" style="background-color: ${trackBadgeBg}; color: ${trackBadgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; text-transform: uppercase; margin-top: 0.2rem; display: inline-block; width: fit-content; letter-spacing: 0.3px;">${globStatus}</span>${rawStatusSpan}`;
         
         trackingHtml = `<div style="display: flex; flex-direction: column; gap: 0.15rem;"><div style="display: inline-flex; align-items: center; flex-wrap: wrap;">${trackingLink}${copyTrackingBtn}</div><div>${shipStatusBadge}</div></div>`;
       }
+    } else if (!isClientRetiroOrder && !isIgnoredCourier && order.tracking_number && order.tracking_number !== 'No informado') {
+      const effTrack = String(order.tracking_number).trim();
+      const courierName = (order.courier && order.courier !== 'CARRIER EXTERNO') ? order.courier : (order.operador || 'Seguimiento');
+      const trackingUrl = window.resolveCourierPublicTrackingUrl
+        ? window.resolveCourierPublicTrackingUrl(order.tracking_url, effTrack, courierName, null, order)
+        : order.tracking_url;
+      resolvedOrderTrackingUrl = trackingUrl;
+      resolvedOrderCourierName = courierName;
+      const copyTrackingBtn = window.renderCopyFieldBtn
+        ? window.renderCopyFieldBtn(effTrack, 'Tracking', 'Copiar código de tracking')
+        : '';
+      const trackingLink = trackingUrl && trackingUrl !== 'N/A'
+        ? `<a href="${trackingUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${effTrack}</a>`
+        : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main); font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${effTrack}</span>`;
+      trackingHtml = `<div style="display: flex; flex-direction: column; gap: 0.15rem;"><div style="display: inline-flex; align-items: center; flex-wrap: wrap;">${trackingLink}${copyTrackingBtn}</div></div>`;
     }
 
     let shipmentStatusHtml = '';
@@ -14466,6 +14580,8 @@ window.applyClientWmsFiltersAndRender = function() {
                     <div style="font-size: 0.82rem; min-width: 0; overflow: hidden;">${trackingHtml}</div>
                   </div>
                 </div>
+
+                ${window.renderOrderPublicTrackingSectionHtml ? window.renderOrderPublicTrackingSectionHtml(order, resolvedOrderTrackingUrl, resolvedOrderCourierName) : ''}
 
                 <!-- Auto Track integrado -->
                 <div style="border-top: 1px dashed var(--color-border); padding-top: 0.45rem; text-align: left;">
@@ -19010,9 +19126,634 @@ async function sendOrderNotificationEmail(order, items) {
 // Shipments View Rendering & Logic (envios_unificados)
 // ==========================================================================
 
+function formatShipmentCourierDisplay(shipment) {
+  const raw = (shipment?.courier || '').trim();
+  const src = String(shipment?.source_table || '').toLowerCase();
+  const linkedOp = (shipment?._linkedOrder?.courier || shipment?._linkedOrder?.operador || '').trim();
+
+  if (!raw || raw.toUpperCase() === 'CARRIER EXTERNO' || raw.toUpperCase() === 'EXTERNO') {
+    if (src === 'lightdata_envios') {
+      return {
+        label: linkedOp && linkedOp.toUpperCase() !== 'CARRIER EXTERNO' ? linkedOp : 'Alpha Group',
+        sub: 'Carrier Externo · LightData'
+      };
+    }
+    if (linkedOp && linkedOp.toUpperCase() !== 'CARRIER EXTERNO') {
+      return { label: linkedOp, sub: raw || '' };
+    }
+    return { label: raw || 'Courier Externo', sub: '' };
+  }
+  return { label: raw, sub: '' };
+}
+
+function classifyShipmentStatus(shipment) {
+  let rawStatus = String(shipment?.status || '').trim();
+  if (shipment?.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(rawStatus) && shipment?.raw_data && shipment.raw_data[23]) {
+    rawStatus = String(shipment.raw_data[23]).trim();
+  }
+  const stLower = rawStatus.toLowerCase();
+  const displayStatus = typeof getDisplayStatusName === 'function' ? getDisplayStatusName(rawStatus || 'Pendiente') : (rawStatus || 'Pendiente');
+
+  // 1. Entregado
+  if (
+    stLower === 'entregado' ||
+    stLower === 'delivered' ||
+    stLower.includes('entregado con exito') ||
+    stLower.includes('entregado con éxito') ||
+    stLower.includes('entregado al cliente')
+  ) {
+    return { tab: 'Entregado', badgeClass: 'badge-success', displayStatus };
+  }
+
+  // 2. Devolución / Cancelado
+  if (
+    stLower.includes('devolucion') ||
+    stLower.includes('devolución') ||
+    stLower.includes('devuelto') ||
+    stLower === 'cancelado' ||
+    stLower === 'cancelled'
+  ) {
+    return { tab: 'Devolución', badgeClass: 'badge-danger', displayStatus };
+  }
+
+  // 3. No retirado / Incidencia
+  if (
+    stLower === 'no retirado' ||
+    stLower === 'skipped' ||
+    stLower === 'nadie' ||
+    stLower.includes('rechazado') ||
+    stLower.includes('incidencia') ||
+    stLower.includes('siniestro') ||
+    stLower.includes('requiere solucion') ||
+    stLower.includes('requiere solución') ||
+    stLower.includes('pendiente - requiere')
+  ) {
+    return { tab: 'No retirado', badgeClass: 'badge-danger', displayStatus };
+  }
+
+  // 4. Creado / Preparación inicial
+  if (
+    stLower === 'creado' ||
+    stLower === 'reviewing' ||
+    stLower === 'pendiente' ||
+    stLower === 'preparacion' ||
+    stLower === 'preparación'
+  ) {
+    return { tab: 'Creado', badgeClass: 'badge-neutral', displayStatus };
+  }
+
+  // 5. Listo para despacho / A retirar
+  if (
+    stLower === 'listo para despacho' ||
+    stLower === 'listo para despacho - impreso' ||
+    stLower === 'a retirar' ||
+    stLower.includes('listo para')
+  ) {
+    return { tab: 'Listo para despacho', badgeClass: 'badge-warning', displayStatus };
+  }
+
+  // 6. En tránsito / En Ruta / En Planta
+  if (
+    stLower.includes('tránsito') ||
+    stLower.includes('transito') ||
+    stLower.includes('reparto') ||
+    stLower.includes('camino') ||
+    stLower.includes('planta') ||
+    stLower.includes('retirado por courier') ||
+    stLower === 'destino' ||
+    stLower.includes('despachado') ||
+    stLower.includes('ruta')
+  ) {
+    return { tab: 'En tránsito', badgeClass: 'badge-info', displayStatus };
+  }
+
+  // Fallback según global_status
+  const gs = String(shipment?.global_status || '').toUpperCase();
+  if (gs === 'ENTREGADO') return { tab: 'Entregado', badgeClass: 'badge-success', displayStatus };
+  if (gs === 'DEVOLUCIÓN') return { tab: 'Devolución', badgeClass: 'badge-danger', displayStatus };
+  if (gs === 'ALERTA') return { tab: 'No retirado', badgeClass: 'badge-danger', displayStatus };
+  if (gs === 'EN TRÁNSITO' || gs === 'DESPACHADO') return { tab: 'En tránsito', badgeClass: 'badge-info', displayStatus };
+
+  return { tab: 'Creado', badgeClass: 'badge-neutral', displayStatus };
+}
+
+async function enrichShipmentsWithOrders(shipments, companyList) {
+  if (!Array.isArray(shipments) || shipments.length === 0) return shipments;
+
+  try {
+    const refsSet = new Set();
+    const trackSet = new Set();
+
+    shipments.forEach(s => {
+      const ref = (s.pedido_referencia || '').trim();
+      if (ref && ref !== '-') {
+        refsSet.add(ref);
+        const bare = ref.replace(/^#/, '');
+        if (bare) {
+          refsSet.add(bare);
+          refsSet.add(`#${bare}`);
+        }
+      }
+      const trk = (s.tracking || '').trim();
+      if (trk && trk !== '-' && trk !== 'N/A') {
+        trackSet.add(trk);
+      }
+    });
+
+    const refsArr = [...refsSet].slice(0, 150);
+    const trackArr = [...trackSet].slice(0, 150);
+    const selectCols = 'id, external_order_number, tracking_number, p_courier_code, comercio, customer_name, customer_phone, customer_email, shipping_address, shipping_complement, shipping_city, shipping_method, courier, operador, status, estado_wms, tracking_url, created_at';
+
+    const queries = [];
+    if (refsArr.length > 0) {
+      let qRef = supabase.from('orders').select(selectCols).in('external_order_number', refsArr);
+      if (Array.isArray(companyList) && companyList.length > 0) {
+        qRef = qRef.in('comercio', companyList);
+      }
+      queries.push(qRef);
+    }
+    if (trackArr.length > 0) {
+      let qTrk = supabase.from('orders').select(selectCols).in('tracking_number', trackArr);
+      if (Array.isArray(companyList) && companyList.length > 0) {
+        qTrk = qTrk.in('comercio', companyList);
+      }
+      queries.push(qTrk);
+    }
+
+    if (queries.length === 0) return shipments;
+
+    const results = await Promise.all(queries);
+    const byRef = new Map();
+    const byTrack = new Map();
+
+    results.forEach(res => {
+      (res.data || []).forEach(ord => {
+        if (ord.external_order_number) {
+          const k = String(ord.external_order_number).trim().toLowerCase();
+          byRef.set(k, ord);
+          byRef.set(k.replace(/^#/, ''), ord);
+        }
+        if (ord.tracking_number) {
+          byTrack.set(String(ord.tracking_number).trim().toLowerCase(), ord);
+        }
+        if (ord.p_courier_code) {
+          byTrack.set(String(ord.p_courier_code).trim().toLowerCase(), ord);
+        }
+      });
+    });
+
+    shipments.forEach(s => {
+      const refKey = String(s.pedido_referencia || '').trim().toLowerCase();
+      const bareKey = refKey.replace(/^#/, '');
+      const trkKey = String(s.tracking || '').trim().toLowerCase();
+      const matched = (refKey && (byRef.get(refKey) || byRef.get(bareKey))) || (trkKey && byTrack.get(trkKey)) || null;
+
+      if (matched) {
+        s._linkedOrder = matched;
+        if (!s.comuna_destino && matched.shipping_city) {
+          s.comuna_destino = matched.shipping_city;
+        }
+        if (!s.telefono_destino && matched.customer_phone) {
+          s.telefono_destino = matched.customer_phone;
+        }
+        if (!s.direccion_destino && matched.shipping_address) {
+          s.direccion_destino = matched.shipping_address;
+        }
+        if (!s.complemento_destino && matched.shipping_complement) {
+          s.complemento_destino = matched.shipping_complement;
+        }
+        if (!s.email_cliente_destino && matched.customer_email) {
+          s.email_cliente_destino = matched.customer_email;
+        }
+        if (!s.nombre_destinatario && matched.customer_name) {
+          s.nombre_destinatario = matched.customer_name;
+        }
+      }
+    });
+  } catch (err) {
+    console.warn('No se pudo enriquecer despachos con orders:', err);
+  }
+
+  return shipments;
+}
+
+window.buildShipmentPublicTrackingUrl = function(shipment) {
+  if (!shipment) return '';
+  const originUrl = (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file:'))
+    ? window.location.origin
+    : 'https://wms.stocka.cl';
+
+  const linkedOrder = shipment._linkedOrder || null;
+  const token = linkedOrder?.id || shipment.pedido_referencia || shipment.tracking || shipment.id || '';
+  if (!token) return '';
+
+  const commerceName = shipment.empresa_comercio_proveedor || linkedOrder?.comercio || (typeof currentCompany === 'string' ? currentCompany.split(',')[0].trim() : '') || '';
+  const courierInfo = formatShipmentCourierDisplay(shipment);
+  const statusMeta = classifyShipmentStatus(shipment);
+  const resolvedCourierUrl = window.resolveCourierPublicTrackingUrl
+    ? window.resolveCourierPublicTrackingUrl(shipment.tracking_url, shipment.tracking, shipment.courier, shipment, linkedOrder)
+    : null;
+
+  // Snapshot ligero codificado en base64 URL-safe para que seguimiento.html muestre siempre el estado en tiempo real
+  const snapshotObj = {
+    r: shipment.pedido_referencia || linkedOrder?.external_order_number || '',
+    k: shipment.tracking || linkedOrder?.tracking_number || '',
+    c: courierInfo.label || shipment.courier || '',
+    s: statusMeta.displayStatus || shipment.status || '',
+    g: shipment.global_status || '',
+    n: shipment.nombre_destinatario || linkedOrder?.customer_name || '',
+    a: shipment.direccion_destino || linkedOrder?.shipping_address || '',
+    m: shipment.comuna_destino || linkedOrder?.shipping_city || '',
+    f: shipment.created_at || linkedOrder?.created_at || '',
+    u: resolvedCourierUrl || '',
+    o: commerceName
+  };
+
+  let url = `${originUrl}/seguimiento.html?t=${encodeURIComponent(token)}`;
+  if (commerceName) {
+    url += `&comercio=${encodeURIComponent(commerceName)}`;
+  }
+  try {
+    const jsonStr = JSON.stringify(snapshotObj);
+    const bytes = new TextEncoder().encode(jsonStr);
+    let binary = '';
+    bytes.forEach(b => { binary += String.fromCharCode(b); });
+    const b64 = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    url += `&d=${b64}`;
+  } catch (e) {
+    // Fallback sin parámetro d
+  }
+  return url;
+};
+
+window.copyShipmentPublicTrackingLink = async function(shipmentId, btnEl) {
+  const list = window._currentShipmentsData || [];
+  const shipment = list.find(x => String(x.id) === String(shipmentId));
+  if (!shipment) return;
+
+  const url = window.buildShipmentPublicTrackingUrl(shipment);
+  if (!url) return;
+
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch (err) {
+    const ta = document.createElement('textarea');
+    ta.value = url;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+
+  if (btnEl) {
+    const originalHtml = btnEl.innerHTML;
+    btnEl.classList.add('copied');
+    btnEl.innerHTML = `<i class="ri-check-line"></i> ¡Copiado!`;
+    setTimeout(() => {
+      btnEl.classList.remove('copied');
+      btnEl.innerHTML = originalHtml;
+    }, 1800);
+  }
+};
+
+window.openShipmentShareModal = function(shipmentId) {
+  const list = window._currentShipmentsData || [];
+  const shipment = list.find(x => String(x.id) === String(shipmentId));
+  if (!shipment) return;
+
+  const existing = document.getElementById('modal-shipment-share');
+  if (existing) existing.remove();
+
+  const publicUrl = window.buildShipmentPublicTrackingUrl(shipment);
+  const linkedOrder = shipment._linkedOrder || null;
+  const resolvedCourierUrl = window.resolveCourierPublicTrackingUrl
+    ? window.resolveCourierPublicTrackingUrl(shipment.tracking_url, shipment.tracking, shipment.courier, shipment, linkedOrder)
+    : null;
+
+  const customerName = shipment.nombre_destinatario || linkedOrder?.customer_name || 'Cliente';
+  const orderRef = shipment.pedido_referencia || linkedOrder?.external_order_number || shipment.tracking || 'tu pedido';
+  const commerceName = shipment.empresa_comercio_proveedor || linkedOrder?.comercio || (typeof currentCompany === 'string' ? currentCompany.split(',')[0].trim() : 'nuestra tienda');
+  const courierInfo = formatShipmentCourierDisplay(shipment);
+  const statusMeta = classifyShipmentStatus(shipment);
+  const rawPhone = shipment.telefono_destino || linkedOrder?.customer_phone || '';
+  const rawEmail = shipment.email_cliente_destino || linkedOrder?.customer_email || '';
+
+  const defaultMessage = `Hola ${customerName} 👋, te compartimos el enlace de seguimiento de tu pedido *${orderRef}* de *${commerceName}* (${courierInfo.label} - Estado: *${statusMeta.displayStatus}*):\n\n🔗 ${publicUrl}`;
+
+  const escPublicUrl = window.escapeHtmlAttr ? window.escapeHtmlAttr(publicUrl) : publicUrl;
+  const escCourierUrl = resolvedCourierUrl ? (window.escapeHtmlAttr ? window.escapeHtmlAttr(resolvedCourierUrl) : resolvedCourierUrl) : '';
+  const escPhone = window.escapeHtmlAttr ? window.escapeHtmlAttr(rawPhone) : rawPhone;
+  const escEmail = window.escapeHtmlAttr ? window.escapeHtmlAttr(rawEmail) : rawEmail;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'modal-shipment-share';
+  overlay.style.cssText = 'position: fixed; inset: 0; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 1rem;';
+
+  overlay.innerHTML = `
+    <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 16px; width: 100%; max-width: 680px; max-height: 92vh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); display: flex; flex-direction: column;">
+      <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(99, 102, 241, 0.12); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+            <i class="ri-share-forward-line"></i>
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-text-main);">Compartir Seguimiento Público · ${window.escapeHtml ? window.escapeHtml(orderRef) : orderRef}</h3>
+            <p style="margin: 0.15rem 0 0; font-size: 0.78rem; color: var(--color-text-muted);">Destinatario: <strong>${window.escapeHtml ? window.escapeHtml(customerName) : customerName}</strong> · Estado: <strong>${statusMeta.displayStatus}</strong></p>
+          </div>
+        </div>
+        <button type="button" id="btn-close-share-modal" style="background: transparent; border: none; font-size: 1.5rem; color: var(--color-text-muted); cursor: pointer; line-height: 1;">&times;</button>
+      </div>
+
+      <div style="padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1.15rem;">
+        <!-- Public Link Box -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 12px; padding: 0.9rem 1rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.45rem; flex-wrap: wrap;">
+            <span style="font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-shield-check-line"></i> Enlace del Portal Público de Seguimiento (Vista Cliente)
+            </span>
+            <div style="display: inline-flex; gap: 0.4rem;">
+              <button type="button" id="btn-share-copy-url" class="btn-ship-action primary" style="padding: 0.3rem 0.7rem;">
+                <i class="ri-file-copy-line"></i> Copiar Enlace
+              </button>
+              <a href="${escPublicUrl}" target="_blank" rel="noopener noreferrer" class="btn-ship-action" style="padding: 0.3rem 0.7rem;">
+                <i class="ri-external-link-line"></i> Abrir en Pestaña
+              </a>
+            </div>
+          </div>
+          <input type="text" id="share-public-url-input" readonly value="${escPublicUrl}" onclick="this.select();" style="width: 100%; font-family: monospace; font-size: 0.76rem; padding: 0.5rem 0.65rem; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); outline: none;" />
+          ${resolvedCourierUrl ? `
+            <div style="margin-top: 0.6rem; padding-top: 0.55rem; border-top: 1px dashed var(--color-border); display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; font-size: 0.75rem;">
+              <span style="color: var(--color-text-muted);"><i class="ri-truck-line" style="color: #059669;"></i> Tracking directo en <strong>${courierInfo.label}</strong> (${shipment.tracking || '-'}):</span>
+              <a href="${escCourierUrl}" target="_blank" rel="noopener noreferrer" style="color: #059669; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 0.2rem;">
+                Abrir web del courier <i class="ri-external-link-line"></i>
+              </a>
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- WhatsApp & Email Quick Sender -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div>
+            <label style="display: block; font-size: 0.73rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 0.3rem;">Teléfono WhatsApp Destinatario</label>
+            <input type="text" id="share-wa-phone" value="${escPhone}" placeholder="+56 9 1234 5678" class="filter-input" style="width: 100%; height: 38px; font-size: 0.85rem;" />
+          </div>
+          <div>
+            <label style="display: block; font-size: 0.73rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 0.3rem;">Correo Electrónico Destinatario</label>
+            <input type="email" id="share-email-to" value="${escEmail}" placeholder="cliente@correo.cl" class="filter-input" style="width: 100%; height: 38px; font-size: 0.85rem;" />
+          </div>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 0.73rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 0.3rem;">Mensaje para el Cliente (editable)</label>
+          <textarea id="share-message-text" rows="4" class="filter-input" style="width: 100%; height: auto; padding: 0.6rem 0.75rem; font-size: 0.82rem; line-height: 1.45; resize: vertical;">${window.escapeHtml ? window.escapeHtml(defaultMessage) : defaultMessage}</textarea>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <button type="button" id="btn-share-whatsapp-send" class="btn" style="background: #10b981; color: #fff; border: none; padding: 0.55rem 1rem; border-radius: 8px; font-weight: 700; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+              <i class="ri-whatsapp-line" style="font-size: 1rem;"></i> Enviar por WhatsApp
+            </button>
+            <button type="button" id="btn-share-email-send" class="btn btn-outline" style="padding: 0.55rem 0.95rem; border-radius: 8px; font-weight: 600; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer;">
+              <i class="ri-mail-send-line"></i> Enviar por Correo
+            </button>
+            <button type="button" id="btn-share-copy-msg" class="btn btn-outline" style="padding: 0.55rem 0.95rem; border-radius: 8px; font-weight: 600; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer;">
+              <i class="ri-file-copy-2-line"></i> Copiar Mensaje
+            </button>
+          </div>
+
+          <button type="button" id="btn-toggle-live-preview" class="btn-ship-action primary" style="padding: 0.45rem 0.8rem;">
+            <i class="ri-eye-line"></i> Vista Previa del Portal
+          </button>
+        </div>
+
+        <!-- Embedded Live Preview Container -->
+        <div id="share-live-preview-wrap" style="display: none; flex-direction: column; gap: 0.4rem; border-top: 1px solid var(--color-border); padding-top: 0.9rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; color: var(--color-text-muted);">
+            <span><i class="ri-smartphone-line"></i> Vista previa en tiempo real de lo que verá tu cliente:</span>
+            <a href="${escPublicUrl}" target="_blank" rel="noopener noreferrer" style="color: var(--color-primary); font-weight: 600; text-decoration: none;">Pantalla completa <i class="ri-external-link-line"></i></a>
+          </div>
+          <iframe id="share-live-preview-iframe" style="width: 100%; height: 420px; border: 1px solid var(--color-border); border-radius: 10px; background: #0f172a;"></iframe>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const closeShareModal = () => overlay.remove();
+  document.getElementById('btn-close-share-modal').addEventListener('click', closeShareModal);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeShareModal();
+  });
+
+  document.getElementById('btn-share-copy-url').addEventListener('click', async function() {
+    await window.copyShipmentPublicTrackingLink(shipment.id, this);
+  });
+
+  document.getElementById('btn-share-copy-msg').addEventListener('click', async function() {
+    const msg = document.getElementById('share-message-text').value;
+    try {
+      await navigator.clipboard.writeText(msg);
+      const orig = this.innerHTML;
+      this.innerHTML = `<i class="ri-check-line" style="color:#10b981;"></i> ¡Mensaje Copiado!`;
+      setTimeout(() => { this.innerHTML = orig; }, 1800);
+    } catch (e) {}
+  });
+
+  document.getElementById('btn-share-whatsapp-send').addEventListener('click', () => {
+    const rawP = document.getElementById('share-wa-phone').value || '';
+    let digits = rawP.replace(/\D/g, '');
+    if (digits.length === 9 && digits.startsWith('9')) {
+      digits = '56' + digits;
+    } else if (digits.length === 8) {
+      digits = '569' + digits;
+    }
+    const msg = document.getElementById('share-message-text').value || defaultMessage;
+    const waUrl = digits
+      ? `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`
+      : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    window.open(waUrl, '_blank', 'noopener,noreferrer');
+  });
+
+  document.getElementById('btn-share-email-send').addEventListener('click', () => {
+    const emailTo = (document.getElementById('share-email-to').value || '').trim();
+    const msg = document.getElementById('share-message-text').value || defaultMessage;
+    const subject = `Seguimiento de tu pedido ${orderRef} - ${commerceName}`;
+    window.location.href = `mailto:${encodeURIComponent(emailTo)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(msg.replace(/\*/g, ''))}`;
+  });
+
+  document.getElementById('btn-toggle-live-preview').addEventListener('click', function() {
+    const wrap = document.getElementById('share-live-preview-wrap');
+    const iframe = document.getElementById('share-live-preview-iframe');
+    const isHidden = wrap.style.display === 'none';
+    wrap.style.display = isHidden ? 'flex' : 'none';
+    if (isHidden && !iframe.src) {
+      iframe.src = publicUrl;
+    }
+    this.innerHTML = isHidden
+      ? `<i class="ri-eye-off-line"></i> Ocultar Vista Previa`
+      : `<i class="ri-eye-line"></i> Vista Previa del Portal`;
+  });
+};
+
+function getShipmentsConveyorSceneHtml(titleText, subText) {
+  const title = titleText || 'Escaneando órdenes y preparando despachos...';
+  const sub = subText || 'Cruzando referencias de bodega con couriers y enlaces públicos de seguimiento';
+  return `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1.5rem 1rem 1.25rem; text-align: center;">
+      <div class="ship-loader-scene">
+        <!-- Escáner central WMS -->
+        <div class="ship-scanner-arch">
+          <div class="ship-scanner-badge">
+            <i class="ri-qr-scan-2-line" style="font-size: 0.82rem;"></i> WMS SCAN
+          </div>
+          <div class="ship-scanner-beam"></div>
+          <div class="ship-scanner-check">✓</div>
+        </div>
+
+        <!-- Paquetes avanzando por la cinta -->
+        <div class="ship-belt-box box-amber">
+          <i class="ri-box-3-fill"></i>
+        </div>
+        <div class="ship-belt-box box-indigo">
+          <i class="ri-archive-fill"></i>
+        </div>
+
+        <!-- Base de la cinta transportadora -->
+        <div class="ship-belt-track">
+          <span class="ship-belt-roller"></span>
+          <span class="ship-belt-roller"></span>
+          <span class="ship-belt-roller"></span>
+          <span class="ship-belt-roller"></span>
+          <span class="ship-belt-roller"></span>
+          <span class="ship-belt-roller"></span>
+        </div>
+
+        <!-- Camión de despacho recibiendo paquetes a la derecha -->
+        <div class="ship-mini-truck">
+          <svg width="78" height="48" viewBox="0 0 136 78" fill="none">
+            <rect x="8" y="14" width="76" height="42" rx="6" fill="#4f46e5"/>
+            <rect x="14" y="20" width="64" height="30" rx="4" fill="#6366f1"/>
+            <text x="46" y="39" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="800" font-family="sans-serif" letter-spacing="0.8">STOCKA</text>
+            <path d="M84 24H108C113 24 117 27 119 32L124 44V56H84V24Z" fill="#3b82f6"/>
+            <path d="M90 29H107L114 41H90V29Z" fill="#dbeafe"/>
+            <rect x="121" y="46" width="4" height="6" rx="1.5" fill="#fde047"/>
+            <rect x="6" y="54" width="120" height="4" rx="2" fill="#1e293b"/>
+            <circle cx="34" cy="58" r="10" fill="#1e293b"/>
+            <circle cx="34" cy="58" r="4.5" fill="#94a3b8"/>
+            <circle cx="104" cy="58" r="10" fill="#1e293b"/>
+            <circle cx="104" cy="58" r="4.5" fill="#94a3b8"/>
+          </svg>
+        </div>
+      </div>
+
+      <div style="font-size: 0.94rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.25rem;">${title}</div>
+      <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.2rem;">${sub}</div>
+    </div>
+  `;
+}
+
+function getShipmentsTableSkeletonRowsHtml(rowCount = 4) {
+  let rows = '';
+  for (let i = 0; i < rowCount; i++) {
+    rows += `
+      <tr style="pointer-events: none; opacity: ${1 - i * 0.16};">
+        <td><div class="ship-skel-bar" style="width: 72px; height: 24px; border-radius: 6px;"></div></td>
+        <td><div class="ship-skel-bar" style="width: 84px; height: 16px;"></div></td>
+        <td>
+          <div class="ship-skel-bar" style="width: 125px; height: 15px; margin-bottom: 6px;"></div>
+          <div class="ship-skel-bar" style="width: 85px; height: 12px;"></div>
+        </td>
+        <td><div class="ship-skel-bar" style="width: 92px; height: 16px;"></div></td>
+        <td>
+          <div class="ship-skel-bar" style="width: 96px; height: 15px; margin-bottom: 5px;"></div>
+          <div class="ship-skel-bar" style="width: 70px; height: 11px;"></div>
+        </td>
+        <td><div class="ship-skel-bar" style="width: 90px; height: 16px;"></div></td>
+        <td><div class="ship-skel-bar" style="width: 108px; height: 24px; border-radius: 999px;"></div></td>
+        <td>
+          <div style="display: inline-flex; gap: 0.35rem;">
+            <div class="ship-skel-bar" style="width: 52px; height: 26px; border-radius: 8px;"></div>
+            <div class="ship-skel-bar" style="width: 64px; height: 26px; border-radius: 8px;"></div>
+            <div class="ship-skel-bar" style="width: 30px; height: 26px; border-radius: 8px;"></div>
+          </div>
+        </td>
+        <td><div class="ship-skel-bar" style="width: 74px; height: 24px; border-radius: 999px;"></div></td>
+      </tr>
+    `;
+  }
+  return rows;
+}
+
+function getShipmentsLoadingHtml(mode = 'full', customTitle = '', customSub = '') {
+  if (mode === 'table') {
+    return `
+      <tr>
+        <td colspan="9" style="padding: 0; border-bottom: 1px solid var(--color-border); background: var(--color-surface);">
+          ${getShipmentsConveyorSceneHtml(customTitle, customSub)}
+        </td>
+      </tr>
+      ${getShipmentsTableSkeletonRowsHtml(4)}
+    `;
+  }
+
+  // Modo completo al entrar a la vista de Despachos (KPI Skeletons + Escena Cinta/Escáner + Tabla Skeletons)
+  const kpiAccents = [
+    { color: '#6366f1', bg: 'rgba(99, 102, 241, 0.14)', icon: 'ri-archive-drawer-line' },
+    { color: '#d97706', bg: 'rgba(245, 158, 11, 0.16)', icon: 'ri-box-3-line' },
+    { color: '#2563eb', bg: 'rgba(59, 130, 246, 0.15)', icon: 'ri-truck-line' },
+    { color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)', icon: 'ri-checkbox-circle-line' },
+    { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.14)', icon: 'ri-error-warning-line' }
+  ];
+
+  const kpiSkeletons = kpiAccents.map(k => `
+    <div class="ship-kpi-card" style="--kpi-accent: ${k.color}; flex-direction: column; align-items: stretch; justify-content: space-between; gap: 0.6rem; pointer-events: none;">
+      <div class="ship-kpi-top" style="display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; width: 100%;">
+        <div class="ship-skel-bar" style="width: 62%; height: 13px;"></div>
+        <div class="ship-kpi-icon" style="width: 40px; height: 40px; border-radius: 10px; background: ${k.bg}; color: ${k.color}; display: inline-flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+          <i class="${k.icon}"></i>
+        </div>
+      </div>
+      <div class="ship-skel-bar" style="width: 42%; height: 28px; border-radius: 8px;"></div>
+      <div class="ship-skel-bar" style="width: 78%; height: 12px;"></div>
+    </div>
+  `).join('');
+
+  return `
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
+      <div>
+        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.35rem; color: var(--color-text-main);">Resumen de Despachos</h2>
+        <p style="color: var(--color-text-muted); font-size: 0.95rem; margin: 0;">Sincronizando información consolidada de tus envíos en tiempo real...</p>
+      </div>
+      <div style="display: flex; gap: 0.65rem;">
+        <div class="ship-skel-bar" style="width: 190px; height: 38px; border-radius: 10px;"></div>
+        <div class="ship-skel-bar" style="width: 155px; height: 38px; border-radius: 10px;"></div>
+        <div class="ship-skel-bar" style="width: 115px; height: 38px; border-radius: 10px;"></div>
+      </div>
+    </div>
+
+    <div class="shipments-kpi-grid">
+      ${kpiSkeletons}
+    </div>
+
+    <div class="card" style="border: none; box-shadow: var(--shadow-md); overflow: hidden;">
+      ${getShipmentsConveyorSceneHtml(customTitle, customSub)}
+      <div class="card-body table-responsive" style="padding: 0; border-top: 1px solid var(--color-border);">
+        <table class="data-table">
+          <tbody>
+            ${getShipmentsTableSkeletonRowsHtml(5)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
 async function renderShipments() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando despachos consolidados...</p>`;
+  appContent.innerHTML = getObserverBanner() + getShipmentsLoadingHtml('full');
 
   try {
     const companyList = getCompanyList();
@@ -19021,54 +19762,58 @@ async function renderShipments() {
       : [];
     const showCommerceFilter = userCommerces.length > 1;
     
-    // Obtener la lista de couriers únicos para este comercio primero
-    let courierQuery = supabase
-      .from('envios_unificados')
-      .select('courier');
-    
+    // Obtener la lista de couriers y estados únicos para este comercio en paralelo
+    let courierQuery = supabase.from('envios_unificados').select('courier');
+    let statusQuery = supabase.from('envios_unificados').select('status');
     if (companyList.length > 0) {
       courierQuery = courierQuery.in('empresa_comercio_proveedor', companyList);
-    }
-    
-    const { data: courierData } = await courierQuery;
-    const couriers = [...new Set((courierData || []).map(s => s.courier).filter(Boolean))].sort();
-
-    // Fetch unique status list from database
-    let statusQuery = supabase
-      .from('envios_unificados')
-      .select('status');
-    if (companyList.length > 0) {
       statusQuery = statusQuery.in('empresa_comercio_proveedor', companyList);
     }
-    const { data: statusData } = await statusQuery;
+    
+    const [{ data: courierData }, { data: statusData }] = await Promise.all([courierQuery, statusQuery]);
+    const couriers = [...new Set((courierData || []).map(s => s.courier).filter(Boolean))].sort();
     const originalStatuses = [...new Set((statusData || []).map(s => s.status).filter(Boolean))].sort();
 
+    const formatYMD = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
     const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const defaultDateFrom = `${year}-${month}-01`;
-    const defaultDateTo = `${year}-${month}-${day}`;
+    const defaultDateFrom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const defaultDateTo = formatYMD(now);
 
     window.shipActiveTab = window.shipActiveTab || 'Todos';
 
+    // Clasificar dinámicamente todos los estados existentes en la BD dentro de las pestañas
     const tabMappings = {
       'Todos': null,
       'Creado': ['Creado', 'REVIEWING'],
-      'Listo para despacho': ['Listo para despacho', 'Listo para despacho - Impreso'],
+      'Listo para despacho': ['Listo para despacho', 'Listo para despacho - Impreso', 'A retirar'],
+      'En tránsito': ['En tránsito', 'En Reparto', 'En planta de origen', 'En planta destino', 'Retirado por courier', 'En camino reprogramado', 'DESTINO'],
       'Entregado': ['Entregado', 'DELIVERED', 'Entregado con exito'],
-      'No retirado': ['No Retirado', 'SKIPPED'],
-      'Devolución': ['Devolucion entregada']
+      'No retirado': ['No Retirado', 'SKIPPED', 'Nadie', 'Rechazado por Courier'],
+      'Devolución': ['Devolucion entregada', 'Cancelado']
     };
+
+    originalStatuses.forEach(st => {
+      const meta = classifyShipmentStatus({ status: st });
+      if (meta.tab && tabMappings[meta.tab] && !tabMappings[meta.tab].includes(st)) {
+        tabMappings[meta.tab].push(st);
+      }
+    });
 
     let allData = [];
     let filters = {
       search: '',
-      statuses: tabMappings[window.shipActiveTab] ? [...tabMappings[window.shipActiveTab]] : [], // Initialize based on active tab
+      statuses: tabMappings[window.shipActiveTab] ? [...tabMappings[window.shipActiveTab]] : [],
       courier: '',
       commerce: '',
       dateFrom: defaultDateFrom,
-      dateTo: defaultDateTo
+      dateTo: defaultDateTo,
+      activePreset: 'month'
     };
     let sort = {
       field: 'created_at',
@@ -19078,67 +19823,178 @@ async function renderShipments() {
     const pageSize = 50;
     let totalFilteredRows = 0;
 
-    // Render basic page wrapper with KPI grid, filters layout, and table skeleton
+    const primaryCommerceName = userCommerces[0] || (companyList[0] || '');
+    const originUrl = (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file:'))
+      ? window.location.origin
+      : 'https://wms.stocka.cl';
+    const storePublicPortalUrl = primaryCommerceName
+      ? `${originUrl}/seguimiento.html?comercio=${encodeURIComponent(primaryCommerceName)}`
+      : `${originUrl}/seguimiento.html`;
+
+    // Render page wrapper with Header Actions, KPI Cards, Filters Panel, Tabs, and Table
     appContent.innerHTML = getObserverBanner() + `
-      <div style="margin-bottom: 2rem;">
-        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Resumen de Despachos</h2>
-        <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
-          Visualiza y gestiona la información consolidada de todos tus envíos. Haz clic en un pedido para ver el detalle completo y el estado del tránsito.
-        </p>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
+        <div>
+          <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.35rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            Resumen de Despachos
+          </h2>
+          <p style="color: var(--color-text-muted); font-size: 0.95rem; max-width: 780px; line-height: 1.5; margin: 0;">
+            Visualiza el estado consolidado de tus envíos en tiempo real y comparte el <strong>enlace público de seguimiento</strong> con tus clientes.
+          </p>
+        </div>
+        <div class="ship-header-actions" style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+          <a href="${window.escapeHtmlAttr ? window.escapeHtmlAttr(storePublicPortalUrl) : storePublicPortalUrl}" target="_blank" rel="noopener noreferrer" class="btn-ship-header btn-ship-header-portal" style="display: inline-flex; align-items: center; justify-content: center; gap: 0.48rem; padding: 0.62rem 1.15rem; border-radius: 10px; font-size: 0.84rem; font-weight: 700; background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%); color: #ffffff; border: 1px solid rgba(79, 70, 229, 0.9); box-shadow: 0 4px 12px rgba(79, 70, 229, 0.26); text-decoration: none;">
+            <i class="ri-global-line" style="font-size: 1.02rem;"></i>
+            <span>Portal Público de Tienda</span>
+            <i class="ri-external-link-line" style="font-size: 0.85rem; opacity: 0.9;"></i>
+          </a>
+          <button type="button" onclick="if (typeof window.navigateToTrackingWidget === 'function') window.navigateToTrackingWidget();" class="btn-ship-header btn-ship-header-customize" style="display: inline-flex; align-items: center; justify-content: center; gap: 0.48rem; padding: 0.62rem 1.1rem; border-radius: 10px; font-size: 0.84rem; font-weight: 700; background: rgba(99, 102, 241, 0.12); color: #4f46e5; border: 1.5px solid rgba(99, 102, 241, 0.38); box-shadow: 0 2px 6px rgba(99, 102, 241, 0.08); cursor: pointer;">
+            <i class="ri-palette-line" style="font-size: 1.02rem;"></i>
+            <span>Personalizar Portal</span>
+          </button>
+          <button type="button" id="ship-btn-refresh" class="btn-ship-header btn-ship-header-refresh" style="display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; padding: 0.62rem 1.05rem; border-radius: 10px; font-size: 0.84rem; font-weight: 700; background: var(--color-surface); color: var(--color-text-main); border: 1.5px solid var(--color-border); box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06); cursor: pointer;" title="Actualizar despachos">
+            <i class="ri-refresh-line" style="font-size: 1.02rem; color: var(--color-primary);"></i>
+            <span>Actualizar</span>
+          </button>
+        </div>
       </div>
 
+      <!-- Interactive KPI Summary Grid -->
+      <div class="shipments-kpi-grid" id="shipments-kpi-container">
+        <div class="ship-kpi-card" data-kpi-tab="Todos" style="--kpi-accent: #6366f1; flex-direction: column; align-items: stretch; justify-content: space-between; gap: 0.55rem;">
+          <div class="ship-kpi-top" style="display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; width: 100%;">
+            <span class="ship-kpi-label">Total Despachos</span>
+            <div class="ship-kpi-icon" style="width: 40px; height: 40px; border-radius: 10px; background: rgba(99, 102, 241, 0.14); color: #6366f1; display: inline-flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0;">
+              <i class="ri-archive-drawer-line"></i>
+            </div>
+          </div>
+          <div class="ship-kpi-value-row" style="display: flex; align-items: baseline; gap: 0.5rem;">
+            <div class="ship-kpi-value" id="kpi-ship-total" style="font-size: 1.8rem; font-weight: 800; line-height: 1.05;">-</div>
+          </div>
+          <div class="ship-kpi-sub" style="padding: 0; font-size: 0.74rem; font-weight: 500; color: var(--color-text-muted);">En el periodo seleccionado</div>
+        </div>
 
+        <div class="ship-kpi-card" data-kpi-tab="Listo para despacho" style="--kpi-accent: #f59e0b; flex-direction: column; align-items: stretch; justify-content: space-between; gap: 0.55rem;">
+          <div class="ship-kpi-top" style="display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; width: 100%;">
+            <span class="ship-kpi-label">Por Despachar / Retiro</span>
+            <div class="ship-kpi-icon" style="width: 40px; height: 40px; border-radius: 10px; background: rgba(245, 158, 11, 0.16); color: #d97706; display: inline-flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0;">
+              <i class="ri-box-3-line"></i>
+            </div>
+          </div>
+          <div class="ship-kpi-value-row" style="display: flex; align-items: baseline; gap: 0.5rem;">
+            <div class="ship-kpi-value" id="kpi-ship-ready" style="font-size: 1.8rem; font-weight: 800; line-height: 1.05;">-</div>
+          </div>
+          <div class="ship-kpi-sub" id="kpi-ship-ready-sub" style="padding: 0; font-size: 0.74rem; font-weight: 500; color: var(--color-text-muted);">Preparación y listos para retiro</div>
+        </div>
+
+        <div class="ship-kpi-card" data-kpi-tab="En tránsito" style="--kpi-accent: #2563eb; flex-direction: column; align-items: stretch; justify-content: space-between; gap: 0.55rem;">
+          <div class="ship-kpi-top" style="display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; width: 100%;">
+            <span class="ship-kpi-label">En Tránsito / En Ruta</span>
+            <div class="ship-kpi-icon" style="width: 40px; height: 40px; border-radius: 10px; background: rgba(59, 130, 246, 0.15); color: #2563eb; display: inline-flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0;">
+              <i class="ri-truck-line"></i>
+            </div>
+          </div>
+          <div class="ship-kpi-value-row" style="display: flex; align-items: baseline; gap: 0.5rem;">
+            <div class="ship-kpi-value" id="kpi-ship-transit" style="font-size: 1.8rem; font-weight: 800; line-height: 1.05;">-</div>
+          </div>
+          <div class="ship-kpi-sub" style="padding: 0; font-size: 0.74rem; font-weight: 500; color: var(--color-text-muted);">Viajando hacia el destinatario</div>
+        </div>
+
+        <div class="ship-kpi-card" data-kpi-tab="Entregado" style="--kpi-accent: #10b981; flex-direction: column; align-items: stretch; justify-content: space-between; gap: 0.55rem;">
+          <div class="ship-kpi-top" style="display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; width: 100%;">
+            <span class="ship-kpi-label">Entregados</span>
+            <div class="ship-kpi-icon" style="width: 40px; height: 40px; border-radius: 10px; background: rgba(16, 185, 129, 0.15); color: #10b981; display: inline-flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0;">
+              <i class="ri-checkbox-circle-line"></i>
+            </div>
+          </div>
+          <div class="ship-kpi-value-row" style="display: flex; align-items: baseline; gap: 0.5rem;">
+            <div class="ship-kpi-value" id="kpi-ship-delivered" style="font-size: 1.8rem; font-weight: 800; line-height: 1.05;">-</div>
+            <span id="kpi-ship-rate" style="font-size: 0.74rem; font-weight: 700; color: #059669; background: rgba(16, 185, 129, 0.14); padding: 0.15rem 0.5rem; border-radius: 99px;">0%</span>
+          </div>
+          <div class="ship-kpi-sub" style="padding: 0; font-size: 0.74rem; font-weight: 500; color: var(--color-text-muted);">Efectividad sobre el total</div>
+        </div>
+
+        <div class="ship-kpi-card" data-kpi-tab="No retirado" style="--kpi-accent: #ef4444; flex-direction: column; align-items: stretch; justify-content: space-between; gap: 0.55rem;">
+          <div class="ship-kpi-top" style="display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; width: 100%;">
+            <span class="ship-kpi-label">Incidencias / Devolución</span>
+            <div class="ship-kpi-icon" style="width: 40px; height: 40px; border-radius: 10px; background: rgba(239, 68, 68, 0.14); color: #ef4444; display: inline-flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0;">
+              <i class="ri-error-warning-line"></i>
+            </div>
+          </div>
+          <div class="ship-kpi-value-row" style="display: flex; align-items: baseline; gap: 0.5rem;">
+            <div class="ship-kpi-value" id="kpi-ship-issues" style="font-size: 1.8rem; font-weight: 800; line-height: 1.05;">-</div>
+          </div>
+          <div class="ship-kpi-sub" id="kpi-ship-issues-sub" style="padding: 0; font-size: 0.74rem; font-weight: 500; color: var(--color-text-muted);">No retirados o devueltos</div>
+        </div>
+      </div>
 
       <!-- Filters Panel -->
-      <div class="shipments-filters-panel">
-        <div class="filter-item filter-item-search">
-          <label class="filter-label">Buscar</label>
-          <input type="text" id="ship-search-input" class="filter-input" placeholder="Referencia, destinatario, tracking, comuna...">
-        </div>
-        <div class="filter-item" style="position: relative;">
-          <label class="filter-label">Estado</label>
-          <div class="custom-multiselect" id="status-multiselect">
-            <div class="multiselect-trigger" id="status-multiselect-trigger">
-              <span class="trigger-text" id="status-trigger-text">Todos los estados</span>
-              <i class="ri-arrow-down-s-line"></i>
-            </div>
-            <div class="multiselect-dropdown" id="status-multiselect-dropdown">
-              <div class="multiselect-actions">
-                <button type="button" id="status-select-all">Todos</button>
-                <button type="button" id="status-clear-all">Limpiar</button>
+      <div class="shipments-filters-panel" style="flex-direction: column; align-items: stretch; gap: 0.85rem;">
+        <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; width: 100%;">
+          <div class="filter-item filter-item-search">
+            <label class="filter-label">Buscar</label>
+            <input type="text" id="ship-search-input" class="filter-input" placeholder="Referencia, destinatario, tracking, comuna...">
+          </div>
+          <div class="filter-item" style="position: relative;">
+            <label class="filter-label">Estado</label>
+            <div class="custom-multiselect" id="status-multiselect">
+              <div class="multiselect-trigger" id="status-multiselect-trigger">
+                <span class="trigger-text" id="status-trigger-text">Todos los estados</span>
+                <i class="ri-arrow-down-s-line"></i>
               </div>
-              <div class="multiselect-options" id="status-options-list">
-                <!-- Options injected dynamically by JS -->
+              <div class="multiselect-dropdown" id="status-multiselect-dropdown">
+                <div class="multiselect-actions">
+                  <button type="button" id="status-select-all">Todos</button>
+                  <button type="button" id="status-clear-all">Limpiar</button>
+                </div>
+                <div class="multiselect-options" id="status-options-list">
+                  <!-- Options injected dynamically by JS -->
+                </div>
               </div>
             </div>
           </div>
+          <div class="filter-item">
+            <label class="filter-label">Courier</label>
+            <select id="ship-courier-select" class="filter-input">
+              <option value="">Todos los couriers</option>
+            </select>
+          </div>
+          ${showCommerceFilter ? `
+          <div class="filter-item">
+            <label class="filter-label">Comercio</label>
+            <select id="ship-commerce-select" class="filter-input">
+              <option value="">Todos los comercios</option>
+              ${userCommerces.map(c => `<option value="${c}">${c}</option>`).join('')}
+            </select>
+          </div>
+          ` : ''}
+          <div class="filter-item">
+            <label class="filter-label">Desde</label>
+            <input type="date" id="ship-date-from" class="filter-input" value="${filters.dateFrom}">
+          </div>
+          <div class="filter-item">
+            <label class="filter-label">Hasta</label>
+            <input type="date" id="ship-date-to" class="filter-input" value="${filters.dateTo}">
+          </div>
+          <button id="ship-btn-export" class="btn-filter-action btn-export" style="border:none;">
+            <span><i class="ri-file-excel-2-line"></i></span> Exportar Excel
+          </button>
         </div>
-        <div class="filter-item">
-          <label class="filter-label">Courier</label>
-          <select id="ship-courier-select" class="filter-input">
-            <option value="">Todos los couriers</option>
-          </select>
+
+        <!-- Quick Date Presets Bar -->
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; padding-top: 0.65rem; border-top: 1px dashed var(--color-border);">
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <span style="font-size: 0.73rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-right: 0.25rem;"><i class="ri-calendar-event-line"></i> Periodo rápido:</span>
+            <button type="button" class="ship-date-preset-btn" data-preset="today">Hoy</button>
+            <button type="button" class="ship-date-preset-btn" data-preset="7d">Últimos 7 días</button>
+            <button type="button" class="ship-date-preset-btn active" data-preset="month">Este mes</button>
+            <button type="button" class="ship-date-preset-btn" data-preset="30d">Últimos 30 días</button>
+            <button type="button" class="ship-date-preset-btn" data-preset="all">Todo el historial</button>
+          </div>
+          <div style="font-size: 0.76rem; color: var(--color-text-muted);">
+            <i class="ri-information-line"></i> Haz clic en cualquier fila para ver los productos del pedido o usa <strong>Seguimiento Público</strong> para compartir el link con tu cliente.
+          </div>
         </div>
-        ${showCommerceFilter ? `
-        <div class="filter-item">
-          <label class="filter-label">Comercio</label>
-          <select id="ship-commerce-select" class="filter-input">
-            <option value="">Todos los comercios</option>
-            ${userCommerces.map(c => `<option value="${c}">${c}</option>`).join('')}
-          </select>
-        </div>
-        ` : ''}
-        <div class="filter-item">
-          <label class="filter-label">Desde</label>
-          <input type="date" id="ship-date-from" class="filter-input" value="${filters.dateFrom}">
-        </div>
-        <div class="filter-item">
-          <label class="filter-label">Hasta</label>
-          <input type="date" id="ship-date-to" class="filter-input" value="${filters.dateTo}">
-        </div>
-        <button id="ship-btn-export" class="btn-filter-action btn-export" style="border:none;">
-          <span><i class="ri-inbox-archive-line"></i></span> Exportar Excel
-        </button>
       </div>
 
       <!-- Tabs Container -->
@@ -19155,8 +20011,9 @@ async function renderShipments() {
                 <th class="sortable-header" data-sort="nombre_destinatario">Destinatario <span class="sort-indicator">⇅</span></th>
                 <th class="sortable-header" data-sort="comuna_destino">Comuna <span class="sort-indicator">⇅</span></th>
                 <th class="sortable-header" data-sort="courier">Courier <span class="sort-indicator">⇅</span></th>
-                <th>Tracking</th>
+                <th>Tracking Courier</th>
                 <th class="sortable-header" data-sort="status">Estado <span class="sort-indicator">⇅</span></th>
+                <th>Seguimiento Público</th>
                 <th>Origen</th>
               </tr>
             </thead>
@@ -19213,7 +20070,6 @@ async function renderShipments() {
         </div>
       `;
 
-      // Event listeners para botones de paginación
       const btnPrev = document.getElementById('ship-prev-page');
       const btnNext = document.getElementById('ship-next-page');
 
@@ -19235,6 +20091,7 @@ async function renderShipments() {
     // Filtering, sorting and rendering implementation
     const applyFiltersAndRenderTable = () => {
       let filtered = [...allData];
+      window._currentShipmentsData = filtered;
 
       // Sort dataset in-memory
       filtered.sort((a, b) => {
@@ -19254,10 +20111,9 @@ async function renderShipments() {
         return 0;
       });
 
-      // Render Table Rows
       const tbody = document.getElementById('shipments-table-body');
       if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">No se encontraron despachos con los filtros aplicados.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">No se encontraron despachos con los filtros aplicados.</td></tr>`;
         document.getElementById('shipments-pagination-container').innerHTML = '';
         return;
       }
@@ -19265,30 +20121,10 @@ async function renderShipments() {
       let rowsHtml = '';
       filtered.forEach(s => {
         const dateObj = s.created_at ? new Date(s.created_at) : null;
-        const dateStr = dateObj ? dateObj.toLocaleDateString() : '-';
+        const dateStr = dateObj ? dateObj.toLocaleDateString('es-CL') : '-';
         
-        let curGlobStatus = s.global_status;
-        const stLower = (s.status || '').toLowerCase().trim();
-        if (stLower.includes('rechazado por courier')) {
-          curGlobStatus = 'SIN MOVIMIENTO';
-        } else if (stLower.includes('requiere solucion') || stLower.includes('requiere solución') || stLower.includes('pendiente - requiere')) {
-          curGlobStatus = 'ALERTA';
-        }
-        if (curGlobStatus === 'DESPACHADO') {
-          curGlobStatus = (stLower.includes('entregad') || stLower.includes('delivered')) ? 'ENTREGADO' : 'EN TRÁNSITO';
-        }
-        let badgeClass = 'badge-neutral';
-        if (curGlobStatus === 'ENTREGADO') {
-          badgeClass = 'badge-success';
-        } else if (curGlobStatus === 'EN TRÁNSITO') {
-          badgeClass = 'badge-info';
-        } else if (curGlobStatus === 'SIN MOVIMIENTO') {
-          badgeClass = 'badge-warning';
-        } else if (curGlobStatus === 'ALERTA') {
-          badgeClass = 'badge-danger';
-        } else if (curGlobStatus === 'DEVOLUCIÓN') {
-          badgeClass = 'badge-danger';
-        }
+        const statusMeta = classifyShipmentStatus(s);
+        const courierInfo = formatShipmentCourierDisplay(s);
 
         const platformBadge = s.source_table === 'lightdata_envios' ? 'LightData' 
           : s.source_table === 'enviame_shipments' ? 'Enviame' 
@@ -19300,36 +20136,70 @@ async function renderShipments() {
           : s.source_table === 'bluex_envios' ? '#0032A0' 
           : s.source_table === 'starken_envios' ? '#b91c1c' : '#8b5cf6';
 
+        const resolvedRowTrackUrl = window.resolveCourierPublicTrackingUrl
+          ? window.resolveCourierPublicTrackingUrl(s.tracking_url, s.tracking, s.courier, s, s._linkedOrder || null)
+          : (s.tracking_url && s.tracking_url !== 'N/A' ? s.tracking_url : null);
+
         const trackingDisplay = s.tracking
-          ? (s.tracking_url && s.tracking_url !== 'N/A'
-              ? `<a href="${s.tracking_url}" target="_blank" onclick="event.stopPropagation();" style="font-weight:600; display:inline-flex; align-items:center; gap:0.25rem;"><i class="ri-links-line"></i> ${s.tracking}</a>`
-              : s.tracking)
+          ? `<div style="display: inline-flex; align-items: center; gap: 0.2rem;">
+              ${resolvedRowTrackUrl
+                ? `<a href="${resolvedRowTrackUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" style="font-weight:600; display:inline-flex; align-items:center; gap:0.25rem;" title="Abrir seguimiento en web del courier"><i class="ri-links-line"></i> ${s.tracking}</a>`
+                : `<span style="font-weight:600;">${s.tracking}</span>`}
+              ${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(s.tracking, 'Tracking', 'Copiar código de tracking') : ''}
+            </div>`
           : '-';
+
+        const publicPortalUrl = window.buildShipmentPublicTrackingUrl(s);
+        const escPublicUrl = window.escapeHtmlAttr ? window.escapeHtmlAttr(publicPortalUrl) : publicPortalUrl;
+        const escShipId = window.escapeHtmlAttr ? window.escapeHtmlAttr(String(s.id)) : String(s.id);
+
+        const effComuna = s.comuna_destino || s._linkedOrder?.shipping_city || '-';
+        const effPhone = s.telefono_destino || s._linkedOrder?.customer_phone || '-';
 
         rowsHtml += `
           <tr class="clickable-row" data-id="${s.id}" style="transition: background-color 0.2s;">
-            <td><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${s.pedido_referencia || '-'}</span></td>
+            <td>
+              <span style="font-family: monospace; font-size: 0.88rem; font-weight: 700; background: var(--color-bg); padding: 0.25rem 0.55rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.4px;">
+                ${s.pedido_referencia || '-'}
+              </span>
+            </td>
             <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
             <td>
               <div style="font-weight:600; color: var(--color-text-main);"><i class="ri-user-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.nombre_destinatario || '-'}</div>
-              <div style="font-size:0.75rem; color:var(--color-text-muted); margin-top: 0.2rem;"><i class="ri-phone-line" style="margin-right: 0.25rem;"></i>${s.telefono_destino || '-'}</div>
+              <div style="font-size:0.75rem; color:var(--color-text-muted); margin-top: 0.2rem;"><i class="ri-phone-line" style="margin-right: 0.25rem;"></i>${effPhone}</div>
             </td>
-            <td><i class="ri-map-pin-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.comuna_destino || '-'}</td>
-            <td><span style="font-weight:600; color: var(--color-text-main);"><i class="ri-truck-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.courier || '-'}</span></td>
-            <td>${trackingDisplay}</td>
             <td>
-              <span class="badge ${badgeClass}" style="padding: 0.35rem 0.75rem; border-radius: 99px; font-weight: 600;">
-                ${(() => {
-                  let statusText = s.status || '';
-                  if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && s.raw_data && s.raw_data[23]) {
-                    statusText = s.raw_data[23];
-                  }
-                  return getDisplayStatusName(statusText);
-                })()}
+              <span style="font-weight: ${effComuna !== '-' ? '500' : '400'}; color: ${effComuna !== '-' ? 'var(--color-text-main)' : 'var(--color-text-muted)'};">
+                <i class="ri-map-pin-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${effComuna}
               </span>
             </td>
             <td>
-              <span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.35rem 0.75rem; border-radius: 99px; font-size: 0.75rem; font-weight: 700; border: 1px solid ${platformColor}30;">
+              <div style="font-weight:700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-truck-line" style="color: var(--color-text-muted);"></i>${courierInfo.label}
+              </div>
+              ${courierInfo.sub ? `<div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.1rem;">${courierInfo.sub}</div>` : ''}
+            </td>
+            <td>${trackingDisplay}</td>
+            <td>
+              <span class="badge ${statusMeta.badgeClass}" style="padding: 0.35rem 0.75rem; border-radius: 99px; font-weight: 600;">
+                ${statusMeta.displayStatus}
+              </span>
+            </td>
+            <td onclick="event.stopPropagation();">
+              <div class="ship-public-actions">
+                <a href="${escPublicUrl}" target="_blank" rel="noopener noreferrer" class="btn-ship-action primary" title="Ver portal público de seguimiento de este pedido">
+                  <i class="ri-external-link-line"></i> Ver
+                </a>
+                <button type="button" class="btn-ship-action" onclick="window.copyShipmentPublicTrackingLink('${escShipId}', this)" title="Copiar enlace público de seguimiento">
+                  <i class="ri-file-copy-line"></i> Copiar
+                </button>
+                <button type="button" class="btn-ship-action whatsapp" onclick="window.openShipmentShareModal('${escShipId}')" title="Compartir enlace por WhatsApp, correo o previsualizar">
+                  <i class="ri-share-forward-line"></i>
+                </button>
+              </div>
+            </td>
+            <td>
+              <span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.32rem 0.7rem; border-radius: 99px; font-size: 0.73rem; font-weight: 700; border: 1px solid ${platformColor}30;">
                 ${platformBadge}
               </span>
             </td>
@@ -19343,21 +20213,20 @@ async function renderShipments() {
       tbody.querySelectorAll('.clickable-row').forEach(row => {
         row.addEventListener('click', () => {
           const id = row.getAttribute('data-id');
-          const shipment = allData.find(x => x.id === id);
+          const shipment = allData.find(x => String(x.id) === String(id));
           if (shipment) {
             showShipmentDetailsModal(shipment);
           }
         });
       });
 
-      // Render pagination controls
       renderPagination();
     };
 
     // Función para obtener los datos desde Supabase con filtros y paginación
     const fetchAndRenderTable = async () => {
       const tbody = document.getElementById('shipments-table-body');
-      tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 3rem;">Cargando despachos...</td></tr>`;
+      tbody.innerHTML = getShipmentsLoadingHtml('table');
 
       try {
         let targetCompanyList = [];
@@ -19367,15 +20236,14 @@ async function renderShipments() {
           targetCompanyList = getCompanyList();
         }
 
-        // Obtener reglas de visibilidad aplicables al usuario actual
         const { data: rules } = await supabase
           .from('reglas_visibilidad')
           .select('*');
 
-        // 1. Query para obtener los estados de todos los despachos bajo los filtros actuales (para los contadores de las pestañas)
+        // 1. Query para obtener los estados de todos los despachos bajo los filtros actuales (para KPIs y pestañas)
         let countQuery = supabase
           .from('envios_unificados')
-          .select('status');
+          .select('status, global_status, source_table');
 
         countQuery = applyVisibilityRulesToQuery(countQuery, rules);
 
@@ -19406,8 +20274,6 @@ async function renderShipments() {
         if (targetCompanyList.length > 0) {
           query = query.in('empresa_comercio_proveedor', targetCompanyList);
         }
-
-        // Aplicar filtros
         if (filters.courier) {
           query = query.eq('courier', filters.courier);
         }
@@ -19425,7 +20291,6 @@ async function renderShipments() {
           query = query.or(`pedido_referencia.ilike.${term},nombre_destinatario.ilike.${term},tracking.ilike.${term},courier.ilike.${term},comuna_destino.ilike.${term},direccion_destino.ilike.${term}`);
         }
 
-        // Ordenar y limitar por rango de paginación
         query = query.order('created_at', { ascending: false });
         query = query.range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
 
@@ -19435,63 +20300,84 @@ async function renderShipments() {
         allData = dataRes.data || [];
         totalFilteredRows = dataRes.count || 0;
 
-        // Calcular contadores dinámicos para las pestañas
-        let todosCount = 0;
-        let creadoCount = 0;
-        let listoCount = 0;
-        let entregadoCount = 0;
-        let noRetiradoCount = 0;
-        let devolucionCount = 0;
+        // Enriquecer filas visibles con public.orders (completa comuna_destino, telefono_destino y order.id para tracking público)
+        await enrichShipmentsWithOrders(allData, targetCompanyList);
+
+        // Calcular contadores dinámicos para las pestañas y tarjetas KPI
+        const tabCounts = {
+          'Todos': 0,
+          'Creado': 0,
+          'Listo para despacho': 0,
+          'En tránsito': 0,
+          'Entregado': 0,
+          'No retirado': 0,
+          'Devolución': 0
+        };
 
         const countData = countRes.data || [];
         countData.forEach(item => {
-          todosCount++;
-          const statusLower = item.status ? item.status.trim().toLowerCase() : '';
-          if (statusLower === 'creado' || statusLower === 'reviewing') {
-            creadoCount++;
-          } else if (statusLower === 'listo para despacho' || statusLower === 'listo para despacho - impreso') {
-            listoCount++;
-          } else if (statusLower === 'entregado' || statusLower === 'delivered' || statusLower === 'entregado con exito') {
-            entregadoCount++;
-          } else if (statusLower === 'no retirado' || statusLower === 'skipped') {
-            noRetiradoCount++;
-          } else if (statusLower === 'devolucion entregada') {
-            devolucionCount++;
+          tabCounts['Todos']++;
+          const meta = classifyShipmentStatus(item);
+          if (tabCounts[meta.tab] !== undefined) {
+            tabCounts[meta.tab]++;
           }
         });
 
-        const tabCounts = {
-          'Todos': todosCount,
-          'Creado': creadoCount,
-          'Listo para despacho': listoCount,
-          'Entregado': entregadoCount,
-          'No retirado': noRetiradoCount,
-          'Devolución': devolucionCount
-        };
+        // Actualizar tarjetas KPI
+        const totalShip = tabCounts['Todos'];
+        const readyShip = tabCounts['Creado'] + tabCounts['Listo para despacho'];
+        const transitShip = tabCounts['En tránsito'];
+        const deliveredShip = tabCounts['Entregado'];
+        const issuesShip = tabCounts['No retirado'] + tabCounts['Devolución'];
+        const deliveryRate = totalShip > 0 ? Math.round((deliveredShip / totalShip) * 100) : 0;
+
+        const elTotal = document.getElementById('kpi-ship-total');
+        const elReady = document.getElementById('kpi-ship-ready');
+        const elReadySub = document.getElementById('kpi-ship-ready-sub');
+        const elTransit = document.getElementById('kpi-ship-transit');
+        const elDelivered = document.getElementById('kpi-ship-delivered');
+        const elRate = document.getElementById('kpi-ship-rate');
+        const elIssues = document.getElementById('kpi-ship-issues');
+        const elIssuesSub = document.getElementById('kpi-ship-issues-sub');
+
+        if (elTotal) elTotal.textContent = totalShip;
+        if (elReady) elReady.textContent = readyShip;
+        if (elReadySub) elReadySub.textContent = `${tabCounts['Creado']} creados · ${tabCounts['Listo para despacho']} listos/retiro`;
+        if (elTransit) elTransit.textContent = transitShip;
+        if (elDelivered) elDelivered.textContent = deliveredShip;
+        if (elRate) elRate.textContent = `${deliveryRate}%`;
+        if (elIssues) elIssues.textContent = issuesShip;
+        if (elIssuesSub) elIssuesSub.textContent = `${tabCounts['No retirado']} no retirados · ${tabCounts['Devolución']} devoluciones`;
+
+        const activeTabCur = window.shipActiveTab || 'Todos';
+        document.querySelectorAll('.ship-kpi-card').forEach(card => {
+          const kTab = card.getAttribute('data-kpi-tab');
+          card.classList.toggle('active-kpi', kTab === activeTabCur);
+        });
 
         const tabColors = {
           'Todos': { bg: 'var(--color-bg)', text: 'var(--color-text-muted)' },
           'Creado': { bg: '#e0f2fe', text: '#0284c7' },
           'Listo para despacho': { bg: '#fef3c7', text: '#d97706' },
-          'Entregado': { bg: '#dcfce7', text: '#22c55e' },
+          'En tránsito': { bg: '#dbeafe', text: '#2563eb' },
+          'Entregado': { bg: '#dcfce7', text: '#16a34a' },
           'No retirado': { bg: '#fee2e2', text: '#ef4444' },
-          'Devolución': { bg: '#f3e8ff', text: '#a855f7' }
+          'Devolución': { bg: '#f3e8ff', text: '#9333ea' }
         };
 
-        const tabsList = ['Todos', 'Creado', 'Listo para despacho', 'Entregado', 'No retirado', 'Devolución'];
-        const activeTabCur = window.shipActiveTab || 'Todos';
+        const tabsList = ['Todos', 'Creado', 'Listo para despacho', 'En tránsito', 'Entregado', 'No retirado', 'Devolución'];
 
         const tabsHtml = tabsList.map(tab => {
           const isActive = activeTabCur === tab;
           const count = tabCounts[tab] || 0;
           const colors = tabColors[tab];
-          const badgeBg = isActive ? 'rgba(255,255,255,0.2)' : colors.bg;
+          const badgeBg = isActive ? 'rgba(255,255,255,0.22)' : colors.bg;
           const badgeColor = isActive ? '#ffffff' : colors.text;
 
           return `
-            <button onclick="window.setShipTab('${tab}')" style="background: ${isActive ? 'var(--color-primary)' : 'transparent'}; color: ${isActive ? '#ffffff' : 'var(--color-text-main)'}; border: ${isActive ? 'none' : '1px solid var(--color-border)'}; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.825rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+            <button onclick="window.setShipTab('${tab}')" style="background: ${isActive ? 'var(--color-primary)' : 'var(--color-surface)'}; color: ${isActive ? '#ffffff' : 'var(--color-text-main)'}; border: ${isActive ? '1px solid var(--color-primary)' : '1px solid var(--color-border)'}; padding: 0.5rem 0.95rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.82rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
               ${tab}
-              <span style="background: ${badgeBg}; color: ${badgeColor}; padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;">${count}</span>
+              <span style="background: ${badgeBg}; color: ${badgeColor}; padding: 0.15rem 0.48rem; border-radius: 9999px; font-size: 0.74rem; font-weight: 700;">${count}</span>
             </button>
           `;
         }).join('');
@@ -19508,15 +20394,81 @@ async function renderShipments() {
         applyFiltersAndRenderTable();
       } catch (err) {
         console.error('Error fetching shipments data:', err);
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 3rem; color: var(--color-danger);">Error al cargar los datos de la base de datos.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center" style="padding: 3rem; color: var(--color-danger);">Error al cargar los datos de la base de datos.</td></tr>`;
       }
     };
+
+    // Click en tarjetas KPI filtra por su pestaña correspondiente
+    document.querySelectorAll('.ship-kpi-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const targetTab = card.getAttribute('data-kpi-tab') || 'Todos';
+        if (window.setShipTab) window.setShipTab(targetTab);
+      });
+    });
+
+    // Botón Actualizar
+    const btnRefresh = document.getElementById('ship-btn-refresh');
+    if (btnRefresh) {
+      btnRefresh.addEventListener('click', async () => {
+        const origHtml = btnRefresh.innerHTML;
+        btnRefresh.disabled = true;
+        btnRefresh.style.opacity = '0.75';
+        btnRefresh.innerHTML = `<i class="ri-loader-4-line" style="font-size: 1.02rem; color: var(--color-primary);"></i><span>Actualizando...</span>`;
+        try {
+          await fetchAndRenderTable();
+        } finally {
+          btnRefresh.disabled = false;
+          btnRefresh.style.opacity = '1';
+          btnRefresh.innerHTML = origHtml;
+        }
+      });
+    }
+
+    // Botones de periodo rápido (Hoy, 7 días, Este mes, 30 días, Todo)
+    const presetButtons = document.querySelectorAll('.ship-date-preset-btn');
+    const dateFromInput = document.getElementById('ship-date-from');
+    const dateToInput = document.getElementById('ship-date-to');
+
+    presetButtons.forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const preset = btn.getAttribute('data-preset');
+        presetButtons.forEach(b => b.classList.toggle('active', b === btn));
+
+        const today = new Date();
+        let fromVal = '';
+        let toVal = formatYMD(today);
+
+        if (preset === 'today') {
+          fromVal = toVal;
+        } else if (preset === '7d') {
+          const d = new Date(today);
+          d.setDate(d.getDate() - 6);
+          fromVal = formatYMD(d);
+        } else if (preset === 'month') {
+          fromVal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+        } else if (preset === '30d') {
+          const d = new Date(today);
+          d.setDate(d.getDate() - 29);
+          fromVal = formatYMD(d);
+        } else if (preset === 'all') {
+          fromVal = '';
+          toVal = '';
+        }
+
+        filters.dateFrom = fromVal;
+        filters.dateTo = toVal;
+        if (dateFromInput) dateFromInput.value = fromVal;
+        if (dateToInput) dateToInput.value = toVal;
+        currentPage = 1;
+        await fetchAndRenderTable();
+      });
+    });
 
     // Bind filters event listeners con de-bounce para búsqueda
     let searchTimeout;
     document.getElementById('ship-search-input').addEventListener('input', (e) => {
       filters.search = e.target.value;
-      currentPage = 1; // Resetear a página 1
+      currentPage = 1;
       clearTimeout(searchTimeout);
       searchTimeout = setTimeout(async () => {
         await fetchAndRenderTable();
@@ -19563,7 +20515,6 @@ async function renderShipments() {
         filters.statuses = [];
       }
       
-      // Update checkboxes checked states
       const checkboxes = statusOptionsList.querySelectorAll('input[type="checkbox"]');
       checkboxes.forEach(chk => {
         chk.checked = filters.statuses.includes(chk.value);
@@ -19585,7 +20536,6 @@ async function renderShipments() {
         <label for="chk-status-${st}">${displayLabel}</label>
       `;
 
-      // Click on row toggles checkbox
       optDiv.addEventListener('click', async (e) => {
         if (e.target.tagName !== 'INPUT') {
           const chk = optDiv.querySelector('input');
@@ -19615,7 +20565,6 @@ async function renderShipments() {
 
     updateStatusTriggerText();
 
-    // Toggle Dropdown menu visibility
     const multiselectTrigger = document.getElementById('status-multiselect-trigger');
     const multiselectDropdown = document.getElementById('status-multiselect-dropdown');
 
@@ -19624,7 +20573,6 @@ async function renderShipments() {
       multiselectDropdown.classList.toggle('show');
     });
 
-    // Select All
     document.getElementById('status-select-all').addEventListener('click', async (e) => {
       e.stopPropagation();
       filters.statuses = [...originalStatuses];
@@ -19637,7 +20585,6 @@ async function renderShipments() {
       await fetchAndRenderTable();
     });
 
-    // Clear All
     document.getElementById('status-clear-all').addEventListener('click', async (e) => {
       e.stopPropagation();
       filters.statuses = [];
@@ -19650,7 +20597,6 @@ async function renderShipments() {
       await fetchAndRenderTable();
     });
 
-    // Close dropdown on click outside
     document.addEventListener('click', (e) => {
       if (!e.target.closest('#status-multiselect')) {
         multiselectDropdown.classList.remove('show');
@@ -19659,35 +20605,37 @@ async function renderShipments() {
 
     document.getElementById('ship-courier-select').addEventListener('change', async (e) => {
       filters.courier = e.target.value;
-      currentPage = 1; // Resetear a página 1
+      currentPage = 1;
       await fetchAndRenderTable();
     });
 
     if (showCommerceFilter) {
       document.getElementById('ship-commerce-select').addEventListener('change', async (e) => {
         filters.commerce = e.target.value;
-        currentPage = 1; // Resetear a página 1
+        currentPage = 1;
         await fetchAndRenderTable();
       });
     }
 
     document.getElementById('ship-date-from').addEventListener('change', async (e) => {
       filters.dateFrom = e.target.value;
-      currentPage = 1; // Resetear a página 1
+      presetButtons.forEach(b => b.classList.remove('active'));
+      currentPage = 1;
       await fetchAndRenderTable();
     });
 
     document.getElementById('ship-date-to').addEventListener('change', async (e) => {
       filters.dateTo = e.target.value;
-      currentPage = 1; // Resetear a página 1
+      presetButtons.forEach(b => b.classList.remove('active'));
+      currentPage = 1;
       await fetchAndRenderTable();
     });
 
-    // Excel Export CSV logic con consulta completa sin paginación
+    // Excel Export CSV logic con consulta completa sin paginación (incluyendo Enlace Público de Seguimiento)
     document.getElementById('ship-btn-export').addEventListener('click', async () => {
       const tbody = document.getElementById('shipments-table-body');
       const originalHtml = tbody.innerHTML;
-      tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 2rem;">Generando reporte de exportación...</td></tr>`;
+      tbody.innerHTML = getShipmentsLoadingHtml('table', 'Generando reporte Excel de despachos...', 'Consolidando referencias, estados y enlaces públicos de seguimiento');
 
       try {
         let targetCompanyList = [];
@@ -19697,7 +20645,6 @@ async function renderShipments() {
           targetCompanyList = getCompanyList();
         }
 
-        // Obtener reglas de visibilidad
         const { data: rules } = await supabase
           .from('reglas_visibilidad')
           .select('*');
@@ -19711,7 +20658,6 @@ async function renderShipments() {
         if (targetCompanyList.length > 0) {
           query = query.in('empresa_comercio_proveedor', targetCompanyList);
         }
-
         if (filters.courier) {
           query = query.eq('courier', filters.courier);
         }
@@ -19735,36 +20681,35 @@ async function renderShipments() {
         if (error) throw error;
 
         const filtered = data || [];
+        await enrichShipmentsWithOrders(filtered, targetCompanyList);
 
-        // Headers y mapeo de datos
-        const headers = ['Referencia Pedido', 'Origen Logistica', 'Courier', 'Tracking', 'Destinatario', 'Direccion', 'Comuna', 'Estado Global', 'Estado Original', 'Fecha Creacion'];
+        const headers = ['Referencia Pedido', 'Origen Logistica', 'Courier', 'Tracking', 'Destinatario', 'Telefono', 'Direccion', 'Comuna', 'Estado', 'Enlace Seguimiento Publico', 'Fecha Creacion'];
         const rows = filtered.map(s => {
           const platformName = s.source_table === 'lightdata_envios' ? 'LightData' 
             : s.source_table === 'enviame_shipments' ? 'Enviame' 
             : s.source_table === 'bluex_envios' ? 'Blue Express' 
             : s.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
-          const dateStr = s.created_at ? new Date(s.created_at).toLocaleString() : '-';
-          let curGlobStatus = s.global_status || '';
-          const stLower = (s.status || '').toLowerCase().trim();
-          if (stLower.includes('rechazado por courier')) {
-            curGlobStatus = 'SIN MOVIMIENTO';
-          }
+          const dateStr = s.created_at ? new Date(s.created_at).toLocaleString('es-CL') : '-';
+          const statusMeta = classifyShipmentStatus(s);
+          const courierInfo = formatShipmentCourierDisplay(s);
+          const pubUrl = window.buildShipmentPublicTrackingUrl(s);
+
           return [
             s.pedido_referencia || '',
             platformName,
-            s.courier || '',
+            courierInfo.label || '',
             s.tracking || '',
             s.nombre_destinatario || '',
-            `${s.direccion_destino || ''} ${s.complemento_destino || ''}`,
-            s.comuna_destino || '',
-            curGlobStatus,
-            s.status || '',
+            s.telefono_destino || s._linkedOrder?.customer_phone || '',
+            `${s.direccion_destino || ''} ${s.complemento_destino || ''}`.trim(),
+            s.comuna_destino || s._linkedOrder?.shipping_city || '',
+            statusMeta.displayStatus || s.status || '',
+            pubUrl || '',
             dateStr
           ];
         });
 
-        // Built UTF-8 CSV con BOM para compatibilidad con Excel
-        const csvContent = "\ufeff" + [headers.join(','), ...rows.map(e => e.map(val => `"${val.replace(/"/g, '""')}"`).join(','))].join('\n');
+        const csvContent = "\ufeff" + [headers.join(','), ...rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))].join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -19778,11 +20723,10 @@ async function renderShipments() {
         alert('Error al exportar los despachos: ' + err.message);
       } finally {
         tbody.innerHTML = originalHtml;
-        // Volver a vincular eventos de clicks de la tabla
         tbody.querySelectorAll('.clickable-row').forEach(row => {
           row.addEventListener('click', () => {
             const id = row.getAttribute('data-id');
-            const shipment = allData.find(x => x.id === id);
+            const shipment = allData.find(x => String(x.id) === String(id));
             if (shipment) {
               showShipmentDetailsModal(shipment);
             }
@@ -19803,7 +20747,6 @@ async function renderShipments() {
           sort.asc = true;
         }
 
-        // Update indicators
         sortHeaders.forEach(h => {
           const indicator = h.querySelector('.sort-indicator');
           if (h.getAttribute('data-sort') === sort.field) {
@@ -19836,20 +20779,21 @@ function showShipmentDetailsModal(shipment) {
   modal.id = 'modal-shipment-detail';
   modal.className = 'slide-over-overlay';
   
-  // Animar entrada del overlay y panel
   setTimeout(() => {
     modal.classList.add('active');
   }, 10);
   
   const dateObj = shipment.created_at ? new Date(shipment.created_at) : null;
-  const dateStr = dateObj ? dateObj.toLocaleString() : '-';
+  const dateStr = dateObj ? dateObj.toLocaleString('es-CL') : '-';
   const updatedObj = shipment.updated_at ? new Date(shipment.updated_at) : null;
-  const updatedStr = updatedObj ? updatedObj.toLocaleString() : '-';
+  const updatedStr = updatedObj ? updatedObj.toLocaleString('es-CL') : '-';
 
   const platformBadge = shipment.source_table === 'lightdata_envios' ? 'LightData' 
     : shipment.source_table === 'enviame_shipments' ? 'Enviame' 
     : shipment.source_table === 'bluex_envios' ? 'Blue Express' 
     : shipment.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
+
+  const statusMeta = classifyShipmentStatus(shipment);
 
   // Stepper timeline
   let step1Class = 'completed';
@@ -19857,54 +20801,41 @@ function showShipmentDetailsModal(shipment) {
   let step3Class = '';
   let progressBarWidth = '0%';
 
-  let gs = shipment.global_status;
-  const rawStatus = (shipment.status || '').toLowerCase();
-  if (rawStatus.includes('rechazado por courier')) {
-    gs = 'SIN MOVIMIENTO';
-  }
-
-  const isDelivered = (gs === 'ENTREGADO') || (
-    (gs === 'DESPACHADO' || !gs) && (
-      rawStatus.includes('entregado') || 
-      rawStatus.includes('delivered') || 
-      rawStatus.includes('nadie') || 
-      rawStatus.includes('exito')
-    )
-  );
-
-  const isAlert = (gs === 'ALERTA');
-  const isReturn = (gs === 'DEVOLUCIÓN');
-  const isTransit = (gs === 'EN TRÁNSITO') || ((gs === 'DESPACHADO') && !isDelivered);
-
-  if (isDelivered) {
+  if (statusMeta.tab === 'Entregado') {
     step1Class = 'completed';
     step2Class = 'completed';
     step3Class = 'completed';
     progressBarWidth = '100%';
-  } else if (isTransit) {
+  } else if (statusMeta.tab === 'En tránsito') {
     step1Class = 'completed';
-    step2Class = 'active'; // Transit state
-    progressBarWidth = '50%';
-  } else if (isAlert || isReturn) {
+    step2Class = 'active';
+    progressBarWidth = '55%';
+  } else if (statusMeta.tab === 'Listo para despacho') {
+    step1Class = 'completed';
+    step2Class = 'active';
+    progressBarWidth = '35%';
+  } else if (statusMeta.tab === 'No retirado' || statusMeta.tab === 'Devolución') {
     step1Class = 'completed';
     step2Class = 'warning';
     progressBarWidth = '50%';
-  } else if (gs === 'SIN MOVIMIENTO') {
+  } else {
     step1Class = 'active';
-    progressBarWidth = '0%';
+    progressBarWidth = '15%';
   }
 
-  // Stepper timeline
+  const isAlert = statusMeta.tab === 'No retirado';
+  const isReturn = statusMeta.tab === 'Devolución';
+
   const stepperHtml = `
     <div class="timeline-stepper">
       <div class="timeline-progress-bar" style="width: ${progressBarWidth};"></div>
       <div class="timeline-step ${step1Class}">
         <div class="timeline-bubble">1</div>
-        <div class="timeline-label">Creado</div>
+        <div class="timeline-label">Preparación</div>
       </div>
       <div class="timeline-step ${step2Class}">
         <div class="timeline-bubble">${isAlert ? '<i class="ri-error-warning-line"></i>' : (isReturn ? '<i class="ri-arrow-go-back-line"></i>' : '2')}</div>
-        <div class="timeline-label">${isAlert ? 'Incidencia' : (isReturn ? 'Devolución' : 'En Tránsito')}</div>
+        <div class="timeline-label">${isAlert ? 'Incidencia' : (isReturn ? 'Devolución' : (statusMeta.tab === 'Listo para despacho' ? 'Listo / Retiro' : 'En Tránsito'))}</div>
       </div>
       <div class="timeline-step ${step3Class}">
         <div class="timeline-bubble">3</div>
@@ -19913,16 +20844,54 @@ function showShipmentDetailsModal(shipment) {
     </div>
   `;
 
-  // Tracking button HTML
-  const hasTracking = shipment.tracking_url && shipment.tracking_url !== 'N/A';
-  const trackingBtnHtml = hasTracking
-    ? `<a href="${shipment.tracking_url}" target="_blank" class="btn btn-complementary" style="margin-right: auto;"><i class="ri-links-line"></i> Seguimiento de Pedido</a>`
-    : ``;
+  // Enlaces de seguimiento: Portal Público (Cliente) y Enlace Directo Courier
+  const publicPortalUrl = window.buildShipmentPublicTrackingUrl
+    ? window.buildShipmentPublicTrackingUrl(shipment)
+    : '';
+  const escPublicPortalUrl = window.escapeHtmlAttr ? window.escapeHtmlAttr(publicPortalUrl) : publicPortalUrl;
+
+  const resolvedModalTrackUrl = window.resolveCourierPublicTrackingUrl
+    ? window.resolveCourierPublicTrackingUrl(shipment.tracking_url, shipment.tracking, shipment.courier, shipment, shipment._linkedOrder || null)
+    : (shipment.tracking_url && shipment.tracking_url !== 'N/A' ? shipment.tracking_url : null);
+  const hasCourierTracking = Boolean(resolvedModalTrackUrl);
+
+  const courierInfo = formatShipmentCourierDisplay(shipment);
+  const linkedOrder = shipment._linkedOrder || null;
+  const effDireccion = shipment.direccion_destino || linkedOrder?.shipping_address || '-';
+  const effComplemento = shipment.complemento_destino || linkedOrder?.shipping_complement || '-';
+  const effComuna = shipment.comuna_destino || linkedOrder?.shipping_city || '-';
+  const effTelefono = shipment.telefono_destino || linkedOrder?.customer_phone || '-';
+  const effEmail = shipment.email_cliente_destino || linkedOrder?.customer_email || '-';
+  const escShipId = window.escapeHtmlAttr ? window.escapeHtmlAttr(String(shipment.id)) : String(shipment.id);
+
+  const trackingBtnHtml = `
+    <div style="display: flex; align-items: center; gap: 0.5rem; margin-right: auto; flex-wrap: wrap;">
+      ${publicPortalUrl ? `
+        <a href="${escPublicPortalUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; padding: 0.5rem 0.9rem;">
+          <i class="ri-external-link-line"></i> Ver Seguimiento Público
+        </a>
+        <button type="button" class="btn btn-outline" onclick="window.openShipmentShareModal('${escShipId}')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; padding: 0.5rem 0.9rem; border-color: rgba(16, 185, 129, 0.4); color: #059669;">
+          <i class="ri-share-forward-line"></i> Compartir Link
+        </button>
+      ` : ''}
+      ${hasCourierTracking ? `
+        <a href="${resolvedModalTrackUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-complementary" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; padding: 0.5rem 0.9rem;">
+          <i class="ri-truck-line"></i> Web Courier
+        </a>
+      ` : ''}
+    </div>
+  `;
 
   modal.innerHTML = `
     <div class="slide-over-panel">
       <div class="slide-over-header">
-        <h3><i class="ri-truck-line" style="color: var(--color-primary);"></i> Detalle de Despacho</h3>
+        <div>
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-truck-line" style="color: var(--color-primary);"></i>
+            Despacho ${window.escapeHtml ? window.escapeHtml(shipment.pedido_referencia || shipment.tracking || '') : (shipment.pedido_referencia || '')}
+          </h3>
+          <span style="font-size: 0.78rem; color: var(--color-text-muted);">Detalle logístico consolidado y enlace público para tu cliente</span>
+        </div>
         <button class="slide-over-close" id="btn-close-shipment-modal">&times;</button>
       </div>
       
@@ -19931,7 +20900,38 @@ function showShipmentDetailsModal(shipment) {
         <!-- Graphic Tracking Progress Timeline -->
         ${stepperHtml}
 
-        <div class="shipment-detail-grid" style="display: flex; flex-direction: column; gap: 2rem;">
+        <!-- Public Tracking Link Banner Card -->
+        ${publicPortalUrl ? `
+        <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.07) 0%, rgba(59, 130, 246, 0.05) 100%); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 12px; padding: 1rem 1.15rem; margin-bottom: 1.5rem; display: flex; flex-direction: column; gap: 0.65rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(99, 102, 241, 0.14); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0;">
+                <i class="ri-radar-line"></i>
+              </div>
+              <div>
+                <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main);">Enlace Público de Seguimiento (Vista Cliente)</div>
+                <div style="font-size: 0.74rem; color: var(--color-text-muted);">Comparte este link con tu comprador para que consulte el estado de su envío sin iniciar sesión</div>
+              </div>
+            </div>
+            <div class="ship-public-actions">
+              <a href="${escPublicPortalUrl}" target="_blank" rel="noopener noreferrer" class="btn-ship-action primary" title="Abrir portal de seguimiento en nueva pestaña">
+                <i class="ri-external-link-line"></i> Ver Portal
+              </a>
+              <button type="button" class="btn-ship-action" onclick="window.copyShipmentPublicTrackingLink('${escShipId}', this)" title="Copiar enlace público al portapapeles">
+                <i class="ri-file-copy-line"></i> Copiar Link
+              </button>
+              <button type="button" class="btn-ship-action whatsapp" onclick="window.openShipmentShareModal('${escShipId}')" title="Compartir por WhatsApp, Correo o previsualizar">
+                <i class="ri-whatsapp-line"></i> Compartir
+              </button>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.4rem;">
+            <input type="text" readonly value="${escPublicPortalUrl}" onclick="this.select();" style="flex: 1; font-family: monospace; font-size: 0.75rem; padding: 0.45rem 0.65rem; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); outline: none;" />
+          </div>
+        </div>
+        ` : ''}
+
+        <div class="shipment-detail-grid" style="display: flex; flex-direction: column; gap: 1.5rem;">
           
           <!-- Left Column: Logistics Info and Destination Info -->
           <div style="display: flex; flex-direction: column; gap: 1.5rem;">
@@ -19939,23 +20939,26 @@ function showShipmentDetailsModal(shipment) {
             <div class="shipment-detail-section">
               <h4 class="shipment-detail-title"><i class="ri-route-line"></i> Información de Logística</h4>
               <div class="detail-info-row">
-                <span class="detail-info-label">Proveedor:</span>
+                <span class="detail-info-label">Integración Origen:</span>
                 <span class="detail-info-value"><span style="background: var(--color-primary); color: white; padding: 0.15rem 0.6rem; border-radius: 99px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em;">${platformBadge}</span></span>
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Courier de Envío:</span>
-                <span class="detail-info-value" style="font-weight:700;">${shipment.courier || '-'}</span>
+                <span class="detail-info-value" style="font-weight:700;">${courierInfo.label}${courierInfo.sub ? ` <span style="font-weight: 500; color: var(--color-text-muted); font-size: 0.78rem;">(${courierInfo.sub})</span>` : ''}</span>
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Referencia Pedido:</span>
-                <span class="detail-info-value" style="font-weight:700;">${shipment.pedido_referencia || 'Sin Referencia'}</span>
+                <span class="detail-info-value" style="font-weight:700; display: inline-flex; align-items: center; gap: 0.25rem;">
+                  ${shipment.pedido_referencia || 'Sin Referencia'}
+                  ${shipment.pedido_referencia && window.renderCopyFieldBtn ? window.renderCopyFieldBtn(shipment.pedido_referencia, 'Referencia', 'Copiar referencia') : ''}
+                </span>
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Código de Tracking:</span>
                 <span class="detail-info-value" style="display: inline-flex; align-items: center; gap: 0.25rem;">
                   ${shipment.tracking 
-                    ? ((shipment.tracking_url && shipment.tracking_url !== 'N/A'
-                        ? `<a href="${shipment.tracking_url}" target="_blank" style="font-weight:700; color:var(--color-accent);"><i class="ri-links-line"></i> ${shipment.tracking}</a>`
+                    ? ((resolvedModalTrackUrl
+                        ? `<a href="${resolvedModalTrackUrl}" target="_blank" rel="noopener noreferrer" style="font-weight:700; color:var(--color-accent); display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-links-line"></i> ${shipment.tracking}</a>`
                         : `<span style="font-weight:700;">${shipment.tracking}</span>`) +
                       (window.renderCopyFieldBtn ? window.renderCopyFieldBtn(shipment.tracking, 'Tracking', 'Copiar código de tracking') : ''))
                     : '-'}
@@ -19963,17 +20966,15 @@ function showShipmentDetailsModal(shipment) {
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Tipo de Servicio:</span>
-                <span class="detail-info-value">${shipment.servicio_tipo_envio || '-'}</span>
+                <span class="detail-info-value">${shipment.servicio_tipo_envio || linkedOrder?.shipping_method || '-'}</span>
               </div>
               <div class="detail-info-row">
-                <span class="detail-info-label">Estado:</span>
-                <span class="detail-info-value"><span style="background: rgba(99,102,241,0.12); color: var(--color-accent); padding: 0.2rem 0.65rem; border-radius: 99px; font-size: 0.78rem; font-weight: 700;">${(() => {
-                  let statusText = shipment.status || '';
-                  if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && shipment.raw_data && shipment.raw_data[23]) {
-                    statusText = shipment.raw_data[23];
-                  }
-                  return getDisplayStatusName(statusText);
-                })()}</span></span>
+                <span class="detail-info-label">Estado Actual:</span>
+                <span class="detail-info-value">
+                  <span class="badge ${statusMeta.badgeClass}" style="padding: 0.25rem 0.7rem; border-radius: 99px; font-size: 0.78rem; font-weight: 700;">
+                    ${statusMeta.displayStatus}
+                  </span>
+                </span>
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Ingresado al Sistema:</span>
@@ -19990,27 +20991,30 @@ function showShipmentDetailsModal(shipment) {
               <h4 class="shipment-detail-title"><i class="ri-map-pin-2-line"></i> Información del Cliente / Entrega</h4>
               <div class="detail-info-row">
                 <span class="detail-info-label">Destinatario:</span>
-                <span class="detail-info-value" style="font-weight:700;">${shipment.nombre_destinatario || '-'}</span>
+                <span class="detail-info-value" style="font-weight:700;">${shipment.nombre_destinatario || linkedOrder?.customer_name || '-'}</span>
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Dirección de Despacho:</span>
-                <span class="detail-info-value">${shipment.direccion_destino || '-'}</span>
+                <span class="detail-info-value">${effDireccion}</span>
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Depto / Ofic / Casa:</span>
-                <span class="detail-info-value">${shipment.complemento_destino || '-'}</span>
+                <span class="detail-info-value">${effComplemento}</span>
               </div>
               <div class="detail-info-row">
-                <span class="detail-info-label">Comuna / Región:</span>
-                <span class="detail-info-value" style="font-weight:700;">${shipment.comuna_destino || '-'}</span>
+                <span class="detail-info-label">Comuna / Ciudad:</span>
+                <span class="detail-info-value" style="font-weight:700;">${effComuna}</span>
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Teléfono móvil:</span>
-                <span class="detail-info-value">${shipment.telefono_destino || '-'}</span>
+                <span class="detail-info-value" style="display: inline-flex; align-items: center; gap: 0.35rem;">
+                  ${effTelefono}
+                  ${effTelefono && effTelefono !== '-' && window.renderCopyFieldBtn ? window.renderCopyFieldBtn(effTelefono, 'Teléfono', 'Copiar teléfono') : ''}
+                </span>
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Correo electrónico:</span>
-                <span class="detail-info-value">${shipment.email_cliente_destino || '-'}</span>
+                <span class="detail-info-value">${effEmail}</span>
               </div>
             </div>
 
@@ -20047,13 +21051,12 @@ function showShipmentDetailsModal(shipment) {
     modal.classList.remove('active');
     setTimeout(() => {
       modal.remove();
-    }, 400); // Wait for CSS transition
+    }, 400);
   };
 
   document.getElementById('btn-close-shipment-modal').addEventListener('click', closeModal);
   document.getElementById('btn-close-shipment-footer').addEventListener('click', closeModal);
 
-  // Cierra al hacer clic en el overlay difuminado
   modal.addEventListener('click', (e) => {
     if (e.target === modal) {
       closeModal();
@@ -20061,14 +21064,17 @@ function showShipmentDetailsModal(shipment) {
   });
 
   // Load WMS orders mapping asynchronously
-  fetchAndRenderAssociatedOrder(shipment.pedido_referencia);
+  fetchAndRenderAssociatedOrder(shipment.pedido_referencia, shipment);
 }
 
-async function fetchAndRenderAssociatedOrder(pedidoRef) {
+async function fetchAndRenderAssociatedOrder(pedidoRef, shipment) {
   const loadingEl = document.getElementById('order-details-loading');
   const contentEl = document.getElementById('order-details-content');
+  if (!loadingEl || !contentEl) return;
   
-  if (!pedidoRef) {
+  const linkedOrderId = shipment?._linkedOrder?.id || null;
+
+  if (!pedidoRef && !linkedOrderId) {
     loadingEl.innerHTML = `
       <span style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"><i class="ri-search-line"></i></span>
       No existe una referencia de pedido válida vinculada a este despacho.
@@ -20077,12 +21083,13 @@ async function fetchAndRenderAssociatedOrder(pedidoRef) {
   }
 
   try {
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pedidoRef);
     let query = supabase
       .from('orders')
       .select(`
         id,
+        external_order_number,
         status,
+        estado_wms,
         created_at,
         total_value,
         order_items (
@@ -20091,10 +21098,17 @@ async function fetchAndRenderAssociatedOrder(pedidoRef) {
         )
       `);
 
-    if (isUuid) {
-      query = query.or(`external_order_number.eq."${pedidoRef}",id.eq."${pedidoRef}"`);
+    if (linkedOrderId) {
+      query = query.eq('id', linkedOrderId);
     } else {
-      query = query.eq('external_order_number', pedidoRef);
+      const cleanRef = String(pedidoRef).trim();
+      const bareRef = cleanRef.replace(/^#/, '');
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanRef);
+      if (isUuid) {
+        query = query.or(`external_order_number.eq."${cleanRef}",id.eq."${cleanRef}"`);
+      } else {
+        query = query.in('external_order_number', [cleanRef, bareRef, `#${bareRef}`]);
+      }
     }
 
     const { data: orders, error } = await query;
@@ -20107,7 +21121,7 @@ async function fetchAndRenderAssociatedOrder(pedidoRef) {
         Este despacho no está asociado a una Orden de Venta local de WMS STOCKA.
         <br><br>
         <span style="font-size: 0.75rem; display: block; font-weight: normal; color: var(--color-text-muted); line-height: 1.4;">
-          El envío fue consolidado directamente desde las plataformas logísticas externas (LightData, Enviame o Optiroute).
+          El envío fue consolidado directamente desde las plataformas logísticas externas (LightData, Enviame o Optiroute). Aun así, su enlace público de seguimiento está activo.
         </span>
       `;
       return;
@@ -20121,22 +21135,22 @@ async function fetchAndRenderAssociatedOrder(pedidoRef) {
       itemsHtml = '<p style="color: var(--color-text-muted); font-size: 0.85rem; padding:1rem; text-align:center;">No hay productos registrados en este pedido.</p>';
     } else {
       itemsHtml = `
-        <div style="max-height: 250px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+        <div style="max-height: 260px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
           <table class="data-table" style="width: 100%; font-size: 0.8rem; margin:0;">
             <thead>
               <tr style="background-color: var(--color-bg);">
-                <th style="padding: 0.5rem 0.75rem; font-size:0.7rem;">SKU / Producto</th>
-                <th style="padding: 0.5rem 0.75rem; text-align: center; width:60px; font-size:0.7rem;">Cant</th>
+                <th style="padding: 0.55rem 0.75rem; font-size:0.7rem;">SKU / Producto</th>
+                <th style="padding: 0.55rem 0.75rem; text-align: center; width:65px; font-size:0.7rem;">Cant</th>
               </tr>
             </thead>
             <tbody>
               ${items.map(item => `
                 <tr>
-                  <td style="padding: 0.5rem 0.75rem;">
-                    <span style="font-weight: 700; display: block; color: var(--color-dark);">${item.products ? item.products.sku : '-'}</span>
-                    <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.products ? item.products.name : 'Desconocido'}</span>
+                  <td style="padding: 0.55rem 0.75rem;">
+                    <span style="font-weight: 700; display: block; color: var(--color-dark); font-family: monospace;">${item.products ? item.products.sku : '-'}</span>
+                    <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.products ? item.products.name : 'Producto'}</span>
                   </td>
-                  <td style="padding: 0.5rem 0.75rem; text-align: center; font-weight: 700; color: var(--color-accent); font-size:0.875rem;">${item.quantity}</td>
+                  <td style="padding: 0.55rem 0.75rem; text-align: center; font-weight: 700; color: var(--color-accent); font-size:0.875rem;">${item.quantity}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -20145,32 +21159,33 @@ async function fetchAndRenderAssociatedOrder(pedidoRef) {
       `;
     }
 
-    const orderDateStr = order.created_at ? new Date(order.created_at).toLocaleDateString() : '-';
+    const orderDateStr = order.created_at ? new Date(order.created_at).toLocaleDateString('es-CL') : '-';
+    const wmsState = order.estado_wms || order.status || '-';
 
     contentEl.innerHTML = `
-      <div style="background-color: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border:1px solid var(--color-border); margin-bottom: 1.25rem; font-size: 0.825rem;">
+      <div style="background-color: var(--color-bg); padding: 1rem 1.25rem; border-radius: var(--radius-md); border:1px solid var(--color-border); margin: 1rem 1.25rem; font-size: 0.825rem;">
         <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
-          <span style="color: var(--color-text-muted); font-weight:500;">ID de Pedido:</span>
-          <span style="font-weight:700; color: var(--color-dark);">${order.id.split('-')[0]}</span>
+          <span style="color: var(--color-text-muted); font-weight:500;">ID / N° Pedido WMS:</span>
+          <span style="font-weight:700; color: var(--color-dark); font-family: monospace;">${order.external_order_number || order.id.split('-')[0]}</span>
         </div>
         <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
           <span style="color: var(--color-text-muted); font-weight:500;">Fecha de Creación:</span>
           <span style="font-weight:600;">${orderDateStr}</span>
         </div>
         <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
-          <span style="color: var(--color-text-muted); font-weight:500;">Valor Total:</span>
-          <span style="font-weight:700; color: var(--color-text-main);">${window.formatCLP(order.total_value)}</span>
+          <span style="color: var(--color-text-muted); font-weight:500;">Valor Declarado:</span>
+          <span style="font-weight:700; color: var(--color-text-main);">${window.formatCLP(order.total_value || 0)}</span>
         </div>
         <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span style="color: var(--color-text-muted); font-weight:500;">Estado del WMS:</span>
-          <span style="background-color: #d1fae5; color: #065f46; padding: 0.2rem 0.5rem; border-radius: 99px; font-size: 0.7rem; font-weight:700; text-transform:capitalize;">
-            ${order.status}
+          <span style="color: var(--color-text-muted); font-weight:500;">Estado en Bodega:</span>
+          <span style="background-color: #d1fae5; color: #065f46; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.72rem; font-weight:700; text-transform:capitalize;">
+            ${wmsState}
           </span>
         </div>
       </div>
       
-      <div>
-        <h5 style="font-size: 0.75rem; font-weight: 700; margin-bottom: 0.5rem; text-transform: uppercase; color: var(--color-text-muted); letter-spacing:0.02em;">Artículos Solicitados</h5>
+      <div style="padding: 0 1.25rem 1.25rem;">
+        <h5 style="font-size: 0.75rem; font-weight: 700; margin-bottom: 0.5rem; text-transform: uppercase; color: var(--color-text-muted); letter-spacing:0.02em;">Artículos Solicitados (${items.reduce((acc, it) => acc + (Number(it.quantity) || 0), 0)} uds)</h5>
         ${itemsHtml}
       </div>
     `;
@@ -25850,11 +26865,26 @@ async function handleRloFormSubmit(e) {
         created_from: `Logística Inversa (${type}) · Portal Cliente`
       };
 
+    // Resolver bodega de origen/destino: Logística Inversa (Cambios / Devoluciones) se asigna por defecto a Matriz Ñuñoa
+    let whId = '973da888-8a63-4790-a08f-919e1af41a93';
+    let targetSucursalPickeo = 'Sucursal Ñuñoa';
+
+    const { data: matrizNunoa } = await supabase
+      .from('warehouses')
+      .select('id')
+      .ilike('name', '%Ñuñoa%')
+      .limit(1)
+      .maybeSingle();
+    if (matrizNunoa) {
+      whId = matrizNunoa.id;
+    }
+
     const wmsOrderPayload = {
       merchant_id: merchantId,
       comercio: commerce,
       status: 'para procesar',
       estado_wms: 'En procesamiento',
+      sucursal_pickeo: targetSucursalPickeo,
       customer_name: customerName,
       customer_email: customerEmail || null,
       customer_phone: customerPhone || null,
@@ -25898,19 +26928,6 @@ async function handleRloFormSubmit(e) {
     
     // Crear order_items
     const orderItemsPayload = [];
-    const { data: bodegaCentral } = await supabase
-      .from('warehouses')
-      .select('id')
-      .ilike('name', '%Central%')
-      .limit(1)
-      .single();
-    
-    let whId = bodegaCentral ? bodegaCentral.id : null;
-    if (!whId) {
-      const { data: anyWh } = await supabase.from('warehouses').select('id').limit(1).maybeSingle();
-      if (anyWh) whId = anyWh.id;
-    }
-    
     for (const item of wmsOrderItems) {
       orderItemsPayload.push({
         order_id: insertedOrder.id,
@@ -25935,14 +26952,14 @@ async function handleRloFormSubmit(e) {
     
     // Stock comprometido para salidas de Cambios
     if (type === 'CAMBIO' && !isManual) {
-      if (bodegaCentral) {
+      if (whId) {
         for (const out of outgoingProducts) {
           if (out.product_id) {
             const { data: invRecord } = await supabase
               .from('inventory')
               .select('id, committed_quantity')
               .eq('product_id', out.product_id)
-              .eq('warehouse_id', bodegaCentral.id)
+              .eq('warehouse_id', whId)
               .maybeSingle();
               
             if (invRecord) {
@@ -25955,7 +26972,7 @@ async function handleRloFormSubmit(e) {
                 .from('inventory')
                 .insert([{
                   product_id: out.product_id,
-                  warehouse_id: bodegaCentral.id,
+                  warehouse_id: whId,
                   quantity: 0,
                   committed_quantity: out.cantidad
                 }]);

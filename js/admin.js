@@ -144,6 +144,153 @@ window.renderCopyFieldBtn = function(value, label, tooltip, customStyle) {
   return `<button type="button" onclick="event.stopPropagation(); window.copyFieldFromData(this, '${window.escapeHtml(label || '')}')" data-copy-val="${cleanVal}" class="btn-copy-field" title="${tip}" style="${baseStyle}" onmouseover="this.style.color='var(--color-primary)'; this.style.background='rgba(59, 130, 246, 0.1)';" onmouseout="this.style.color='var(--color-text-muted)'; this.style.background='transparent';"><i class="ri-file-copy-line"></i></button>`;
 };
 
+// Helper global para resolver la URL pública de seguimiento del courier (limpiando dominios rotos como tracking.enviame.io o API interna)
+window.resolveCourierPublicTrackingUrl = function(rawUrl, trackingNum, courierName, shipment, order) {
+  let url = (rawUrl && rawUrl !== 'N/A') ? String(rawUrl).trim() : '';
+  const trk = (trackingNum && trackingNum !== 'N/A' && trackingNum !== 'No informado' && trackingNum !== '-') ? String(trackingNum).trim() : '';
+  const cLower = String(courierName || shipment?.courier || order?.courier || order?.operador || '').toLowerCase().trim();
+  const srcTable = String(shipment?.source_table || '').toLowerCase();
+
+  // 1. Recuperar URL desde LightData raw_data[31] si corresponde
+  if (srcTable === 'lightdata_envios' || order?.raw_lightdata_data) {
+    if (shipment?.raw_data?.[31] && String(shipment.raw_data[31]).startsWith('http')) {
+      url = String(shipment.raw_data[31]).trim();
+    } else if (order?.raw_lightdata_data?.raw_data?.[31] && String(order.raw_lightdata_data.raw_data[31]).startsWith('http')) {
+      url = String(order.raw_lightdata_data.raw_data[31]).trim();
+    }
+  }
+
+  // 2. Limpiar enlaces de API Envíame o dominio inexistente tracking.enviame.io y priorizar portal público del courier
+  if (url && (url.includes('tracking.enviame.io') || url.includes('api.enviame.io/api/') || url.includes('api.enviame.io/s2/'))) {
+    if (trk && cLower.includes('starken')) {
+      url = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(trk)}`;
+    } else if (trk && (cLower.includes('blue') || cLower.includes('bluex'))) {
+      url = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(trk)}`;
+    } else if (trk && cLower.includes('chilexpress')) {
+      url = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(trk)}`;
+    } else {
+      const rawLinks = shipment?.raw_data?.links || shipment?.raw_payload?.links || [];
+      const webLink = Array.isArray(rawLinks) ? rawLinks.find(l => l && l.rel === 'tracking-web' && l.href && !l.href.includes('tracking.enviame.io')) : null;
+      if (webLink && webLink.href) {
+        url = String(webLink.href).trim();
+      } else if (url.includes('tracking.enviame.io') || url.includes('api.enviame.io/api/')) {
+        url = '';
+      }
+    }
+  }
+
+  if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+    url = '';
+  }
+
+  // 3. Fallback por courier o tabla de origen cuando no hay URL
+  if (!url && trk) {
+    if (srcTable === 'optiroute_orders' || cLower.includes('optiroute') || cLower.includes('stocka x')) {
+      url = `https://app.optiroute.cl/service_requets/tracking/${encodeURIComponent(trk)}/`;
+    } else if (srcTable === 'lightdata_envios' || cLower.includes('alpha') || cLower.includes('lightdata')) {
+      url = `https://alphagroup.lightdata.com.ar/tracking.php?token=${encodeURIComponent(trk)}d54df4s8a88`;
+    } else if (srcTable === 'starken_envios' || cLower.includes('starken')) {
+      url = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(trk)}`;
+    } else if (srcTable === 'bluex_envios' || cLower.includes('blue') || cLower.includes('bluex')) {
+      url = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(trk)}`;
+    } else if (cLower.includes('chilexpress')) {
+      url = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(trk)}`;
+    } else if (srcTable === 'mercadolibre' || cLower.includes('mercadolibre') || cLower.includes('meli')) {
+      url = `https://envios.mercadolibre.cl/seguimiento/${encodeURIComponent(trk)}`;
+    }
+  }
+
+  return url || null;
+};
+
+window.getOrderPublicTrackingPortalUrl = function(order) {
+  if (!order || !order.id) return '';
+  const originUrl = (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file:'))
+    ? window.location.origin
+    : 'https://wms.stocka.cl';
+  let url = `${originUrl}/seguimiento.html?t=${encodeURIComponent(order.id)}`;
+  if (order.comercio) {
+    url += `&comercio=${encodeURIComponent(order.comercio)}`;
+  }
+  return url;
+};
+
+window.togglePublicTrackingLinkBox = function(orderId, btnEl) {
+  const box = document.getElementById(`public-tracking-box-${orderId}`);
+  if (!box) return;
+  const isHidden = box.style.display === 'none' || !box.style.display;
+  box.style.display = isHidden ? 'flex' : 'none';
+  const btn = btnEl || document.getElementById(`btn-toggle-pub-track-${orderId}`);
+  if (btn) {
+    const labelSpan = btn.querySelector('.pub-track-btn-label');
+    const iconEl = btn.querySelector('.pub-track-btn-icon');
+    if (labelSpan) labelSpan.textContent = isHidden ? 'Ocultar enlace público' : 'Mostrar enlace público';
+    if (iconEl) iconEl.className = isHidden ? 'ri-eye-off-line pub-track-btn-icon' : 'ri-eye-line pub-track-btn-icon';
+  }
+};
+
+window.renderOrderPublicTrackingSectionHtml = function(order, courierTrackingUrl, courierName) {
+  if (!order || !order.id) return '';
+  const portalUrl = window.getOrderPublicTrackingPortalUrl(order);
+  const validCourierUrl = (courierTrackingUrl && courierTrackingUrl !== 'N/A' && courierTrackingUrl.startsWith('http')) ? courierTrackingUrl : null;
+  const escPortal = window.escapeHtmlAttr ? window.escapeHtmlAttr(portalUrl) : portalUrl;
+  const escCourier = validCourierUrl ? (window.escapeHtmlAttr ? window.escapeHtmlAttr(validCourierUrl) : validCourierUrl) : '';
+  const cleanCourierLabel = (courierName && courierName !== 'Seguimiento' && courierName !== 'Courier') ? courierName : 'Courier';
+
+  return `
+    <div style="border-top: 1px dashed var(--color-border); padding-top: 0.45rem; display: flex; flex-direction: column; gap: 0.4rem; text-align: left;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; flex-wrap: wrap;">
+        <button type="button" id="btn-toggle-pub-track-${order.id}" onclick="event.stopPropagation(); window.togglePublicTrackingLinkBox('${order.id}', this)" style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.28); color: var(--color-primary); padding: 0.22rem 0.55rem; border-radius: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.28rem; transition: all 0.15s;" title="Mostrar u ocultar el enlace público de seguimiento">
+          <i class="ri-eye-line pub-track-btn-icon" style="font-size: 0.82rem;"></i>
+          <span class="pub-track-btn-label">Mostrar enlace público</span>
+        </button>
+        <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+          <button type="button" onclick="event.stopPropagation(); window.copyFieldFromData(this, 'Enlace público de seguimiento')" data-copy-val="${escPortal}" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main); padding: 0.2rem 0.48rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.22rem;" title="Copiar enlace del Portal Público de Seguimiento para el cliente">
+            <i class="ri-file-copy-line" style="color: var(--color-primary);"></i> Copiar enlace
+          </button>
+          <a href="${escPortal}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-primary); padding: 0.2rem 0.48rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 0.2rem;" title="Abrir Portal Público de Seguimiento del pedido">
+            <i class="ri-external-link-line"></i> Portal
+          </a>
+        </div>
+      </div>
+
+      <div id="public-tracking-box-${order.id}" style="display: none; flex-direction: column; gap: 0.42rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.5rem 0.6rem;">
+        <div style="display: flex; flex-direction: column; gap: 0.18rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.3rem;">
+            <span style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.2px; display: inline-flex; align-items: center; gap: 0.22rem;">
+              <i class="ri-shield-check-line" style="color: var(--color-primary);"></i> Enlace Público Seguimiento (Portal Cliente)
+            </span>
+            <div style="display: inline-flex; align-items: center; gap: 0.2rem;">
+              ${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(portalUrl, 'Enlace público de seguimiento', 'Copiar enlace del portal de seguimiento', 'margin-left:0; padding:0.1rem 0.25rem; font-size:0.78rem;') : ''}
+              <a href="${escPortal}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" style="font-size: 0.72rem; color: var(--color-primary); font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 0.15rem;" title="Abrir en nueva pestaña">
+                Abrir <i class="ri-external-link-line"></i>
+              </a>
+            </div>
+          </div>
+          <input type="text" readonly value="${escPortal}" onclick="event.stopPropagation(); this.select();" style="width: 100%; font-family: monospace; font-size: 0.7rem; color: var(--color-text-main); background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 4px; padding: 0.25rem 0.45rem; outline: none; cursor: text;" />
+        </div>
+
+        ${validCourierUrl ? `
+          <div style="display: flex; flex-direction: column; gap: 0.18rem; border-top: 1px dashed var(--color-border); padding-top: 0.38rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.3rem;">
+              <span style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.2px; display: inline-flex; align-items: center; gap: 0.22rem;">
+                <i class="ri-truck-line" style="color: #059669;"></i> Enlace Directo ${window.escapeHtml ? window.escapeHtml(cleanCourierLabel) : cleanCourierLabel}
+              </span>
+              <div style="display: inline-flex; align-items: center; gap: 0.2rem;">
+                ${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(validCourierUrl, 'Enlace directo courier', 'Copiar enlace directo del courier', 'margin-left:0; padding:0.1rem 0.25rem; font-size:0.78rem;') : ''}
+                <a href="${escCourier}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" style="font-size: 0.72rem; color: #059669; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 0.15rem;" title="Abrir seguimiento en ${window.escapeHtml ? window.escapeHtml(cleanCourierLabel) : cleanCourierLabel}">
+                  Abrir <i class="ri-external-link-line"></i>
+                </a>
+              </div>
+            </div>
+            <input type="text" readonly value="${escCourier}" onclick="event.stopPropagation(); this.select();" style="width: 100%; font-family: monospace; font-size: 0.7rem; color: var(--color-text-main); background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 4px; padding: 0.25rem 0.45rem; outline: none; cursor: text;" />
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
+};
+
 window.normalizeComunaKey = function(str) {
   if (!str) return '';
   return String(str).toLowerCase()
@@ -3094,7 +3241,7 @@ window.resolveOrderTracking = function(order) {
 
   const trk = String(order.tracking_number || '').trim();
   if (trk && trk.toLowerCase() !== 'no informado' && trk !== order.external_order_number) {
-    if (!isAlpha || !trk.startsWith('460')) {
+    if (!isAlpha || (!trk.startsWith('460') && !/^46\d{7,}$/.test(trk))) {
       return trk;
     }
   }
@@ -3592,7 +3739,7 @@ window.downloadOrderLabel = async function(orderId, orderNumber) {
       const forcedInfo = window.getOrderForcedTrackingInfo ? window.getOrderForcedTrackingInfo(data) : null;
       const isAlpha = data?.operador === 'ALPHA' || data?.courier === 'LIGHTDATA' || data?.courier === 'CARRIER EXTERNO' || data?.courier === 'ALPHA' || (forcedInfo?.active && ['ALPHA', 'LIGHTDATA', 'CARRIER EXTERNO'].includes(String(forcedInfo.courier || '').toUpperCase()));
       const trkNum = String(forcedInfo?.active && forcedInfo.tracking_number ? forcedInfo.tracking_number : (data?.tracking_number || '')).trim();
-      const forcedDid = (/^\d+$/.test(trkNum) && !trkNum.startsWith('460')) ? trkNum : null;
+      const forcedDid = (/^\d+$/.test(trkNum) && !trkNum.startsWith('460') && !/^46\d{7,}$/.test(trkNum)) ? trkNum : null;
       const alphaDid = forcedDid || data?.raw_lightdata_data?.did || data?.raw_lightdata_data?.id;
       if (isAlpha && alphaDid) {
         try {
@@ -4939,46 +5086,110 @@ window.bulkExportAlphaExcel = async function(btn = null) {
 window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
   let ids = customOrderIds ? (Array.isArray(customOrderIds) ? customOrderIds : [customOrderIds]) : Array.from(window.wmsSelectedOrderIds || []);
   
+  const isOrderPendingAlphaTracking = (o) => {
+    if (!o) return false;
+    const ordCat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+      ? window.getOrderEffectiveCategoriaEntrega(o)
+      : String(o.categoria_entrega || '').toUpperCase().trim();
+    if (ordCat === 'RETIRO') return false;
+    if (o.estado_wms === 'Cancelado' || o.estado_wms === 'Archivado' || o.status === 'cancelado') return false;
+
+    const opUpper = String(o.operador || '').toUpperCase().trim();
+    const cUpper = String(o.courier || '').toUpperCase().trim();
+    const isAlpha = (opUpper === 'ALPHA' || cUpper === 'LIGHTDATA' || cUpper === 'PENDIENTE_LIGHTDATA' || cUpper === 'ALPHA');
+    if (!isAlpha) return false;
+
+    const ldDid = String(o.raw_lightdata_data?.did || o.raw_lightdata_data?.id || '').trim();
+    const hasValidLdDid = Boolean(ldDid && /^\d+$/.test(ldDid) && !ldDid.startsWith('460') && !/^46\d{7,}$/.test(ldDid));
+    const curTrk = String(o.tracking_number || '').trim();
+    const trkUpper = curTrk.toUpperCase();
+
+    // Si ya tiene DID de LightData en raw_lightdata_data pero el tracking_number del pedido o los envíos en memoria no lo reflejan, incluirlo para sincronizar
+    if (hasValidLdDid) {
+      const uniqueList = typeof window.getOrderUniqueTrackingsList === 'function'
+        ? window.getOrderUniqueTrackingsList(o)
+        : [];
+      if (curTrk === ldDid && uniqueList.length > 0 && cUpper !== 'WELIVERY' && cUpper !== 'RECIBELO') {
+        return false;
+      }
+      return true;
+    }
+
+    const isIgnoredCourier = cUpper.includes('RECIBELO') || cUpper.includes('RECÍBELO') ||
+                             cUpper.includes('WELIVERY') || cUpper.includes('WOODELIVERY') || cUpper.includes('WODELY') ||
+                             opUpper.includes('RECIBELO') || opUpper.includes('RECÍBELO') || opUpper.includes('WELIVERY');
+    if (isIgnoredCourier) return true;
+
+    if (!trkUpper || trkUpper === 'NO INFORMADO' || trkUpper === 'NULL' || trkUpper === 'UNDEFINED' || trkUpper.includes('RECIBELO') || trkUpper.includes('WELIVERY')) {
+      return true;
+    }
+
+    // Trackings temporales de Envíame (460..., 461..., 462...)
+    if (trkUpper.startsWith('460') || /^46\d{7,}$/.test(trkUpper)) {
+      return true;
+    }
+
+    // Si el tracking guardado es igual al número de orden externo (ej: DOR55019434 generado al exportar planilla Excel Alpha)
+    const extClean = String(o.external_order_number || '').trim().replace(/^#/, '').toUpperCase();
+    const trkClean = trkUpper.replace(/^#/, '');
+    if (extClean && (trkClean === extClean || trkClean.endsWith(extClean))) {
+      return true;
+    }
+
+    const uniqueList = typeof window.getOrderUniqueTrackingsList === 'function'
+      ? window.getOrderUniqueTrackingsList(o)
+      : [];
+    if (uniqueList.length === 0) return true;
+
+    return true;
+  };
+
   if (ids.length === 0) {
-    // Si no hay pedidos seleccionados, consultar si desea sincronizar todos los pedidos con operador ALPHA pendientes de tracking
-    const alphaPendingOrders = (window.loadedOrders || []).filter(o => {
-      const ordCat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
-        ? window.getOrderEffectiveCategoriaEntrega(o)
-        : String(o.categoria_entrega || '').toUpperCase().trim();
-      if (ordCat === 'RETIRO') return false;
-      const isAlpha = (o.operador === 'ALPHA' || o.courier === 'LIGHTDATA' || o.courier === 'PENDIENTE_LIGHTDATA');
-      const trk = String(o.tracking_number || '').trim().toUpperCase();
-      const hasValidTracking = trk !== '' && trk !== 'NO INFORMADO' && trk !== 'NULL' && trk !== 'UNDEFINED' && !trk.includes('RECIBELO') && !trk.includes('WELIVERY');
-      return isAlpha && !hasValidTracking;
-    });
+    // Priorizar los pedidos ALPHA pendientes en la vista filtrada actual; si no hay filtro activo, usar todos los cargados
+    const currentViewOrders = typeof window.getWmsFilteredOrders === 'function'
+      ? window.getWmsFilteredOrders()
+      : (window.wmsLastFilteredOrders || window.loadedOrders || []);
+    const visibleAlphaPending = currentViewOrders.filter(isOrderPendingAlphaTracking);
+    const allAlphaPending = (window.loadedOrders || []).filter(isOrderPendingAlphaTracking);
+    const alphaPendingOrders = visibleAlphaPending.length > 0 ? visibleAlphaPending : allAlphaPending;
 
     if (alphaPendingOrders.length === 0) {
       Swal.fire({
         icon: 'info',
-        title: 'Ningún pedido seleccionado',
+        title: 'Ningún pedido pendiente detectado',
         text: 'Selecciona al menos un pedido con las casillas de verificación para buscar y sincronizar su tracking desde LightData.',
         confirmButtonColor: '#7117eb'
       });
       return;
     }
 
-    const { isConfirmed } = await Swal.fire({
+    const hasMoreInOtherViews = visibleAlphaPending.length > 0 && allAlphaPending.length > visibleAlphaPending.length;
+    const { isConfirmed, value: syncAllPending } = await Swal.fire({
       icon: 'question',
       title: 'Sincronizar Pedidos ALPHA',
       html: `
         <div style="text-align: left; font-size: 0.9rem;">
-          <p>No tienes pedidos seleccionados con checkbox, pero se detectaron <strong>${alphaPendingOrders.length}</strong> pedidos con operador ALPHA sin tracking asignado.</p>
-          <p>¿Deseas buscar en LightData y sincronizar el tracking para estos <strong>${alphaPendingOrders.length}</strong> pedidos?</p>
+          <p>No tienes pedidos seleccionados con checkbox, pero se detectaron <strong>${alphaPendingOrders.length}</strong> pedido(s) con operador ALPHA pendientes de tracking${visibleAlphaPending.length > 0 ? ' en la vista actual' : ''}.</p>
+          <p style="margin-top: 0.4rem;">¿Deseas buscar en LightData y sincronizar el tracking para ${alphaPendingOrders.length === 1 ? 'este pedido' : `estos <strong>${alphaPendingOrders.length}</strong> pedidos`}?</p>
+          ${hasMoreInOtherViews ? `
+            <label style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.75rem; padding: 0.5rem 0.65rem; background: var(--color-surface-hover, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: 6px; cursor: pointer; font-size: 0.82rem;">
+              <input type="checkbox" id="swal-sync-all-alpha-pending" style="accent-color: #7117eb;">
+              <span>Incluir también otros <strong>${allAlphaPending.length - visibleAlphaPending.length}</strong> pedidos ALPHA pendientes en otras pestañas/filtros (Total: ${allAlphaPending.length})</span>
+            </label>
+          ` : ''}
         </div>
       `,
       showCancelButton: true,
-      confirmButtonText: `Sí, sincronizar ${alphaPendingOrders.length} pedidos`,
+      confirmButtonText: `Sí, sincronizar`,
       cancelButtonText: 'Cancelar',
-      confirmButtonColor: '#7117eb'
+      confirmButtonColor: '#7117eb',
+      preConfirm: () => {
+        return document.getElementById('swal-sync-all-alpha-pending')?.checked || false;
+      }
     });
 
     if (!isConfirmed) return;
-    ids = alphaPendingOrders.map(o => o.id);
+    ids = (syncAllPending ? allAlphaPending : alphaPendingOrders).map(o => o.id);
   }
 
   const rawSelectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
@@ -5032,6 +5243,7 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
       const ext = (o.external_order_number || '').trim();
       const uuid = (o.id || '').trim();
       const shortId = uuid.split('-')[0];
+      const curTrk = String(o.tracking_number || '').trim();
 
       if (ext) {
         candidates.push(ext);
@@ -5041,41 +5253,48 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
         const numOnly = ext.replace(/^[^0-9]+/i, '').trim();
         if (numOnly && numOnly.length >= 3) candidates.push(numOnly);
       }
+      if (curTrk && curTrk !== 'NO INFORMADO' && !curTrk.startsWith('460') && !/^46\d{7,}$/.test(curTrk)) {
+        candidates.push(curTrk);
+      }
       if (uuid) candidates.push(uuid);
       if (shortId) candidates.push(shortId);
 
-      orderRefMap.set(o.id, candidates.filter(Boolean));
-      candidates.forEach(c => allRefs.add(c));
+      const uniqueCands = [...new Set(candidates.filter(Boolean))];
+      orderRefMap.set(o.id, uniqueCands);
+      uniqueCands.forEach(c => allRefs.add(c));
     });
 
-    // 2. Traer registros de lightdata_envios y envios_unificados
-    const commerces = [...new Set(selectedOrders.map(o => (o.comercio || '').trim()).filter(Boolean))];
-    
-    let ldQuery = supabase
-      .from('lightdata_envios')
-      .select('*')
-      .order('created_at', { ascending: false });
+    // 2. Traer registros de lightdata_envios, envios_unificados y estado fresco de orders en paralelo
+    const allRefsArr = Array.from(allRefs).slice(0, 500);
+    const selectedIdsArr = selectedOrders.map(o => o.id);
 
-    if (commerces.length > 0) {
-      ldQuery = ldQuery.in('comercio', commerces);
-    }
+    const [ldByRefRes, ldRecentRes, euRes, freshOrdersRes] = await Promise.all([
+      allRefsArr.length > 0
+        ? supabase.from('lightdata_envios').select('*').in('tracking', allRefsArr)
+        : Promise.resolve({ data: [], error: null }),
+      supabase.from('lightdata_envios').select('*').order('updated_at', { ascending: false }).limit(2000),
+      allRefsArr.length > 0
+        ? supabase.from('envios_unificados').select('*').eq('source_table', 'lightdata_envios').in('pedido_referencia', allRefsArr)
+        : Promise.resolve({ data: [], error: null }),
+      supabase.from('orders').select('id, tracking_number, tracking_url, courier, operador, lightdata_status, raw_lightdata_data, estado_wms').in('id', selectedIdsArr)
+    ]);
 
-    const { data: ldEnvios, error: ldErr } = await ldQuery.limit(3000);
-    if (ldErr) throw ldErr;
+    if (ldRecentRes.error) throw ldRecentRes.error;
 
-    const { data: euData } = await supabase
-      .from('envios_unificados')
-      .select('*')
-      .eq('source_table', 'lightdata_envios')
-      .in('pedido_referencia', Array.from(allRefs));
-
-    const ldList = ldEnvios || [];
-    const euList = euData || [];
+    // Unificar y deduplicar registros de lightdata_envios
+    const ldMap = new Map();
+    [...(ldByRefRes.data || []), ...(ldRecentRes.data || [])].forEach(item => {
+      if (item && item.id) ldMap.set(String(item.id), item);
+    });
+    const ldList = Array.from(ldMap.values());
+    const euList = euRes.data || [];
+    const freshOrdersMap = new Map((freshOrdersRes.data || []).map(fo => [fo.id, fo]));
 
     // 3. Cruzar cada orden con los envíos de LightData
     let syncedCount = 0;
     const syncedOrders = [];
     const notFoundOrders = [];
+    const notFoundOrderIds = [];
 
     for (const order of selectedOrders) {
       const forcedInfo = window.getOrderForcedTrackingInfo ? window.getOrderForcedTrackingInfo(order) : null;
@@ -5092,10 +5311,6 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
         const eComm = (e.comercio || '').toUpperCase().trim();
         const eEmpresa = (e.empresa_comercio || '').toUpperCase().trim();
         const isStockaGeneric = eEmpresa.includes('STOCKA') || eComm.includes('STOCKA') || eComm === 'NO ASIGNADO' || eComm === '';
-        
-        if (orderComm && eComm && orderComm !== eComm && !isStockaGeneric) {
-          return false;
-        }
 
         const eTracking = (e.tracking || '').trim();
         const rawRef1 = (e.raw_data && e.raw_data[1]) ? String(e.raw_data[1]).trim() : '';
@@ -5103,6 +5318,16 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
 
         const orderExt = (order.external_order_number || '').trim().replace(/#/g, '').toUpperCase();
         const orderDigits = orderExt.replace(/[^0-9]/g, '');
+
+        // Si el tracking en LightData coincide exactamente con el external_order_number (ej. DOR55019434), es match directo sin importar variaciones de nombre de comercio
+        const exactExtMatch = orderExt.length >= 4 && (
+          eTracking.replace(/#/g, '').toUpperCase() === orderExt ||
+          rawRef1.replace(/#/g, '').toUpperCase() === orderExt
+        );
+
+        if (!exactExtMatch && orderComm && eComm && orderComm !== eComm && !isStockaGeneric) {
+          return false;
+        }
 
         const matchRef = (ref) => {
           if (!ref) return false;
@@ -5135,7 +5360,7 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
 
       let match = matchingLd[0] || null;
 
-      // Fallback buscar en envios_unificados (priorizando no cancelados)
+      // Fallback 1: buscar en envios_unificados (priorizando no cancelados)
       if (!match) {
         const euMatches = euList.filter(s => candidates.includes(s.pedido_referencia));
         euMatches.sort((a, b) => {
@@ -5158,6 +5383,26 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
         }
       }
 
+      // Fallback 2: verificar si la tabla orders en Supabase ya fue actualizada en segundo plano por sync_lightdata.js
+      if (!match) {
+        const freshOrd = freshOrdersMap.get(order.id);
+        const freshLd = freshOrd?.raw_lightdata_data || order.raw_lightdata_data;
+        const freshDid = String(freshLd?.did || freshLd?.id || '').trim();
+        if (freshDid && /^\d+$/.test(freshDid) && !freshDid.startsWith('460') && !/^46\d{7,}$/.test(freshDid)) {
+          match = {
+            id: freshDid,
+            tracking: freshLd.tracking || order.external_order_number || freshDid,
+            tracking_url: freshLd.tracking_url || freshOrd?.tracking_url || order.tracking_url,
+            status: freshLd.status || freshOrd?.lightdata_status || order.lightdata_status || 'A retirar',
+            comercio: freshLd.comercio || order.comercio,
+            nombre_destinatario: freshLd.nombre_destinatario || order.customer_name,
+            comuna_destino: freshLd.comuna_destino || order.shipping_city,
+            direccion_destino: freshLd.direccion_destino || order.shipping_address,
+            raw_data: freshLd.raw_data || null
+          };
+        }
+      }
+
       if (match) {
         // Si el pedido tiene un tracking forzado activo y el único match en LightData está Cancelado, respetar el forzado
         const matchStLower = String(match.status || (match.raw_data && match.raw_data[23]) || '').toLowerCase();
@@ -5172,13 +5417,15 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
           trackingUrl = `https://alphagroup.lightdata.com.ar/tracking.php?token=${match.id}`;
         }
 
+        const resolvedStatus = match.status || (match.raw_data ? match.raw_data[23] : null) || 'A retirar';
         const rawLd = {
+          ...(order.raw_lightdata_data || {}),
           did: match.id,
           id: match.id,
-          tracking: trackingNum,
+          tracking: match.tracking || trackingNum,
           tracking_url: trackingUrl,
-          status: match.status || 'EN PREPARACIÓN',
-          raw_data: match.raw_data || null
+          status: resolvedStatus,
+          raw_data: match.raw_data || order.raw_lightdata_data?.raw_data || null
         };
 
         const updatePayload = {
@@ -5186,6 +5433,7 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
           tracking_url: trackingUrl,
           courier: 'LIGHTDATA',
           operador: 'ALPHA',
+          lightdata_status: resolvedStatus,
           raw_lightdata_data: rawLd
         };
         if (order.estado_wms === 'En procesamiento') {
@@ -5201,11 +5449,40 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
           Object.assign(order, updatePayload);
           delete order._wmsShipmentGlobalStatus;
           delete order._wmsTags;
+
+          // Inyectar/actualizar en window.loadedShipments para que el contador de trackings y el estado se actualicen en vivo sin recargar
+          if (Array.isArray(window.loadedShipments)) {
+            const euId = `lightdata_envios:${trackingNum}`;
+            const synthShip = {
+              id: euId,
+              source_table: 'lightdata_envios',
+              source_id: trackingNum,
+              pedido_referencia: match.tracking || order.external_order_number || order.id,
+              tracking: trackingNum,
+              tracking_url: trackingUrl,
+              courier: 'ALPHA',
+              status: resolvedStatus,
+              empresa_comercio_proveedor: match.comercio || order.comercio || 'STOCKA',
+              destinatario: match.nombre_destinatario || order.customer_name || '',
+              comuna_destino: match.comuna_destino || order.shipping_city || '',
+              direccion_destino: match.direccion_destino || order.shipping_address || '',
+              created_at: match.fecha_creacion_lightdata || match.created_at || new Date().toISOString(),
+              updated_at: match.fecha_actualizacion_lightdata || match.updated_at || new Date().toISOString(),
+              raw_data: match.raw_data || null
+            };
+            const existingIdx = window.loadedShipments.findIndex(s => s && (s.id === euId || (s.source_table === 'lightdata_envios' && String(s.source_id) === trackingNum)));
+            if (existingIdx >= 0) {
+              window.loadedShipments[existingIdx] = { ...window.loadedShipments[existingIdx], ...synthShip };
+            } else {
+              window.loadedShipments.unshift(synthShip);
+            }
+          }
+
           syncedCount++;
           syncedOrders.push({
             orderNumber: order.external_order_number || order.id.split('-')[0],
             tracking: trackingNum,
-            status: match.status
+            status: resolvedStatus
           });
 
           // Sincronizar inmediatamente al Picker si está activo o en preparación
@@ -5220,11 +5497,17 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
         }
       } else {
         notFoundOrders.push(order.external_order_number || order.id.split('-')[0]);
+        notFoundOrderIds.push(order.id);
       }
     }
 
-    // Re-renderizar vista
+    // Reconstruir índice de envíos en memoria y re-renderizar vista
+    if (syncedCount > 0 && typeof window.buildWmsShipmentsByRefMap === 'function' && Array.isArray(window.loadedShipments)) {
+      window.buildWmsShipmentsByRefMap(window.loadedShipments);
+    }
     window.applyWmsFiltersAndRender();
+
+    const notFoundIdsJson = JSON.stringify(notFoundOrderIds).replace(/"/g, '&quot;');
 
     // Mostrar resultado al usuario
     if (syncedCount > 0) {
@@ -5237,15 +5520,15 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
               ✅ ${syncedCount} de ${selectedOrders.length} pedidos vinculados con LightData y asignados a operador ALPHA.
             </p>
             <div style="max-height: 160px; overflow-y: auto; background: var(--color-bg); padding: 0.5rem; border-radius: var(--radius-sm); margin-bottom: 0.75rem; font-family: monospace; font-size: 0.8rem; border: 1px solid var(--color-border);">
-              ${syncedOrders.map(s => `<div style="padding: 0.2rem 0; border-bottom: 1px dashed var(--color-border); display: flex; justify-content: space-between;"><span><strong>${s.orderNumber}</strong> ➔ ${s.tracking}</span> <span style="font-weight:600; color:var(--color-primary);">${s.status || 'OK'}</span></div>`).join('')}
+              ${syncedOrders.map(s => `<div style="padding: 0.2rem 0; border-bottom: 1px dashed var(--color-border); display: flex; justify-content: space-between;"><span><strong>${s.orderNumber}</strong> ➔ #${s.tracking}</span> <span style="font-weight:600; color:var(--color-primary);">${s.status || 'OK'}</span></div>`).join('')}
             </div>
             ${notFoundOrders.length > 0 ? `
               <p style="color: var(--color-text-muted); font-size: 0.8rem; margin-top: 0.5rem;">
-                ℹ️ ${notFoundOrders.length} pedidos no se encontraron en la base de datos de LightData: <em>${notFoundOrders.join(', ')}</em>
+                ℹ️ ${notFoundOrders.length} pedido(s) aún no aparecen en la tabla local de LightData: <em>${notFoundOrders.join(', ')}</em>
               </p>
               <div style="margin-top: 0.75rem; text-align: center;">
-                <button onclick="window.triggerLightDataPortalSync()" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; border-color: #7117eb; color: #7117eb; font-weight: 600; cursor: pointer;">
-                  <i class="ri-download-cloud-2-line"></i> Descargar reporte actualizado desde LightData
+                <button onclick="window.triggerLightDataPortalSync(${notFoundIdsJson})" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.7rem; border-color: #7117eb; color: #7117eb; font-weight: 600; cursor: pointer;">
+                  <i class="ri-download-cloud-2-line"></i> Descargar reporte actualizado desde portal LightData y vincular
                 </button>
               </div>
             ` : ''}
@@ -5256,14 +5539,14 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
     } else {
       Swal.fire({
         icon: 'warning',
-        title: 'Sin coincidencias en LightData',
+        title: 'Sin coincidencias en base local LightData',
         html: `
           <div style="text-align: left; font-size: 0.9rem;">
-            <p>No se encontraron envíos registrados en LightData para los <strong>${selectedOrders.length}</strong> pedidos seleccionados.</p>
-            <p style="color: var(--color-text-muted); font-size: 0.8rem; margin-bottom: 1rem;">Si acabas de crear las etiquetas en el portal de Alpha, es posible que el reporte aún no se haya descargado a la base de datos.</p>
+            <p>Los <strong>${selectedOrders.length}</strong> pedido(s) seleccionados aún no figuran en la base de datos sincronizada de LightData (<em>${notFoundOrders.slice(0, 12).join(', ')}${notFoundOrders.length > 12 ? '...' : ''}</em>).</p>
+            <p style="color: var(--color-text-muted); font-size: 0.8rem; margin-top: 0.5rem; margin-bottom: 1rem;">Si subiste la planilla o creaste los envíos recientemente en el portal de Alpha/LightData, presiona el botón de abajo para descargar el reporte en vivo desde LightData y vincularlos automáticamente.</p>
             <div style="text-align: center;">
-              <button onclick="window.triggerLightDataPortalSync()" class="btn btn-primary" style="background: #7117eb; border: none; font-size: 0.85rem; padding: 0.4rem 0.8rem; font-weight: 600; cursor: pointer;">
-                <i class="ri-download-cloud-2-line"></i> Descargar reporte desde LightData ahora
+              <button onclick="window.triggerLightDataPortalSync(${notFoundIdsJson})" class="btn btn-primary" style="background: #7117eb; border: none; font-size: 0.85rem; padding: 0.45rem 0.9rem; font-weight: 600; cursor: pointer;">
+                <i class="ri-download-cloud-2-line"></i> Descargar desde portal LightData y vincular ahora
               </button>
             </div>
           </div>
@@ -5289,11 +5572,34 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
   }
 };
 
-window.triggerLightDataPortalSync = async function() {
+window.triggerLightDataPortalSync = async function(pendingOrderIds = null) {
+  const targetIds = Array.isArray(pendingOrderIds) && pendingOrderIds.length > 0
+    ? pendingOrderIds
+    : Array.from(window.wmsSelectedOrderIds || []);
+
+  // Obtener marca de tiempo previa de lightdata_envios para detectar cuándo termina el job de GitHub Actions
+  let baselineUpdatedAt = null;
+  try {
+    const { data: latestRow } = await supabase
+      .from('lightdata_envios')
+      .select('updated_at')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestRow?.updated_at) baselineUpdatedAt = new Date(latestRow.updated_at).getTime();
+  } catch (e) {}
+
   Swal.fire({
-    title: 'Descargando desde LightData...',
-    text: 'Solicitando la sincronización del reporte más reciente de LightData...',
+    title: 'Sincronizando con Portal LightData...',
+    html: `
+      <div style="font-size: 0.88rem; line-height: 1.45;">
+        <p id="ld-portal-sync-status">Solicitando descarga del reporte de envíos desde <strong>alphagroup.lightdata.com.ar</strong>...</p>
+        <p style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.5rem;">Esto toma aproximadamente 20 a 45 segundos. Los pedidos se vincularán automáticamente apenas termine.</p>
+      </div>
+    `,
     allowOutsideClick: false,
+    showCancelButton: true,
+    cancelButtonText: 'Continuar en 2do plano',
     didOpen: () => { Swal.showLoading(); }
   });
 
@@ -5303,12 +5609,58 @@ window.triggerLightDataPortalSync = async function() {
       body: JSON.stringify({ platform: 'LightData' })
     });
 
-    Swal.fire({
-      icon: 'success',
-      title: 'Descarga en proceso',
-      text: 'Se ha iniciado la descarga del reporte desde LightData en segundo plano. En unos 20-30 segundos presiona "Sincronizar LightData" nuevamente para vincular los pedidos.',
-      confirmButtonColor: '#7117eb'
-    });
+    // Sondear hasta ~72 segundos esperando que lightdata_envios reciba el nuevo volcado del Excel
+    const maxAttempts = 12;
+    let detectedNewDump = false;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (!Swal.isVisible()) break; // El usuario cerró el modal para continuar en segundo plano
+      const statusEl = document.getElementById('ld-portal-sync-status');
+      if (statusEl) {
+        statusEl.innerHTML = `Descargando Excel desde el portal LightData y actualizando base de datos... <strong>(${attempt * 6}s)</strong>`;
+      }
+
+      await new Promise(r => setTimeout(r, 6000));
+      if (!Swal.isVisible()) break;
+
+      try {
+        const { data: checkRow } = await supabase
+          .from('lightdata_envios')
+          .select('updated_at')
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (checkRow?.updated_at) {
+          const currentTs = new Date(checkRow.updated_at).getTime();
+          if (!baselineUpdatedAt || currentTs > baselineUpdatedAt + 1000) {
+            detectedNewDump = true;
+            break;
+          }
+        }
+      } catch (pollErr) {}
+    }
+
+    if (Swal.isVisible() && detectedNewDump) {
+      await window.bulkSyncLightDataTracking(null, targetIds.length > 0 ? targetIds : null);
+      return;
+    }
+
+    if (Swal.isVisible()) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Descarga en curso en segundo plano',
+        text: 'El servidor de LightData sigue procesando el reporte. En unos segundos intentaremos vincular los pedidos automáticamente.',
+        confirmButtonColor: '#7117eb'
+      });
+    }
+
+    // Sondeo silencioso adicional en segundo plano por si GitHub Actions demoró unos segundos extra en encolar
+    setTimeout(async () => {
+      try {
+        await window.bulkSyncLightDataTracking(null, targetIds.length > 0 ? targetIds : null);
+      } catch (e) {}
+    }, 20000);
   } catch (err) {
     console.error(err);
     Swal.fire({
@@ -9375,8 +9727,8 @@ async function renderAdminOrders() {
       // 4. Tracking directo guardado en order.tracking_number
       const directTrack = String(order.tracking_number || '').trim();
       if (isValidTrackCode(directTrack) && !isIgnoredCourierName(order.courier) && !isIgnoredCourierName(order.operador)) {
-        const isTempAlphaCode = directTrack.startsWith('460') && (ldDid || Array.from(uniqueMap.values()).some(u => u.courier === 'ALPHA' || u.source === 'lightdata_envios'));
-        const isSameAsOrderExt = directTrack.replace(/^#/, '').toUpperCase() === orderExtUpper && uniqueMap.size > 0;
+        const isTempAlphaCode = (directTrack.startsWith('460') || /^46\d{7,}$/.test(directTrack)) && (ldDid || order.operador === 'ALPHA' || Array.from(uniqueMap.values()).some(u => u.courier === 'ALPHA' || u.source === 'lightdata_envios'));
+        const isSameAsOrderExt = directTrack.replace(/^#/, '').toUpperCase() === orderExtUpper && (uniqueMap.size > 0 || order.operador === 'ALPHA');
         if (!isTempAlphaCode && !isSameAsOrderExt) {
           let cName = order.courier || order.operador || 'Courier';
           if (cName === 'CARRIER EXTERNO' || cName === 'LIGHTDATA') cName = 'ALPHA';
@@ -9523,7 +9875,8 @@ async function renderAdminOrders() {
       if (orderShipments.length === 0 && (order.operador === 'ALPHA' || order.courier === 'LIGHTDATA' || order.courier === 'CARRIER EXTERNO') && (hasRealLightdata || (!isVirtualPlatform && order.tracking_number))) {
         const ldRaw = order.raw_lightdata_data || {};
         const effDid = String(ldRaw.did || ldRaw.id || order.tracking_number || '').trim();
-        if (effDid && effDid !== 'null' && effDid !== 'undefined' && !effDid.startsWith('460')) {
+        const orderExtClean = String(order.external_order_number || '').trim().replace(/^#/, '').toUpperCase();
+        if (effDid && effDid !== 'null' && effDid !== 'undefined' && !effDid.startsWith('460') && !/^46\d{7,}$/.test(effDid) && effDid.replace(/^#/, '').toUpperCase() !== orderExtClean) {
           let globStatus = 'SIN MOVIMIENTO';
           let statusText = ldRaw.status || 'A retirar';
           if (/^-?\d+\.\d+$/.test(statusText.trim()) && ldRaw.raw_data && ldRaw.raw_data[23]) {
@@ -13576,7 +13929,7 @@ window.applyWmsFiltersAndRender = function() {
         const topLd = orderShipments[0];
         if (topLd.source_id && /^\d+$/.test(String(topLd.source_id).trim())) {
           alphaDid = String(topLd.source_id).trim();
-        } else if (topLd.tracking && !String(topLd.tracking).trim().startsWith('460')) {
+        } else if (topLd.tracking && !String(topLd.tracking).trim().startsWith('460') && !/^46\d{7,}$/.test(String(topLd.tracking).trim())) {
           alphaDid = String(topLd.tracking).trim();
         }
       }
@@ -13590,7 +13943,7 @@ window.applyWmsFiltersAndRender = function() {
       }
       if (!alphaDid && order.tracking_number && !isIgnoredCourier) {
         const trkStr = String(order.tracking_number).trim();
-        if (!trkStr.startsWith('460') && trkStr !== order.external_order_number) {
+        if (!trkStr.startsWith('460') && !/^46\d{7,}$/.test(trkStr) && trkStr !== order.external_order_number) {
           alphaDid = trkStr;
         }
       }
@@ -13673,22 +14026,6 @@ window.applyWmsFiltersAndRender = function() {
       }
     }
 
-    // Limpiar trackingUrl si corresponde al API interna de Envíame
-    if (trackingUrl && (trackingUrl.includes('api.enviame.io/s2/') || trackingUrl.includes('api.enviame.io/api/'))) {
-      if (trackingNum) {
-        trackingUrl = `https://tracking.enviame.io/?n=${encodeURIComponent(trackingNum)}`;
-      }
-    }
-
-    // Limpiar si no es una URL real
-    if (trackingUrl && !trackingUrl.startsWith('http://') && !trackingUrl.startsWith('https://')) {
-      trackingUrl = null;
-    }
-
-    if (isAlphaOrder && trackingNum && !trackingUrl) {
-      trackingUrl = `https://alphagroup.lightdata.com.ar/tracking.php?token=${trackingNum}d54df4s8a88`;
-    }
-
     let courierName = 'Courier';
     if (forcedInfo?.active && forcedInfo.courier) {
       courierName = forcedInfo.courier;
@@ -13724,6 +14061,14 @@ window.applyWmsFiltersAndRender = function() {
       courierName = 'Starken';
     } else if (cleanCourierLower === 'nomad') {
       courierName = 'Nomad';
+    }
+
+    if (window.resolveCourierPublicTrackingUrl) {
+      trackingUrl = window.resolveCourierPublicTrackingUrl(trackingUrl, trackingNum, courierName, orderShipments[0] || null, order);
+    }
+
+    if (isAlphaOrder && trackingNum && !trackingUrl) {
+      trackingUrl = `https://alphagroup.lightdata.com.ar/tracking.php?token=${trackingNum}d54df4s8a88`;
     }
 
     if (trackingNum) {
@@ -15207,6 +15552,8 @@ window.applyWmsFiltersAndRender = function() {
                       <div style="font-size: 0.82rem; min-width: 0; overflow: hidden;">${trackingHtml}</div>
                     </div>
                   </div>
+
+                  ${window.renderOrderPublicTrackingSectionHtml ? window.renderOrderPublicTrackingSectionHtml(order, trackingUrl, courierName) : ''}
 
                   <!-- Auto Track integrado -->
                   <div style="border-top: 1px dashed var(--color-border); padding-top: 0.45rem; text-align: left;">
@@ -18608,19 +18955,19 @@ window.syncReverseLogisticsOnOrdersDispatched = async function(orderIds) {
 
     if (!rlRecords || rlRecords.length === 0) return;
 
-    // Obtener bodega Central por defecto para reingresos si no hay sucursal específica
-    let defaultWhId = null;
-    let defaultWhName = 'Bodega Central';
+    // Obtener bodega Matriz Ñuñoa por defecto para reingresos si no hay sucursal específica
+    let defaultWhId = '973da888-8a63-4790-a08f-919e1af41a93';
+    let defaultWhName = 'Matriz Ñuñoa';
     try {
-      const { data: centralWh } = await supabase
+      const { data: nunoaWh } = await supabase
         .from('warehouses')
         .select('id, name')
-        .ilike('name', '%Central%')
+        .ilike('name', '%Ñuñoa%')
         .limit(1)
-        .single();
-      if (centralWh) {
-        defaultWhId = centralWh.id;
-        defaultWhName = centralWh.name;
+        .maybeSingle();
+      if (nunoaWh) {
+        defaultWhId = nunoaWh.id;
+        defaultWhName = nunoaWh.name;
       } else {
         const { data: anyWh } = await supabase.from('warehouses').select('id, name').limit(1).maybeSingle();
         if (anyWh) {
@@ -48453,7 +48800,9 @@ window.openBulkDeclarationStatusModal = async function() {
       supabase.from('warehouses').select('id, name, address, comuna, operating_days').order('name'),
       supabase.from('billing_periods').select('*')
     ]);
-    warehouses = whRes.data || [];
+    warehouses = typeof window.filterPhysicalWarehouses === 'function'
+      ? window.filterPhysicalWarehouses(whRes.data || [])
+      : (whRes.data || []).filter(w => String(w.id) !== 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09' && !String(w.name || '').toLowerCase().includes('bodega central'));
     rawPeriods = perRes.data || [];
   } catch (e) {
     console.warn('Error cargando catálogos para modal masivo de ingresos:', e);
@@ -50061,9 +50410,23 @@ function renderStatusActionButtons(currentStatus) {
   }
 }
 
+window.isVirtualOrCentralWarehouse = function(w) {
+  if (!w) return true;
+  const id = String(w.id || '').trim();
+  const name = String(w.name || '').toLowerCase().trim();
+  if (id === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09') return true;
+  if (name === 'bodega central' || name.includes('bodega central') || name.includes('ficticia') || name.includes('virtual')) return true;
+  return false;
+};
+
+window.filterPhysicalWarehouses = function(warehouses) {
+  if (!Array.isArray(warehouses)) return [];
+  return warehouses.filter(w => !window.isVirtualOrCentralWarehouse(w));
+};
+
 window.renderManageWarehouseCards = function(targetStatusOverride = null) {
   const dec = window.currentDeclarationEditing;
-  const warehouses = window.manageDecWarehousesCache || [];
+  const warehouses = window.filterPhysicalWarehouses(window.manageDecWarehousesCache || []);
   const cardsGrid = document.getElementById('manage-dec-warehouse-cards-grid');
   const selectEl = document.getElementById('manage-dec-warehouse-select');
   const groupWarehouse = document.getElementById('manage-dec-group-warehouse');
@@ -51049,23 +51412,25 @@ window.manageDeclaration = async function(id) {
       }
     }
 
-    // Cargar bodegas para el selector y tarjetas interactivas
-    const { data: warehouses } = await supabase
+    // Cargar bodegas físicas para el selector y tarjetas interactivas (excluyendo Bodega Central / ficticia)
+    const { data: rawWarehouses } = await supabase
       .from('warehouses')
       .select('id, name, address, comuna, operating_days')
       .order('name');
 
-    window.manageDecWarehousesCache = warehouses || [];
+    const warehouses = window.filterPhysicalWarehouses(rawWarehouses || []);
+    window.manageDecWarehousesCache = warehouses;
 
+    const isDecCurrentWhVirtual = dec.warehouse_id && window.isVirtualOrCentralWarehouse({ id: dec.warehouse_id, name: dec.warehouses?.name });
     const selectEl = document.getElementById('manage-dec-warehouse-select');
     if (selectEl) {
-      selectEl.innerHTML = '<option value="">-- Selecciona una Bodega --</option>';
+      selectEl.innerHTML = '<option value="">-- Selecciona una Sucursal Física --</option>';
       if (warehouses) {
         warehouses.forEach(w => {
           selectEl.innerHTML += `<option value="${w.id}">${w.name} (${w.comuna})</option>`;
         });
       }
-      selectEl.value = dec.warehouse_id || '';
+      selectEl.value = isDecCurrentWhVirtual ? '' : (dec.warehouse_id || '');
     }
 
     window.currentDeclarationEditing = dec;
@@ -51568,13 +51933,14 @@ window.openChangeDeclarationWarehouseModal = async function(id) {
     if (decError) throw decError;
     if (whError) throw whError;
 
+    const physicalWarehouses = window.filterPhysicalWarehouses(warehouses || []);
     const shortCode = String(dec.id || '').substring(0, 8).toUpperCase();
     const comercioName = dec.profiles?.company_name || dec.comercio || 'Comercio';
     const currentWh = dec.warehouses || null;
-    const hasCurrentWh = Boolean(dec.warehouse_id && currentWh);
+    const hasCurrentWh = Boolean(dec.warehouse_id && currentWh && !window.isVirtualOrCentralWarehouse({ id: dec.warehouse_id, name: currentWh.name }));
     const isCreditedStage = ['Recibido Conforme', 'Recepción Parcial', 'Recibido con Incidencias'].includes(dec.status) || dec.parallel_count === true;
 
-    const whOptionsHtml = (warehouses || []).map(w => {
+    const whOptionsHtml = physicalWarehouses.map(w => {
       const isSelected = String(w.id) === String(dec.warehouse_id || '');
       return `<option value="${w.id}" ${isSelected ? 'selected' : ''}>${w.name} — ${w.comuna || ''} (${w.address || 'Sin dirección'})</option>`;
     }).join('');
@@ -51654,7 +52020,7 @@ window.openChangeDeclarationWarehouseModal = async function(id) {
         const preview = document.getElementById('swal-change-wh-preview');
         const updatePreview = () => {
           const val = sel?.value;
-          const found = (warehouses || []).find(w => String(w.id) === String(val));
+          const found = physicalWarehouses.find(w => String(w.id) === String(val));
           if (found && preview) {
             preview.style.display = 'block';
             preview.innerHTML = `
@@ -51687,8 +52053,8 @@ window.openChangeDeclarationWarehouseModal = async function(id) {
 
     if (!isConfirmed || !formValues) return;
 
-    const newWh = (warehouses || []).find(w => String(w.id) === String(formValues.selectedWhId));
-    if (!newWh) return;
+    const newWh = physicalWarehouses.find(w => String(w.id) === String(formValues.selectedWhId));
+    if (!newWh || window.isVirtualOrCentralWarehouse(newWh)) return;
 
     const isSameWh = String(dec.warehouse_id || '') === String(newWh.id);
     const nextStatus = (dec.status === 'Creada' && formValues.advanceStage) ? 'Bodega Asignada' : dec.status;
@@ -51839,12 +52205,12 @@ window.saveDeclarationWarehouseDirect = async function() {
 
   if (!id || !selectEl) return;
   const newWarehouseId = selectEl.value;
-  if (!newWarehouseId) {
+  if (!newWarehouseId || window.isVirtualOrCentralWarehouse?.({ id: newWarehouseId })) {
     if (window.Swal) {
       Swal.fire({
         icon: 'warning',
-        title: 'Selecciona una sucursal',
-        text: 'Debes elegir una sucursal / bodega en el selector antes de aplicar el cambio.'
+        title: 'Selecciona una sucursal física',
+        text: 'Debes elegir una sucursal / bodega física válida antes de aplicar el cambio (Bodega Central es ficticia y no es asignable).'
       });
     }
     selectEl.focus();
@@ -52078,17 +52444,23 @@ document.addEventListener('submit', async (e) => {
       }
     }
 
-    // Validar bodega en cualquier estado posterior a Creada
+    // Validar bodega física en cualquier estado posterior a Creada (excluyendo Bodega Central / ficticia)
     const selectEl = document.getElementById('manage-dec-warehouse-select');
     let warehouseId = (selectEl && selectEl.value) ? selectEl.value : (window.currentDeclarationEditing?.warehouse_id || null);
+    if (warehouseId && typeof window.isVirtualOrCentralWarehouse === 'function' && window.isVirtualOrCentralWarehouse({ id: warehouseId })) {
+      warehouseId = null;
+    }
     if (status !== 'Creada' && !warehouseId) {
       const groupWarehouse = document.getElementById('manage-dec-group-warehouse');
-      if (groupWarehouse) groupWarehouse.style.display = 'block';
+      if (groupWarehouse) {
+        groupWarehouse.style.display = 'block';
+        groupWarehouse.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
       if (selectEl) {
         selectEl.setAttribute('required', 'required');
         selectEl.focus();
       }
-      alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">Debes seleccionar una bodega de destino antes de avanzar o confirmar esta recepción.</div>';
+      alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">Debes seleccionar una sucursal / bodega física de destino antes de avanzar o confirmar esta recepción (Bodega Central no es asignable).</div>';
       return;
     }
 
@@ -53757,11 +54129,14 @@ window.editDeclarationAdmin = async function(id) {
     // Guardar copia original para cálculo de diferencias y auditoría
     window.adminOriginalDeclarationEditing = JSON.parse(JSON.stringify(dec));
 
-    // Cargar bodegas para el selector
-    const { data: warehouses } = await supabase
+    // Cargar bodegas físicas para el selector (excluyendo Bodega Central)
+    const { data: rawWarehouses } = await supabase
       .from('warehouses')
       .select('id, name, address, comuna')
       .order('name');
+    const warehouses = typeof window.filterPhysicalWarehouses === 'function'
+      ? window.filterPhysicalWarehouses(rawWarehouses || [])
+      : (rawWarehouses || []);
 
     const whSelect = document.getElementById('admin-edit-dec-warehouse');
     if (whSelect) {
@@ -53771,7 +54146,7 @@ window.editDeclarationAdmin = async function(id) {
           whSelect.innerHTML += `<option value="${w.id}">${w.name} (${w.comuna})</option>`;
         });
       }
-      whSelect.value = dec.warehouse_id || '';
+      whSelect.value = (dec.warehouse_id && !window.isVirtualOrCentralWarehouse?.({ id: dec.warehouse_id })) ? dec.warehouse_id : '';
     }
 
     // Poblar campos informativos y del formulario
@@ -56356,10 +56731,13 @@ window.openAdminNewDeclarationModal = async function() {
   if (whSelect) {
     whSelect.innerHTML = '<option value="">-- Sin asignar (Estado inicial: Creada) --</option>';
     try {
-      const { data: warehouses } = await supabase
+      const { data: rawWarehouses } = await supabase
         .from('warehouses')
         .select('id, name, comuna')
         .order('name');
+      const warehouses = typeof window.filterPhysicalWarehouses === 'function'
+        ? window.filterPhysicalWarehouses(rawWarehouses || [])
+        : (rawWarehouses || []);
       if (warehouses) {
         warehouses.forEach(w => {
           whSelect.innerHTML += `<option value="${w.id}">🏭 ${w.name} (${w.comuna})</option>`;
@@ -67388,6 +67766,7 @@ function renderFoldersSidebar() {
   const e3GeneralCount = adminDocsList.filter(doc => doc.folder === 'E3' || doc.folder === 'E3_General').length;
   const e3ShopifyCount = adminDocsList.filter(doc => doc.folder === 'E3_Shopify').length;
   const e3WooCount = adminDocsList.filter(doc => doc.folder === 'E3_WooCommerce').length;
+  const e3TiendanubeCount = adminDocsList.filter(doc => doc.folder === 'E3_Tiendanube').length;
   const e3JumpCount = adminDocsList.filter(doc => doc.folder === 'E3_Jumpseller').length;
   const e3MeliCount = adminDocsList.filter(doc => doc.folder === 'E3_MercadoLibre').length;
 
@@ -67424,6 +67803,10 @@ function renderFoldersSidebar() {
     <li class="folder-item ${adminSelectedFolder === 'E3_WooCommerce' ? 'active' : ''}" data-folder="E3_WooCommerce" style="font-weight: 600; padding-left: 1.5rem; font-size: 0.85rem;">
       <span><i class="ri-wordpress-line folder-icon" style="color: #3b82f6;"></i> E3 - WooCommerce</span>
       <span class="badge" style="font-size: 0.75rem; padding: 0.1rem 0.4rem; background: var(--color-border); color: var(--color-text-main); font-weight: 600;">${e3WooCount}</span>
+    </li>
+    <li class="folder-item ${adminSelectedFolder === 'E3_Tiendanube' ? 'active' : ''}" data-folder="E3_Tiendanube" style="font-weight: 600; padding-left: 1.5rem; font-size: 0.85rem;">
+      <span><i class="ri-cloud-line folder-icon" style="color: #0891b2;"></i> E3 - Tiendanube</span>
+      <span class="badge" style="font-size: 0.75rem; padding: 0.1rem 0.4rem; background: var(--color-border); color: var(--color-text-main); font-weight: 600;">${e3TiendanubeCount}</span>
     </li>
     <li class="folder-item ${adminSelectedFolder === 'E3_Jumpseller' ? 'active' : ''}" data-folder="E3_Jumpseller" style="font-weight: 600; padding-left: 1.5rem; font-size: 0.85rem;">
       <span><i class="ri-store-2-line folder-icon" style="color: #10b981;"></i> E3 - Jumpseller</span>
@@ -67512,6 +67895,7 @@ function filterAndRenderDocsTable() {
       if (folderTitle) {
         if (adminSelectedFolder === 'E3_Shopify') folderTitle.textContent = 'Carpeta: E3 - Shopify';
         else if (adminSelectedFolder === 'E3_WooCommerce') folderTitle.textContent = 'Carpeta: E3 - WooCommerce';
+        else if (adminSelectedFolder === 'E3_Tiendanube') folderTitle.textContent = 'Carpeta: E3 - Tiendanube';
         else if (adminSelectedFolder === 'E3_Jumpseller') folderTitle.textContent = 'Carpeta: E3 - Jumpseller';
         else if (adminSelectedFolder === 'E3_MercadoLibre') folderTitle.textContent = 'Carpeta: E3 - Mercado Libre';
         else folderTitle.textContent = `Carpeta: ${adminSelectedFolder}`;
@@ -67673,6 +68057,7 @@ function openUploadDocModal() {
       'E3',
       'E3_Shopify',
       'E3_WooCommerce',
+      'E3_Tiendanube',
       'E3_Jumpseller',
       'E3_MercadoLibre',
       'contractual_docs'
@@ -67682,6 +68067,7 @@ function openUploadDocModal() {
       if (f === 'E3') return 'E3 (Comunes)';
       if (f === 'E3_Shopify') return 'E3 - Shopify';
       if (f === 'E3_WooCommerce') return 'E3 - WooCommerce';
+      if (f === 'E3_Tiendanube') return 'E3 - Tiendanube';
       if (f === 'E3_Jumpseller') return 'E3 - Jumpseller';
       if (f === 'E3_MercadoLibre') return 'E3 - Mercado Libre';
       if (f === 'contractual_docs') return 'Docs Contractuales';
@@ -67748,6 +68134,7 @@ function openEditDocModal(id) {
       'E3',
       'E3_Shopify',
       'E3_WooCommerce',
+      'E3_Tiendanube',
       'E3_Jumpseller',
       'E3_MercadoLibre',
       'contractual_docs'
@@ -67757,6 +68144,7 @@ function openEditDocModal(id) {
       if (f === 'E3') return 'E3 (Comunes)';
       if (f === 'E3_Shopify') return 'E3 - Shopify';
       if (f === 'E3_WooCommerce') return 'E3 - WooCommerce';
+      if (f === 'E3_Tiendanube') return 'E3 - Tiendanube';
       if (f === 'E3_Jumpseller') return 'E3 - Jumpseller';
       if (f === 'E3_MercadoLibre') return 'E3 - Mercado Libre';
       if (f === 'contractual_docs') return 'Docs Contractuales';
@@ -75188,8 +75576,14 @@ window.showMerchantEditModal = async function(comercioName) {
               <!-- Switch Correo E3 -->
               ${(() => {
                 const hasWoo = (commerce.integrations || []).some(i => (i.platform || '').toLowerCase().includes('woo'));
+                const hasTiendanube = (commerce.integrations || []).some(i => {
+                  const p = (i.platform || '').toLowerCase();
+                  return p.includes('tiendanube') || p.includes('tienda nube') || p.includes('nuvem');
+                });
                 const hasShopify = (commerce.integrations || []).some(i => (i.platform || '').toLowerCase().includes('shopify'));
-                const defaultE3Platform = (hasWoo && !hasShopify) ? 'WooCommerce' : 'Shopify';
+                const defaultE3Platform = (hasTiendanube && !hasShopify && !hasWoo)
+                  ? 'Tiendanube'
+                  : ((hasWoo && !hasShopify) ? 'WooCommerce' : 'Shopify');
                 return `
                   <div class="merchant-toggle-card" style="margin-top: 1rem; align-items: flex-start;">
                     <label class="merchant-switch" style="flex-shrink: 0; margin-top: 4px;">
@@ -75206,10 +75600,11 @@ window.showMerchantEditModal = async function(comercioName) {
                           <select id="merchant-edit-e3-platform" class="form-input" style="height: 28px; font-size: 0.75rem; padding: 0.15rem 0.5rem; width: auto; font-weight: 600; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px;">
                             <option value="Shopify" ${defaultE3Platform === 'Shopify' ? 'selected' : ''}>Shopify</option>
                             <option value="WooCommerce" ${defaultE3Platform === 'WooCommerce' ? 'selected' : ''}>WooCommerce</option>
+                            <option value="Tiendanube" ${defaultE3Platform === 'Tiendanube' ? 'selected' : ''}>Tiendanube</option>
                           </select>
                         </div>
                       </div>
-                      <p class="merchant-form-hint" style="margin-top: 0.25rem;">Envía el manual de webhook (Shopify o WooCommerce) y tarifarios al correo del comercio al guardar los cambios.</p>
+                      <p class="merchant-form-hint" style="margin-top: 0.25rem;">Envía el manual de integración (Shopify, WooCommerce o Tiendanube) y tarifarios al correo del comercio al guardar los cambios.</p>
                       <div id="merchant-edit-e3-badge-container"></div>
                     </div>
                   </div>
@@ -75788,7 +76183,7 @@ window.showMerchantEditModal = async function(comercioName) {
             </label>
             <input type="email" id="swal-e3-user-email" class="swal2-input" value="${candidateEmail}" placeholder="usuario@comercio.com" style="width: 100%; margin: 0; box-sizing: border-box; height: 38px; font-size: 0.88rem; padding: 0.4rem 0.65rem;">
             <p style="font-size: 0.72rem; color: #64748b; margin: 0.4rem 0 0 0; line-height: 1.35;">
-              Este correo se colocará en la sección <em>"D.- Acceso a tu plataforma Envíame"</em> informando al cliente la cuenta asignada para el seguimiento de sus envíos.
+              Este correo se colocará en las instrucciones de acceso y activación de <em>Envíame</em> informando al cliente la cuenta asignada para el seguimiento y conexión de sus envíos.
             </p>
           </div>
           <p style="font-size: 0.8rem; color: #64748b; margin: 0;">
@@ -76103,7 +76498,8 @@ window.showMerchantEditModal = async function(comercioName) {
         }
 
         // Si sendE3 está activo, enviar instrucciones de Enviame (E3)
-        if (sendE3 && newEnviameId) {
+        const selectedE3Platform = document.getElementById('merchant-edit-e3-platform')?.value || 'Shopify';
+        if (sendE3 && (newEnviameId || selectedE3Platform === 'Tiendanube')) {
           try {
             let recipientEmails = [];
             if (newRepEmail) {
@@ -77962,17 +78358,8 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
             tUrl = `https://alphagroup.lightdata.com.ar/tracking.php?token=${effectiveTracking}d54df4s8a88`;
           }
         }
-        if (tUrl && (tUrl.includes('api.enviame.io/s2/') || tUrl.includes('api.enviame.io/api/'))) {
-          tUrl = `https://tracking.enviame.io/?n=${encodeURIComponent(s.tracking)}`;
-        }
-        if (s.source_table === 'bluex_envios' && !tUrl && s.tracking) {
-          tUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(s.tracking)}`;
-        }
-        if (s.source_table === 'starken_envios' && !tUrl && s.tracking) {
-          tUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(s.tracking)}`;
-        }
-        if (tUrl && !tUrl.startsWith('http://') && !tUrl.startsWith('https://')) {
-          tUrl = null;
+        if (window.resolveCourierPublicTrackingUrl) {
+          tUrl = window.resolveCourierPublicTrackingUrl(tUrl, s.tracking || effectiveTracking, s.courier || order.courier, s, order);
         }
 
         let gStatus = s.global_status;
@@ -105013,29 +105400,54 @@ window.updateAdminReturnsSelectionUI = function() {
 async function deleteSingleAdminReturnHelper(r) {
   if (!r || !r.id) return;
 
-  // 1. Si era un CAMBIO pendiente, revertir el stock comprometido en Bodega Central (solo si tenía orden generada o era movimiento de bodega)
+  // 1. Si era un CAMBIO pendiente, revertir el stock comprometido en la bodega asignada (Matriz Ñuñoa por defecto)
   const statusVal = r.status || 'pendiente';
   const isOrder = Boolean(r.wms_order_id || r.customer_name);
   const shouldRevertStock = r.tipo_movimiento === 'CAMBIO' && statusVal === 'pendiente' && (!isOrder || Boolean(r.wms_order_id));
   if (shouldRevertStock) {
     try {
-      const { data: centralWh } = await supabase
+      let defaultWhId = '973da888-8a63-4790-a08f-919e1af41a93';
+      const { data: nunoaWh } = await supabase
         .from('warehouses')
         .select('id')
-        .ilike('name', '%Central%')
+        .ilike('name', '%Ñuñoa%')
         .limit(1)
         .maybeSingle();
+      if (nunoaWh) defaultWhId = nunoaWh.id;
 
-      if (centralWh && r.productos && Array.isArray(r.productos)) {
+      let orderItemWhMap = {};
+      if (r.wms_order_id) {
+        const { data: oiRows } = await supabase
+          .from('order_items')
+          .select('product_id, warehouse_id')
+          .eq('order_id', r.wms_order_id);
+        (oiRows || []).forEach(oi => {
+          if (oi.product_id && oi.warehouse_id) orderItemWhMap[oi.product_id] = oi.warehouse_id;
+        });
+      }
+
+      if (r.productos && Array.isArray(r.productos)) {
         for (const origProd of r.productos) {
           if (origProd.id_reemplazo) {
             const qtyRep = origProd.qty_reemplazo !== undefined ? origProd.qty_reemplazo : (origProd.cantidad || 1);
-            const { data: invRecord } = await supabase
+            const targetWhId = orderItemWhMap[origProd.id_reemplazo] || defaultWhId;
+            let { data: invRecord } = await supabase
               .from('inventory')
               .select('id, committed_quantity')
               .eq('product_id', origProd.id_reemplazo)
-              .eq('warehouse_id', centralWh.id)
+              .eq('warehouse_id', targetWhId)
               .maybeSingle();
+
+            if (!invRecord || !(invRecord.committed_quantity > 0)) {
+              const { data: fallbackInv } = await supabase
+                .from('inventory')
+                .select('id, committed_quantity')
+                .eq('product_id', origProd.id_reemplazo)
+                .gt('committed_quantity', 0)
+                .limit(1)
+                .maybeSingle();
+              if (fallbackInv) invRecord = fallbackInv;
+            }
 
             if (invRecord) {
               const newCommitted = Math.max(0, (invRecord.committed_quantity || 0) - qtyRep);
@@ -105048,7 +105460,7 @@ async function deleteSingleAdminReturnHelper(r) {
         }
       }
     } catch (whErr) {
-      console.warn('Advertencia al revertir stock comprometido en Bodega Central:', whErr);
+      console.warn('Advertencia al revertir stock comprometido:', whErr);
     }
   }
 
@@ -105280,8 +105692,10 @@ window.openConfirmReturnModal = async function(dataStr) {
     
     const activeWarehouses = warehouses || [];
     
-    // Find default Bodega Central
-    const centralWh = activeWarehouses.find(w => w.name.toLowerCase().includes('central'));
+    // Find default Matriz Ñuñoa (or fallback to Central / first active warehouse)
+    const centralWh = activeWarehouses.find(w => w.name.toLowerCase().includes('ñuñoa') || w.name.toLowerCase().includes('nunoa'))
+      || activeWarehouses.find(w => w.name.toLowerCase().includes('central'))
+      || activeWarehouses[0];
     const centralWhId = centralWh ? centralWh.id : '';
     
     const tbody = document.getElementById('confirm-products-tbody');
@@ -105379,13 +105793,13 @@ document.addEventListener('DOMContentLoaded', () => {
       btnSave.innerHTML = 'Confirmando... <i class="ri-loader-4-line" style="animation: wms-spin 1s linear infinite;"></i>';
       
       try {
-        const { data: centralWh } = await supabase
+        const { data: defaultNunoaWh } = await supabase
           .from('warehouses')
           .select('id')
-          .ilike('name', '%Central%')
+          .ilike('name', '%Ñuñoa%')
           .limit(1)
-          .single();
-        const centralWhId = centralWh ? centralWh.id : null;
+          .maybeSingle();
+        const defaultCommittedWhId = defaultNunoaWh ? defaultNunoaWh.id : '973da888-8a63-4790-a08f-919e1af41a93';
         
         let selectedWhName = '';
         const targetFlow = type === 'CAMBIO' ? 'out' : 'in';
@@ -105400,6 +105814,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const linkedOrderId = window.activeConfirmRlRecord?.wms_order_id || null;
+        let prevOrderItemWhMap = {};
+        if (linkedOrderId) {
+          const { data: prevOiRows } = await supabase
+            .from('order_items')
+            .select('product_id, warehouse_id')
+            .eq('order_id', linkedOrderId);
+          (prevOiRows || []).forEach(oi => {
+            if (oi.product_id && oi.warehouse_id) prevOrderItemWhMap[oi.product_id] = oi.warehouse_id;
+          });
+        }
 
         for (const sel of selects) {
           const flow = sel.getAttribute('data-type');
@@ -105487,20 +105911,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 }]);
                 
             } else if (flow === 'out') {
-              if (centralWhId) {
-                const { data: centralInv } = await supabase
+              const committedWhId = prevOrderItemWhMap[prodId] || warehouseId || defaultCommittedWhId;
+              if (committedWhId) {
+                let { data: committedInv } = await supabase
                   .from('inventory')
                   .select('id, committed_quantity')
                   .eq('product_id', prodId)
-                  .eq('warehouse_id', centralWhId)
+                  .eq('warehouse_id', committedWhId)
                   .maybeSingle();
+
+                if (!committedInv || !(committedInv.committed_quantity > 0)) {
+                  const { data: fallbackInv } = await supabase
+                    .from('inventory')
+                    .select('id, committed_quantity')
+                    .eq('product_id', prodId)
+                    .gt('committed_quantity', 0)
+                    .limit(1)
+                    .maybeSingle();
+                  if (fallbackInv) committedInv = fallbackInv;
+                }
                   
-                if (centralInv) {
-                  const newCommitted = Math.max(0, (centralInv.committed_quantity || 0) - qty);
+                if (committedInv) {
+                  const newCommitted = Math.max(0, (committedInv.committed_quantity || 0) - qty);
                   await supabase
                     .from('inventory')
                     .update({ committed_quantity: newCommitted })
-                    .eq('id', centralInv.id);
+                    .eq('id', committedInv.id);
                 }
               }
               
@@ -107869,11 +108305,28 @@ async function handleRloFormSubmit(e) {
     const wmsStatus = isFinalizado ? 'despachado' : 'para procesar';
     const wmsEstado = isFinalizado ? 'Despachado' : 'En procesamiento';
 
+    // Resolver bodega de origen/destino: Logística Inversa (Cambios / Devoluciones) se asigna por defecto a Matriz Ñuñoa
+    let whId = '973da888-8a63-4790-a08f-919e1af41a93';
+    let whName = 'Matriz Ñuñoa';
+    let targetSucursalPickeo = 'Sucursal Ñuñoa';
+
+    const { data: matrizNunoa } = await supabase
+      .from('warehouses')
+      .select('id, name')
+      .ilike('name', '%Ñuñoa%')
+      .limit(1)
+      .maybeSingle();
+    if (matrizNunoa) {
+      whId = matrizNunoa.id;
+      whName = matrizNunoa.name;
+    }
+
     const wmsOrderPayload = {
       merchant_id: merchantId,
       comercio: commerce,
       status: wmsStatus,
       estado_wms: wmsEstado,
+      sucursal_pickeo: targetSucursalPickeo,
       stock_descontado: isFinalizado,
       stock_descontado_at: isFinalizado ? new Date().toISOString() : null,
       customer_name: customerName,
@@ -107883,8 +108336,8 @@ async function handleRloFormSubmit(e) {
       shipping_city: comuna,
       shipping_complement: customerComplement || null,
       shipping_method: `${shippingMethod} (Logística Inversa - ${type}${isFinalizado ? ' [Finalizado]' : ''})`,
-      operador: courier || (isFinalizado ? 'Bodega Central' : 'STOCKA'),
-      courier: courier || (isFinalizado ? 'Bodega Central' : 'STOCKA'),
+      operador: courier || (isFinalizado ? targetSucursalPickeo : 'STOCKA'),
+      courier: courier || (isFinalizado ? targetSucursalPickeo : 'STOCKA'),
       origen: 'Logística Inversa',
       external_platform: 'Logística Inversa',
       external_order_number: finalExternalOrderNumber,
@@ -107920,23 +108373,6 @@ async function handleRloFormSubmit(e) {
     
     // Crear order_items
     const orderItemsPayload = [];
-    const { data: bodegaCentral } = await supabase
-      .from('warehouses')
-      .select('id, name')
-      .ilike('name', '%Central%')
-      .limit(1)
-      .maybeSingle();
-    
-    let whId = bodegaCentral ? bodegaCentral.id : null;
-    let whName = bodegaCentral ? bodegaCentral.name : 'Bodega Central';
-    if (!whId) {
-      const { data: anyWh } = await supabase.from('warehouses').select('id, name').limit(1).maybeSingle();
-      if (anyWh) {
-        whId = anyWh.id;
-        whName = anyWh.name;
-      }
-    }
-    
     for (const item of wmsOrderItems) {
       orderItemsPayload.push({
         order_id: insertedOrder.id,
@@ -108056,14 +108492,14 @@ async function handleRloFormSubmit(e) {
     } else {
       // Movimiento Por Realizar: Stock comprometido para salidas de Cambios
       if (type === 'CAMBIO' && !isManual) {
-        if (bodegaCentral) {
+        if (whId) {
           for (const out of outgoingProducts) {
             if (out.product_id) {
               const { data: invRecord } = await supabase
                 .from('inventory')
                 .select('id, committed_quantity')
                 .eq('product_id', out.product_id)
-                .eq('warehouse_id', bodegaCentral.id)
+                .eq('warehouse_id', whId)
                 .maybeSingle();
                 
               if (invRecord) {
@@ -108076,7 +108512,7 @@ async function handleRloFormSubmit(e) {
                   .from('inventory')
                   .insert([{
                     product_id: out.product_id,
-                    warehouse_id: bodegaCentral.id,
+                    warehouse_id: whId,
                     quantity: 0,
                     committed_quantity: out.cantidad
                   }]);

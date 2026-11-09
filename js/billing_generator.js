@@ -7765,6 +7765,8 @@ window.switchBgMainMode = async function(mode = 'overview', commerceName = null,
 
   if (needsRecalc) {
     await executeCalculationFromUI();
+  } else if (typeof loadAndRenderCommerceObservationsUI === 'function') {
+    await loadAndRenderCommerceObservationsUI();
   }
 };
 
@@ -8664,6 +8666,9 @@ window.switchBgSubTab = function(tabKey) {
   } else if (tabKey === 'observations') {
     if (typeof renderCommerceObservationsSectionUI === 'function') {
       renderCommerceObservationsSectionUI();
+    }
+    if (typeof loadAndRenderCommerceObservationsUI === 'function') {
+      loadAndRenderCommerceObservationsUI();
     }
   }
 };
@@ -16405,14 +16410,22 @@ export function getObservationAppliedEntriesInCurrentPeriod(obsKey, obs = null) 
 }
 
 export async function fetchCommerceBillingObservations(commerceName) {
-  const cleanName = String(commerceName || '').trim();
+  const rawName = String(commerceName || '').trim();
+  const cleanName = rawName.replace(/\s*\([^)]*\)\s*$/, '').trim() || rawName;
   if (!cleanName) return [];
 
   try {
-    const groupNames = await resolveCommerceGroup(cleanName);
+    let groupNames = [];
+    try {
+      groupNames = await resolveCommerceGroup(cleanName);
+    } catch (eGrp) {
+      groupNames = [cleanName];
+    }
+
+    const extraChildren = Array.isArray(billingState.conglomerateChildren) ? billingState.conglomerateChildren : [];
     const targetUpperSet = new Set(
-      [cleanName, ...(Array.isArray(groupNames) ? groupNames : [])]
-        .map(n => String(n || '').trim().toUpperCase())
+      [rawName, cleanName, ...(Array.isArray(groupNames) ? groupNames : []), ...extraChildren]
+        .map(n => String(n || '').replace(/\s*\([^)]*\)\s*$/, '').trim().toUpperCase())
         .filter(Boolean)
     );
 
@@ -16420,19 +16433,21 @@ export async function fetchCommerceBillingObservations(commerceName) {
       ['BIG BANG', 'BIG BANG SPA', 'BACK IN TIME', 'DORMILONES', 'RELAJARTE'].forEach(s => targetUpperSet.add(s));
     }
     if (cleanName.toUpperCase().includes('SILVER FOX') || targetUpperSet.has('SILVER FOX')) {
-      ['SILVER FOX', 'SILVER FOX SPA', 'AURA', 'MODUS', 'HYGGE'].forEach(s => targetUpperSet.add(s));
+      ['SILVER FOX', 'SILVER FOX SPA', 'AURA', 'MODUS', 'HYGGE', 'FORTE MAX', 'MENPRIME'].forEach(s => targetUpperSet.add(s));
     }
 
     const { data, error } = await supabase
       .from('billing_records')
-      .select('id, comercio, period_id, total_fulfillment, abono_fulfillment, total_enviame, abono_enviame, client_observation, observation_status, admin_response, observation_updated_at, client_observation_enviame, observation_status_enviame, admin_response_enviame, observation_updated_at_enviame, updated_at, billing_periods(name)')
-      .or('client_observation.not.is.null,client_observation_enviame.not.is.null,observation_status.eq.pendiente,observation_status_enviame.eq.pendiente')
-      .order('updated_at', { ascending: false });
+      .select('*, billing_periods(name)')
+      .or('client_observation.not.is.null,client_observation_enviame.not.is.null,observation_status.eq.pendiente,observation_status_enviame.eq.pendiente,observation_status.eq.respondida,observation_status_enviame.eq.respondida');
 
-    if (error || !data) return [];
+    if (error || !data) {
+      if (error) console.warn('Aviso consultando billing_records para observaciones:', error);
+      return [];
+    }
 
     const matchedRecords = data.filter(r => {
-      const recComm = String(r.comercio || '').trim().toUpperCase();
+      const recComm = String(r.comercio || '').replace(/\s*\([^)]*\)\s*$/, '').trim().toUpperCase();
       if (!recComm) return false;
       if (targetUpperSet.has(recComm)) return true;
       for (const tName of targetUpperSet) {
@@ -16466,7 +16481,7 @@ export async function fetchCommerceBillingObservations(commerceName) {
           isUnanswered,
           clientObservation: fClient,
           adminResponse: fAdmin,
-          updatedAt: r.observation_updated_at || r.updated_at,
+          updatedAt: r.observation_updated_at || r.updated_at || r.created_at,
           totalServiceAmount: Math.round(Number(r.total_fulfillment) || 0),
           suggestedAmounts: extractSuggestedClpAmountsFromText(fClient, fAdmin)
         });
@@ -16492,8 +16507,8 @@ export async function fetchCommerceBillingObservations(commerceName) {
           isUnanswered,
           clientObservation: eClient,
           adminResponse: eAdmin,
-          updatedAt: r.observation_updated_at_enviame || r.updated_at,
-          totalServiceAmount: Math.round(Number(r.total_enviame) || 0),
+          updatedAt: r.observation_updated_at_enviame || r.updated_at || r.created_at,
+          totalServiceAmount: Math.round(Number(r.enviame ?? r.total_enviame) || 0),
           suggestedAmounts: extractSuggestedClpAmountsFromText(eClient, eAdmin)
         });
       }

@@ -1565,6 +1565,99 @@
       return `${parts[0]} ${parts[1].charAt(0).toUpperCase()}.`;
     }
 
+    // Helper: Decode optional URL-safe Base64 shipment snapshot (?d=...)
+    function getShipmentSnapshotFromUrl() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const rawD = params.get('d');
+        if (!rawD) return null;
+        const b64 = rawD.replace(/-/g, '+').replace(/_/g, '/');
+        const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
+        const jsonStr = decodeURIComponent(Array.prototype.map.call(atob(b64 + pad), function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+        const parsed = JSON.parse(jsonStr);
+        return (parsed && typeof parsed === 'object') ? parsed : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function mergeOrderWithSnapshot(order, snap) {
+      if (!order || !snap) return order;
+      const merged = { ...order };
+      const snapSt = String(snap.st || '').toLowerCase();
+      const snapGs = String(snap.gs || '').toUpperCase();
+      const ordSt = String(merged.status || '').toLowerCase();
+
+      // Advance status if shipment snapshot reflects courier progress
+      if (snapSt.includes('entregad') || snapSt === 'delivered' || snapGs === 'ENTREGADO') {
+        merged.status = 'Entregado';
+        if (!merged.delivered_at && snap.up) merged.delivered_at = snap.up;
+      } else if (
+        snapSt.includes('tránsito') || snapSt.includes('transito') ||
+        snapSt.includes('reparto') || snapSt.includes('camino') ||
+        snapSt.includes('ruta') || snapSt.includes('planta') ||
+        snapSt.includes('retirado por courier') || snapGs === 'EN TRÁNSITO'
+      ) {
+        if (!ordSt.includes('entreg')) {
+          merged.status = snap.st || 'En tránsito';
+        }
+      } else if (
+        snapSt.includes('listo para despacho') || snapSt.includes('a retirar')
+      ) {
+        if (!ordSt.includes('entreg') && !ordSt.includes('despach') && !ordSt.includes('tránsito') && !ordSt.includes('transito')) {
+          merged.status = 'Listo para despacho';
+        }
+      } else if (snapSt.includes('incidenc') || snapSt.includes('no retirado') || snapSt.includes('rechazado') || snapGs === 'ALERTA') {
+        if (!ordSt.includes('entreg')) {
+          merged.status = 'Incidencia';
+        }
+      }
+
+      if (snap.cr && !String(snap.cr).toUpperCase().includes('RECIBELO')) {
+        merged.courier = snap.cr;
+      }
+      if (snap.tk && snap.tk !== '-') {
+        merged.tracking_number = snap.tk;
+      }
+      if (snap.tu && String(snap.tu).startsWith('http')) {
+        merged.tracking_url = snap.tu;
+      }
+      if (!merged.shipping_city && snap.ct && snap.ct !== '-') {
+        merged.shipping_city = snap.ct;
+      }
+      if ((!merged.comercio || merged.comercio === 'Tienda Asociada Stocka') && snap.c) {
+        merged.comercio = snap.c;
+      }
+      return merged;
+    }
+
+    function buildSyntheticOrderFromSnapshot(snap, fallbackToken) {
+      if (!snap) return null;
+      return {
+        id: fallbackToken || snap.r || 'despacho',
+        order_number: snap.r || fallbackToken || 'Despacho',
+        comercio: snap.c || 'Tienda Asociada Stocka',
+        customer_name: snap.n || 'Cliente',
+        customer_email: '***',
+        status: snap.st || (snap.gs === 'ENTREGADO' ? 'Entregado' : (snap.gs === 'EN TRÁNSITO' ? 'En tránsito' : 'Listo para despacho')),
+        tracking_number: snap.tk || null,
+        tracking_url: snap.tu || null,
+        courier: snap.cr || 'Courier Asignado',
+        categoria_entrega: 'DISTRIBUCIÓN',
+        shipping_city: snap.ct || null,
+        created_at: snap.dt || new Date().toISOString(),
+        delivered_at: (String(snap.st || '').toLowerCase().includes('entregad') || snap.gs === 'ENTREGADO') ? (snap.up || snap.dt) : null,
+        picking_info: null,
+        optiroute_info: {
+          is_optiroute: String(snap.cr || '').toUpperCase().includes('STOCKA') || String(snap.cr || '').toUpperCase().includes('OPTIROUTE'),
+          service_type: 'Stocka Express (Same Day / 24 hrs)',
+          status_title: snap.st || 'En Ruta'
+        }
+      };
+    }
+
     // Query WMS via RPC (Token / Anonymous)
     async function searchTrackingByToken(token) {
       setLoading(true);
@@ -1572,11 +1665,31 @@
 
       try {
         const cleanToken = (token || '').trim();
-        if (!cleanToken) return;
+        const snap = getShipmentSnapshotFromUrl();
+        if (!cleanToken && !snap) return;
 
-        const { data, error } = await sbClient.rpc('get_customer_tracking', {
+        let { data, error } = await sbClient.rpc('get_customer_tracking', {
           p_token: cleanToken
         });
+
+        // Fallback: if token is a courier tracking code rather than UUID
+        if ((!data || data.length === 0) && cleanToken.length >= 5) {
+          const resCourier = await sbClient.rpc('get_customer_tracking', {
+            p_courier_code: cleanToken
+          });
+          if (!resCourier.error && resCourier.data && resCourier.data.length > 0) {
+            data = resCourier.data;
+            error = null;
+          }
+        }
+
+        if ((!data || data.length === 0) && snap) {
+          const synthetic = buildSyntheticOrderFromSnapshot(snap, cleanToken);
+          if (synthetic) {
+            data = [synthetic];
+            error = null;
+          }
+        }
 
         if (error) {
           console.error('Error en RPC get_customer_tracking (token):', error);
@@ -1589,7 +1702,8 @@
           return;
         }
 
-        renderTrackingResults(data);
+        const finalOrders = snap ? data.map(o => mergeOrderWithSnapshot(o, snap)) : data;
+        renderTrackingResults(finalOrders);
         btnReset.style.display = 'inline-flex';
 
         // Mantener URL limpia con el token
@@ -1598,7 +1712,7 @@
         currentUrl.searchParams.delete('correo');
         currentUrl.searchParams.delete('pedido');
         currentUrl.searchParams.delete('orden');
-        currentUrl.searchParams.set('t', cleanToken);
+        if (cleanToken) currentUrl.searchParams.set('t', cleanToken);
         window.history.replaceState({}, '', currentUrl.toString());
 
       } catch (err) {
@@ -1723,13 +1837,18 @@
           statusBadgeIcon = 'ri-store-2-fill';
           step2Done = true;
           step3Active = true;
-        } else if (rawStatus.includes('despach') || rawStatus.includes('camino') || rawStatus.includes('ruta') || rawStatus.includes('reparto')) {
+        } else if (
+          rawStatus.includes('despach') || rawStatus.includes('camino') ||
+          rawStatus.includes('ruta') || rawStatus.includes('reparto') ||
+          rawStatus.includes('tránsito') || rawStatus.includes('transito') ||
+          rawStatus.includes('planta') || rawStatus.includes('retirado por courier')
+        ) {
           statusBadgeClass = 'despachado';
           statusBadgeText = 'En Camino / En Reparto';
           statusBadgeIcon = 'ri-truck-fill';
           step2Done = true;
           step3Active = true;
-        } else if (rawStatus.includes('pick') || rawStatus.includes('preparado') || rawStatus.includes('listo')) {
+        } else if (rawStatus.includes('pick') || rawStatus.includes('preparado') || rawStatus.includes('listo') || rawStatus.includes('a retirar')) {
           statusBadgeClass = 'preparacion';
           statusBadgeText = trackingCode ? 'Preparado / Esperando Retiro de Courier' : 'Empaque Listo en Bodega';
           statusBadgeIcon = 'ri-inbox-archive-fill';
@@ -1741,15 +1860,15 @@
           statusBadgeIcon = 'ri-inbox-archive-fill';
           step2Active = true;
           step2Done = false;
-        } else if (rawStatus.includes('incidenc')) {
+        } else if (rawStatus.includes('incidenc') || rawStatus.includes('no retirado') || rawStatus.includes('rechazado')) {
           statusBadgeClass = 'incidencia';
           statusBadgeText = 'En Gestión de Incidencia';
           statusBadgeIcon = 'ri-alert-fill';
           step2Done = true;
           isIncident = true;
-        } else if (rawStatus.includes('cancel')) {
+        } else if (rawStatus.includes('cancel') || rawStatus.includes('devoluc')) {
           statusBadgeClass = 'cancelado';
-          statusBadgeText = 'Pedido Cancelado';
+          statusBadgeText = rawStatus.includes('devoluc') ? 'En Proceso de Devolución' : 'Pedido Cancelado';
           statusBadgeIcon = 'ri-close-circle-fill';
         }
 
@@ -1759,7 +1878,7 @@
         else if (step3Active || step3Done) progressWidth = '66%';
         else if (step2Done || step2Active) progressWidth = '33%';
 
-        // Courier & Operator Evaluation (Both conditions required: in preparation or higher AND has assigned courier)
+        // Courier & Operator Evaluation
         const rawCourier = (order.courier || '').trim();
         const hasAssignedCourier = !!(rawCourier && 
           !rawCourier.toUpperCase().includes('POR ASIGNAR') && 
@@ -1767,11 +1886,15 @@
           !rawCourier.toUpperCase().includes('PENDIENTE') &&
           rawCourier.toUpperCase() !== 'NO INFORMADO');
 
-        const isPrepOrHigher = step2Active || step2Done;
+        const isPrepOrHigher = step2Active || step2Done || Boolean(trackingCode);
         const shouldShowCourier = isPrepOrHigher && hasAssignedCourier;
 
-        // Courier URL resolution
+        // Courier URL resolution & sanitization (avoid dead tracking.enviame.io or private Envíame API endpoints)
         let courierUrl = shouldShowCourier ? order.tracking_url : null;
+        const origEnviameWebUrl = (courierUrl && courierUrl.includes('api.enviame.io/s2/companies/')) ? courierUrl : null;
+        if (courierUrl && (courierUrl.includes('tracking.enviame.io') || courierUrl.includes('api.enviame.io/s2/') || courierUrl.includes('api.enviame.io/api/') || courierUrl === 'N/A')) {
+          courierUrl = null;
+        }
 
         if (!courierUrl && trackingCode && !isRetiro && shouldShowCourier) {
           const cUpper = rawCourier.toUpperCase();
@@ -1780,7 +1903,9 @@
           } else if (cUpper.includes('BLUE')) {
             courierUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(trackingCode)}`;
           } else if (cUpper.includes('CHILEXPRESS')) {
-            courierUrl = `https://www.chilexpress.cl/tracking-resultado?nro=${encodeURIComponent(trackingCode)}`;
+            courierUrl = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(trackingCode)}`;
+          } else if (origEnviameWebUrl) {
+            courierUrl = origEnviameWebUrl;
           }
         }
 
@@ -2347,9 +2472,14 @@
     // Helper: Copy Private Tracking Link
     window.copyPrivateLink = function(orderId, btnElement, comercio) {
       if (!orderId) return;
+      const curParams = new URLSearchParams(window.location.search);
+      const rawD = curParams.get('d');
       let cleanUrl = window.location.origin + window.location.pathname + '?t=' + encodeURIComponent(orderId);
       if (comercio) {
         cleanUrl += '&comercio=' + encodeURIComponent(comercio);
+      }
+      if (rawD) {
+        cleanUrl += '&d=' + encodeURIComponent(rawD);
       }
       copyTextToClipboard(cleanUrl).then((success) => {
         if (success) {
@@ -2628,10 +2758,10 @@
 
       notifyParentResize();
 
-      // 1. Acceso Directo por Token Seguro Oculto (?t=... o ?token=...)
+      // 1. Acceso Directo por Token Seguro Oculto (?t=... o ?token=... o ?d=...)
       // Proporciona acceso inmediato con CERO datos personales expuestos en la URL
-      if (urlToken) {
-        searchTrackingByToken(urlToken);
+      if (urlToken || params.get('d')) {
+        searchTrackingByToken(urlToken || '');
         return;
       }
 

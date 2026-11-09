@@ -7628,13 +7628,97 @@ import supabase from './supabase.js';
     }
   };
 
+  async function getStockaLogoForPdf() {
+    if (window._wmsCachedStockaLogoPdf !== undefined) {
+      return window._wmsCachedStockaLogoPdf;
+    }
+    const urls = [
+      'assets/logo.png',
+      'https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093'
+    ];
+    for (const url of urls) {
+      const res = await new Promise(resolve => {
+        let settled = false;
+        const done = (val) => {
+          if (!settled) {
+            settled = true;
+            resolve(val);
+          }
+        };
+        const timer = setTimeout(() => done(null), 1000);
+        try {
+          const img = new Image();
+          if (/^https?:/i.test(url)) img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            clearTimeout(timer);
+            try {
+              const w = img.naturalWidth || img.width || 200;
+              const h = img.naturalHeight || img.height || 60;
+              const c = document.createElement('canvas');
+              c.width = w;
+              c.height = h;
+              const ctx = c.getContext('2d');
+              ctx.drawImage(img, 0, 0, w, h);
+              done({ dataUrl: c.toDataURL('image/png'), width: w, height: h, ratio: w / Math.max(h, 1) });
+            } catch (_e) {
+              done(null);
+            }
+          };
+          img.onerror = () => {
+            clearTimeout(timer);
+            done(null);
+          };
+          img.src = url;
+        } catch (_err) {
+          clearTimeout(timer);
+          done(null);
+        }
+      });
+      if (res && res.dataUrl) {
+        window._wmsCachedStockaLogoPdf = res;
+        return res;
+      }
+    }
+    window._wmsCachedStockaLogoPdf = null;
+    return null;
+  }
+
+  function generateBarcodePngForPdf(codeVal, selectedSize) {
+    try {
+      if (typeof JsBarcode === 'undefined') return null;
+      const bcCanvas = document.createElement('canvas');
+      JsBarcode(bcCanvas, codeVal, {
+        format: 'CODE128',
+        width: selectedSize === '5x5' ? 2 : 3,
+        height: selectedSize === '5x5' ? 48 : 85,
+        displayValue: true,
+        fontSize: selectedSize === '5x5' ? 14 : 18,
+        font: 'Helvetica, Arial, sans-serif',
+        fontOptions: 'bold',
+        textMargin: 4,
+        margin: 4,
+        background: '#ffffff',
+        lineColor: '#000000'
+      });
+      return {
+        dataUrl: bcCanvas.toDataURL('image/png'),
+        width: bcCanvas.width || 200,
+        height: bcCanvas.height || 80,
+        ratio: (bcCanvas.width || 200) / Math.max(bcCanvas.height || 80, 1)
+      };
+    } catch (e) {
+      console.warn('Fallback barcode PNG generation failed:', e);
+      return null;
+    }
+  }
+
   window.downloadBulkCustomShippingLabelsPDF = async function (orders, options = {}) {
     if (!orders || orders.length === 0) {
       if (typeof Swal !== 'undefined') Swal.fire('Atención', 'No hay pedidos para descargar.', 'warning');
       return;
     }
 
-    if (typeof html2pdf === 'undefined') {
+    if (typeof html2pdf === 'undefined' && typeof window.jspdf === 'undefined' && typeof window.jsPDF === 'undefined') {
       if (typeof Swal !== 'undefined') {
         Swal.fire('Aviso', 'El generador de PDF directo no está disponible. Se abrirá la ventana de impresión.', 'info');
       }
@@ -7658,465 +7742,472 @@ import supabase from './supabase.js';
       });
     }
 
-    let labelPagesHTML = '';
-
-    orders.forEach(order => {
-      let displayName = order.customer_name;
-      if (!displayName || displayName === 'No registrado' || displayName.trim() === '') {
-        if (order.raw_shopify_data) {
-          const raw = order.raw_shopify_data;
-          const billing = raw.billing_address;
-          const cust = raw.customer;
-          if (billing) displayName = `${billing.first_name || ''} ${billing.last_name || ''}`.trim();
-          else if (cust) displayName = `${cust.first_name || ''} ${cust.last_name || ''}`.trim();
-        }
-        if (!displayName || displayName.trim() === '') displayName = 'No registrado';
-      }
-
-      let displayPhone = order.customer_phone;
-      if (!displayPhone || displayPhone === 'No registrado' || displayPhone.trim() === '') {
-        if (order.raw_shopify_data) {
-          const raw = order.raw_shopify_data;
-          displayPhone = raw.shipping_address?.phone || raw.billing_address?.phone || raw.customer?.phone || '';
-        }
-        if (!displayPhone || displayPhone.trim() === '') displayPhone = 'No registrado';
-      }
-
-      const rawCode = String(order.external_order_number || order.id);
-      const codeVal = rawCode.replace(/[^a-zA-Z0-9]/g, '') || rawCode;
-      const barcodeSVG = window.generateBarcodeSVG(codeVal, true, selectedSize);
-      const courierVal = options.courier || order.courier || 'POR DEFINIR';
-
-      if (selectedSize === '10x15') {
-        labelPagesHTML += `
-          <div class="label-page wms-pdf-label-page size-10x15">
-            <div class="header-section">
-              <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" crossorigin="anonymous" class="logo-img" alt="STOCKA">
-              <div class="title-container">
-                <div class="main-title">ETIQUETA DE DESPACHO</div>
-                <div class="sub-title">STOCKA LOGÍSTICA WMS</div>
-              </div>
-            </div>
-
-            ${options.headComment ? `<div class="head-comment-box">${escapeHtml(options.headComment)}</div>` : ''}
-
-            <div class="shipping-info-grid">
-              <div class="info-block">
-                <span class="block-title">COURIER / OPERADOR</span>
-                <span class="block-value highlighted-courier">${escapeHtml(courierVal)}</span>
-              </div>
-              <div class="info-block">
-                <span class="block-title">MÉTODO DE ENVÍO</span>
-                <span class="block-value">${escapeHtml(order.shipping_method || 'ESTÁNDAR')}</span>
-              </div>
-            </div>
-
-            <div class="destinatario-section">
-              <div class="section-title">DESTINATARIO</div>
-              <div class="dest-name">${escapeHtml(displayName)}</div>
-              <div class="dest-address">${escapeHtml(order.shipping_address || 'Sin dirección')} ${order.shipping_complement ? `, ${escapeHtml(order.shipping_complement)}` : ''}</div>
-              <div class="dest-city-commune">${escapeHtml(order.shipping_city || 'Sin comuna')}</div>
-              <div class="dest-contact">Teléfono: ${escapeHtml(displayPhone)}</div>
-            </div>
-
-            <div class="origin-grid">
-              <div class="info-block">
-                <span class="block-title">REMITENTE (TIENDA)</span>
-                <span class="block-value">${escapeHtml(order.comercio || 'STOCKA CLIENTE')}</span>
-              </div>
-              <div class="info-block">
-                <span class="block-title">REFERENCIA PEDIDO</span>
-                <span class="block-value">#${escapeHtml(order.external_order_number || order.id.split('-')[0])}</span>
-              </div>
-            </div>
-
-            <div class="barcode-wrapper">
-              ${barcodeSVG}
-            </div>
-
-            <div class="items-section">
-              <div class="section-title">DETALLE DE PRODUCTOS (PICKING & PACKING)</div>
-              <table class="items-table">
-                <thead>
-                  <tr>
-                    <th style="width: 25%; text-align: left;">SKU</th>
-                    <th style="width: 60%; text-align: left;">Producto</th>
-                    <th style="width: 15%; text-align: center;">Cant</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${order.order_items && order.order_items.length > 0 ? order.order_items.map(oi => `
-                    <tr>
-                      <td style="font-family: monospace; font-weight: bold;">${escapeHtml(oi.products?.sku || 'Sin SKU')}</td>
-                      <td style="font-size: 9px; line-height: 1.1;">${escapeHtml(oi.products?.name || 'Sin nombre')}</td>
-                      <td style="text-align: center; font-weight: bold; font-size: 11px;">${oi.quantity || 1}</td>
-                    </tr>
-                  `).join('') : `
-                    <tr>
-                      <td style="font-family: monospace; font-weight: bold;">${escapeHtml(order.sku || 'Sin SKU')}</td>
-                      <td style="font-size: 9px; line-height: 1.1;">${escapeHtml(order.item || 'Sin nombre')}</td>
-                      <td style="text-align: center; font-weight: bold; font-size: 11px;">${order.cantidad || 1}</td>
-                    </tr>
-                  `}
-                </tbody>
-              </table>
-            </div>
-
-            ${options.footComment ? `<div class="foot-comment-box">${escapeHtml(options.footComment)}</div>` : ''}
-
-            <div class="footer-section">
-              <span>Preparado y despachado desde Centro de Distribución STOCKA</span>
-            </div>
-          </div>
-        `;
-      } else {
-        labelPagesHTML += `
-          <div class="label-page wms-pdf-label-page size-5x5">
-            <div class="compact-header">
-              <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" crossorigin="anonymous" style="height: 14px; object-fit: contain;">
-              <span style="font-size: 7px; font-weight: 800; color: #000; letter-spacing: 0.3px;">DESPACHO</span>
-            </div>
-
-            ${options.headComment ? `<div class="compact-comment">${escapeHtml(options.headComment)}</div>` : ''}
-
-            <div class="compact-destinatario">
-              <div style="font-size: 9px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(displayName)}</div>
-              <div style="font-size: 7px; line-height: 1.1; max-height: 22px; overflow: hidden;">
-                ${escapeHtml(order.shipping_address || 'Sin dir.')}
-              </div>
-              <div style="font-size: 8px; font-weight: bold; margin-top: 1px;">
-                ${escapeHtml(order.shipping_city || 'Sin comuna')}
-              </div>
-              <div style="font-size: 7px;">Tel: ${escapeHtml(displayPhone)}</div>
-            </div>
-
-            <div class="compact-order-info" style="display: flex; justify-content: space-between; font-size: 7px; border-top: 1px dashed #333; padding-top: 1px; margin-top: 2px;">
-              <span>REF: #${escapeHtml(order.external_order_number || order.id.split('-')[0])}</span>
-              <span style="font-weight: bold;">${escapeHtml(courierVal)}</span>
-            </div>
-
-            <div class="compact-barcode-wrapper" style="margin: 2px 0;">
-              ${barcodeSVG}
-            </div>
-
-            ${options.footComment ? `<div class="compact-comment foot">${escapeHtml(options.footComment)}</div>` : ''}
-
-            <div class="compact-footer" style="font-size: 6px; text-align: center; color: #555; margin-top: auto;">
-              STOCKA LOGÍSTICA WMS
-            </div>
-          </div>
-        `;
-      }
-    });
-
-    const styleEl = document.createElement('style');
-    styleEl.id = 'wms-pdf-labels-temp-style';
-    styleEl.textContent = `
-      .wms-pdf-label-page {
-        box-sizing: border-box;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        position: relative;
-        background: #ffffff !important;
-        color: #000000 !important;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        margin: 0;
-      }
-      .wms-pdf-label-page.size-10x15 {
-        width: 10cm;
-        height: 15cm;
-        padding: 0.6cm 0.6cm;
-        border: 1px solid #000;
-      }
-      .wms-pdf-label-page.size-10x15 .header-section {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        border-bottom: 2px solid #000;
-        padding-bottom: 6px;
-        margin-bottom: 8px;
-      }
-      .wms-pdf-label-page.size-10x15 .logo-img {
-        height: 24px;
-        max-width: 100px;
-        object-fit: contain;
-      }
-      .wms-pdf-label-page.size-10x15 .title-container {
-        text-align: right;
-      }
-      .wms-pdf-label-page.size-10x15 .main-title {
-        font-size: 14px;
-        font-weight: 900;
-        letter-spacing: 0.5px;
-        color: #000;
-      }
-      .wms-pdf-label-page.size-10x15 .sub-title {
-        font-size: 9px;
-        color: #444;
-        font-weight: 600;
-      }
-      .wms-pdf-label-page .head-comment-box {
-        background: #000;
-        color: #fff;
-        text-align: center;
-        font-weight: 800;
-        font-size: 11px;
-        padding: 4px;
-        border-radius: 2px;
-        margin-bottom: 8px;
-        text-transform: uppercase;
-      }
-      .wms-pdf-label-page .foot-comment-box {
-        border: 2px dashed #000;
-        text-align: center;
-        font-weight: 700;
-        font-size: 10px;
-        padding: 4px;
-        margin-top: 6px;
-        margin-bottom: 6px;
-        text-transform: uppercase;
-        color: #000;
-      }
-      .wms-pdf-label-page .shipping-info-grid,
-      .wms-pdf-label-page .origin-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        border: 1px solid #000;
-        margin-bottom: 8px;
-      }
-      .wms-pdf-label-page .info-block {
-        padding: 4px 6px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-      }
-      .wms-pdf-label-page .info-block:first-child {
-        border-right: 1px solid #000;
-      }
-      .wms-pdf-label-page .block-title {
-        font-size: 7px;
-        font-weight: bold;
-        color: #555;
-        text-transform: uppercase;
-        margin-bottom: 2px;
-      }
-      .wms-pdf-label-page .block-value {
-        font-size: 10px;
-        font-weight: bold;
-        color: #000;
-      }
-      .wms-pdf-label-page .highlighted-courier {
-        font-size: 13px !important;
-        font-weight: 900 !important;
-      }
-      .wms-pdf-label-page .destinatario-section {
-        border: 2px solid #000;
-        padding: 8px 10px;
-        margin-bottom: 8px;
-        background: #fdfdfd;
-        color: #000;
-      }
-      .wms-pdf-label-page .section-title {
-        font-size: 8px;
-        font-weight: bold;
-        color: #000;
-        border-bottom: 1px solid #000;
-        padding-bottom: 2px;
-        margin-bottom: 4px;
-        letter-spacing: 0.3px;
-      }
-      .wms-pdf-label-page .dest-name {
-        font-size: 14px;
-        font-weight: 800;
-        margin-bottom: 2px;
-        color: #000;
-      }
-      .wms-pdf-label-page .dest-address {
-        font-size: 11px;
-        line-height: 1.2;
-        margin-bottom: 2px;
-        color: #000;
-      }
-      .wms-pdf-label-page .dest-city-commune {
-        font-size: 13px;
-        font-weight: 900;
-        text-transform: uppercase;
-        margin-bottom: 2px;
-        color: #000;
-      }
-      .wms-pdf-label-page .dest-contact {
-        font-size: 10px;
-        font-weight: 600;
-        color: #000;
-      }
-      .wms-pdf-label-page .barcode-wrapper {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        padding: 8px 0;
-        border: 1px solid #000;
-        margin-bottom: 8px;
-        background: #fff;
-      }
-      .wms-pdf-label-page .barcode-wrapper svg {
-        max-width: 100%;
-        height: auto;
-      }
-      .wms-pdf-label-page .items-section {
-        border: 1px solid #000;
-        padding: 6px;
-        flex-grow: 1;
-        display: flex;
-        flex-direction: column;
-        color: #000;
-      }
-      .wms-pdf-label-page .items-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 10px;
-        color: #000;
-      }
-      .wms-pdf-label-page .items-table th {
-        font-size: 8px;
-        color: #333;
-        border-bottom: 1px solid #000;
-        padding: 2px 4px;
-      }
-      .wms-pdf-label-page .items-table td {
-        border-bottom: 1px dashed #ccc;
-        padding: 3px 4px;
-        vertical-align: middle;
-        color: #000;
-      }
-      .wms-pdf-label-page .items-table tr:last-child td {
-        border-bottom: none;
-      }
-      .wms-pdf-label-page .footer-section {
-        border-top: 1px solid #000;
-        padding-top: 4px;
-        margin-top: 8px;
-        font-size: 8px;
-        text-align: center;
-        font-weight: 600;
-        color: #444;
-      }
-      .wms-pdf-label-page.size-5x5 {
-        width: 5cm;
-        height: 5cm;
-        padding: 0.35cm 0.35cm;
-        border: 1px dashed #000;
-        display: flex;
-        flex-direction: column;
-      }
-      .wms-pdf-label-page .compact-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        border-bottom: 1px solid #000;
-        padding-bottom: 2px;
-        margin-bottom: 2px;
-      }
-      .wms-pdf-label-page .compact-comment {
-        background: #000;
-        color: #fff;
-        text-align: center;
-        font-weight: bold;
-        font-size: 7px;
-        padding: 2px;
-        border-radius: 1px;
-        text-transform: uppercase;
-        margin: 1px 0;
-      }
-      .wms-pdf-label-page .compact-comment.foot {
-        background: transparent;
-        color: #000;
-        border: 1px dashed #000;
-      }
-      .wms-pdf-label-page .compact-destinatario {
-        text-align: left;
-        margin-bottom: 2px;
-        color: #000;
-      }
-      .wms-pdf-label-page .compact-barcode-wrapper {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        background: #fff;
-      }
-      .wms-pdf-label-page .compact-barcode-wrapper svg {
-        max-width: 100%;
-        height: auto;
-      }
-    `;
-    document.head.appendChild(styleEl);
-
-    const renderRoot = document.createElement('div');
-    renderRoot.id = 'wms-pdf-labels-render-root';
-    renderRoot.style.cssText = 'position: fixed; top: -99999px; left: -99999px; background: #ffffff; color: #000000; z-index: -9999;';
-    renderRoot.innerHTML = labelPagesHTML;
-    document.body.appendChild(renderRoot);
-
     try {
-      // Wait for logo images to load
-      const imgs = Array.from(renderRoot.querySelectorAll('img'));
-      if (imgs.length > 0) {
-        await new Promise(resolve => {
-          let loaded = 0;
-          let done = false;
-          const finish = () => {
-            if (!done) {
-              done = true;
-              resolve();
-            }
-          };
-          const timer = setTimeout(finish, 1500);
-          imgs.forEach(img => {
-            if (img.complete) {
-              loaded++;
-              if (loaded === imgs.length) {
-                clearTimeout(timer);
-                finish();
-              }
-            } else {
-              img.onload = img.onerror = () => {
-                loaded++;
-                if (loaded === imgs.length) {
-                  clearTimeout(timer);
-                  finish();
-                }
-              };
-            }
-          });
-        });
+      // Obtain a clean jsPDF instance without invoking html2canvas DOM cloning
+      let pdf = null;
+      if (window.jspdf && typeof window.jspdf.jsPDF === 'function') {
+        pdf = new window.jspdf.jsPDF({ unit: 'mm', format: [widthMm, heightMm], orientation: 'portrait' });
+      } else if (typeof window.jsPDF === 'function') {
+        pdf = new window.jsPDF({ unit: 'mm', format: [widthMm, heightMm], orientation: 'portrait' });
+      } else {
+        const tinyCanvas = document.createElement('canvas');
+        tinyCanvas.width = 4;
+        tinyCanvas.height = 4;
+        const baseOpt = {
+          margin: 0,
+          image: { type: 'jpeg', quality: 0.98 },
+          jsPDF: { unit: 'mm', format: [widthMm, heightMm], orientation: 'portrait' }
+        };
+        pdf = await html2pdf().set(baseOpt).from(tinyCanvas, 'canvas').toPdf().get('pdf');
+        pdf.addPage([widthMm, heightMm], 'portrait');
+        pdf.deletePage(1);
       }
 
-      const pageEls = Array.from(renderRoot.querySelectorAll('.wms-pdf-label-page'));
-      const baseOpt = {
-        margin: 0,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, allowTaint: true, scrollY: 0, scrollX: 0, logging: false, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: [widthMm, heightMm], orientation: 'portrait' }
+      const logoData = await getStockaLogoForPdf();
+
+      const fitSingleLine = (doc, str, maxWidthMm) => {
+        const clean = String(str || '').trim();
+        if (!clean) return '';
+        const lines = doc.splitTextToSize(clean, maxWidthMm);
+        return Array.isArray(lines) && lines.length > 0 ? lines[0] : clean;
       };
 
-      const dummy = document.createElement('div');
-      dummy.style.cssText = 'width: 10px; height: 10px; background: #ffffff;';
-      const pdf = await html2pdf().set(baseOpt).from(dummy).toPdf().get('pdf');
-
-      for (let i = 0; i < pageEls.length; i++) {
+      for (let i = 0; i < orders.length; i++) {
+        const order = orders[i];
         const progressEl = document.getElementById('wms-label-pdf-progress');
-        if (progressEl) progressEl.textContent = `${i + 1} de ${pageEls.length}`;
-        const canvas = await html2pdf().set(baseOpt).from(pageEls[i]).toCanvas().get('canvas');
-        const imgData = canvas.toDataURL('image/jpeg', 0.98);
+        if (progressEl) progressEl.textContent = `${i + 1} de ${orders.length}`;
+
         if (i > 0) {
           pdf.addPage([widthMm, heightMm], 'portrait');
         }
-        pdf.addImage(imgData, 'JPEG', 0, 0, widthMm, heightMm);
+
+        let displayName = order.customer_name;
+        if (!displayName || displayName === 'No registrado' || displayName.trim() === '') {
+          if (order.raw_shopify_data) {
+            const raw = order.raw_shopify_data;
+            const billing = raw.billing_address;
+            const cust = raw.customer;
+            if (billing) displayName = `${billing.first_name || ''} ${billing.last_name || ''}`.trim();
+            else if (cust) displayName = `${cust.first_name || ''} ${cust.last_name || ''}`.trim();
+          }
+          if (!displayName || displayName.trim() === '') displayName = 'No registrado';
+        }
+
+        let displayPhone = order.customer_phone;
+        if (!displayPhone || displayPhone === 'No registrado' || displayPhone.trim() === '') {
+          if (order.raw_shopify_data) {
+            const raw = order.raw_shopify_data;
+            displayPhone = raw.shipping_address?.phone || raw.billing_address?.phone || raw.customer?.phone || '';
+          }
+          if (!displayPhone || displayPhone.trim() === '') displayPhone = 'No registrado';
+        }
+
+        const rawCode = String(order.external_order_number || order.id || '');
+        const codeVal = rawCode.replace(/[^a-zA-Z0-9]/g, '') || rawCode || 'STOCKA';
+        const barcodeImg = generateBarcodePngForPdf(codeVal, selectedSize);
+        const courierVal = String(options.courier || order.courier || 'POR DEFINIR').trim();
+        const refVal = `#${String(order.external_order_number || String(order.id || '').split('-')[0])}`;
+        const fullAddress = `${order.shipping_address || 'Sin dirección'}${order.shipping_complement ? `, ${order.shipping_complement}` : ''}`;
+        const cityVal = String(order.shipping_city || 'Sin comuna').toUpperCase();
+
+        if (selectedSize === '10x15') {
+          const xL = 6;
+          const xR = 94;
+          const cW = 88;
+          let curY = 6;
+
+          // White background & outer frame
+          pdf.setFillColor(255, 255, 255);
+          pdf.rect(0, 0, 100, 150, 'F');
+          pdf.setDrawColor(0, 0, 0);
+          pdf.setLineWidth(0.3);
+          pdf.rect(2, 2, 96, 146, 'S');
+
+          // 1. Header section
+          if (logoData && logoData.dataUrl) {
+            const logoH = 6.2;
+            const logoW = Math.min(26, logoH * (logoData.ratio || 3));
+            pdf.addImage(logoData.dataUrl, 'PNG', xL, curY + 0.5, logoW, logoH);
+          } else {
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(13);
+            pdf.setTextColor(0, 0, 0);
+            pdf.text('STOCKA', xL, curY + 5.2);
+          }
+
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(10.5);
+          pdf.setTextColor(0, 0, 0);
+          pdf.text('ETIQUETA DE DESPACHO', xR, curY + 3.8, { align: 'right' });
+
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(6.8);
+          pdf.setTextColor(68, 68, 68);
+          pdf.text('STOCKA LOGÍSTICA WMS', xR, curY + 7.2, { align: 'right' });
+
+          curY += 9.2;
+          pdf.setDrawColor(0, 0, 0);
+          pdf.setLineWidth(0.55);
+          pdf.line(xL, curY, xR, curY);
+          curY += 2.2;
+
+          // 2. Optional headComment box
+          if (options.headComment) {
+            const hcH = 6.2;
+            pdf.setFillColor(0, 0, 0);
+            pdf.rect(xL, curY, cW, hcH, 'F');
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(8);
+            pdf.setTextColor(255, 255, 255);
+            pdf.text(fitSingleLine(pdf, String(options.headComment).toUpperCase(), cW - 4), 50, curY + 4.2, { align: 'center' });
+            curY += hcH + 2;
+          }
+
+          // 3. Shipping Info Grid (COURIER / OPERADOR | MÉTODO DE ENVÍO)
+          const shipGridH = 11.5;
+          pdf.setDrawColor(0, 0, 0);
+          pdf.setLineWidth(0.3);
+          pdf.rect(xL, curY, cW, shipGridH, 'S');
+          pdf.line(50, curY, 50, curY + shipGridH);
+
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(5.5);
+          pdf.setTextColor(85, 85, 85);
+          pdf.text('COURIER / OPERADOR', xL + 2, curY + 3.5);
+          pdf.text('MÉTODO DE ENVÍO', 52, curY + 3.5);
+
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(9.5);
+          pdf.setTextColor(0, 0, 0);
+          pdf.text(fitSingleLine(pdf, courierVal, 40), xL + 2, curY + 8.8);
+
+          pdf.setFontSize(7.8);
+          pdf.text(fitSingleLine(pdf, order.shipping_method || 'ESTÁNDAR', 40), 52, curY + 8.5);
+          curY += shipGridH + 2.2;
+
+          // 4. Destinatario section
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(10);
+          const nameLines = pdf.splitTextToSize(String(displayName), cW - 6).slice(0, 2);
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(8.2);
+          const addrLines = pdf.splitTextToSize(fullAddress, cW - 6).slice(0, 2);
+
+          const destBoxH = 14 + (nameLines.length * 4) + (addrLines.length * 3.4);
+          pdf.setFillColor(253, 253, 253);
+          pdf.setDrawColor(0, 0, 0);
+          pdf.setLineWidth(0.5);
+          pdf.rect(xL, curY, cW, destBoxH, 'FD');
+
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(6);
+          pdf.setTextColor(0, 0, 0);
+          pdf.text('DESTINATARIO', xL + 2.5, curY + 3.8);
+          pdf.setLineWidth(0.25);
+          pdf.line(xL + 2.5, curY + 4.8, xR - 2.5, curY + 4.8);
+
+          let dY = curY + 8.5;
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(10);
+          nameLines.forEach(line => {
+            pdf.text(line, xL + 2.5, dY);
+            dY += 4;
+          });
+
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(8.2);
+          addrLines.forEach(line => {
+            pdf.text(line, xL + 2.5, dY);
+            dY += 3.4;
+          });
+
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(9.5);
+          pdf.text(fitSingleLine(pdf, cityVal, cW - 6), xL + 2.5, dY + 0.5);
+          dY += 4;
+
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(7.5);
+          pdf.text(fitSingleLine(pdf, `Teléfono: ${displayPhone}`, cW - 6), xL + 2.5, dY);
+
+          curY += destBoxH + 2.2;
+
+          // 5. Origin Grid (REMITENTE (TIENDA) | REFERENCIA PEDIDO)
+          const origGridH = 10.5;
+          pdf.setDrawColor(0, 0, 0);
+          pdf.setLineWidth(0.3);
+          pdf.rect(xL, curY, cW, origGridH, 'S');
+          pdf.line(50, curY, 50, curY + origGridH);
+
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(5.5);
+          pdf.setTextColor(85, 85, 85);
+          pdf.text('REMITENTE (TIENDA)', xL + 2, curY + 3.4);
+          pdf.text('REFERENCIA PEDIDO', 52, curY + 3.4);
+
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(7.8);
+          pdf.setTextColor(0, 0, 0);
+          pdf.text(fitSingleLine(pdf, order.comercio || 'STOCKA CLIENTE', 40), xL + 2, curY + 8.2);
+          pdf.text(fitSingleLine(pdf, refVal, 40), 52, curY + 8.2);
+          curY += origGridH + 2.2;
+
+          // 6. Barcode Wrapper
+          const bcBoxH = 22;
+          pdf.setDrawColor(0, 0, 0);
+          pdf.setLineWidth(0.3);
+          pdf.rect(xL, curY, cW, bcBoxH, 'S');
+          if (barcodeImg && barcodeImg.dataUrl) {
+            const maxBcW = 78;
+            const maxBcH = 19;
+            let drawH = maxBcH;
+            let drawW = drawH * (barcodeImg.ratio || 2.5);
+            if (drawW > maxBcW) {
+              drawW = maxBcW;
+              drawH = drawW / (barcodeImg.ratio || 2.5);
+            }
+            const bcX = xL + (cW - drawW) / 2;
+            const bcY = curY + (bcBoxH - drawH) / 2;
+            pdf.addImage(barcodeImg.dataUrl, 'PNG', bcX, bcY, drawW, drawH);
+          } else {
+            pdf.setFont('courier', 'bold');
+            pdf.setFontSize(11);
+            pdf.setTextColor(0, 0, 0);
+            pdf.text(codeVal, 50, curY + 12.5, { align: 'center' });
+          }
+          curY += bcBoxH + 2.2;
+
+          // Reserve bottom space for footComment + footer
+          const footerTopY = 141.5;
+          const footCommentH = options.footComment ? 6.5 : 0;
+          const itemsBottomY = footerTopY - (options.footComment ? (footCommentH + 3.2) : 2);
+          const itemsBoxH = Math.max(18, itemsBottomY - curY);
+
+          // 7. Items Section
+          pdf.setDrawColor(0, 0, 0);
+          pdf.setLineWidth(0.3);
+          pdf.rect(xL, curY, cW, itemsBoxH, 'S');
+
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(6);
+          pdf.setTextColor(0, 0, 0);
+          pdf.text('DETALLE DE PRODUCTOS (PICKING & PACKING)', xL + 2, curY + 3.8);
+          pdf.setLineWidth(0.25);
+          pdf.line(xL + 2, curY + 4.8, xR - 2, curY + 4.8);
+
+          // Table Headers
+          const thY = curY + 8;
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(6);
+          pdf.setTextColor(51, 51, 51);
+          pdf.text('SKU', xL + 2, thY);
+          pdf.text('Producto', xL + 24, thY);
+          pdf.text('Cant', xR - 6, thY, { align: 'center' });
+          pdf.setDrawColor(0, 0, 0);
+          pdf.setLineWidth(0.25);
+          pdf.line(xL + 2, thY + 1.2, xR - 2, thY + 1.2);
+
+          const rawItems = (order.order_items && order.order_items.length > 0)
+            ? order.order_items.map(oi => ({
+                sku: oi.products?.sku || 'Sin SKU',
+                name: oi.products?.name || 'Sin nombre',
+                qty: oi.quantity || 1
+              }))
+            : [{
+                sku: order.sku || 'Sin SKU',
+                name: order.item || 'Sin nombre',
+                qty: order.cantidad || 1
+              }];
+
+          let rowY = thY + 4.2;
+          const maxRowY = curY + itemsBoxH - 2;
+          for (let idx = 0; idx < rawItems.length; idx++) {
+            const it = rawItems[idx];
+            if (rowY + 2 > maxRowY) {
+              const remaining = rawItems.length - idx;
+              pdf.setFont('helvetica', 'italic');
+              pdf.setFontSize(6);
+              pdf.setTextColor(80, 80, 80);
+              pdf.text(`+ ${remaining} ítem(s) adicional(es)...`, xL + 2, maxRowY);
+              break;
+            }
+
+            pdf.setFont('courier', 'bold');
+            pdf.setFontSize(6.8);
+            pdf.setTextColor(0, 0, 0);
+            pdf.text(fitSingleLine(pdf, it.sku, 20), xL + 2, rowY);
+
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(6.6);
+            const prodLines = pdf.splitTextToSize(String(it.name || 'Sin nombre'), 51).slice(0, 2);
+            pdf.text(prodLines, xL + 24, rowY);
+
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(8);
+            pdf.text(String(it.qty || 1), xR - 6, rowY, { align: 'center' });
+
+            const rowAdvance = Math.max(4, prodLines.length * 2.8 + 1.2);
+            rowY += rowAdvance;
+
+            if (idx < rawItems.length - 1 && rowY < maxRowY) {
+              pdf.setDrawColor(190, 190, 190);
+              pdf.setLineWidth(0.2);
+              if (typeof pdf.setLineDashPattern === 'function') pdf.setLineDashPattern([0.8, 0.8], 0);
+              pdf.line(xL + 2, rowY - 2.2, xR - 2, rowY - 2.2);
+              if (typeof pdf.setLineDashPattern === 'function') pdf.setLineDashPattern([], 0);
+            }
+          }
+
+          // 8. Optional footComment box
+          if (options.footComment) {
+            const fcY = footerTopY - footCommentH - 1.5;
+            pdf.setDrawColor(0, 0, 0);
+            pdf.setLineWidth(0.35);
+            if (typeof pdf.setLineDashPattern === 'function') pdf.setLineDashPattern([1.2, 1.2], 0);
+            pdf.rect(xL, fcY, cW, footCommentH, 'S');
+            if (typeof pdf.setLineDashPattern === 'function') pdf.setLineDashPattern([], 0);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(7.5);
+            pdf.setTextColor(0, 0, 0);
+            pdf.text(fitSingleLine(pdf, String(options.footComment).toUpperCase(), cW - 4), 50, fcY + 4.3, { align: 'center' });
+          }
+
+          // 9. Footer section
+          pdf.setDrawColor(0, 0, 0);
+          pdf.setLineWidth(0.25);
+          pdf.line(xL, footerTopY, xR, footerTopY);
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(6);
+          pdf.setTextColor(68, 68, 68);
+          pdf.text('Preparado y despachado desde Centro de Distribución STOCKA', 50, footerTopY + 3.5, { align: 'center' });
+        } else {
+          // 5x5 cm compact label (50mm x 50mm)
+          const xL = 3.5;
+          const xR = 46.5;
+          const cW = 43;
+          let curY = 3.5;
+
+          pdf.setFillColor(255, 255, 255);
+          pdf.rect(0, 0, 50, 50, 'F');
+          pdf.setDrawColor(0, 0, 0);
+          pdf.setLineWidth(0.25);
+          if (typeof pdf.setLineDashPattern === 'function') pdf.setLineDashPattern([1, 1], 0);
+          pdf.rect(1.2, 1.2, 47.6, 47.6, 'S');
+          if (typeof pdf.setLineDashPattern === 'function') pdf.setLineDashPattern([], 0);
+
+          // Compact header
+          if (logoData && logoData.dataUrl) {
+            const logoH = 3.8;
+            const logoW = Math.min(16, logoH * (logoData.ratio || 3));
+            pdf.addImage(logoData.dataUrl, 'PNG', xL, curY, logoW, logoH);
+          } else {
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(7.5);
+            pdf.setTextColor(0, 0, 0);
+            pdf.text('STOCKA', xL, curY + 3);
+          }
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(5.8);
+          pdf.setTextColor(0, 0, 0);
+          pdf.text('DESPACHO', xR, curY + 3, { align: 'right' });
+          curY += 4.5;
+          pdf.setLineWidth(0.25);
+          pdf.line(xL, curY, xR, curY);
+          curY += 1.2;
+
+          if (options.headComment) {
+            pdf.setFillColor(0, 0, 0);
+            pdf.rect(xL, curY, cW, 3.8, 'F');
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(5.2);
+            pdf.setTextColor(255, 255, 255);
+            pdf.text(fitSingleLine(pdf, String(options.headComment).toUpperCase(), cW - 2), 25, curY + 2.7, { align: 'center' });
+            curY += 4.6;
+          }
+
+          // Compact destinatario
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(6.8);
+          pdf.setTextColor(0, 0, 0);
+          pdf.text(fitSingleLine(pdf, displayName, cW), xL, curY + 2.5);
+          curY += 3.3;
+
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(5.3);
+          const addrCompact = pdf.splitTextToSize(fullAddress, cW).slice(0, 2);
+          addrCompact.forEach(line => {
+            pdf.text(line, xL, curY + 2);
+            curY += 2.3;
+          });
+
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(6);
+          pdf.text(fitSingleLine(pdf, cityVal, cW), xL, curY + 2.2);
+          curY += 2.8;
+
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(5.2);
+          pdf.text(fitSingleLine(pdf, `Tel: ${displayPhone}`, cW), xL, curY + 2);
+          curY += 3;
+
+          // Compact order info
+          pdf.setDrawColor(51, 51, 51);
+          pdf.setLineWidth(0.2);
+          if (typeof pdf.setLineDashPattern === 'function') pdf.setLineDashPattern([0.8, 0.8], 0);
+          pdf.line(xL, curY, xR, curY);
+          if (typeof pdf.setLineDashPattern === 'function') pdf.setLineDashPattern([], 0);
+          curY += 2.8;
+
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(5.3);
+          pdf.setTextColor(0, 0, 0);
+          pdf.text(fitSingleLine(pdf, `REF: ${refVal}`, 22), xL, curY);
+          pdf.setFont('helvetica', 'bold');
+          pdf.text(fitSingleLine(pdf, courierVal, 20), xR, curY, { align: 'right' });
+          curY += 1.2;
+
+          // Compact barcode
+          if (barcodeImg && barcodeImg.dataUrl) {
+            const maxBcW = 41;
+            const maxBcH = options.footComment ? 9.5 : 12;
+            let drawH = maxBcH;
+            let drawW = drawH * (barcodeImg.ratio || 2.5);
+            if (drawW > maxBcW) {
+              drawW = maxBcW;
+              drawH = drawW / (barcodeImg.ratio || 2.5);
+            }
+            const bcX = xL + (cW - drawW) / 2;
+            pdf.addImage(barcodeImg.dataUrl, 'PNG', bcX, curY, drawW, drawH);
+            curY += drawH + 1;
+          }
+
+          if (options.footComment) {
+            pdf.setDrawColor(0, 0, 0);
+            pdf.setLineWidth(0.2);
+            if (typeof pdf.setLineDashPattern === 'function') pdf.setLineDashPattern([0.8, 0.8], 0);
+            pdf.rect(xL, 41.2, cW, 3.6, 'S');
+            if (typeof pdf.setLineDashPattern === 'function') pdf.setLineDashPattern([], 0);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(5);
+            pdf.setTextColor(0, 0, 0);
+            pdf.text(fitSingleLine(pdf, String(options.footComment).toUpperCase(), cW - 2), 25, 43.6, { align: 'center' });
+          }
+
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(4.6);
+          pdf.setTextColor(85, 85, 85);
+          pdf.text('STOCKA LOGÍSTICA WMS', 25, 47.2, { align: 'center' });
+        }
+
+        // Yield briefly to keep UI responsive on large batches
+        if (orders.length > 1) {
+          await new Promise(r => setTimeout(r, 0));
+        }
       }
 
       const dateStr = new Date().toISOString().slice(0, 10);
       const filename = orders.length === 1
-        ? `Etiqueta_Stocka_${String(orders[0].external_order_number || orders[0].id.split('-')[0]).replace(/[^a-zA-Z0-9_-]/g, '')}_${selectedSize}.pdf`
+        ? `Etiqueta_Stocka_${String(orders[0].external_order_number || String(orders[0].id || '').split('-')[0]).replace(/[^a-zA-Z0-9_-]/g, '')}_${selectedSize}.pdf`
         : `Etiquetas_Stocka_Masivas_${orders.length}_pedidos_${selectedSize}_${dateStr}.pdf`;
 
       pdf.save(filename);
@@ -8135,11 +8226,8 @@ import supabase from './supabase.js';
     } catch (err) {
       console.error('Error generating shipping labels PDF:', err);
       if (typeof Swal !== 'undefined') {
-        Swal.fire('Error', 'No se pudo generar el PDF de etiquetas: ' + err.message, 'error');
+        Swal.fire('Error', 'No se pudo generar el PDF de etiquetas: ' + (err && err.message ? err.message : String(err)), 'error');
       }
-    } finally {
-      renderRoot.remove();
-      styleEl.remove();
     }
   };
 

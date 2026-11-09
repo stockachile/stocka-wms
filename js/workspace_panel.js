@@ -79,6 +79,13 @@ const FLOATING_TOOLS_CATALOG = [
     description: 'Lista rápida de pendientes del día para ir marcando con check y agregar tareas al vuelo.'
   },
   {
+    key: 'team',
+    label: 'Tareas Asignadas (Equipo Admin)',
+    shortLabel: 'Asignadas',
+    icon: 'ri-team-line',
+    description: 'Tareas especiales delegadas entre administradores con plazos, estados y comentarios.'
+  },
+  {
     key: 'scratchpad',
     label: 'Scratchpad (Nota Rápida)',
     shortLabel: 'Scratchpad',
@@ -118,8 +125,16 @@ const wsState = {
   profilePhone: '',
   supabaseTablesReady: true,
 
-  activeMainTab: 'day', // 'day' | 'kanban' | 'notes' | 'stox' | 'settings'
-  dayFilter: 'all',     // 'all' | 'pending' | 'done' | 'wa'
+  // Lista de todos los usuarios Administradores disponibles para asignar tareas
+  adminUsers: [],
+
+  activeMainTab: 'day', // 'day' | 'team' | 'kanban' | 'notes' | 'stox' | 'settings'
+  dayFilter: 'all',     // 'all' | 'pending' | 'assigned_to_me' | 'assigned_by_me' | 'done' | 'wa'
+  teamFilterView: 'all', // 'all' | 'assigned_to_me' | 'assigned_by_me'
+  teamFilterAdminId: 'all',
+  teamFilterStatus: 'all', // 'all' | 'todo' | 'in_progress' | 'waiting' | 'done'
+  openCommentTaskIds: {}, // Mapa { [taskId]: true } para desplegar cajón de comentarios
+
   notesSearch: '',
   notesColorFilter: 'all',
 
@@ -129,7 +144,7 @@ const wsState = {
     daily_digest_enabled: false,
     daily_digest_time: '08:30',
     floating_btn_enabled: true,
-    floating_tools: ['checklist', 'scratchpad', 'stox'],
+    floating_tools: ['checklist', 'team', 'scratchpad', 'stox'],
     auto_rollover_tasks: true,
     scratchpad_content: ''
   },
@@ -159,9 +174,38 @@ window.stockaWorkspaceState = wsState;
 // CAPA DE PERSISTENCIA HÍBRIDA (SUPABASE + LOCALSTORAGE FALLBACK)
 // ============================================================================
 
+const SHARED_TEAM_TASKS_LOCAL_KEY = 'stocka_ws_shared_team_tasks_v1';
+
 function getLocalKey(suffix) {
   const uid = wsState.userId || 'anon';
   return `stocka_ws_${suffix}_${uid}`;
+}
+
+function isDelegatedOrTeamTask(t) {
+  if (!t) return false;
+  if (t.is_team_task) return true;
+  if (t.assigned_by && t.user_id && t.assigned_by !== t.user_id) return true;
+  if (Array.isArray(t.comments) && t.comments.length > 0) return true;
+  return false;
+}
+
+function mergeTasksById(primaryList = [], secondaryList = []) {
+  const map = new Map();
+  for (const item of [...secondaryList, ...primaryList]) {
+    if (!item || !item.id) continue;
+    const prev = map.get(item.id);
+    if (!prev) {
+      map.set(item.id, item);
+    } else {
+      const prevTs = new Date(prev.updated_at || prev.created_at || 0).getTime();
+      const currTs = new Date(item.updated_at || item.created_at || 0).getTime();
+      map.set(item.id, currTs >= prevTs ? { ...prev, ...item } : { ...item, ...prev });
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    if (!!a.is_completed !== !!b.is_completed) return a.is_completed ? 1 : -1;
+    return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+  });
 }
 
 function saveToLocalMirror() {
@@ -170,6 +214,13 @@ function saveToLocalMirror() {
     localStorage.setItem(getLocalKey('settings'), JSON.stringify(wsState.settings));
     localStorage.setItem(getLocalKey('tasks'), JSON.stringify(wsState.tasks));
     localStorage.setItem(getLocalKey('notes'), JSON.stringify(wsState.notes));
+
+    // Sincronizar también espejo compartido de tareas delegadas entre Admins en este navegador
+    const rawShared = localStorage.getItem(SHARED_TEAM_TASKS_LOCAL_KEY);
+    const existingShared = rawShared ? (JSON.parse(rawShared) || []) : [];
+    const currentTeamTasks = wsState.tasks.filter(isDelegatedOrTeamTask);
+    const mergedShared = mergeTasksById(currentTeamTasks, existingShared);
+    localStorage.setItem(SHARED_TEAM_TASKS_LOCAL_KEY, JSON.stringify(mergedShared));
   } catch (e) {
     console.warn('[Workspace] No se pudo guardar espejo local:', e);
   }
@@ -184,9 +235,13 @@ function loadFromLocalMirror() {
       wsState.settings = { ...wsState.settings, ...parsed };
     }
     const rawTasks = localStorage.getItem(getLocalKey('tasks'));
-    if (rawTasks) {
-      wsState.tasks = JSON.parse(rawTasks) || [];
-    }
+    const userTasks = rawTasks ? (JSON.parse(rawTasks) || []) : [];
+
+    const rawShared = localStorage.getItem(SHARED_TEAM_TASKS_LOCAL_KEY);
+    const sharedTasks = rawShared ? (JSON.parse(rawShared) || []) : [];
+
+    wsState.tasks = mergeTasksById(userTasks, sharedTasks);
+
     const rawNotes = localStorage.getItem(getLocalKey('notes'));
     if (rawNotes) {
       wsState.notes = JSON.parse(rawNotes) || [];
@@ -194,6 +249,58 @@ function loadFromLocalMirror() {
   } catch (e) {
     console.warn('[Workspace] Error leyendo espejo local:', e);
   }
+}
+
+async function fetchAdminUsersList() {
+  try {
+    const { data: admins, error } = await supabase
+      .from('profiles')
+      .select('id, full_name, company_name, email, phone, role')
+      .eq('role', 'admin');
+
+    const list = [];
+    if (!error && Array.isArray(admins)) {
+      for (const a of admins) {
+        const displayName = a.full_name || a.company_name || (a.email ? a.email.split('@')[0] : 'Admin');
+        list.push({
+          id: a.id,
+          name: displayName,
+          email: a.email || '',
+          phone: a.phone || ''
+        });
+      }
+    }
+
+    // Asegurar que el usuario Admin actual siempre esté en la lista
+    if (wsState.userId && !list.some(u => u.id === wsState.userId)) {
+      list.unshift({
+        id: wsState.userId,
+        name: wsState.userName || 'Yo (Admin)',
+        email: wsState.userEmail || '',
+        phone: wsState.profilePhone || ''
+      });
+    }
+
+    wsState.adminUsers = list;
+  } catch (e) {
+    console.warn('[Workspace] Aviso cargando lista de administradores:', e.message);
+    if (wsState.userId && wsState.adminUsers.length === 0) {
+      wsState.adminUsers = [{
+        id: wsState.userId,
+        name: wsState.userName || 'Yo (Admin)',
+        email: wsState.userEmail || '',
+        phone: wsState.profilePhone || ''
+      }];
+    }
+  }
+}
+
+function getAdminDisplayNameById(adminId, fallbackName = '') {
+  if (!adminId) return fallbackName || 'Admin';
+  const found = wsState.adminUsers.find(u => u.id === adminId);
+  if (found) return found.name;
+  if (adminId === wsState.userId) return wsState.userName || 'Yo';
+  return fallbackName || 'Admin';
 }
 
 function seedInitialSampleDataIfEmpty() {
@@ -209,6 +316,10 @@ function seedInitialSampleDataIfEmpty() {
     {
       id: crypto.randomUUID ? crypto.randomUUID() : `task_${Date.now()}_1`,
       user_id: wsState.userId,
+      assigned_by: wsState.userId,
+      assigned_by_name: wsState.userName,
+      assigned_to_name: wsState.userName,
+      is_team_task: false,
       title: 'Revisar pendientes prioritarios del día en Stocka WMS',
       description: 'Verificar bandeja de entrada, pedidos urgentes y alertas operativas.',
       is_completed: false,
@@ -217,11 +328,13 @@ function seedInitialSampleDataIfEmpty() {
       priority: 'high',
       category: 'operaciones',
       target_date: today,
+      due_at: null,
       recurrence: 'daily_workdays',
       subtasks: [
         { id: 'st_1', title: 'Revisar módulo de pedidos del día', done: false },
         { id: 'st_2', title: 'Confirmar prioridades con el equipo', done: false }
       ],
+      comments: [],
       linked_ref: null,
       reminder_at: null,
       reminder_whatsapp: false,
@@ -235,7 +348,7 @@ function seedInitialSampleDataIfEmpty() {
       id: crypto.randomUUID ? crypto.randomUUID() : `note_${Date.now()}_1`,
       user_id: wsState.userId,
       title: '📌 Bienvenido a tu Panel de Trabajo',
-      content: 'Usa este espacio para guardar apuntes rápidos, códigos, SKUs o recordatorios.\n\n• Puedes fijar notas importantes para verlas en el botón flotante.\n• Configura tu número de WhatsApp en la pestaña "Stox WhatsApp" para recibir tus alertas.',
+      content: 'Usa este espacio para guardar apuntes rápidos, códigos, SKUs o recordatorios.\n\n• Puedes asignar tareas a otros Administradores con plazos, estados y comentarios.\n• Configura tu número de WhatsApp en la pestaña "Stox WhatsApp" para recibir tus alertas.',
       color: 'purple',
       tags: ['guia', 'stocka'],
       is_pinned: true,
@@ -255,8 +368,9 @@ function seedInitialSampleDataIfEmpty() {
 async function syncWorkspaceFromSupabase() {
   if (!wsState.userId) return;
 
-  // 1. Cargar espejo local primero para respuesta instantánea
+  // 1. Cargar espejo local primero para respuesta instantánea y lista de Admins
   loadFromLocalMirror();
+  await fetchAdminUsersList();
 
   // 2. Consultar Settings en Supabase
   try {
@@ -279,7 +393,7 @@ async function syncWorkspaceFromSupabase() {
           whatsapp_phone: settingsRow.whatsapp_phone || wsState.profilePhone || '',
           floating_tools: Array.isArray(settingsRow.floating_tools)
             ? settingsRow.floating_tools
-            : ['checklist', 'scratchpad', 'stox']
+            : ['checklist', 'team', 'scratchpad', 'stox']
         };
       } else {
         wsState.settings.whatsapp_phone = wsState.settings.whatsapp_phone || wsState.profilePhone || '';
@@ -305,25 +419,45 @@ async function syncWorkspaceFromSupabase() {
     wsState.settings.whatsapp_phone = wsState.profilePhone;
   }
 
-  // 3. Consultar Tareas y Notas si las tablas existen en Supabase
+  // 3. Consultar Tareas (propias + delegadas entre Admins) y Notas si las tablas existen en Supabase
   if (wsState.supabaseTablesReady) {
     try {
-      const { data: dbTasks, error: tErr } = await supabase
+      let dbTasks = null;
+      let tErr = null;
+
+      // Intentar consulta extendida incluyendo tareas delegadas / de equipo Admin
+      const extRes = await supabase
         .from('user_workspace_tasks')
         .select('*')
-        .eq('user_id', wsState.userId)
+        .or(`user_id.eq.${wsState.userId},assigned_by.eq.${wsState.userId},is_team_task.eq.true`)
         .order('is_completed', { ascending: true })
         .order('created_at', { ascending: false });
 
+      if (!extRes.error && Array.isArray(extRes.data)) {
+        dbTasks = extRes.data;
+      } else {
+        // Fallback si las columnas nuevas (assigned_by / is_team_task) aún no han sido migradas en Supabase
+        const basicRes = await supabase
+          .from('user_workspace_tasks')
+          .select('*')
+          .eq('user_id', wsState.userId)
+          .order('is_completed', { ascending: true })
+          .order('created_at', { ascending: false });
+        dbTasks = basicRes.data;
+        tErr = basicRes.error;
+      }
+
       if (!tErr && Array.isArray(dbTasks)) {
         if (dbTasks.length > 0 || wsState.tasks.length === 0) {
-          wsState.tasks = dbTasks;
+          // Combinar con tareas compartidas locales para no perder comentarios o asignaciones en modo híbrido
+          const rawShared = localStorage.getItem(SHARED_TEAM_TASKS_LOCAL_KEY);
+          const sharedTasks = rawShared ? (JSON.parse(rawShared) || []) : [];
+          wsState.tasks = mergeTasksById(dbTasks, sharedTasks);
         } else if (wsState.tasks.length > 0 && dbTasks.length === 0) {
-          // Subir tareas locales a Supabase si estaba vacío
           for (const localTask of wsState.tasks) {
             await supabase.from('user_workspace_tasks').upsert({
               ...localTask,
-              user_id: wsState.userId
+              user_id: localTask.user_id || wsState.userId
             });
           }
         }
@@ -441,6 +575,10 @@ async function createWorkspaceTask({
   priority = 'medium',
   category = 'operaciones',
   targetDate = getTodayStrChile(),
+  dueAt = null,
+  assignedToUserId = null,
+  isTeamTask = false,
+  notifyAssigneeWhatsapp = false,
   recurrence = 'none',
   linkedRef = '',
   reminderAt = null,
@@ -448,9 +586,18 @@ async function createWorkspaceTask({
 }) {
   if (!title || !String(title).trim()) return null;
 
+  const finalOwnerId = assignedToUserId || wsState.userId;
+  const isDelegated = finalOwnerId !== wsState.userId || !!isTeamTask;
+  const assigneeName = getAdminDisplayNameById(finalOwnerId, wsState.userName);
+  const assignerName = wsState.userName || 'Admin';
+
   const newTask = {
     id: crypto.randomUUID ? crypto.randomUUID() : `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    user_id: wsState.userId,
+    user_id: finalOwnerId,
+    assigned_by: wsState.userId,
+    assigned_by_name: assignerName,
+    assigned_to_name: assigneeName,
+    is_team_task: isDelegated,
     title: String(title).trim(),
     description: String(description || '').trim(),
     is_completed: false,
@@ -458,9 +605,11 @@ async function createWorkspaceTask({
     status: 'todo',
     priority: priority || 'medium',
     category: category || 'operaciones',
-    target_date: targetDate || getTodayStrChile(),
+    target_date: targetDate || (dueAt ? new Date(dueAt).toISOString().split('T')[0] : getTodayStrChile()),
+    due_at: dueAt || null,
     recurrence: recurrence || 'none',
     subtasks: [],
+    comments: [],
     linked_ref: linkedRef ? String(linkedRef).trim() : null,
     reminder_at: reminderAt || null,
     reminder_whatsapp: !!reminderWhatsapp,
@@ -482,15 +631,40 @@ async function createWorkspaceTask({
         .maybeSingle();
       if (!error && data) {
         const idx = wsState.tasks.findIndex(t => t.id === newTask.id);
-        if (idx >= 0) wsState.tasks[idx] = data;
+        if (idx >= 0) wsState.tasks[idx] = { ...newTask, ...data };
         saveToLocalMirror();
+      } else if (error) {
+        // Fallback sin las columnas nuevas por si el SQL aún no se ha vuelto a ejecutar en Supabase
+        const legacyPayload = {
+          id: newTask.id,
+          user_id: newTask.user_id,
+          title: newTask.title,
+          description: newTask.description,
+          is_completed: newTask.is_completed,
+          status: newTask.status,
+          priority: newTask.priority,
+          category: newTask.category,
+          target_date: newTask.target_date,
+          recurrence: newTask.recurrence,
+          subtasks: newTask.subtasks,
+          linked_ref: newTask.linked_ref,
+          reminder_at: newTask.reminder_at,
+          reminder_whatsapp: newTask.reminder_whatsapp,
+          reminder_sent: newTask.reminder_sent
+        };
+        await supabase.from('user_workspace_tasks').insert(legacyPayload);
       }
     } catch (e) {
       console.warn('[Workspace] Error insertando tarea en Supabase:', e.message);
     }
   }
 
-  // Si tiene recordatorio de WhatsApp activado, registrarlo también en el servicio de Stox
+  // Si es una tarea asignada y se pidió notificar al Admin receptor por WhatsApp mediante Stox
+  if (notifyAssigneeWhatsapp) {
+    notifyAssignedAdminViaStox(newTask).catch(() => {});
+  }
+
+  // Si tiene recordatorio programado de WhatsApp activado, registrarlo también en el servicio de Stox
   if (newTask.reminder_whatsapp && newTask.reminder_at) {
     registerReminderWithStoxBackend({
       id: newTask.id,
@@ -507,6 +681,145 @@ async function createWorkspaceTask({
   refreshAllWorkspaceViews();
   return newTask;
 }
+
+async function notifyAssignedAdminViaStox(task) {
+  const targetAdmin = wsState.adminUsers.find(u => u.id === task.user_id);
+  let targetPhone = targetAdmin?.phone || '';
+  if (!targetPhone && task.user_id === wsState.userId) {
+    targetPhone = wsState.settings.whatsapp_phone || wsState.profilePhone || '';
+  }
+
+  // Intentar buscar teléfono configurado en user_workspace_settings del Admin destino si está en Supabase
+  if (!targetPhone && wsState.supabaseTablesReady && task.user_id) {
+    try {
+      const { data: targetCfg } = await supabase
+        .from('user_workspace_settings')
+        .select('whatsapp_phone')
+        .eq('user_id', task.user_id)
+        .maybeSingle();
+      if (targetCfg && targetCfg.whatsapp_phone) {
+        targetPhone = targetCfg.whatsapp_phone;
+      }
+    } catch (_) {}
+  }
+
+  const cleanPhone = normalizeChileanPhone(targetPhone);
+  if (!cleanPhone) return { success: false, error: 'El administrador asignado no tiene teléfono WhatsApp registrado' };
+
+  const prioMap = { urgent: '🔥 URGENTE', high: '🔴 Alta', medium: '🟡 Media', low: '🔵 Baja' };
+  const msg = [
+    `🤖 *Stox | Nueva Tarea Asignada en Equipo Admin*`,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `¡Hola *${(task.assigned_to_name || 'Admin').split(' ')[0]}*! *${task.assigned_by_name || 'Un Administrador'}* te ha asignado una tarea en el Panel de Trabajo:`,
+    ``,
+    `📌 *Tarea:* ${task.title}`,
+    `⚡ *Urgencia:* ${prioMap[task.priority] || '🟡 Media'}`,
+    task.due_at ? `⏳ *Plazo límite:* ${formatTimeShort(task.due_at)}` : `📅 *Fecha objetivo:* ${task.target_date || getTodayStrChile()}`,
+    task.linked_ref ? `🔗 *Referencia:* ${task.linked_ref}` : null,
+    task.description ? `📝 *Instrucciones:* ${task.description}` : null,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `💬 _Puedes actualizar su estado (En Proceso / Lista) y dejar comentarios en el Panel de Trabajo de Stocka WMS._`
+  ].filter(Boolean).join('\n');
+
+  return await sendDirectStoxMessage(cleanPhone, msg);
+}
+
+// ============================================================================
+// SISTEMA DE COMENTARIOS EN TAREAS (PÚBLICOS ENTRE ADMINS vs PERSONALES/PRIVADOS)
+// ============================================================================
+
+function getVisibleCommentsForTask(task) {
+  if (!task || !Array.isArray(task.comments)) return [];
+  return task.comments.filter(c => {
+    if (!c) return false;
+    // Los comentarios personales solo los ve su propio autor
+    if (c.visibility === 'personal') {
+      return c.author_id === wsState.userId;
+    }
+    // Los comentarios públicos ('public') los ven todos los administradores
+    return true;
+  });
+}
+
+window.toggleWorkspaceTaskComments = function(taskId) {
+  wsState.openCommentTaskIds[taskId] = !wsState.openCommentTaskIds[taskId];
+  refreshAllWorkspaceViews();
+  if (wsState.openCommentTaskIds[taskId]) {
+    setTimeout(() => {
+      const input = document.getElementById(`ws-comment-input-${taskId}`);
+      if (input) input.focus();
+    }, 60);
+  }
+};
+
+window.addWorkspaceTaskComment = async function(taskId) {
+  const task = wsState.tasks.find(t => t.id === taskId);
+  if (!task) return;
+
+  const inputEl = document.getElementById(`ws-comment-input-${taskId}`);
+  const visEl = document.getElementById(`ws-comment-vis-${taskId}`);
+  const text = inputEl ? inputEl.value.trim() : '';
+  if (!text) {
+    if (inputEl) inputEl.focus();
+    return;
+  }
+
+  const visibility = visEl ? visEl.value : 'public'; // 'public' | 'personal'
+  if (!Array.isArray(task.comments)) task.comments = [];
+
+  const newComment = {
+    id: `cmt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    author_id: wsState.userId,
+    author_name: wsState.userName || 'Admin',
+    text,
+    visibility, // 'public' (Entre Admins) o 'personal' (Solo visible para el autor)
+    created_at: new Date().toISOString()
+  };
+
+  task.comments.push(newComment);
+  task.updated_at = new Date().toISOString();
+  wsState.openCommentTaskIds[taskId] = true;
+
+  saveToLocalMirror();
+  refreshAllWorkspaceViews();
+
+  if (wsState.supabaseTablesReady && wsState.userId) {
+    try {
+      await supabase
+        .from('user_workspace_tasks')
+        .update({
+          comments: task.comments,
+          updated_at: task.updated_at
+        })
+        .eq('id', taskId);
+    } catch (e) {
+      console.warn('[Workspace] Aviso guardando comentario en Supabase:', e.message);
+    }
+  }
+};
+
+window.deleteWorkspaceTaskComment = async function(taskId, commentId) {
+  const task = wsState.tasks.find(t => t.id === taskId);
+  if (!task || !Array.isArray(task.comments)) return;
+
+  task.comments = task.comments.filter(c => !(c.id === commentId && c.author_id === wsState.userId));
+  task.updated_at = new Date().toISOString();
+
+  saveToLocalMirror();
+  refreshAllWorkspaceViews();
+
+  if (wsState.supabaseTablesReady && wsState.userId) {
+    try {
+      await supabase
+        .from('user_workspace_tasks')
+        .update({
+          comments: task.comments,
+          updated_at: task.updated_at
+        })
+        .eq('id', taskId);
+    } catch (_) {}
+  }
+};
 
 window.toggleWorkspaceTaskCheck = async function(taskId) {
   const task = wsState.tasks.find(t => t.id === taskId);
@@ -564,6 +877,13 @@ window.changeWorkspaceTaskStatus = async function(taskId, newStatus) {
 
 window.deleteWorkspaceTask = async function(taskId) {
   wsState.tasks = wsState.tasks.filter(t => t.id !== taskId);
+  try {
+    const rawShared = localStorage.getItem(SHARED_TEAM_TASKS_LOCAL_KEY);
+    if (rawShared) {
+      const parsed = (JSON.parse(rawShared) || []).filter(t => t.id !== taskId);
+      localStorage.setItem(SHARED_TEAM_TASKS_LOCAL_KEY, JSON.stringify(parsed));
+    }
+  } catch (_) {}
   saveToLocalMirror();
   refreshAllWorkspaceViews();
 
@@ -601,6 +921,7 @@ window.addWorkspaceSubtaskPrompt = async function(taskId) {
     title: text.trim(),
     done: false
   });
+  task.updated_at = new Date().toISOString();
 
   saveToLocalMirror();
   refreshAllWorkspaceViews();
@@ -622,6 +943,7 @@ window.toggleWorkspaceSubtask = async function(taskId, subId) {
   const sub = task.subtasks.find(s => s.id === subId);
   if (!sub) return;
   sub.done = !sub.done;
+  task.updated_at = new Date().toISOString();
 
   saveToLocalMirror();
   refreshAllWorkspaceViews();
@@ -1036,29 +1358,41 @@ function getTodayTasksList() {
   const today = getTodayStrChile();
   const rollover = wsState.settings.auto_rollover_tasks !== false;
   return wsState.tasks.filter(t => {
+    // Mostrar en Mi Día las tareas donde soy responsable (user_id === wsState.userId)
+    // o las que yo asigné a otro Admin si el filtro es 'assigned_by_me'
+    const isMine = !t.user_id || t.user_id === wsState.userId;
+    const isAssignedByMe = t.assigned_by === wsState.userId && t.user_id !== wsState.userId;
+    if (!isMine && !isAssignedByMe) return false;
+
     const tDate = t.target_date || today;
     if (tDate === today) return true;
-    // Si auto_rollover_tasks está activo, incluir tareas no completadas de días pasados
+    // Si auto_rollover_tasks está activo, incluir tareas no completadas de días pasados o tareas delegadas activas
     if (rollover && tDate < today && !t.is_completed) return true;
+    if (isDelegatedOrTeamTask(t) && !t.is_completed) return true;
     return false;
   });
 }
 
+function getTeamDelegatedTasksList() {
+  return wsState.tasks.filter(t => isDelegatedOrTeamTask(t));
+}
+
 function getDailyMetrics() {
-  const todayList = getTodayTasksList();
+  const todayList = getTodayTasksList().filter(t => !t.user_id || t.user_id === wsState.userId);
   const total = todayList.length;
   const done = todayList.filter(t => t.is_completed).length;
   const pending = total - done;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   const withReminders = wsState.tasks.filter(t => !t.is_completed && t.reminder_whatsapp && t.reminder_at && !t.reminder_sent).length;
+  const teamActive = getTeamDelegatedTasksList().filter(t => !t.is_completed).length;
 
-  return { total, done, pending, pct, withReminders };
+  return { total, done, pending, pct, withReminders, teamActive };
 }
 
 function updateWorkspaceBadgesAndFAB() {
   const { pending, done, total } = getDailyMetrics();
 
-  // 1. Badge en el Sidebar (Admin y Cliente)
+  // 1. Badge en el Sidebar (Admin)
   document.querySelectorAll('.ws-sidebar-pending-badge').forEach(el => {
     if (pending > 0) {
       el.style.display = 'inline-flex';
@@ -1138,8 +1472,23 @@ window.setWorkspaceDayFilter = function(filter) {
   refreshAllWorkspaceViews();
 };
 
+window.setWorkspaceTeamFilterView = function(view) {
+  wsState.teamFilterView = view;
+  refreshAllWorkspaceViews();
+};
+
+window.setWorkspaceTeamFilterAdmin = function(adminId) {
+  wsState.teamFilterAdminId = adminId;
+  refreshAllWorkspaceViews();
+};
+
+window.setWorkspaceTeamFilterStatus = function(status) {
+  wsState.teamFilterStatus = status;
+  refreshAllWorkspaceViews();
+};
+
 function renderWorkspaceMainContent(root) {
-  const { total, done, pending, pct, withReminders } = getDailyMetrics();
+  const { total, done, pending, pct, withReminders, teamActive } = getDailyMetrics();
   const todayFormatted = new Date().toLocaleDateString('es-CL', {
     weekday: 'long',
     day: 'numeric',
@@ -1148,7 +1497,7 @@ function renderWorkspaceMainContent(root) {
   const firstName = (wsState.userName || 'Usuario').split(' ')[0];
 
   root.innerHTML = `
-    <!-- 1. HERO CARD CON PROGRESO DIARIO -->
+    <!-- 1. HERO CARD CON PROGRESO DIARIO Y DELEGACIÓN ADMIN -->
     <div class="ws-hero-card">
       <div class="ws-hero-left">
         <div class="ws-hero-icon">
@@ -1162,7 +1511,7 @@ function renderWorkspaceMainContent(root) {
             </span>
           </h2>
           <p class="ws-hero-subtitle" style="text-transform: capitalize;">
-            📅 ${escapeHtml(todayFormatted)} · Espacio personal de tareas, notas y recordatorios
+            📅 ${escapeHtml(todayFormatted)} · Gestión personal, asignación entre Admins, plazos y comentarios
           </p>
         </div>
       </div>
@@ -1182,11 +1531,17 @@ function renderWorkspaceMainContent(root) {
           <span class="ws-kpi-pill" title="Tareas pendientes hoy">
             <i class="ri-time-line" style="color: #f59e0b;"></i> ${pending} pendientes
           </span>
+          <span class="ws-kpi-pill" style="cursor: pointer; border-color: rgba(139, 92, 246, 0.35);" onclick="window.switchWorkspaceMainTab('team')" title="Ver tareas asignadas en el equipo Admin">
+            <i class="ri-team-line" style="color: #8b5cf6;"></i> ${teamActive} asignadas Admin
+          </span>
           <span class="ws-kpi-pill" title="Recordatorios programados en Stox WhatsApp">
             <i class="ri-whatsapp-line" style="color: #10b981;"></i> ${withReminders} avisos WA
           </span>
+          <button type="button" onclick="window.openAssignAdminTaskModal()" class="btn btn-sm btn-primary" style="padding: 0.38rem 0.75rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;" title="Asignar una tarea especial con plazo y urgencia a otro Administrador">
+            <i class="ri-user-shared-line"></i> Asignar Tarea a Admin
+          </button>
           <button type="button" onclick="window.sendMyDailySummaryToWhatsApp(this)" class="btn btn-sm btn-outline" style="padding: 0.35rem 0.7rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; border-color: rgba(16, 185, 129, 0.4); color: #10b981; font-weight: 700;" title="Enviar mi checklist de hoy a mi WhatsApp mediante Stox">
-            <i class="ri-whatsapp-line"></i> Enviarme resumen hoy
+            <i class="ri-whatsapp-line"></i> Resumen WA
           </button>
         </div>
       </div>
@@ -1199,8 +1554,12 @@ function renderWorkspaceMainContent(root) {
           <i class="ri-sun-line"></i> <span>Mi Día (Checklist)</span>
           <span class="ws-tab-badge">${pending}</span>
         </button>
+        <button type="button" onclick="window.switchWorkspaceMainTab('team')" class="ws-tab-btn ${wsState.activeMainTab === 'team' ? 'active' : ''}">
+          <i class="ri-team-line" style="color: ${wsState.activeMainTab === 'team' ? '#fff' : '#8b5cf6'};"></i> <span>Asignadas / Equipo Admin</span>
+          <span class="ws-tab-badge">${teamActive}</span>
+        </button>
         <button type="button" onclick="window.switchWorkspaceMainTab('kanban')" class="ws-tab-btn ${wsState.activeMainTab === 'kanban' ? 'active' : ''}">
-          <i class="ri-kanban-view-2"></i> <span>Tablero & Programadas</span>
+          <i class="ri-kanban-view-2"></i> <span>Tablero & Estados</span>
           <span class="ws-tab-badge">${wsState.tasks.length}</span>
         </button>
         <button type="button" onclick="window.switchWorkspaceMainTab('notes')" class="ws-tab-btn ${wsState.activeMainTab === 'notes' ? 'active' : ''}">
@@ -1208,10 +1567,10 @@ function renderWorkspaceMainContent(root) {
           <span class="ws-tab-badge">${wsState.notes.length}</span>
         </button>
         <button type="button" onclick="window.switchWorkspaceMainTab('stox')" class="ws-tab-btn ${wsState.activeMainTab === 'stox' ? 'active' : ''}">
-          <i class="ri-whatsapp-line" style="color: #10b981;"></i> <span>Recordatorios Stox (WhatsApp)</span>
+          <i class="ri-whatsapp-line" style="color: #10b981;"></i> <span>Stox WhatsApp</span>
         </button>
         <button type="button" onclick="window.switchWorkspaceMainTab('settings')" class="ws-tab-btn ${wsState.activeMainTab === 'settings' ? 'active' : ''}">
-          <i class="ri-equalizer-line"></i> <span>Personalizar Botón Flotante</span>
+          <i class="ri-equalizer-line"></i> <span>Botón Flotante</span>
         </button>
       </div>
 
@@ -1231,6 +1590,8 @@ function renderWorkspaceMainContent(root) {
 
 function renderActiveTabMarkup() {
   switch (wsState.activeMainTab) {
+    case 'team':
+      return renderTeamTabMarkup();
     case 'kanban':
       return renderKanbanTabMarkup();
     case 'notes':
@@ -1246,18 +1607,25 @@ function renderActiveTabMarkup() {
 }
 
 // ----------------------------------------------------------------------------
-// PESTAÑA 1: MI DÍA (CHECKLIST DIARIO + SCRATCHPAD + STOX)
+// PESTAÑA 1: MI DÍA (CHECKLIST DIARIO + ASIGNACIÓN RÁPIDA + SCRATCHPAD + STOX)
 // ----------------------------------------------------------------------------
 function renderDayTabMarkup() {
   const today = getTodayStrChile();
   let list = getTodayTasksList();
 
   if (wsState.dayFilter === 'pending') {
-    list = list.filter(t => !t.is_completed);
+    list = list.filter(t => !t.is_completed && (!t.user_id || t.user_id === wsState.userId));
+  } else if (wsState.dayFilter === 'assigned_to_me') {
+    list = list.filter(t => t.user_id === wsState.userId && ((t.assigned_by && t.assigned_by !== wsState.userId) || t.is_team_task));
+  } else if (wsState.dayFilter === 'assigned_by_me') {
+    list = list.filter(t => t.assigned_by === wsState.userId && t.user_id !== wsState.userId);
   } else if (wsState.dayFilter === 'done') {
     list = list.filter(t => t.is_completed);
   } else if (wsState.dayFilter === 'wa') {
     list = list.filter(t => t.reminder_whatsapp);
+  } else {
+    // 'all': mostrar mis tareas + las delegadas a mí
+    list = list.filter(t => !t.user_id || t.user_id === wsState.userId);
   }
 
   const tasksHtml = list.length === 0
@@ -1265,45 +1633,55 @@ function renderDayTabMarkup() {
       <div style="padding: 3rem 1.5rem; text-align: center; color: var(--color-text-muted);">
         <i class="ri-checkbox-circle-line" style="font-size: 2.6rem; color: #10b981; opacity: 0.45; display: block; margin-bottom: 0.5rem;"></i>
         <div style="font-weight: 700; font-size: 0.92rem; color: var(--color-text-main);">¡Todo al día en esta vista!</div>
-        <div style="font-size: 0.8rem; margin-top: 0.25rem;">Añade una nueva tarea arriba o cámbiala de filtro para revisar tu historial.</div>
+        <div style="font-size: 0.8rem; margin-top: 0.25rem;">Añade una nueva tarea arriba, asígnala a otro Admin o cambia de filtro.</div>
       </div>
     `
     : list.map(t => renderSingleTaskRowHtml(t, today)).join('');
 
   const configuredPhone = wsState.settings.whatsapp_phone || wsState.profilePhone || '';
 
+  const adminOptionsHtml = wsState.adminUsers.map(adm => {
+    const isMe = adm.id === wsState.userId;
+    return `<option value="${escapeHtml(adm.id)}" ${isMe ? 'selected' : ''}>${isMe ? `👤 Para mí (${escapeHtml(adm.name)})` : `👥 Asignar a: ${escapeHtml(adm.name)}`}</option>`;
+  }).join('');
+
   return `
     <div class="ws-day-grid">
-      <!-- COLUMNA IZQUIERDA: CHECKLIST DIARIO -->
+      <!-- COLUMNA IZQUIERDA: CHECKLIST DIARIO & ASIGNACIÓN -->
       <div class="ws-panel-card">
         <div class="ws-panel-header">
           <h3 class="ws-panel-title">
             <i class="ri-list-check-3" style="color: #6366f1; font-size: 1.1rem;"></i>
-            <span>Checklist de Tareas del Día</span>
+            <span>Checklist de Tareas y Asignaciones</span>
           </h3>
-          <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
-            <button type="button" onclick="window.setWorkspaceDayFilter('all')" class="btn btn-sm ${wsState.dayFilter === 'all' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.25rem 0.6rem; font-size: 0.73rem;">Todas</button>
-            <button type="button" onclick="window.setWorkspaceDayFilter('pending')" class="btn btn-sm ${wsState.dayFilter === 'pending' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.25rem 0.6rem; font-size: 0.73rem;">Pendientes</button>
-            <button type="button" onclick="window.setWorkspaceDayFilter('done')" class="btn btn-sm ${wsState.dayFilter === 'done' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.25rem 0.6rem; font-size: 0.73rem;">Completadas</button>
-            <button type="button" onclick="window.setWorkspaceDayFilter('wa')" class="btn btn-sm ${wsState.dayFilter === 'wa' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.25rem 0.6rem; font-size: 0.73rem;"><i class="ri-whatsapp-line"></i> Con aviso</button>
+          <div style="display: flex; align-items: center; gap: 0.32rem; flex-wrap: wrap;">
+            <button type="button" onclick="window.setWorkspaceDayFilter('all')" class="btn btn-sm ${wsState.dayFilter === 'all' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.24rem 0.55rem; font-size: 0.72rem;">Todas</button>
+            <button type="button" onclick="window.setWorkspaceDayFilter('pending')" class="btn btn-sm ${wsState.dayFilter === 'pending' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.24rem 0.55rem; font-size: 0.72rem;">Pendientes</button>
+            <button type="button" onclick="window.setWorkspaceDayFilter('assigned_to_me')" class="btn btn-sm ${wsState.dayFilter === 'assigned_to_me' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.24rem 0.55rem; font-size: 0.72rem;" title="Tareas especiales que otro Admin me asignó">📥 Asignadas a mí</button>
+            <button type="button" onclick="window.setWorkspaceDayFilter('assigned_by_me')" class="btn btn-sm ${wsState.dayFilter === 'assigned_by_me' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.24rem 0.55rem; font-size: 0.72rem;" title="Tareas que yo delegué a otro Admin">📤 Asignadas por mí</button>
+            <button type="button" onclick="window.setWorkspaceDayFilter('done')" class="btn btn-sm ${wsState.dayFilter === 'done' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.24rem 0.55rem; font-size: 0.72rem;">Listas ✓</button>
           </div>
         </div>
 
-        <!-- Formulario Rápido de Nueva Tarea -->
+        <!-- Formulario Rápido de Nueva Tarea (Propia o Asignada a otro Admin) -->
         <form class="ws-quick-add-box" onsubmit="event.preventDefault(); window.handleQuickAddTaskSubmit();">
           <div class="ws-quick-add-row">
-            <input type="text" id="ws-new-task-title" class="ws-quick-input" placeholder="➕ Añadir nueva tarea para hoy (ej. Validar manifiestos Starken 17:30)..." required autocomplete="off" />
-            <button type="submit" class="btn btn-primary" style="padding: 0.6rem 1.1rem; font-size: 0.84rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem;">
-              <i class="ri-add-line"></i> Añadir Tarea
+            <input type="text" id="ws-new-task-title" class="ws-quick-input" placeholder="➕ Escribe una tarea para hoy o para asignar a otro Admin..." required autocomplete="off" />
+            <button type="submit" class="btn btn-primary" style="padding: 0.6rem 1.05rem; font-size: 0.83rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-add-line"></i> Crear Tarea
             </button>
           </div>
 
           <div class="ws-quick-meta-row">
-            <select id="ws-new-task-priority" class="ws-select-sm" title="Prioridad">
-              <option value="urgent">🔥 Prioridad: Urgente</option>
-              <option value="high">🔴 Prioridad: Alta</option>
-              <option value="medium" selected>🟡 Prioridad: Media</option>
-              <option value="low">🔵 Prioridad: Baja</option>
+            <select id="ws-new-task-assignee" class="ws-select-sm" title="Responsable de la tarea (Asignar a otro Admin o a mí)" style="border-color: rgba(139, 92, 246, 0.45); font-weight: 700;">
+              ${adminOptionsHtml || `<option value="${escapeHtml(wsState.userId || '')}">👤 Para mí</option>`}
+            </select>
+
+            <select id="ws-new-task-priority" class="ws-select-sm" title="Nivel de Urgencia">
+              <option value="urgent">🔥 Urgencia: URGENTE</option>
+              <option value="high">🔴 Urgencia: Alta</option>
+              <option value="medium" selected>🟡 Urgencia: Media</option>
+              <option value="low">🔵 Urgencia: Baja</option>
             </select>
 
             <select id="ws-new-task-category" class="ws-select-sm" title="Categoría">
@@ -1314,18 +1692,23 @@ function renderDayTabMarkup() {
               <option value="personal">👤 Personal</option>
             </select>
 
+            <div style="display: inline-flex; align-items: center; gap: 0.25rem;" title="Plazo límite de entrega (fecha y hora)">
+              <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted);">⏳ Plazo:</span>
+              <input type="datetime-local" id="ws-new-task-due-at" class="ws-input-sm" />
+            </div>
+
             <select id="ws-new-task-recurrence" class="ws-select-sm" title="Repetición automática">
-              <option value="none">📅 Solo hoy</option>
+              <option value="none">📅 Única vez</option>
               <option value="daily_workdays">🔁 Cada día hábil (Lu-Sá)</option>
               <option value="daily">🔁 Todos los días</option>
               <option value="weekly">🔁 Semanal</option>
             </select>
 
-            <input type="text" id="ws-new-task-ref" class="ws-input-sm" placeholder="🔗 #Pedido / SKU (opc)" style="width: 135px;" />
+            <input type="text" id="ws-new-task-ref" class="ws-input-sm" placeholder="🔗 #Pedido / SKU" style="width: 118px;" />
 
-            <label style="display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; font-weight: 700; color: #10b981; background: rgba(16, 185, 129, 0.1); padding: 0.28rem 0.55rem; border-radius: 7px; border: 1px solid rgba(16, 185, 129, 0.25);">
+            <label style="display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; font-weight: 700; color: #10b981; background: rgba(16, 185, 129, 0.1); padding: 0.28rem 0.55rem; border-radius: 7px; border: 1px solid rgba(16, 185, 129, 0.25);" title="Notificar o programar aviso por WhatsApp con Stox">
               <input type="checkbox" id="ws-new-task-wa-enable" onchange="document.getElementById('ws-new-task-wa-time').style.display = this.checked ? 'inline-block' : 'none';" />
-              <i class="ri-whatsapp-line"></i> Recordar con Stox
+              <i class="ri-whatsapp-line"></i> Aviso Stox WA
             </label>
 
             <input type="datetime-local" id="ws-new-task-wa-time" class="ws-input-sm" style="display: none;" />
@@ -1410,6 +1793,134 @@ function renderDayTabMarkup() {
   `;
 }
 
+// ----------------------------------------------------------------------------
+// PESTAÑA 1.5: TAREAS ASIGNADAS / EQUIPO ADMIN (DELEGACIÓN, PLAZOS Y COMENTARIOS)
+// ----------------------------------------------------------------------------
+function renderTeamTabMarkup() {
+  const today = getTodayStrChile();
+  const nowMs = Date.now();
+  let teamTasks = wsState.tasks.filter(t => isDelegatedOrTeamTask(t));
+
+  if (wsState.teamFilterView === 'assigned_to_me') {
+    teamTasks = teamTasks.filter(t => t.user_id === wsState.userId);
+  } else if (wsState.teamFilterView === 'assigned_by_me') {
+    teamTasks = teamTasks.filter(t => t.assigned_by === wsState.userId);
+  }
+
+  if (wsState.teamFilterAdminId && wsState.teamFilterAdminId !== 'all') {
+    teamTasks = teamTasks.filter(t => t.user_id === wsState.teamFilterAdminId || t.assigned_by === wsState.teamFilterAdminId);
+  }
+
+  if (wsState.teamFilterStatus && wsState.teamFilterStatus !== 'all') {
+    teamTasks = teamTasks.filter(t => {
+      const st = t.is_completed ? 'done' : (t.status === 'done' ? 'todo' : (t.status || 'todo'));
+      return st === wsState.teamFilterStatus;
+    });
+  }
+
+  const allDelegated = getTeamDelegatedTasksList();
+  const countInProgress = allDelegated.filter(t => !t.is_completed && t.status === 'in_progress').length;
+  const countOverdueOrUrgent = allDelegated.filter(t => !t.is_completed && (t.priority === 'urgent' || (t.due_at && new Date(t.due_at).getTime() < nowMs))).length;
+  const countDone = allDelegated.filter(t => t.is_completed).length;
+
+  return `
+    <div style="display: flex; flex-direction: column; gap: 1.15rem;">
+      <!-- Barra superior de coordinación entre Administradores -->
+      <div class="ws-panel-card" style="padding: 1.1rem 1.3rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.9rem; margin-bottom: 0.95rem;">
+          <div>
+            <h3 style="margin: 0; font-size: 1rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem;">
+              <i class="ri-team-fill" style="color: #8b5cf6; font-size: 1.2rem;"></i>
+              <span>Tareas Especiales Asignadas entre Administradores</span>
+            </h3>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.79rem; color: var(--color-text-muted);">
+              Delega tareas con plazo límite y urgencia a cualquier Admin, actualiza su estado (<strong>Por Hacer, En Proceso, En Espera, Lista</strong>) y comenta en modo <strong>🌐 Público</strong> o <strong>🔒 Personal</strong>.
+            </p>
+          </div>
+
+          <button type="button" onclick="window.openAssignAdminTaskModal()" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700; padding: 0.6rem 1.15rem;">
+            <i class="ri-user-shared-line"></i> + Asignar Tarea a Admin
+          </button>
+        </div>
+
+        <!-- Filtros rápidos y KPIs de equipo -->
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; padding-top: 0.85rem; border-top: 1px solid var(--color-border);">
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <button type="button" onclick="window.setWorkspaceTeamFilterView('all')" class="btn btn-sm ${wsState.teamFilterView === 'all' ? 'btn-primary' : 'btn-outline'}" style="font-size: 0.75rem;">
+              🌐 Todas (${allDelegated.length})
+            </button>
+            <button type="button" onclick="window.setWorkspaceTeamFilterView('assigned_to_me')" class="btn btn-sm ${wsState.teamFilterView === 'assigned_to_me' ? 'btn-primary' : 'btn-outline'}" style="font-size: 0.75rem;">
+              📥 Asignadas a mí
+            </button>
+            <button type="button" onclick="window.setWorkspaceTeamFilterView('assigned_by_me')" class="btn btn-sm ${wsState.teamFilterView === 'assigned_by_me' ? 'btn-primary' : 'btn-outline'}" style="font-size: 0.75rem;">
+              📤 Asignadas por mí (Seguimiento)
+            </button>
+
+            <select class="ws-select-sm" onchange="window.setWorkspaceTeamFilterAdmin(this.value)" style="margin-left: 0.25rem;">
+              <option value="all" ${wsState.teamFilterAdminId === 'all' ? 'selected' : ''}>👤 Todos los Admins</option>
+              ${wsState.adminUsers.map(adm => `
+                <option value="${escapeHtml(adm.id)}" ${wsState.teamFilterAdminId === adm.id ? 'selected' : ''}>👤 ${escapeHtml(adm.name)}</option>
+              `).join('')}
+            </select>
+
+            <select class="ws-select-sm" onchange="window.setWorkspaceTeamFilterStatus(this.value)">
+              <option value="all" ${wsState.teamFilterStatus === 'all' ? 'selected' : ''}>📋 Todos los estados</option>
+              <option value="todo" ${wsState.teamFilterStatus === 'todo' ? 'selected' : ''}>⏳ Por Hacer</option>
+              <option value="in_progress" ${wsState.teamFilterStatus === 'in_progress' ? 'selected' : ''}>⚡ En Proceso</option>
+              <option value="waiting" ${wsState.teamFilterStatus === 'waiting' ? 'selected' : ''}>⏸️ En Espera</option>
+              <option value="done" ${wsState.teamFilterStatus === 'done' ? 'selected' : ''}>✅ Listas ✓</option>
+            </select>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; font-size: 0.74rem; font-weight: 700;">
+            <span style="padding: 0.25rem 0.6rem; border-radius: 99px; background: rgba(59,130,246,0.12); color: #3b82f6;">⚡ En Proceso: ${countInProgress}</span>
+            <span style="padding: 0.25rem 0.6rem; border-radius: 99px; background: rgba(239,68,68,0.12); color: #ef4444;">🔥 Urgentes / Vencidas: ${countOverdueOrUrgent}</span>
+            <span style="padding: 0.25rem 0.6rem; border-radius: 99px; background: rgba(16,185,129,0.12); color: #10b981;">✅ Completadas: ${countDone}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lista de Tareas Delegadas -->
+      <div class="ws-panel-card">
+        <div class="ws-tasks-list">
+          ${teamTasks.length === 0 ? `
+            <div style="padding: 3.2rem 1.5rem; text-align: center; color: var(--color-text-muted);">
+              <i class="ri-user-shared-line" style="font-size: 2.6rem; color: #8b5cf6; opacity: 0.45; display: block; margin-bottom: 0.5rem;"></i>
+              <div style="font-weight: 700; font-size: 0.94rem; color: var(--color-text-main);">No hay tareas asignadas en este filtro</div>
+              <div style="font-size: 0.8rem; margin-top: 0.3rem; margin-bottom: 1rem;">Puedes delegar una tarea especial a cualquier Administrador con plazo, nivel de urgencia y comentarios.</div>
+              <button type="button" onclick="window.openAssignAdminTaskModal()" class="btn btn-sm btn-primary">
+                <i class="ri-add-line"></i> Asignar primera tarea entre Admins
+              </button>
+            </div>
+          ` : teamTasks.map(t => renderSingleTaskRowHtml(t, today)).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function getDeadlineBadgeInfo(t, todayStr) {
+  if (!t || t.is_completed) return null;
+  if (t.due_at) {
+    const dueMs = new Date(t.due_at).getTime();
+    if (!isNaN(dueMs)) {
+      const diffMs = dueMs - Date.now();
+      const formatted = formatTimeShort(t.due_at);
+      if (diffMs < 0) {
+        return { cls: 'ws-badge-deadline-overdue', label: `🚨 Plazo vencido: ${formatted}` };
+      } else if (diffMs <= 24 * 60 * 60 * 1000) {
+        return { cls: 'ws-badge-deadline-soon', label: `⏳ Vence pronto: ${formatted}` };
+      } else {
+        return { cls: 'ws-badge-deadline-ok', label: `📅 Plazo: ${formatted}` };
+      }
+    }
+  }
+  if (t.target_date && t.target_date < todayStr) {
+    return { cls: 'ws-badge-deadline-overdue', label: `⚠️ Pendiente de ${t.target_date}` };
+  }
+  return null;
+}
+
 function renderSingleTaskRowHtml(t, todayStr) {
   const prioMap = {
     urgent: { label: '🔥 Urgente', cls: 'ws-badge-urgent' },
@@ -1426,33 +1937,93 @@ function renderSingleTaskRowHtml(t, todayStr) {
     monthly: '🔁 Mensual'
   };
   const recLabel = recMap[t.recurrence] || null;
-  const isOverdue = !t.is_completed && t.target_date && t.target_date < todayStr;
+  const deadlineInfo = getDeadlineBadgeInfo(t, todayStr);
+  const isOverdueRow = deadlineInfo && deadlineInfo.cls === 'ws-badge-deadline-overdue';
   const subtasks = Array.isArray(t.subtasks) ? t.subtasks : [];
 
+  // Estado actual normalizado
+  const currentSt = t.is_completed ? 'done' : (t.status === 'done' ? 'todo' : (t.status || 'todo'));
+
+  // Información de delegación entre Administradores
+  const isDelegated = isDelegatedOrTeamTask(t);
+  const assignerName = getAdminDisplayNameById(t.assigned_by, t.assigned_by_name || 'Admin');
+  const assigneeName = getAdminDisplayNameById(t.user_id, t.assigned_to_name || 'Admin');
+
+  let delegationBadgesHtml = '';
+  if (t.assigned_by && t.user_id && t.assigned_by !== t.user_id) {
+    if (t.user_id === wsState.userId) {
+      delegationBadgesHtml = `
+        <span class="ws-badge ws-badge-delegated-in" title="Tarea asignada a ti por ${escapeHtml(assignerName)}">
+          <i class="ri-user-received-2-line"></i> Asignada por: ${escapeHtml(assignerName)}
+        </span>
+      `;
+    } else if (t.assigned_by === wsState.userId) {
+      delegationBadgesHtml = `
+        <span class="ws-badge ws-badge-delegated-out" title="Tarea que asignaste a ${escapeHtml(assigneeName)}">
+          <i class="ri-user-shared-2-line"></i> Para: ${escapeHtml(assigneeName)}
+        </span>
+      `;
+    } else {
+      delegationBadgesHtml = `
+        <span class="ws-badge ws-badge-delegated-in">
+          <i class="ri-team-line"></i> ${escapeHtml(assignerName)} → ${escapeHtml(assigneeName)}
+        </span>
+      `;
+    }
+  } else if (t.is_team_task) {
+    delegationBadgesHtml = `
+      <span class="ws-badge ws-badge-delegated-out">
+        <i class="ri-user-star-line"></i> Admin: ${escapeHtml(assigneeName)}
+      </span>
+    `;
+  }
+
+  // Comentarios visibles para este Admin (Públicos entre Admins + Personales propios)
+  const visibleComments = getVisibleCommentsForTask(t);
+  const publicCount = visibleComments.filter(c => c.visibility !== 'personal').length;
+  const personalCount = visibleComments.filter(c => c.visibility === 'personal').length;
+  const isCommentsOpen = !!wsState.openCommentTaskIds[t.id];
+
   return `
-    <div class="ws-task-item ${t.is_completed ? 'is-done' : ''}">
+    <div class="ws-task-item ${t.is_completed ? 'is-done' : ''} ${isDelegated ? 'is-delegated' : ''} ${isOverdueRow ? 'is-overdue' : ''}">
       <div class="ws-task-main-row">
         <div class="ws-task-left">
           <button
             type="button"
             class="ws-check-btn ${t.is_completed ? 'checked' : ''}"
             onclick="window.toggleWorkspaceTaskCheck('${t.id}')"
-            title="${t.is_completed ? 'Desmarcar tarea' : 'Marcar como completada'}"
+            title="${t.is_completed ? 'Desmarcar tarea' : 'Marcar como lista / completada'}"
           >
             <i class="ri-check-line" style="font-size: 0.9rem; font-weight: 900;"></i>
           </button>
 
           <div style="flex: 1; min-width: 0;">
-            <div class="ws-task-title" onclick="window.toggleWorkspaceTaskCheck('${t.id}')">
-              ${escapeHtml(t.title)}
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <div class="ws-task-title" onclick="window.toggleWorkspaceTaskCheck('${t.id}')">
+                ${escapeHtml(t.title)}
+              </div>
+
+              <!-- Selector rápido de Estado (Por Hacer, En Proceso, En Espera, Lista) -->
+              <select
+                class="ws-status-pill-select status-${currentSt}"
+                onchange="window.changeWorkspaceTaskStatus('${t.id}', this.value)"
+                title="Cambiar estado de avance de la tarea"
+              >
+                <option value="todo" ${currentSt === 'todo' ? 'selected' : ''}>⏳ Por Hacer</option>
+                <option value="in_progress" ${currentSt === 'in_progress' ? 'selected' : ''}>⚡ En Proceso</option>
+                <option value="waiting" ${currentSt === 'waiting' ? 'selected' : ''}>⏸️ En Espera</option>
+                <option value="done" ${currentSt === 'done' ? 'selected' : ''}>✅ Lista ✓</option>
+              </select>
             </div>
+
             ${t.description ? `<div class="ws-task-desc">${escapeHtml(t.description)}</div>` : ''}
 
             <div class="ws-task-badges">
+              ${delegationBadgesHtml}
               <span class="ws-badge ${pInfo.cls}">${pInfo.label}</span>
+              ${deadlineInfo ? `<span class="ws-badge ${deadlineInfo.cls}">${escapeHtml(deadlineInfo.label)}</span>` : ''}
               <span class="ws-badge ws-badge-cat">${escapeHtml(t.category || 'operaciones')}</span>
               ${recLabel ? `<span class="ws-badge ws-badge-rec">${recLabel}</span>` : ''}
-              ${isOverdue ? `<span class="ws-badge ws-badge-urgent">⚠️ Pendiente de ${escapeHtml(t.target_date)}</span>` : ''}
               ${t.linked_ref ? `<span class="ws-badge ws-badge-cat" style="color: #6366f1; border-color: rgba(99,102,241,0.3);"><i class="ri-links-line"></i> ${escapeHtml(t.linked_ref)}</span>` : ''}
               ${t.reminder_whatsapp && t.reminder_at ? `
                 <span class="ws-badge ws-badge-wa" title="${t.reminder_sent ? 'Recordatorio ya enviado por Stox' : 'Recordatorio programado en Stox WhatsApp'}">
@@ -1464,6 +2035,16 @@ function renderSingleTaskRowHtml(t, todayStr) {
         </div>
 
         <div class="ws-task-actions">
+          <button
+            type="button"
+            class="ws-icon-btn"
+            style="width: auto; padding: 0 0.55rem; gap: 0.28rem; font-size: 0.73rem; font-weight: 700; ${isCommentsOpen || visibleComments.length > 0 ? 'border-color: #6366f1; color: #6366f1; background: rgba(99,102,241,0.1);' : ''}"
+            onclick="window.toggleWorkspaceTaskComments('${t.id}')"
+            title="Abrir comentarios de la tarea (${publicCount} públicos entre Admins, ${personalCount} personales)"
+          >
+            <i class="ri-discuss-line"></i>
+            <span>${visibleComments.length}</span>
+          </button>
           <button type="button" class="ws-icon-btn" onclick="window.scheduleTaskStoxReminderModal('${t.id}')" title="Programar hora de recordatorio por WhatsApp (Stox)">
             <i class="ri-alarm-line" style="color: #10b981;"></i>
           </button>
@@ -1489,6 +2070,74 @@ function renderSingleTaskRowHtml(t, todayStr) {
           `).join('')}
         </div>
       ` : ''}
+
+      ${isCommentsOpen ? renderTaskCommentsDrawerHtml(t, visibleComments) : ''}
+    </div>
+  `;
+}
+
+function renderTaskCommentsDrawerHtml(t, visibleComments) {
+  return `
+    <div class="ws-comments-drawer">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem;">
+        <span style="font-size: 0.76rem; font-weight: 800; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-chat-3-line" style="color: #6366f1;"></i>
+          Bitácora y Comentarios de la Tarea (${visibleComments.length})
+        </span>
+        <span style="font-size: 0.7rem; color: var(--color-text-muted);">
+          🌐 <strong>Público:</strong> visible entre Admins · 🔒 <strong>Personal:</strong> solo lo ves tú
+        </span>
+      </div>
+
+      <div class="ws-comments-list">
+        ${visibleComments.length === 0 ? `
+          <div style="font-size: 0.76rem; color: var(--color-text-muted); padding: 0.45rem 0.2rem;">
+            Aún no hay comentarios en esta tarea. Escribe abajo un avance público para los demás Admins o un apunte personal privado.
+          </div>
+        ` : visibleComments.map(c => {
+          const isPersonal = c.visibility === 'personal';
+          const isMine = c.author_id === wsState.userId;
+          return `
+            <div class="ws-comment-card ${isPersonal ? 'vis-personal' : 'vis-public'}">
+              <div class="ws-comment-meta">
+                <div style="display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                  <strong style="color: var(--color-text-main);">${escapeHtml(c.author_name || 'Admin')}</strong>
+                  <span class="ws-comment-vis-badge ${isPersonal ? 'personal' : 'public'}">
+                    ${isPersonal ? '🔒 Nota Personal (Solo tú)' : '🌐 Público (Entre Admins)'}
+                  </span>
+                </div>
+                <div style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                  <span>${formatTimeShort(c.created_at)}</span>
+                  ${isMine ? `
+                    <button type="button" onclick="window.deleteWorkspaceTaskComment('${t.id}', '${c.id}')" style="border:none;background:transparent;color:#ef4444;cursor:pointer;padding:0;font-size:0.75rem;" title="Borrar comentario">
+                      <i class="ri-delete-bin-line"></i>
+                    </button>
+                  ` : ''}
+                </div>
+              </div>
+              <div class="ws-comment-body">${escapeHtml(c.text)}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+
+      <form class="ws-comment-form" onsubmit="event.preventDefault(); window.addWorkspaceTaskComment('${t.id}');">
+        <select id="ws-comment-vis-${t.id}" class="ws-select-sm" style="font-weight: 700;">
+          <option value="public">🌐 Público (Entre Admins)</option>
+          <option value="personal">🔒 Personal (Solo para mí)</option>
+        </select>
+        <input
+          type="text"
+          id="ws-comment-input-${t.id}"
+          class="ws-quick-input"
+          style="padding: 0.42rem 0.7rem; font-size: 0.79rem;"
+          placeholder="Escribe un comentario, avance o apunte sobre esta tarea..."
+          autocomplete="off"
+        />
+        <button type="submit" class="btn btn-sm btn-primary" style="padding: 0.42rem 0.8rem; font-size: 0.76rem; font-weight: 700;">
+          <i class="ri-send-plane-fill"></i> Comentar
+        </button>
+      </form>
     </div>
   `;
 }
@@ -1497,23 +2146,29 @@ function renderSingleTaskRowHtml(t, todayStr) {
 // PESTAÑA 2: TABLERO KANBAN & TAREAS PROGRAMADAS
 // ----------------------------------------------------------------------------
 function renderKanbanTabMarkup() {
+  const today = getTodayStrChile();
   const columns = [
     { key: 'todo', label: '⏳ Por Hacer', color: '#f59e0b' },
-    { key: 'in_progress', label: '⚡ En Curso', color: '#3b82f6' },
+    { key: 'in_progress', label: '⚡ En Proceso', color: '#3b82f6' },
     { key: 'waiting', label: '⏸️ En Espera', color: '#8b5cf6' },
-    { key: 'done', label: '✅ Completadas', color: '#10b981' }
+    { key: 'done', label: '✅ Listas / Completadas', color: '#10b981' }
   ];
 
   return `
     <div style="display: flex; flex-direction: column; gap: 1rem;">
       <div class="ws-panel-card" style="padding: 0.9rem 1.2rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
         <div>
-          <strong style="font-size: 0.9rem; color: var(--color-text-main);">📋 Tablero Kanban Operativo</strong>
-          <span style="font-size: 0.8rem; color: var(--color-text-muted); margin-left: 0.5rem;">Mueve tus tareas de estado con un clic o programa tareas para fechas futuras.</span>
+          <strong style="font-size: 0.9rem; color: var(--color-text-main);">📋 Tablero Kanban Operativo & Delegación</strong>
+          <span style="font-size: 0.8rem; color: var(--color-text-muted); margin-left: 0.5rem;">Cambia estados de avance con un clic, revisa plazos o asigna tareas a otros Admins.</span>
         </div>
-        <button type="button" onclick="window.openNewScheduledTaskModal()" class="btn btn-sm btn-primary" style="display: inline-flex; align-items: center; gap: 0.35rem;">
-          <i class="ri-calendar-todo-line"></i> Programar Tarea Futura
-        </button>
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" onclick="window.openAssignAdminTaskModal()" class="btn btn-sm btn-primary" style="display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-user-shared-line"></i> Asignar Tarea a Admin
+          </button>
+          <button type="button" onclick="window.openNewScheduledTaskModal()" class="btn btn-sm btn-outline" style="display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-calendar-todo-line"></i> Programar Tarea
+          </button>
+        </div>
       </div>
 
       <div class="ws-kanban-board">
@@ -1531,24 +2186,36 @@ function renderKanbanTabMarkup() {
               </div>
               <div class="ws-kanban-col-body">
                 ${colTasks.length === 0 ? `<div style="text-align: center; padding: 1.5rem 0.5rem; font-size: 0.76rem; color: var(--color-text-muted);">Sin tareas en esta etapa</div>` : ''}
-                ${colTasks.map(t => `
-                  <div class="ws-kanban-card">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.4rem;">
-                      <strong style="font-size: 0.82rem; color: var(--color-text-main); ${t.is_completed ? 'text-decoration: line-through; opacity: 0.65;' : ''}">${escapeHtml(t.title)}</strong>
-                      <button type="button" class="ws-icon-btn danger" style="width:22px;height:22px;" onclick="window.deleteWorkspaceTask('${t.id}')"><i class="ri-close-line"></i></button>
+                ${colTasks.map(t => {
+                  const deadlineInfo = getDeadlineBadgeInfo(t, today);
+                  const visibleComments = getVisibleCommentsForTask(t);
+                  const assigneeName = getAdminDisplayNameById(t.user_id, t.assigned_to_name || 'Admin');
+                  const isDelegated = isDelegatedOrTeamTask(t);
+                  return `
+                    <div class="ws-kanban-card" style="${isDelegated ? 'border-left: 3px solid #8b5cf6;' : ''}">
+                      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.4rem;">
+                        <strong style="font-size: 0.82rem; color: var(--color-text-main); ${t.is_completed ? 'text-decoration: line-through; opacity: 0.65;' : ''}">${escapeHtml(t.title)}</strong>
+                        <button type="button" class="ws-icon-btn danger" style="width:22px;height:22px;" onclick="window.deleteWorkspaceTask('${t.id}')"><i class="ri-close-line"></i></button>
+                      </div>
+                      ${t.description ? `<div style="font-size: 0.74rem; color: var(--color-text-muted);">${escapeHtml(t.description)}</div>` : ''}
+                      <div style="display: flex; flex-wrap: wrap; gap: 0.28rem;">
+                        ${isDelegated ? `<span class="ws-badge ws-badge-delegated-in" style="font-size:0.65rem;">👤 ${escapeHtml(assigneeName)}</span>` : ''}
+                        ${deadlineInfo ? `<span class="ws-badge ${deadlineInfo.cls}" style="font-size:0.65rem;">${escapeHtml(deadlineInfo.label)}</span>` : ''}
+                      </div>
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; margin-top: 0.25rem; flex-wrap: wrap;">
+                        <button type="button" onclick="window.openKanbanTaskCommentsModal('${t.id}')" class="btn btn-sm btn-outline" style="padding: 0.15rem 0.45rem; font-size: 0.68rem;">
+                          💬 ${visibleComments.length}
+                        </button>
+                        <select onchange="window.changeWorkspaceTaskStatus('${t.id}', this.value)" class="ws-select-sm" style="padding: 0.15rem 0.35rem; font-size: 0.7rem;">
+                          <option value="todo" ${(!t.is_completed && t.status === 'todo') ? 'selected' : ''}>⏳ Por Hacer</option>
+                          <option value="in_progress" ${(!t.is_completed && t.status === 'in_progress') ? 'selected' : ''}>⚡ En Proceso</option>
+                          <option value="waiting" ${(!t.is_completed && t.status === 'waiting') ? 'selected' : ''}>⏸️ En Espera</option>
+                          <option value="done" ${t.is_completed ? 'selected' : ''}>✅ Lista ✓</option>
+                        </select>
+                      </div>
                     </div>
-                    ${t.description ? `<div style="font-size: 0.74rem; color: var(--color-text-muted);">${escapeHtml(t.description)}</div>` : ''}
-                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; margin-top: 0.25rem; flex-wrap: wrap;">
-                      <span style="font-size: 0.7rem; color: var(--color-text-muted);"><i class="ri-calendar-line"></i> ${escapeHtml(t.target_date || '')}</span>
-                      <select onchange="window.changeWorkspaceTaskStatus('${t.id}', this.value)" class="ws-select-sm" style="padding: 0.15rem 0.35rem; font-size: 0.7rem;">
-                        <option value="todo" ${(!t.is_completed && t.status === 'todo') ? 'selected' : ''}>Por Hacer</option>
-                        <option value="in_progress" ${(!t.is_completed && t.status === 'in_progress') ? 'selected' : ''}>En Curso</option>
-                        <option value="waiting" ${(!t.is_completed && t.status === 'waiting') ? 'selected' : ''}>En Espera</option>
-                        <option value="done" ${t.is_completed ? 'selected' : ''}>Completada ✓</option>
-                      </select>
-                    </div>
-                  </div>
-                `).join('')}
+                  `;
+                }).join('')}
               </div>
             </div>
           `;
@@ -1885,8 +2552,10 @@ function renderSettingsTabMarkup() {
 
 window.handleQuickAddTaskSubmit = async function() {
   const titleEl = document.getElementById('ws-new-task-title');
+  const assigneeEl = document.getElementById('ws-new-task-assignee');
   const prioEl = document.getElementById('ws-new-task-priority');
   const catEl = document.getElementById('ws-new-task-category');
+  const dueEl = document.getElementById('ws-new-task-due-at');
   const recEl = document.getElementById('ws-new-task-recurrence');
   const refEl = document.getElementById('ws-new-task-ref');
   const waCheckEl = document.getElementById('ws-new-task-wa-enable');
@@ -1894,11 +2563,17 @@ window.handleQuickAddTaskSubmit = async function() {
 
   if (!titleEl || !titleEl.value.trim()) return;
 
+  const assignedToUserId = assigneeEl && assigneeEl.value ? assigneeEl.value : wsState.userId;
+  const isDelegated = assignedToUserId !== wsState.userId;
+  const dueAt = dueEl && dueEl.value ? new Date(dueEl.value).toISOString() : null;
+
   let reminderAt = null;
   const reminderWhatsapp = !!(waCheckEl && waCheckEl.checked);
   if (reminderWhatsapp) {
     if (waTimeEl && waTimeEl.value) {
       reminderAt = new Date(waTimeEl.value).toISOString();
+    } else if (dueAt) {
+      reminderAt = dueAt;
     } else {
       // Por defecto en 1 hora si marcó recordar pero no especificó hora
       reminderAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
@@ -1909,6 +2584,10 @@ window.handleQuickAddTaskSubmit = async function() {
     title: titleEl.value.trim(),
     priority: prioEl ? prioEl.value : 'medium',
     category: catEl ? catEl.value : 'operaciones',
+    assignedToUserId,
+    isTeamTask: isDelegated,
+    notifyAssigneeWhatsapp: isDelegated && reminderWhatsapp,
+    dueAt,
     recurrence: recEl ? recEl.value : 'none',
     linkedRef: refEl ? refEl.value.trim() : '',
     reminderAt,
@@ -1917,6 +2596,189 @@ window.handleQuickAddTaskSubmit = async function() {
 
   titleEl.value = '';
   if (refEl) refEl.value = '';
+  if (dueEl) dueEl.value = '';
+};
+
+window.openAssignAdminTaskModal = async function() {
+  if (typeof Swal === 'undefined') return;
+  if (!wsState.adminUsers || wsState.adminUsers.length === 0) {
+    await fetchAdminUsersList();
+  }
+
+  const defaultDue = new Date(Date.now() + 4 * 60 * 60 * 1000);
+  const defaultDueLocal = new Date(defaultDue.getTime() - defaultDue.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
+  const adminOptionsHtml = wsState.adminUsers.map(adm => {
+    const isMe = adm.id === wsState.userId;
+    return `<option value="${escapeHtml(adm.id)}">${escapeHtml(adm.name)}${isMe ? ' (Yo)' : ''}${adm.email ? ` — ${escapeHtml(adm.email)}` : ''}</option>`;
+  }).join('');
+
+  const { value: form } = await Swal.fire({
+    title: '👥 Asignar Tarea Especial a Administrador',
+    width: 620,
+    html: `
+      <div style="text-align:left; font-size:0.84rem; display:flex; flex-direction:column; gap:0.75rem;">
+        <div>
+          <label style="font-weight:700; display:block; margin-bottom:0.25rem;">👤 Asignar a usuario Administrador *</label>
+          <select id="swal-assign-admin-id" class="swal2-input" style="margin:0;width:100%;font-size:0.86rem;font-weight:700;">
+            ${adminOptionsHtml}
+          </select>
+        </div>
+
+        <div>
+          <label style="font-weight:700; display:block; margin-bottom:0.25rem;">📌 Título de la tarea *</label>
+          <input id="swal-assign-title" class="swal2-input" style="margin:0;width:100%;font-size:0.88rem;" placeholder="Ej. Revisar diferencias de inventario cliente X..." />
+        </div>
+
+        <div>
+          <label style="font-weight:700; display:block; margin-bottom:0.25rem;">📝 Instrucciones / Contexto operativo</label>
+          <textarea id="swal-assign-desc" class="swal2-textarea" style="margin:0;width:100%;font-size:0.83rem;height:68px;" placeholder="Detalla qué se debe realizar o verificar..."></textarea>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
+          <div>
+            <label style="font-weight:700; display:block; margin-bottom:0.25rem;">⚡ Nivel de Urgencia</label>
+            <select id="swal-assign-prio" class="swal2-input" style="margin:0;width:100%;font-size:0.84rem;">
+              <option value="urgent">🔥 URGENTE (Inmediata)</option>
+              <option value="high" selected>🔴 Alta</option>
+              <option value="medium">🟡 Media</option>
+              <option value="low">🔵 Baja</option>
+            </select>
+          </div>
+
+          <div>
+            <label style="font-weight:700; display:block; margin-bottom:0.25rem;">⏳ Plazo Límite (Fecha y Hora)</label>
+            <input type="datetime-local" id="swal-assign-due" class="swal2-input" style="margin:0;width:100%;font-size:0.83rem;" value="${defaultDueLocal}" />
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
+          <div>
+            <label style="font-weight:700; display:block; margin-bottom:0.25rem;">📋 Estado Inicial</label>
+            <select id="swal-assign-status" class="swal2-input" style="margin:0;width:100%;font-size:0.84rem;">
+              <option value="todo" selected>⏳ Por Hacer</option>
+              <option value="in_progress">⚡ En Proceso</option>
+              <option value="waiting">⏸️ En Espera</option>
+            </select>
+          </div>
+
+          <div>
+            <label style="font-weight:700; display:block; margin-bottom:0.25rem;">🔗 Referencia (#Pedido / SKU / Comercio)</label>
+            <input id="swal-assign-ref" class="swal2-input" style="margin:0;width:100%;font-size:0.84rem;" placeholder="Opcional..." />
+          </div>
+        </div>
+
+        <div style="padding: 0.7rem; border-radius: 10px; background: rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.2);">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.35rem;">
+            <label style="font-weight:700; font-size:0.8rem;">💬 Comentario inicial dentro de la tarea (Opcional)</label>
+            <select id="swal-assign-comment-vis" style="font-size:0.74rem; padding:0.18rem 0.45rem; border-radius:6px; border:1px solid var(--color-border);">
+              <option value="public" selected>🌐 Público (Visible entre Admins)</option>
+              <option value="personal">🔒 Personal (Solo visible para mí)</option>
+            </select>
+          </div>
+          <input id="swal-assign-comment-text" class="swal2-input" style="margin:0;width:100%;font-size:0.82rem;height:36px;" placeholder="Añade un primer comentario o nota privada sobre esta asignación..." />
+        </div>
+
+        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-weight:700; color:#10b981; background:rgba(16,185,129,0.09); padding:0.55rem 0.75rem; border-radius:9px; border:1px solid rgba(16,185,129,0.3);">
+          <input type="checkbox" id="swal-assign-wa-notify" checked style="width:17px;height:17px;accent-color:#10b981;" />
+          <span>📲 Notificar ahora mismo por WhatsApp (Stox) al Administrador asignado</span>
+        </label>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-user-shared-line"></i> Asignar Tarea',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#6366f1',
+    preConfirm: () => {
+      const title = document.getElementById('swal-assign-title').value.trim();
+      if (!title) {
+        Swal.showValidationMessage('Ingresa el título de la tarea a asignar');
+        return false;
+      }
+      return {
+        assignedToUserId: document.getElementById('swal-assign-admin-id').value,
+        title,
+        description: document.getElementById('swal-assign-desc').value.trim(),
+        priority: document.getElementById('swal-assign-prio').value,
+        dueVal: document.getElementById('swal-assign-due').value,
+        initialStatus: document.getElementById('swal-assign-status').value,
+        linkedRef: document.getElementById('swal-assign-ref').value.trim(),
+        commentText: document.getElementById('swal-assign-comment-text').value.trim(),
+        commentVis: document.getElementById('swal-assign-comment-vis').value,
+        notifyWa: document.getElementById('swal-assign-wa-notify').checked
+      };
+    }
+  });
+
+  if (!form) return;
+
+  const dueAtIso = form.dueVal ? new Date(form.dueVal).toISOString() : null;
+  const created = await createWorkspaceTask({
+    title: form.title,
+    description: form.description,
+    priority: form.priority,
+    category: 'operaciones',
+    targetDate: dueAtIso ? dueAtIso.split('T')[0] : getTodayStrChile(),
+    dueAt: dueAtIso,
+    assignedToUserId: form.assignedToUserId,
+    isTeamTask: true,
+    notifyAssigneeWhatsapp: form.notifyWa,
+    linkedRef: form.linkedRef,
+    reminderAt: dueAtIso,
+    reminderWhatsapp: form.notifyWa
+  });
+
+  if (created) {
+    if (form.initialStatus && form.initialStatus !== 'todo') {
+      await window.changeWorkspaceTaskStatus(created.id, form.initialStatus);
+    }
+    if (form.commentText) {
+      if (!Array.isArray(created.comments)) created.comments = [];
+      created.comments.push({
+        id: `cmt_${Date.now()}`,
+        author_id: wsState.userId,
+        author_name: wsState.userName || 'Admin',
+        text: form.commentText,
+        visibility: form.commentVis || 'public',
+        created_at: new Date().toISOString()
+      });
+      wsState.openCommentTaskIds[created.id] = true;
+      saveToLocalMirror();
+      if (wsState.supabaseTablesReady && wsState.userId) {
+        supabase.from('user_workspace_tasks').update({ comments: created.comments }).eq('id', created.id).then(() => {});
+      }
+      refreshAllWorkspaceViews();
+    }
+
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `✅ Tarea asignada a ${created.assigned_to_name || 'Admin'}`,
+        showConfirmButton: false,
+        timer: 2600
+      });
+    }
+  }
+};
+
+window.openKanbanTaskCommentsModal = function(taskId) {
+  wsState.openCommentTaskIds[taskId] = true;
+  const task = wsState.tasks.find(t => t.id === taskId);
+  if (task && isDelegatedOrTeamTask(task)) {
+    wsState.activeMainTab = 'team';
+  } else {
+    wsState.activeMainTab = 'day';
+  }
+  refreshAllWorkspaceViews();
+  setTimeout(() => {
+    const input = document.getElementById(`ws-comment-input-${taskId}`);
+    if (input) {
+      input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      input.focus();
+    }
+  }, 100);
 };
 
 window.handleWorkspaceScratchpadInput = function(value) {
@@ -2057,7 +2919,7 @@ window.openNewScheduledTaskModal = async function() {
             <input type="date" id="swal-sched-date" class="swal2-input" style="margin:0;width:100%;font-size:0.84rem;" value="${today}" />
           </div>
           <div>
-            <label style="font-weight:700; display:block; margin-bottom:0.25rem;">Prioridad</label>
+            <label style="font-weight:700; display:block; margin-bottom:0.25rem;">Prioridad / Urgencia</label>
             <select id="swal-sched-prio" class="swal2-input" style="margin:0;width:100%;font-size:0.84rem;">
               <option value="urgent">🔥 Urgente</option>
               <option value="high">🔴 Alta</option>
@@ -2065,6 +2927,10 @@ window.openNewScheduledTaskModal = async function() {
               <option value="low">🔵 Baja</option>
             </select>
           </div>
+        </div>
+        <div>
+          <label style="font-weight:700; display:block; margin-bottom:0.25rem;">⏳ Plazo Límite (Fecha y Hora - Opcional)</label>
+          <input type="datetime-local" id="swal-sched-due" class="swal2-input" style="margin:0;width:100%;font-size:0.84rem;" />
         </div>
         <div>
           <label style="font-weight:700; display:block; margin-bottom:0.25rem;">🤖 Recordatorio por WhatsApp (Stox) - Opcional</label>
@@ -2087,6 +2953,7 @@ window.openNewScheduledTaskModal = async function() {
         description: document.getElementById('swal-sched-desc').value.trim(),
         targetDate: document.getElementById('swal-sched-date').value || today,
         priority: document.getElementById('swal-sched-prio').value,
+        dueTime: document.getElementById('swal-sched-due').value,
         waTime: document.getElementById('swal-sched-wa').value
       };
     }
@@ -2097,6 +2964,7 @@ window.openNewScheduledTaskModal = async function() {
     title: form.title,
     description: form.description,
     targetDate: form.targetDate,
+    dueAt: form.dueTime ? new Date(form.dueTime).toISOString() : null,
     priority: form.priority,
     reminderAt: form.waTime ? new Date(form.waTime).toISOString() : null,
     reminderWhatsapp: !!form.waTime
@@ -2520,6 +3388,53 @@ function renderFloatingPopoverContent() {
             </button>
           </div>
         `).join('')}
+      </div>
+    `;
+  } else if (wsState.activeFloatingTool === 'team') {
+    const delegatedTasks = getTeamDelegatedTasksList();
+    bodyEl.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;">
+        <span style="font-size: 0.76rem; font-weight: 700; color: var(--color-text-main);">👥 Tareas Asignadas Admin (${delegatedTasks.filter(t => !t.is_completed).length})</span>
+        <button type="button" onclick="window.openAssignAdminTaskModal()" class="btn btn-sm btn-primary" style="padding: 0.25rem 0.6rem; font-size: 0.72rem; font-weight: 700;">+ Asignar a Admin</button>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.25rem;">
+        ${delegatedTasks.length === 0 ? `
+          <div style="text-align: center; padding: 1.4rem 0.5rem; font-size: 0.76rem; color: var(--color-text-muted);">
+            No hay tareas delegadas activas. Pulsa <strong>+ Asignar a Admin</strong> para crear una.
+          </div>
+        ` : delegatedTasks.map(t => {
+          const st = t.is_completed ? 'done' : (t.status === 'done' ? 'todo' : (t.status || 'todo'));
+          const assigneeName = getAdminDisplayNameById(t.user_id, t.assigned_to_name || 'Admin');
+          const assignerName = getAdminDisplayNameById(t.assigned_by, t.assigned_by_name || 'Admin');
+          const visComments = getVisibleCommentsForTask(t);
+          return `
+            <div style="display: flex; flex-direction: column; gap: 0.35rem; padding: 0.55rem 0.65rem; border-radius: 9px; background: var(--color-bg); border: 1px solid var(--color-border); border-left: 3px solid #8b5cf6;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;">
+                <div style="display: flex; align-items: center; gap: 0.45rem; min-width: 0; flex: 1; cursor: pointer;" onclick="window.toggleWorkspaceTaskCheck('${t.id}')">
+                  <button type="button" class="ws-check-btn ${t.is_completed ? 'checked' : ''}" style="width: 18px; height: 18px;">
+                    <i class="ri-check-line" style="font-size: 0.78rem;"></i>
+                  </button>
+                  <span style="font-size: 0.79rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; ${t.is_completed ? 'text-decoration: line-through; opacity: 0.55;' : ''}" title="${escapeHtml(t.title)}">
+                    ${escapeHtml(t.title)}
+                  </span>
+                </div>
+                <select class="ws-status-pill-select status-${st}" onchange="window.changeWorkspaceTaskStatus('${t.id}', this.value)" style="font-size: 0.66rem; padding: 0.1rem 0.35rem;">
+                  <option value="todo" ${st === 'todo' ? 'selected' : ''}>⏳ Por Hacer</option>
+                  <option value="in_progress" ${st === 'in_progress' ? 'selected' : ''}>⚡ En Proceso</option>
+                  <option value="waiting" ${st === 'waiting' ? 'selected' : ''}>⏸️ Espera</option>
+                  <option value="done" ${st === 'done' ? 'selected' : ''}>✅ Lista ✓</option>
+                </select>
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.69rem; color: var(--color-text-muted);">
+                <span>👤 ${escapeHtml(assignerName)} → <strong>${escapeHtml(assigneeName)}</strong></span>
+                <button type="button" onclick="window.toggleWorkspaceFloatingPopover(false); window.openKanbanTaskCommentsModal('${t.id}');" style="border:none;background:transparent;color:#6366f1;font-weight:700;cursor:pointer;font-size:0.69rem;">
+                  💬 ${visComments.length} coment.
+                </button>
+              </div>
+            </div>
+          `;
+        }).join('')}
       </div>
     `;
   } else if (wsState.activeFloatingTool === 'scratchpad') {

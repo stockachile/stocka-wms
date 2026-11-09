@@ -2077,8 +2077,10 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
   } else if (primaryShipment?.source_table === 'lightdata_envios' && primaryShipment?.raw_data?.[31] && String(primaryShipment.raw_data[31]).startsWith('http')) {
     effectiveTrackingUrl = String(primaryShipment.raw_data[31]).trim();
   }
-  if (effectiveTrackingUrl.includes('api.enviame.io/s2/') || effectiveTrackingUrl.includes('api.enviame.io/api/')) {
-    effectiveTrackingUrl = effectiveTracking ? `https://tracking.enviame.io/?n=${encodeURIComponent(effectiveTracking)}` : '';
+  if (window.resolveCourierPublicTrackingUrl) {
+    effectiveTrackingUrl = window.resolveCourierPublicTrackingUrl(effectiveTrackingUrl, effectiveTracking, effectiveCourier, primaryShipment, orderData) || '';
+  } else if (effectiveTrackingUrl.includes('api.enviame.io/s2/') || effectiveTrackingUrl.includes('api.enviame.io/api/') || effectiveTrackingUrl.includes('tracking.enviame.io')) {
+    effectiveTrackingUrl = '';
   }
   if (effectiveTrackingUrl === 'N/A' || (!effectiveTrackingUrl.startsWith('http://') && !effectiveTrackingUrl.startsWith('https://'))) {
     effectiveTrackingUrl = '';
@@ -3484,6 +3486,7 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                   </span>
                 </div>
               </div>
+              ${window.renderOrderPublicTrackingSectionHtml ? window.renderOrderPublicTrackingSectionHtml(orderData, effectiveTrackingUrl, effectiveCourier) : ''}
             </div>
 
             ${isAdmin ? `

@@ -4,8 +4,10 @@
 -- Incluye:
 -- 1. user_workspace_settings : Preferencias por usuario, teléfono WhatsApp Stox,
 --                              herramientas seleccionadas en el botón flotante y Scratchpad.
--- 2. user_workspace_tasks    : Tareas, checklist diario ("Mi Día"), rutinas recurrentes,
---                              sub-tareas, estado Kanban y recordatorios por WhatsApp (Stox).
+-- 2. user_workspace_tasks    : Tareas personales y delegadas entre Admins, checklist diario,
+--                              plazos (due_at), urgencias, estados (Por Hacer / En Proceso /
+--                              En Espera / Lista), comentarios (públicos entre admins o
+--                              personales privados) y recordatorios por WhatsApp (Stox).
 -- 3. user_workspace_notes    : Notas personales, post-its por colores, etiquetas y fijados.
 --
 -- Ejecutar en el Editor SQL de Supabase:
@@ -28,11 +30,14 @@ CREATE TABLE IF NOT EXISTS public.user_workspace_settings (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- 2. Tabla de Tareas, Checklist Diario y Recordatorios Stox
+-- 2. Tabla de Tareas, Asignaciones entre Admins, Plazos, Comentarios y Recordatorios Stox
 CREATE TABLE IF NOT EXISTS public.user_workspace_tasks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     assigned_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    assigned_by_name TEXT DEFAULT NULL,
+    assigned_to_name TEXT DEFAULT NULL,
+    is_team_task BOOLEAN NOT NULL DEFAULT FALSE,
     title TEXT NOT NULL,
     description TEXT DEFAULT '',
     is_completed BOOLEAN NOT NULL DEFAULT FALSE,
@@ -48,6 +53,9 @@ CREATE TABLE IF NOT EXISTS public.user_workspace_tasks (
         CHECK (recurrence IN ('none', 'daily_workdays', 'daily', 'weekly', 'monthly')),
     last_recurrence_date TEXT DEFAULT NULL,
     subtasks JSONB NOT NULL DEFAULT '[]'::jsonb,
+    -- Comentarios dentro de la tarea:
+    -- [{ "id": "...", "author_id": "...", "author_name": "...", "visibility": "public"|"personal", "text": "...", "created_at": "..." }]
+    comments JSONB NOT NULL DEFAULT '[]'::jsonb,
     linked_type TEXT DEFAULT NULL, -- 'order', 'sku', 'merchant', 'ticket'
     linked_ref TEXT DEFAULT NULL,
     reminder_at TIMESTAMPTZ DEFAULT NULL,
@@ -58,6 +66,14 @@ CREATE TABLE IF NOT EXISTS public.user_workspace_tasks (
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+
+-- Migración incremental segura por si la tabla ya había sido creada previamente
+ALTER TABLE public.user_workspace_tasks ADD COLUMN IF NOT EXISTS assigned_by UUID REFERENCES auth.users(id) ON DELETE SET NULL;
+ALTER TABLE public.user_workspace_tasks ADD COLUMN IF NOT EXISTS assigned_by_name TEXT DEFAULT NULL;
+ALTER TABLE public.user_workspace_tasks ADD COLUMN IF NOT EXISTS assigned_to_name TEXT DEFAULT NULL;
+ALTER TABLE public.user_workspace_tasks ADD COLUMN IF NOT EXISTS is_team_task BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.user_workspace_tasks ADD COLUMN IF NOT EXISTS due_at TIMESTAMPTZ DEFAULT NULL;
+ALTER TABLE public.user_workspace_tasks ADD COLUMN IF NOT EXISTS comments JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- 3. Tabla de Notas Personales y Tarjetas Fijadas
 CREATE TABLE IF NOT EXISTS public.user_workspace_notes (
@@ -81,6 +97,13 @@ CREATE TABLE IF NOT EXISTS public.user_workspace_notes (
 -- 4. Índices de rendimiento
 CREATE INDEX IF NOT EXISTS idx_workspace_tasks_user_date
     ON public.user_workspace_tasks(user_id, target_date, is_completed);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_tasks_assigned_by
+    ON public.user_workspace_tasks(assigned_by, is_completed);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_tasks_team
+    ON public.user_workspace_tasks(is_team_task, status)
+    WHERE is_team_task = TRUE;
 
 CREATE INDEX IF NOT EXISTS idx_workspace_tasks_user_status
     ON public.user_workspace_tasks(user_id, status);
@@ -133,7 +156,7 @@ CREATE POLICY "Usuarios gestionan su propia configuracion de workspace"
     USING (auth.uid() = user_id OR auth.jwt() ->> 'role' = 'service_role')
     WITH CHECK (auth.uid() = user_id OR auth.jwt() ->> 'role' = 'service_role');
 
--- Políticas para user_workspace_tasks
+-- Políticas para user_workspace_tasks (soporta tareas propias y tareas asignadas entre Admins)
 DROP POLICY IF EXISTS "Usuarios gestionan sus propias tareas de workspace" ON public.user_workspace_tasks;
 CREATE POLICY "Usuarios gestionan sus propias tareas de workspace"
     ON public.user_workspace_tasks
@@ -141,6 +164,7 @@ CREATE POLICY "Usuarios gestionan sus propias tareas de workspace"
     USING (
         auth.uid() = user_id
         OR auth.uid() = assigned_by
+        OR (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
         OR auth.jwt() ->> 'role' = 'service_role'
     )
     WITH CHECK (

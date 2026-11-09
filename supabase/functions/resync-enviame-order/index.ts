@@ -330,12 +330,19 @@ serve(async (req) => {
     }
 
     let trackingUrl: string | null = null;
-    if (d.links && Array.isArray(d.links)) {
+    if (validTracking) {
+      const cUpper = String(courier || "").toUpperCase();
+      if (cUpper.includes("STARKEN")) {
+        trackingUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(validTracking)}`;
+      } else if (cUpper.includes("BLUE") || cUpper === "BX" || cUpper.includes("BLUEXPRESS")) {
+        trackingUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(validTracking)}`;
+      } else if (cUpper.includes("CHILEXPRESS") || cUpper === "CXP") {
+        trackingUrl = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(validTracking)}`;
+      }
+    }
+    if (!trackingUrl && d.links && Array.isArray(d.links)) {
       const webLink = d.links.find((l: any) => l.rel === "tracking-web");
       if (webLink?.href) trackingUrl = webLink.href;
-    }
-    if (!trackingUrl && validTracking) {
-      trackingUrl = `https://tracking.enviame.io/?n=${encodeURIComponent(validTracking)}`;
     }
 
     const sellerNameRecord = delCompanyName || (delCompanyId ? `ID: ${delCompanyId}` : (orderComercio || null));

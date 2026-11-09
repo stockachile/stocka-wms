@@ -1301,7 +1301,8 @@ serve(async (req) => {
       const envIdVal = payload.enviameId || payload.enviame_id || 'ID_NO_CONFIGURADO';
       const rawPlatform = String(payload.platform || payload.plataforma || '').toLowerCase().trim();
       const isWooCommerce = rawPlatform.includes('woo');
-      const targetPlatformName = isWooCommerce ? 'WooCommerce' : 'Shopify';
+      const isTiendanube = rawPlatform.includes('tiendanube') || rawPlatform.includes('tienda nube') || rawPlatform.includes('nuvem');
+      const targetPlatformName = isTiendanube ? 'Tiendanube' : (isWooCommerce ? 'WooCommerce' : 'Shopify');
 
       emailSubject = `Instrucciones de Integración y Configuración de Envíos - ${commerceName}`;
       headerGradient = 'linear-gradient(135deg, #5e17eb, #7c3aed)';
@@ -1310,9 +1311,11 @@ serve(async (req) => {
       // Consultar adjuntos para agregar enlaces directos en el cuerpo del correo
       let resourcesHtml = '';
       try {
-        const targetFolders = isWooCommerce 
-          ? ['E3', 'E3_General', 'E3_WooCommerce']
-          : ['E3', 'E3_General', 'E3_Shopify'];
+        const targetFolders = isTiendanube
+          ? ['E3', 'E3_General', 'E3_Tiendanube']
+          : (isWooCommerce 
+            ? ['E3', 'E3_General', 'E3_WooCommerce']
+            : ['E3', 'E3_General', 'E3_Shopify']);
 
         const { data: e3Docs } = await supabaseClient
           .from('service_docs')
@@ -1346,7 +1349,71 @@ serve(async (req) => {
         console.error('[send-billing-email] Error cargando enlaces E3 para cuerpo de correo:', err);
       }
 
-      if (isWooCommerce) {
+      if (isTiendanube) {
+        const contactEmailDisplay = payload.userEmail || payload.email || (recipientEmails && recipientEmails.length > 0 ? recipientEmails[0] : '[correo de contacto]');
+
+        emailBodyHtml = `
+          <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+            Hola equipo de <strong>${commerceName}</strong>,<br><br>
+            Junto con saludarte, te comentamos que ya contamos con el acceso al canal de <strong>Tiendanube</strong>. En esta siguiente etapa estaremos revisando la integración a sistemas de envío de última milla; para ello nos deberás confirmar qué mecanismos incluiremos finalmente y cuáles otros se verán en el futuro o simplemente se descartan:
+          </div>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 16px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+              A.- DESPACHOS EN SANTIAGO (RM) - SAME DAY / 24 HRS
+            </strong>
+            En la zona metropolitana, nuestro servicio ofrece entregas en sistema <strong>Same Day</strong> para ventas que se generen hasta las <strong>12:00 hrs</strong>. 
+            Te adjuntamos en este correo la presentación de ese servicio donde podrás recordar lo compartido antes respecto a ese servicio, costo y coberturas.
+          </div>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 16px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+              B.- ACCESO PLATAFORMA ENVIAME
+            </strong>
+            Se les ha generado un usuario para acceder a la plataforma Enviame con el correo <a href="mailto:${contactEmailDisplay}" style="color: #2563eb; font-weight: 700; text-decoration: underline;">${contactEmailDisplay}</a>, deben haber recibido un correo para restablecer su contraseña de acceso. Desde esta plataforma se pueden visualizar las ventas y su estado, además de la gestión de incidencias una vez la integración se encuentre operando al 100%.
+          </div>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 16px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+              C.- DESPACHOS A REGIONES - INTEGRACIÓN ENVIAME
+            </strong>
+            Para despachos a regiones, actualmente trabajamos con integración al sistema de la plataforma <a href="https://enviame.io/" target="_blank" style="color: #2563eb; text-decoration: underline; font-weight: 600;">Enviame</a>, con quienes tenemos una alianza que permite integrar tu tienda <strong>TIENDANUBE</strong> dentro de nuestra cuenta principal como un comercio independiente y con configuración personalizada. A continuación te indicamos los pasos a seguir para dicha conexión que se realiza a través de una rápida configuración vía webhook:
+            <br><br>
+            <strong>Integración de emisión de etiquetas (REQUERIDO):</strong><br>
+            Para generar la conexión te dejamos los pasos a continuación, previamente debes verificar que se debe haber enviado al correo <a href="mailto:${contactEmailDisplay}" style="color: #2563eb; font-weight: 700; text-decoration: underline;">${contactEmailDisplay}</a> una invitación a activar una cuenta de Enviame, con ella deberás generar la conexión a la aplicación de Enviame según las instrucciones del manual de integración que va adjunto a este correo:
+            <ol style="margin: 8px 0; padding-left: 20px; line-height: 1.6;">
+              <li>Activa tu cuenta Enviame desde el correo que debes haber recibido en <a href="mailto:${contactEmailDisplay}" style="color: #2563eb; font-weight: 700; text-decoration: underline;">${contactEmailDisplay}</a>.</li>
+              <li style="margin-top: 6px;">Crea tu contraseña e inicia sesión en Enviame.</li>
+              <li style="margin-top: 6px;">Sigue las instrucciones de la <strong>Guía de Integración</strong> que va adjunta a este correo. Ya dejamos todo configurado para que puedas realizar la integración, ya está creado el warehouse que solicita el manual${envIdVal && envIdVal !== 'ID_NO_CONFIGURADO' ? ` <span style="font-size: 12px; color: #64748b;">(Company ID en WMS: <strong style="background-color: #ffe4e6; color: #b91c1c; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 12.5px;">${envIdVal}</strong>)</span>` : ''}.</li>
+              <li style="margin-top: 6px;">Finalmente, luego de finalizada la instalación nos comentas para ir chequeando que haya funcionado, si no para solicitar apoyo al soporte de Enviame.</li>
+            </ol>
+          </div>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 20px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+              D.- INTEGRACIÓN CON TARIFICADOR EN TIEMPO REAL EN CARRITO DE COMPRAS / CHECKOUT (OPCIONAL)
+            </strong>
+            Actualmente la integración a <strong>TIENDANUBE</strong> ofrece la posibilidad de conectarse a las tarifas de Enviame, según como se explica en el manual de integración adjunto. Es una opción que puedes habilitar o desactivar a tu gusto.
+          </div>
+
+          ${resourcesHtml}
+
+          <div style="background-color: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 18px; margin-bottom: 25px; font-size: 13.5px; color: #3b0764; line-height: 1.6;">
+            <strong style="color: #581c87; font-size: 14.5px; display: block; margin-bottom: 6px;">
+              📚 Tarifarios Oficiales y Módulo de Documentación:
+            </strong>
+            Todos los tarifarios vigentes, manuales de operación, instructivos de SKU y condiciones de courier se encuentran siempre disponibles y actualizados en tu portal WMS:
+            <ol style="margin: 8px 0 10px 0; padding-left: 20px; color: #4c1d95; line-height: 1.6;">
+              <li>Ingresa con tus credenciales a <a href="https://wms.stocka.cl" target="_blank" style="color: #6d28d9; font-weight: 700; text-decoration: underline;">wms.stocka.cl</a>.</li>
+              <li>En el menú lateral izquierdo, haz clic en la sección <strong>"Documentación"</strong>.</li>
+              <li>Allí podrás consultar y descargar en cualquier momento los tarifarios vigentes, guías de courier y presentaciones de servicio.</li>
+            </ol>
+            <span style="font-size: 12px; color: #6b21a8;">
+              💡 <em>El módulo cuenta con buscador y filtro por carpetas para que encuentres fácilmente cualquier documento operativo.</em>
+            </span>
+          </div>
+        `;
+      } else if (isWooCommerce) {
         const contactEmailDisplay = payload.userEmail || payload.email || (recipientEmails && recipientEmails.length > 0 ? recipientEmails[0] : '[correo de contacto]');
         const wooWebhookUrl = `https://api.enviame.io/companies/${envIdVal}/woocommercewebhook`;
 
@@ -2853,9 +2920,12 @@ serve(async (req) => {
       try {
         const rawPlatform = String(payload.platform || payload.plataforma || '').toLowerCase().trim();
         const isWoo = rawPlatform.includes('woo');
-        const targetFolders = isWoo 
-          ? ['E3', 'E3_General', 'E3_WooCommerce']
-          : ['E3', 'E3_General', 'E3_Shopify'];
+        const isTiendanube = rawPlatform.includes('tiendanube') || rawPlatform.includes('tienda nube') || rawPlatform.includes('nuvem');
+        const targetFolders = isTiendanube
+          ? ['E3', 'E3_General', 'E3_Tiendanube']
+          : (isWoo 
+            ? ['E3', 'E3_General', 'E3_WooCommerce']
+            : ['E3', 'E3_General', 'E3_Shopify']);
 
         const { data: e3Docs, error: e3Err } = await supabaseClient
           .from('service_docs')

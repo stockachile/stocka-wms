@@ -764,14 +764,22 @@
           scrollY: 0,
           scrollX: 0,
           logging: false,
-          backgroundColor: '#ffffff'
+          backgroundColor: '#ffffff',
+          ignoreElements: (el) => {
+            if (!el || !el.tagName) return false;
+            if (el.parentElement === document.body && !el.classList.contains('html2pdf__overlay') && el.id !== 'wms-export-pdf-temp-root') return true;
+            return false;
+          }
         },
         jsPDF: { unit: 'mm', format: 'a4', orientation: finalOrientation }
       };
 
-      const dummy = document.createElement('div');
-      dummy.style.cssText = 'width: 10px; height: 10px; background: #ffffff;';
-      const pdf = await html2pdf().set(baseOpt).from(dummy).toPdf().get('pdf');
+      const tinyCanvas = document.createElement('canvas');
+      tinyCanvas.width = 4;
+      tinyCanvas.height = 4;
+      const pdf = await html2pdf().set(baseOpt).from(tinyCanvas, 'canvas').toPdf().get('pdf');
+      pdf.addPage('a4', finalOrientation);
+      pdf.deletePage(1);
 
       for (let i = 0; i < pageEls.length; i++) {
         const progEl = document.getElementById('wms-export-pdf-progress');
