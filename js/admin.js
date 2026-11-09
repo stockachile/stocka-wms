@@ -1740,6 +1740,78 @@ window.fetchInventoryForOrders = async function(orders, force = false) {
   } catch (e) {
     console.error('Error fetching inventory for order stock check:', e);
   }
+
+  if (typeof window.hydrateOrderProductDimensionsIfNeeded === 'function') {
+    window.hydrateOrderProductDimensionsIfNeeded(orders).catch(err => {
+      console.warn('[Cartpaper Box] Aviso hidratando dimensiones de productos:', err);
+    });
+  }
+};
+
+window.hydrateOrderProductDimensionsIfNeeded = async function(orders) {
+  if (!Array.isArray(orders) || orders.length === 0) return;
+  window.loadedProductDimensionsMap = window.loadedProductDimensionsMap || {};
+  const missingDimProdIds = new Set();
+
+  orders.forEach(o => {
+    (o?.order_items || []).forEach(oi => {
+      const p = oi?.products;
+      const pid = oi?.product_id || p?.id;
+      if (!pid || p?.is_virtual) return;
+      if (window.loadedProductDimensionsMap[pid]) {
+        if (p) Object.assign(p, window.loadedProductDimensionsMap[pid]);
+        return;
+      }
+      if (p && p.length === undefined && p.volumen === undefined) {
+        missingDimProdIds.add(pid);
+      } else if (p && (p.length !== undefined || p.volumen !== undefined)) {
+        window.loadedProductDimensionsMap[pid] = {
+          length: p.length,
+          width: p.width,
+          height: p.height,
+          volumen: p.volumen,
+          weight: p.weight
+        };
+      }
+    });
+  });
+
+  if (missingDimProdIds.size === 0) return;
+  const idsArr = Array.from(missingDimProdIds);
+  const chunkSize = 150;
+  let updatedAny = false;
+
+  for (let i = 0; i < idsArr.length; i += chunkSize) {
+    const chunk = idsArr.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, length, width, height, volumen, weight')
+      .in('id', chunk);
+
+    if (!error && Array.isArray(data)) {
+      data.forEach(row => {
+        window.loadedProductDimensionsMap[row.id] = {
+          length: row.length,
+          width: row.width,
+          height: row.height,
+          volumen: row.volumen,
+          weight: row.weight
+        };
+        updatedAny = true;
+      });
+    }
+  }
+
+  if (updatedAny) {
+    orders.forEach(o => {
+      (o?.order_items || []).forEach(oi => {
+        const pid = oi?.product_id || oi?.products?.id;
+        if (pid && window.loadedProductDimensionsMap[pid] && oi.products) {
+          Object.assign(oi.products, window.loadedProductDimensionsMap[pid]);
+        }
+      });
+    });
+  }
 };
 
 function flagResetOrInitProductMetrics(id, force) {
@@ -3496,7 +3568,7 @@ window.resyncShopifyOrder = async function(orderId) {
       fecha_procesamiento,
       sucursal_pickeo,
       periodo_facturacion,
-      order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, is_picking_request, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
+      order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, is_picking_request, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, length, width, height, volumen, weight, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
     `.replace(/\s+/g, ' ').trim();
 
     const { data: refreshedOrder, error: refreshErr } = await supabase
@@ -7898,7 +7970,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
         periodo_facturacion,
         stock_descontado,
         stock_descontado_at,
-        order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, is_picking_request, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms))
+        order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, is_picking_request, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, length, width, height, volumen, weight))
       `.replace(/\s+/g, ' ').trim();
 
       let allOrders = [];
@@ -14764,6 +14836,7 @@ window.applyWmsFiltersAndRender = function() {
               <span style="font-weight: 500;">${item.name}</span><br>
               <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.2rem; flex-wrap: wrap;">
                 <small style="color: var(--color-text-muted); font-size: 0.725rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-store-2-line"></i> ${item.warehouseName}</small>
+                ${(window.renderOrderItemDimensionsInlineBadgeHtml && origItem) ? window.renderOrderItemDimensionsInlineBadgeHtml(origItem.products) : ''}
                 ${window.getItemProcessingStatusBadge(order, item.sku, item.name)}
               </div>
             </td>
@@ -15249,7 +15322,7 @@ window.applyWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row ${isOverdueItem ? 'wms-overdue-badges-row' : ''}" style="transition: background-color 0.2s;">
         <td colspan="13" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${overdueRowBadgeHtml}${categoryBadgeHtml}${(window.getConsolidationBadgeHtml ? window.getConsolidationBadgeHtml(order) : '')}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${qtyMismatchBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${noteBadgeHtml}${adminNoteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
+            ${overdueRowBadgeHtml}${categoryBadgeHtml}${(window.getConsolidationBadgeHtml ? window.getConsolidationBadgeHtml(order) : '')}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${(window.renderOrderCartpaperBoxBadgeHtml ? window.renderOrderCartpaperBoxBadgeHtml(order) : '')}${qtyMismatchBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${noteBadgeHtml}${adminNoteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>
@@ -15487,6 +15560,7 @@ window.applyWmsFiltersAndRender = function() {
                 </div>
                 ${qtyMismatchAlertBoxHtml}
                 ${originalPacksHtml}
+                ${(window.renderOrderCartpaperBoxCardHtml ? window.renderOrderCartpaperBoxCardHtml(order) : '')}
 
                 <!-- Reasignar Comercio -->
                 <div class="form-group" style="margin-top: 1.25rem; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-border);">
@@ -15802,7 +15876,7 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
     periodo_facturacion,
     stock_descontado,
     stock_descontado_at,
-    order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, is_picking_request, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms))
+    order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, is_picking_request, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, length, width, height, volumen, weight))
   `.replace(/\s+/g, ' ').trim();
 
   // Helper interno para fusionar (upsert) pedidos y actualizar dependencias
@@ -78858,7 +78932,7 @@ window.openWmsOrderModal = async function(orderId) {
           total_value, total_amount,
           order_items (
             id, quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift,
-            products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms)
+            products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, length, width, height, volumen, weight)
           )
         `)
         .eq('id', orderId)
@@ -116164,3 +116238,1032 @@ window.openBulkShopifyStatusModal = async function() {
 
   await window.executeShopifyOrderStatusAction(shopifyOrders, formValues);
 };
+
+// ============================================================================
+// MOTOR DE CÁLCULO DE CAJA DE EMBALAJE 3D (CATÁLOGO CARTPAPER CORRUGADO)
+// Visible exclusivamente en el Panel de Administración (admin.js)
+// Catálogo base: https://cartpaper.cl/collections/cajas-carton-corrugado
+// ============================================================================
+
+window.CARTPAPER_COLLECTION_URL = 'https://cartpaper.cl/collections/cajas-carton-corrugado';
+
+/**
+ * Catálogo de Cajas de Cartón Corrugado Cartpaper (12x12x12 hasta 50x40x30 cm).
+ * Dimensiones expresadas en centímetros (Largo x Ancho x Alto), precios por pack
+ * (habitualmente 25 unidades) y costo unitario estimado en CLP.
+ */
+window.CARTPAPER_CORRUGATED_BOXES = [
+  { id: 'cp-12x12x12', code: 'CP-121212', name: 'Caja Corrugado 12×12×12 cm', length: 12, width: 12, height: 12, packQty: 25, packPrice: 7500, unitPrice: 300, maxWeightKg: 5, type: 'Corrugado 14C Compacta' },
+  { id: 'cp-15x12x10', code: 'CP-151210', name: 'Caja Corrugado 15×12×10 cm', length: 15, width: 12, height: 10, packQty: 25, packPrice: 8000, unitPrice: 320, maxWeightKg: 5, type: 'Corrugado 14C Pequeña' },
+  { id: 'cp-21x16x8',  code: 'CP-211608', name: 'Caja Corrugado 21×16×8 cm',  length: 21, width: 16, height: 8,  packQty: 25, packPrice: 8500, unitPrice: 340, maxWeightKg: 6, type: 'Corrugado E-commerce Plana' },
+  { id: 'cp-15x15x15', code: 'CP-151515', name: 'Caja Corrugado 15×15×15 cm', length: 15, width: 15, height: 15, packQty: 25, packPrice: 9000, unitPrice: 360, maxWeightKg: 6, type: 'Corrugado 14C Cubo' },
+  { id: 'cp-20x15x15', code: 'CP-201515', name: 'Caja Corrugado 20×15×15 cm', length: 20, width: 15, height: 15, packQty: 25, packPrice: 9750, unitPrice: 390, maxWeightKg: 8, type: 'Corrugado 14C Mediana' },
+  { id: 'cp-25x15x12', code: 'CP-251512', name: 'Caja Corrugado 25×15×12 cm', length: 25, width: 15, height: 12, packQty: 25, packPrice: 10000, unitPrice: 400, maxWeightKg: 8, type: 'Corrugado E-commerce' },
+  { id: 'cp-30x23x10', code: 'CP-302310', name: 'Caja Corrugado 30×23×10 cm', length: 30, width: 23, height: 10, packQty: 25, packPrice: 11250, unitPrice: 450, maxWeightKg: 8, type: 'Corrugado E-commerce Planos/Ropa' },
+  { id: 'cp-25x20x15', code: 'CP-252015', name: 'Caja Corrugado 25×20×15 cm', length: 25, width: 20, height: 15, packQty: 25, packPrice: 11250, unitPrice: 450, maxWeightKg: 10, type: 'Corrugado 14C Estándar' },
+  { id: 'cp-20x20x20', code: 'CP-202020', name: 'Caja Corrugado 20×20×20 cm', length: 20, width: 20, height: 20, packQty: 25, packPrice: 11500, unitPrice: 460, maxWeightKg: 10, type: 'Corrugado 14C Cubo E-commerce' },
+  { id: 'cp-35x20x12', code: 'CP-352012', name: 'Caja Corrugado 35×20×12 cm', length: 35, width: 20, height: 12, packQty: 25, packPrice: 12250, unitPrice: 490, maxWeightKg: 10, type: 'Corrugado 14C Alargada' },
+  { id: 'cp-30x20x15', code: 'CP-302015', name: 'Caja Corrugado 30×20×15 cm', length: 30, width: 20, height: 15, packQty: 25, packPrice: 12000, unitPrice: 480, maxWeightKg: 10, type: 'Corrugado 14C Mediana' },
+  { id: 'cp-25x20x20', code: 'CP-252020', name: 'Caja Corrugado 25×20×20 cm', length: 25, width: 20, height: 20, packQty: 25, packPrice: 12500, unitPrice: 500, maxWeightKg: 12, type: 'Corrugado 14C Mediana' },
+  { id: 'cp-30x20x20', code: 'CP-302020', name: 'Caja Corrugado 30×20×20 cm', length: 30, width: 20, height: 20, packQty: 25, packPrice: 13500, unitPrice: 540, maxWeightKg: 12, type: 'Corrugado 14C Envíos' },
+  { id: 'cp-30x25x20', code: 'CP-302520', name: 'Caja Corrugado 30×25×20 cm', length: 30, width: 25, height: 20, packQty: 25, packPrice: 14500, unitPrice: 580, maxWeightKg: 14, type: 'Corrugado 14C Mediana Plus' },
+  { id: 'cp-25x25x25', code: 'CP-252525', name: 'Caja Corrugado 25×25×25 cm', length: 25, width: 25, height: 25, packQty: 25, packPrice: 14750, unitPrice: 590, maxWeightKg: 14, type: 'Corrugado 14C Cubo Mediano' },
+  { id: 'cp-30x30x20', code: 'CP-303020', name: 'Caja Corrugado 30×30×20 cm', length: 30, width: 30, height: 20, packQty: 25, packPrice: 16000, unitPrice: 640, maxWeightKg: 16, type: 'Corrugado Reforzada' },
+  { id: 'cp-35x25x25', code: 'CP-352525', name: 'Caja Corrugado 35×25×25 cm', length: 35, width: 25, height: 25, packQty: 25, packPrice: 17250, unitPrice: 690, maxWeightKg: 15, type: 'Corrugado 14C Intermedia' },
+  { id: 'cp-40x30x20', code: 'CP-403020', name: 'Caja Corrugado 40×30×20 cm', length: 40, width: 30, height: 20, packQty: 25, packPrice: 18500, unitPrice: 740, maxWeightKg: 16, type: 'Corrugado 14C Amplia' },
+  { id: 'cp-30x30x30', code: 'CP-303030', name: 'Caja Corrugado 30×30×30 cm', length: 30, width: 30, height: 30, packQty: 25, packPrice: 19500, unitPrice: 780, maxWeightKg: 16, type: 'Corrugado 14C Cubo Grande' },
+  { id: 'cp-40x30x30', code: 'CP-403030', name: 'Caja Corrugado 40×30×30 cm', length: 40, width: 30, height: 30, packQty: 25, packPrice: 22500, unitPrice: 900, maxWeightKg: 18, type: 'Corrugado 14C Grande' },
+  { id: 'cp-45x35x30', code: 'CP-453530', name: 'Caja Corrugado 45×35×30 cm', length: 45, width: 35, height: 30, packQty: 25, packPrice: 26250, unitPrice: 1050, maxWeightKg: 20, type: 'Corrugado 14C Extra Grande' },
+  { id: 'cp-50x40x30', code: 'CP-504030', name: 'Caja Corrugado 50×40×30 cm', length: 50, width: 40, height: 30, packQty: 25, packPrice: 31250, unitPrice: 1250, maxWeightKg: 22, type: 'Corrugado 14C Máximo Estándar' }
+].map(b => {
+  const volCm3 = b.length * b.width * b.height;
+  const sortedSides = [b.length, b.width, b.height].sort((a, z) => z - a);
+  return {
+    ...b,
+    dimsLabel: `${b.length}×${b.width}×${b.height} cm`,
+    volumeCm3: volCm3,
+    volumeM3: volCm3 / 1000000,
+    sortedSides
+  };
+}).sort((a, b) => a.volumeCm3 - b.volumeCm3 || a.unitPrice - b.unitPrice);
+
+/**
+ * Genera las 6 orientaciones ortogonales únicas de un paralelepípedo (l, w, h).
+ */
+window.getCuboidOrientations3D = function(l, w, h) {
+  const perms = [
+    [l, w, h],
+    [l, h, w],
+    [w, l, h],
+    [w, h, l],
+    [h, l, w],
+    [h, w, l]
+  ];
+  const seen = new Set();
+  const unique = [];
+  for (let i = 0; i < perms.length; i++) {
+    const key = `${perms[i][0].toFixed(2)}_${perms[i][1].toFixed(2)}_${perms[i][2].toFixed(2)}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(perms[i]);
+    }
+  }
+  return unique;
+};
+
+/**
+ * Empaquetador 3D (First-Fit Decreasing con Guillotina / Espacios Libres 3D).
+ * Intenta ubicar todos los cuboides unitarios dentro de una caja (Bx, By, Bz).
+ */
+window.tryPackCuboidsIntoBox3D = function(unitItems, box) {
+  const Bx = box.length;
+  const By = box.width;
+  const Bz = box.height;
+  const boxVolCm3 = box.volumeCm3;
+
+  let totalVolCm3 = 0;
+  let totalWeightKg = 0;
+  for (let i = 0; i < unitItems.length; i++) {
+    const u = unitItems[i];
+    totalVolCm3 += u.volumeCm3;
+    totalWeightKg += (u.weightKg || 0);
+    // Filtro rápido dimensional: cada ítem individual debe caber rotado en la caja
+    if (
+      u.sortedSides[0] > box.sortedSides[0] + 0.001 ||
+      u.sortedSides[1] > box.sortedSides[1] + 0.001 ||
+      u.sortedSides[2] > box.sortedSides[2] + 0.001
+    ) {
+      return { fits: false, reason: 'dimension_exceeded' };
+    }
+  }
+
+  if (totalVolCm3 > boxVolCm3 + 0.01) {
+    return { fits: false, reason: 'volume_exceeded' };
+  }
+  if (box.maxWeightKg && totalWeightKg > box.maxWeightKg + 0.01) {
+    return { fits: false, reason: 'weight_exceeded' };
+  }
+
+  // Ordenar unidades de mayor a menor volumen y arista máxima
+  const sortedUnits = [...unitItems].sort((a, b) => {
+    if (Math.abs(b.volumeCm3 - a.volumeCm3) > 0.1) return b.volumeCm3 - a.volumeCm3;
+    return b.sortedSides[0] - a.sortedSides[0];
+  });
+
+  // Lista de espacios libres ortogonales dentro de la caja
+  const freeSpaces = [{ x: 0, y: 0, z: 0, lx: Bx, ly: By, lz: Bz }];
+  const placements = [];
+
+  for (let i = 0; i < sortedUnits.length; i++) {
+    const item = sortedUnits[i];
+    const orientations = window.getCuboidOrientations3D(item.length, item.width, item.height);
+
+    // Ordenar espacios libres priorizando menor Z (piso), luego menor Y, luego menor X
+    freeSpaces.sort((a, b) => {
+      if (Math.abs(a.z - b.z) > 0.01) return a.z - b.z;
+      if (Math.abs(a.y - b.y) > 0.01) return a.y - b.y;
+      return a.x - b.x;
+    });
+
+    let bestSpaceIdx = -1;
+    let bestOrientation = null;
+    let bestScore = Infinity;
+
+    for (let sIdx = 0; sIdx < freeSpaces.length; sIdx++) {
+      const sp = freeSpaces[sIdx];
+      if (sp.lx * sp.ly * sp.lz + 0.01 < item.volumeCm3) continue;
+
+      for (let oIdx = 0; oIdx < orientations.length; oIdx++) {
+        const [ox, oy, oz] = orientations[oIdx];
+        if (ox <= sp.lx + 0.001 && oy <= sp.ly + 0.001 && oz <= sp.lz + 0.001) {
+          // Puntaje que favorece mantener baja la altura ocupada (z + oz) y ajustar lados
+          const topZ = sp.z + oz;
+          const slackMin = Math.min(sp.lx - ox, sp.ly - oy, sp.lz - oz);
+          const score = topZ * 1000 + sp.y * 10 + sp.x + slackMin * 5;
+          if (score < bestScore) {
+            bestScore = score;
+            bestSpaceIdx = sIdx;
+            bestOrientation = [ox, oy, oz];
+          }
+        }
+      }
+    }
+
+    if (bestSpaceIdx === -1 || !bestOrientation) {
+      return { fits: false, reason: 'geometric_collision' };
+    }
+
+    const chosenSpace = freeSpaces.splice(bestSpaceIdx, 1)[0];
+    const [ox, oy, oz] = bestOrientation;
+
+    placements.push({
+      sku: item.sku,
+      name: item.name,
+      unitIndex: item.unitIndex,
+      isEstimatedFromVol: item.isEstimatedFromVol,
+      x: Number(chosenSpace.x.toFixed(1)),
+      y: Number(chosenSpace.y.toFixed(1)),
+      z: Number(chosenSpace.z.toFixed(1)),
+      lx: Number(ox.toFixed(1)),
+      ly: Number(oy.toFixed(1)),
+      lz: Number(oz.toFixed(1)),
+      volumeCm3: item.volumeCm3
+    });
+
+    // Dividir el espacio restante en 3 sub-espacios disjuntos (guillotina 3D)
+    const remX = chosenSpace.lx - ox;
+    const remY = chosenSpace.ly - oy;
+    const remZ = chosenSpace.lz - oz;
+
+    // 1. Espacio superior (sobre el producto recién puesto)
+    if (remZ > 0.2) {
+      freeSpaces.push({
+        x: chosenSpace.x,
+        y: chosenSpace.y,
+        z: chosenSpace.z + oz,
+        lx: ox,
+        ly: oy,
+        lz: remZ
+      });
+    }
+
+    // 2. Dividir la base restante (L-shape en X e Y) maximizando el área continua mayor
+    if (remX * chosenSpace.ly >= remY * chosenSpace.lx) {
+      if (remX > 0.2) {
+        freeSpaces.push({
+          x: chosenSpace.x + ox,
+          y: chosenSpace.y,
+          z: chosenSpace.z,
+          lx: remX,
+          ly: chosenSpace.ly,
+          lz: chosenSpace.lz
+        });
+      }
+      if (remY > 0.2) {
+        freeSpaces.push({
+          x: chosenSpace.x,
+          y: chosenSpace.y + oy,
+          z: chosenSpace.z,
+          lx: ox,
+          ly: remY,
+          lz: chosenSpace.lz
+        });
+      }
+    } else {
+      if (remY > 0.2) {
+        freeSpaces.push({
+          x: chosenSpace.x,
+          y: chosenSpace.y + oy,
+          z: chosenSpace.z,
+          lx: chosenSpace.lx,
+          ly: remY,
+          lz: chosenSpace.lz
+        });
+      }
+      if (remX > 0.2) {
+        freeSpaces.push({
+          x: chosenSpace.x + ox,
+          y: chosenSpace.y,
+          z: chosenSpace.z,
+          lx: remX,
+          ly: oy,
+          lz: chosenSpace.lz
+        });
+      }
+    }
+  }
+
+  // Calcular bounding box real ocupado dentro de la caja
+  let maxX = 0, maxY = 0, maxZ = 0;
+  placements.forEach(p => {
+    if (p.x + p.lx > maxX) maxX = p.x + p.lx;
+    if (p.y + p.ly > maxY) maxY = p.y + p.ly;
+    if (p.z + p.lz > maxZ) maxZ = p.z + p.lz;
+  });
+
+  const occupancyPct = boxVolCm3 > 0 ? Math.min(100, (totalVolCm3 / boxVolCm3) * 100) : 0;
+
+  return {
+    fits: true,
+    box,
+    placements,
+    occupancyPct: Number(occupancyPct.toFixed(1)),
+    occupiedBounds: {
+      x: Number(maxX.toFixed(1)),
+      y: Number(maxY.toFixed(1)),
+      z: Number(maxZ.toFixed(1))
+    }
+  };
+};
+
+/**
+ * Calcula cuál sería la caja de Cartpaper óptima para un pedido según las dimensiones
+ * (Largo x Ancho x Alto) o volumen (m³) de cada producto activo del pedido.
+ */
+window.calculateOrderCartpaperBox = function(order) {
+  if (!order) return null;
+
+  const activeOrderItems = (order.order_items || []).filter(oi => {
+    if (typeof window.isOrderItemEliminated === 'function' && window.isOrderItemEliminated(order, oi)) return false;
+    if (oi?.products?.is_virtual) return false;
+    return true;
+  });
+
+  if (activeOrderItems.length === 0) {
+    return {
+      status: 'no_physical_items',
+      message: 'Sin ítems físicos activos'
+    };
+  }
+
+  // Agrupar ítems por producto/SKU para consolidar cantidades
+  const groupedItemsMap = new Map();
+  activeOrderItems.forEach(oi => {
+    const p = oi.products || {};
+    const pid = oi.product_id || p.id || p.sku || 'unknown';
+    const qty = Math.max(1, parseInt(oi.quantity, 10) || 1);
+    if (groupedItemsMap.has(pid)) {
+      groupedItemsMap.get(pid).quantity += qty;
+    } else {
+      groupedItemsMap.set(pid, {
+        product_id: oi.product_id || p.id || null,
+        sku: p.sku || order.sku || 'S/SKU',
+        name: p.name || order.item || 'Producto',
+        quantity: qty,
+        productObj: p
+      });
+    }
+  });
+
+  const itemSummaries = [];
+  const missingSkus = [];
+  const unitItems = [];
+  let hasEstimatedFromVol = false;
+  let totalItemsVolumeCm3 = 0;
+  let totalWeightKg = 0;
+  let totalPhysicalUnits = 0;
+
+  groupedItemsMap.forEach(entry => {
+    const p = entry.productObj || {};
+    const cachedDims = (entry.product_id && window.loadedProductDimensionsMap?.[entry.product_id]) || {};
+    const rawL = parseFloat(p.length ?? p.largo ?? cachedDims.length) || 0;
+    const rawW = parseFloat(p.width ?? p.ancho ?? cachedDims.width) || 0;
+    const rawH = parseFloat(p.height ?? p.alto ?? cachedDims.height) || 0;
+    const rawVolM3 = parseFloat(p.volumen ?? cachedDims.volumen) || 0;
+    const rawWeightKg = parseFloat(p.weight ?? p.peso ?? cachedDims.weight) || 0;
+
+    totalPhysicalUnits += entry.quantity;
+
+    let l = 0, w = 0, h = 0, unitVolCm3 = 0;
+    let isEstimatedFromVol = false;
+    let isMissingDims = false;
+
+    if (rawL > 0 && rawW > 0 && rawH > 0) {
+      l = rawL;
+      w = rawW;
+      h = rawH;
+      unitVolCm3 = l * w * h;
+    } else if (rawVolM3 > 0) {
+      // Estimar arista cúbica equivalente a partir del volumen en m³
+      unitVolCm3 = rawVolM3 * 1000000;
+      const cubeEdge = Math.max(1, Number(Math.cbrt(unitVolCm3).toFixed(1)));
+      l = cubeEdge;
+      w = cubeEdge;
+      h = cubeEdge;
+      isEstimatedFromVol = true;
+      hasEstimatedFromVol = true;
+    } else {
+      isMissingDims = true;
+      missingSkus.push({
+        product_id: entry.product_id,
+        sku: entry.sku,
+        name: entry.name,
+        quantity: entry.quantity
+      });
+    }
+
+    const sortedSides = [l, w, h].sort((a, z) => z - a);
+    itemSummaries.push({
+      product_id: entry.product_id,
+      sku: entry.sku,
+      name: entry.name,
+      quantity: entry.quantity,
+      length: l,
+      width: w,
+      height: h,
+      rawVolM3,
+      weightKg: rawWeightKg,
+      unitVolCm3,
+      totalVolCm3: unitVolCm3 * entry.quantity,
+      isEstimatedFromVol,
+      isMissingDims
+    });
+
+    if (!isMissingDims) {
+      totalItemsVolumeCm3 += unitVolCm3 * entry.quantity;
+      totalWeightKg += rawWeightKg * entry.quantity;
+      for (let u = 1; u <= entry.quantity; u++) {
+        unitItems.push({
+          sku: entry.sku,
+          name: entry.name,
+          unitIndex: u,
+          length: l,
+          width: w,
+          height: h,
+          sortedSides,
+          volumeCm3: unitVolCm3,
+          weightKg: rawWeightKg,
+          isEstimatedFromVol
+        });
+      }
+    }
+  });
+
+  if (unitItems.length === 0 && missingSkus.length > 0) {
+    return {
+      status: 'missing_all_dimensions',
+      missingSkus,
+      itemSummaries,
+      totalPhysicalUnits,
+      hasEstimatedFromVol: false,
+      totalItemsVolumeCm3: 0,
+      totalItemsVolumeM3: 0,
+      totalWeightKg: 0
+    };
+  }
+
+  // Evaluar todas las cajas del catálogo Cartpaper ordenadas de menor a mayor
+  const validMatches = [];
+  for (let i = 0; i < window.CARTPAPER_CORRUGATED_BOXES.length; i++) {
+    const candidateBox = window.CARTPAPER_CORRUGATED_BOXES[i];
+    const packResult = window.tryPackCuboidsIntoBox3D(unitItems, candidateBox);
+    if (packResult.fits) {
+      validMatches.push(packResult);
+    }
+  }
+
+  if (validMatches.length > 0) {
+    // Priorizar la caja de menor costo unitario y menor volumen que acomode todos los ítems
+    validMatches.sort((a, b) => a.box.unitPrice - b.box.unitPrice || a.box.volumeCm3 - b.box.volumeCm3);
+    const bestMatch = validMatches[0];
+    // Siguiente alternativa con mayor holgura (ideal si lleva plástico burbuja extra)
+    const paddedAlternative = validMatches.find(m => m.box.volumeCm3 > bestMatch.box.volumeCm3 * 1.18) || validMatches[1] || null;
+
+    return {
+      status: missingSkus.length > 0 ? 'partial_fit' : 'single_box_fit',
+      recommendedBox: bestMatch.box,
+      placements: bestMatch.placements,
+      occupancyPct: bestMatch.occupancyPct,
+      occupiedBounds: bestMatch.occupiedBounds,
+      paddedAlternative: paddedAlternative ? paddedAlternative.box : null,
+      allCompatibleBoxes: validMatches.map(m => ({
+        box: m.box,
+        occupancyPct: m.occupancyPct
+      })),
+      missingSkus,
+      itemSummaries,
+      totalPhysicalUnits,
+      measuredUnits: unitItems.length,
+      hasEstimatedFromVol,
+      totalItemsVolumeCm3,
+      totalItemsVolumeM3: totalItemsVolumeCm3 / 1000000,
+      totalWeightKg: Number(totalWeightKg.toFixed(2))
+    };
+  }
+
+  // Si no cabe en una sola caja estándar (máx 50x40x30 cm), verificar si algún ítem individual supera 50x40x30 cm
+  const maxBox = window.CARTPAPER_CORRUGATED_BOXES[window.CARTPAPER_CORRUGATED_BOXES.length - 1];
+  const oversizedItem = unitItems.find(u =>
+    u.sortedSides[0] > maxBox.sortedSides[0] ||
+    u.sortedSides[1] > maxBox.sortedSides[1] ||
+    u.sortedSides[2] > maxBox.sortedSides[2]
+  );
+
+  if (oversizedItem) {
+    return {
+      status: 'oversized_item',
+      oversizedItem,
+      maxStandardBox: maxBox,
+      missingSkus,
+      itemSummaries,
+      totalPhysicalUnits,
+      measuredUnits: unitItems.length,
+      hasEstimatedFromVol,
+      totalItemsVolumeCm3,
+      totalItemsVolumeM3: totalItemsVolumeCm3 / 1000000,
+      totalWeightKg: Number(totalWeightKg.toFixed(2))
+    };
+  }
+
+  // Si cada ítem cabe individualmente pero la suma excede 50x40x30 cm, calcular multi-bulto Cartpaper
+  const remaining = [...unitItems];
+  const multiBoxes = [];
+  let safetyCounter = 0;
+
+  while (remaining.length > 0 && safetyCounter < 20) {
+    safetyCounter++;
+    // Probar si lo que queda cabe en alguna caja estándar
+    let fittedRemaining = null;
+    for (let i = 0; i < window.CARTPAPER_CORRUGATED_BOXES.length; i++) {
+      const res = window.tryPackCuboidsIntoBox3D(remaining, window.CARTPAPER_CORRUGATED_BOXES[i]);
+      if (res.fits) {
+        fittedRemaining = res;
+        break;
+      }
+    }
+    if (fittedRemaining) {
+      multiBoxes.push(fittedRemaining);
+      remaining.length = 0;
+      break;
+    }
+
+    // Llenar una caja máxima (50x40x30 cm) con la mayor cantidad posible de ítems restantes
+    const subset = [];
+    const leftover = [];
+    for (let i = 0; i < remaining.length; i++) {
+      const testSet = [...subset, remaining[i]];
+      const testRes = window.tryPackCuboidsIntoBox3D(testSet, maxBox);
+      if (testRes.fits) {
+        subset.push(remaining[i]);
+      } else {
+        leftover.push(remaining[i]);
+      }
+    }
+
+    if (subset.length === 0) {
+      break;
+    }
+
+    const packedMax = window.tryPackCuboidsIntoBox3D(subset, maxBox);
+    multiBoxes.push(packedMax);
+    remaining.splice(0, remaining.length, ...leftover);
+  }
+
+  const totalMultiBoxCost = multiBoxes.reduce((acc, mb) => acc + (mb.box?.unitPrice || 0), 0);
+
+  return {
+    status: 'multi_box_fit',
+    multiBoxes,
+    totalMultiBoxCost,
+    missingSkus,
+    itemSummaries,
+    totalPhysicalUnits,
+    measuredUnits: unitItems.length,
+    hasEstimatedFromVol,
+    totalItemsVolumeCm3,
+    totalItemsVolumeM3: totalItemsVolumeCm3 / 1000000,
+    totalWeightKg: Number(totalWeightKg.toFixed(2))
+  };
+};
+
+/**
+ * Renderiza el badge inline de medidas de cada producto dentro de la tabla de ítems del pedido (Solo Admin).
+ */
+window.renderOrderItemDimensionsInlineBadgeHtml = function(product) {
+  if (!product || product.is_virtual) return '';
+  const pid = product.id;
+  const cachedDims = (pid && window.loadedProductDimensionsMap?.[pid]) || {};
+  const l = parseFloat(product.length ?? product.largo ?? cachedDims.length) || 0;
+  const w = parseFloat(product.width ?? product.ancho ?? cachedDims.width) || 0;
+  const h = parseFloat(product.height ?? product.alto ?? cachedDims.height) || 0;
+  const vol = parseFloat(product.volumen ?? cachedDims.volumen) || 0;
+
+  if (l > 0 && w > 0 && h > 0) {
+    return `<span style="font-size: 0.68rem; color: #0369a1; background: #e0f2fe; border: 1px solid #bae6fd; padding: 0.05rem 0.35rem; border-radius: 4px; font-weight: 700; display: inline-flex; align-items: center; gap: 0.18rem;" title="Dimensiones físicas del producto en catálogo"><i class="ri-ruler-2-line"></i> ${l}×${w}×${h} cm</span>`;
+  }
+  if (vol > 0) {
+    const edge = Math.max(1, Number(Math.cbrt(vol * 1000000).toFixed(1)));
+    return `<span style="font-size: 0.68rem; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 0.05rem 0.35rem; border-radius: 4px; font-weight: 700; display: inline-flex; align-items: center; gap: 0.18rem;" title="Sin L×An×Al pero con volumen (${vol} m³). Arista cúbica estimada: ~${edge}×${edge}×${edge} cm"><i class="ri-box-3-line"></i> ~${edge}³ cm (Est. m³)</span>`;
+  }
+  return `<span style="font-size: 0.68rem; color: #dc2626; background: #fef2f2; border: 1px solid #fecaca; padding: 0.05rem 0.35rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.18rem;" title="Este SKU aún no tiene dimensiones ni volumen cargados en el catálogo"><i class="ri-ruler-line"></i> Sin medidas</span>`;
+};
+
+/**
+ * Renderiza el badge compacto en la fila del pedido (badges-row) en admin.js.
+ */
+window.renderOrderCartpaperBoxBadgeHtml = function(order) {
+  if (!order) return '';
+  const calc = window.calculateOrderCartpaperBox(order);
+  if (!calc || calc.status === 'no_physical_items') return '';
+
+  const esc = window.escapeHtml || (s => String(s || ''));
+
+  if (calc.status === 'missing_all_dimensions') {
+    const missingNames = calc.missingSkus.map(m => m.sku).join(', ');
+    return `
+      <span class="badge" onclick="event.stopPropagation(); window.openOrderCartpaperBoxModal('${order.id}')" style="background-color: #fffbeb; color: #b45309; border: 1px dashed #f59e0b; font-size: 0.65rem; font-weight: 700; padding: 0.14rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; cursor: pointer;" title="Falta medir SKU(s): ${esc(missingNames)}. Clic para ingresar medidas y calcular caja Cartpaper.">
+        <i class="ri-Archive-drawer-line ri-box-3-line" style="color: #d97706; font-size: 0.75rem;"></i> Sin medidas p/ Caja (${calc.missingSkus.length} SKU)
+      </span>
+    `;
+  }
+
+  if (calc.status === 'single_box_fit' || calc.status === 'partial_fit') {
+    const b = calc.recommendedBox;
+    const isPartial = calc.status === 'partial_fit';
+    const estTag = calc.hasEstimatedFromVol ? ' · Est.' : '';
+    const partialTag = isPartial ? ` · ⚠️ Falta ${calc.missingSkus.length} SKU` : '';
+    const bg = isPartial ? '#fffbeb' : '#f0fdf4';
+    const color = isPartial ? '#b45309' : '#15803d';
+    const border = isPartial ? '#fcd34d' : '#86efac';
+    const tooltip = `Caja Cartpaper sugerida: ${b.dimsLabel} (${b.type}) | Costo ref: $${b.unitPrice} c/u (Pack ${b.packQty}: $${b.packPrice.toLocaleString('es-CL')}) | Ocupación: ${calc.occupancyPct}%${calc.hasEstimatedFromVol ? ' | Incluye estimación por volumen (m³)' : ''}${isPartial ? ' | Falta medir: ' + calc.missingSkus.map(m => m.sku).join(', ') : ''}. Clic para ver desglose 3D.`;
+
+    return `
+      <span class="badge" onclick="event.stopPropagation(); window.openOrderCartpaperBoxModal('${order.id}')" style="background-color: ${bg}; color: ${color}; border: 1px solid ${border}; font-size: 0.65rem; font-weight: 800; padding: 0.14rem 0.48rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.04);" title="${esc(tooltip)}">
+        <i class="ri-box-3-fill" style="color: ${color}; font-size: 0.76rem;"></i>
+        <span>Caja ${b.dimsLabel} ($${b.unitPrice.toLocaleString('es-CL')})${estTag}${partialTag}</span>
+      </span>
+    `;
+  }
+
+  if (calc.status === 'multi_box_fit') {
+    const count = calc.multiBoxes.length;
+    const summaryDims = calc.multiBoxes.map(mb => mb.box.dimsLabel).join(' + ');
+    return `
+      <span class="badge" onclick="event.stopPropagation(); window.openOrderCartpaperBoxModal('${order.id}')" style="background-color: #eff6ff; color: #1d4ed8; border: 1px solid #93c5fd; font-size: 0.65rem; font-weight: 800; padding: 0.14rem 0.48rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;" title="El pedido supera la caja máxima estándar (50×40×30 cm). Sugerencia Multi-Bulto (${count} cajas): ${esc(summaryDims)} ($${calc.totalMultiBoxCost.toLocaleString('es-CL')} total). Clic para ver detalle.">
+        <i class="ri-stack-fill" style="color: #2563eb; font-size: 0.76rem;"></i>
+        <span>Multi-Caja (${count}): ${esc(summaryDims)} ($${calc.totalMultiBoxCost.toLocaleString('es-CL')})</span>
+      </span>
+    `;
+  }
+
+  if (calc.status === 'oversized_item') {
+    return `
+      <span class="badge" onclick="event.stopPropagation(); window.openOrderCartpaperBoxModal('${order.id}')" style="background-color: #fef2f2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.65rem; font-weight: 800; padding: 0.14rem 0.48rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;" title="El SKU ${esc(calc.oversizedItem?.sku || '')} excede la caja más grande de Cartpaper (50×40×30 cm). Requiere embalaje especial o a medida.">
+        <i class="ri-Spam-2-line ri-alert-fill" style="color: #dc2626; font-size: 0.76rem;"></i>
+        <span>Sobredimensionado (&gt;50×40×30 cm)</span>
+      </span>
+    `;
+  }
+
+  return '';
+};
+
+/**
+ * Renderiza la tarjeta de Caja de Embalaje Sugerida (Cartpaper) dentro del detalle expandible del pedido (Columna 2).
+ */
+window.renderOrderCartpaperBoxCardHtml = function(order) {
+  if (!order) return '';
+  const calc = window.calculateOrderCartpaperBox(order);
+  if (!calc || calc.status === 'no_physical_items') return '';
+
+  const esc = window.escapeHtml || (s => String(s || ''));
+
+  if (calc.status === 'missing_all_dimensions') {
+    const skusList = calc.missingSkus.map(m => `<code style="background: rgba(245, 158, 11, 0.15); color: #92400e; padding: 1px 5px; border-radius: 4px; font-weight: 700;">${esc(m.sku)}</code>`).join(' ');
+    return `
+      <div style="margin-top: 0.9rem; padding: 0.75rem 0.9rem; border-radius: var(--radius-sm); background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), rgba(254, 243, 199, 0.18)); border: 1px solid rgba(245, 158, 11, 0.35); border-left: 4px solid #f59e0b; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem;">
+          <div style="font-weight: 800; color: #b45309; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-box-3-line" style="font-size: 1rem;"></i> Cálculo de Caja Cartpaper (Solo Admin)
+          </div>
+          <div style="color: var(--color-text-main); font-size: 0.78rem;">
+            Falta registrar medidas (Largo × Ancho × Alto) en: ${skusList}
+          </div>
+        </div>
+        <button type="button" onclick="window.openOrderCartpaperBoxModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.28rem 0.65rem; font-size: 0.74rem; font-weight: 700; border-color: #d97706; color: #b45309; background: #ffffff; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;">
+          <i class="ri-ruler-2-line"></i> Asignar Medidas y Calcular Caja
+        </button>
+      </div>
+    `;
+  }
+
+  if (calc.status === 'single_box_fit' || calc.status === 'partial_fit') {
+    const b = calc.recommendedBox;
+    const isPartial = calc.status === 'partial_fit';
+    const occColor = calc.occupancyPct > 85 ? '#d97706' : '#16a34a';
+
+    return `
+      <div style="margin-top: 0.9rem; padding: 0.8rem 0.95rem; border-radius: var(--radius-sm); background: linear-gradient(135deg, rgba(22, 163, 74, 0.06), rgba(59, 130, 246, 0.05)); border: 1px solid rgba(22, 163, 74, 0.3); border-left: 4px solid #16a34a; display: flex; flex-direction: column; gap: 0.5rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <span style="font-size: 0.78rem; font-weight: 800; color: #15803d; display: inline-flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-box-3-fill" style="font-size: 0.95rem;"></i> Caja Sugerida (Cartpaper):
+            </span>
+            <span style="font-size: 0.85rem; font-weight: 800; color: var(--color-text-main); background: var(--color-surface); padding: 0.1rem 0.5rem; border-radius: 5px; border: 1px solid var(--color-border); font-family: monospace;">
+              ${b.dimsLabel}
+            </span>
+            <span style="font-size: 0.75rem; font-weight: 700; color: #047857; background: rgba(16, 185, 129, 0.14); padding: 0.1rem 0.45rem; border-radius: 999px;">
+              $${b.unitPrice.toLocaleString('es-CL')} c/u
+            </span>
+            ${calc.hasEstimatedFromVol ? `<span style="font-size: 0.68rem; font-weight: 700; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 0.08rem 0.38rem; border-radius: 4px;" title="Uno o más SKUs se calcularon estimando su arista cúbica desde el volumen en m³">Est. por m³</span>` : ''}
+          </div>
+          <button type="button" onclick="window.openOrderCartpaperBoxModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.22rem 0.55rem; font-size: 0.72rem; font-weight: 700; border-color: #16a34a; color: #15803d; background: var(--color-surface); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-cube-line"></i> Ver Cubicaje 3D
+          </button>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; font-size: 0.74rem; color: var(--color-text-muted); flex-wrap: wrap;">
+          <span><strong style="color: var(--color-text-main);">${esc(b.type)}</strong> • Pack ${b.packQty} un: <strong>$${b.packPrice.toLocaleString('es-CL')}</strong></span>
+          <span>Ocupación 3D: <strong style="color: ${occColor};">${calc.occupancyPct}%</strong> (${(calc.totalItemsVolumeCm3 / 1000).toFixed(2)} L / ${(b.volumeCm3 / 1000).toFixed(2)} L)</span>
+          ${calc.paddedAlternative ? `<span>Con holgura extra: <strong>${calc.paddedAlternative.dimsLabel}</strong> ($${calc.paddedAlternative.unitPrice.toLocaleString('es-CL')})</span>` : ''}
+        </div>
+
+        ${isPartial ? `
+          <div style="font-size: 0.73rem; color: #b45309; background: rgba(245, 158, 11, 0.12); padding: 0.3rem 0.55rem; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+            <span><i class="ri-alert-line"></i> <strong>Cálculo parcial:</strong> Falta medir SKU(s) ${calc.missingSkus.map(m => `<code>${esc(m.sku)}</code>`).join(', ')}.</span>
+            <a href="javascript:void(0)" onclick="window.openOrderCartpaperBoxModal('${order.id}')" style="color: #92400e; font-weight: 700; text-decoration: underline;">Medir ahora</a>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  if (calc.status === 'multi_box_fit') {
+    const boxesDesc = calc.multiBoxes.map((mb, idx) => `#${idx + 1}: <strong>${mb.box.dimsLabel}</strong> ($${mb.box.unitPrice.toLocaleString('es-CL')})`).join(' + ');
+    return `
+      <div style="margin-top: 0.9rem; padding: 0.8rem 0.95rem; border-radius: var(--radius-sm); background: rgba(59, 130, 246, 0.06); border: 1px solid rgba(59, 130, 246, 0.3); border-left: 4px solid #2563eb; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="font-size: 0.78rem;">
+          <div style="font-weight: 800; color: #1d4ed8; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.2rem;">
+            <i class="ri-stack-fill"></i> Embalaje Multi-Bulto Cartpaper (${calc.multiBoxes.length} Cajas — Total $${calc.totalMultiBoxCost.toLocaleString('es-CL')})
+          </div>
+          <div style="color: var(--color-text-main); font-size: 0.75rem;">${boxesDesc}</div>
+        </div>
+        <button type="button" onclick="window.openOrderCartpaperBoxModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.24rem 0.6rem; font-size: 0.72rem; font-weight: 700; border-color: #2563eb; color: #1d4ed8; background: var(--color-surface); cursor: pointer;">
+          <i class="ri-cube-line"></i> Ver Distribución
+        </button>
+      </div>
+    `;
+  }
+
+  if (calc.status === 'oversized_item') {
+    return `
+      <div style="margin-top: 0.9rem; padding: 0.8rem 0.95rem; border-radius: var(--radius-sm); background: rgba(239, 68, 68, 0.06); border: 1px solid rgba(239, 68, 68, 0.3); border-left: 4px solid #dc2626; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="font-size: 0.78rem;">
+          <div style="font-weight: 800; color: #b91c1c; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-alert-fill"></i> Excede Caja Estándar Máxima Cartpaper (50×40×30 cm)
+          </div>
+          <div style="color: var(--color-text-muted); font-size: 0.74rem;">
+            El SKU <strong>${esc(calc.oversizedItem?.sku || '')}</strong> (${calc.oversizedItem?.length}×${calc.oversizedItem?.width}×${calc.oversizedItem?.height} cm) requiere embalaje especial o caja a medida.
+          </div>
+        </div>
+        <button type="button" onclick="window.openOrderCartpaperBoxModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.24rem 0.6rem; font-size: 0.72rem; font-weight: 700; border-color: #dc2626; color: #b91c1c; background: var(--color-surface); cursor: pointer;">
+          Ver Detalle
+        </button>
+      </div>
+    `;
+  }
+
+  return '';
+};
+
+/**
+ * Modal interactivo exclusivo de Administradores con el desglose 3D de productos dentro de la caja Cartpaper,
+ * tabla comparativa de cajas compatibles y edición rápida de medidas de SKUs del pedido.
+ */
+window.openOrderCartpaperBoxModal = async function(orderId) {
+  let order = (window.loadedOrders || []).find(o => String(o.id) === String(orderId))
+    || (window.agendasGridState?.filteredOrders || []).find(o => String(o.id) === String(orderId));
+
+  if (!order) {
+    Swal.fire('Error', 'No se encontró el pedido en memoria.', 'error');
+    return;
+  }
+
+  if (typeof window.hydrateOrderProductDimensionsIfNeeded === 'function') {
+    await window.hydrateOrderProductDimensionsIfNeeded([order]);
+  }
+
+  const calc = window.calculateOrderCartpaperBox(order);
+  const esc = window.escapeHtml || (s => String(s || ''));
+  const orderNum = order.external_order_number || `#${String(order.id).slice(0, 8)}`;
+
+  // Tabla de productos del pedido con inputs rápidos para editar Largo x Ancho x Alto (cm) in-situ
+  const itemsTableRows = (calc.itemSummaries || []).map((it, idx) => {
+    const statusBadge = it.isMissingDims
+      ? `<span style="background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700;">Falta medir</span>`
+      : it.isEstimatedFromVol
+        ? `<span style="background: #fef3c7; color: #b45309; border: 1px solid #fde68a; padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700;">Est. desde ${it.rawVolM3} m³</span>`
+        : `<span style="background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700;">Exacto 3D</span>`;
+
+    return `
+      <tr style="border-bottom: 1px solid var(--color-border); font-size: 0.78rem;">
+        <td style="padding: 0.45rem 0.5rem; font-family: monospace; font-weight: 700; color: var(--color-primary);">${esc(it.sku)}</td>
+        <td style="padding: 0.45rem 0.5rem; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${esc(it.name)}">${esc(it.name)}</td>
+        <td style="padding: 0.45rem 0.5rem; text-align: center; font-weight: 800;">${it.quantity}</td>
+        <td style="padding: 0.45rem 0.5rem; text-align: center;">${statusBadge}</td>
+        <td style="padding: 0.45rem 0.5rem;">
+          <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+            <input type="number" step="0.1" min="0.1" class="form-input cp-sku-dim-l" data-product-id="${esc(it.product_id || '')}" data-sku="${esc(it.sku)}" placeholder="L" value="${!it.isMissingDims ? it.length : ''}" style="width: 52px; padding: 0.2rem 0.3rem; font-size: 0.76rem; text-align: center; height: 26px;">
+            <span>×</span>
+            <input type="number" step="0.1" min="0.1" class="form-input cp-sku-dim-w" data-product-id="${esc(it.product_id || '')}" data-sku="${esc(it.sku)}" placeholder="An" value="${!it.isMissingDims ? it.width : ''}" style="width: 52px; padding: 0.2rem 0.3rem; font-size: 0.76rem; text-align: center; height: 26px;">
+            <span>×</span>
+            <input type="number" step="0.1" min="0.1" class="form-input cp-sku-dim-h" data-product-id="${esc(it.product_id || '')}" data-sku="${esc(it.sku)}" placeholder="Al" value="${!it.isMissingDims ? it.height : ''}" style="width: 52px; padding: 0.2rem 0.3rem; font-size: 0.76rem; text-align: center; height: 26px;">
+            <span style="font-size: 0.7rem; color: var(--color-text-muted);">cm</span>
+          </div>
+        </td>
+        <td style="padding: 0.45rem 0.5rem; text-align: right; font-family: monospace; font-size: 0.75rem;">
+          ${it.totalVolCm3 > 0 ? `${(it.totalVolCm3 / 1000).toFixed(2)} L` : '-'}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  let heroBoxHtml = '';
+  let placementsHtml = '';
+  let alternativesHtml = '';
+
+  if (calc.status === 'single_box_fit' || calc.status === 'partial_fit') {
+    const b = calc.recommendedBox;
+    const occPct = calc.occupancyPct;
+    const barColor = occPct > 85 ? '#f59e0b' : '#10b981';
+
+    heroBoxHtml = `
+      <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(59, 130, 246, 0.08)); border: 1.5px solid #10b981; border-radius: 10px; padding: 1rem 1.15rem; display: flex; flex-direction: column; gap: 0.65rem;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap;">
+          <div>
+            <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: #047857; margin-bottom: 0.2rem;">
+              <i class="ri-award-fill"></i> Caja Óptima Recomendada (Catálogo Cartpaper)
+            </div>
+            <div style="font-size: 1.35rem; font-weight: 900; color: var(--color-text-main); font-family: monospace; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+              <span>${b.dimsLabel}</span>
+              <span style="font-size: 0.85rem; background: #059669; color: #fff; padding: 0.18rem 0.6rem; border-radius: 999px; font-family: sans-serif;">
+                $${b.unitPrice.toLocaleString('es-CL')} CLP / unidad
+              </span>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+              <strong>${esc(b.name)}</strong> (${esc(b.type)}) • Pack de ${b.packQty} unid: <strong>$${b.packPrice.toLocaleString('es-CL')}</strong> • Soporta hasta <strong>${b.maxWeightKg} Kg</strong>
+            </div>
+          </div>
+          <a href="${window.CARTPAPER_COLLECTION_URL}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="padding: 0.35rem 0.7rem; font-size: 0.75rem; font-weight: 700; color: #047857; border-color: #059669; background: var(--color-surface); text-decoration: none; display: inline-flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-external-link-line"></i> Ver en Cartpaper.cl
+          </a>
+        </div>
+
+        <!-- Barra de ocupación volumétrica y bounding box 3D -->
+        <div style="background: var(--color-surface); padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.35rem;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.76rem; font-weight: 700;">
+            <span>Ocupación Volumétrica de la Caja: <strong style="color: ${barColor};">${occPct}%</strong> (${(calc.totalItemsVolumeCm3 / 1000).toFixed(2)} L ocupados de ${(b.volumeCm3 / 1000).toFixed(2)} L)</span>
+            <span>Espacio ocupado 3D: <strong style="font-family: monospace;">${calc.occupiedBounds.x} × ${calc.occupiedBounds.y} × ${calc.occupiedBounds.z} cm</strong></span>
+          </div>
+          <div style="width: 100%; height: 8px; background: var(--color-bg); border-radius: 999px; overflow: hidden; border: 1px solid var(--color-border);">
+            <div style="width: ${Math.max(4, Math.min(100, occPct))}%; height: 100%; background: ${barColor}; transition: width 0.3s;"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--color-text-muted);">
+            <span>Holgura libre para relleno/burbuja: <strong>${(100 - occPct).toFixed(1)}%</strong> (${((b.volumeCm3 - calc.totalItemsVolumeCm3) / 1000).toFixed(2)} L)</span>
+            <span>Volumen total ítems: <strong>${calc.totalItemsVolumeM3.toFixed(5)} m³</strong></span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const placementRows = (calc.placements || []).map((pl, idx) => `
+      <tr style="border-bottom: 1px solid var(--color-border); font-size: 0.75rem;">
+        <td style="padding: 0.35rem 0.5rem; font-weight: 700; text-align: center;">#${idx + 1}</td>
+        <td style="padding: 0.35rem 0.5rem; font-family: monospace; font-weight: 700; color: var(--color-primary);">${esc(pl.sku)} (u.${pl.unitIndex})</td>
+        <td style="padding: 0.35rem 0.5rem; font-family: monospace;">${pl.lx} × ${pl.ly} × ${pl.lz} cm</td>
+        <td style="padding: 0.35rem 0.5rem; font-family: monospace; color: var(--color-text-muted);">X:${pl.x}cm, Y:${pl.y}cm, Z:${pl.z}cm</td>
+      </tr>
+    `).join('');
+
+    placementsHtml = `
+      <details style="border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); overflow: hidden;">
+        <summary style="padding: 0.55rem 0.85rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; background: var(--color-bg); display: flex; align-items: center; justify-content: space-between;">
+          <span><i class="ri-layout-masonry-line" style="color: var(--color-primary);"></i> Ubicación y Orientación 3D de cada Unidad dentro de la Caja (${calc.placements.length} unid.)</span>
+          <span style="font-size: 0.72rem; color: var(--color-text-muted);">Clic para desplegar coordenadas</span>
+        </summary>
+        <div style="max-height: 170px; overflow-y: auto;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--color-border); font-size: 0.72rem; color: var(--color-text-muted); background: var(--color-surface);">
+                <th style="padding: 0.35rem 0.5rem; text-align: center;">Pos</th>
+                <th style="padding: 0.35rem 0.5rem; text-align: left;">SKU / Unidad</th>
+                <th style="padding: 0.35rem 0.5rem; text-align: left;">Orientación Aplicada (L×An×Al)</th>
+                <th style="padding: 0.35rem 0.5rem; text-align: left;">Coordenada Esquina Inferior (X, Y, Z)</th>
+              </tr>
+            </thead>
+            <tbody>${placementRows}</tbody>
+          </table>
+        </div>
+      </details>
+    `;
+
+    const topCompatible = (calc.allCompatibleBoxes || []).slice(0, 5);
+    if (topCompatible.length > 1) {
+      alternativesHtml = `
+        <div style="border: 1px solid var(--color-border); border-radius: 8px; padding: 0.65rem 0.85rem; background: var(--color-surface);">
+          <div style="font-size: 0.76rem; font-weight: 800; color: var(--color-text-main); margin-bottom: 0.45rem;">
+            <i class="ri-exchange-box-line" style="color: var(--color-primary);"></i> Otras Cajas Compatibles en Cartpaper (por si requieres mayor protección/relleno):
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 0.45rem;">
+            ${topCompatible.map((c, idx) => `
+              <div style="padding: 0.45rem 0.6rem; border-radius: 6px; border: 1px solid ${idx === 0 ? '#10b981' : 'var(--color-border)'}; background: ${idx === 0 ? 'rgba(16, 185, 129, 0.06)' : 'var(--color-bg)'}; font-size: 0.74rem;">
+                <div style="font-weight: 800; font-family: monospace; color: var(--color-text-main);">
+                  ${c.box.dimsLabel} ${idx === 0 ? '<span style="color:#059669;">(Óptima)</span>' : ''}
+                </div>
+                <div style="color: var(--color-text-muted); font-size: 0.7rem; margin-top: 0.1rem;">
+                  Costo: <strong>$${c.box.unitPrice.toLocaleString('es-CL')}</strong> • Ocup: <strong>${c.occupancyPct}%</strong>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+  } else if (calc.status === 'multi_box_fit') {
+    heroBoxHtml = `
+      <div style="background: rgba(59, 130, 246, 0.08); border: 1.5px solid #3b82f6; border-radius: 10px; padding: 1rem;">
+        <div style="font-size: 0.85rem; font-weight: 800; color: #1d4ed8; margin-bottom: 0.35rem;">
+          <i class="ri-stack-fill"></i> Pedido Multi-Bulto (${calc.multiBoxes.length} Cajas Cartpaper — Costo Total Embalaje: $${calc.totalMultiBoxCost.toLocaleString('es-CL')})
+        </div>
+        <div style="font-size: 0.78rem; color: var(--color-text-main); display: flex; flex-direction: column; gap: 0.35rem;">
+          ${calc.multiBoxes.map((mb, idx) => `
+            <div style="background: var(--color-surface); padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+              <span><strong>Bulto #${idx + 1}:</strong> ${mb.box.name} (<code style="font-weight: 800;">${mb.box.dimsLabel}</code>) — ${mb.placements.length} unid. (${mb.occupancyPct}% ocup.)</span>
+              <strong style="color: #1d4ed8;">$${mb.box.unitPrice.toLocaleString('es-CL')}</strong>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  } else if (calc.status === 'oversized_item') {
+    heroBoxHtml = `
+      <div style="background: rgba(239, 68, 68, 0.08); border: 1.5px solid #ef4444; border-radius: 10px; padding: 1rem;">
+        <div style="font-size: 0.9rem; font-weight: 800; color: #b91c1c; margin-bottom: 0.25rem;">
+          <i class="ri-alert-fill"></i> Producto Sobredimensionado para Cajas Estándar Cartpaper
+        </div>
+        <div style="font-size: 0.8rem; color: var(--color-text-main);">
+          El producto <strong>${esc(calc.oversizedItem?.sku || '')}</strong> (${calc.oversizedItem?.length}×${calc.oversizedItem?.width}×${calc.oversizedItem?.height} cm) supera la medida máxima de línea de Cartpaper (<strong>50×40×30 cm</strong>). Se recomienda film stretch / embalaje propio o cotizar medida especial.
+        </div>
+      </div>
+    `;
+  } else {
+    heroBoxHtml = `
+      <div style="background: rgba(245, 158, 11, 0.1); border: 1.5px solid #f59e0b; border-radius: 10px; padding: 1rem;">
+        <div style="font-size: 0.9rem; font-weight: 800; color: #b45309; margin-bottom: 0.25rem;">
+          <i class="ri-ruler-2-line"></i> Ingresa las dimensiones de los productos abajo para calcular la caja Cartpaper
+        </div>
+        <div style="font-size: 0.78rem; color: var(--color-text-main);">
+          Al guardar las medidas (Largo × Ancho × Alto en cm), quedarán registradas permanentemente en el catálogo del comercio y se calculará de inmediato la caja óptima para este y futuros pedidos.
+        </div>
+      </div>
+    `;
+  }
+
+  const modalHtml = `
+    <div style="text-align: left; display: flex; flex-direction: column; gap: 0.95rem; font-family: inherit; color: var(--color-text-main);">
+      ${heroBoxHtml}
+      ${placementsHtml}
+      ${alternativesHtml}
+
+      <!-- Tabla de ítems con editor rápido de dimensiones -->
+      <div style="border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); overflow: hidden;">
+        <div style="padding: 0.55rem 0.85rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+          <span style="font-size: 0.8rem; font-weight: 800;">
+            <i class="ri-ruler-line" style="color: var(--color-primary);"></i> Dimensiones de Productos del Pedido (${calc.totalPhysicalUnits || 0} unid.)
+          </span>
+          <button type="button" onclick="window.saveOrderSkuDimensionsFromBoxModal('${order.id}')" class="btn btn-primary btn-sm" style="padding: 0.28rem 0.7rem; font-size: 0.74rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-save-line"></i> Guardar Medidas en Catálogo y Recalcular
+          </button>
+        </div>
+        <div style="max-height: 220px; overflow-y: auto;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--color-border); font-size: 0.72rem; color: var(--color-text-muted); background: var(--color-surface);">
+                <th style="padding: 0.38rem 0.5rem; text-align: left;">SKU</th>
+                <th style="padding: 0.38rem 0.5rem; text-align: left;">Producto</th>
+                <th style="padding: 0.38rem 0.5rem; text-align: center;">Cant</th>
+                <th style="padding: 0.38rem 0.5rem; text-align: center;">Origen Medida</th>
+                <th style="padding: 0.38rem 0.5rem; text-align: left;">Largo × Ancho × Alto (cm)</th>
+                <th style="padding: 0.38rem 0.5rem; text-align: right;">Vol. Total</th>
+              </tr>
+            </thead>
+            <tbody>${itemsTableRows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  Swal.fire({
+    title: `<span style="font-size: 1.1rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.45rem;"><i class="ri-box-3-fill" style="color: var(--color-primary);"></i> Cubicaje 3D y Caja Cartpaper — Pedido ${esc(orderNum)}</span>`,
+    html: modalHtml,
+    width: '820px',
+    showConfirmButton: true,
+    confirmButtonText: 'Cerrar',
+    confirmButtonColor: '#64748b'
+  });
+};
+
+/**
+ * Guarda las dimensiones (Largo x Ancho x Alto cm) editadas directamente desde el modal de Caja Cartpaper
+ * hacia la tabla `products` de Supabase y recalcula el pedido en tiempo real.
+ */
+window.saveOrderSkuDimensionsFromBoxModal = async function(orderId) {
+  const order = (window.loadedOrders || []).find(o => String(o.id) === String(orderId))
+    || (window.agendasGridState?.filteredOrders || []).find(o => String(o.id) === String(orderId));
+  if (!order) return;
+
+  const lInputs = Array.from(document.querySelectorAll('.cp-sku-dim-l'));
+  const wInputs = Array.from(document.querySelectorAll('.cp-sku-dim-w'));
+  const hInputs = Array.from(document.querySelectorAll('.cp-sku-dim-h'));
+
+  const updates = [];
+  for (let i = 0; i < lInputs.length; i++) {
+    const prodId = lInputs[i].getAttribute('data-product-id');
+    const sku = lInputs[i].getAttribute('data-sku');
+    const l = parseFloat(lInputs[i].value) || 0;
+    const w = parseFloat(wInputs[i]?.value) || 0;
+    const h = parseFloat(hInputs[i]?.value) || 0;
+
+    if (prodId && l > 0 && w > 0 && h > 0) {
+      const rawVolM3 = (l * w * h) / 1000000;
+      const volumen = typeof window.roundUpVolume === 'function' ? window.roundUpVolume(rawVolM3) : Number(rawVolM3.toFixed(6));
+      updates.push({ prodId, sku, length: l, width: w, height: h, volumen });
+    }
+  }
+
+  if (updates.length === 0) {
+    Swal.showValidationMessage('Ingresa Largo, Ancho y Alto mayores a 0 en al menos un producto con ID de catálogo.');
+    return;
+  }
+
+  try {
+    window.loadedProductDimensionsMap = window.loadedProductDimensionsMap || {};
+    for (const u of updates) {
+      const payload = {
+        length: u.length,
+        width: u.width,
+        height: u.height,
+        largo: u.length,
+        ancho: u.width,
+        alto: u.height,
+        volumen: u.volumen
+      };
+      const { error } = await supabase
+        .from('products')
+        .update(payload)
+        .eq('id', u.prodId);
+      if (error) throw error;
+
+      window.loadedProductDimensionsMap[u.prodId] = {
+        length: u.length,
+        width: u.width,
+        height: u.height,
+        volumen: u.volumen
+      };
+
+      // Actualizar todos los pedidos cargados en memoria que contengan este producto
+      (window.loadedOrders || []).forEach(o => {
+        (o.order_items || []).forEach(oi => {
+          if ((oi.product_id === u.prodId || oi.products?.id === u.prodId) && oi.products) {
+            oi.products.length = u.length;
+            oi.products.width = u.width;
+            oi.products.height = u.height;
+            oi.products.volumen = u.volumen;
+          }
+        });
+      });
+    }
+
+    if (typeof window.applyWmsFiltersAndRender === 'function') {
+      window.applyWmsFiltersAndRender();
+    }
+
+    // Reabrir modal actualizado con el nuevo cálculo 3D
+    await window.openOrderCartpaperBoxModal(orderId);
+  } catch (err) {
+    console.error('Error guardando dimensiones desde modal Cartpaper:', err);
+    Swal.fire('Error', 'No se pudieron guardar las dimensiones: ' + (err.message || err), 'error');
+  }
+};
+
