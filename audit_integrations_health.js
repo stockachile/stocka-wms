@@ -535,6 +535,34 @@ async function runIntegrationsGuardian() {
 // 4. AUDITORES ESPECÍFICOS POR PLATAFORMA
 // ==========================================
 
+async function wcFetchWithProxyFallback(baseUrl, endpoint, options, integration) {
+  const fullUrl = `${baseUrl}${endpoint}`;
+  const res = await fetchWithTimeout(fullUrl, options);
+  const contentType = res.headers.get('content-type') || '';
+
+  if (res.status === 403 || (res.ok && !contentType.includes('application/json'))) {
+    console.log(`   🛡️ [WAF Bypass] ${integration.comercio} devolvió ${res.status} en conexión directa (${endpoint}). Enrutando vía Supabase Edge Function...`);
+    const proxyRes = await fetchWithTimeout(`${SUPABASE_URL}/functions/v1/woocommerce-webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+      },
+      body: JSON.stringify({
+        action: 'proxy_wc_api',
+        integration_id: integration.id,
+        comercio: integration.comercio,
+        endpoint,
+        method: options.method || 'GET',
+        body: options.body || undefined
+      })
+    });
+    return proxyRes;
+  }
+
+  return res;
+}
+
 async function auditWooCommerceIntegration(integration, iso72hAgo, healedActions, warningsList) {
   let consumerKey, consumerSecret;
   try {
@@ -563,9 +591,9 @@ async function auditWooCommerceIntegration(integration, iso72hAgo, healedActions
     'User-Agent': BROWSER_USER_AGENT
   };
 
-  // 1. Consultar pedidos de las últimas 72h
-  const ordersUrl = `${baseUrl}/wp-json/wc/v3/orders?per_page=50&after=${encodeURIComponent(iso72hAgo)}`;
-  const res = await fetchWithTimeout(ordersUrl, { method: 'GET', headers });
+  // 1. Consultar pedidos de las últimas 72h (con fallback automático vía Edge Function si el WAF bloquea la IP de GitHub Actions)
+  const ordersEndpoint = `/wp-json/wc/v3/orders?per_page=50&after=${encodeURIComponent(iso72hAgo)}`;
+  const res = await wcFetchWithProxyFallback(baseUrl, ordersEndpoint, { method: 'GET', headers }, integration);
   const contentType = res.headers.get('content-type') || '';
 
   if (!res.ok) {
@@ -600,7 +628,7 @@ async function auditWooCommerceIntegration(integration, iso72hAgo, healedActions
 
   // 2. Auditar y auto-reactivar Webhooks en WooCommerce
   try {
-    const whRes = await fetchWithTimeout(`${baseUrl}/wp-json/wc/v3/webhooks?per_page=100`, { method: 'GET', headers });
+    const whRes = await wcFetchWithProxyFallback(baseUrl, '/wp-json/wc/v3/webhooks?per_page=100', { method: 'GET', headers }, integration);
     if (whRes.ok) {
       const webhooksList = await whRes.json();
       if (Array.isArray(webhooksList)) {
@@ -622,18 +650,18 @@ async function auditWooCommerceIntegration(integration, iso72hAgo, healedActions
 
           const pausedOne = matching[0];
           if (pausedOne && pausedOne.id) {
-            const reactRes = await fetchWithTimeout(`${baseUrl}/wp-json/wc/v3/webhooks/${pausedOne.id}`, {
+            const reactRes = await wcFetchWithProxyFallback(baseUrl, `/wp-json/wc/v3/webhooks/${pausedOne.id}`, {
               method: 'PUT',
               headers,
               body: JSON.stringify({ status: 'active' })
-            });
+            }, integration);
             if (reactRes.ok) {
               healedActions.push(`Webhook WooCommerce '${reqWh.topic}' estaba '${pausedOne.status}' y fue reactivado automáticamente`);
             } else {
               warningsList.push(`Webhook '${reqWh.topic}' está '${pausedOne.status}' y no pudo reactivarse (HTTP ${reactRes.status})`);
             }
           } else {
-            const createRes = await fetchWithTimeout(`${baseUrl}/wp-json/wc/v3/webhooks`, {
+            const createRes = await wcFetchWithProxyFallback(baseUrl, '/wp-json/wc/v3/webhooks', {
               method: 'POST',
               headers,
               body: JSON.stringify({
@@ -642,7 +670,7 @@ async function auditWooCommerceIntegration(integration, iso72hAgo, healedActions
                 delivery_url: expectedWebhookUrl,
                 status: 'active'
               })
-            });
+            }, integration);
             if (createRes.ok) {
               healedActions.push(`Webhook WooCommerce '${reqWh.topic}' no existía y fue creado automáticamente`);
             } else {

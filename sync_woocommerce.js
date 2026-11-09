@@ -242,6 +242,39 @@ async function syncMerchantWooCommerce(integration) {
 }
 
 /**
+ * Realiza una petición a la API de WooCommerce y, si el firewall/Cloudflare de la tienda
+ * bloquea la IP de GitHub Actions con HTTP 403, reintenta automáticamente a través del
+ * puente seguro en Supabase Edge Functions (woocommerce-webhook).
+ */
+async function wcFetchWithProxyFallback(baseUrl, endpoint, options, integration) {
+  const fullUrl = `${baseUrl}${endpoint}`;
+  const res = await fetch(fullUrl, options);
+  const contentType = res.headers.get('content-type') || '';
+
+  if (res.status === 403 || (res.ok && !contentType.includes('application/json'))) {
+    console.log(`🛡️ [WAF Bypass] ${integration.comercio} devolvió ${res.status} en conexión directa (${endpoint}). Enrutando vía Supabase Edge Function...`);
+    const proxyRes = await fetch(`${SUPABASE_URL}/functions/v1/woocommerce-webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+      },
+      body: JSON.stringify({
+        action: 'proxy_wc_api',
+        integration_id: integration.id,
+        comercio: integration.comercio,
+        endpoint,
+        method: options.method || 'GET',
+        body: options.body || undefined
+      })
+    });
+    return proxyRes;
+  }
+
+  return res;
+}
+
+/**
  * Verifica que los webhooks de WooCommerce (order.created y order.updated) estén activos.
  * Si WooCommerce los pausó/desactivó automáticamente tras reintentos fallidos, los reactiva.
  */
@@ -249,7 +282,7 @@ async function ensureWooCommerceWebhooks(integration, baseUrl, headers) {
   try {
     const webhookMerchantId = integration.original_merchant_id || integration.merchant_id;
     const expectedWebhookUrl = `${SUPABASE_URL}/functions/v1/woocommerce-webhook?merchant_id=${webhookMerchantId}&comercio=${encodeURIComponent(integration.comercio || '')}`;
-    const whRes = await fetch(`${baseUrl}/wp-json/wc/v3/webhooks?per_page=100`, { method: 'GET', headers });
+    const whRes = await wcFetchWithProxyFallback(baseUrl, '/wp-json/wc/v3/webhooks?per_page=100', { method: 'GET', headers }, integration);
     if (!whRes.ok) return;
 
     const webhooksList = await whRes.json();
@@ -272,16 +305,16 @@ async function ensureWooCommerceWebhooks(integration, baseUrl, headers) {
 
       const pausedOne = matching[0];
       if (pausedOne && pausedOne.id) {
-        const reactivateRes = await fetch(`${baseUrl}/wp-json/wc/v3/webhooks/${pausedOne.id}`, {
+        const reactivateRes = await wcFetchWithProxyFallback(baseUrl, `/wp-json/wc/v3/webhooks/${pausedOne.id}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify({ status: 'active' })
-        });
+        }, integration);
         if (reactivateRes.ok) {
           console.log(`🛠️ [Auto-Heal] Webhook '${reqWh.topic}' estaba en estado '${pausedOne.status}' para ${integration.comercio}. Reactivado automáticamente.`);
         }
       } else {
-        const createRes = await fetch(`${baseUrl}/wp-json/wc/v3/webhooks`, {
+        const createRes = await wcFetchWithProxyFallback(baseUrl, '/wp-json/wc/v3/webhooks', {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -290,7 +323,7 @@ async function ensureWooCommerceWebhooks(integration, baseUrl, headers) {
             delivery_url: expectedWebhookUrl,
             status: 'active'
           })
-        });
+        }, integration);
         if (createRes.ok) {
           console.log(`🛠️ [Auto-Heal] Webhook '${reqWh.topic}' registrado automáticamente para ${integration.comercio}.`);
         }
@@ -306,10 +339,9 @@ async function ensureWooCommerceWebhooks(integration, baseUrl, headers) {
  */
 async function syncProducts(integration, baseUrl, headers) {
   console.log('--> Extrayendo productos desde WooCommerce...');
-  const url = `${baseUrl}/wp-json/wc/v3/products?per_page=100`;
 
   try {
-    const response = await fetch(url, { method: 'GET', headers });
+    const response = await wcFetchWithProxyFallback(baseUrl, '/wp-json/wc/v3/products?per_page=100', { method: 'GET', headers }, integration);
     if (!response.ok) {
       throw new Error(`Error en API WooCommerce Productos: Status ${response.status} ${response.statusText}`);
     }
@@ -321,8 +353,7 @@ async function syncProducts(integration, baseUrl, headers) {
       // WooCommerce soporta productos simples y variables
       if (product.type === 'variable') {
         console.log(`   Procesando producto variable: ${product.name} (ID: ${product.id}). Extrayendo variaciones...`);
-        const varUrl = `${baseUrl}/wp-json/wc/v3/products/${product.id}/variations?per_page=100`;
-        const varRes = await fetch(varUrl, { method: 'GET', headers });
+        const varRes = await wcFetchWithProxyFallback(baseUrl, `/wp-json/wc/v3/products/${product.id}/variations?per_page=100`, { method: 'GET', headers }, integration);
         if (varRes.ok) {
           const variations = await varRes.json();
           for (const variation of variations) {
@@ -443,10 +474,8 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
   }
 
   // Extraemos pedidos de cualquier estado para mantener el WMS actualizado, pero nos enfocamos en procesarlos.
-  const url = `${baseUrl}/wp-json/wc/v3/orders?per_page=100`;
-
   try {
-    const response = await fetch(url, { method: 'GET', headers });
+    const response = await wcFetchWithProxyFallback(baseUrl, '/wp-json/wc/v3/orders?per_page=100', { method: 'GET', headers }, integration);
     if (!response.ok) {
       throw new Error(`Error en API WooCommerce Pedidos: Status ${response.status} ${response.statusText}`);
     }

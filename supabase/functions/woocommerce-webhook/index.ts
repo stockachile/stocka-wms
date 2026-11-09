@@ -46,6 +46,13 @@ serve(async (req) => {
     }
 
     // =========================================================================
+    // ACCIÓN: PUENTE API WOOCOMMERCE PARA EVITAR BLOQUEOS WAF EN GITHUB ACTIONS
+    // =========================================================================
+    if (action === "proxy_wc_api") {
+      return await handleProxyWcApi(req, merchantId, queryComercio, payload);
+    }
+
+    // =========================================================================
     // PROCESAMIENTO REGULAR DE WEBHOOKS DE WOOCOMMERCE
     // =========================================================================
     const topicHeader = req.headers.get("x-wc-webhook-topic") || "";
@@ -207,6 +214,117 @@ function isSafeExternalStoreUrl(rawUrl: string): boolean {
   }
 }
 
+async function isValidServiceRoleToken(token: string): Promise<boolean> {
+  if (!token) return false;
+  if (supabaseServiceKey && token === supabaseServiceKey.trim()) return true;
+  try {
+    const tempClient = createClient(supabaseUrl, token, { auth: { persistSession: false } });
+    const { error } = await tempClient.auth.admin.listUsers({ page: 1, perPage: 1 });
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+async function handleProxyWcApi(req: Request, merchantIdQuery: string, comercioQuery: string, payload: any) {
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Missing Authorization header" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const isService = await isValidServiceRoleToken(token);
+    if (!isService) {
+      return new Response(JSON.stringify({ error: "Unauthorized: Service Role required" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    const integrationId = payload.integration_id || "";
+    const targetComercio = payload.comercio || comercioQuery || "";
+    const targetMerchantId = payload.merchant_id || merchantIdQuery || "";
+    const endpoint = String(payload.endpoint || "").trim();
+    const method = String(payload.method || "GET").toUpperCase();
+
+    if (!endpoint.startsWith("/wp-json/wc/v3/")) {
+      return new Response(JSON.stringify({ error: "Invalid WooCommerce endpoint" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    let query = supabase.from("merchant_integrations").select("*").eq("platform", "WooCommerce");
+    if (integrationId) {
+      query = query.eq("id", integrationId);
+    } else if (targetComercio) {
+      query = query.eq("comercio", targetComercio);
+    } else if (targetMerchantId) {
+      query = query.eq("merchant_id", targetMerchantId);
+    } else {
+      return new Response(JSON.stringify({ error: "Missing integration identifier" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    const { data: intList, error: intErr } = await query.limit(1);
+    if (intErr || !intList || intList.length === 0) {
+      return new Response(JSON.stringify({ error: "WooCommerce integration not found" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    const dbInt = intList[0];
+    let baseUrl = String(dbInt.shop_url || "").trim();
+    if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+      baseUrl = "https://" + baseUrl;
+    }
+    if (baseUrl.endsWith("/")) baseUrl = baseUrl.slice(0, -1);
+
+    if (!isSafeExternalStoreUrl(baseUrl)) {
+      return new Response(JSON.stringify({ error: "Unsafe external store URL" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    const creds = JSON.parse(dbInt.access_token);
+    const wcAuthHeader = "Basic " + btoa(`${String(creds.consumer_key || "").trim()}:${String(creds.consumer_secret || "").trim()}`);
+    const headers: Record<string, string> = {
+      "Authorization": wcAuthHeader,
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+    };
+
+    const fetchOpts: RequestInit = { method, headers };
+    if (payload.body && (method === "POST" || method === "PUT")) {
+      fetchOpts.body = typeof payload.body === "string" ? payload.body : JSON.stringify(payload.body);
+    }
+
+    const wcRes = await fetch(`${baseUrl}${endpoint}`, fetchOpts);
+    const resText = await wcRes.text();
+
+    return new Response(resText, {
+      status: wcRes.status,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": wcRes.headers.get("Content-Type") || "application/json"
+      }
+    });
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
+  }
+}
+
 async function handleVerifyConnection(req: Request, merchantIdQuery: string, comercioQuery: string, payload: any) {
   try {
     // 1. Exigir autenticación JWT o Service Role (VULN-26)
@@ -226,7 +344,7 @@ async function handleVerifyConnection(req: Request, merchantIdQuery: string, com
     let isServiceOrAdmin = false;
     let allowedComercios: string[] = [];
 
-    if (supabaseServiceKey && token === supabaseServiceKey.trim()) {
+    if (await isValidServiceRoleToken(token)) {
       isServiceOrAdmin = true;
     } else {
       const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
