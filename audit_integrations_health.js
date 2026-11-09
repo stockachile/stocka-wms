@@ -300,7 +300,10 @@ async function runIntegrationsGuardian() {
       } else if (platform === 'MercadoLibre') {
         await auditMercadoLibreIntegration(integration, healedActions, warningsList);
       } else if (platform === 'Falabella' || platform === 'Ripley' || platform === 'Paris' || platform === 'Walmart') {
-        await auditMarketplaceIntegration(integration, platform, healedActions, warningsList);
+        const mktResult = await auditMarketplaceIntegration(integration, platform, iso72hAgo, healedActions, warningsList);
+        if (mktResult?.activeOrders) {
+          storeActiveOrders72h = mktResult.activeOrders;
+        }
       }
 
       // ========================================================
@@ -479,7 +482,8 @@ async function runIntegrationsGuardian() {
     WooCommerce: 'sync_woocommerce.js',
     Jumpseller: 'sync_jumpseller.js',
     Shopify: 'sync_shopify.js',
-    Tiendanube: 'sync_tiendanube.js'
+    Tiendanube: 'sync_tiendanube.js',
+    Falabella: 'sync_falabella.js'
   };
 
   for (const item of merchantsToResync) {
@@ -941,14 +945,17 @@ async function auditMercadoLibreIntegration(integration, healedActions, warnings
   }
 }
 
-async function auditMarketplaceIntegration(integration, platform, healedActions, warningsList) {
+async function auditMarketplaceIntegration(integration, platform, iso72hAgo, healedActions, warningsList) {
+  const activeOrders = [];
   if (platform === 'Falabella' || platform === 'Ripley') {
     if (!integration.shop_url || !integration.access_token || !integration.username) {
       throw new Error(`Faltan shop_url, username o API Key en integración de ${platform}.`);
     }
-    const url = buildMiraklSignedUrl(integration.shop_url, integration.access_token, integration.username, 'GetOrders', {
-      Limit: '1'
-    });
+    const createdAfter = iso72hAgo ? iso72hAgo.split('.')[0] + 'Z' : undefined;
+    const extraParams = platform === 'Falabella' && createdAfter
+      ? { CreatedAfter: createdAfter }
+      : { Limit: '1' };
+    const url = buildMiraklSignedUrl(integration.shop_url, integration.access_token, integration.username, 'GetOrders', extraParams);
     const res = await fetchWithTimeout(url, { method: 'GET' });
     if (!res.ok) {
       throw new Error(`Error conectando con ${platform} Seller Center: HTTP ${res.status}`);
@@ -956,6 +963,30 @@ async function auditMarketplaceIntegration(integration, platform, healedActions,
     const json = await res.json().catch(() => null);
     if (json?.ErrorResponse?.Head?.ErrorMessage) {
       throw new Error(`Error API ${platform}: ${json.ErrorResponse.Head.ErrorMessage}`);
+    }
+    if (platform === 'Falabella' && json?.SuccessResponse?.Body?.Orders) {
+      const ordersObj = json.SuccessResponse.Body.Orders;
+      const orders = ordersObj.Order
+        ? (Array.isArray(ordersObj.Order) ? ordersObj.Order : [ordersObj.Order])
+        : (Array.isArray(ordersObj) ? ordersObj : []);
+      for (const o of orders) {
+        const st = String(o?.Statuses?.Status || o?.Status || '').toLowerCase().trim();
+        const isCancelled = st.includes('cancel') || st.includes('refund') || st.includes('refus') || st.includes('fail');
+        const isDelivered = st.includes('deliv') || st.includes('receiv');
+        if (!isCancelled && !isDelivered) {
+          const rawNum = String(o.OrderNumber || o.OrderId || '').trim();
+          const createdRaw = String(o.CreatedAt || '').trim();
+          const createdIso = createdRaw ? `${createdRaw.replace(' ', 'T')}-03:00` : new Date().toISOString();
+          if (rawNum) {
+            activeOrders.push({
+              rawNumber: rawNum,
+              statusLabel: st || 'pending',
+              createdAt: createdIso,
+              isPaidActive: true
+            });
+          }
+        }
+      }
     }
   } else if (platform === 'Paris') {
     if (!integration.access_token) {
@@ -966,6 +997,7 @@ async function auditMarketplaceIntegration(integration, platform, healedActions,
       throw new Error('Faltan client_id o client_secret en integración de Walmart.');
     }
   }
+  return { activeOrders };
 }
 
 function buildGuardianEmailHtml(results, startedAt) {

@@ -75,11 +75,17 @@ async function syncFalabellaData() {
 
   try {
     // 1. Obtener todas las integraciones activas de Falabella en Supabase
-    const { data: integrations, error: intError } = await supabase
+    let query = supabase
       .from('merchant_integrations')
       .select('*')
       .eq('platform', 'Falabella')
       .eq('is_active', true);
+
+    if (process.env.TARGET_COMERCIO) {
+      query = query.ilike('comercio', process.env.TARGET_COMERCIO.trim());
+    }
+
+    const { data: integrations, error: intError } = await query;
 
     if (intError) {
       console.error('❌ Error al obtener integraciones desde Supabase:', intError.message);
@@ -149,99 +155,116 @@ async function syncFalabellaData() {
 }
 
 /**
- * Mapea el estado de Falabella (Mirakl) al WMS STOCKA
+ * Convierte una fecha "YYYY-MM-DD HH:mm:ss" entregada por Falabella (hora local Chile) a ISO UTC
  */
-function mapFalabellaStatus(statusName) {
-  const s = (statusName || '').toLowerCase().trim();
-  if (s.includes('cancel') || s.includes('refund') || s.includes('refus') || s.includes('fail')) {
-    return 'cancelado';
+function parseChileDateTimeToIso(dateStr) {
+  if (!dateStr) return new Date().toISOString();
+  const s = String(dateStr).trim();
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(s)) {
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
   }
-  // En Falabella Seller Center, ready_to_ship significa que el pedido ya fue confirmado
-  // y cuenta con etiqueta/documento de despacho listo para que la bodega lo empaque y despache.
-  if (s === 'ready_to_ship' || s.includes('ready_to_ship')) {
-    return 'en preparación';
+  const isoCandidate = s.replace(' ', 'T');
+  const probeUtc = new Date(`${isoCandidate}Z`);
+  if (isNaN(probeUtc.getTime())) return new Date().toISOString();
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Santiago',
+      timeZoneName: 'longOffset'
+    }).formatToParts(probeUtc);
+    const tzPart = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT-03:00';
+    const offsetMatch = tzPart.match(/([+-]\d{2}:\d{2})/);
+    const offset = offsetMatch ? offsetMatch[1] : '-03:00';
+    const finalDate = new Date(`${isoCandidate}${offset}`);
+    return isNaN(finalDate.getTime()) ? probeUtc.toISOString() : finalDate.toISOString();
+  } catch (_e) {
+    return new Date(`${isoCandidate}-03:00`).toISOString();
   }
-  if (s === 'shipped' || s.includes('shipped') || s.includes('send') || s.includes('dispatch') || s.includes('deliv') || s.includes('receiv') || s.includes('close')) {
-    // Para pedidos despachados o entregados, asignamos 'despachado'
-    // Esto asegura que se descuente el stock físico al realizar la actualización de estado
-    return 'despachado';
-  }
-  if (s.includes('accept') || s.includes('prepar') || s.includes('pack')) {
-    return 'en preparación';
-  }
-  return 'para procesar';
 }
 
 /**
  * Sincroniza los pedidos de un cliente específico de Falabella
  */
 async function syncMerchantOrders(integration) {
-  // A. Obtener o definir una bodega por defecto para el cliente
-  let warehouseId = null;
-  const { data: whRel, error: whErr } = await supabase
-    .from('merchants_warehouses')
-    .select('warehouse_id')
-    .eq('merchant_id', integration.merchant_id)
-    .limit(1)
-    .maybeSingle();
-
-  if (whRel) {
-    warehouseId = whRel.warehouse_id;
-  } else {
-    // Buscar la primera bodega disponible en el WMS como fallback
-    const { data: defaultWh } = await supabase.from('warehouses').select('id').limit(1).maybeSingle();
-    if (defaultWh) {
-      warehouseId = defaultWh.id;
-    }
-  }
-
-  if (!warehouseId) {
-    console.error(`❌ Error para Merchant ${integration.merchant_id}: No hay ninguna bodega configurada en el WMS.`);
-    return;
-  }
-
-  // Obtener sigla del comercio y configuración de prefijos por plataforma
+  // Obtener sigla del comercio, bodega por defecto y configuración de prefijos por plataforma
   let siglaComercio = '';
   let prefijoOrigen = '';
   let agregarPrefijo = false; // Falabella default is false
   let hasPlatConfig = false;
+  let defaultWarehouseFromConfig = null;
+  let comercioConfigId = null;
 
   if (integration.comercio) {
     try {
       const { data: configData } = await supabase
         .from('v_comercios_config')
-        .select('sigla')
+        .select('id, sigla')
         .eq('nombre', integration.comercio)
         .maybeSingle();
 
-      if (configData && configData.sigla) {
-        siglaComercio = configData.sigla.trim().toUpperCase();
+      if (configData) {
+        if (configData.sigla) siglaComercio = configData.sigla.trim().toUpperCase();
+        if (configData.id) comercioConfigId = configData.id;
       }
 
       const { data: adicionalConfig } = await supabase
         .from('comercios_adicional_config')
-        .select('pedido_trae_sigla, plat_siglas_config')
+        .select('comercio_id, default_warehouse_id, pedido_trae_sigla, plat_siglas_config')
         .eq('comercio', integration.comercio)
         .maybeSingle();
 
       if (adicionalConfig) {
+        if (adicionalConfig.default_warehouse_id) {
+          defaultWarehouseFromConfig = adicionalConfig.default_warehouse_id;
+        }
+        if (adicionalConfig.comercio_id && !comercioConfigId) {
+          comercioConfigId = adicionalConfig.comercio_id;
+        }
         const platConfig = (adicionalConfig.plat_siglas_config || {})['Falabella'];
         if (platConfig) {
           hasPlatConfig = true;
           agregarPrefijo = platConfig.agregar_prefijo !== false;
           prefijoOrigen = (platConfig.prefijo_origen || '').trim().toUpperCase();
         } else {
-          // Fallback legacy
           agregarPrefijo = false;
         }
       } else {
-        // Fallback default
         agregarPrefijo = false;
       }
       console.log(`ℹ️ Configuración de prefijo para Falabella: Sigla="${siglaComercio}", HasPlatConfig=${hasPlatConfig}, AgregarPrefijo=${agregarPrefijo}, PrefijoOrigen="${prefijoOrigen}"`);
     } catch (err) {
       console.error('⚠️ Error al consultar configuración de sigla para el comercio:', err.message);
     }
+  }
+
+  // A. Obtener o definir la bodega por defecto para el cliente (priorizando default_warehouse_id del comercio)
+  let warehouseId = defaultWarehouseFromConfig || null;
+  if (!warehouseId && comercioConfigId) {
+    const { data: whByComercio } = await supabase
+      .from('merchants_warehouses')
+      .select('warehouse_id')
+      .eq('merchant_id', comercioConfigId)
+      .limit(1)
+      .maybeSingle();
+    if (whByComercio?.warehouse_id) warehouseId = whByComercio.warehouse_id;
+  }
+  if (!warehouseId) {
+    const { data: whRel } = await supabase
+      .from('merchants_warehouses')
+      .select('warehouse_id')
+      .eq('merchant_id', integration.merchant_id)
+      .limit(1)
+      .maybeSingle();
+    if (whRel?.warehouse_id) warehouseId = whRel.warehouse_id;
+  }
+  if (!warehouseId) {
+    const { data: defaultWh } = await supabase.from('warehouses').select('id').limit(1).maybeSingle();
+    if (defaultWh) warehouseId = defaultWh.id;
+  }
+
+  if (!warehouseId) {
+    console.error(`❌ Error para Merchant ${integration.merchant_id}: No hay ninguna bodega configurada en el WMS.`);
+    return;
   }
 
   // Cargar equivalencias de SKU para este comercio
@@ -377,10 +400,12 @@ async function syncMerchantOrders(integration) {
       // Calcular valor total de la orden sumando precios de los ítems
       const totalValue = items.reduce((sum, item) => sum + Number(item.ItemPrice || 0), 0);
 
+      const isDelivered = statusName.includes('deliv') || statusName.includes('receiv');
+
       // 1. Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id, status, estado_wms, label_base64, comercio, raw_falabella_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
+        .select('id, status, estado_wms, stock_descontado, label_base64, comercio, raw_falabella_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
         .eq('comercio', integration.comercio)
         .in('external_order_number', [orderNumber, finalOrderNumber])
         .eq('external_platform', 'Falabella')
@@ -395,6 +420,7 @@ async function syncMerchantOrders(integration) {
         const existingRaw = existingOrder.raw_falabella_data || {};
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
+        const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
 
         const updatePayload = {
           payment_status: falabellaPaymentStatus,
@@ -412,7 +438,6 @@ async function syncMerchantOrders(integration) {
         // Si el pedido se canceló en origen, actualizar su estado en WMS (protegiendo estados operacionales avanzados)
         if (isCancelled && existingOrder.status !== 'cancelado') {
           updatePayload.status = 'cancelado';
-          const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
           const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
           if (!estadosWmsProtegidos.includes(currentWmsState)) {
             updatePayload.estado_wms = 'Cancelado';
@@ -423,7 +448,19 @@ async function syncMerchantOrders(integration) {
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${finalOrderNumber} cancelado en Falabella. Actualizado en el WMS (estado_wms: ${updatePayload.estado_wms || existingOrder.estado_wms}).`);
         } else {
-          // Actualizar datos del pedido
+          // Nota operacional: En Falabella Seller Center, el estado 'shipped' o 'ready_to_ship' se activa apenas
+          // el comercio genera la etiqueta ("Retira mañana" / "Listo para despachar"), antes del despacho físico en bodega.
+          // Por ello NO debemos sobreescribir orders.status a 'despachado' mientras estado_wms siga activo en bodega.
+          if (!isDelivered && existingOrder.status === 'despachado' && !existingOrder.stock_descontado) {
+            if (currentWmsState === 'en procesamiento') {
+              updatePayload.status = 'para procesar';
+            } else if (currentWmsState === 'en preparación') {
+              updatePayload.status = 'en preparación';
+            } else if (currentWmsState === 'pickeado') {
+              updatePayload.status = 'preparado';
+            }
+          }
+
           await supabase
             .from('orders')
             .update(updatePayload)
@@ -448,15 +485,24 @@ async function syncMerchantOrders(integration) {
         if (!isWmsItemsEdited) {
           const { data: existingItems, error: itemsCheckErr } = await supabase
             .from('order_items')
-            .select('id')
+            .select('id, warehouse_id')
             .eq('order_id', localOrderId);
 
           if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
             console.log(`ℹ️ Pedido existente ${finalOrderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);
             shouldInsertItems = true;
+          } else if (!itemsCheckErr && existingItems && existingItems.length > 0 && defaultWarehouseFromConfig && !existingOrder.stock_descontado) {
+            for (const exItem of existingItems) {
+              if (exItem.warehouse_id !== defaultWarehouseFromConfig) {
+                await supabase
+                  .from('order_items')
+                  .update({ warehouse_id: defaultWarehouseFromConfig })
+                  .eq('id', exItem.id);
+              }
+            }
           }
         }
-      } else {
+      } else if (!isCancelled && !isDelivered) {
         // Descargar etiqueta de despacho
         console.log(`--> Descargando etiqueta de despacho...`);
         labelBase64 = await downloadLabelBase64(integration, orderId, items);
@@ -485,11 +531,10 @@ async function syncMerchantOrders(integration) {
           item: flatItemName,
           cantidad: flatQuantity,
           sku: flatSku,
-          created_at: new Date(order.CreatedAt).toISOString()
+          created_at: parseChileDateTimeToIso(order.CreatedAt)
         };
 
-        // Insertar nuevo pedido activo en WMS temporalmente como 'para procesar'
-        // (Requerido para que la inserción de items aumente el stock comprometido)
+        // Insertar nuevo pedido activo en WMS con estado inicial 'para procesar' (estado_wms = 'En procesamiento')
         const { data: newOrder, error: insErr } = await supabase
           .from('orders')
           .insert([{ ...orderDataToSave, status: 'para procesar' }])
@@ -501,9 +546,11 @@ async function syncMerchantOrders(integration) {
           continue;
         }
 
-        console.log(`📥 Insertado nuevo pedido local ${finalOrderNumber} con estado temporal 'para procesar'`);
+        console.log(`📥 Insertado nuevo pedido local ${finalOrderNumber} con estado 'para procesar'`);
         localOrderId = newOrder.id;
         shouldInsertItems = true;
+      } else {
+        console.log(`ℹ️ Pedido ${finalOrderNumber} ignorado por estar en estado final (${statusName}) y no existir en WMS.`);
       }
 
       // Registrar ítems en order_items (fuera del if-else para que se ejecute si a un pedido existente le faltan ítems)
@@ -583,27 +630,6 @@ async function syncMerchantOrders(integration) {
           } else {
             console.warn(`   ⚠️ SKU ${sku} no encontrado/creado en la base de datos. No se pudo registrar en la orden.`);
           }
-        }
-      }
-
-      // Actualizar al estado real final mapeado
-      const targetStatus = mapFalabellaStatus(statusName);
-      const isNewOrder = !existingOrder;
-      const shouldTransition = isNewOrder 
-        ? (targetStatus !== 'para procesar')
-        : (targetStatus === 'despachado' && existingOrder.status !== 'despachado' && existingOrder.status !== 'cancelado');
-
-      if (shouldTransition) {
-        console.log(`🔄 Transicionando estado final de la orden a '${targetStatus}'...`);
-        const { error: statusUpdateErr } = await supabase
-          .from('orders')
-          .update({ status: targetStatus })
-          .eq('id', localOrderId);
-
-        if (statusUpdateErr) {
-          console.error(`   ❌ Error al transicionar a estado ${targetStatus}:`, statusUpdateErr.message);
-        } else {
-          console.log(`   ✅ Estado de la orden transicionado exitosamente a '${targetStatus}' (Trigger de stock disparado).`);
         }
       }
     }
