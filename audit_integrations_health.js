@@ -941,7 +941,11 @@ async function auditMercadoLibreIntegration(integration, healedActions, warnings
         refresh_token: tokenData.refresh_token || integration.refresh_token
       })
       .eq('id', integration.id);
-    healedActions.push('Token OAuth de MercadoLibre renovado exitosamente');
+    if (integration.last_sync_error) {
+      healedActions.push('Token OAuth de MercadoLibre recuperado tras error previo');
+    } else {
+      console.log(`   🔄 [OAuth] Token de MercadoLibre renovado de forma rutinaria para ${integration.comercio}.`);
+    }
   } else if (!meRes.ok) {
     const errText = (await meRes.text()).substring(0, 140);
     throw new Error(`Token MercadoLibre inválido (HTTP ${meRes.status}): ${errText}`);
