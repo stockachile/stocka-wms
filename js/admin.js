@@ -6593,11 +6593,11 @@ function updateCategoryHeadersVisibility() {
 
 window.updateAdminBadges = async function() {
   try {
-    // 1. Tickets
+    // 1. Tickets (Casos Abiertos)
     const { count: ticketsCount } = await supabase
       .from('tickets')
       .select('*', { count: 'exact', head: true })
-      .in('status', ['abierto', 'en_proceso']);
+      .eq('status', 'abierto');
     
     const badgeTickets = document.getElementById('badge-tickets');
     if (badgeTickets && ticketsCount !== null) {
@@ -6609,6 +6609,12 @@ window.updateAdminBadges = async function() {
     if (badgeTicketsSidebar && ticketsCount !== null) {
       badgeTicketsSidebar.textContent = ticketsCount;
       badgeTicketsSidebar.style.display = ticketsCount > 0 ? 'inline-flex' : 'none';
+    }
+
+    const badgeTicketsSupport = document.getElementById('badge-tickets-support');
+    if (badgeTicketsSupport && ticketsCount !== null) {
+      badgeTicketsSupport.textContent = ticketsCount;
+      badgeTicketsSupport.style.display = ticketsCount > 0 ? 'inline-flex' : 'none';
     }
 
     // 2. Billing

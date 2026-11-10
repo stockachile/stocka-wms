@@ -1690,7 +1690,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const counts = {
         incidencias: readBadge('badge-incidencias-admin'),
         declarations: readBadge('badge-declarations'),
-        tickets: readBadge('badge-tickets-sidebar') || readBadge('badge-tickets'),
+        tickets: readBadge('badge-tickets-support') || readBadge('badge-tickets-sidebar') || readBadge('badge-tickets'),
         onboarding: readBadge('badge-onboarding'),
         billing: readBadge('badge-billing'),
         leads: readBadge('badge-leads-central')

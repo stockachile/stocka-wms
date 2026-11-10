@@ -963,6 +963,10 @@ export async function renderTicketsAdmin(appContent) {
       const { data: tickets, error } = await query;
       if (error) throw error;
 
+      if (typeof window.updateAdminBadges === 'function') {
+        window.updateAdminBadges();
+      }
+
       // Filtrar localmente por términos de búsqueda (asunto, comercio, ID, email del cliente)
       const filteredTickets = tickets.filter(t => {
         const clientName = t.client?.company_name || t.client?.full_name || '';
