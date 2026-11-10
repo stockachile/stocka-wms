@@ -200,8 +200,8 @@ serve(async (req) => {
           results.push({ id: item.id, status: "completed", action: "revert_in_progress", shopify_order_status: "unfulfilled" });
         }
 
-        // Delay de cortesía de 300ms entre llamadas para respetar Rate Limits de Shopify (2 req/s)
-        await delay(300);
+        // Delay de cortesía de 500ms entre llamadas para respetar Rate Limits de Shopify (2 req/s)
+        await delay(500);
 
       } catch (err: any) {
         console.error(`Error procesando item ${item.id} (Orden: ${item.order_id}):`, err.message);
@@ -252,51 +252,118 @@ serve(async (req) => {
 // =============================================================================
 
 /**
- * Pasa la orden a estado "En curso" y agrega tag interno a la orden en Shopify
+ * Pasa la orden a estado nativo "En curso" (IN_PROGRESS) mediante fulfillmentOrderReportProgress (API 2026-04)
+ * y agrega el tag visual "Stocka: En Preparación" a la orden en Shopify
  */
 async function handleSetInProgress(item: any, integration: any) {
   const shop = integration.shop_url;
   const token = integration.access_token;
   const shopifyOrderId = item.shopify_order_id;
+  let alreadyFulfilled = false;
 
-  // 1. Obtener tags actuales de la orden para añadir etiqueta visual
+  // 1. Cambiar estado nativo del FulfillmentOrder a IN_PROGRESS ("En curso") en Shopify
   try {
-    const orderRes = await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags`, {
+    const foUrl = `https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}/fulfillment_orders.json`;
+    const foRes = await shopifyFetch(foUrl, {
       headers: {
         "X-Shopify-Access-Token": token,
         "Content-Type": "application/json"
       }
     });
 
-    if (orderRes.ok) {
-      const orderData = await orderRes.json();
-      const currentTags = orderData.order?.tags || "";
-      if (!currentTags.includes("Stocka: En Preparación")) {
-        const newTags = currentTags ? `${currentTags}, Stocka: En Preparación` : "Stocka: En Preparación";
-        await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
-          method: "PUT",
-          headers: {
-            "X-Shopify-Access-Token": token,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            order: {
-              id: shopifyOrderId,
-              tags: newTags
+    if (foRes.ok) {
+      const foData = await foRes.json();
+      const fulfillmentOrders = foData.fulfillment_orders || [];
+      const openFos = fulfillmentOrders.filter((fo: any) => fo.status === "open");
+
+      if (openFos.length > 0) {
+        const progressMutation = `
+          mutation fulfillmentOrderReportProgress($id: ID!, $progressReport: FulfillmentOrderReportProgressInput) {
+            fulfillmentOrderReportProgress(id: $id, progressReport: $progressReport) {
+              fulfillmentOrder { id status }
+              userErrors { field message }
             }
-          })
-        });
+          }
+        `;
+        for (const fo of openFos) {
+          const gqlRes = await shopifyFetch(`https://${shop}/admin/api/2026-04/graphql.json`, {
+            method: "POST",
+            headers: {
+              "X-Shopify-Access-Token": token,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              query: progressMutation,
+              variables: {
+                id: `gid://shopify/FulfillmentOrder/${fo.id}`,
+                progressReport: {
+                  reasonNotes: "Pedido en preparación en Stocka WMS"
+                }
+              }
+            })
+          });
+          if (gqlRes.ok) {
+            const gqlData = await gqlRes.json();
+            const userErrors = gqlData?.data?.fulfillmentOrderReportProgress?.userErrors || [];
+            if (userErrors.length > 0) {
+              console.warn(`[SetInProgress] Aviso GraphQL en FO ${fo.id}:`, JSON.stringify(userErrors));
+            } else {
+              console.log(`✅ [SetInProgress] FO ${fo.id} de orden ${shopifyOrderId} pasado nativamente a IN_PROGRESS ("En curso").`);
+            }
+          }
+        }
+      } else if (fulfillmentOrders.length > 0 && fulfillmentOrders.every((fo: any) => fo.status === "closed")) {
+        alreadyFulfilled = true;
       }
     }
-  } catch (tagErr) {
-    console.warn(`Aviso al actualizar tags en orden ${shopifyOrderId}:`, tagErr);
+  } catch (foErr) {
+    console.warn(`Aviso al reportar progreso de FulfillmentOrder en orden ${shopifyOrderId}:`, foErr);
   }
 
-  // 2. Actualizar estado Shopify en orders y marcar queue como completado
+  // 2. Obtener tags actuales de la orden para añadir etiqueta visual
+  if (!alreadyFulfilled) {
+    try {
+      const orderRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags,fulfillment_status`, {
+        headers: {
+          "X-Shopify-Access-Token": token,
+          "Content-Type": "application/json"
+        }
+      });
+
+      if (orderRes.ok) {
+        const orderData = await orderRes.json();
+        if (orderData.order?.fulfillment_status === "fulfilled") {
+          alreadyFulfilled = true;
+        } else {
+          const currentTags = orderData.order?.tags || "";
+          if (!currentTags.includes("Stocka: En Preparación")) {
+            const newTags = currentTags ? `${currentTags}, Stocka: En Preparación` : "Stocka: En Preparación";
+            await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
+              method: "PUT",
+              headers: {
+                "X-Shopify-Access-Token": token,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                order: {
+                  id: shopifyOrderId,
+                  tags: newTags
+                }
+              })
+            });
+          }
+        }
+      }
+    } catch (tagErr) {
+      console.warn(`Aviso al actualizar tags en orden ${shopifyOrderId}:`, tagErr);
+    }
+  }
+
+  // 3. Actualizar estado Shopify en orders y marcar queue como completado
   await supabase
     .from("orders")
     .update({
-      shopify_order_status: "in_progress",
+      shopify_order_status: alreadyFulfilled ? "fulfilled" : "in_progress",
       shopify_status_updated_at: new Date().toISOString(),
       shopify_sync_last_error: null
     })
@@ -306,6 +373,7 @@ async function handleSetInProgress(item: any, integration: any) {
     .from("shopify_fulfillment_queue")
     .update({
       status: "completed",
+      last_error: null,
       processed_at: new Date().toISOString()
     })
     .eq("id", item.id);
@@ -319,11 +387,12 @@ async function handleSetReadyForPickup(item: any, integration: any) {
   const shop = integration.shop_url;
   const token = integration.access_token;
   const shopifyOrderId = item.shopify_order_id;
+  let alreadyFulfilled = false;
 
   // 1. Obtener fulfillment_orders abiertos para marcarlos como preparados para retiro
   try {
     const foUrl = `https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}/fulfillment_orders.json`;
-    const foRes = await fetch(foUrl, {
+    const foRes = await shopifyFetch(foUrl, {
       headers: {
         "X-Shopify-Access-Token": token,
         "Content-Type": "application/json"
@@ -353,7 +422,7 @@ async function handleSetReadyForPickup(item: any, integration: any) {
           }
         `;
 
-        const gqlRes = await fetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
+        const gqlRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
           method: "POST",
           headers: {
             "X-Shopify-Access-Token": token,
@@ -378,50 +447,58 @@ async function handleSetReadyForPickup(item: any, integration: any) {
             console.log(`✅ [ReadyForPickup] Orden ${shopifyOrderId} marcada nativamente como 'Listo para retirar' en Shopify.`);
           }
         }
+      } else if (fulfillmentOrders.length > 0 && fulfillmentOrders.every((fo: any) => fo.status === "closed")) {
+        alreadyFulfilled = true;
       }
     }
   } catch (foErr) {
     console.warn(`Aviso al ejecutar fulfillmentOrderLineItemsPreparedForPickup en orden ${shopifyOrderId}:`, foErr);
   }
 
-  // 2. Agregar etiqueta visual "Stocka: Listo para Retiro" en la orden de Shopify
-  try {
-    const orderRes = await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags`, {
-      headers: {
-        "X-Shopify-Access-Token": token,
-        "Content-Type": "application/json"
-      }
-    });
+  // 2. Agregar etiqueta visual "Stocka: Listo para Retiro" en la orden de Shopify (si no está ya preparada)
+  if (!alreadyFulfilled) {
+    try {
+      const orderRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags,fulfillment_status`, {
+        headers: {
+          "X-Shopify-Access-Token": token,
+          "Content-Type": "application/json"
+        }
+      });
 
-    if (orderRes.ok) {
-      const orderData = await orderRes.json();
-      const currentTags = orderData.order?.tags || "";
-      if (!currentTags.includes("Stocka: Listo para Retiro")) {
-        const newTags = currentTags ? `${currentTags}, Stocka: Listo para Retiro` : "Stocka: Listo para Retiro";
-        await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
-          method: "PUT",
-          headers: {
-            "X-Shopify-Access-Token": token,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            order: {
-              id: shopifyOrderId,
-              tags: newTags
-            }
-          })
-        });
+      if (orderRes.ok) {
+        const orderData = await orderRes.json();
+        if (orderData.order?.fulfillment_status === "fulfilled") {
+          alreadyFulfilled = true;
+        } else {
+          const currentTags = orderData.order?.tags || "";
+          if (!currentTags.includes("Stocka: Listo para Retiro")) {
+            const newTags = currentTags ? `${currentTags}, Stocka: Listo para Retiro` : "Stocka: Listo para Retiro";
+            await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
+              method: "PUT",
+              headers: {
+                "X-Shopify-Access-Token": token,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                order: {
+                  id: shopifyOrderId,
+                  tags: newTags
+                }
+              })
+            });
+          }
+        }
       }
+    } catch (tagErr) {
+      console.warn(`Aviso al actualizar tags de retiro en orden ${shopifyOrderId}:`, tagErr);
     }
-  } catch (tagErr) {
-    console.warn(`Aviso al actualizar tags de retiro en orden ${shopifyOrderId}:`, tagErr);
   }
 
   // 3. Actualizar estado Shopify en orders y marcar queue como completado
   await supabase
     .from("orders")
     .update({
-      shopify_order_status: "ready_for_pickup",
+      shopify_order_status: alreadyFulfilled ? "fulfilled" : "ready_for_pickup",
       shopify_status_updated_at: new Date().toISOString(),
       shopify_sync_last_error: null
     })
@@ -431,6 +508,7 @@ async function handleSetReadyForPickup(item: any, integration: any) {
     .from("shopify_fulfillment_queue")
     .update({
       status: "completed",
+      last_error: null,
       processed_at: new Date().toISOString()
     })
     .eq("id", item.id);
@@ -444,9 +522,13 @@ async function handleCreateFulfillment(item: any, integration: any): Promise<str
   const token = integration.access_token;
   const shopifyOrderId = item.shopify_order_id;
 
+  const cleanTrack = (item.tracking_number || "").trim();
+  const hasRealTracking = cleanTrack !== "" && cleanTrack.toUpperCase() !== "N/A" && cleanTrack.toUpperCase() !== "NO INFORMADO";
+  const hasTrackUrl = Boolean(item.tracking_url && item.tracking_url.startsWith("http"));
+
   // 1. Consultar fulfillment orders asociados al pedido
   const foUrl = `https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}/fulfillment_orders.json`;
-  const foRes = await fetch(foUrl, {
+  const foRes = await shopifyFetch(foUrl, {
     headers: {
       "X-Shopify-Access-Token": token,
       "Content-Type": "application/json"
@@ -474,7 +556,7 @@ async function handleCreateFulfillment(item: any, integration: any): Promise<str
             }
           }
         `;
-        await fetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
+        await shopifyFetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
           method: "POST",
           headers: {
             "X-Shopify-Access-Token": token,
@@ -497,15 +579,76 @@ async function handleCreateFulfillment(item: any, integration: any): Promise<str
     fo.status === "open" || fo.status === "in_progress"
   );
 
-  // Si ya no hay órdenes de fulfillment abiertas, verificar si ya fue completado
+  // Si ya no hay órdenes de fulfillment abiertas, verificar en el endpoint de la orden si ya fue preparada o cancelada
   if (openFulfillmentOrders.length === 0) {
-    const closedFo = fulfillmentOrders.find((fo: any) => fo.status === "closed" && fo.fulfillments && fo.fulfillments.length > 0);
-    if (closedFo && closedFo.fulfillments && closedFo.fulfillments.length > 0) {
-      const existingFulfillmentId = closedFo.fulfillments[0].id.toString();
-      console.log(`La orden ${shopifyOrderId} ya fue cumplida previamente con fulfillment ID ${existingFulfillmentId}`);
-      
+    const hasClosedFo = fulfillmentOrders.some((fo: any) => fo.status === "closed");
+    const allCancelledFo = fulfillmentOrders.length > 0 && fulfillmentOrders.every((fo: any) => fo.status === "cancelled");
+
+    let existingFulfillmentId: string | null = null;
+    let existingTrackingNumber: string | null = null;
+    let isOrderFulfilled = hasClosedFo;
+    let isOrderCancelled = allCancelledFo;
+
+    try {
+      const ordCheckRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,name,fulfillment_status,cancelled_at,fulfillments`, {
+        headers: {
+          "X-Shopify-Access-Token": token,
+          "Content-Type": "application/json"
+        }
+      });
+
+      if (ordCheckRes.ok) {
+        const ordCheckData = await ordCheckRes.json();
+        const ordObj = ordCheckData.order || {};
+        const activeFulfillments = (ordObj.fulfillments || []).filter((f: any) => f.status !== "cancelled");
+        if (activeFulfillments.length > 0) {
+          existingFulfillmentId = String(activeFulfillments[0].id);
+          existingTrackingNumber = activeFulfillments[0].tracking_number || null;
+          isOrderFulfilled = true;
+        } else if (ordObj.fulfillment_status === "fulfilled") {
+          isOrderFulfilled = true;
+        }
+        if (ordObj.cancelled_at) {
+          isOrderCancelled = true;
+        }
+      } else if (ordCheckRes.status === 404) {
+        isOrderCancelled = true;
+      }
+    } catch (checkErr) {
+      console.warn(`Aviso verificando estado de orden cerrada ${shopifyOrderId}:`, checkErr);
+    }
+
+    if (isOrderFulfilled) {
+      const resolvedId = existingFulfillmentId || "already_fulfilled";
+      console.log(`La orden ${shopifyOrderId} ya se encontraba preparada en Shopify (fulfillment ID: ${resolvedId})`);
+
+      // Si el fulfillment existente en Shopify no tenía tracking y nosotros sí tenemos tracking real, inyectarlo silenciosamente
+      if (existingFulfillmentId && !existingTrackingNumber && (hasRealTracking || hasTrackUrl)) {
+        try {
+          const companyName = mapCourierToShopify(item.courier, item.operador);
+          const trackingInfo: any = {
+            number: hasRealTracking ? cleanTrack : "N/A",
+            company: companyName
+          };
+          if (hasTrackUrl) trackingInfo.url = item.tracking_url;
+          await shopifyFetch(`https://${shop}/admin/api/2024-04/fulfillments/${existingFulfillmentId}/update_tracking.json`, {
+            method: "POST",
+            headers: {
+              "X-Shopify-Access-Token": token,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              fulfillment: {
+                tracking_info: trackingInfo,
+                notify_customer: false
+              }
+            })
+          });
+        } catch (_) {}
+      }
+
       await supabase.from("orders").update({
-        shopify_fulfillment_id: existingFulfillmentId,
+        shopify_fulfillment_id: resolvedId,
         shopify_fulfillment_status: "synced",
         shopify_order_status: "fulfilled",
         shopify_status_updated_at: new Date().toISOString(),
@@ -514,11 +657,30 @@ async function handleCreateFulfillment(item: any, integration: any): Promise<str
 
       await supabase.from("shopify_fulfillment_queue").update({
         status: "completed",
-        shopify_fulfillment_id: existingFulfillmentId,
+        shopify_fulfillment_id: resolvedId,
+        last_error: null,
         processed_at: new Date().toISOString()
       }).eq("id", item.id);
 
-      return existingFulfillmentId;
+      return resolvedId;
+    }
+
+    if (isOrderCancelled) {
+      console.log(`La orden ${shopifyOrderId} se encuentra cancelada/eliminada en Shopify.`);
+      await supabase.from("orders").update({
+        shopify_order_status: "cancelled",
+        shopify_fulfillment_status: null,
+        shopify_status_updated_at: new Date().toISOString(),
+        shopify_sync_last_error: null
+      }).eq("id", item.order_id);
+
+      await supabase.from("shopify_fulfillment_queue").update({
+        status: "completed",
+        last_error: "Pedido cancelado en Shopify",
+        processed_at: new Date().toISOString()
+      }).eq("id", item.id);
+
+      return "cancelled";
     }
 
     throw new Error(`No se encontraron fulfillment_orders en estado abierto o en progreso para el pedido ${shopifyOrderId}`);
@@ -533,9 +695,6 @@ async function handleCreateFulfillment(item: any, integration: any): Promise<str
   const notifyCustomer = typeof item.notify_customer === "boolean"
     ? item.notify_customer
     : (integration.notify_customer_on_fulfillment !== false);
-  const cleanTrack = (item.tracking_number || "").trim();
-  const hasRealTracking = cleanTrack !== "" && cleanTrack.toUpperCase() !== "N/A" && cleanTrack.toUpperCase() !== "NO INFORMADO";
-  const hasTrackUrl = Boolean(item.tracking_url && item.tracking_url.startsWith("http"));
 
   const fulfillmentObj: any = {
     line_items_by_fulfillment_order: lineItemsByFulfillmentOrder,
@@ -561,7 +720,7 @@ async function handleCreateFulfillment(item: any, integration: any): Promise<str
   console.log(`Enviando fulfillment a Shopify para orden ${shopifyOrderId}:`, JSON.stringify(fulfillmentPayload));
 
   // 4. Crear Fulfillment en Shopify
-  const createRes = await fetch(`https://${shop}/admin/api/2024-04/fulfillments.json`, {
+  const createRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/fulfillments.json`, {
     method: "POST",
     headers: {
       "X-Shopify-Access-Token": token,
@@ -596,6 +755,7 @@ async function handleCreateFulfillment(item: any, integration: any): Promise<str
     .update({
       status: "completed",
       shopify_fulfillment_id: fulfillmentId,
+      last_error: null,
       processed_at: new Date().toISOString()
     })
     .eq("id", item.id);
@@ -656,7 +816,7 @@ async function handleUpdateTracking(item: any, integration: any) {
     }
   };
 
-  const updateRes = await fetch(`https://${shop}/admin/api/2024-04/fulfillments/${fulfillmentId}/update_tracking.json`, {
+  const updateRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/fulfillments/${fulfillmentId}/update_tracking.json`, {
     method: "POST",
     headers: {
       "X-Shopify-Access-Token": token,
@@ -686,6 +846,7 @@ async function handleUpdateTracking(item: any, integration: any) {
     .update({
       status: "completed",
       shopify_fulfillment_id: fulfillmentId,
+      last_error: null,
       processed_at: new Date().toISOString()
     })
     .eq("id", item.id);
@@ -704,7 +865,7 @@ async function handleSetOnHold(item: any, integration: any) {
   const holdNotes = item.hold_notes || "Retenido en espera desde Stocka WMS";
 
   const foUrl = `https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}/fulfillment_orders.json`;
-  const foRes = await fetch(foUrl, {
+  const foRes = await shopifyFetch(foUrl, {
     headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" }
   });
 
@@ -733,7 +894,7 @@ async function handleSetOnHold(item: any, integration: any) {
     `;
 
     for (const fo of targetFos) {
-      const gqlRes = await fetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
+      const gqlRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
         method: "POST",
         headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -760,7 +921,7 @@ async function handleSetOnHold(item: any, integration: any) {
 
   // Añadir tag visual 'Stocka: En Espera'
   try {
-    const orderRes = await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags`, {
+    const orderRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags`, {
       headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" }
     });
     if (orderRes.ok) {
@@ -768,7 +929,7 @@ async function handleSetOnHold(item: any, integration: any) {
       const currentTags = orderData.order?.tags || "";
       if (!currentTags.includes("Stocka: En Espera")) {
         const newTags = currentTags ? `${currentTags}, Stocka: En Espera` : "Stocka: En Espera";
-        await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
+        await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
           method: "PUT",
           headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
           body: JSON.stringify({ order: { id: shopifyOrderId, tags: newTags } })
@@ -785,6 +946,7 @@ async function handleSetOnHold(item: any, integration: any) {
 
   await supabase.from("shopify_fulfillment_queue").update({
     status: "completed",
+    last_error: null,
     processed_at: new Date().toISOString()
   }).eq("id", item.id);
 }
@@ -798,7 +960,7 @@ async function handleReleaseHold(item: any, integration: any) {
   const shopifyOrderId = item.shopify_order_id;
 
   const foUrl = `https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}/fulfillment_orders.json`;
-  const foRes = await fetch(foUrl, {
+  const foRes = await shopifyFetch(foUrl, {
     headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" }
   });
 
@@ -821,7 +983,7 @@ async function handleReleaseHold(item: any, integration: any) {
   `;
 
   for (const fo of holdFos) {
-    const gqlRes = await fetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
+    const gqlRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
       method: "POST",
       headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -840,7 +1002,7 @@ async function handleReleaseHold(item: any, integration: any) {
 
   // Quitar tag 'Stocka: En Espera'
   try {
-    const orderRes = await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags`, {
+    const orderRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags`, {
       headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" }
     });
     if (orderRes.ok) {
@@ -851,7 +1013,7 @@ async function handleReleaseHold(item: any, integration: any) {
         .map((t: string) => t.trim())
         .filter((t: string) => t && t !== "Stocka: En Espera")
         .join(", ");
-      await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
+      await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
         method: "PUT",
         headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
         body: JSON.stringify({ order: { id: shopifyOrderId, tags: cleanedTags } })
@@ -867,6 +1029,7 @@ async function handleReleaseHold(item: any, integration: any) {
 
   await supabase.from("shopify_fulfillment_queue").update({
     status: "completed",
+    last_error: null,
     processed_at: new Date().toISOString()
   }).eq("id", item.id);
 }
@@ -893,7 +1056,7 @@ async function handleCancelFulfillment(item: any, integration: any) {
 
   if (!fulfillmentId) {
     // Consultar fulfillments activos directamente en la orden de Shopify
-    const ordRes = await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,fulfillments`, {
+    const ordRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,fulfillments`, {
       headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" }
     });
     if (ordRes.ok) {
@@ -906,7 +1069,7 @@ async function handleCancelFulfillment(item: any, integration: any) {
   }
 
   if (fulfillmentId) {
-    const cancelRes = await fetch(`https://${shop}/admin/api/2024-04/fulfillments/${fulfillmentId}/cancel.json`, {
+    const cancelRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/fulfillments/${fulfillmentId}/cancel.json`, {
       method: "POST",
       headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
       body: JSON.stringify({})
@@ -920,7 +1083,7 @@ async function handleCancelFulfillment(item: any, integration: any) {
 
   // Limpiar tags de Stocka en la orden
   try {
-    const orderRes = await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags`, {
+    const orderRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags`, {
       headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" }
     });
     if (orderRes.ok) {
@@ -931,7 +1094,7 @@ async function handleCancelFulfillment(item: any, integration: any) {
         .map((t: string) => t.trim())
         .filter((t: string) => t && !["Stocka: En Preparación", "Stocka: Listo para Retiro", "Stocka: En Espera"].includes(t))
         .join(", ");
-      await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
+      await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
         method: "PUT",
         headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
         body: JSON.stringify({ order: { id: shopifyOrderId, tags: cleanedTags } })
@@ -949,20 +1112,54 @@ async function handleCancelFulfillment(item: any, integration: any) {
 
   await supabase.from("shopify_fulfillment_queue").update({
     status: "completed",
+    last_error: null,
     processed_at: new Date().toISOString()
   }).eq("id", item.id);
 }
 
 /**
- * Revierte un pedido que estaba en "En curso" o "Listo para retirar" de vuelta a "No preparado"
+ * Revierte un pedido que estaba en "En curso" o "Listo para retirar" de vuelta a "No preparado" (OPEN)
  */
 async function handleRevertInProgress(item: any, integration: any) {
   const shop = integration.shop_url;
   const token = integration.access_token;
   const shopifyOrderId = item.shopify_order_id;
 
+  // 1. Revertir FulfillmentOrders de IN_PROGRESS a OPEN usando fulfillmentOrderOpen (API 2026-04)
   try {
-    const orderRes = await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags`, {
+    const foUrl = `https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}/fulfillment_orders.json`;
+    const foRes = await shopifyFetch(foUrl, {
+      headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" }
+    });
+    if (foRes.ok) {
+      const foData = await foRes.json();
+      const inProgressFos = (foData.fulfillment_orders || []).filter((fo: any) => fo.status === "in_progress");
+      const openMutation = `
+        mutation fulfillmentOrderOpen($id: ID!) {
+          fulfillmentOrderOpen(id: $id) {
+            fulfillmentOrder { id status }
+            userErrors { field message }
+          }
+        }
+      `;
+      for (const fo of inProgressFos) {
+        await shopifyFetch(`https://${shop}/admin/api/2026-04/graphql.json`, {
+          method: "POST",
+          headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: openMutation,
+            variables: { id: `gid://shopify/FulfillmentOrder/${fo.id}` }
+          })
+        });
+      }
+    }
+  } catch (foErr) {
+    console.warn("Aviso revirtiendo FulfillmentOrder a OPEN:", foErr);
+  }
+
+  // 2. Limpiar tags visuales en la orden
+  try {
+    const orderRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags`, {
       headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" }
     });
     if (orderRes.ok) {
@@ -973,7 +1170,7 @@ async function handleRevertInProgress(item: any, integration: any) {
         .map((t: string) => t.trim())
         .filter((t: string) => t && !["Stocka: En Preparación", "Stocka: Listo para Retiro", "Stocka: En Espera"].includes(t))
         .join(", ");
-      await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
+      await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
         method: "PUT",
         headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
         body: JSON.stringify({ order: { id: shopifyOrderId, tags: cleanedTags } })
@@ -991,6 +1188,7 @@ async function handleRevertInProgress(item: any, integration: any) {
 
   await supabase.from("shopify_fulfillment_queue").update({
     status: "completed",
+    last_error: null,
     processed_at: new Date().toISOString()
   }).eq("id", item.id);
 }
@@ -1032,7 +1230,7 @@ async function handleFetchLiveShopifyStatus(orderId: string) {
   const hasFoScope = scopes.includes("write_fulfillments") && scopes.includes("write_merchant_managed_fulfillment_orders");
 
   // 1. Consultar la orden en Shopify
-  const ordRes = await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,name,fulfillment_status,cancelled_at,tags,fulfillments`, {
+  const ordRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,name,fulfillment_status,cancelled_at,tags,fulfillments`, {
     headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" }
   });
 
@@ -1051,7 +1249,7 @@ async function handleFetchLiveShopifyStatus(orderId: string) {
   // 2. Consultar fulfillment_orders si tiene permisos
   if (hasFoScope) {
     try {
-      const foRes = await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}/fulfillment_orders.json`, {
+      const foRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}/fulfillment_orders.json`, {
         headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" }
       });
       if (foRes.ok) {
@@ -1112,6 +1310,23 @@ async function handleFetchLiveShopifyStatus(orderId: string) {
 // =============================================================================
 // FUNCIONES AUXILIARES
 // =============================================================================
+
+async function shopifyFetch(url: string, options: RequestInit = {}, maxRetries = 4): Promise<Response> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const res = await fetch(url, options);
+    if (res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) {
+      if (attempt < maxRetries) {
+        const retryAfterHeader = res.headers.get("Retry-After");
+        const retryWaitMs = retryAfterHeader ? Math.ceil(parseFloat(retryAfterHeader) * 1000) : (1400 * attempt);
+        console.warn(`[Shopify Rate Limit/Retry] HTTP ${res.status} en ${url}. Reintentando en ${retryWaitMs}ms (intento ${attempt}/${maxRetries})...`);
+        await delay(Math.max(retryWaitMs, 1000));
+        continue;
+      }
+    }
+    return res;
+  }
+  return fetch(url, options);
+}
 
 function mapCourierToShopify(courier: string, operador: string): string {
   const raw = `${courier || ""} ${operador || ""}`.toUpperCase();

@@ -47,6 +47,8 @@ const icState = {
   targetDays: 30, // 15 | 30 | 45 | 60
   demandMultiplier: 1.0, // 1.0 | 1.5 | 2.5
   includeTransitInRunway: false,
+  excludePacksFromStockMetrics: true, // Excluir Packs/Sets de métricas de stock físico (cobertura, reposición, m³) y mantenerlos en ventas/ABC
+  packFilter: 'ALL', // 'ALL' | 'PHYSICAL_ONLY' | 'PACKS_ONLY'
   searchQuery: '',
   statusFilter: 'ALL', // 'ALL' | 'OUT' | 'CRITICAL' | 'ALERT' | 'HEALTHY' | 'OVERSTOCK'
   abcFilter: 'ALL', // 'ALL' | 'A' | 'B' | 'C' | 'DORMANT'
@@ -58,13 +60,16 @@ const icState = {
   rawProducts: [],
   rawOrders30d: [],
   rawDeclarations: [],
+  rawPackRelations: [],
   computedCatalog: [],
   fullGroupCatalog: [],
   perCommerceSummaries: [],
   groupSummary: null,
   lastLoadedAt: null,
   isLoading: false,
-  showGuide: true
+  showGuide: true,
+  activeGuideTab: 'what', // 'what' | 'info' | 'steps'
+  activeMainTab: 'overview' // 'overview' | 'analytics' | 'catalog'
 };
 
 // Helpers de saneamiento HTML y normalización
@@ -470,7 +475,7 @@ async function fetchCoverageDataset({ mode, companyList, selectedCommerce, force
 
   const fetchScopedProductsPaginated = async (variants) => {
     if (!variants || variants.length === 0) return [];
-    const prodSelect = 'id, sku, name, comercio, stock_critico, volumen, length, width, height, is_virtual, inventory(warehouse_id, quantity, committed_quantity)';
+    const prodSelect = 'id, sku, name, comercio, stock_critico, volumen, length, width, height, is_virtual, is_pack, inventory(warehouse_id, quantity, committed_quantity)';
     const firstRes = await supabase
       .from('products')
       .select(prodSelect)
@@ -512,7 +517,7 @@ async function fetchCoverageDataset({ mode, companyList, selectedCommerce, force
           .limit(5000),
         supabase
           .from('products')
-          .select('id, sku, name, comercio, stock_critico, volumen, length, width, height, is_virtual')
+          .select('id, sku, name, comercio, stock_critico, volumen, length, width, height, is_virtual, is_pack')
           .gt('stock_critico', 0)
           .limit(1500)
       ]);
@@ -551,7 +556,7 @@ async function fetchCoverageDataset({ mode, companyList, selectedCommerce, force
         chunkPromises.push(
           supabase
             .from('products')
-            .select('id, sku, name, comercio, stock_critico, volumen, length, width, height, is_virtual')
+            .select('id, sku, name, comercio, stock_critico, volumen, length, width, height, is_virtual, is_pack')
             .in('id', chunkIds)
         );
       }
@@ -655,19 +660,39 @@ async function fetchCoverageDataset({ mode, companyList, selectedCommerce, force
     return await fallbackQ.then(r => r, () => ({ data: [] }));
   };
 
-  const [ordersRes, declRes] = await Promise.all([
+  // 5. Cargar relaciones de Packs/Combos (product_pack_items) para identificar Packs con precisión
+  const runSafePackRelationsQuery = async () => {
+    if (!products || products.length === 0) return { data: [] };
+    const candidateIds = products
+      .filter(p => p.is_pack || /\b(pack|set|combo|kit)\b/i.test(`${p.sku || ''} ${p.name || ''}`))
+      .map(p => p.id);
+    const queryIds = candidateIds.length > 0 && products.length > 500
+      ? candidateIds.slice(0, 500)
+      : products.slice(0, 500).map(p => p.id);
+    if (queryIds.length === 0) return { data: [] };
+    return await supabase
+      .from('product_pack_items')
+      .select('pack_product_id, member_product_id, quantity')
+      .in('pack_product_id', queryIds)
+      .then(r => r, () => ({ data: [] }));
+  };
+
+  const [ordersRes, declRes, packRelRes] = await Promise.all([
     runSafeOrdersQuery(),
-    runSafeDeclarationsQuery()
+    runSafeDeclarationsQuery(),
+    runSafePackRelationsQuery()
   ]);
 
   const orders30d = ordersRes?.data || [];
   const declarations = declRes?.data || [];
+  const packRelations = packRelRes?.data || [];
 
   const payload = {
     warehouses,
     products,
     orders30d,
-    declarations
+    declarations,
+    packRelations
   };
 
   cacheMap.set(cacheKey, {
@@ -688,14 +713,32 @@ function computeCatalogIntelligence() {
     rawProducts,
     rawOrders30d,
     rawDeclarations,
+    rawPackRelations,
     selectedWarehouseId,
     selectedCommerce,
     companyList,
     mode,
     targetDays,
     demandMultiplier,
-    includeTransitInRunway
+    includeTransitInRunway,
+    excludePacksFromStockMetrics
   } = icState;
+
+  // Mapear relaciones de Packs / Sets (product_pack_items)
+  const packParentIds = new Set();
+  const componentsByPackId = new Map();
+  (rawPackRelations || []).forEach(rel => {
+    if (!rel?.pack_product_id) return;
+    const pId = String(rel.pack_product_id);
+    packParentIds.add(pId);
+    if (!componentsByPackId.has(pId)) {
+      componentsByPackId.set(pId, []);
+    }
+    componentsByPackId.get(pId).push({
+      memberProductId: String(rel.member_product_id || ''),
+      quantity: Math.max(1, parseInt(rel.quantity, 10) || 1)
+    });
+  });
 
   const warehouseMap = new Map();
   rawWarehouses.forEach(w => warehouseMap.set(String(w.id), w.name));
@@ -993,14 +1036,31 @@ function computeCatalogIntelligence() {
 
     const transitInfo = transitByProductId.get(String(prod.id)) || { units: 0, docCode: null };
     const unitVolumeM3 = icGetUnitVolumeM3(prod);
-    const totalVolumeM3 = Math.max(0, physicalStock) * unitVolumeM3;
     const cleanComm = canonicalDisplayByUpper.get(icNormCommerceKey(prod.comercio)) || prod.comercio || 'Sin Comercio';
+
+    // Identificar si el SKU es un Pack / Set / Combo virtual (se arma a partir de SKUs componentes)
+    const skuStr = String(prod.sku || '').trim();
+    const nameStr = String(prod.name || '').trim();
+    const isExplicitPack = Boolean(prod.is_pack) || packParentIds.has(String(prod.id));
+    const isHeuristicPack = physicalStock === 0 && (
+      /^(pack|set|combo|kit|duo|trio|bipack|tripack)[-_\s0-9]/i.test(skuStr) ||
+      /\b(pack|set|combo|bipack|tripack)\b/i.test(nameStr)
+    );
+    const isPack = isExplicitPack || isHeuristicPack;
+    const packComponentsCount = (componentsByPackId.get(String(prod.id)) || []).length;
+
+    // Los Packs no ocupan espacio físico en bodega como unidad independiente cuando se excluyen de métricas físicas
+    const totalVolumeM3 = (isPack && excludePacksFromStockMetrics)
+      ? 0
+      : Math.max(0, physicalStock) * unitVolumeM3;
 
     return {
       id: String(prod.id),
       sku: prod.sku || 'SIN-SKU',
       name: prod.name || 'Producto sin nombre',
       comercio: cleanComm,
+      isPack,
+      packComponentsCount,
       stockCritico: parseInt(prod.stock_critico, 10) || 0,
       unitVolumeM3,
       totalVolumeM3,
@@ -1015,14 +1075,62 @@ function computeCatalogIntelligence() {
       retainedOrders: salesInfo.retainedOrders,
       retainedUnits: salesInfo.retainedUnits,
       transitUnits: transitInfo.units,
-      transitDoc: transitInfo.docCode
+      transitDoc: transitInfo.docCode,
+      hasPackRecipe: false,
+      assemblableAvailable: null,
+      assemblablePhysical: null,
+      limitingComponent: null,
+      packComponentsDetail: []
     };
   });
 
-  // Si estamos en filtro por sucursal específica, mostrar productos que tengan stock o ventas en esa sucursal
+  // Calcular cuántos Packs se pueden armar hoy según el stock disponible de sus SKUs componentes
+  const prelimRowById = new Map(preliminaryRows.map(r => [r.id, r]));
+  preliminaryRows.forEach(row => {
+    if (!row.isPack) return;
+    const compRelations = componentsByPackId.get(row.id) || [];
+    if (compRelations.length === 0) return;
+
+    const details = compRelations.map(rel => {
+      const compRow = prelimRowById.get(String(rel.memberProductId));
+      const reqQty = Math.max(1, parseInt(rel.quantity, 10) || 1);
+      const compAvail = compRow ? compRow.availablePositive : 0;
+      const compPhys = compRow ? Math.max(0, compRow.physicalStock) : 0;
+      const maxPacksAvail = Math.floor(compAvail / reqQty);
+      const maxPacksPhys = Math.floor(compPhys / reqQty);
+      return {
+        id: String(rel.memberProductId),
+        sku: compRow ? compRow.sku : 'SKU-COMP',
+        name: compRow ? compRow.name : 'Componente',
+        requiredQty: reqQty,
+        available: compAvail,
+        physical: compPhys,
+        maxPacksAvail,
+        maxPacksPhys
+      };
+    });
+
+    const sortedByLimit = [...details].sort((a, b) => a.maxPacksAvail - b.maxPacksAvail);
+    const limiting = sortedByLimit[0] || null;
+    row.hasPackRecipe = true;
+    row.packComponentsDetail = details;
+    row.limitingComponent = limiting;
+    row.assemblableAvailable = limiting ? limiting.maxPacksAvail : 0;
+    row.assemblablePhysical = details.length > 0
+      ? Math.min(...details.map(d => d.maxPacksPhys))
+      : 0;
+  });
+
+  // Si estamos en filtro por sucursal específica, mostrar productos que tengan stock, ventas o capacidad de armado en esa sucursal
   const warehouseScopedRows = selectedWarehouseId === 'ALL'
     ? preliminaryRows
-    : preliminaryRows.filter(r => r.physicalStock > 0 || r.committedStock > 0 || r.sales30d > 0 || r.transitUnits > 0);
+    : preliminaryRows.filter(r =>
+        r.physicalStock > 0 ||
+        r.committedStock > 0 ||
+        r.sales30d > 0 ||
+        r.transitUnits > 0 ||
+        (r.hasPackRecipe && r.assemblableAvailable > 0)
+      );
 
   // Función auxiliar que calcula Pareto ABC y métricas de Runway para cualquier conjunto de filas
   const today = new Date();
@@ -1061,6 +1169,8 @@ function computeCatalogIntelligence() {
       const baseDailyVelocity = row.sales30d / 30;
       const effectiveDailyVelocity = baseDailyVelocity * demandMultiplier;
 
+      const isExcludedPack = Boolean(row.isPack && excludePacksFromStockMetrics);
+
       const effectiveStockForRunway = includeTransitInRunway
         ? (row.availablePositive + row.transitUnits)
         : row.availablePositive;
@@ -1068,7 +1178,11 @@ function computeCatalogIntelligence() {
       let runwayDays = 0;
       let runwayWithTransitDays = 0;
 
-      if (effectiveDailyVelocity <= 0) {
+      if (isExcludedPack) {
+        // Los Packs no tienen cobertura/runway propio en KPIs globales (su stock vive en los componentes)
+        runwayDays = row.sales30d > 0 ? targetDays : 0;
+        runwayWithTransitDays = runwayDays;
+      } else if (effectiveDailyVelocity <= 0) {
         runwayDays = row.availablePositive > 0 ? 999 : 0;
         runwayWithTransitDays = (row.availablePositive + row.transitUnits) > 0 ? 999 : 0;
       } else {
@@ -1078,7 +1192,10 @@ function computeCatalogIntelligence() {
 
       // Determinar tramo de salud (6 tramos)
       let healthBand = 'HEALTHY';
-      if (row.netAvailable <= 0) {
+      if (isExcludedPack) {
+        // Para Packs excluidos de stock físico, el semáforo de salud refleja únicamente su actividad real de ventas
+        healthBand = row.sales30d > 0 ? 'HEALTHY' : 'DORMANT';
+      } else if (row.netAvailable <= 0) {
         if (row.sales30d > 0 || row.committedStock > 0 || row.stockCritico > 0 || row.physicalStock === 0) {
           healthBand = 'OUT';
         } else {
@@ -1102,7 +1219,19 @@ function computeCatalogIntelligence() {
       let breakDateFormatted = '—';
       let breakDateSub = '';
 
-      if (healthBand === 'OUT') {
+      if (isExcludedPack) {
+        breakDateFormatted = 'No aplica (Pack)';
+        if (row.hasPackRecipe) {
+          if (effectiveDailyVelocity > 0 && row.assemblableAvailable > 0) {
+            const packAsmDays = row.assemblableAvailable / effectiveDailyVelocity;
+            breakDateSub = `Alcance armado: ~${packAsmDays.toFixed(1)}d (${row.assemblableAvailable} packs)`;
+          } else {
+            breakDateSub = `${row.assemblableAvailable} packs armables hoy`;
+          }
+        } else {
+          breakDateSub = row.sales30d > 0 ? 'Stock en componentes' : 'Sin salidas (30d)';
+        }
+      } else if (healthBand === 'OUT') {
         breakDateFormatted = '¡Quiebre Activo!';
         breakDateSub = row.committedStock > 0
           ? `${row.committedStock} uds comprometidas`
@@ -1128,20 +1257,21 @@ function computeCatalogIntelligence() {
         trendPct = 100;
       }
 
-      // Reposición sugerida según Meta de Cobertura del Simulador
+      // Reposición sugerida según Meta de Cobertura del Simulador (0 para Packs porque se reponen los componentes)
       const targetNeededUnits = Math.ceil(effectiveDailyVelocity * targetDays);
       const deficitFromNegativeAvail = row.netAvailable < 0 ? Math.abs(row.netAvailable) : 0;
       const minSafetyFloor = row.stockCritico > 0 ? row.stockCritico : 0;
       const desiredTotal = Math.max(targetNeededUnits, minSafetyFloor);
 
-      const suggestedReplenishUnits = (effectiveDailyVelocity > 0 || row.stockCritico > 0)
+      const suggestedReplenishUnits = (!isExcludedPack && (effectiveDailyVelocity > 0 || row.stockCritico > 0))
         ? Math.max(0, desiredTotal - (row.availablePositive + row.transitUnits) + deficitFromNegativeAvail)
         : 0;
 
-      const replenishVolumeM3 = suggestedReplenishUnits * row.unitVolumeM3;
+      const replenishVolumeM3 = isExcludedPack ? 0 : (suggestedReplenishUnits * row.unitVolumeM3);
 
       return {
         ...row,
+        isExcludedPack,
         abc,
         baseDailyVelocity,
         effectiveDailyVelocity,
@@ -1163,27 +1293,30 @@ function computeCatalogIntelligence() {
 
   // Función que resume las métricas clave de cualquier conjunto de filas enriquecidas
   const buildCommerceSummary = (commName, items, scopeValue) => {
-    const activeMovers = items.filter(r => r.effectiveDailyVelocity > 0);
-    // Tope de 90 días por SKU al ponderar para que un solo SKU con sobrestock extremo no distorsione la cobertura operativa de la tienda
-    const totalAvailActiveCapped = activeMovers.reduce((s, r) => {
+    const physicalMovers = items.filter(r => r.effectiveDailyVelocity > 0 && !(r.isPack && excludePacksFromStockMetrics));
+    const allMovers = items.filter(r => r.effectiveDailyVelocity > 0);
+    // Tope de 90 días por SKU físico al ponderar para que un solo SKU con sobrestock extremo o un Pack virtual no distorsione la cobertura operativa
+    const totalAvailActiveCapped = physicalMovers.reduce((s, r) => {
       const rawSkuAvail = includeTransitInRunway ? (r.availablePositive + r.transitUnits) : r.availablePositive;
       const cappedSkuAvail = Math.min(rawSkuAvail, r.effectiveDailyVelocity * 90);
       return s + cappedSkuAvail;
     }, 0);
-    const totalDailyVel = activeMovers.reduce((s, r) => s + r.effectiveDailyVelocity, 0);
-    const weightedRunway = totalDailyVel > 0 ? (totalAvailActiveCapped / totalDailyVel) : 0;
+    const totalPhysicalDailyVel = physicalMovers.reduce((s, r) => s + r.effectiveDailyVelocity, 0);
+    const totalDailyVelAll = allMovers.reduce((s, r) => s + r.effectiveDailyVelocity, 0);
+    const weightedRunway = totalPhysicalDailyVel > 0 ? (totalAvailActiveCapped / totalPhysicalDailyVel) : 0;
 
     return {
       name: commName,
       scopeValue: scopeValue || commName,
       skusCount: items.length,
-      activeMoversCount: activeMovers.length,
-      physicalStock: items.reduce((s, r) => s + r.physicalStock, 0),
+      packsCount: items.filter(r => r.isPack).length,
+      activeMoversCount: physicalMovers.length,
+      physicalStock: items.reduce((s, r) => s + (r.isExcludedPack ? 0 : r.physicalStock), 0),
       committedStock: items.reduce((s, r) => s + r.committedStock, 0),
-      netAvailable: items.reduce((s, r) => s + r.availablePositive, 0),
+      netAvailable: items.reduce((s, r) => s + (r.isExcludedPack ? 0 : r.availablePositive), 0),
       sales30d: items.reduce((s, r) => s + r.sales30d, 0),
       sales7d: items.reduce((s, r) => s + r.sales7d, 0),
-      dailyVelocity: totalDailyVel,
+      dailyVelocity: totalDailyVelAll,
       weightedRunway,
       outCount: items.filter(r => r.healthBand === 'OUT').length,
       criticalCount: items.filter(r => r.healthBand === 'CRITICAL').length,
@@ -1230,11 +1363,11 @@ function computeCatalogIntelligence() {
   icState.activeDeclarationsCount = activeDeclarationsCount;
   icState.totalDeclaredUnitsGlobal = totalDeclaredUnitsGlobal;
 
-  // Seleccionar por defecto un Top SKU con movimiento para la curva Burn-down
+  // Seleccionar por defecto un Top SKU físico con movimiento para la curva Burn-down
   if (!icState.selectedBurndownProductId || !enrichedCatalog.some(r => r.id === icState.selectedBurndownProductId)) {
-    const topMover = [...enrichedCatalog]
-      .sort((a, b) => b.sales30d - a.sales30d)
-      .find(r => r.sales30d > 0 || r.physicalStock > 0);
+    const sortedBySales = [...enrichedCatalog].sort((a, b) => b.sales30d - a.sales30d);
+    const topMover = sortedBySales.find(r => !r.isExcludedPack && (r.sales30d > 0 || r.physicalStock > 0))
+      || sortedBySales.find(r => r.sales30d > 0 || r.physicalStock > 0);
     icState.selectedBurndownProductId = topMover ? topMover.id : (enrichedCatalog[0]?.id || null);
   }
 }
@@ -1312,13 +1445,39 @@ function renderFullModuleScaffold() {
     ? icState.lastLoadedAt.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
     : 'Ahora';
 
+  const activeTab = icState.activeMainTab || 'overview';
+  const guideTab = icState.activeGuideTab || 'what';
+
+  const catalog = icState.computedCatalog || [];
+  const urgentSkusCount = catalog.filter(r => r.healthBand === 'OUT' || r.healthBand === 'CRITICAL').length;
+  const classASkusCount = catalog.filter(r => r.abc === 'A').length;
+
   container.innerHTML = `
     <div class="ic-module-wrapper">
+      <!-- 0. MENSAJE DE CABECERA: MÓDULO EN FASE BETA DE PRUEBAS -->
+      <div class="ic-beta-banner" role="status">
+        <div class="ic-beta-banner-left">
+          <span class="ic-beta-tag">
+            <i class="ri-flask-fill"></i> Fase Beta · En Pruebas
+          </span>
+          <div class="ic-beta-text">
+            <strong>Este módulo se encuentra aún en fase Beta de pruebas:</strong>
+            Las proyecciones de cobertura (Runway 30d), clasificación Pareto ABC y sugerencias de reposición se están calibrando continuamente en vivo junto a nuestros comercios. Si notas alguna diferencia o tienes sugerencias, compártelas con nuestro equipo.
+          </div>
+        </div>
+        <span class="ic-pill-badge ic-pill-beta" style="font-size: 0.72rem;">
+          <i class="ri-shield-check-line"></i> Versión Beta Activa
+        </span>
+      </div>
+
       <!-- 1. CABECERA Y SIMULADOR EN VIVO -->
       <section class="ic-header-card">
         <div class="ic-header-top">
           <div class="ic-header-title-block">
             <div class="ic-badge-row">
+              <span class="ic-pill-badge ic-pill-beta">
+                <i class="ri-flask-line"></i> BETA
+              </span>
               <span class="ic-pill-badge ic-pill-primary">
                 <i class="ri-line-chart-line"></i> INTELIGENCIA DE INVENTARIO · RUNWAY 30D
               </span>
@@ -1358,7 +1517,7 @@ function renderFullModuleScaffold() {
           </div>
         </div>
 
-        <!-- GUÍA EXPLICATIVA DEL MÓDULO (AL INICIO): QUÉ SE PUEDE HACER, QUÉ INFORMACIÓN ENTREGA E INSTRUCCIONES -->
+        <!-- GUÍA EXPLICATIVA DEL MÓDULO (AL INICIO) DIVIDIDA EN 3 PESTAÑAS COMPACTAS -->
         <div class="ic-guide-banner" id="ic-guide-banner">
           <div class="ic-guide-header">
             <div class="ic-guide-title-wrap">
@@ -1366,66 +1525,85 @@ function renderFullModuleScaffold() {
               <div>
                 <h2 class="ic-guide-title">Guía del Módulo: ¿Para qué sirve, qué información entrega y cómo usarlo?</h2>
                 <p class="ic-guide-subtitle">
-                  Este centro cruza automáticamente tu <strong>stock físico y comprometido en tiempo real</strong> con las <strong>salidas de los últimos 30 días</strong>, las <strong>Declaraciones de Ingreso (#ING)</strong> y el <strong>cubicaje en bodega (m³)</strong> para ayudarte a reponer a tiempo y optimizar tu espacio.
+                  Cruza automáticamente tu <strong>stock físico y comprometido en tiempo real</strong> con las <strong>salidas de los últimos 30 días</strong>, las <strong>Declaraciones de Ingreso (#ING)</strong> y el <strong>cubicaje en bodega (m³)</strong>.
                 </p>
               </div>
             </div>
-            <button type="button" class="ic-guide-toggle-btn" onclick="window.icToggleGuide()">
-              <i class="${icState.showGuide ? 'ri-arrow-up-s-line' : 'ri-arrow-down-s-line'}"></i>
-              <span>${icState.showGuide ? 'Contraer explicación' : 'Ver explicación e instrucciones'}</span>
-            </button>
+            <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+              <div class="ic-guide-tabs-bar">
+                <button type="button" class="ic-guide-tab-btn ${icState.showGuide && guideTab === 'what' ? 'active' : ''}" onclick="window.icSetGuideTab('what')">
+                  <i class="ri-magic-line"></i> 1. ¿Qué se puede hacer?
+                </button>
+                <button type="button" class="ic-guide-tab-btn ${icState.showGuide && guideTab === 'info' ? 'active' : ''}" onclick="window.icSetGuideTab('info')">
+                  <i class="ri-bar-chart-box-line"></i> 2. Información y Fórmulas
+                </button>
+                <button type="button" class="ic-guide-tab-btn ${icState.showGuide && guideTab === 'steps' ? 'active' : ''}" onclick="window.icSetGuideTab('steps')">
+                  <i class="ri-list-check-2"></i> 3. Instrucciones paso a paso
+                </button>
+              </div>
+              <button type="button" class="ic-guide-toggle-btn" onclick="window.icToggleGuide()">
+                <i class="${icState.showGuide ? 'ri-arrow-up-s-line' : 'ri-arrow-down-s-line'}"></i>
+                <span>${icState.showGuide ? 'Ocultar' : 'Expandir'}</span>
+              </button>
+            </div>
           </div>
 
           ${icState.showGuide ? `
             <div class="ic-guide-body">
-              <!-- 3 Bloques: Qué se puede hacer / Qué información consigues / Cómo interpreta tus datos -->
-              <div class="ic-guide-pillars-grid">
-                <div class="ic-guide-card">
-                  <h3 class="ic-guide-card-title">
-                    <i class="ri-magic-line" style="color: #2563eb; font-size: 1rem;"></i>
-                    1. ¿Qué puedes hacer en este módulo?
-                  </h3>
-                  <ul class="ic-guide-list">
-                    <li><strong>Gestionar Conglomerados o Tiendas Individuales:</strong> Analiza todas tus marcas unificadas o aísla un comercio y sucursal específica en 1 clic sin tiempos de carga.</li>
-                    <li><strong>Simular Metas y Eventos (Cyber / Campañas):</strong> Cambia tu meta de cobertura (<strong>15, 30, 45 o 60 días</strong>) y multiplica la velocidad de salida (<strong>1.0x, 1.5x o 2.5x</strong>) para anticipar quiebres.</li>
-                    <li><strong>Incluir Mercadería en Tránsito (#ING):</strong> Simula cómo mejora tu cobertura sumando las unidades declaradas que ya vienen en camino a bodega.</li>
-                    <li><strong>Actuar sobre Quiebres y Sobrestock:</strong> Genera órdenes de reposición sugeridas hacia <strong>Declaraciones (#ING)</strong> o detecta SKUs inmovilizados para liquidación o retiro.</li>
-                  </ul>
+              ${guideTab === 'what' ? `
+                <div class="ic-guide-pillars-grid" style="grid-template-columns: repeat(2, 1fr);">
+                  <div class="ic-guide-card">
+                    <h3 class="ic-guide-card-title">
+                      <i class="ri-magic-line" style="color: #2563eb; font-size: 1rem;"></i>
+                      ¿Qué puedes hacer en este módulo?
+                    </h3>
+                    <ul class="ic-guide-list">
+                      <li><strong>Auditar Conglomerados o Tiendas Individuales:</strong> Analiza todas tus marcas unificadas o aísla un comercio y sucursal física en 1 clic sin tiempos de carga (0 ms).</li>
+                      <li><strong>Simular Metas de Cobertura y Eventos (Cyber / Campañas):</strong> Cambia tu meta de cobertura (<strong>15, 30, 45 o 60 días</strong>) y multiplica la velocidad de salida (<strong>1.0x, 1.5x o 2.5x</strong>) para anticipar quiebres.</li>
+                    </ul>
+                  </div>
+                  <div class="ic-guide-card">
+                    <h3 class="ic-guide-card-title">
+                      <i class="ri-inbox-archive-line" style="color: #10b981; font-size: 1rem;"></i>
+                      Toma de Decisiones Operativas
+                    </h3>
+                    <ul class="ic-guide-list">
+                      <li><strong>Simular Mercadería en Tránsito (#ING):</strong> Marca la opción <code>#ING</code> para ver cómo mejora tu cobertura sumando las unidades que ya declaraste en camino a bodega.</li>
+                      <li><strong>Actuar sobre Quiebres y Sobrestock:</strong> Genera órdenes de reposición sugeridas directo hacia <strong>Declaraciones (#ING)</strong> o detecta SKUs dormidos que ocupan m³ sin rotar.</li>
+                    </ul>
+                  </div>
                 </div>
+              ` : ''}
 
-                <div class="ic-guide-card">
-                  <h3 class="ic-guide-card-title">
-                    <i class="ri-bar-chart-box-line" style="color: #10b981; font-size: 1rem;"></i>
-                    2. ¿Qué información puedes conseguir?
-                  </h3>
-                  <ul class="ic-guide-list">
-                    <li><strong>Días de Cobertura (Runway) y Fecha Exacta de Quiebre:</strong> Cuántos días durará el stock disponible neto de cada SKU al ritmo actual de ventas y en qué fecha calendario se agotará.</li>
-                    <li><strong>Clasificación Pareto ABC Dinámica:</strong> Identifica tus productos <strong>Clase A 🔥</strong> (generan el 80% de tus salidas), <strong>Clase B ⚡</strong> (15%), <strong>Clase C 📦</strong> (5%) y <strong>Dormidos 💤</strong> (0 ventas en 30d).</li>
-                    <li><strong>Semáforo de Salud (6 Tramos) y Volumen (m³):</strong> Cuántos SKUs y cuántos metros cúbicos están en estado <em>Agotado, Crítico (1–7d), Alerta (8–14d), Saludable (15–45d), Sobrestock o Dormido</em>.</li>
-                    <li><strong>Cálculo Exacto de Reposición y Excel Multi-Hoja:</strong> Unidades exactas a enviar (y su volumen en m³) para alcanzar tu meta, descargable en Excel con pestañas separadas por comercio.</li>
-                  </ul>
+              ${guideTab === 'info' ? `
+                <div class="ic-guide-pillars-grid" style="grid-template-columns: repeat(2, 1fr);">
+                  <div class="ic-guide-card">
+                    <h3 class="ic-guide-card-title">
+                      <i class="ri-bar-chart-box-line" style="color: #10b981; font-size: 1rem;"></i>
+                      ¿Qué información puedes conseguir?
+                    </h3>
+                    <ul class="ic-guide-list">
+                      <li><strong>Días de Cobertura (Runway) y Fecha Exacta de Quiebre:</strong> Cuántos días durará el stock disponible neto de cada SKU al ritmo actual y en qué fecha calendario se agotará.</li>
+                      <li><strong>Clasificación Pareto ABC Dinámica:</strong> Identifica tus productos <strong>Clase A 🔥</strong> (80% de tus salidas), <strong>Clase B ⚡</strong> (15%), <strong>Clase C 📦</strong> (5%) y <strong>Dormidos 💤</strong> (0 ventas en 30d).</li>
+                      <li><strong>Semáforo de Salud (6 Tramos) y Volumen (m³):</strong> SKUs y metros cúbicos en estado <em>Agotado, Crítico (1–7d), Alerta (8–14d), Saludable (15–45d), Sobrestock o Dormido</em>, exportable a Excel Multi-Hoja.</li>
+                    </ul>
+                  </div>
+                  <div class="ic-guide-card">
+                    <h3 class="ic-guide-card-title">
+                      <i class="ri-calculator-line" style="color: #8b5cf6; font-size: 1rem;"></i>
+                      ¿Cómo se calculan las métricas clave?
+                    </h3>
+                    <ul class="ic-guide-list">
+                      <li><strong>Stock Disponible Neto:</strong> <code>Stock Físico − Stock Comprometido</code> en pedidos pendientes de preparación.</li>
+                      <li><strong>Velocidad Diaria de Salida:</strong> <code>(Unidades vendidas últ. 30 días ÷ 30) × Multiplicador de Demanda</code>.</li>
+                      <li><strong>Días de Cobertura (Runway):</strong> <code>Stock Disponible Neto ÷ Velocidad Diaria</code> (con opción de sumar tránsito <code>#ING</code>).</li>
+                      <li><strong>Reposición Sugerida:</strong> <code>(Velocidad Diaria × Días Meta) − (Stock Disponible + Tránsito #ING)</code>, respetando siempre tu stock crítico.</li>
+                    </ul>
+                  </div>
                 </div>
+              ` : ''}
 
-                <div class="ic-guide-card">
-                  <h3 class="ic-guide-card-title">
-                    <i class="ri-calculator-line" style="color: #8b5cf6; font-size: 1rem;"></i>
-                    3. ¿Cómo se calculan las métricas clave?
-                  </h3>
-                  <ul class="ic-guide-list">
-                    <li><strong>Stock Disponible Neto:</strong> <code>Stock Físico − Stock Comprometido</code> en pedidos pendientes de preparación.</li>
-                    <li><strong>Velocidad Diaria de Salida:</strong> <code>(Unidades vendidas últ. 30 días ÷ 30) × Multiplicador de Demanda</code>.</li>
-                    <li><strong>Días de Cobertura (Runway):</strong> <code>Stock Disponible Neto ÷ Velocidad Diaria</code> (con opción de sumar tránsito <code>#ING</code>).</li>
-                    <li><strong>Reposición Sugerida:</strong> <code>(Velocidad Diaria × Días Meta) − (Stock Disponible + Tránsito #ING)</code>, respetando siempre tu umbral de stock crítico.</li>
-                  </ul>
-                </div>
-              </div>
-
-              <!-- 5 Pasos de Instrucciones Prácticas -->
-              <div>
-                <div style="font-size: 0.78rem; font-weight: 800; color: var(--color-text-main); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
-                  <i class="ri-list-check-2" style="color: var(--color-primary);"></i>
-                  <span>Instrucciones paso a paso para aprovechar el módulo:</span>
-                </div>
+              ${guideTab === 'steps' ? `
                 <div class="ic-guide-steps-grid">
                   <div class="ic-guide-step">
                     <div class="ic-guide-step-top">
@@ -1450,10 +1628,10 @@ function renderFullModuleScaffold() {
                   <div class="ic-guide-step">
                     <div class="ic-guide-step-top">
                       <span class="ic-guide-step-num">3</span>
-                      <span class="ic-guide-step-title">Filtra en 1 Clic</span>
+                      <span class="ic-guide-step-title">Navega las 3 Pestañas</span>
                     </div>
                     <p class="ic-guide-step-desc">
-                      Haz clic sobre cualquier <strong>tarjeta KPI</strong> (ej. <em>Quiebre Activo</em> o <em>Riesgo Crítico</em>), barra de <strong>Salud</strong> o bloque <strong>ABC</strong> para filtrar inmediatamente la tabla inferior.
+                      Alterna entre <strong>1. Panorama y Salud</strong>, <strong>2. Rotación ABC y Curva 30d</strong> y <strong>3. Catálogo Maestro</strong>. Hacer clic en cualquier KPI o barra filtra la tabla automáticamente.
                     </p>
                   </div>
 
@@ -1463,7 +1641,7 @@ function renderFullModuleScaffold() {
                       <span class="ic-guide-step-title">Proyecta la Curva 30d</span>
                     </div>
                     <p class="ic-guide-step-desc">
-                      Haz clic en <strong>cualquier fila de la tabla</strong> para graficar su curva <em>Burn-down</em>: compara la caída sin reposición (rojo) vs. el efecto de inyectar un ingreso (verde).
+                      En la pestaña 2 (o haciendo clic en cualquier SKU de la tabla), revisa la curva <em>Burn-down</em>: compara la caída sin reposición (rojo) vs. el efecto de inyectar un ingreso (verde).
                     </p>
                   </div>
 
@@ -1473,11 +1651,11 @@ function renderFullModuleScaffold() {
                       <span class="ic-guide-step-title">Repón o Exporta a Excel</span>
                     </div>
                     <p class="ic-guide-step-desc">
-                      Usa la columna <strong>Reposición Sugerida</strong> y pulsa <strong>"+ Declarar #ING"</strong> para notificar tu envío a bodega, o descarga el <strong>Excel Multi-Hoja</strong> con todo el plan de compra.
+                      En la pestaña 3 usa la columna <strong>Reposición Sugerida</strong> y pulsa <strong>"+ Declarar #ING"</strong> para notificar tu envío, o descarga el <strong>Excel Multi-Hoja</strong> con todo el plan.
                     </p>
                   </div>
                 </div>
-              </div>
+              ` : ''}
             </div>
           ` : ''}
         </div>
@@ -1536,188 +1714,290 @@ function renderFullModuleScaffold() {
           </div>
         </div>
 
-        <!-- Banner de Fórmula Activa -->
+        <!-- Banner de Fórmula Activa + Exclusión Inteligente de Packs/Sets -->
         <div class="ic-formula-banner">
           <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
             <i class="ri-cpu-line" style="color: var(--color-primary); font-size: 1rem;"></i>
             <span id="ic-formula-summary-text">
               <strong>Fórmula activa:</strong>
               <code class="ic-formula-code">Días Cobertura = ${icState.includeTransitInRunway ? '(Stock Disp. + Tránsito #ING)' : 'Stock Disponible Neto'} ÷ (Ventas 30d ÷ 30 × ${icState.demandMultiplier.toFixed(1)}x)</code>
-              · Calculando reposición sugerida para cubrir <strong>${icState.targetDays} días</strong>.
+              · Meta: <strong>${icState.targetDays}d</strong>.
             </span>
           </div>
-          <label class="ic-transit-toggle-label">
-            <input type="checkbox" ${icState.includeTransitInRunway ? 'checked' : ''} onchange="window.icToggleIncludeTransit(this.checked)" />
-            <span>Incluir unidades en Declaraciones de Ingreso (<code class="ic-formula-code">#ING</code>) en el cálculo de cobertura</span>
-          </label>
+          <div style="display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap;">
+            <label class="ic-transit-toggle-label" title="Los Packs/Sets no son inventario físico independiente (se arman desde sus SKUs componentes): al mantener esta opción activa, se excluyen de Cobertura, Reposición y Cubicaje (m³), pero sí se mantienen en Ventas, Curva ABC y Semáforo.">
+              <input type="checkbox" ${icState.excludePacksFromStockMetrics ? 'checked' : ''} onchange="window.icToggleExcludePacks(this.checked)" />
+              <span>Excluir <strong>Packs / Sets</strong> de métricas de stock (cobertura, reposición, m³) y mantenerlos solo en Ventas / ABC</span>
+            </label>
+            <label class="ic-transit-toggle-label">
+              <input type="checkbox" ${icState.includeTransitInRunway ? 'checked' : ''} onchange="window.icToggleIncludeTransit(this.checked)" />
+              <span>Incluir Tránsito (<code class="ic-formula-code">#ING</code>) en cobertura</span>
+            </label>
+          </div>
         </div>
       </section>
 
-      <!-- 1.B. RADAR COMPARATIVO MULTI-COMERCIO / CONGLOMERADO (Visible cuando el usuario tiene >1 comercio o pertenece a un Holding) -->
-      <section id="ic-conglomerate-section" style="display: none;"></section>
-
-      <!-- 2. 6 KPIs EJECUTIVOS DE INTELIGENCIA DE INVENTARIO -->
-      <section id="ic-kpi-section" class="ic-kpi-grid"></section>
-
-      <!-- 3. 3 PANELES VISUALES ANALÍTICOS -->
-      <section class="ic-charts-grid">
-        <!-- Panel 1: Distribución de Salud & Cubicaje m³ -->
-        <div class="ic-panel-card">
-          <div>
-            <div class="ic-panel-header">
-              <div>
-                <h3 class="ic-panel-title">1. Salud del Catálogo &amp; Cubicaje (m³)</h3>
-                <p class="ic-panel-subtitle">Haz clic en cualquier tramo para filtrar la tabla inferior</p>
-              </div>
-              <span id="ic-total-vol-badge" class="ic-vol-pill">0.00 m³</span>
-            </div>
-            <div id="ic-health-distribution-bars" class="ic-health-list" style="margin-top: 0.75rem;"></div>
-          </div>
-          <div class="ic-kpi-footer">
-            <span>Escenario activo: <strong id="ic-panel1-mult-label">${icState.demandMultiplier.toFixed(1)}x</strong></span>
-            <button type="button" onclick="window.icSetStatusFilter('ALL')" style="background:none;border:none;color:var(--color-primary);font-weight:700;cursor:pointer;font-size:0.75rem;">
-              Ver todos los tramos
-            </button>
-          </div>
-        </div>
-
-        <!-- Panel 2: Curva Burn-down 30 días (SVG) -->
-        <div class="ic-panel-card">
-          <div>
-            <div class="ic-panel-header">
-              <div>
-                <h3 class="ic-panel-title">2. Curva Burn-down (Proyección 30d)</h3>
-                <p class="ic-panel-subtitle">Agotamiento diario proyectado vs. stock crítico (7d) y reposición</p>
-              </div>
-              <select id="ic-burndown-sku-select" class="ic-select" style="max-width: 245px; padding: 0.35rem 0.6rem; font-size: 0.76rem;" onchange="window.icSelectBurndownSku(this.value)"></select>
-            </div>
-
-            <div id="ic-burndown-meta" class="ic-burndown-meta-grid" style="margin-top: 0.65rem;"></div>
-
-            <div class="ic-svg-box" style="margin-top: 0.65rem;">
-              <svg id="ic-burndown-svg" viewBox="0 0 520 190" style="width: 100%; height: 175px; overflow: visible;"></svg>
-            </div>
-          </div>
-
-          <div class="ic-kpi-footer" style="flex-wrap: wrap;">
-            <div style="display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap;">
-              <span style="display: inline-flex; align-items: center; gap: 0.35rem;">
-                <span style="width: 12px; height: 2.5px; background: #ef4444; display: inline-block;"></span> Sin nuevo ingreso
-              </span>
-              <span style="display: inline-flex; align-items: center; gap: 0.35rem;">
-                <span style="width: 12px; height: 3px; background: #10b981; display: inline-block; border-radius: 2px;"></span> Con reposición / #ING
-              </span>
-              <span style="display: inline-flex; align-items: center; gap: 0.35rem;">
-                <span style="width: 12px; height: 0; border-bottom: 2px dashed #f59e0b; display: inline-block;"></span> Umbral 7 días
-              </span>
-            </div>
-            <span id="ic-burndown-break-label" style="font-weight: 700; color: var(--color-danger);"></span>
-          </div>
-        </div>
-
-        <!-- Panel 3: Matriz Pareto ABC vs. Ocupación de Bodega (m³) -->
-        <div class="ic-panel-card">
-          <div>
-            <div class="ic-panel-header">
-              <div>
-                <h3 class="ic-panel-title">3. Matriz Pareto ABC vs. Bodega (m³)</h3>
-                <p class="ic-panel-subtitle">Aporte a las salidas (30d) vs. volumen físico ocupado</p>
-              </div>
-            </div>
-            <div id="ic-abc-matrix-list" class="ic-abc-list" style="margin-top: 0.7rem;"></div>
-          </div>
-          <div id="ic-abc-alert-container" class="ic-abc-alert-box"></div>
-        </div>
-      </section>
-
-      <!-- 4. CATÁLOGO MAESTRO INTERACTIVO -->
-      <section class="ic-catalog-card">
-        <div class="ic-catalog-header">
-          <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem;">
+      <!-- BARRA PRINCIPAL DE 3 PESTAÑAS DEL MÓDULO -->
+      <nav class="ic-main-tabs-bar" aria-label="Secciones del módulo de cobertura">
+        <button type="button" class="ic-main-tab-btn ${activeTab === 'overview' ? 'active' : ''}" onclick="window.icSetMainTab('overview')">
+          <div class="ic-main-tab-left">
+            <span class="ic-main-tab-icon"><i class="ri-dashboard-3-line"></i></span>
             <div>
-              <div style="display: flex; align-items: center; gap: 0.55rem;">
-                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-text-main);">
-                  Catálogo Maestro de Cobertura, Velocidad 30d y Reposición Sugerida
-                </h3>
-                <span id="ic-table-count-badge" class="ic-pill-badge ic-pill-primary">0 SKUs</span>
-              </div>
-              <p style="margin: 0.2rem 0 0 0; font-size: 0.77rem; color: var(--color-text-muted);">
-                Haz clic en cualquier fila o en el botón de curva para proyectar el agotamiento diario del SKU en el gráfico superior.
-              </p>
+              <span class="ic-main-tab-title">1. Panorama, KPIs y Salud (m³)</span>
+              <span class="ic-main-tab-sub">Indicadores ejecutivos, radiografía multi-comercio y semáforo</span>
             </div>
+          </div>
+          <span class="ic-main-tab-badge" id="ic-tab-badge-overview">
+            ${urgentSkusCount > 0 ? `${icFormatNumber(urgentSkusCount)} urgencias` : `${icFormatNumber(catalog.length)} SKUs`}
+          </span>
+        </button>
 
-            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-              <button type="button" class="ic-btn ic-btn-outline" style="padding: 0.42rem 0.75rem; font-size: 0.76rem;" onclick="window.icResetFilters()">
-                <i class="ri-filter-off-line"></i> Limpiar filtros
+        <button type="button" class="ic-main-tab-btn ${activeTab === 'analytics' ? 'active' : ''}" onclick="window.icSetMainTab('analytics')">
+          <div class="ic-main-tab-left">
+            <span class="ic-main-tab-icon"><i class="ri-line-chart-line"></i></span>
+            <div>
+              <span class="ic-main-tab-title">2. Rotación ABC y Curva Burn-down (30d)</span>
+              <span class="ic-main-tab-sub">Proyección diaria de agotamiento por SKU y matriz Pareto vs. m³</span>
+            </div>
+          </div>
+          <span class="ic-main-tab-badge" id="ic-tab-badge-analytics">
+            ${icFormatNumber(classASkusCount)} Clase A 🔥
+          </span>
+        </button>
+
+        <button type="button" class="ic-main-tab-btn ${activeTab === 'catalog' ? 'active' : ''}" onclick="window.icSetMainTab('catalog')">
+          <div class="ic-main-tab-left">
+            <span class="ic-main-tab-icon"><i class="ri-table-2"></i></span>
+            <div>
+              <span class="ic-main-tab-title">3. Catálogo Maestro y Reposición</span>
+              <span class="ic-main-tab-sub">Tabla detallada por SKU, cobertura, cubicaje y órdenes #ING</span>
+            </div>
+          </div>
+          <span class="ic-main-tab-badge" id="ic-tab-badge-catalog">
+            ${icFormatNumber(catalog.length)} SKUs
+          </span>
+        </button>
+      </nav>
+
+      <!-- ====================================================================== -->
+      <!-- PESTAÑA 1: PANORAMA, KPIs Y SALUD VOLUMÉTRICA (m³)                     -->
+      <!-- ====================================================================== -->
+      <div id="ic-tab-panel-overview" style="display: ${activeTab === 'overview' ? 'flex' : 'none'}; flex-direction: column; gap: 1.15rem;">
+        <!-- 1.B. RADAR COMPARATIVO MULTI-COMERCIO / CONGLOMERADO -->
+        <section id="ic-conglomerate-section" style="display: none;"></section>
+
+        <!-- 2. 6 KPIs EJECUTIVOS DE INTELIGENCIA DE INVENTARIO -->
+        <section id="ic-kpi-section" class="ic-kpi-grid"></section>
+
+        <!-- 3.A. SALUD DEL CATÁLOGO & PRIORIDADES INMEDIATAS -->
+        <section class="ic-two-col-grid">
+          <!-- Panel 1: Distribución de Salud & Cubicaje m³ -->
+          <div class="ic-panel-card">
+            <div>
+              <div class="ic-panel-header">
+                <div>
+                  <h3 class="ic-panel-title">1. Salud del Catálogo &amp; Cubicaje (m³)</h3>
+                  <p class="ic-panel-subtitle">Haz clic en cualquier tramo para abrir esos SKUs en el Catálogo Maestro</p>
+                </div>
+                <span id="ic-total-vol-badge" class="ic-vol-pill">0.00 m³</span>
+              </div>
+              <div id="ic-health-distribution-bars" class="ic-health-list" style="margin-top: 0.75rem;"></div>
+            </div>
+            <div class="ic-kpi-footer">
+              <span>Escenario activo: <strong id="ic-panel1-mult-label">${icState.demandMultiplier.toFixed(1)}x</strong></span>
+              <button type="button" onclick="window.icSetStatusFilter('ALL', true)" style="background:none;border:none;color:var(--color-primary);font-weight:700;cursor:pointer;font-size:0.75rem;">
+                Abrir Catálogo Maestro completo →
               </button>
             </div>
           </div>
 
-          <div class="ic-catalog-toolbar">
-            <!-- Buscador -->
-            <div class="ic-search-wrap">
-              <i class="ri-search-line"></i>
-              <input
-                type="text"
-                id="ic-search-input"
-                class="ic-search-input"
-                placeholder="Buscar por SKU, nombre de producto o comercio..."
-                value="${icEscapeHtml(icState.searchQuery)}"
-                oninput="window.icHandleSearch(this.value)"
-              />
+          <!-- Panel Resumen de Prioridades de Reposición y Accesos Directos -->
+          <div class="ic-panel-card">
+            <div>
+              <div class="ic-panel-header">
+                <div>
+                  <h3 class="ic-panel-title">Prioridades de Reposición &amp; Acción Rápida</h3>
+                  <p class="ic-panel-subtitle">Top SKUs con rotación que requieren atención prioritaria para cubrir ${icState.targetDays} días</p>
+                </div>
+                <button type="button" class="ic-btn ic-btn-outline" style="padding: 0.3rem 0.65rem; font-size: 0.74rem;" onclick="window.icSetMainTab('catalog')">
+                  <i class="ri-table-line"></i> Ver Tabla (${icFormatNumber(catalog.length)})
+                </button>
+              </div>
+              <div id="ic-overview-priority-list" style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;"></div>
             </div>
-
-            <!-- Pills de Tramo de Salud -->
-            <div class="ic-status-pills" id="ic-status-pills-container">
-              <button type="button" class="ic-filter-pill ${icState.statusFilter === 'ALL' ? 'active' : ''}" onclick="window.icSetStatusFilter('ALL')">Todos</button>
-              <button type="button" class="ic-filter-pill ${icState.statusFilter === 'OUT' ? 'active' : ''}" onclick="window.icSetStatusFilter('OUT')">Agotados (0d)</button>
-              <button type="button" class="ic-filter-pill ${icState.statusFilter === 'CRITICAL' ? 'active' : ''}" onclick="window.icSetStatusFilter('CRITICAL')">Críticos (1-7d)</button>
-              <button type="button" class="ic-filter-pill ${icState.statusFilter === 'ALERT' ? 'active' : ''}" onclick="window.icSetStatusFilter('ALERT')">Alerta (8-14d)</button>
-              <button type="button" class="ic-filter-pill ${icState.statusFilter === 'HEALTHY' ? 'active' : ''}" onclick="window.icSetStatusFilter('HEALTHY')">Óptimos (15-45d)</button>
-              <button type="button" class="ic-filter-pill ${icState.statusFilter === 'OVERSTOCK' ? 'active' : ''}" onclick="window.icSetStatusFilter('OVERSTOCK')">Sobrestock / Dormidos</button>
-            </div>
-
-            <!-- Filtro ABC + Ordenamiento -->
-            <div style="display: grid; grid-template-columns: 1fr 1.25fr; gap: 0.5rem;">
-              <select id="ic-abc-select" class="ic-select" style="padding: 0.44rem 0.6rem; font-size: 0.77rem;" onchange="window.icSetAbcFilter(this.value)">
-                <option value="ALL" ${icState.abcFilter === 'ALL' ? 'selected' : ''}>Clase ABC: Todas</option>
-                <option value="A" ${icState.abcFilter === 'A' ? 'selected' : ''}>Clase A 🔥 (80% vtas)</option>
-                <option value="B" ${icState.abcFilter === 'B' ? 'selected' : ''}>Clase B ⚡ (15% vtas)</option>
-                <option value="C" ${icState.abcFilter === 'C' ? 'selected' : ''}>Clase C 📦 (5% vtas)</option>
-                <option value="DORMANT" ${icState.abcFilter === 'DORMANT' ? 'selected' : ''}>Dormido 💤 (0 vtas)</option>
-              </select>
-
-              <select id="ic-sort-select" class="ic-select" style="padding: 0.44rem 0.6rem; font-size: 0.77rem;" onchange="window.icSetSortBy(this.value)">
-                <option value="runway_asc" ${icState.sortBy === 'runway_asc' ? 'selected' : ''}>Orden: Menor cobertura</option>
-                <option value="runway_desc" ${icState.sortBy === 'runway_desc' ? 'selected' : ''}>Orden: Mayor cobertura</option>
-                <option value="sales_desc" ${icState.sortBy === 'sales_desc' ? 'selected' : ''}>Orden: Mayor salida 30d</option>
-                <option value="replenish_desc" ${icState.sortBy === 'replenish_desc' ? 'selected' : ''}>Orden: Mayor reposición</option>
-                <option value="stock_desc" ${icState.sortBy === 'stock_desc' ? 'selected' : ''}>Orden: Mayor stock disp.</option>
-                <option value="volume_desc" ${icState.sortBy === 'volume_desc' ? 'selected' : ''}>Orden: Mayor m³ ocupado</option>
-              </select>
+            <div class="ic-kpi-footer">
+              <button type="button" onclick="window.icSetMainTab('analytics')" style="background:none;border:none;color:#6366f1;font-weight:700;cursor:pointer;font-size:0.75rem;padding:0;">
+                <i class="ri-line-chart-line"></i> Ir a Pestaña 2: Curva Burn-down y Matriz ABC →
+              </button>
+              <button type="button" onclick="window.icSetMainTab('catalog')" style="background:none;border:none;color:var(--color-primary);font-weight:700;cursor:pointer;font-size:0.75rem;padding:0;">
+                Ir a Pestaña 3: Catálogo Maestro →
+              </button>
             </div>
           </div>
-        </div>
+        </section>
+      </div>
 
-        <div class="ic-table-scroll">
-          <table class="ic-table">
-            <thead>
-              <tr>
-                <th>SKU / Producto &amp; Clasificación ABC</th>
-                <th>Sucursal(es)</th>
-                <th>Stock Físico · Comprometido · Disp.</th>
-                <th>Salidas 30d &amp; Velocidad</th>
-                <th style="min-width: 205px;">Días Cobertura &amp; Fecha Quiebre</th>
-                <th>Cubicaje (m³)</th>
-                <th style="text-align: right;">Reposición Sugerida (${icState.targetDays}d)</th>
-              </tr>
-            </thead>
-            <tbody id="ic-catalog-tbody"></tbody>
-          </table>
-        </div>
+      <!-- ====================================================================== -->
+      <!-- PESTAÑA 2: ROTACIÓN ABC Y CURVA BURN-DOWN (PROYECCIÓN 30D)             -->
+      <!-- ====================================================================== -->
+      <div id="ic-tab-panel-analytics" style="display: ${activeTab === 'analytics' ? 'flex' : 'none'}; flex-direction: column; gap: 1.15rem;">
+        <section class="ic-burndown-tab-grid">
+          <!-- Panel 2: Curva Burn-down 30 días (SVG) -->
+          <div class="ic-panel-card">
+            <div>
+              <div class="ic-panel-header">
+                <div>
+                  <h3 class="ic-panel-title">Curva Burn-down (Proyección 30 días)</h3>
+                  <p class="ic-panel-subtitle">Agotamiento diario proyectado vs. stock crítico (7d) y simulación de ingreso (#ING)</p>
+                </div>
+                <select id="ic-burndown-sku-select" class="ic-select" style="max-width: 290px; padding: 0.38rem 0.65rem; font-size: 0.78rem;" onchange="window.icSelectBurndownSku(this.value, false)"></select>
+              </div>
 
-        <div id="ic-pagination-container" class="ic-pagination-bar"></div>
-      </section>
+              <div id="ic-burndown-meta" class="ic-burndown-meta-grid" style="margin-top: 0.75rem;"></div>
+
+              <div class="ic-svg-box" style="margin-top: 0.75rem;">
+                <svg id="ic-burndown-svg" viewBox="0 0 520 190" style="width: 100%; height: 215px; overflow: visible;"></svg>
+              </div>
+            </div>
+
+            <div class="ic-kpi-footer" style="flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap;">
+                <span style="display: inline-flex; align-items: center; gap: 0.35rem;">
+                  <span style="width: 12px; height: 2.5px; background: #ef4444; display: inline-block;"></span> Sin nuevo ingreso
+                </span>
+                <span style="display: inline-flex; align-items: center; gap: 0.35rem;">
+                  <span style="width: 12px; height: 3px; background: #10b981; display: inline-block; border-radius: 2px;"></span> Con reposición / #ING
+                </span>
+                <span style="display: inline-flex; align-items: center; gap: 0.35rem;">
+                  <span style="width: 12px; height: 0; border-bottom: 2px dashed #f59e0b; display: inline-block;"></span> Umbral 7 días
+                </span>
+              </div>
+              <span id="ic-burndown-break-label" style="font-weight: 700; color: var(--color-danger);"></span>
+            </div>
+          </div>
+
+          <!-- Panel 3: Matriz Pareto ABC vs. Ocupación de Bodega (m³) -->
+          <div class="ic-panel-card">
+            <div>
+              <div class="ic-panel-header">
+                <div>
+                  <h3 class="ic-panel-title">Matriz Pareto ABC vs. Bodega (m³)</h3>
+                  <p class="ic-panel-subtitle">Haz clic en cualquier clase ABC para ver sus SKUs en el Catálogo Maestro</p>
+                </div>
+              </div>
+              <div id="ic-abc-matrix-list" class="ic-abc-list" style="margin-top: 0.7rem;"></div>
+            </div>
+            <div id="ic-abc-alert-container" class="ic-abc-alert-box"></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ====================================================================== -->
+      <!-- PESTAÑA 3: CATÁLOGO MAESTRO Y PLAN DE REPOSICIÓN POR SKU               -->
+      <!-- ====================================================================== -->
+      <div id="ic-tab-panel-catalog" style="display: ${activeTab === 'catalog' ? 'flex' : 'none'}; flex-direction: column; gap: 1.15rem;">
+        <section class="ic-catalog-card">
+          <div class="ic-catalog-header">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem;">
+              <div>
+                <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
+                  <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-text-main);">
+                    Catálogo Maestro de Cobertura, Velocidad 30d y Reposición Sugerida
+                  </h3>
+                  <span id="ic-table-count-badge" class="ic-pill-badge ic-pill-primary">0 SKUs</span>
+                  ${catalog.some(r => r.isPack) ? `
+                    <span class="ic-pack-badge" title="Cantidad de Packs / Sets virtuales detectados en este comercio">
+                      <i class="ri-links-line"></i> ${catalog.filter(r => r.isPack).length} Pack${catalog.filter(r => r.isPack).length === 1 ? '' : 's'} / Set${catalog.filter(r => r.isPack).length === 1 ? '' : 's'}
+                    </span>
+                  ` : ''}
+                </div>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.77rem; color: var(--color-text-muted);">
+                  Haz clic en cualquier fila para proyectar inmediatamente su curva de agotamiento de 30 días en la Pestaña 2.
+                </p>
+              </div>
+
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <button type="button" class="ic-btn ic-btn-outline" style="padding: 0.42rem 0.75rem; font-size: 0.76rem;" onclick="window.icSetMainTab('overview')">
+                  <i class="ri-dashboard-3-line"></i> Volver a KPIs y Salud
+                </button>
+                <button type="button" class="ic-btn ic-btn-outline" style="padding: 0.42rem 0.75rem; font-size: 0.76rem;" onclick="window.icResetFilters()">
+                  <i class="ri-filter-off-line"></i> Limpiar filtros
+                </button>
+              </div>
+            </div>
+
+            <div class="ic-catalog-toolbar">
+              <!-- Buscador -->
+              <div class="ic-search-wrap">
+                <i class="ri-search-line"></i>
+                <input
+                  type="text"
+                  id="ic-search-input"
+                  class="ic-search-input"
+                  placeholder="Buscar por SKU, nombre de producto o comercio..."
+                  value="${icEscapeHtml(icState.searchQuery)}"
+                  oninput="window.icHandleSearch(this.value)"
+                />
+              </div>
+
+              <!-- Pills de Tramo de Salud -->
+              <div class="ic-status-pills" id="ic-status-pills-container">
+                <button type="button" class="ic-filter-pill ${icState.statusFilter === 'ALL' ? 'active' : ''}" onclick="window.icSetStatusFilter('ALL', false)">Todos</button>
+                <button type="button" class="ic-filter-pill ${icState.statusFilter === 'OUT' ? 'active' : ''}" onclick="window.icSetStatusFilter('OUT', false)">Agotados (0d)</button>
+                <button type="button" class="ic-filter-pill ${icState.statusFilter === 'CRITICAL' ? 'active' : ''}" onclick="window.icSetStatusFilter('CRITICAL', false)">Críticos (1-7d)</button>
+                <button type="button" class="ic-filter-pill ${icState.statusFilter === 'ALERT' ? 'active' : ''}" onclick="window.icSetStatusFilter('ALERT', false)">Alerta (8-14d)</button>
+                <button type="button" class="ic-filter-pill ${icState.statusFilter === 'HEALTHY' ? 'active' : ''}" onclick="window.icSetStatusFilter('HEALTHY', false)">Óptimos (15-45d)</button>
+                <button type="button" class="ic-filter-pill ${icState.statusFilter === 'OVERSTOCK' ? 'active' : ''}" onclick="window.icSetStatusFilter('OVERSTOCK', false)">Sobrestock / Dormidos</button>
+              </div>
+
+              <!-- Filtro Tipo SKU (Físicos vs Packs) + Filtro ABC + Ordenamiento -->
+              <div style="display: grid; grid-template-columns: 1.05fr 0.95fr 1.15fr; gap: 0.45rem;">
+                <select id="ic-pack-filter-select" class="ic-select" style="padding: 0.44rem 0.55rem; font-size: 0.76rem;" onchange="window.icSetPackFilter(this.value, false)">
+                  <option value="ALL" ${icState.packFilter === 'ALL' ? 'selected' : ''}>Tipo: Todos (Físicos + Packs)</option>
+                  <option value="PHYSICAL_ONLY" ${icState.packFilter === 'PHYSICAL_ONLY' ? 'selected' : ''}>📦 Solo SKUs Físicos</option>
+                  <option value="PACKS_ONLY" ${icState.packFilter === 'PACKS_ONLY' ? 'selected' : ''}>🔗 Solo Packs / Sets</option>
+                </select>
+
+                <select id="ic-abc-select" class="ic-select" style="padding: 0.44rem 0.55rem; font-size: 0.76rem;" onchange="window.icSetAbcFilter(this.value, false)">
+                  <option value="ALL" ${icState.abcFilter === 'ALL' ? 'selected' : ''}>Clase ABC: Todas</option>
+                  <option value="A" ${icState.abcFilter === 'A' ? 'selected' : ''}>Clase A 🔥 (80% vtas)</option>
+                  <option value="B" ${icState.abcFilter === 'B' ? 'selected' : ''}>Clase B ⚡ (15% vtas)</option>
+                  <option value="C" ${icState.abcFilter === 'C' ? 'selected' : ''}>Clase C 📦 (5% vtas)</option>
+                  <option value="DORMANT" ${icState.abcFilter === 'DORMANT' ? 'selected' : ''}>Dormido 💤 (0 vtas)</option>
+                </select>
+
+                <select id="ic-sort-select" class="ic-select" style="padding: 0.44rem 0.55rem; font-size: 0.76rem;" onchange="window.icSetSortBy(this.value, false)">
+                  <option value="runway_asc" ${icState.sortBy === 'runway_asc' ? 'selected' : ''}>Orden: Menor cobertura</option>
+                  <option value="runway_desc" ${icState.sortBy === 'runway_desc' ? 'selected' : ''}>Orden: Mayor cobertura</option>
+                  <option value="sales_desc" ${icState.sortBy === 'sales_desc' ? 'selected' : ''}>Orden: Mayor salida 30d</option>
+                  <option value="replenish_desc" ${icState.sortBy === 'replenish_desc' ? 'selected' : ''}>Orden: Mayor reposición</option>
+                  <option value="stock_desc" ${icState.sortBy === 'stock_desc' ? 'selected' : ''}>Orden: Mayor stock disp.</option>
+                  <option value="volume_desc" ${icState.sortBy === 'volume_desc' ? 'selected' : ''}>Orden: Mayor m³ ocupado</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="ic-table-scroll">
+            <table class="ic-table">
+              <thead>
+                <tr>
+                  <th>SKU / Producto &amp; Clasificación ABC</th>
+                  <th>Sucursal(es)</th>
+                  <th>Stock Físico · Comprometido · Disp.</th>
+                  <th>Salidas 30d &amp; Velocidad</th>
+                  <th style="min-width: 205px;">Días Cobertura &amp; Fecha Quiebre</th>
+                  <th>Cubicaje (m³)</th>
+                  <th style="text-align: right;">Reposición Sugerida (${icState.targetDays}d)</th>
+                </tr>
+              </thead>
+              <tbody id="ic-catalog-tbody"></tbody>
+            </table>
+          </div>
+
+          <div id="ic-pagination-container" class="ic-pagination-bar"></div>
+        </section>
+      </div>
     </div>
   `;
 }
@@ -1892,15 +2172,17 @@ function renderKpiCards() {
   if (!kpiContainer) return;
 
   const catalog = icState.computedCatalog;
-  const activeMovers = catalog.filter(r => r.effectiveDailyVelocity > 0);
+  const physicalMovers = catalog.filter(r => r.effectiveDailyVelocity > 0 && !r.isExcludedPack);
+  const allMovers = catalog.filter(r => r.effectiveDailyVelocity > 0);
 
-  // Tope operativo de 90 días por SKU en el promedio ponderado para evitar que un SKU con sobrestock extremo distorsione la cobertura media
-  const totalAvailActiveCapped = activeMovers.reduce((s, r) => {
+  // Tope operativo de 90 días por SKU físico en el promedio ponderado para evitar que un SKU con sobrestock extremo o un Pack virtual distorsione la cobertura media
+  const totalAvailActiveCapped = physicalMovers.reduce((s, r) => {
     const rawSkuAvail = icState.includeTransitInRunway ? (r.availablePositive + r.transitUnits) : r.availablePositive;
     return s + Math.min(rawSkuAvail, r.effectiveDailyVelocity * 90);
   }, 0);
-  const totalDailyVel = activeMovers.reduce((s, r) => s + r.effectiveDailyVelocity, 0);
-  const weightedRunway = totalDailyVel > 0 ? (totalAvailActiveCapped / totalDailyVel) : 0;
+  const totalPhysicalDailyVel = physicalMovers.reduce((s, r) => s + r.effectiveDailyVelocity, 0);
+  const totalDailyVel = allMovers.reduce((s, r) => s + r.effectiveDailyVelocity, 0);
+  const weightedRunway = totalPhysicalDailyVel > 0 ? (totalAvailActiveCapped / totalPhysicalDailyVel) : 0;
 
   const totalSales30d = catalog.reduce((s, r) => s + r.sales30d, 0);
   const totalSales7d = catalog.reduce((s, r) => s + r.sales7d, 0);
@@ -1912,7 +2194,7 @@ function renderKpiCards() {
   const totalCommitted = catalog.reduce((s, r) => s + r.committedStock, 0);
   const totalTransit = catalog.reduce((s, r) => s + r.transitUnits, 0) || icState.totalDeclaredUnitsGlobal || 0;
 
-  const dormantOrOverSkus = catalog.filter(r => r.healthBand === 'DORMANT' || r.healthBand === 'OVERSTOCK');
+  const dormantOrOverSkus = catalog.filter(r => (r.healthBand === 'DORMANT' || r.healthBand === 'OVERSTOCK') && !r.isExcludedPack);
   const totalVolM3 = catalog.reduce((s, r) => s + r.totalVolumeM3, 0);
   const dormantVolM3 = dormantOrOverSkus.reduce((s, r) => s + r.totalVolumeM3, 0);
   const dormantVolPct = totalVolM3 > 0 ? Math.round((dormantVolM3 / totalVolM3) * 100) : 0;
@@ -1942,7 +2224,7 @@ function renderKpiCards() {
           <div class="ic-progress-fill" style="width: ${runwayPct}%; background: ${runwayStatusColor};"></div>
         </div>
         <div class="ic-kpi-footer" style="border-top: none; padding-top: 0;">
-          <span>Sobre ${activeMovers.length} SKUs con rotación</span>
+          <span>Sobre ${physicalMovers.length} SKUs físicos con rotación</span>
           <strong>${runwayPct}%</strong>
         </div>
       </div>
@@ -2161,13 +2443,77 @@ function renderAnalyticalPanels() {
             <strong>${cDormGroup.items.length} SKUs</strong> de baja o nula rotación consumen <strong>${cDormVol.toFixed(2)} m³ (${cDormVolPct}%)</strong> del espacio físico.
           </span>
           <div style="margin-top: 0.35rem;">
-            <button type="button" onclick="window.icSetAbcFilter('DORMANT')" style="background:none;border:none;color:#8b5cf6;font-weight:700;cursor:pointer;font-size:0.75rem;padding:0;">
+            <button type="button" onclick="window.icSetAbcFilter('DORMANT', true)" style="background:none;border:none;color:#8b5cf6;font-weight:700;cursor:pointer;font-size:0.75rem;padding:0;">
               Filtrar SKUs Dormidos para liquidación o retiro →
             </button>
           </div>
         </div>
       </div>
     `;
+  }
+
+  // --- PANEL 1.B (En Pestaña 1): Lista Rápida de Prioridades de Reposición ---
+  const priorityListEl = document.getElementById('ic-overview-priority-list');
+  if (priorityListEl) {
+    const prioritySkus = [...catalog]
+      .filter(r => r.suggestedReplenishUnits > 0 || r.healthBand === 'OUT' || r.healthBand === 'CRITICAL')
+      .sort((a, b) => (b.suggestedReplenishUnits - a.suggestedReplenishUnits) || (b.sales30d - a.sales30d))
+      .slice(0, 5);
+
+    if (prioritySkus.length === 0) {
+      priorityListEl.innerHTML = `
+        <div style="padding: 1.75rem 1rem; text-align: center; background: var(--color-bg); border: 1px dashed var(--color-border); border-radius: var(--radius-md); color: var(--color-text-muted); font-size: 0.8rem;">
+          <i class="ri-checkbox-circle-line" style="font-size: 1.5rem; color: #10b981; display: block; margin-bottom: 0.35rem;"></i>
+          <strong>¡Cobertura saludable!</strong> No hay SKUs con urgencia de reposición para la meta de ${icState.targetDays} días.
+        </div>
+      `;
+    } else {
+      priorityListEl.innerHTML = prioritySkus.map(item => {
+        const badgeColor = item.healthBand === 'OUT' ? '#ef4444' : (item.healthBand === 'CRITICAL' ? '#f97316' : '#f59e0b');
+        const showComm = icState.mode === 'admin' || icState.companyList.length > 1;
+        return `
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; padding: 0.55rem 0.75rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.76rem;">
+            <div style="min-width: 0; flex: 1;">
+              <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                <strong style="font-family: monospace; color: var(--color-text-main);">${icEscapeHtml(item.sku)}</strong>
+                ${renderAbcBadgeHtml(item.abc)}
+                ${showComm ? `<span class="ic-pill-badge ic-pill-indigo" style="padding: 0.08rem 0.4rem; font-size: 0.66rem;">${icEscapeHtml(item.comercio)}</span>` : ''}
+              </div>
+              <div style="color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 0.12rem;">
+                ${icEscapeHtml(item.name)}
+              </div>
+            </div>
+            <div style="text-align: right; flex-shrink: 0;">
+              <div style="font-weight: 800; color: ${badgeColor};">
+                ${item.healthBand === 'OUT' ? 'Agotado (0 disp.)' : `${item.runwayDays.toFixed(1)}d cob.`}
+              </div>
+              <div style="font-size: 0.71rem; color: var(--color-text-muted);">
+                ${item.suggestedReplenishUnits > 0 ? `Enviar +${icFormatNumber(item.suggestedReplenishUnits)} uds` : `${icFormatNumber(item.sales30d)} vtas/30d`}
+              </div>
+            </div>
+            <button type="button" class="ic-btn ic-btn-outline" style="padding: 0.28rem 0.55rem; font-size: 0.71rem; flex-shrink: 0;" title="Ver curva Burn-down 30d de este SKU" onclick="window.icSelectBurndownSku('${icEscapeHtml(item.id)}', true)">
+              <i class="ri-line-chart-line"></i> Curva 30d
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  // Actualizar contadores de la barra de 3 pestañas principales
+  const urgentCount = catalog.filter(r => r.healthBand === 'OUT' || r.healthBand === 'CRITICAL').length;
+  const classACount = catalog.filter(r => r.abc === 'A').length;
+  const tabBadgeOverview = document.getElementById('ic-tab-badge-overview');
+  const tabBadgeAnalytics = document.getElementById('ic-tab-badge-analytics');
+  const tabBadgeCatalog = document.getElementById('ic-tab-badge-catalog');
+  if (tabBadgeOverview) {
+    tabBadgeOverview.textContent = urgentCount > 0 ? `${icFormatNumber(urgentCount)} urgencias` : `${icFormatNumber(catalog.length)} SKUs`;
+  }
+  if (tabBadgeAnalytics) {
+    tabBadgeAnalytics.textContent = `${icFormatNumber(classACount)} Clase A 🔥`;
+  }
+  if (tabBadgeCatalog) {
+    tabBadgeCatalog.textContent = `${icFormatNumber(catalog.length)} SKUs`;
   }
 }
 
@@ -2181,8 +2527,11 @@ function renderBurndownPanel() {
   if (!selectEl || !metaEl || !svgEl) return;
 
   const topCandidates = [...catalog]
-    .sort((a, b) => (b.sales30d - a.sales30d) || (b.physicalStock - a.physicalStock))
-    .slice(0, 40);
+    .sort((a, b) => {
+      if (a.isExcludedPack !== b.isExcludedPack) return a.isExcludedPack ? 1 : -1;
+      return (b.sales30d - a.sales30d) || (b.physicalStock - a.physicalStock);
+    })
+    .slice(0, 45);
 
   if (topCandidates.length === 0) {
     selectEl.innerHTML = `<option value="">Sin SKUs disponibles</option>`;
@@ -2204,9 +2553,10 @@ function renderBurndownPanel() {
 
   selectEl.innerHTML = optionsList.map(r => {
     const commPrefix = isMultiCommerceView ? `[${r.comercio}] ` : '';
+    const packPrefix = r.isPack ? '[PACK] ' : '';
     return `
       <option value="${icEscapeHtml(r.id)}" ${r.id === selectedItem.id ? 'selected' : ''}>
-        ${icEscapeHtml(commPrefix)}${icEscapeHtml(r.sku)} · ${icEscapeHtml(r.name.slice(0, 32))}
+        ${icEscapeHtml(commPrefix)}${icEscapeHtml(packPrefix)}${icEscapeHtml(r.sku)} · ${icEscapeHtml(r.name.slice(0, 32))}
       </option>
     `;
   }).join('');
@@ -2214,25 +2564,33 @@ function renderBurndownPanel() {
   const injectUnits = selectedItem.transitUnits > 0
     ? selectedItem.transitUnits
     : Math.max(selectedItem.suggestedReplenishUnits, Math.ceil(selectedItem.effectiveDailyVelocity * 15) || 20);
-  const injectLabel = selectedItem.transitUnits > 0
-    ? `+${selectedItem.transitUnits} uds (${selectedItem.transitDoc || '#ING'})`
-    : `+${injectUnits} uds sugeridas`;
+  const injectLabel = selectedItem.isExcludedPack
+    ? (selectedItem.limitingComponent
+        ? `Límite: ${selectedItem.limitingComponent.sku} (${selectedItem.limitingComponent.available} disp.)`
+        : 'Se reponen componentes')
+    : (selectedItem.transitUnits > 0
+        ? `+${selectedItem.transitUnits} uds (${selectedItem.transitDoc || '#ING'})`
+        : `+${injectUnits} uds sugeridas`);
+
+  const todayStockDisplay = selectedItem.isPack && selectedItem.hasPackRecipe
+    ? `🧩 ${icFormatNumber(selectedItem.assemblableAvailable)} packs armables`
+    : (selectedItem.isExcludedPack ? 'En componentes' : `${icFormatNumber(selectedItem.netAvailable)} uds`);
 
   metaEl.innerHTML = `
     <div>
-      <span style="color: var(--color-text-muted); display: block;">Stock Disp. Hoy</span>
-      <strong style="font-size: 0.9rem; color: var(--color-text-main);">${icFormatNumber(selectedItem.netAvailable)} uds</strong>
+      <span style="color: var(--color-text-muted); display: block;">${selectedItem.isPack && selectedItem.hasPackRecipe ? 'Packs Armables Hoy' : 'Stock Disp. Hoy'}</span>
+      <strong style="font-size: 0.9rem; color: var(--color-text-main);">${todayStockDisplay}</strong>
       <span style="color: var(--color-text-muted); display: block;">Salida: ${selectedItem.effectiveDailyVelocity.toFixed(1)}/día</span>
     </div>
     <div>
       <span style="color: var(--color-text-muted); display: block;">Quiebre Proyectado</span>
-      <strong style="font-size: 0.9rem; color: #ef4444;">${icEscapeHtml(selectedItem.breakDateFormatted)}</strong>
+      <strong style="font-size: 0.9rem; color: ${selectedItem.isExcludedPack ? '#b45309' : '#ef4444'};">${icEscapeHtml(selectedItem.breakDateFormatted)}</strong>
       <span style="color: var(--color-text-muted); display: block;">${icEscapeHtml(selectedItem.breakDateSub)}</span>
     </div>
     <div>
-      <span style="color: var(--color-text-muted); display: block;">Simulación Ingreso</span>
+      <span style="color: var(--color-text-muted); display: block;">${selectedItem.isExcludedPack ? 'Cuello de Botella / Receta' : 'Simulación Ingreso'}</span>
       <strong style="font-size: 0.9rem; color: #10b981;">${icEscapeHtml(injectLabel)}</strong>
-      <span style="color: var(--color-text-muted); display: block;">Meta: ${icState.targetDays} días</span>
+      <span style="color: var(--color-text-muted); display: block;">${selectedItem.isExcludedPack ? 'Pack / Set virtual' : `Meta: ${icState.targetDays} días`}</span>
     </div>
   `;
 
@@ -2240,10 +2598,15 @@ function renderBurndownPanel() {
     breakLabelEl.textContent = `Quiebre: ${selectedItem.breakDateFormatted}`;
   }
 
-  // Generar puntos SVG (30 días)
+  // Generar puntos SVG (30 días) — para Packs con receta, proyectar sobre los packs armables hoy
   const days = 30;
   const dailyVel = Math.max(0.15, selectedItem.effectiveDailyVelocity);
-  const startStock = Math.max(0, selectedItem.netAvailable);
+  const startStock = Math.max(
+    0,
+    (selectedItem.isPack && selectedItem.hasPackRecipe)
+      ? selectedItem.assemblableAvailable
+      : selectedItem.netAvailable
+  );
   const injectDay = 4;
   const safetyStock = Math.max(selectedItem.stockCritico || 0, Math.round(dailyVel * 7));
   const maxY = Math.max(startStock + injectUnits, safetyStock * 1.8, 25);
@@ -2331,6 +2694,12 @@ function getFilteredAndSortedCatalog() {
     );
   }
 
+  if (icState.packFilter === 'PHYSICAL_ONLY') {
+    rows = rows.filter(r => !r.isPack);
+  } else if (icState.packFilter === 'PACKS_ONLY') {
+    rows = rows.filter(r => r.isPack);
+  }
+
   if (icState.statusFilter !== 'ALL') {
     if (icState.statusFilter === 'OVERSTOCK') {
       rows = rows.filter(r => r.healthBand === 'OVERSTOCK' || r.healthBand === 'DORMANT');
@@ -2344,8 +2713,15 @@ function getFilteredAndSortedCatalog() {
   }
 
   rows.sort((a, b) => {
-    if (icState.sortBy === 'runway_asc') return a.runwayDays - b.runwayDays;
-    if (icState.sortBy === 'runway_desc') return b.runwayDays - a.runwayDays;
+    if (icState.sortBy === 'runway_asc') {
+      // Al ordenar por menor cobertura, priorizar los SKUs físicos y enviar los Packs virtuales (sin cobertura propia) debajo
+      if (a.isExcludedPack !== b.isExcludedPack) return a.isExcludedPack ? 1 : -1;
+      return a.runwayDays - b.runwayDays;
+    }
+    if (icState.sortBy === 'runway_desc') {
+      if (a.isExcludedPack !== b.isExcludedPack) return a.isExcludedPack ? 1 : -1;
+      return b.runwayDays - a.runwayDays;
+    }
     if (icState.sortBy === 'sales_desc') return b.sales30d - a.sales30d;
     if (icState.sortBy === 'replenish_desc') return b.suggestedReplenishUnits - a.suggestedReplenishUnits;
     if (icState.sortBy === 'stock_desc') return b.netAvailable - a.netAvailable;
@@ -2402,17 +2778,37 @@ function renderCatalogTable() {
            </button>`
         : '';
 
-      const branchesHtml = item.branchBreakdown.length > 0
-        ? item.branchBreakdown.map(b => `
-            <span class="ic-branch-chip" title="Físico: ${b.quantity} | Comprometido: ${b.committed}">
-              ${icEscapeHtml(b.name)}: <strong>${b.available}</strong>
-            </span>
-          `).join('')
-        : `<span style="color: var(--color-text-muted); font-size: 0.75rem;">Sin stock en bodega</span>`;
+      const packBadgeHtml = item.isPack
+        ? `<span class="ic-pack-badge" title="Pack / Set virtual: se arma a partir de SKUs componentes${item.packComponentsCount > 0 ? ` (${item.packComponentsCount} componentes)` : ''}">
+             <i class="ri-links-line"></i> Pack / Set${item.hasPackRecipe ? ` · ${icFormatNumber(item.assemblableAvailable)} armables` : ''}
+           </span>`
+        : '';
+
+      const branchesHtml = item.isPack && item.hasPackRecipe
+        ? item.packComponentsDetail.map(comp => {
+            const isBottleneck = item.limitingComponent && comp.id === item.limitingComponent.id;
+            return `
+              <span class="ic-branch-chip" style="${isBottleneck ? 'border-color: rgba(245, 158, 11, 0.55); background: rgba(245, 158, 11, 0.08);' : ''}" title="${icEscapeHtml(comp.name)} · Pide ${comp.requiredQty} ud/pack · Stock disp: ${comp.available} uds (permite armar ${comp.maxPacksAvail} packs)">
+                <i class="ri-puzzle-line" style="color: #d97706;"></i> ${icEscapeHtml(comp.sku)} ×${comp.requiredQty}: <strong>${icFormatNumber(comp.available)} disp.</strong>
+              </span>
+            `;
+          }).join('')
+        : (item.isExcludedPack
+            ? `<span class="ic-pack-badge" style="font-weight: 600;"><i class="ri-stack-line"></i> Stock en componentes${item.packComponentsCount > 0 ? ` (${item.packComponentsCount})` : ''}</span>`
+            : (item.branchBreakdown.length > 0
+                ? item.branchBreakdown.map(b => `
+                    <span class="ic-branch-chip" title="Físico: ${b.quantity} | Comprometido: ${b.committed}">
+                      ${icEscapeHtml(b.name)}: <strong>${b.available}</strong>
+                    </span>
+                  `).join('')
+                : `<span style="color: var(--color-text-muted); font-size: 0.75rem;">Sin stock en bodega</span>`));
 
       let bandColor = '#10b981';
       let runwayText = `${item.runwayDays.toFixed(1)} días`;
-      if (item.healthBand === 'OUT') {
+      if (item.isExcludedPack) {
+        bandColor = item.sales30d > 0 ? '#10b981' : '#8b5cf6';
+        runwayText = item.sales30d > 0 ? 'Venta Activa (Pack)' : 'Sin salidas (Pack)';
+      } else if (item.healthBand === 'OUT') {
         bandColor = '#ef4444';
         runwayText = '0 días (Quiebre)';
       } else if (item.healthBand === 'CRITICAL') {
@@ -2427,14 +2823,25 @@ function renderCatalogTable() {
         runwayText = item.sales30d === 0 ? 'Sin salidas (30d)' : '+90 días';
       }
 
-      const barPct = item.healthBand === 'OUT'
-        ? 5
-        : Math.min(100, Math.max(8, Math.round((item.runwayDays / icState.targetDays) * 100)));
+      const barPct = item.isExcludedPack
+        ? (item.sales30d > 0 ? 100 : 12)
+        : (item.healthBand === 'OUT'
+            ? 5
+            : Math.min(100, Math.max(8, Math.round((item.runwayDays / icState.targetDays) * 100))));
 
       const unitCm3 = Math.round(item.unitVolumeM3 * 1000000);
 
       let actionCellHtml = '';
-      if (item.suggestedReplenishUnits > 0) {
+      if (item.isExcludedPack) {
+        actionCellHtml = `
+          <div style="text-align: right;">
+            <span class="ic-pack-badge"><i class="ri-links-line"></i> Se reponen componentes</span>
+            <div style="font-size: 0.71rem; color: var(--color-text-muted); margin-top: 0.22rem;">
+              Excluido de reposición física
+            </div>
+          </div>
+        `;
+      } else if (item.suggestedReplenishUnits > 0) {
         actionCellHtml = `
           <div style="text-align: right;">
             <div style="font-weight: 800; color: var(--color-text-main); font-size: 0.82rem;">
@@ -2474,6 +2881,7 @@ function renderCatalogTable() {
           <td style="max-width: 290px;">
             <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem;">
               <strong style="font-family: monospace; font-size: 0.82rem; color: var(--color-text-main);">${icEscapeHtml(item.sku)}</strong>
+              ${packBadgeHtml}
               ${renderAbcBadgeHtml(item.abc)}
               ${commerceChip}
             </div>
@@ -2494,12 +2902,33 @@ function renderCatalogTable() {
 
           <!-- Stock Físico / Comprometido / Disponible -->
           <td>
-            <div style="font-size: 0.88rem; font-weight: 800; color: ${item.netAvailable <= 0 ? '#ef4444' : 'var(--color-text-main)'};">
-              ${icFormatNumber(item.netAvailable)} disp.
-            </div>
-            <div style="font-size: 0.74rem; color: var(--color-text-muted); margin-top: 0.15rem;">
-              ${icFormatNumber(item.physicalStock)} fís. · ${icFormatNumber(item.committedStock)} comp.
-            </div>
+            ${item.isPack && item.hasPackRecipe ? `
+              <div style="font-size: 0.86rem; font-weight: 800; color: ${item.assemblableAvailable > 0 ? '#10b981' : '#ef4444'}; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-stack-fill"></i> ${icFormatNumber(item.assemblableAvailable)} pack${item.assemblableAvailable === 1 ? '' : 's'} armable${item.assemblableAvailable === 1 ? '' : 's'}
+              </div>
+              <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.14rem;">
+                Máx. físico: <strong>${icFormatNumber(item.assemblablePhysical)}</strong> · ${item.packComponentsCount} comp.
+              </div>
+              ${item.limitingComponent ? `
+                <div style="font-size: 0.7rem; color: #b45309; font-weight: 600; margin-top: 0.12rem;" title="Componente cuello de botella que limita la cantidad de packs que se pueden armar hoy">
+                  Límite: ${icEscapeHtml(item.limitingComponent.sku)} (${icFormatNumber(item.limitingComponent.available)} disp.)
+                </div>
+              ` : ''}
+            ` : (item.isExcludedPack ? `
+              <div style="font-size: 0.82rem; font-weight: 700; color: #b45309;">
+                Virtual (Pack / Set)
+              </div>
+              <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+                Stock en componentes${item.committedStock > 0 ? ` · ${icFormatNumber(item.committedStock)} comp.` : ''}
+              </div>
+            ` : `
+              <div style="font-size: 0.88rem; font-weight: 800; color: ${item.netAvailable <= 0 ? '#ef4444' : 'var(--color-text-main)'};">
+                ${icFormatNumber(item.netAvailable)} disp.
+              </div>
+              <div style="font-size: 0.74rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+                ${icFormatNumber(item.physicalStock)} fís. · ${icFormatNumber(item.committedStock)} comp.
+              </div>
+            `)}
             ${item.transitUnits > 0 ? `
               <div style="margin-top: 0.25rem;">
                 <span class="ic-pill-badge ic-pill-emerald" style="font-size: 0.7rem; padding: 0.1rem 0.4rem;">
@@ -2530,7 +2959,7 @@ function renderCatalogTable() {
               <div class="ic-progress-fill" style="width: ${barPct}%; background: ${bandColor};"></div>
             </div>
             <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--color-text-muted);">
-              <span>Meta: ${icState.targetDays}d</span>
+              <span>${item.isExcludedPack ? 'Métrica de venta activa' : `Meta: ${icState.targetDays}d`}</span>
               <span>${icEscapeHtml(item.breakDateSub)}</span>
             </div>
           </td>
@@ -2541,7 +2970,7 @@ function renderCatalogTable() {
               ${item.totalVolumeM3.toFixed(3)} m³
             </div>
             <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.15rem;">
-              ${unitCm3 > 0 ? `${icFormatNumber(unitCm3)} cm³/ud` : 'Sin dim.'}
+              ${item.isExcludedPack ? 'Ocupación en componentes' : (unitCm3 > 0 ? `${icFormatNumber(unitCm3)} cm³/ud` : 'Sin dim.')}
             </div>
           </td>
 
@@ -2653,8 +3082,37 @@ window.icToggleIncludeTransit = function(checked) {
   refreshAllWidgets();
 };
 
+window.icToggleExcludePacks = function(checked) {
+  icState.excludePacksFromStockMetrics = !!checked;
+  renderFullModuleScaffold();
+  refreshAllWidgets();
+};
+
+window.icSetPackFilter = function(packFilterValue, jumpToCatalog = false) {
+  icState.packFilter = packFilterValue || 'ALL';
+  icState.page = 1;
+  if (jumpToCatalog) {
+    icState.activeMainTab = 'catalog';
+  }
+  renderFullModuleScaffold();
+  refreshAllWidgets();
+};
+
 window.icToggleGuide = function() {
   icState.showGuide = !icState.showGuide;
+  renderFullModuleScaffold();
+  refreshAllWidgets();
+};
+
+window.icSetGuideTab = function(tabKey) {
+  icState.activeGuideTab = tabKey || 'what';
+  icState.showGuide = true;
+  renderFullModuleScaffold();
+  refreshAllWidgets();
+};
+
+window.icSetMainTab = function(tabKey) {
+  icState.activeMainTab = tabKey || 'overview';
   renderFullModuleScaffold();
   refreshAllWidgets();
 };
@@ -2665,23 +3123,32 @@ window.icHandleSearch = function(query) {
   renderCatalogTable();
 };
 
-window.icSetStatusFilter = function(status) {
+window.icSetStatusFilter = function(status, jumpToCatalog = true) {
   icState.statusFilter = status || 'ALL';
   icState.page = 1;
+  if (jumpToCatalog) {
+    icState.activeMainTab = 'catalog';
+  }
   renderFullModuleScaffold();
   refreshAllWidgets();
 };
 
-window.icSetAbcFilter = function(abc) {
+window.icSetAbcFilter = function(abc, jumpToCatalog = true) {
   icState.abcFilter = abc || 'ALL';
   icState.page = 1;
+  if (jumpToCatalog) {
+    icState.activeMainTab = 'catalog';
+  }
   renderFullModuleScaffold();
   refreshAllWidgets();
 };
 
-window.icSetSortBy = function(sortBy) {
+window.icSetSortBy = function(sortBy, jumpToCatalog = true) {
   icState.sortBy = sortBy || 'runway_asc';
   icState.page = 1;
+  if (jumpToCatalog) {
+    icState.activeMainTab = 'catalog';
+  }
   renderFullModuleScaffold();
   refreshAllWidgets();
 };
@@ -2690,6 +3157,7 @@ window.icResetFilters = function() {
   icState.searchQuery = '';
   icState.statusFilter = 'ALL';
   icState.abcFilter = 'ALL';
+  icState.packFilter = 'ALL';
   icState.sortBy = 'runway_asc';
   icState.page = 1;
   renderFullModuleScaffold();
@@ -2701,8 +3169,14 @@ window.icChangePage = function(newPage) {
   renderCatalogTable();
 };
 
-window.icSelectBurndownSku = function(productId) {
+window.icSelectBurndownSku = function(productId, jumpToAnalytics = true) {
   icState.selectedBurndownProductId = String(productId);
+  if (jumpToAnalytics && icState.activeMainTab !== 'analytics') {
+    icState.activeMainTab = 'analytics';
+    renderFullModuleScaffold();
+    refreshAllWidgets();
+    return;
+  }
   renderBurndownPanel();
   renderCatalogTable();
 };
@@ -2733,16 +3207,25 @@ window.icExportExcel = function() {
   const formatRowForSheet = r => ({
     Comercio: r.comercio,
     SKU: r.sku,
+    'Tipo SKU': r.isPack ? 'Pack / Set (Virtual)' : 'SKU Físico',
     Producto: r.name,
     'Clase ABC': r.abc,
-    'Stock Físico': r.physicalStock,
+    'Stock Físico': r.isExcludedPack ? 'En componentes' : r.physicalStock,
     'Stock Comprometido': r.committedStock,
-    'Stock Disponible Neto': r.netAvailable,
+    'Stock Disponible Neto': r.isExcludedPack ? 'En componentes' : r.netAvailable,
+    'Packs Armables Hoy (Stock Disp. Componentes)': r.isPack
+      ? (r.hasPackRecipe ? r.assemblableAvailable : 'Sin receta vinculada')
+      : '—',
+    'Componente Limitante (Cuello de Botella)': r.isPack && r.limitingComponent
+      ? `${r.limitingComponent.sku} (${r.limitingComponent.available} disp. / pide ${r.limitingComponent.requiredQty})`
+      : '—',
     'Unidades en Tránsito (#ING)': r.transitUnits,
     'Salidas 30d (uds)': r.sales30d,
     'Salidas 7d (uds)': r.sales7d,
     'Velocidad Diaria (uds/día)': Number(r.effectiveDailyVelocity.toFixed(2)),
-    'Días de Cobertura': r.sales30d === 0 ? 'Sin salidas' : Number(r.runwayDays.toFixed(1)),
+    'Días de Cobertura': r.isExcludedPack
+      ? 'No aplica (Pack)'
+      : (r.sales30d === 0 ? 'Sin salidas' : Number(r.runwayDays.toFixed(1))),
     'Fecha Estimada Quiebre': r.breakDateFormatted,
     'Tramo Salud': r.healthBand,
     'Cubicaje Total (m3)': Number(r.totalVolumeM3.toFixed(4)),
@@ -2760,7 +3243,8 @@ window.icExportExcel = function() {
       const summarySheetRows = [icState.groupSummary, ...icState.perCommerceSummaries].map(s => ({
         'Comercio / Nivel': s.name,
         'Total SKUs': s.skusCount,
-        'SKUs con Rotación (30d)': s.activeMoversCount,
+        'Packs / Sets Virtuales': s.packsCount || 0,
+        'SKUs Físicos con Rotación (30d)': s.activeMoversCount,
         'Cobertura Ponderada (días)': Number(s.weightedRunway.toFixed(1)),
         'Velocidad Salida (uds/día)': Number(s.dailyVelocity.toFixed(2)),
         'Salidas 30d (uds)': s.sales30d,
@@ -2859,6 +3343,7 @@ async function loadAndRenderModule({ forceRefresh = false } = {}) {
     icState.rawProducts = payload.products || [];
     icState.rawOrders30d = payload.orders30d || [];
     icState.rawDeclarations = payload.declarations || [];
+    icState.rawPackRelations = payload.packRelations || [];
     icState.lastLoadedAt = new Date();
 
     // Calcular inteligencia antes de dibujar el scaffold por si se reconciliaron nombres de comercios

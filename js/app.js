@@ -30868,6 +30868,8 @@ window.renderDeclarations = async function() {
     `);
 
     const isMainInstructivoHidden = localStorage.getItem('stocka_dec_instructivo_hidden') === 'true';
+    const isClientDecCalendarOpen = localStorage.getItem('wms_client_dec_calendar_open') !== 'false';
+    const clientDecLayoutMode = localStorage.getItem('wms_client_dec_layout_mode') || 'cards';
 
     appContent.innerHTML = getObserverBanner() + `
       <div id="dec-view-container">
@@ -30880,10 +30882,16 @@ window.renderDeclarations = async function() {
         <div id="dec-table-col" class="card" style="width: 100%;">
           <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: none; padding-bottom: 0.5rem; flex-wrap: wrap; gap: 1rem;">
             <div>
-              <h3>Mis Declaraciones de Ingreso</h3>
-              <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">Historial y estado de tus ingresos declarados.</p>
+              <h3 style="display: flex; align-items: center; gap: 0.45rem;">
+                <i class="ri-inbox-archive-line" style="color: var(--color-primary);"></i> Mis Declaraciones de Ingreso
+              </h3>
+              <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">Historial, programación y estado de recepción de tus ingresos declarados.</p>
             </div>
             <div style="display: flex; gap: 0.65rem; align-items: center; flex-wrap: wrap;">
+              <button type="button" class="btn btn-outline" id="btn-toggle-client-dec-calendar" onclick="window.toggleClientDecScheduledCalendar()" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; border-color: ${isClientDecCalendarOpen ? 'var(--color-primary)' : 'var(--color-border)'}; color: ${isClientDecCalendarOpen ? 'var(--color-primary)' : 'var(--color-text-main)'}; background: ${isClientDecCalendarOpen ? 'rgba(37, 99, 235, 0.08)' : 'var(--color-surface)'}; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; cursor: pointer;" title="Mostrar u ocultar el calendario de ingresos programados">
+                <i class="ri-calendar-schedule-line" style="color: var(--color-primary);"></i>
+                <span id="lbl-toggle-client-dec-calendar">${isClientDecCalendarOpen ? 'Ocultar Calendario' : 'Calendario Programado'}</span>
+              </button>
               <button type="button" class="btn btn-outline" id="btn-main-toggle-dec-instructivo" onclick="window.toggleDeclarationInstructivo()" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; border-color: rgba(37, 99, 235, 0.35); color: var(--color-primary); background: rgba(37, 99, 235, 0.06); display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; cursor: pointer;" title="Mostrar u ocultar el instructivo de ingresos de stock">
                 <i id="icon-main-toggle-dec-instructivo" class="${isMainInstructivoHidden ? 'ri-book-open-line' : 'ri-eye-off-line'}"></i>
                 <span id="lbl-main-toggle-dec-instructivo">${isMainInstructivoHidden ? 'Ver Instructivo de Ingreso' : 'Ocultar Instructivo'}</span>
@@ -30893,6 +30901,11 @@ window.renderDeclarations = async function() {
               </button>
               ${actionButtonHtml}
             </div>
+          </div>
+
+          <!-- Calendario Desplegable de Ingresos Programados del Cliente -->
+          <div id="client-dec-scheduled-calendar-section" style="display: ${isClientDecCalendarOpen ? 'block' : 'none'}; margin: 0.5rem 1.5rem 1rem 1.5rem;">
+            <div id="client-dec-scheduled-calendar-container"></div>
           </div>
 
           <!-- Instructivo Desplegable en la Vista Principal de Declaraciones -->
@@ -30962,71 +30975,102 @@ window.renderDeclarations = async function() {
               <span style="font-size: 0.73rem; color: var(--color-text-muted);">Al abrir <strong>"Hacer un ingreso"</strong> verás el instructivo detallado paso a paso.</span>
             </div>
           </div>
-          
-          <div class="tabs-container" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--color-border); padding: 0 1.5rem; margin-bottom: 0.5rem;">
-            <button class="tab-btn ${currentDeclarationTab === 'active' ? 'active' : ''}" id="tab-active-declarations" style="padding: 0.75rem 0.5rem; background: none; border: none; border-bottom: 2px solid ${currentDeclarationTab === 'active' ? 'var(--color-primary)' : 'transparent'}; color: ${currentDeclarationTab === 'active' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; font-weight: ${currentDeclarationTab === 'active' ? '600' : '500'}; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
-              <i class="ri-loader-4-line"></i> Ingresos Activos
+
+          <!-- Barra de Búsqueda, Filtro de Comercio y Selector de Vista (Tarjetas / Tabla) -->
+          <div style="display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 0.65rem 1.5rem; border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); background: var(--color-bg);">
+            <div style="position: relative; flex: 1; min-width: 240px; max-width: 440px;">
+              <i class="ri-search-line" style="position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.95rem;"></i>
+              <input type="text" id="client-dec-search-input" class="form-input" placeholder="Buscar por #ING, título, comercio, SKU, bodega o notas..." oninput="window.filterClientDeclarationsView()" style="padding: 0.45rem 0.85rem 0.45rem 2.35rem; font-size: 0.84rem; width: 100%; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border);">
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+              ${commerces.length > 1 ? `
+              <div style="position: relative; display: inline-flex; align-items: center;">
+                <i class="ri-store-2-line" style="position: absolute; left: 0.65rem; color: var(--color-text-muted); font-size: 0.88rem; pointer-events: none;"></i>
+                <select id="client-dec-commerce-filter" class="form-input" onchange="window.filterClientDeclarationsView()" style="padding: 0.42rem 1.8rem 0.42rem 1.95rem; font-size: 0.82rem; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border); width: auto; min-width: 185px; font-weight: 500;">
+                  <option value="ALL">Todos mis Comercios (${commerces.length})</option>
+                  ${commerces.map(c => `<option value="${c}">${c}</option>`).join('')}
+                </select>
+              </div>
+              ` : ''}
+              <span id="client-dec-results-count" class="badge badge-neutral" style="font-size: 0.76rem; padding: 0.35rem 0.7rem; font-weight: 600;">0 ingresos</span>
+              <!-- Selector de Disposición: Tarjetas (Propuesta B) vs Tabla Consolidada (Propuesta A) -->
+              <div style="display: inline-flex; align-items: center; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 2px; gap: 2px;" title="Cambiar modo de visualización de ingresos">
+                <button type="button" id="btn-client-dec-layout-cards" onclick="window.setClientDeclarationLayoutMode('cards')" style="border: none; background: ${clientDecLayoutMode === 'cards' ? 'var(--color-primary)' : 'transparent'}; color: ${clientDecLayoutMode === 'cards' ? '#fff' : 'var(--color-text-muted)'}; padding: 0.3rem 0.65rem; border-radius: 6px; font-size: 0.76rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; transition: all 0.15s;">
+                  <i class="ri-layout-row-line"></i> Tarjetas
+                </button>
+                <button type="button" id="btn-client-dec-layout-table" onclick="window.setClientDeclarationLayoutMode('table')" style="border: none; background: ${clientDecLayoutMode === 'table' ? 'var(--color-primary)' : 'transparent'}; color: ${clientDecLayoutMode === 'table' ? '#fff' : 'var(--color-text-muted)'}; padding: 0.3rem 0.65rem; border-radius: 6px; font-size: 0.76rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; transition: all 0.15s;">
+                  <i class="ri-table-line"></i> Tabla
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pestañas Píldora Multilínea por Etapa (Sin scroll horizontal) -->
+          <div class="dec-status-tabs-container" id="client-dec-status-tabs" style="display: flex; gap: 0.4rem; border-bottom: 1px solid var(--color-border); padding: 0.65rem 1.5rem; flex-wrap: wrap; align-items: center; background: var(--color-surface);">
+            <button type="button" class="client-dec-tab-pill" data-tab="active" onclick="window.switchClientDeclarationTab('active')" style="padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid transparent; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.38rem; transition: all 0.15s;">
+              <i class="ri-time-line"></i> Activos <span id="client-dec-count-active" class="badge" style="font-size: 0.68rem; padding: 0.1rem 0.42rem; border-radius: 999px;">0</span>
             </button>
-            <button class="tab-btn ${currentDeclarationTab === 'completed' ? 'active' : ''}" id="tab-completed-declarations" style="padding: 0.75rem 0.5rem; background: none; border: none; border-bottom: 2px solid ${currentDeclarationTab === 'completed' ? 'var(--color-primary)' : 'transparent'}; color: ${currentDeclarationTab === 'completed' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; font-weight: ${currentDeclarationTab === 'completed' ? '600' : '500'}; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
-              <i class="ri-checkbox-circle-line"></i> Historial Completado
+            <button type="button" class="client-dec-tab-pill" data-tab="Creada" onclick="window.switchClientDeclarationTab('Creada')" style="padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid transparent; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.38rem; transition: all 0.15s;">
+              <i class="ri-file-list-3-line"></i> 1. Creada <span id="client-dec-count-creada" class="badge" style="font-size: 0.68rem; padding: 0.1rem 0.42rem; border-radius: 999px;">0</span>
+            </button>
+            <button type="button" class="client-dec-tab-pill" data-tab="Bodega Asignada" onclick="window.switchClientDeclarationTab('Bodega Asignada')" style="padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid transparent; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.38rem; transition: all 0.15s;">
+              <i class="ri-building-2-line"></i> 2. Bodega Asignada <span id="client-dec-count-bodega" class="badge" style="font-size: 0.68rem; padding: 0.1rem 0.42rem; border-radius: 999px;">0</span>
+            </button>
+            <button type="button" class="client-dec-tab-pill" data-tab="En Recepción - Pendiente Conteo" onclick="window.switchClientDeclarationTab('En Recepción - Pendiente Conteo')" style="padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid transparent; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.38rem; transition: all 0.15s;">
+              <i class="ri-truck-line"></i> 3. En Recepción <span id="client-dec-count-recepcion" class="badge" style="font-size: 0.68rem; padding: 0.1rem 0.42rem; border-radius: 999px;">0</span>
+            </button>
+            <button type="button" class="client-dec-tab-pill" data-tab="En proceso de conteo/clasificación" onclick="window.switchClientDeclarationTab('En proceso de conteo/clasificación')" style="padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid transparent; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.38rem; transition: all 0.15s;">
+              <i class="ri-list-check-2"></i> 4. En Conteo <span id="client-dec-count-conteo" class="badge" style="font-size: 0.68rem; padding: 0.1rem 0.42rem; border-radius: 999px;">0</span>
+            </button>
+            <button type="button" class="client-dec-tab-pill" data-tab="Recepción Parcial" onclick="window.switchClientDeclarationTab('Recepción Parcial')" style="padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid transparent; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.38rem; transition: all 0.15s;">
+              <i class="ri-pie-chart-2-line"></i> Recepción Parcial <span id="client-dec-count-parcial" class="badge" style="font-size: 0.68rem; padding: 0.1rem 0.42rem; border-radius: 999px;">0</span>
+            </button>
+            <button type="button" class="client-dec-tab-pill" data-tab="Recibido Conforme" onclick="window.switchClientDeclarationTab('Recibido Conforme')" style="padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid transparent; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.38rem; transition: all 0.15s;">
+              <i class="ri-checkbox-circle-line"></i> Recibido Conforme <span id="client-dec-count-conforme" class="badge" style="font-size: 0.68rem; padding: 0.1rem 0.42rem; border-radius: 999px;">0</span>
+            </button>
+            <button type="button" class="client-dec-tab-pill" data-tab="Recibido con Incidencias" onclick="window.switchClientDeclarationTab('Recibido con Incidencias')" style="padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid transparent; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.38rem; transition: all 0.15s;">
+              <i class="ri-error-warning-line"></i> Con Incidencias <span id="client-dec-count-incidencias" class="badge" style="font-size: 0.68rem; padding: 0.1rem 0.42rem; border-radius: 999px;">0</span>
+            </button>
+            <button type="button" class="client-dec-tab-pill" data-tab="completed" onclick="window.switchClientDeclarationTab('completed')" style="padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid transparent; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.38rem; transition: all 0.15s;">
+              <i class="ri-task-line"></i> Completados <span id="client-dec-count-completed" class="badge" style="font-size: 0.68rem; padding: 0.1rem 0.42rem; border-radius: 999px;">0</span>
+            </button>
+            <button type="button" class="client-dec-tab-pill" data-tab="all" onclick="window.switchClientDeclarationTab('all')" style="padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid transparent; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.38rem; transition: all 0.15s;">
+              <i class="ri-stack-line"></i> Todos <span id="client-dec-count-all" class="badge" style="font-size: 0.68rem; padding: 0.1rem 0.42rem; border-radius: 999px;">0</span>
             </button>
           </div>
 
-          <div class="card-body table-responsive">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th style="padding: 0.65rem 0.75rem;">Título / Descripción</th>
-                  <th style="padding: 0.65rem 0.75rem;">Llegada Estimada</th>
-                  <th style="padding: 0.65rem 0.75rem;">Cant. Uds</th>
-                  <th style="padding: 0.65rem 0.75rem;">Bultos</th>
-                  <th style="padding: 0.65rem 0.75rem;">Volumen (m³)</th>
-                  <th style="padding: 0.65rem 0.75rem;">Costos (Est. / Real)</th>
-                  <th style="padding: 0.65rem 0.75rem;">Método Envío</th>
-                  <th style="padding: 0.65rem 0.75rem;">Estado</th>
-                  <th style="padding: 0.65rem 0.75rem;">Recibido / Incidencias</th>
-                  <th style="padding: 0.65rem 0.75rem;">Acciones</th>
-                </tr>
-              </thead>
-              <tbody id="declarations-table-body">
-                <tr><td colspan="9" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">Cargando declaraciones...</td></tr>
-              </tbody>
-            </table>
+          <div class="card-body" style="padding: 1rem 1.25rem;">
+            <!-- Contenedor Vista de Filas-Tarjeta en 2 Niveles (Propuesta B - Por Defecto) -->
+            <div id="client-declarations-cards-container" style="display: ${clientDecLayoutMode === 'cards' ? 'flex' : 'none'}; flex-direction: column; gap: 0.75rem;">
+              <div class="text-center" style="padding: 2rem; color: var(--color-text-muted);">Cargando declaraciones...</div>
+            </div>
+
+            <!-- Contenedor Vista Tabla Consolidada de 6 Columnas (Propuesta A - Sin scroll horizontal) -->
+            <div id="client-declarations-table-wrapper" style="display: ${clientDecLayoutMode === 'table' ? 'block' : 'none'}; width: 100%; overflow-x: visible;">
+              <table class="data-table" style="width: 100%; table-layout: fixed; border-collapse: collapse;">
+                <thead>
+                  <tr>
+                    <th style="width: 27%; padding: 0.65rem 0.75rem;">Ingreso & Bodega</th>
+                    <th style="width: 15%; padding: 0.65rem 0.75rem;">Llegada & Envío</th>
+                    <th style="width: 15%; padding: 0.65rem 0.75rem;">Carga & Bultos</th>
+                    <th style="width: 16%; padding: 0.65rem 0.75rem;">Volumen & Costos</th>
+                    <th style="width: 15%; padding: 0.65rem 0.75rem;">Estado & Recepción</th>
+                    <th style="width: 12%; padding: 0.65rem 0.75rem; text-align: right;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="declarations-table-body">
+                  <tr><td colspan="6" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">Cargando declaraciones...</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
     `;
 
-    // Initial table load
+    // Initial table & cards load
+    window.updateClientDeclarationTabPillsUI();
     fetchAndRenderClientDeclarations();
-
-    // Tab buttons event listeners
-    const activeTabBtn = document.getElementById('tab-active-declarations');
-    const completedTabBtn = document.getElementById('tab-completed-declarations');
-    if (activeTabBtn && completedTabBtn) {
-      activeTabBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        currentDeclarationTab = 'active';
-        activeTabBtn.style.borderBottom = '2px solid var(--color-primary)';
-        activeTabBtn.style.color = 'var(--color-primary)';
-        activeTabBtn.style.fontWeight = '600';
-        completedTabBtn.style.borderBottom = '2px solid transparent';
-        completedTabBtn.style.color = 'var(--color-text-muted)';
-        completedTabBtn.style.fontWeight = '500';
-        fetchAndRenderClientDeclarations();
-      });
-      completedTabBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        currentDeclarationTab = 'completed';
-        completedTabBtn.style.borderBottom = '2px solid var(--color-primary)';
-        completedTabBtn.style.color = 'var(--color-primary)';
-        completedTabBtn.style.fontWeight = '600';
-        activeTabBtn.style.borderBottom = '2px solid transparent';
-        activeTabBtn.style.color = 'var(--color-text-muted)';
-        activeTabBtn.style.fontWeight = '500';
-        fetchAndRenderClientDeclarations();
-      });
-    }
 
     // Refresh button
     const refreshBtn = document.getElementById('btn-refresh-declarations');
@@ -32370,11 +32414,11 @@ function updateDateCheck() {
 
   if (selectedDate < todayMidnight) {
     errorContainer.style.display = 'block';
-    errorContainer.textContent = '❌ No puedes declarar un ingreso en fechas pasadas.';
+    errorContainer.innerHTML = '<i class="ri-close-circle-line"></i> No puedes declarar un ingreso en fechas pasadas.';
     warningContainer.style.display = 'none';
   } else if (isSunday) {
     errorContainer.style.display = 'block';
-    errorContainer.textContent = '❌ No se permiten ingresos los días domingo.';
+    errorContainer.innerHTML = '<i class="ri-close-circle-line"></i> No se permiten ingresos los días domingo.';
     warningContainer.style.display = 'none';
   } else if (isSaturday) {
     const diffTime = selectedDate.getTime() - now.getTime();
@@ -32382,7 +32426,7 @@ function updateDateCheck() {
     
     if (diffHours < 48) {
       errorContainer.style.display = 'block';
-      errorContainer.innerHTML = `❌ Los ingresos en día sábado requieren al menos <strong>48 horas de aviso anticipado</strong> y aprobación previa.`;
+      errorContainer.innerHTML = `<i class="ri-close-circle-line"></i> Los ingresos en día sábado requieren al menos <strong>48 horas de aviso anticipado</strong> y aprobación previa.`;
       warningContainer.style.display = 'none';
     } else {
       warningContainer.style.display = 'block';
@@ -32400,11 +32444,854 @@ function updateDateCheck() {
   }
 }
 
+window.clientDeclarationsCache = [];
+window.clientScheduledCalState = {
+  year: new Date().getFullYear(),
+  month: new Date().getMonth(),
+  selectedDate: null
+};
+
+window.updateClientDeclarationTabPillsUI = function() {
+  const pills = document.querySelectorAll('#client-dec-status-tabs .client-dec-tab-pill');
+  pills.forEach(btn => {
+    const tabVal = btn.getAttribute('data-tab');
+    const isActive = tabVal === currentDeclarationTab;
+    btn.style.background = isActive ? 'rgba(37, 99, 235, 0.1)' : 'transparent';
+    btn.style.borderColor = isActive ? 'rgba(37, 99, 235, 0.35)' : 'transparent';
+    btn.style.color = isActive ? 'var(--color-primary)' : 'var(--color-text-muted)';
+    btn.style.fontWeight = isActive ? '700' : '500';
+    const badge = btn.querySelector('.badge');
+    if (badge) {
+      badge.style.background = isActive ? 'var(--color-primary)' : 'var(--color-surface-hover)';
+      badge.style.color = isActive ? '#ffffff' : 'var(--color-text-muted)';
+    }
+  });
+};
+
+window.switchClientDeclarationTab = function(tabName) {
+  currentDeclarationTab = tabName || 'active';
+  window.updateClientDeclarationTabPillsUI();
+  window.filterClientDeclarationsView();
+};
+
+window.setClientDeclarationLayoutMode = function(mode) {
+  const normalized = mode === 'table' ? 'table' : 'cards';
+  localStorage.setItem('wms_client_dec_layout_mode', normalized);
+
+  const cardsContainer = document.getElementById('client-declarations-cards-container');
+  const tableWrapper = document.getElementById('client-declarations-table-wrapper');
+  const btnCards = document.getElementById('btn-client-dec-layout-cards');
+  const btnTable = document.getElementById('btn-client-dec-layout-table');
+
+  if (cardsContainer) cardsContainer.style.display = normalized === 'cards' ? 'flex' : 'none';
+  if (tableWrapper) tableWrapper.style.display = normalized === 'table' ? 'block' : 'none';
+
+  if (btnCards) {
+    btnCards.style.background = normalized === 'cards' ? 'var(--color-primary)' : 'transparent';
+    btnCards.style.color = normalized === 'cards' ? '#fff' : 'var(--color-text-muted)';
+  }
+  if (btnTable) {
+    btnTable.style.background = normalized === 'table' ? 'var(--color-primary)' : 'transparent';
+    btnTable.style.color = normalized === 'table' ? '#fff' : 'var(--color-text-muted)';
+  }
+};
+
+window.toggleClientDecScheduledCalendar = function() {
+  const section = document.getElementById('client-dec-scheduled-calendar-section');
+  const btn = document.getElementById('btn-toggle-client-dec-calendar');
+  const lbl = document.getElementById('lbl-toggle-client-dec-calendar');
+  if (!section) return;
+
+  const isCurrentlyOpen = section.style.display !== 'none';
+  const nextOpen = !isCurrentlyOpen;
+  section.style.display = nextOpen ? 'block' : 'none';
+  localStorage.setItem('wms_client_dec_calendar_open', nextOpen ? 'true' : 'false');
+
+  if (btn) {
+    btn.style.borderColor = nextOpen ? 'var(--color-primary)' : 'var(--color-border)';
+    btn.style.color = nextOpen ? 'var(--color-primary)' : 'var(--color-text-main)';
+    btn.style.background = nextOpen ? 'rgba(37, 99, 235, 0.08)' : 'var(--color-surface)';
+  }
+  if (lbl) {
+    lbl.textContent = nextOpen ? 'Ocultar Calendario' : 'Calendario Programado';
+  }
+  if (nextOpen) {
+    window.renderClientScheduledIntakesCalendar();
+  }
+};
+
+window.changeClientScheduledCalMonth = function(delta) {
+  const st = window.clientScheduledCalState;
+  if (delta === 0) {
+    const now = new Date();
+    st.year = now.getFullYear();
+    st.month = now.getMonth();
+    st.selectedDate = null;
+  } else {
+    const d = new Date(st.year, st.month + delta, 1);
+    st.year = d.getFullYear();
+    st.month = d.getMonth();
+    st.selectedDate = null;
+  }
+  window.renderClientScheduledIntakesCalendar();
+};
+
+window.selectClientScheduledCalDate = function(dateStr) {
+  const st = window.clientScheduledCalState;
+  st.selectedDate = st.selectedDate === dateStr ? null : dateStr;
+  window.renderClientScheduledIntakesCalendar();
+};
+
+window.renderClientScheduledIntakesCalendar = function() {
+  const container = document.getElementById('client-dec-scheduled-calendar-container');
+  if (!container) return;
+
+  const st = window.clientScheduledCalState;
+  const commerceFilterEl = document.getElementById('client-dec-commerce-filter');
+  const selectedCommerce = commerceFilterEl ? commerceFilterEl.value : 'ALL';
+
+  const allDecs = (window.clientDeclarationsCache || []).filter(dec => {
+    if (selectedCommerce && selectedCommerce !== 'ALL' && dec.comercio !== selectedCommerce) return false;
+    return dec.estimated_arrival_type === 'exact' && dec.estimated_arrival_date;
+  });
+
+  // Eventos del Calendario de Operaciones (dashboard_events)
+  const rawOpEvents = Array.isArray(window.clientOperationalEventsCache)
+    ? window.clientOperationalEventsCache
+    : (window.appCalendarState && Array.isArray(window.appCalendarState.events) ? window.appCalendarState.events : []);
+
+  const classifyOpEvent = (ev) => {
+    if (!ev || !ev.event_date) return null;
+    const rawDate = String(ev.event_date).trim();
+    const dStr = rawDate.split('T')[0].split(' ')[0];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dStr)) return null;
+
+    const isHoliday = typeof window.isEventHoliday === 'function'
+      ? window.isEventHoliday(ev)
+      : (ev.is_holiday === true || ev.event_type === 'holiday' || (ev.title || '').toLowerCase().includes('feriado'));
+    const isNonOp = typeof window.isEventNonOperational === 'function'
+      ? window.isEventNonOperational(ev)
+      : (ev.is_non_operational === true || ev.event_type === 'non_operational' || isHoliday || (ev.title || '').toLowerCase().includes('sin operacion'));
+
+    const timePart = rawDate.includes('T') ? rawDate.split('T')[1].slice(0, 5) : '';
+    const timeStr = timePart && timePart !== '00:00' ? timePart : '';
+
+    let color = '#0284c7';
+    let bg = 'rgba(14, 165, 233, 0.12)';
+    let border = 'rgba(14, 165, 233, 0.35)';
+    let icon = 'ri-calendar-event-line';
+    let typeLabel = 'Evento Operativo';
+
+    if (isHoliday) {
+      color = '#dc2626';
+      bg = 'rgba(239, 68, 68, 0.13)';
+      border = 'rgba(239, 68, 68, 0.38)';
+      icon = 'ri-flag-line';
+      typeLabel = 'Feriado / Sin Operaciones';
+    } else if (isNonOp) {
+      color = '#dc2626';
+      bg = 'rgba(239, 68, 68, 0.13)';
+      border = 'rgba(239, 68, 68, 0.38)';
+      icon = 'ri-forbid-2-line';
+      typeLabel = 'Sin Operaciones';
+    } else if (ev.color_type === 'warning') {
+      color = '#d97706';
+      bg = 'rgba(245, 158, 11, 0.14)';
+      border = 'rgba(245, 158, 11, 0.38)';
+      icon = 'ri-error-warning-line';
+      typeLabel = 'Aviso Operativo';
+    } else if (ev.color_type === 'alert' || ev.color_type === 'danger') {
+      color = '#dc2626';
+      bg = 'rgba(239, 68, 68, 0.13)';
+      border = 'rgba(239, 68, 68, 0.38)';
+      icon = 'ri-alarm-warning-line';
+      typeLabel = 'Alerta Operativa';
+    } else if (ev.color_type === 'success') {
+      color = '#059669';
+      bg = 'rgba(16, 185, 129, 0.13)';
+      border = 'rgba(16, 185, 129, 0.38)';
+      icon = 'ri-checkbox-circle-line';
+      typeLabel = 'Hito Operativo';
+    }
+
+    return {
+      ev,
+      dateStr: dStr,
+      isHoliday,
+      isNonOp,
+      timeStr,
+      color,
+      bg,
+      border,
+      icon,
+      typeLabel
+    };
+  };
+
+  const allOpEvents = rawOpEvents.map(classifyOpEvent).filter(Boolean);
+
+  const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const dayNames = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+  const firstDay = new Date(st.year, st.month, 1);
+  const lastDay = new Date(st.year, st.month + 1, 0);
+  const daysInMonth = lastDay.getDate();
+  const startDayOfWeek = (firstDay.getDay() + 6) % 7; // Lunes = 0
+
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const monthPrefix = `${st.year}-${String(st.month + 1).padStart(2, '0')}-`;
+
+  const byDateMap = {};
+  allDecs.forEach(dec => {
+    const dStr = dec.estimated_arrival_date;
+    if (!byDateMap[dStr]) byDateMap[dStr] = [];
+    byDateMap[dStr].push(dec);
+  });
+
+  const opByDateMap = {};
+  allOpEvents.forEach(op => {
+    if (!opByDateMap[op.dateStr]) opByDateMap[op.dateStr] = [];
+    opByDateMap[op.dateStr].push(op);
+  });
+
+  const monthDecs = allDecs
+    .filter(d => d.estimated_arrival_date.startsWith(monthPrefix))
+    .sort((a, b) => a.estimated_arrival_date.localeCompare(b.estimated_arrival_date));
+
+  const monthOpEvents = allOpEvents
+    .filter(op => op.dateStr.startsWith(monthPrefix))
+    .sort((a, b) => a.dateStr.localeCompare(b.dateStr));
+
+  const agendaDecs = st.selectedDate ? (byDateMap[st.selectedDate] || []) : monthDecs;
+  const agendaOpEvents = st.selectedDate ? (opByDateMap[st.selectedDate] || []) : monthOpEvents;
+
+  let cellsHtml = dayNames.map(d => `
+    <div style="text-align: center; font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); padding: 0.35rem 0; text-transform: uppercase;">${d}</div>
+  `).join('');
+
+  for (let i = 0; i < startDayOfWeek; i++) {
+    cellsHtml += `<div style="min-height: 70px; background: rgba(148, 163, 184, 0.03); border-radius: 8px; border: 1px dashed rgba(148, 163, 184, 0.12);"></div>`;
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dStr = `${st.year}-${String(st.month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const dayItems = byDateMap[dStr] || [];
+    const dayOpItems = opByDateMap[dStr] || [];
+    const hasNonOp = dayOpItems.some(op => op.isNonOp || op.isHoliday);
+    const isToday = dStr === todayStr;
+    const isSelected = st.selectedDate === dStr;
+
+    let borderStyle = '1px solid var(--color-border)';
+    let bgStyle = 'var(--color-surface)';
+    if (isSelected) {
+      borderStyle = '2px solid var(--color-primary)';
+      bgStyle = 'rgba(37, 99, 235, 0.08)';
+    } else if (isToday) {
+      borderStyle = '1.5px solid rgba(37, 99, 235, 0.45)';
+      bgStyle = 'rgba(37, 99, 235, 0.03)';
+    } else if (hasNonOp) {
+      borderStyle = '1px solid rgba(239, 68, 68, 0.4)';
+      bgStyle = 'rgba(239, 68, 68, 0.04)';
+    } else if (dayItems.length > 0) {
+      bgStyle = 'rgba(16, 185, 129, 0.03)';
+    } else if (dayOpItems.length > 0) {
+      bgStyle = 'rgba(14, 165, 233, 0.03)';
+      borderStyle = '1px solid rgba(14, 165, 233, 0.3)';
+    }
+
+    const opPillsHtml = dayOpItems.slice(0, 2).map(op => `
+      <div style="font-size: 0.64rem; background: ${op.bg}; color: ${op.color}; border-left: 2.5px solid ${op.color}; padding: 1px 4px; border-radius: 4px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 3px;" title="${op.typeLabel}: ${op.ev.title || ''}${op.ev.description ? ' — ' + op.ev.description : ''}">
+        <i class="${op.icon}" style="font-size: 0.66rem; flex-shrink: 0;"></i>
+        <span style="overflow: hidden; text-overflow: ellipsis;">${op.ev.title || op.typeLabel}</span>
+      </div>
+    `).join('');
+
+    const maxDecPills = dayOpItems.length > 0 ? 1 : 2;
+    const pillsHtml = dayItems.slice(0, maxDecPills).map(item => {
+      const isDone = ['Recibido Conforme', 'Recibido con Incidencias'].includes(item.status);
+      const pillColor = isDone ? '#059669' : 'var(--color-primary)';
+      const pillBg = isDone ? 'rgba(16, 185, 129, 0.12)' : 'rgba(37, 99, 235, 0.1)';
+      return `
+        <div style="font-size: 0.66rem; background: ${pillBg}; color: ${pillColor}; padding: 1px 5px; border-radius: 4px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="#ING-${item.id.substring(0, 8).toUpperCase()} · ${item.title}">
+          #ING-${item.id.substring(0, 6).toUpperCase()}
+        </div>
+      `;
+    }).join('');
+
+    const extraCount = (dayItems.length > maxDecPills ? dayItems.length - maxDecPills : 0) + (dayOpItems.length > 2 ? dayOpItems.length - 2 : 0);
+    const moreHtml = extraCount > 0
+      ? `<div style="font-size: 0.62rem; color: var(--color-text-muted); font-weight: 700;">+${extraCount} más</div>`
+      : '';
+
+    cellsHtml += `
+      <div onclick="window.selectClientScheduledCalDate('${dStr}')" style="min-height: 70px; padding: 0.35rem 0.45rem; border-radius: 8px; border: ${borderStyle}; background: ${bgStyle}; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 2px; transition: all 0.15s;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 2px;">
+          <span style="font-size: 0.78rem; font-weight: ${isToday || isSelected || hasNonOp ? '800' : '600'}; color: ${isToday || isSelected ? 'var(--color-primary)' : (hasNonOp ? '#dc2626' : 'var(--color-text-main)')};">${day}</span>
+          <div style="display: inline-flex; align-items: center; gap: 2px;">
+            ${dayOpItems.length > 0 ? `<span style="font-size: 0.62rem; font-weight: 700; padding: 0px 4px; border-radius: 99px; background: ${hasNonOp ? 'rgba(239, 68, 68, 0.15)' : 'rgba(14, 165, 233, 0.15)'}; color: ${hasNonOp ? '#dc2626' : '#0284c7'};" title="${dayOpItems.length} evento(s) operativo(s)"><i class="${hasNonOp ? 'ri-forbid-2-line' : 'ri-calendar-event-line'}"></i></span>` : ''}
+            ${dayItems.length > 0 ? `<span style="font-size: 0.65rem; font-weight: 700; padding: 0px 5px; border-radius: 99px; background: var(--color-primary); color: #fff;" title="${dayItems.length} ingreso(s) programado(s)">${dayItems.length}</span>` : ''}
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 2px; overflow: hidden;">
+          ${opPillsHtml}
+          ${pillsHtml}
+          ${moreHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  let agendaListHtml = '';
+  if (agendaDecs.length === 0 && agendaOpEvents.length === 0) {
+    agendaListHtml = `
+      <div style="text-align: center; padding: 2rem 1rem; color: var(--color-text-muted); font-size: 0.82rem;">
+        <i class="ri-calendar-line" style="font-size: 1.6rem; display: block; margin-bottom: 0.4rem; opacity: 0.5;"></i>
+        ${st.selectedDate ? 'No hay ingresos ni eventos operacionales para este día.' : 'No tienes ingresos ni eventos programados en este mes.'}
+      </div>
+    `;
+  } else {
+    const opCardsHtml = agendaOpEvents.map(op => {
+      const [y, m, d] = (op.dateStr || '').split('-');
+      const dateFormatted = d ? `${d}/${m}/${y}` : op.dateStr;
+      return `
+        <div style="padding: 0.65rem 0.8rem; border-radius: 8px; border: 1px solid ${op.border}; border-left: 3.5px solid ${op.color}; background: var(--color-surface); display: flex; flex-direction: column; gap: 0.28rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <span style="font-size: 0.68rem; font-weight: 700; background: ${op.bg}; color: ${op.color}; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;">
+              <i class="${op.icon}"></i> ${op.typeLabel}
+            </span>
+            <span style="font-size: 0.72rem; font-weight: 700; color: ${op.color}; display: inline-flex; align-items: center; gap: 3px;">
+              <i class="ri-calendar-event-line"></i> ${dateFormatted}${op.timeStr ? ` · ${op.timeStr}` : ''}
+            </span>
+          </div>
+          <div style="font-size: 0.83rem; font-weight: 700; color: var(--color-text-main);">${op.ev.title || 'Evento Operacional'}</div>
+          ${op.ev.description ? `<div style="font-size: 0.74rem; color: var(--color-text-muted); line-height: 1.38;">${op.ev.description}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    const decCardsHtml = agendaDecs.map(dec => {
+      const [y, m, d] = (dec.estimated_arrival_date || '').split('-');
+      const dateFormatted = d ? `${d}/${m}/${y}` : dec.estimated_arrival_date;
+      const whName = dec.warehouses ? dec.warehouses.name : 'Bodega por asignar';
+      const isDone = ['Recibido Conforme', 'Recibido con Incidencias'].includes(dec.status);
+      const badgeColor = isDone ? '#059669' : 'var(--color-primary)';
+      const badgeBg = isDone ? 'rgba(16, 185, 129, 0.12)' : 'rgba(37, 99, 235, 0.1)';
+      return `
+        <div onclick="window.viewDeclarationDetail('${dec.id}')" style="padding: 0.65rem 0.8rem; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-surface); cursor: pointer; display: flex; flex-direction: column; gap: 0.3rem; transition: border-color 0.15s;" onmouseover="this.style.borderColor='var(--color-primary)'" onmouseout="this.style.borderColor='var(--color-border)'">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem;">
+            <span style="font-family: monospace; font-size: 0.72rem; font-weight: 700; color: #059669; background: rgba(5, 150, 105, 0.1); padding: 1px 5px; border-radius: 4px;">#ING-${dec.id.substring(0, 8).toUpperCase()}</span>
+            <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-primary); display: inline-flex; align-items: center; gap: 3px;">
+              <i class="ri-calendar-event-line"></i> ${dateFormatted}
+            </span>
+          </div>
+          <div style="font-size: 0.83rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${dec.title}</div>
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.35rem; font-size: 0.73rem; color: var(--color-text-muted);">
+            <span><i class="ri-map-pin-2-line" style="color: var(--color-primary);"></i> ${whName}</span>
+            <span><i class="ri-stack-line"></i> ${dec.quantity_declared || 0} uds · ${dec.package_count || 0} bultos</span>
+          </div>
+          <div>
+            <span style="font-size: 0.68rem; font-weight: 600; background: ${badgeBg}; color: ${badgeColor}; padding: 1px 6px; border-radius: 4px;">${dec.status}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    agendaListHtml = opCardsHtml + decCardsHtml;
+  }
+
+  container.innerHTML = `
+    <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 12px; padding: 1rem 1.25rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.85rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <span style="width: 32px; height: 32px; border-radius: 8px; background: rgba(37, 99, 235, 0.12); color: var(--color-primary); display: inline-flex; align-items: center; justify-content: center; font-size: 1.05rem;">
+            <i class="ri-calendar-schedule-line"></i>
+          </span>
+          <div>
+            <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main);">Calendario de Ingresos Programados y Operaciones</h4>
+            <span style="font-size: 0.76rem; color: var(--color-text-muted);">Revisa tus arribos agendados y los eventos o feriados del Calendario Operacional de STOCKA</span>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.45rem;">
+          <button type="button" class="btn btn-outline" onclick="window.changeClientScheduledCalMonth(-1)" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;">
+            <i class="ri-arrow-left-s-line"></i>
+          </button>
+          <span style="font-size: 0.88rem; font-weight: 700; min-width: 135px; text-align: center; color: var(--color-text-main);">
+            ${monthNames[st.month]} ${st.year}
+          </span>
+          <button type="button" class="btn btn-outline" onclick="window.changeClientScheduledCalMonth(1)" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;">
+            <i class="ri-arrow-right-s-line"></i>
+          </button>
+          <button type="button" class="btn btn-outline" onclick="window.changeClientScheduledCalMonth(0)" style="padding: 0.3rem 0.65rem; font-size: 0.76rem; font-weight: 600;">
+            Hoy
+          </button>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(260px, 1fr); gap: 1rem; align-items: start;">
+        <div>
+          <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.35rem;">
+            ${cellsHtml}
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.65rem; padding-top: 0.55rem; border-top: 1px dashed var(--color-border); font-size: 0.68rem; color: var(--color-text-muted);">
+            <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+              <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: var(--color-primary); display: inline-block;"></span> Ingreso en Curso</span>
+              <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #059669; display: inline-block;"></span> Ingreso Recibido</span>
+              <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #0284c7; display: inline-block;"></span> Evento Operativo</span>
+              <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #dc2626; display: inline-block;"></span> Feriado / Sin Operaciones</span>
+            </div>
+            <span><i class="ri-information-line"></i> Clic en un día para filtrar la agenda</span>
+          </div>
+        </div>
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.85rem; max-height: 390px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.55rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 0.45rem;">
+            <strong style="font-size: 0.8rem; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-calendar-todo-line" style="color: var(--color-primary);"></i>
+              ${st.selectedDate ? `Agenda del ${st.selectedDate.split('-').reverse().join('/')}` : `Agenda de ${monthNames[st.month]} (${monthDecs.length} ing · ${monthOpEvents.length} ev)`}
+            </strong>
+            ${st.selectedDate ? `<button type="button" onclick="window.selectClientScheduledCalDate('${st.selectedDate}')" style="background: none; border: none; color: var(--color-primary); font-size: 0.73rem; font-weight: 600; cursor: pointer;">Ver mes</button>` : ''}
+          </div>
+          ${agendaListHtml}
+        </div>
+      </div>
+    </div>
+  `;
+};
+
+window.filterClientDeclarationsView = function() {
+  const allDeclarations = window.clientDeclarationsCache || [];
+  const searchInput = document.getElementById('client-dec-search-input');
+  const commerceSelect = document.getElementById('client-dec-commerce-filter');
+
+  const queryText = (searchInput ? searchInput.value : '').trim().toLowerCase();
+  const selectedCommerce = commerceSelect ? commerceSelect.value : 'ALL';
+
+  // 1. Filtrar primero por Comercio y Búsqueda para calcular los contadores en vivo por etapa
+  const baseFiltered = allDeclarations.filter(dec => {
+    if (selectedCommerce && selectedCommerce !== 'ALL' && dec.comercio !== selectedCommerce) {
+      return false;
+    }
+    if (queryText) {
+      const codeStr = `#ing-${(dec.id || '').substring(0, 8).toLowerCase()}`;
+      const titleStr = (dec.title || '').toLowerCase();
+      const comStr = (dec.comercio || '').toLowerCase();
+      const whStr = (dec.warehouses?.name || '').toLowerCase();
+      const methodStr = (dec.delivery_method || '').toLowerCase();
+      const notesStr = ((dec.notes || '') + ' ' + (dec.admin_notes || '')).toLowerCase();
+      const skusStr = Array.isArray(dec.products_list)
+        ? dec.products_list.map(p => `${p.sku || ''} ${p.name || ''}`).join(' ').toLowerCase()
+        : '';
+      const haystack = `${codeStr} ${titleStr} ${comStr} ${whStr} ${methodStr} ${notesStr} ${skusStr}`;
+      if (!haystack.includes(queryText)) return false;
+    }
+    return true;
+  });
+
+  // 2. Actualizar contadores de cada pestaña píldora
+  const counts = {
+    active: 0,
+    Creada: 0,
+    'Bodega Asignada': 0,
+    'En Recepción - Pendiente Conteo': 0,
+    'En proceso de conteo/clasificación': 0,
+    'Recepción Parcial': 0,
+    'Recibido Conforme': 0,
+    'Recibido con Incidencias': 0,
+    completed: 0,
+    all: baseFiltered.length
+  };
+
+  baseFiltered.forEach(dec => {
+    const isCompleted = ['Recibido Conforme', 'Recibido con Incidencias'].includes(dec.status);
+    if (isCompleted) counts.completed++;
+    else counts.active++;
+    if (counts[dec.status] !== undefined) counts[dec.status]++;
+  });
+
+  const setBadgeCount = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  };
+  setBadgeCount('client-dec-count-active', counts.active);
+  setBadgeCount('client-dec-count-creada', counts.Creada);
+  setBadgeCount('client-dec-count-bodega', counts['Bodega Asignada']);
+  setBadgeCount('client-dec-count-recepcion', counts['En Recepción - Pendiente Conteo']);
+  setBadgeCount('client-dec-count-conteo', counts['En proceso de conteo/clasificación']);
+  setBadgeCount('client-dec-count-parcial', counts['Recepción Parcial']);
+  setBadgeCount('client-dec-count-conforme', counts['Recibido Conforme']);
+  setBadgeCount('client-dec-count-incidencias', counts['Recibido con Incidencias']);
+  setBadgeCount('client-dec-count-completed', counts.completed);
+  setBadgeCount('client-dec-count-all', counts.all);
+
+  // 3. Filtrar por pestaña activa
+  const finalFiltered = baseFiltered.filter(dec => {
+    const isCompleted = ['Recibido Conforme', 'Recibido con Incidencias'].includes(dec.status);
+    if (currentDeclarationTab === 'active') return !isCompleted;
+    if (currentDeclarationTab === 'completed') return isCompleted;
+    if (currentDeclarationTab === 'all') return true;
+    return dec.status === currentDeclarationTab;
+  });
+
+  const resultsCountEl = document.getElementById('client-dec-results-count');
+  if (resultsCountEl) {
+    resultsCountEl.textContent = `${finalFiltered.length} ${finalFiltered.length === 1 ? 'ingreso' : 'ingresos'}`;
+  }
+
+  renderClientDeclarationsList(finalFiltered);
+
+  // Si el calendario está abierto, actualizarlo también
+  const calSection = document.getElementById('client-dec-scheduled-calendar-section');
+  if (calSection && calSection.style.display !== 'none') {
+    window.renderClientScheduledIntakesCalendar();
+  }
+};
+
+function renderClientDeclarationsList(filteredDeclarations) {
+  const listTableBody = document.getElementById('declarations-table-body');
+  const cardsContainer = document.getElementById('client-declarations-cards-container');
+  if (!listTableBody && !cardsContainer) return;
+
+  if (!filteredDeclarations || filteredDeclarations.length === 0) {
+    const emptyMsg = `<div class="text-center" style="padding: 2.25rem 1rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: 10px;">
+      <i class="ri-inbox-line" style="font-size: 1.8rem; display: block; margin-bottom: 0.4rem; opacity: 0.5;"></i>
+      No se encontraron declaraciones de ingreso en esta vista.
+    </div>`;
+    if (cardsContainer) cardsContainer.innerHTML = emptyMsg;
+    if (listTableBody) {
+      listTableBody.innerHTML = `<tr><td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron declaraciones de ingreso en esta vista.</td></tr>`;
+    }
+    return;
+  }
+
+  const ufRate = window.currentUfValue || 38200;
+  let tableHtml = '';
+  let cardsHtml = '';
+
+  filteredDeclarations.forEach(dec => {
+    let statusBadge = '';
+    switch (dec.status) {
+      case 'Creada':
+        statusBadge = '<span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text); display: inline-flex; align-items: center; gap: 4px;"><i class="ri-file-list-3-line"></i> Creada</span>';
+        break;
+      case 'Bodega Asignada':
+        statusBadge = '<span class="badge" style="background-color: rgba(37, 99, 235, 0.1); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.2); display: inline-flex; align-items: center; gap: 4px;"><i class="ri-building-2-line"></i> Bodega Asignada</span>';
+        break;
+      case 'En Recepción - Pendiente Conteo':
+        statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text); display: inline-flex; align-items: center; gap: 4px;"><i class="ri-truck-line"></i> Pendiente Conteo</span>';
+        break;
+      case 'En proceso de conteo/clasificación':
+        statusBadge = dec.parallel_count
+          ? '<span class="badge" style="background-color: rgba(95, 6, 250, 0.15); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.35); font-weight: 700; display: inline-flex; align-items: center; gap: 4px;"><i class="ri-refresh-line" style="animation: spin 3s linear infinite;"></i> Conteo en Paralelo</span>'
+          : '<span class="badge animate-pulse" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3); display: inline-flex; align-items: center; gap: 4px;"><i class="ri-list-check-2"></i> En Conteo</span>';
+        break;
+      case 'Recepción Parcial':
+        statusBadge = '<span class="badge" style="background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 600; display: inline-flex; align-items: center; gap: 4px;"><i class="ri-pie-chart-2-line"></i> Recepción Parcial</span>';
+        break;
+      case 'Recibido Conforme':
+        statusBadge = '<span class="badge" style="background-color: var(--badge-success-bg); color: var(--badge-success-text); display: inline-flex; align-items: center; gap: 4px;"><i class="ri-checkbox-circle-line"></i> Recibido Conforme</span>';
+        break;
+      case 'Recibido con Incidencias':
+        statusBadge = '<span class="badge" style="background-color: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid rgba(239, 68, 68, 0.3); display: inline-flex; align-items: center; gap: 4px;"><i class="ri-error-warning-line"></i> Con Incidencias</span>';
+        break;
+      default:
+        statusBadge = `<span class="badge badge-neutral">${dec.status}</span>`;
+    }
+
+    let etaText = '';
+    if (dec.estimated_arrival_type === 'exact' && dec.estimated_arrival_date) {
+      const [y, m, d] = dec.estimated_arrival_date.split('-');
+      etaText = d ? `${d}/${m}/${y}` : dec.estimated_arrival_date;
+    } else {
+      etaText = dec.estimated_arrival_period || 'Por confirmar';
+    }
+
+    const declaredQty = Number(dec.quantity_declared || 0);
+    const receivedQty = Number(dec.quantity_received || 0);
+    const incidentsQty = Number(dec.quantity_incidents || 0);
+    const pendingQty = Math.max(0, declaredQty - receivedQty);
+    const hasReceptionProgress = ['Recibido Conforme', 'Recibido con Incidencias', 'Recepción Parcial', 'En proceso de conteo/clasificación', 'En Recepción - Pendiente Conteo'].includes(dec.status);
+    const skuCount = Array.isArray(dec.products_list) ? dec.products_list.length : 0;
+
+    let qtyReceivedHtml = '<span style="color: var(--color-text-muted); font-size: 0.78rem;">Pendiente de arribo</span>';
+    if (hasReceptionProgress) {
+      const incColor = incidentsQty > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)';
+      const pct = declaredQty > 0 ? Math.min(100, Math.round((receivedQty / declaredQty) * 100)) : 0;
+      qtyReceivedHtml = `
+        <div style="font-size: 0.8rem; line-height: 1.35;">
+          <div style="display: flex; justify-content: space-between; gap: 0.4rem;">
+            <span>Recibido: <strong style="color: var(--color-success);">${receivedQty}</strong> / ${declaredQty}</span>
+            <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted);">${pct}%</span>
+          </div>
+          ${dec.status === 'Recepción Parcial' && pendingQty > 0 ? `<div style="font-size: 0.73rem; color: #d97706; font-weight: 600;">Pendiente: <strong>${pendingQty}</strong></div>` : ''}
+          ${incidentsQty > 0 ? `<div style="font-size: 0.73rem; color: ${incColor}; font-weight: 600;"><i class="ri-error-warning-line"></i> Incidencias: <strong>${incidentsQty}</strong></div>` : ''}
+        </div>
+      `;
+    }
+
+    const estCostUf = Number(dec.estimated_cost || 0);
+    const estCostClp = Math.round(estCostUf * ufRate);
+    const hasRealCost = dec.real_cost !== null && dec.real_cost !== undefined && Number(dec.real_cost) > 0;
+    const realCostUf = hasRealCost ? Number(dec.real_cost) : 0;
+    const realCostClp = Math.round(realCostUf * ufRate);
+
+    const volDeclared = Number(dec.volume_declared || 0);
+    const hasConfirmedVol = dec.status !== 'Creada' && dec.status !== 'Bodega Asignada' && dec.volume_confirmed !== null && dec.volume_confirmed !== undefined;
+    const volConfirmedText = hasConfirmedVol ? `${Number(dec.volume_confirmed || 0)} m³` : '—';
+
+    const isEditable = ['Creada', 'Bodega Asignada'].includes(dec.status);
+    const canDelete = ['Creada', 'Bodega Asignada'].includes(dec.status);
+
+    const editButtonMenuHtml = isEditable ? `
+      <button class="table-action-menu-item" onclick="editDeclaration('${dec.id}')">
+        <i class="ri-edit-line" style="color: var(--color-primary);"></i> Editar Ingreso
+      </button>
+    ` : '';
+
+    const deleteButtonMenuHtml = canDelete ? `
+      <button class="table-action-menu-item danger" onclick="deleteDeclaration('${dec.id}')">
+        <i class="ri-delete-bin-line"></i> Eliminar Ingreso
+      </button>
+    ` : '';
+
+    const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
+    let isAdminCreated = dec.created_by_role === 'admin';
+    let creatorDisplayName = dec.profiles?.full_name || dec.profiles?.email || 'Comercio';
+    if (!isAdminCreated && Array.isArray(dec.history) && dec.history.length > 0) {
+      const firstH = dec.history[0];
+      if (firstH && (firstH.created_by_role === 'admin' || (firstH.comment && firstH.comment.toLowerCase().includes('administración')))) {
+        isAdminCreated = true;
+        if (firstH.by) creatorDisplayName = firstH.by;
+      }
+    }
+    if (isAdminCreated && dec.created_by_name) {
+      creatorDisplayName = dec.created_by_name;
+    }
+    const safeCreator = window.escapeHtml ? window.escapeHtml(creatorDisplayName) : creatorDisplayName;
+    const createdDateStr = `${new Date(dec.created_at).toLocaleDateString('es-CL')} ${new Date(dec.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}`;
+
+    const warehouseBadgeHtml = dec.warehouses
+      ? `<span style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; font-weight: 600; color: var(--color-primary); background: rgba(37, 99, 235, 0.08); border: 1px solid rgba(37, 99, 235, 0.22); padding: 2px 8px; border-radius: 6px;">
+          <i class="ri-map-pin-2-line"></i> ${dec.warehouses.name}${dec.warehouses.comuna ? ` (${dec.warehouses.comuna})` : ''}
+         </span>`
+      : `<span style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.74rem; color: var(--color-text-muted); background: var(--color-surface-hover); border: 1px dashed var(--color-border); padding: 2px 7px; border-radius: 6px;">
+          <i class="ri-map-pin-time-line"></i> Bodega por asignar
+         </span>`;
+
+    // 1. HTML para Propuesta B: Vista de Filas-Tarjeta en 2 Niveles (Default)
+    cardsHtml += `
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 0.9rem 1.1rem; transition: border-color 0.15s, box-shadow 0.15s; box-shadow: 0 1px 4px rgba(0,0,0,0.03);" onmouseover="this.style.borderColor='rgba(37, 99, 235, 0.35)'" onmouseout="this.style.borderColor='var(--color-border)'">
+        <!-- Nivel 1: Cabecera de Identificación, Sucursal, Estado y Acciones Rápidas -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap; padding-bottom: 0.7rem; border-bottom: 1px solid var(--color-border);">
+          <div style="display: flex; flex-direction: column; gap: 0.3rem; flex: 1; min-width: 260px;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <span style="font-weight: 700; font-family: monospace; font-size: 0.75rem; background: rgba(5, 150, 105, 0.1); border: 1px solid rgba(5, 150, 105, 0.3); padding: 2px 6px; border-radius: 5px; color: #059669;" title="Código Único de Ingreso">#ING-${dec.id.substring(0, 8).toUpperCase()}</span>
+              <strong style="font-size: 0.96rem; color: var(--color-text-main); cursor: pointer;" onclick="viewDeclarationDetail('${dec.id}')">${dec.title}</strong>
+              ${statusBadge}
+              ${dec.parallel_count ? `
+                <span class="badge" style="background: rgba(95, 6, 250, 0.12); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.3); font-size: 0.68rem; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; font-weight: 700;">
+                  <i class="ri-checkbox-circle-line"></i> Stock Disponible (Conteo en Paralelo)
+                </span>
+              ` : ''}
+              ${hasAdminEdit ? `
+                <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); border: 1px solid rgba(59, 130, 246, 0.25); font-size: 0.68rem; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;">
+                  <i class="ri-shield-check-line"></i> Modificado por Admin
+                </span>
+              ` : ''}
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; font-size: 0.76rem; color: var(--color-text-muted);">
+              <span style="display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--color-text-main);">
+                <i class="ri-store-2-line" style="color: var(--color-primary);"></i> ${dec.comercio || 'STOCKA'}
+              </span>
+              ${warehouseBadgeHtml}
+              <span style="display: inline-flex; align-items: center; gap: 4px;">
+                <i class="ri-user-add-line"></i>
+                ${isAdminCreated ? `<span style="color: #4f46e5; font-weight: 600;">Admin: ${safeCreator}</span>` : safeCreator}
+                <span>(${createdDateStr})</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- Botones de Acción Directa -->
+          <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+            <button type="button" class="btn btn-outline" onclick="viewDeclarationDetail('${dec.id}')" style="padding: 0.34rem 0.7rem; font-size: 0.78rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem; border-color: rgba(37, 99, 235, 0.3); color: var(--color-primary); background: rgba(37, 99, 235, 0.05);">
+              <i class="ri-eye-line"></i> Detalle
+            </button>
+            <button type="button" class="btn btn-outline" onclick="window.viewDeclarationProducts('${dec.id}')" style="padding: 0.34rem 0.7rem; font-size: 0.78rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-box-3-line"></i> Productos
+            </button>
+            ${isEditable ? `
+            <button type="button" class="btn btn-outline" onclick="editDeclaration('${dec.id}')" style="padding: 0.34rem 0.7rem; font-size: 0.78rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-edit-line"></i> Editar
+            </button>
+            ` : ''}
+            <div class="table-action-menu">
+              <button class="table-action-menu-btn" onclick="toggleTableActionMenu(event, this)" style="padding: 0.34rem 0.65rem; font-size: 0.78rem;">
+                <i class="ri-more-2-fill"></i> Acciones
+              </button>
+              <div class="table-action-menu-content">
+                <button class="table-action-menu-item" onclick="viewDeclarationDetail('${dec.id}')">
+                  <i class="ri-eye-line" style="color: var(--color-primary);"></i> Ver Ficha Completa
+                </button>
+                <button class="table-action-menu-item" onclick="window.viewDeclarationProducts('${dec.id}')">
+                  <i class="ri-box-3-line" style="color: var(--color-primary);"></i> Ver Productos
+                </button>
+                <button class="table-action-menu-item" onclick="downloadBase64File('${dec.file_base64}', '${dec.file_name}')">
+                  <i class="ri-file-excel-2-line" style="color: var(--color-success);"></i> Descargar Planilla
+                </button>
+                ${editButtonMenuHtml}
+                ${deleteButtonMenuHtml}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Nivel 2: Cinta Horizontal de 5 Bloques de Métricas Logísticas y Costos -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.65rem; padding-top: 0.7rem; align-items: center;">
+          <!-- Bloque 1: Llegada Estimada y Método de Envío -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.5rem 0.7rem;">
+            <div style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: flex; align-items: center; gap: 4px; margin-bottom: 2px;">
+              <i class="ri-calendar-event-line" style="color: var(--color-primary);"></i> Llegada & Envío
+            </div>
+            <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main);">${etaText}</div>
+            <div style="font-size: 0.73rem; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${dec.delivery_method || ''}">
+              <i class="ri-truck-line"></i> ${dec.delivery_method || '—'}
+            </div>
+          </div>
+
+          <!-- Bloque 2: Unidades y Bultos -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.5rem 0.7rem;">
+            <div style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: flex; align-items: center; gap: 4px; margin-bottom: 2px;">
+              <i class="ri-archive-line" style="color: var(--color-primary);"></i> Carga & Bultos
+            </div>
+            <div style="font-size: 0.84rem; color: var(--color-text-main);">
+              <strong>${declaredQty.toLocaleString('es-CL')} uds</strong>${skuCount > 0 ? ` <span style="font-size: 0.73rem; color: var(--color-text-muted);">(${skuCount} SKUs)</span>` : ''}
+            </div>
+            <div style="font-size: 0.73rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+              <span><strong>${dec.package_count || 0}</strong> bultos (C:${dec.container_count || 0} | P:${dec.pallet_count || 0} | Cx:${dec.box_count || 0})</span>
+              ${dec.requires_unloading ? '<span class="badge" style="font-size: 0.63rem; padding: 1px 4px; border-radius: 3px; background-color: var(--badge-warning-bg); color: var(--badge-warning-text); font-weight: 600;">Descarga</span>' : ''}
+            </div>
+          </div>
+
+          <!-- Bloque 3: Volumen (Declarado vs Confirmado) -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.5rem 0.7rem;">
+            <div style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: flex; align-items: center; gap: 4px; margin-bottom: 2px;">
+              <i class="ri-ruler-2-line" style="color: var(--color-primary);"></i> Volumen (m³)
+            </div>
+            <div style="font-size: 0.84rem; color: var(--color-text-main);">
+              Decl: <strong>${volDeclared} m³</strong>
+            </div>
+            <div style="font-size: 0.73rem; color: var(--color-text-muted);">
+              Conf: <strong style="color: ${hasConfirmedVol ? 'var(--color-text-main)' : 'var(--color-text-muted)'};">${volConfirmedText}</strong>
+            </div>
+          </div>
+
+          <!-- Bloque 4: Costos (Estimado vs Real en UF + CLP) -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.5rem 0.7rem;">
+            <div style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: flex; align-items: center; gap: 4px; margin-bottom: 2px;">
+              <i class="ri-money-dollar-circle-line" style="color: var(--color-primary);"></i> Costos (Est. / Real)
+            </div>
+            <div style="font-size: 0.82rem; color: var(--color-text-main);">
+              Est: <strong>${estCostUf.toFixed(2)} UF</strong> <span style="font-size: 0.71rem; color: var(--color-text-muted);">($${estCostClp.toLocaleString('es-CL')})</span>
+            </div>
+            <div style="font-size: 0.73rem; color: var(--color-text-muted);">
+              Real: <strong style="color: ${hasRealCost ? 'var(--color-success)' : 'var(--color-text-muted)'};">${hasRealCost ? `${realCostUf.toFixed(2)} UF ($${realCostClp.toLocaleString('es-CL')})` : '—'}</strong>
+            </div>
+          </div>
+
+          <!-- Bloque 5: Estado de Recepción e Incidencias -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.5rem 0.7rem;">
+            <div style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: flex; align-items: center; gap: 4px; margin-bottom: 2px;">
+              <i class="ri-inbox-unarchive-line" style="color: var(--color-primary);"></i> Recepción Física
+            </div>
+            ${qtyReceivedHtml}
+          </div>
+        </div>
+      </div>
+    `;
+
+    // 2. HTML para Propuesta A: Vista Tabla Consolidada de 6 Columnas (Sin scroll horizontal)
+    tableHtml += `
+      <tr style="transition: background-color 0.2s; border-bottom: 1px solid var(--color-border);">
+        <td style="padding: 0.55rem 0.75rem; vertical-align: top; word-break: break-word;">
+          <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 2px;">
+            <span style="font-weight: 700; font-family: monospace; font-size: 0.7rem; background: rgba(5, 150, 105, 0.1); border: 1px solid rgba(5, 150, 105, 0.3); padding: 1px 5px; border-radius: 4px; color: #059669;">#ING-${dec.id.substring(0, 8).toUpperCase()}</span>
+            <strong style="font-size: 0.86rem; color: var(--color-text-main); cursor: pointer;" onclick="viewDeclarationDetail('${dec.id}')">${dec.title}</strong>
+          </div>
+          <div style="font-size: 0.74rem; color: var(--color-text-muted); margin-top: 2px;">
+            <i class="ri-store-2-line"></i> ${dec.comercio || 'STOCKA'} · <span style="font-size: 0.68rem;">${createdDateStr}</span>
+          </div>
+          <div style="margin-top: 4px;">
+            ${warehouseBadgeHtml}
+          </div>
+        </td>
+        <td style="padding: 0.55rem 0.75rem; vertical-align: top; font-size: 0.82rem;">
+          <div style="font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 4px;">
+            <i class="ri-calendar-event-line" style="color: var(--color-primary);"></i> ${etaText}
+          </div>
+          <div style="font-size: 0.74rem; color: var(--color-text-muted); margin-top: 3px;">
+            <i class="ri-truck-line"></i> ${dec.delivery_method || '—'}
+          </div>
+        </td>
+        <td style="padding: 0.55rem 0.75rem; vertical-align: top; font-size: 0.82rem;">
+          <div><strong>${declaredQty.toLocaleString('es-CL')} uds</strong>${skuCount > 0 ? ` <span style="font-size: 0.72rem; color: var(--color-text-muted);">(${skuCount} SKUs)</span>` : ''}</div>
+          <div style="font-size: 0.74rem; color: var(--color-text-muted); margin-top: 2px;">
+            <strong>${dec.package_count || 0}</strong> bultos (C:${dec.container_count || 0}|P:${dec.pallet_count || 0}|Cx:${dec.box_count || 0})
+          </div>
+          ${dec.requires_unloading ? '<span class="badge" style="font-size: 0.63rem; padding: 1px 4px; border-radius: 3px; display: inline-block; margin-top: 2px; background-color: var(--badge-warning-bg); color: var(--badge-warning-text); font-weight: 600;">Descarga</span>' : ''}
+        </td>
+        <td style="padding: 0.55rem 0.75rem; vertical-align: top; font-size: 0.8rem;">
+          <div>Decl: <strong>${volDeclared} m³</strong> <span style="color: var(--color-text-muted);">| Conf: ${volConfirmedText}</span></div>
+          <div style="margin-top: 2px;">Est: <strong>${estCostUf.toFixed(2)} UF</strong> <span style="font-size: 0.7rem; color: var(--color-text-muted);">($${estCostClp.toLocaleString('es-CL')})</span></div>
+          <div style="font-size: 0.73rem; color: var(--color-text-muted);">Real: <strong>${hasRealCost ? `${realCostUf.toFixed(2)} UF` : '—'}</strong></div>
+        </td>
+        <td style="padding: 0.55rem 0.75rem; vertical-align: top; font-size: 0.8rem;">
+          <div style="margin-bottom: 4px;">${statusBadge}</div>
+          ${qtyReceivedHtml}
+        </td>
+        <td style="padding: 0.55rem 0.75rem; vertical-align: top; text-align: right;">
+          <div style="display: inline-flex; align-items: center; gap: 0.35rem; justify-content: flex-end; flex-wrap: wrap;">
+            <button type="button" class="btn btn-outline" onclick="viewDeclarationDetail('${dec.id}')" style="padding: 0.28rem 0.55rem; font-size: 0.74rem; font-weight: 600;" title="Ver Detalle">
+              <i class="ri-eye-line"></i>
+            </button>
+            <div class="table-action-menu">
+              <button class="table-action-menu-btn" onclick="toggleTableActionMenu(event, this)" style="padding: 0.28rem 0.55rem; font-size: 0.74rem;">
+                <i class="ri-more-2-fill"></i>
+              </button>
+              <div class="table-action-menu-content">
+                <button class="table-action-menu-item" onclick="viewDeclarationDetail('${dec.id}')">
+                  <i class="ri-eye-line" style="color: var(--color-primary);"></i> Detalle
+                </button>
+                <button class="table-action-menu-item" onclick="window.viewDeclarationProducts('${dec.id}')">
+                  <i class="ri-box-3-line" style="color: var(--color-primary);"></i> Ver Productos
+                </button>
+                <button class="table-action-menu-item" onclick="downloadBase64File('${dec.file_base64}', '${dec.file_name}')">
+                  <i class="ri-file-excel-2-line" style="color: var(--color-success);"></i> Planilla
+                </button>
+                ${editButtonMenuHtml}
+                ${deleteButtonMenuHtml}
+              </div>
+            </div>
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+
+  if (cardsContainer) cardsContainer.innerHTML = cardsHtml;
+  if (listTableBody) listTableBody.innerHTML = tableHtml;
+}
+
 async function fetchAndRenderClientDeclarations() {
   const listTableBody = document.getElementById('declarations-table-body');
-  if (!listTableBody) return;
-  
-  listTableBody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">Cargando declaraciones...</td></tr>`;
+  const cardsContainer = document.getElementById('client-declarations-cards-container');
+  if (!listTableBody && !cardsContainer) return;
+
+  if (cardsContainer) {
+    cardsContainer.innerHTML = `<div class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">Cargando declaraciones...</div>`;
+  }
+  if (listTableBody) {
+    listTableBody.innerHTML = `<tr><td colspan="6" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">Cargando declaraciones...</td></tr>`;
+  }
   try {
     const companyList = [...new Set(getCompanyList())];
     let query = supabase
@@ -32418,203 +33305,28 @@ async function fetchAndRenderClientDeclarations() {
       query = query.eq('merchant_id', currentMerchantId);
     }
 
-    const { data: declarations, error } = await query.order('created_at', { ascending: false });
+    const [decRes, eventsRes] = await Promise.all([
+      query.order('created_at', { ascending: false }),
+      supabase.from('dashboard_events').select('*').order('event_date', { ascending: true })
+    ]);
+    const { data: declarations, error } = decRes;
       
     if (error) throw error;
-    
-    // Filter declarations based on tab
-    const filteredDeclarations = (declarations || []).filter(dec => {
-      const isCompleted = ['Recibido Conforme', 'Recibido con Incidencias'].includes(dec.status);
-      if (currentDeclarationTab === 'completed') {
-        return isCompleted;
-      } else {
-        return !isCompleted;
-      }
-    });
-
-    if (filteredDeclarations.length === 0) {
-      listTableBody.innerHTML = `<tr><td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No tienes declaraciones ${currentDeclarationTab === 'completed' ? 'completadas' : 'activas'}.</td></tr>`;
-      return;
+    if (!eventsRes.error && Array.isArray(eventsRes.data)) {
+      window.clientOperationalEventsCache = eventsRes.data;
     }
     
-    let html = '';
-    filteredDeclarations.forEach(dec => {
-      let statusBadge = '';
-      switch (dec.status) {
-        case 'Creada':
-          statusBadge = '<span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text);">Creada</span>';
-          break;
-        case 'Bodega Asignada':
-          statusBadge = '<span class="badge" style="background-color: rgba(37, 99, 235, 0.1); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.2);">Bodega Asignada</span>';
-          break;
-        case 'En Recepción - Pendiente Conteo':
-          statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text);">Pendiente Conteo</span>';
-          break;
-        case 'En proceso de conteo/clasificación':
-          statusBadge = dec.parallel_count
-            ? '<span class="badge" style="background-color: rgba(95, 6, 250, 0.15); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.35); font-weight: 700;"><i class="ri-refresh-line" style="animation: spin 3s linear infinite;"></i> Conteo en Paralelo (Stock Disponible)</span>'
-            : '<span class="badge animate-pulse" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
-          break;
-        case 'Recepción Parcial':
-          statusBadge = '<span class="badge" style="background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 600;"><i class="ri-pie-chart-2-line"></i> Recepción Parcial</span>';
-          break;
-        case 'Recibido Conforme':
-          statusBadge = '<span class="badge" style="background-color: var(--badge-success-bg); color: var(--badge-success-text);">Recibido Conforme</span>';
-          break;
-        case 'Recibido con Incidencias':
-          statusBadge = '<span class="badge" style="background-color: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid rgba(239, 68, 68, 0.3);">Recibido con Incidencias</span>';
-          break;
-        default:
-          statusBadge = `<span class="badge badge-neutral">${dec.status}</span>`;
-      }
-      
-      let etaText = '';
-      if (dec.estimated_arrival_type === 'exact') {
-        const [y, m, d] = dec.estimated_arrival_date.split('-');
-        etaText = `${d}/${m}/${y}`;
-      } else {
-        etaText = dec.estimated_arrival_period;
-      }
-        
-      let qtyReceivedText = '—';
-      if (['Recibido Conforme', 'Recibido con Incidencias', 'Recepción Parcial', 'En proceso de conteo/clasificación', 'En Recepción - Pendiente Conteo'].indexOf(dec.status) !== -1) {
-        const incColor = dec.quantity_incidents > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)';
-        const pending = Math.max(0, (dec.quantity_declared || 0) - (dec.quantity_received || 0));
-        const pendingHtml = (dec.status === 'Recepción Parcial' && pending > 0)
-          ? `<br><span style="font-size: 0.75rem; color: #d97706; font-weight: 600;">Pendiente: <strong>${pending}</strong></span>`
-          : '';
-        qtyReceivedText = `
-          <div style="font-size: 0.85rem;">
-            <span>Recibido: <strong>${dec.quantity_received}</strong></span>
-            ${pendingHtml}
-            ${dec.quantity_incidents > 0 ? `<br><span style="font-size: 0.75rem; color: ${incColor};">Incidencias: <strong>${dec.quantity_incidents}</strong></span>` : ''}
-          </div>
-        `;
-      }
-      
-      const isEditable = ['Creada', 'Bodega Asignada'].indexOf(dec.status) !== -1;
-      const editButtonHtml = isEditable ? `
-        <button class="table-action-menu-item" onclick="editDeclaration('${dec.id}')">
-          <i class="ri-edit-line" style="color: var(--color-primary);"></i> Editar
-        </button>
-      ` : '';
-
-      const canDelete = ['Creada', 'Bodega Asignada'].indexOf(dec.status) !== -1;
-      const deleteButtonHtml = canDelete ? `
-        <button class="table-action-menu-item danger" onclick="deleteDeclaration('${dec.id}')">
-          <i class="ri-delete-bin-line"></i> Eliminar
-        </button>
-      ` : '';
-
-      const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
-      let isAdminCreated = dec.created_by_role === 'admin';
-      let creatorDisplayName = dec.profiles?.full_name || dec.profiles?.email || 'Comercio';
-      if (!isAdminCreated && Array.isArray(dec.history) && dec.history.length > 0) {
-        const firstH = dec.history[0];
-        if (firstH && (firstH.created_by_role === 'admin' || (firstH.comment && firstH.comment.toLowerCase().includes('administración')))) {
-          isAdminCreated = true;
-          if (firstH.by) creatorDisplayName = firstH.by;
-        }
-      }
-      if (isAdminCreated && dec.created_by_name) {
-        creatorDisplayName = dec.created_by_name;
-      }
-
-      html += `
-        <tr style="transition: background-color 0.2s;">
-          <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem; padding: 0.45rem 0.75rem;">
-            <span style="font-weight: 700; font-family: monospace; font-size: 0.72rem; background: rgba(5, 150, 105, 0.1); border: 1px solid rgba(5, 150, 105, 0.3); padding: 1px 5px; border-radius: 4px; color: #059669; margin-right: 4px;" title="Código Único de Ingreso">#ING-${dec.id.substring(0, 8).toUpperCase()}</span>
-            ${dec.title}
-            ${dec.parallel_count ? `
-            <div style="margin-top: 3px;">
-              <span class="badge" style="background: rgba(95, 6, 250, 0.12); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.3); font-size: 0.68rem; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; font-weight: 700;" title="Stock cargado provisionalmente en inventario para ventas">
-                <i class="ri-checkbox-circle-line" style="color: var(--color-success);"></i> Stock Disponible en Bodega (Conteo en Paralelo)
-              </span>
-            </div>
-            ` : ''}
-            ${hasAdminEdit ? `
-            <div style="margin-top: 3px;">
-              <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); border: 1px solid rgba(59, 130, 246, 0.25); font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Este ingreso registra modificaciones realizadas por Administración">
-                <i class="ri-shield-check-line"></i> Modificado por Admin
-              </span>
-            </div>
-            ` : ''}
-            <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px;">
-              <i class="ri-store-2-line" style="vertical-align: text-bottom; margin-right: 2px;"></i> ${dec.comercio || 'STOCKA'}
-            </div>
-            <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap;" title="Creado por y fecha">
-              <i class="ri-user-add-line" style="font-size: 0.75rem;"></i>
-              ${isAdminCreated ? `
-                <span class="badge" style="background: rgba(99, 102, 241, 0.12); color: #4f46e5; border: 1px solid rgba(99, 102, 241, 0.25); font-size: 0.68rem; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Ingreso generado por Administración">
-                  <i class="ri-shield-user-line"></i> Declarado por Admin: ${window.escapeHtml ? window.escapeHtml(creatorDisplayName) : creatorDisplayName}
-                </span>
-              ` : `
-                <span>${window.escapeHtml ? window.escapeHtml(creatorDisplayName) : creatorDisplayName}</span>
-              `}
-              <span style="color: var(--color-text-muted); font-size: 0.68rem;">(${new Date(dec.created_at).toLocaleDateString('es-CL')} ${new Date(dec.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })})</span>
-            </div>
-            ${dec.warehouses ? `
-            <div style="font-size: 0.75rem; color: var(--color-primary); font-weight: 500; margin-top: 2px;">
-              <i class="ri-map-pin-line" style="vertical-align: text-bottom; margin-right: 2px;"></i> ${dec.warehouses.name}
-            </div>
-            ` : ''}
-          </td>
-          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;"><i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${etaText}</td>
-          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;"><strong>${dec.quantity_declared}</strong></td>
-          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;">
-            <strong>${dec.package_count}</strong> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${dec.package_type})</span>
-            <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 2px;">
-              C: ${dec.container_count || 0} | P: ${dec.pallet_count || 0} | Cx: ${dec.box_count || 0}
-            </div>
-            ${dec.requires_unloading ? '<span class="badge" style="font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; display: inline-block; margin-top: 2px; background-color: var(--badge-warning-bg); color: var(--badge-warning-text); font-weight: 600;">Descarga</span>' : ''}
-          </td>
-          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;">
-            <div style="font-size: 0.85rem;">
-              <span>Decl: <strong>${dec.volume_declared || 0} m³</strong></span><br>
-              <span style="font-size: 0.75rem; color: var(--color-text-muted);">
-                Conf: <strong>${dec.status !== 'Creada' && dec.status !== 'Bodega Asignada' ? (dec.volume_confirmed || 0) + ' m³' : '—'}</strong>
-              </span>
-            </div>
-          </td>
-          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;">
-            <div style="font-size: 0.85rem;">
-              <span>Est: <strong>${(dec.estimated_cost || 0).toFixed(2)} UF</strong></span><br>
-              <span style="font-size: 0.75rem; color: var(--color-text-muted);">
-                Real: <strong>${dec.real_cost !== null && dec.real_cost !== undefined && dec.real_cost > 0 ? dec.real_cost.toFixed(2) + ' UF' : '—'}</strong>
-              </span>
-            </div>
-          </td>
-          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
-          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;">${statusBadge}</td>
-          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;">${qtyReceivedText}</td>
-          <td style="font-size: 0.85rem; text-align: center; overflow: visible; padding: 0.45rem 0.75rem;">
-            <div class="table-action-menu">
-              <button class="table-action-menu-btn" onclick="toggleTableActionMenu(event, this)">
-                <i class="ri-more-2-fill"></i> Acciones
-              </button>
-              <div class="table-action-menu-content">
-                <button class="table-action-menu-item" onclick="window.viewDeclarationProducts('${dec.id}')">
-                  <i class="ri-eye-line" style="color: var(--color-primary);"></i> Ver Productos
-                </button>
-                <button class="table-action-menu-item" onclick="downloadBase64File('${dec.file_base64}', '${dec.file_name}')">
-                  <i class="ri-file-excel-2-line" style="color: var(--color-success);"></i> Planilla
-                </button>
-                ${editButtonHtml}
-                <button class="table-action-menu-item" onclick="viewDeclarationDetail('${dec.id}')">
-                  <i class="ri-eye-line" style="color: var(--color-primary);"></i> Detalle
-                </button>
-                ${deleteButtonHtml}
-              </div>
-            </div>
-          </td>
-        </tr>
-      `;
-    });
-    
-    listTableBody.innerHTML = html;
+    window.clientDeclarationsCache = declarations || [];
+    window.updateClientDeclarationTabPillsUI();
+    window.filterClientDeclarationsView();
   } catch (err) {
     console.error('Error fetching client declarations:', err);
-    listTableBody.innerHTML = `<tr><td colspan="9" class="text-center" style="padding: 1.5rem; color: var(--color-danger);">Error al cargar declaraciones: ${err.message}</td></tr>`;
+    if (cardsContainer) {
+      cardsContainer.innerHTML = `<div class="text-center" style="padding: 1.5rem; color: var(--color-danger);">Error al cargar declaraciones: ${err.message}</div>`;
+    }
+    if (listTableBody) {
+      listTableBody.innerHTML = `<tr><td colspan="6" class="text-center" style="padding: 1.5rem; color: var(--color-danger);">Error al cargar declaraciones: ${err.message}</td></tr>`;
+    }
   }
 }
 

@@ -1129,3 +1129,251 @@
   margin: 0;
 }
 
+/* --- Mensaje de Cabecera: Fase Beta de Pruebas --- */
+.ic-beta-banner {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.14) 0%, rgba(139, 92, 246, 0.12) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.42);
+  border-left: 4px solid #f59e0b;
+  border-radius: var(--radius-md);
+  padding: 0.72rem 1.1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.ic-beta-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex: 1;
+  min-width: 260px;
+}
+
+.ic-beta-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.24rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: #f59e0b;
+  color: #ffffff;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(245, 158, 11, 0.3);
+}
+
+.ic-beta-text {
+  font-size: 0.8rem;
+  color: var(--color-text-main);
+  line-height: 1.4;
+}
+
+.ic-beta-text strong {
+  font-weight: 800;
+  color: #b45309;
+}
+
+[data-theme="dark"] .ic-beta-text strong {
+  color: #fbbf24;
+}
+
+.ic-pill-beta {
+  background: rgba(245, 158, 11, 0.16);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.38);
+}
+
+[data-theme="dark"] .ic-pill-beta {
+  color: #fbbf24;
+}
+
+/* --- Pestañas Internas de la Guía (3 Pestañas Explicativas) --- */
+.ic-guide-tabs-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.15rem;
+}
+
+.ic-guide-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.42rem 0.85rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.76rem;
+  font-weight: 700;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ic-guide-tab-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-text-main);
+}
+
+.ic-guide-tab-btn.active {
+  background: var(--color-primary);
+  color: #ffffff;
+  border-color: var(--color-primary);
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.22);
+}
+
+/* --- Barra Principal de 3 Pestañas del Módulo --- */
+.ic-main-tabs-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.65rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 0.5rem;
+  box-shadow: var(--shadow-sm);
+}
+
+@media (max-width: 900px) {
+  .ic-main-tabs-bar {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ic-main-tab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.16s ease;
+}
+
+.ic-main-tab-btn:hover {
+  background: var(--color-bg);
+  color: var(--color-text-main);
+  border-color: var(--color-border);
+}
+
+.ic-main-tab-btn.active {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: var(--color-primary);
+  color: var(--color-text-main);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.1);
+}
+
+.ic-main-tab-left {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.ic-main-tab-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+  flex-shrink: 0;
+  transition: all 0.16s ease;
+}
+
+.ic-main-tab-btn.active .ic-main-tab-icon {
+  background: var(--color-primary);
+  color: #ffffff;
+}
+
+.ic-main-tab-title {
+  display: block;
+  font-size: 0.83rem;
+  font-weight: 800;
+  color: var(--color-text-main);
+  line-height: 1.25;
+}
+
+.ic-main-tab-sub {
+  display: block;
+  font-size: 0.71rem;
+  color: var(--color-text-muted);
+  margin-top: 0.12rem;
+}
+
+.ic-main-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ic-main-tab-btn.active .ic-main-tab-badge {
+  background: var(--color-primary);
+  color: #ffffff;
+  border-color: var(--color-primary);
+}
+
+.ic-two-col-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 1rem;
+}
+
+.ic-burndown-tab-grid {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 1100px) {
+  .ic-two-col-grid,
+  .ic-burndown-tab-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Etiqueta de Pack / Set (Producto Compuesto) --- */
+.ic-pack-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.14rem 0.5rem;
+  border-radius: 5px;
+  font-size: 0.69rem;
+  font-weight: 800;
+  background: rgba(139, 92, 246, 0.14);
+  color: #7c3aed;
+  border: 1px solid rgba(139, 92, 246, 0.34);
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .ic-pack-badge {
+  color: #c4b5fd;
+  background: rgba(139, 92, 246, 0.22);
+}
+
+
+

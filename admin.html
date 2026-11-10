@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="./css/agendas_grid.css?v=1.0.0">
   <link rel="stylesheet" href="./css/merchants_radar.css?v=1.7.0">
   <link rel="stylesheet" href="./css/workspace_panel.css?v=1.0.0">
-  <link rel="stylesheet" href="./css/inventory_coverage.css?v=1.1.1">
+  <link rel="stylesheet" href="./css/inventory_coverage.css?v=1.2.1">
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <!-- Quill Rich Text Editor CDN -->
   <link href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" rel="stylesheet">
@@ -407,69 +407,63 @@
       background: rgba(245, 158, 11, 0.08);
       box-shadow: 0 0 0 1px #d97706;
     }
-    /* Pestañas de Estados de Declaraciones de Ingreso */
+    /* Pestañas de Estados de Declaraciones de Ingreso (Píldoras Flexibles Sin Scroll Horizontal) */
     .dec-status-tabs-container {
       display: flex;
-      gap: 0.35rem;
+      flex-wrap: wrap;
+      gap: 0.4rem;
       border-bottom: 1px solid var(--color-border);
-      padding: 0.4rem 1.5rem 0 1.5rem;
-      margin-bottom: 0.5rem;
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-      scrollbar-width: thin;
+      padding: 0.65rem 1.25rem;
+      margin-bottom: 0;
+      overflow-x: visible;
       background: var(--color-surface);
       border-top: 1px solid var(--color-border);
-    }
-    .dec-status-tabs-container::-webkit-scrollbar {
-      height: 4px;
-    }
-    .dec-status-tabs-container::-webkit-scrollbar-thumb {
-      background: var(--color-border);
-      border-radius: 4px;
+      align-items: center;
     }
     .dec-status-tab-btn {
-      padding: 0.65rem 0.85rem;
-      background: none;
-      border: none;
-      border-bottom: 2.5px solid transparent;
+      padding: 0.42rem 0.75rem;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
       color: var(--color-text-muted);
-      font-weight: 500;
-      font-size: 0.85rem;
+      font-weight: 600;
+      font-size: 0.78rem;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 0.45rem;
+      gap: 0.4rem;
       white-space: nowrap;
-      transition: all 0.2s ease;
-      border-radius: 6px 6px 0 0;
+      transition: all 0.18s ease;
+      border-radius: 8px;
       user-select: none;
       text-decoration: none;
     }
     .dec-status-tab-btn:hover {
       color: var(--color-text-main);
-      background: rgba(0, 0, 0, 0.025);
+      border-color: var(--color-primary);
+      background: var(--color-surface-hover);
     }
     .dec-status-tab-btn.active {
-      color: var(--color-primary);
+      color: #ffffff;
       font-weight: 700;
-      border-bottom-color: var(--color-primary);
-      background: rgba(95, 6, 250, 0.04);
+      border-color: var(--color-primary);
+      background: var(--color-primary);
+      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.22);
     }
     .dec-status-tab-btn .tab-count-badge {
-      font-size: 0.72rem;
-      padding: 2px 7px;
-      border-radius: 12px;
+      font-size: 0.7rem;
+      padding: 1px 6px;
+      border-radius: 99px;
       font-weight: 700;
-      background: var(--color-bg);
-      color: var(--color-text-muted);
+      background: var(--color-surface);
+      color: var(--color-text-main);
       border: 1px solid var(--color-border);
-      transition: all 0.2s ease;
-      line-height: 1.1;
+      transition: all 0.18s ease;
+      line-height: 1.15;
     }
     .dec-status-tab-btn.active .tab-count-badge {
-      background: rgba(95, 6, 250, 0.12);
-      color: var(--color-primary);
-      border-color: rgba(95, 6, 250, 0.25);
+      background: rgba(255, 255, 255, 0.22);
+      color: #ffffff;
+      border-color: rgba(255, 255, 255, 0.35);
     }
     .dec-status-tab-btn .tab-count-badge.has-incidents {
       background: rgba(239, 68, 68, 0.1);
@@ -3571,8 +3565,8 @@
                   <div>
                     <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 3px; font-weight: 600;">Estado de Cobro</label>
                     <select id="manage-dec-billing-status" class="form-input" style="height: 38px; font-size: 0.85rem; font-weight: 600; background: var(--color-bg); border-radius: 6px;">
-                      <option value="Pendiente">⏳ Pendiente de Facturación</option>
-                      <option value="Facturado">✅ Incluido en Facturación (Facturado)</option>
+                      <option value="Pendiente">Pendiente de Facturación</option>
+                      <option value="Facturado">Incluido en Facturación (Facturado)</option>
                     </select>
                   </div>
                   <div>
@@ -5056,7 +5050,7 @@
   <script src="./js/agendas_grid.js?v=1.0.6"></script>
   <script type="module" src="./js/merchants_radar.js?v=1.7.1"></script>
   <script src="./js/db-cache.js?v=1.0.0"></script>
-  <script type="module" src="./js/admin.js?v=1.5.44"></script>
+  <script type="module" src="./js/admin.js?v=1.5.48"></script>
   <script type="module" src="./js/stock_transfers.js?v=1.0.3"></script>
   <script type="module" src="./js/order_editor.js?v=1.0.1"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.5"></script>
@@ -5068,7 +5062,7 @@
   <script src="./js/inventory_locations.js?v=1.0.8"></script>
   <script type="module" src="./js/order_page.js?v=1.0.11"></script>
   <script type="module" src="./js/workspace_panel.js?v=1.0.0"></script>
-  <script type="module" src="./js/inventory_coverage.js?v=1.1.2"></script>
+  <script type="module" src="./js/inventory_coverage.js?v=1.2.2"></script>
 
   <!-- Floating Mercado Libre Sync Button -->
   <button class="floating-meli-btn" id="meli-monitor-btn" title="Mercado Libre: Sincronización y Nuevos Pedidos" onclick="window.toggleMeliMonitorPanel()" style="display: flex;">

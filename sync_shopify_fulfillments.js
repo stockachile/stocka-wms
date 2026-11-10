@@ -37,6 +37,23 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function shopifyFetch(url, options = {}, maxRetries = 4) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const res = await fetch(url, options);
+    if (res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) {
+      if (attempt < maxRetries) {
+        const retryAfterHeader = res.headers.get('Retry-After');
+        const retryWaitMs = retryAfterHeader ? Math.ceil(parseFloat(retryAfterHeader) * 1000) : (1400 * attempt);
+        console.warn(`[Shopify Rate Limit/Retry] HTTP ${res.status} en ${url}. Reintentando en ${retryWaitMs}ms (intento ${attempt}/${maxRetries})...`);
+        await delay(Math.max(retryWaitMs, 1000));
+        continue;
+      }
+    }
+    return res;
+  }
+  return fetch(url, options);
+}
+
 function mapCourierToShopify(courier, operador) {
   const raw = `${courier || ''} ${operador || ''}`.toUpperCase();
   if (raw.includes('CHILEXPRESS')) return 'Chilexpress';
@@ -244,7 +261,7 @@ async function processQueue() {
         });
       }
 
-      await delay(350);
+      await delay(500);
 
     } catch (err) {
       console.error(`❌ Error procesando cola item ${item.id}:`, err.message);
@@ -271,40 +288,99 @@ async function processQueue() {
     }
   }
 
-  console.log('\nProcesamiento de cola finalizado.');
+  console.log('\nProcesamiento de lote finalizado.');
 }
 
 async function executeSetInProgress(item, integration) {
   const shop = integration.shop_url;
   const token = integration.access_token;
   const shopifyOrderId = item.shopify_order_id;
+  let alreadyFulfilled = false;
 
   try {
-    const orderRes = await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags`, {
+    const foUrl = `https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}/fulfillment_orders.json`;
+    const foRes = await shopifyFetch(foUrl, {
       headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
     });
 
-    if (orderRes.ok) {
-      const orderData = await orderRes.json();
-      const currentTags = orderData.order?.tags || '';
-      if (!currentTags.includes('Stocka: En Preparación')) {
-        const newTags = currentTags ? `${currentTags}, Stocka: En Preparación` : 'Stocka: En Preparación';
-        await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
-          method: 'PUT',
-          headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ order: { id: shopifyOrderId, tags: newTags } })
-        });
-        console.log(`Etiqueta 'Stocka: En Preparación' agregada a orden ${shopifyOrderId}`);
+    if (foRes.ok) {
+      const foData = await foRes.json();
+      const fulfillmentOrders = foData.fulfillment_orders || [];
+      const openFos = fulfillmentOrders.filter(fo => fo.status === 'open');
+
+      if (openFos.length > 0) {
+        const progressMutation = `
+          mutation fulfillmentOrderReportProgress($id: ID!, $progressReport: FulfillmentOrderReportProgressInput) {
+            fulfillmentOrderReportProgress(id: $id, progressReport: $progressReport) {
+              fulfillmentOrder { id status }
+              userErrors { field message }
+            }
+          }
+        `;
+        for (const fo of openFos) {
+          const gqlRes = await shopifyFetch(`https://${shop}/admin/api/2026-04/graphql.json`, {
+            method: 'POST',
+            headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              query: progressMutation,
+              variables: {
+                id: `gid://shopify/FulfillmentOrder/${fo.id}`,
+                progressReport: {
+                  reasonNotes: 'Pedido en preparación en Stocka WMS'
+                }
+              }
+            })
+          });
+          if (gqlRes.ok) {
+            const gqlData = await gqlRes.json();
+            const userErrors = gqlData?.data?.fulfillmentOrderReportProgress?.userErrors || [];
+            if (userErrors.length > 0) {
+              console.warn(`⚠️ [SetInProgress] Aviso GraphQL en FO ${fo.id}:`, JSON.stringify(userErrors));
+            } else {
+              console.log(`✅ [SetInProgress] FO ${fo.id} de orden ${shopifyOrderId} pasado nativamente a IN_PROGRESS ("En curso").`);
+            }
+          }
+        }
+      } else if (fulfillmentOrders.length > 0 && fulfillmentOrders.every(fo => fo.status === 'closed')) {
+        alreadyFulfilled = true;
       }
     }
-  } catch (tagErr) {
-    console.warn(`Aviso actualizando tags:`, tagErr.message);
+  } catch (foErr) {
+    console.warn(`Aviso al reportar progreso de FulfillmentOrder en orden ${shopifyOrderId}:`, foErr.message);
+  }
+
+  if (!alreadyFulfilled) {
+    try {
+      const orderRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags,fulfillment_status`, {
+        headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
+      });
+
+      if (orderRes.ok) {
+        const orderData = await orderRes.json();
+        if (orderData.order?.fulfillment_status === 'fulfilled') {
+          alreadyFulfilled = true;
+        } else {
+          const currentTags = orderData.order?.tags || '';
+          if (!currentTags.includes('Stocka: En Preparación')) {
+            const newTags = currentTags ? `${currentTags}, Stocka: En Preparación` : 'Stocka: En Preparación';
+            await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
+              method: 'PUT',
+              headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ order: { id: shopifyOrderId, tags: newTags } })
+            });
+            console.log(`Etiqueta 'Stocka: En Preparación' agregada a orden ${shopifyOrderId}`);
+          }
+        }
+      }
+    } catch (tagErr) {
+      console.warn(`Aviso actualizando tags:`, tagErr.message);
+    }
   }
 
   await supabase
     .from('orders')
     .update({
-      shopify_order_status: 'in_progress',
+      shopify_order_status: alreadyFulfilled ? 'fulfilled' : 'in_progress',
       shopify_status_updated_at: new Date().toISOString(),
       shopify_sync_last_error: null
     })
@@ -312,7 +388,7 @@ async function executeSetInProgress(item, integration) {
 
   await supabase
     .from('shopify_fulfillment_queue')
-    .update({ status: 'completed', processed_at: new Date().toISOString() })
+    .update({ status: 'completed', last_error: null, processed_at: new Date().toISOString() })
     .eq('id', item.id);
 }
 
@@ -320,10 +396,11 @@ async function executeSetReadyForPickup(item, integration) {
   const shop = integration.shop_url;
   const token = integration.access_token;
   const shopifyOrderId = item.shopify_order_id;
+  let alreadyFulfilled = false;
 
   try {
     const foUrl = `https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}/fulfillment_orders.json`;
-    const foRes = await fetch(foUrl, {
+    const foRes = await shopifyFetch(foUrl, {
       headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
     });
 
@@ -348,7 +425,7 @@ async function executeSetReadyForPickup(item, integration) {
           }
         `;
 
-        const gqlRes = await fetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
+        const gqlRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
           method: 'POST',
           headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -366,38 +443,46 @@ async function executeSetReadyForPickup(item, integration) {
             console.log(`✅ [ReadyForPickup] Orden ${shopifyOrderId} marcada nativamente como 'Listo para retirar' en Shopify.`);
           }
         }
+      } else if (fulfillmentOrders.length > 0 && fulfillmentOrders.every(fo => fo.status === 'closed')) {
+        alreadyFulfilled = true;
       }
     }
   } catch (foErr) {
     console.warn(`Aviso en executeSetReadyForPickup para orden ${shopifyOrderId}:`, foErr.message);
   }
 
-  try {
-    const orderRes = await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags`, {
-      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
-    });
+  if (!alreadyFulfilled) {
+    try {
+      const orderRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,tags,fulfillment_status`, {
+        headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
+      });
 
-    if (orderRes.ok) {
-      const orderData = await orderRes.json();
-      const currentTags = orderData.order?.tags || '';
-      if (!currentTags.includes('Stocka: Listo para Retiro')) {
-        const newTags = currentTags ? `${currentTags}, Stocka: Listo para Retiro` : 'Stocka: Listo para Retiro';
-        await fetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
-          method: 'PUT',
-          headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ order: { id: shopifyOrderId, tags: newTags } })
-        });
-        console.log(`Etiqueta 'Stocka: Listo para Retiro' agregada a orden ${shopifyOrderId}`);
+      if (orderRes.ok) {
+        const orderData = await orderRes.json();
+        if (orderData.order?.fulfillment_status === 'fulfilled') {
+          alreadyFulfilled = true;
+        } else {
+          const currentTags = orderData.order?.tags || '';
+          if (!currentTags.includes('Stocka: Listo para Retiro')) {
+            const newTags = currentTags ? `${currentTags}, Stocka: Listo para Retiro` : 'Stocka: Listo para Retiro';
+            await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
+              method: 'PUT',
+              headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ order: { id: shopifyOrderId, tags: newTags } })
+            });
+            console.log(`Etiqueta 'Stocka: Listo para Retiro' agregada a orden ${shopifyOrderId}`);
+          }
+        }
       }
+    } catch (tagErr) {
+      console.warn(`Aviso actualizando tags de retiro:`, tagErr.message);
     }
-  } catch (tagErr) {
-    console.warn(`Aviso actualizando tags de retiro:`, tagErr.message);
   }
 
   await supabase
     .from('orders')
     .update({
-      shopify_order_status: 'ready_for_pickup',
+      shopify_order_status: alreadyFulfilled ? 'fulfilled' : 'ready_for_pickup',
       shopify_status_updated_at: new Date().toISOString(),
       shopify_sync_last_error: null
     })
@@ -405,7 +490,7 @@ async function executeSetReadyForPickup(item, integration) {
 
   await supabase
     .from('shopify_fulfillment_queue')
-    .update({ status: 'completed', processed_at: new Date().toISOString() })
+    .update({ status: 'completed', last_error: null, processed_at: new Date().toISOString() })
     .eq('id', item.id);
 }
 
@@ -414,8 +499,12 @@ async function executeCreateFulfillment(item, integration) {
   const token = integration.access_token;
   const shopifyOrderId = item.shopify_order_id;
 
+  const cleanTrack = (item.tracking_number || '').trim();
+  const hasRealTracking = cleanTrack !== '' && cleanTrack.toUpperCase() !== 'N/A' && cleanTrack.toUpperCase() !== 'NO INFORMADO';
+  const hasTrackUrl = Boolean(item.tracking_url && item.tracking_url.startsWith('http'));
+
   const foUrl = `https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}/fulfillment_orders.json`;
-  const foRes = await fetch(foUrl, {
+  const foRes = await shopifyFetch(foUrl, {
     headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
   });
 
@@ -427,35 +516,126 @@ async function executeCreateFulfillment(item, integration) {
   const foData = await foRes.json();
   const fulfillmentOrders = foData.fulfillment_orders || [];
 
+  const onHoldOrders = fulfillmentOrders.filter(fo => fo.status === 'on_hold');
+  if (onHoldOrders.length > 0) {
+    for (const holdFo of onHoldOrders) {
+      try {
+        const releaseMutation = `
+          mutation fulfillmentOrderReleaseHold($id: ID!) {
+            fulfillmentOrderReleaseHold(id: $id) {
+              fulfillmentOrder { id status }
+              userErrors { field message }
+            }
+          }
+        `;
+        await shopifyFetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
+          method: 'POST',
+          headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: releaseMutation,
+            variables: { id: `gid://shopify/FulfillmentOrder/${holdFo.id}` }
+          })
+        });
+        holdFo.status = 'open';
+      } catch (_) {}
+    }
+  }
+
   const openFulfillmentOrders = fulfillmentOrders.filter(fo => fo.status === 'open' || fo.status === 'in_progress');
 
   if (openFulfillmentOrders.length === 0) {
-    const closedFo = fulfillmentOrders.find(fo => fo.status === 'closed' && fo.fulfillments && fo.fulfillments.length > 0);
-    if (closedFo && closedFo.fulfillments && closedFo.fulfillments.length > 0) {
-      const existingId = closedFo.fulfillments[0].id.toString();
-      console.log(`Orden ${shopifyOrderId} ya completada previamente con ID ${existingId}`);
+    const hasClosedFo = fulfillmentOrders.some(fo => fo.status === 'closed');
+    const allCancelledFo = fulfillmentOrders.length > 0 && fulfillmentOrders.every(fo => fo.status === 'cancelled');
+
+    let existingFulfillmentId = null;
+    let existingTrackingNumber = null;
+    let isOrderFulfilled = hasClosedFo;
+    let isOrderCancelled = allCancelledFo;
+
+    try {
+      const ordCheckRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}.json?fields=id,name,fulfillment_status,cancelled_at,fulfillments`, {
+        headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
+      });
+
+      if (ordCheckRes.ok) {
+        const ordCheckData = await ordCheckRes.json();
+        const ordObj = ordCheckData.order || {};
+        const activeFulfillments = (ordObj.fulfillments || []).filter(f => f.status !== 'cancelled');
+        if (activeFulfillments.length > 0) {
+          existingFulfillmentId = String(activeFulfillments[0].id);
+          existingTrackingNumber = activeFulfillments[0].tracking_number || null;
+          isOrderFulfilled = true;
+        } else if (ordObj.fulfillment_status === 'fulfilled') {
+          isOrderFulfilled = true;
+        }
+        if (ordObj.cancelled_at) {
+          isOrderCancelled = true;
+        }
+      } else if (ordCheckRes.status === 404) {
+        isOrderCancelled = true;
+      }
+    } catch (checkErr) {
+      console.warn(`Aviso verificando estado de orden cerrada ${shopifyOrderId}:`, checkErr.message);
+    }
+
+    if (isOrderFulfilled) {
+      const resolvedId = existingFulfillmentId || 'already_fulfilled';
+      console.log(`✅ Orden ${shopifyOrderId} ya se encontraba preparada en Shopify (fulfillment ID: ${resolvedId})`);
+
+      if (existingFulfillmentId && !existingTrackingNumber && (hasRealTracking || hasTrackUrl)) {
+        try {
+          const companyName = mapCourierToShopify(item.courier, item.operador);
+          const trackingInfo = { number: hasRealTracking ? cleanTrack : 'N/A', company: companyName };
+          if (hasTrackUrl) trackingInfo.url = item.tracking_url;
+          await shopifyFetch(`https://${shop}/admin/api/2024-04/fulfillments/${existingFulfillmentId}/update_tracking.json`, {
+            method: 'POST',
+            headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fulfillment: { tracking_info: trackingInfo, notify_customer: false } })
+          });
+        } catch (_) {}
+      }
+
       await supabase.from('orders').update({
-        shopify_fulfillment_id: existingId,
+        shopify_fulfillment_id: resolvedId,
         shopify_fulfillment_status: 'synced',
         shopify_order_status: 'fulfilled',
         shopify_status_updated_at: new Date().toISOString(),
         shopify_sync_last_error: null
       }).eq('id', item.order_id);
+
       await supabase.from('shopify_fulfillment_queue').update({
         status: 'completed',
-        shopify_fulfillment_id: existingId,
+        shopify_fulfillment_id: resolvedId,
+        last_error: null,
         processed_at: new Date().toISOString()
       }).eq('id', item.id);
-      return existingId;
+
+      return resolvedId;
     }
+
+    if (isOrderCancelled) {
+      console.log(`⚠️ Orden ${shopifyOrderId} se encuentra cancelada/eliminada en Shopify.`);
+      await supabase.from('orders').update({
+        shopify_order_status: 'cancelled',
+        shopify_fulfillment_status: null,
+        shopify_status_updated_at: new Date().toISOString(),
+        shopify_sync_last_error: null
+      }).eq('id', item.order_id);
+
+      await supabase.from('shopify_fulfillment_queue').update({
+        status: 'completed',
+        last_error: 'Pedido cancelado en Shopify',
+        processed_at: new Date().toISOString()
+      }).eq('id', item.id);
+
+      return 'cancelled';
+    }
+
     throw new Error(`No hay fulfillment_orders abiertos o en progreso para orden ${shopifyOrderId}`);
   }
 
   const lineItemsByFulfillmentOrder = openFulfillmentOrders.map(fo => ({ fulfillment_order_id: fo.id }));
   const notifyCustomer = integration.notify_customer_on_fulfillment !== false;
-  const cleanTrack = (item.tracking_number || '').trim();
-  const hasRealTracking = cleanTrack !== '' && cleanTrack.toUpperCase() !== 'N/A' && cleanTrack.toUpperCase() !== 'NO INFORMADO';
-  const hasTrackUrl = Boolean(item.tracking_url && item.tracking_url.startsWith('http'));
 
   const fulfillmentObj = {
     line_items_by_fulfillment_order: lineItemsByFulfillmentOrder,
@@ -477,7 +657,7 @@ async function executeCreateFulfillment(item, integration) {
 
   console.log(`Enviando fulfillment a Shopify para orden ${shopifyOrderId}:`, JSON.stringify(fulfillmentPayload));
 
-  const createRes = await fetch(`https://${shop}/admin/api/2024-04/fulfillments.json`, {
+  const createRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/fulfillments.json`, {
     method: 'POST',
     headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
     body: JSON.stringify(fulfillmentPayload)
@@ -502,6 +682,7 @@ async function executeCreateFulfillment(item, integration) {
   await supabase.from('shopify_fulfillment_queue').update({
     status: 'completed',
     shopify_fulfillment_id: fulfillmentId,
+    last_error: null,
     processed_at: new Date().toISOString()
   }).eq('id', item.id);
 
@@ -544,7 +725,7 @@ async function executeUpdateTracking(item, integration) {
     trackingInfo.url = item.tracking_url;
   }
 
-  const updateRes = await fetch(`https://${shop}/admin/api/2024-04/fulfillments/${fulfillmentId}/update_tracking.json`, {
+  const updateRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/fulfillments/${fulfillmentId}/update_tracking.json`, {
     method: 'POST',
     headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ fulfillment: { tracking_info: trackingInfo, notify_customer: notifyCustomer } })
@@ -566,11 +747,27 @@ async function executeUpdateTracking(item, integration) {
   await supabase.from('shopify_fulfillment_queue').update({
     status: 'completed',
     shopify_fulfillment_id: fulfillmentId,
+    last_error: null,
     processed_at: new Date().toISOString()
   }).eq('id', item.id);
 
   console.log(`✅ Tracking actualizado en Shopify para fulfillment ID ${fulfillmentId}`);
 }
 
-// Ejecutar worker
-processQueue();
+// Ejecutar worker en lotes hasta vaciar la cola pendiente
+async function drainQueue() {
+  for (let batch = 1; batch <= 15; batch++) {
+    const { count } = await supabase
+      .from('shopify_fulfillment_queue')
+      .select('id', { count: 'exact', head: true })
+      .in('status', ['pending', 'processing']);
+    if (!count || count === 0) {
+      console.log('🎉 Cola de Shopify completamente sincronizada (0 pendientes).');
+      break;
+    }
+    console.log(`\n=== LOTE ${batch} (Pendientes restantes: ${count}) ===`);
+    await processQueue();
+  }
+}
+
+drainQueue();

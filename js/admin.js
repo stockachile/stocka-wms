@@ -2332,6 +2332,140 @@ window.getShopifyOrderStatusMeta = function(state) {
   }
 };
 
+// Mapa global en memoria del estado de integración bidireccional de Shopify por comercio
+window.shopifyMerchantIntegrationsMap = window.shopifyMerchantIntegrationsMap || null;
+window._shopifyIntegrationsLoadingPromise = null;
+
+window.ensureShopifyIntegrationsMapLoaded = async function(force = false) {
+  if (window.shopifyMerchantIntegrationsMap && !force) {
+    return window.shopifyMerchantIntegrationsMap;
+  }
+  if (window._shopifyIntegrationsLoadingPromise && !force) {
+    return window._shopifyIntegrationsLoadingPromise;
+  }
+  window._shopifyIntegrationsLoadingPromise = (async () => {
+    try {
+      const { data, error } = await supabase
+        .from('merchant_integrations')
+        .select('id, comercio, platform, shop_url, is_active, sync_tracking_enabled, sync_intermediate_statuses, notify_customer_on_fulfillment, granted_scopes')
+        .eq('platform', 'Shopify');
+      if (!error && Array.isArray(data)) {
+        const map = {};
+        data.forEach(row => {
+          const key = String(row.comercio || '').trim().toUpperCase();
+          if (key) map[key] = row;
+        });
+        window.shopifyMerchantIntegrationsMap = map;
+        if (typeof window.refreshRenderedShopifyBidirBadges === 'function') {
+          window.refreshRenderedShopifyBidirBadges();
+        }
+      }
+    } catch (e) {
+      console.warn('[Shopify Bidir Meta] Error cargando merchant_integrations:', e);
+    } finally {
+      window._shopifyIntegrationsLoadingPromise = null;
+    }
+    return window.shopifyMerchantIntegrationsMap || {};
+  })();
+  return window._shopifyIntegrationsLoadingPromise;
+};
+
+window.getShopifyBidirStatusMeta = function(comercio) {
+  const key = String(comercio || '').trim().toUpperCase();
+  if (!window.shopifyMerchantIntegrationsMap) {
+    window.ensureShopifyIntegrationsMapLoaded();
+    return {
+      status: 'loading',
+      label: 'BIDIRECCIÓN: VERIFICANDO...',
+      shortLabel: 'Verificando...',
+      color: '#64748b',
+      bg: '#f1f5f9',
+      border: '#cbd5e1',
+      icon: 'ri-loader-4-line',
+      title: 'Consultando configuración de sincronización bidireccional del comercio...'
+    };
+  }
+
+  const integ = key ? window.shopifyMerchantIntegrationsMap[key] : null;
+  if (!integ || integ.is_active === false) {
+    return {
+      status: 'inactive',
+      label: 'BIDIRECCIÓN: NO ACTIVADA',
+      shortLabel: 'Sin Bidirección',
+      color: '#64748b',
+      bg: '#f1f5f9',
+      border: '#cbd5e1',
+      icon: 'ri-forbid-2-line',
+      title: `El comercio ${comercio || ''} no tiene una integración bidireccional activa con Shopify.`
+    };
+  }
+
+  const scopes = Array.isArray(integ.granted_scopes) ? integ.granted_scopes : [];
+  const hasFulfillScope = scopes.includes('write_fulfillments');
+  const hasFoScope = scopes.includes('write_merchant_managed_fulfillment_orders');
+  const isBidirEnabled = integ.sync_tracking_enabled === true;
+
+  if (isBidirEnabled && hasFulfillScope && hasFoScope) {
+    return {
+      status: 'active',
+      label: 'BIDIRECCIÓN: ACTIVA',
+      shortLabel: 'Bidirección Activa',
+      color: '#059669',
+      bg: '#d1fae5',
+      border: '#6ee7b7',
+      icon: 'ri-arrow-left-right-line',
+      title: `Sincronización bidireccional ACTIVA (${integ.shop_url || comercio}). Permisos completos: write_fulfillments + write_merchant_managed_fulfillment_orders.`
+    };
+  }
+
+  if (isBidirEnabled || hasFulfillScope) {
+    const missing = [];
+    if (!hasFulfillScope) missing.push('write_fulfillments');
+    if (!hasFoScope) missing.push('write_merchant_managed_fulfillment_orders');
+    return {
+      status: 'needs_reauth',
+      label: 'BIDIRECCIÓN: PERMISOS PENDIENTES',
+      shortLabel: 'Permisos Pendientes',
+      color: '#d97706',
+      bg: '#fef3c7',
+      border: '#fcd34d',
+      icon: 'ri-error-warning-line',
+      title: `El comercio ${comercio || ''} (${integ.shop_url || ''}) aún debe autorizar los permisos actualizados en Shopify (${missing.join(', ') || 'activar retorno'}).`
+    };
+  }
+
+  return {
+    status: 'inactive',
+    label: 'BIDIRECCIÓN: NO ACTIVADA',
+    shortLabel: 'Sin Bidirección',
+    color: '#64748b',
+    bg: '#f1f5f9',
+    border: '#cbd5e1',
+    icon: 'ri-forbid-2-line',
+    title: `El comercio ${comercio || ''} (${integ.shop_url || ''}) aún no ha activado la actualización de comunicación bidireccional con Shopify (solo lectura de pedidos).`
+  };
+};
+
+window.renderShopifyBidirBadgeHtml = function(comercio) {
+  const meta = window.getShopifyBidirStatusMeta(comercio);
+  const safeComercio = String(comercio || '').replace(/"/g, '&quot;');
+  const safeTitle = String(meta.title || '').replace(/"/g, '&quot;');
+  return `<span class="badge wms-shopify-bidir-badge" data-comercio="${safeComercio}" style="background-color: ${meta.bg}; color: ${meta.color}; border: 1px solid ${meta.border}; font-size: 0.66rem; font-weight: 700; padding: 0.08rem 0.42rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; text-transform: uppercase; letter-spacing: 0.2px; cursor: help;" title="${safeTitle}"><i class="${meta.icon}" style="font-size: 0.76rem;"></i> ${meta.label}</span>`;
+};
+
+window.refreshRenderedShopifyBidirBadges = function() {
+  const badges = document.querySelectorAll('.wms-shopify-bidir-badge[data-comercio]');
+  badges.forEach(el => {
+    const comercio = el.getAttribute('data-comercio') || '';
+    const meta = window.getShopifyBidirStatusMeta(comercio);
+    el.style.backgroundColor = meta.bg;
+    el.style.color = meta.color;
+    el.style.borderColor = meta.border;
+    el.setAttribute('title', meta.title || '');
+    el.innerHTML = `<i class="${meta.icon}" style="font-size: 0.76rem;"></i> ${meta.label}`;
+  });
+};
+
 // Helper global para extraer y dar estilo al estado de la plataforma origen del pedido
 window.getOriginalPlatformStatus = function(order) {
   if (!order) return null;
@@ -4446,8 +4580,9 @@ window.generarEtiquetaLightData = async function(orderId, btn) {
       });
     }
     window.applyWmsFiltersAndRender();
-
-    // 4. Disparar Edge Function para generar etiqueta en LightData
+    if (typeof window.triggerShopifyFulfillmentSync === 'function') {
+      window.triggerShopifyFulfillmentSync([orderId]);
+    }
     await window.fetchWmsEdgeFunction('trigger-lightdata-label', {
       method: 'POST',
       body: JSON.stringify({ mode: 'individual', orderId: orderId })
@@ -4788,6 +4923,9 @@ window.bulkCreateLightDataLabels = async function(btn) {
     }
 
     window.applyWmsFiltersAndRender();
+    if (typeof window.triggerShopifyFulfillmentSync === 'function') {
+      window.triggerShopifyFulfillmentSync(targetOrderIds);
+    }
 
     // Filtrar pedidos secundarios consolidados para no emitir etiqueta duplicada en LightData
     const labelTargetOrderIds = targetOrderIds.filter(id => {
@@ -5037,6 +5175,9 @@ window.bulkExportAlphaExcel = async function(btn = null) {
       }
 
       window.applyWmsFiltersAndRender();
+      if (typeof window.triggerShopifyFulfillmentSync === 'function') {
+        window.triggerShopifyFulfillmentSync(selectedOrders.map(o => o.id));
+      }
     }
     // 3. Estructurar columnas del Excel oficial (FORMATO ALPHA)
     const headers = [
@@ -7918,6 +8059,10 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
         }
       } catch (e) {
         console.error("Error loading enviame configs mapping:", e);
+      }
+
+      if (typeof window.ensureShopifyIntegrationsMapLoaded === 'function') {
+        window.ensureShopifyIntegrationsMapLoaded(true);
       }
       
       let selectStr = `
@@ -15589,9 +15734,10 @@ window.applyWmsFiltersAndRender = function() {
                 
                 <!-- Grupo 1: Origen de la Orden (Compacto) -->
                 <div style="background: var(--color-bg); padding: 0.6rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.35rem;">
-                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
                     <span style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-instance-line" style="font-size: 0.85rem;"></i> Plataforma:</span>
-                    <div style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                    <div style="display: inline-flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; justify-content: flex-end;">
+                      ${(origStatus?.platform === 'Shopify' || isRealShopifyRow) && typeof window.renderShopifyBidirBadgeHtml === 'function' ? window.renderShopifyBidirBadgeHtml(order.comercio) : ''}
                       <span>${originHtml}</span>
                       <span style="font-family: monospace; font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); background: var(--color-surface); padding: 0.08rem 0.38rem; border-radius: 4px; border: 1px solid var(--color-border);" title="ID Pedido en plataforma">${order.external_order_number || '-'}</span>
                     </div>
@@ -45550,6 +45696,7 @@ async function renderNotificationsAdmin() {
       window.adminCalendarState = { currentDate: new Date(), selectedDateStr: null, events: [] };
     }
     window.adminCalendarState.events = events || [];
+    window._operationalCalendarEventsCache = events || [];
 
     const gridContainer = document.getElementById('admin-calendar-grid-container');
     const listContainer = document.getElementById('admin-calendar-list-container');
@@ -47449,7 +47596,7 @@ window.buildGroupedBillingPeriodsOptionsHtml = function(rawPeriods, currentVal =
 
   const groupsMap = new Map();
   sorted.forEach(item => {
-    const groupKey = item.year ? `📅 Año ${item.year}` : '📅 Otros Periodos';
+    const groupKey = item.year ? `Año ${item.year}` : 'Otros Periodos';
     if (!groupsMap.has(groupKey)) {
       groupsMap.set(groupKey, []);
     }
@@ -47595,8 +47742,30 @@ window.changeDeclarationBillingPeriod = async function(declarationId, currentVal
 window._adminDeclarationsCache = null;
 window.selectedDeclarationIds = window.selectedDeclarationIds || new Set();
 window._adminFilteredDeclarations = window._adminFilteredDeclarations || [];
+window.adminDeclarationLayoutMode = localStorage.getItem('wms_admin_dec_layout_mode_v2') || 'cards';
 
-function buildDeclarationRowHtml(dec) {
+window.setAdminDeclarationLayoutMode = function(mode) {
+  const validMode = mode === 'table' ? 'table' : 'cards';
+  window.adminDeclarationLayoutMode = validMode;
+  try {
+    localStorage.setItem('wms_admin_dec_layout_mode_v2', validMode);
+  } catch (_) {}
+
+  const btnTable = document.getElementById('btn-dec-layout-table');
+  const btnCards = document.getElementById('btn-dec-layout-cards');
+  if (btnTable) {
+    btnTable.style.background = validMode === 'table' ? 'var(--color-primary)' : 'transparent';
+    btnTable.style.color = validMode === 'table' ? '#ffffff' : 'var(--color-text-muted)';
+  }
+  if (btnCards) {
+    btnCards.style.background = validMode === 'cards' ? 'var(--color-primary)' : 'transparent';
+    btnCards.style.color = validMode === 'cards' ? '#ffffff' : 'var(--color-text-muted)';
+  }
+
+  window.filterAndRenderDeclarationsAdminTable();
+};
+
+function buildDeclarationViewData(dec) {
   const isSelected = window.selectedDeclarationIds && window.selectedDeclarationIds.has(dec.id);
   const isPrinted = dec.is_printed === true ||
                     dec.is_printed === 'true' ||
@@ -47604,29 +47773,45 @@ function buildDeclarationRowHtml(dec) {
                     localStorage.getItem(`wms_dec_printed_${dec.id}`) === 'true';
 
   let statusBadge = '';
+  let stepPct = 20;
+  let stepColor = '#64748b';
   switch (dec.status) {
     case 'Creada':
-      statusBadge = '<span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text);">Creada</span>';
+      statusBadge = '<span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text); font-weight: 700;">1. Creada</span>';
+      stepPct = 20;
+      stepColor = '#3b82f6';
       break;
     case 'Bodega Asignada':
-      statusBadge = '<span class="badge" style="background-color: rgba(37, 99, 235, 0.1); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.2);">Bodega Asignada</span>';
+      statusBadge = '<span class="badge" style="background-color: rgba(37, 99, 235, 0.12); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.25); font-weight: 700;">2. Bodega Asignada</span>';
+      stepPct = 40;
+      stepColor = '#7c3aed';
       break;
     case 'En Recepción - Pendiente Conteo':
-      statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text);">Pendiente Conteo</span>';
+      statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text); font-weight: 700;">3. En Recepción</span>';
+      stepPct = 60;
+      stepColor = '#d97706';
       break;
     case 'En proceso de conteo/clasificación':
       statusBadge = dec.parallel_count
         ? '<span class="badge" style="background-color: rgba(95, 6, 250, 0.15); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.35); font-weight: 700;"><i class="ri-refresh-line" style="animation: spin 3s linear infinite;"></i> Conteo en Paralelo</span>'
-        : '<span class="badge animate-pulse" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
+        : '<span class="badge animate-pulse" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 700;">4. En Conteo</span>';
+      stepPct = 80;
+      stepColor = dec.parallel_count ? '#5f06fa' : '#ea580c';
       break;
     case 'Recepción Parcial':
-      statusBadge = '<span class="badge" style="background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 600;"><i class="ri-pie-chart-2-line"></i> Recepción Parcial</span>';
+      statusBadge = '<span class="badge" style="background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 700;"><i class="ri-pie-chart-2-line"></i> Recepción Parcial</span>';
+      stepPct = 85;
+      stepColor = '#0284c7';
       break;
     case 'Recibido Conforme':
-      statusBadge = '<span class="badge" style="background-color: var(--badge-success-bg); color: var(--badge-success-text);">Recibido Conforme</span>';
+      statusBadge = '<span class="badge" style="background-color: var(--badge-success-bg); color: var(--badge-success-text); font-weight: 700;">5. Recibido Conforme</span>';
+      stepPct = 100;
+      stepColor = '#10b981';
       break;
     case 'Recibido con Incidencias':
-      statusBadge = '<span class="badge" style="background-color: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid rgba(239, 68, 68, 0.3);">Recibido con Incidencias</span>';
+      statusBadge = '<span class="badge" style="background-color: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid rgba(239, 68, 68, 0.3); font-weight: 700;">5. Con Incidencias</span>';
+      stepPct = 100;
+      stepColor = '#ef4444';
       break;
     default:
       statusBadge = `<span class="badge badge-neutral">${dec.status}</span>`;
@@ -47640,22 +47825,25 @@ function buildDeclarationRowHtml(dec) {
     etaText = dec.estimated_arrival_period || '—';
   }
 
-  let qtyReceivedText = '—';
-  if (['Recibido Conforme', 'Recibido con Incidencias', 'Recepción Parcial', 'En proceso de conteo/clasificación', 'En Recepción - Pendiente Conteo'].indexOf(dec.status) !== -1) {
-    const incColor = dec.quantity_incidents > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)';
-    const declared = parseInt(dec.quantity_declared, 10) || 0;
-    const received = parseInt(dec.quantity_received, 10) || 0;
-    const pending = Math.max(0, declared - received);
-    const pendingHtml = (dec.status === 'Recepción Parcial' && pending > 0)
-      ? `<br><span style="font-size: 0.75rem; color: #d97706; font-weight: 600;">Pendiente: <strong>${pending}</strong></span>`
-      : '';
-    qtyReceivedText = `
-      <div style="font-size: 0.85rem;">
-        <span>Recibido: <strong>${received}</strong> / ${declared}</span>
-        ${pendingHtml}
-        ${dec.quantity_incidents > 0 ? `<br><span style="font-size: 0.75rem; color: ${incColor};">Incidencias: <strong>${dec.quantity_incidents}</strong></span>` : ''}
-      </div>
+  const declared = parseInt(dec.quantity_declared, 10) || 0;
+  const received = parseInt(dec.quantity_received, 10) || 0;
+  const hasReceptionStarted = ['Recibido Conforme', 'Recibido con Incidencias', 'Recepción Parcial', 'En proceso de conteo/clasificación', 'En Recepción - Pendiente Conteo'].indexOf(dec.status) !== -1;
+
+  let qtyProgressBadgeHtml = `<span style="background: rgba(37, 99, 235, 0.1); color: var(--color-primary); font-weight: 800; font-size: 0.76rem; padding: 2px 7px; border-radius: 5px;">${declared.toLocaleString('es-CL')} uds decl.</span>`;
+  if (hasReceptionStarted) {
+    const isOk = received >= declared && (dec.quantity_incidents || 0) === 0 && dec.status === 'Recibido Conforme';
+    qtyProgressBadgeHtml += `
+      <span style="background: ${isOk ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.14)'}; color: ${isOk ? '#059669' : '#b45309'}; font-weight: 700; font-size: 0.74rem; padding: 2px 7px; border-radius: 5px;">
+        Rec: <strong>${received.toLocaleString('es-CL')}</strong>/${declared.toLocaleString('es-CL')}
+      </span>
     `;
+    if ((dec.quantity_incidents || 0) > 0) {
+      qtyProgressBadgeHtml += `
+        <span style="background: rgba(239, 68, 68, 0.12); color: var(--color-danger); font-weight: 700; font-size: 0.72rem; padding: 2px 6px; border-radius: 5px; display: inline-flex; align-items: center; gap: 3px;">
+          <i class="ri-error-warning-line"></i> Inc: ${dec.quantity_incidents}
+        </span>
+      `;
+    }
   }
 
   const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
@@ -47666,21 +47854,21 @@ function buildDeclarationRowHtml(dec) {
   const assignedPeriod = dec.periodo_facturacion || (dec.billing_notes && dec.billing_notes.match(/Periodo:\s*([^,\n]+)/i)?.[1]?.trim()) || '';
   const billingBadgeHtml = isBilled
     ? `<button type="button" class="btn-billing-toggle" onclick="window.toggleDeclarationBillingStatus('${dec.id}', 'Facturado')" style="background: none; border: none; padding: 0; cursor: pointer; text-align: left;" title="Facturado. Clic para alternar a Pendiente">
-         <span class="badge" style="background-color: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.75rem; padding: 3px 8px; border-radius: 5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
-           <i class="ri-checkbox-circle-fill" style="font-size: 0.85rem;"></i> Facturado
+         <span class="badge" style="background-color: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.72rem; padding: 2px 7px; border-radius: 5px; font-weight: 700; display: inline-flex; align-items: center; gap: 3px; cursor: pointer;">
+           <i class="ri-checkbox-circle-fill" style="font-size: 0.8rem;"></i> Facturado
          </span>
        </button>`
     : `<button type="button" class="btn-billing-toggle" onclick="window.toggleDeclarationBillingStatus('${dec.id}', 'Pendiente')" style="background: none; border: none; padding: 0; cursor: pointer; text-align: left;" title="Pendiente de facturación. Clic para marcar como Facturado">
-         <span class="badge" style="background-color: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.75rem; padding: 3px 8px; border-radius: 5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
-           <i class="ri-time-line" style="font-size: 0.85rem;"></i> Pendiente
+         <span class="badge" style="background-color: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.72rem; padding: 2px 7px; border-radius: 5px; font-weight: 700; display: inline-flex; align-items: center; gap: 3px; cursor: pointer;">
+           <i class="ri-time-line" style="font-size: 0.8rem;"></i> Pendiente
          </span>
        </button>`;
 
   const periodBadgeHtml = assignedPeriod
-    ? `<button type="button" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '${assignedPeriod.replace(/'/g, "\\'")}')" style="margin-top: 4px; display: inline-flex; align-items: center; gap: 4px; background: rgba(95, 6, 250, 0.08); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.25); border-radius: 5px; padding: 2px 7px; font-size: 0.72rem; font-weight: 700; cursor: pointer; text-align: left;" title="Periodo asignado. Clic para cambiar">
+    ? `<button type="button" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '${assignedPeriod.replace(/'/g, "\\'")}')" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(95, 6, 250, 0.08); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.25); border-radius: 5px; padding: 2px 7px; font-size: 0.71rem; font-weight: 700; cursor: pointer; text-align: left; white-space: nowrap;" title="Periodo asignado. Clic para cambiar">
          <i class="ri-calendar-event-line"></i> ${assignedPeriod}
        </button>`
-    : `<button type="button" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '')" style="margin-top: 4px; display: inline-flex; align-items: center; gap: 3px; background: var(--color-surface); color: var(--color-text-muted); border: 1px dashed var(--color-border); border-radius: 5px; padding: 2px 6px; font-size: 0.7rem; font-weight: 500; cursor: pointer;" title="Asignar este ingreso a un periodo de facturación">
+    : `<button type="button" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '')" style="display: inline-flex; align-items: center; gap: 3px; background: var(--color-surface); color: var(--color-text-muted); border: 1px dashed var(--color-border); border-radius: 5px; padding: 2px 6px; font-size: 0.7rem; font-weight: 600; cursor: pointer; white-space: nowrap;" title="Asignar este ingreso a un periodo de facturación">
          <i class="ri-calendar-2-line"></i> Asignar Periodo
        </button>`;
 
@@ -47699,171 +47887,331 @@ function buildDeclarationRowHtml(dec) {
   const creatorEmail = dec.created_by_email || firstHist?.created_by_email || firstHist?.user_email || '';
   const dateFormatted = `${new Date(dec.created_at).toLocaleDateString('es-CL')} ${new Date(dec.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}`;
 
-  const creatorTraceabilityHtml = isAdminCreated
-    ? `
-      <div style="margin-top: 4px; display: inline-flex; align-items: center; gap: 4px; background: rgba(99, 102, 241, 0.12); color: #4338ca; border: 1px solid rgba(99, 102, 241, 0.28); border-radius: 4px; padding: 2px 6px; font-size: 0.68rem; font-weight: 700;" title="Ingreso creado por Administración: ${creatorName} ${creatorEmail ? `(${creatorEmail})` : ''}">
-        <i class="ri-shield-user-fill" style="color: #6366f1;"></i> Creado por Admin: ${creatorName}
+  const isPhysicalWh = dec.warehouses && !(typeof window.isVirtualOrCentralWarehouse === 'function' && window.isVirtualOrCentralWarehouse(dec.warehouses));
+  const warehouseButtonHtml = isPhysicalWh
+    ? `<button type="button" onclick="window.openChangeDeclarationWarehouseModal('${dec.id}')" style="background: rgba(124, 58, 237, 0.09); border: 1px solid rgba(124, 58, 237, 0.28); border-radius: 6px; padding: 2px 8px; font-size: 0.73rem; color: #7c3aed; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; text-align: left; white-space: nowrap;" title="Sucursal asignada: ${dec.warehouses.name}. Clic para cambiar sucursal y notificar al comercio">
+         <i class="ri-map-pin-2-fill"></i> ${dec.warehouses.name} <i class="ri-arrow-left-right-line" style="font-size: 0.7rem; opacity: 0.8;"></i>
+       </button>`
+    : `<button type="button" onclick="window.openChangeDeclarationWarehouseModal('${dec.id}')" style="background: rgba(245, 158, 11, 0.08); border: 1px dashed rgba(245, 158, 11, 0.55); border-radius: 6px; padding: 2px 8px; font-size: 0.72rem; color: #b45309; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;" title="Asignar sucursal física de destino y notificar al comercio">
+         <i class="ri-building-2-line"></i> Asignar Sucursal
+       </button>`;
+
+  const actionMenuHtml = `
+    <div class="table-action-menu">
+      <button class="table-action-menu-btn" onclick="toggleTableActionMenu(event, this)" style="height: 30px; padding: 0 8px; font-size: 0.75rem;">
+        <i class="ri-more-2-fill"></i> Acciones
+      </button>
+      <div class="table-action-menu-content">
+        <button class="table-action-menu-item" onclick="window.toggleDeclarationPrintedStatus('${dec.id}', ${isPrinted})">
+          <i class="${isPrinted ? 'ri-checkbox-circle-fill' : 'ri-printer-line'}" style="color: ${isPrinted ? 'var(--color-success)' : 'var(--color-primary)'};"></i> ${isPrinted ? 'Marcar como Sin Imprimir' : 'Marcar como Impreso'}
+        </button>
+        <button class="table-action-menu-item" onclick="window.viewDeclarationProducts('${dec.id}')">
+          <i class="ri-eye-line" style="color: var(--color-primary);"></i> Ver Productos
+        </button>
+        <button class="table-action-menu-item" onclick="window.editDeclarationAdmin('${dec.id}')" style="color: var(--color-primary); font-weight: 600;" title="Editar datos declarados, bultos y productos">
+          <i class="ri-edit-box-line" style="color: var(--color-primary);"></i> Editar Ingreso
+        </button>
+        <button class="table-action-menu-item" onclick="window.openChangeDeclarationWarehouseModal('${dec.id}')" style="color: #7c3aed; font-weight: 600;" title="Asignar o cambiar la sucursal de destino y notificar al comercio">
+          <i class="ri-building-2-line" style="color: #7c3aed;"></i> Cambiar Sucursal / Bodega
+        </button>
+        <button class="table-action-menu-item" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '${assignedPeriod.replace(/'/g, "\\'")}')">
+          <i class="ri-calendar-check-line" style="color: #5f06fa;"></i> Asignar Periodo Facturación
+        </button>
+        <button class="table-action-menu-item" onclick="window.toggleDeclarationBillingStatus('${dec.id}', '${billingStatus}')">
+          <i class="ri-money-dollar-circle-line" style="color: var(--color-success);"></i> ${isBilled ? 'Marcar como Pendiente' : 'Marcar como Facturado'}
+        </button>
+        <button class="table-action-menu-item" onclick="window.exportDeclarationOperationsPDF('${dec.id}')" title="Hoja de recepción operativa para bodega">
+          <i class="ri-file-list-3-line" style="color: var(--color-success);"></i> PDF Operaciones
+        </button>
+        <button class="table-action-menu-item" onclick="window.exportDeclarationToPDF('${dec.id}')" title="Comprobante general del ingreso">
+          <i class="ri-file-pdf-line" style="color: var(--color-primary);"></i> Comprobante PDF
+        </button>
+        <button class="table-action-menu-item" onclick="downloadBase64File('${dec.file_base64}', '${dec.file_name}')">
+          <i class="ri-file-excel-2-line" style="color: var(--color-success);"></i> Planilla
+        </button>
+        <button class="table-action-menu-item" onclick="manageDeclaration('${dec.id}')">
+          <i class="ri-settings-4-line" style="color: var(--color-primary);"></i> Gestionar
+        </button>
+        ${['Recibido Conforme', 'Recibido con Incidencias'].indexOf(dec.status) === -1 ? `
+        <button class="table-action-menu-item danger" onclick="deleteDeclarationAdmin('${dec.id}')">
+          <i class="ri-delete-bin-line"></i> Eliminar
+        </button>
+        ` : ''}
       </div>
-      <div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px;">
-        <i class="ri-calendar-line" style="font-size: 0.72rem;"></i> ${dateFormatted}
-      </div>
-    `
-    : `
-      <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px; display: flex; align-items: center; gap: 3px;" title="Declarado por el comercio: ${creatorName} ${creatorEmail ? `(${creatorEmail})` : ''}">
-        <i class="ri-user-line" style="font-size: 0.75rem;"></i>
-        <span>${creatorName} (${dateFormatted})</span>
-      </div>
-    `;
+    </div>
+  `;
+
+  return {
+    isSelected,
+    isPrinted,
+    statusBadge,
+    stepPct,
+    stepColor,
+    etaText,
+    declared,
+    received,
+    hasReceptionStarted,
+    qtyProgressBadgeHtml,
+    hasAdminEdit,
+    billingStatus,
+    isBilled,
+    assignedPeriod,
+    billingBadgeHtml,
+    periodBadgeHtml,
+    isAdminCreated,
+    creatorName,
+    creatorEmail,
+    dateFormatted,
+    warehouseButtonHtml,
+    actionMenuHtml
+  };
+}
+
+// PROPUESTA A: Fila de Tabla Consolidada de 6 Columnas (+ Checkbox) Sin Scroll Horizontal
+function buildDeclarationRowHtml(dec) {
+  const v = buildDeclarationViewData(dec);
+  const shortCode = `#ING-${dec.id.substring(0, 8).toUpperCase()}`;
+  const confirmedVolStr = (dec.status !== 'Creada' && dec.status !== 'Bodega Asignada')
+    ? `${dec.volume_confirmed || 0} m³`
+    : '—';
+  const realCostStr = (dec.real_cost !== null && dec.real_cost !== undefined && dec.real_cost > 0)
+    ? `${dec.real_cost.toFixed(4)} UF`
+    : '—';
 
   return `
-    <tr id="admin-dec-row-${dec.id}" style="transition: background-color 0.2s; ${isSelected ? 'background-color: rgba(95, 6, 250, 0.05);' : ''}">
-      <td style="text-align: center; width: 38px; vertical-align: middle;">
-        <input type="checkbox" class="admin-dec-row-checkbox" data-dec-id="${dec.id}" ${isSelected ? 'checked' : ''} onchange="window.toggleDeclarationRowSelection('${dec.id}', this.checked)" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-primary);">
+    <tr id="admin-dec-row-${dec.id}" style="transition: background-color 0.2s; ${v.isSelected ? 'background-color: rgba(95, 6, 250, 0.05);' : ''}">
+      <td style="text-align: center; width: 36px; vertical-align: middle; padding: 0.75rem 0.5rem;">
+        <input type="checkbox" class="admin-dec-row-checkbox" data-dec-id="${dec.id}" ${v.isSelected ? 'checked' : ''} onchange="window.toggleDeclarationRowSelection('${dec.id}', this.checked)" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-primary);">
       </td>
-      <td style="font-weight: 600; color: var(--color-primary);">
-        ${dec.comercio || 'no asignado'}
-        <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px;">
-          ${dec.profiles?.company_name || 'Desconocido'}
-        </div>
-        ${creatorTraceabilityHtml}
-      </td>
-      <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">
-        <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 2px;">
-          <span style="font-weight: 700; font-family: monospace; font-size: 0.72rem; background: rgba(5, 150, 105, 0.1); border: 1px solid rgba(5, 150, 105, 0.3); padding: 1px 6px; border-radius: 4px; color: #059669;" title="Código Único de Ingreso">#ING-${dec.id.substring(0, 8).toUpperCase()}</span>
-          ${isPrinted ? `
+
+      <!-- Col 1: Ingreso & Comercio Consolidado -->
+      <td style="vertical-align: top; padding: 0.75rem 0.85rem; min-width: 220px;">
+        <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
+          <span style="font-weight: 800; font-family: monospace; font-size: 0.72rem; background: rgba(5, 150, 105, 0.1); border: 1px solid rgba(5, 150, 105, 0.3); padding: 1px 6px; border-radius: 4px; color: #059669;" title="Código Único de Ingreso">${shortCode}</span>
+          <span style="font-weight: 800; font-size: 0.8rem; color: var(--color-primary); text-transform: uppercase; letter-spacing: -0.01em;">${dec.comercio || 'Sin Comercio'}</span>
+          ${v.isPrinted ? `
             <button type="button" onclick="window.toggleDeclarationPrintedStatus('${dec.id}', true)" style="background: none; border: none; padding: 0; cursor: pointer; display: inline-flex; align-items: center;" title="Marcado como Impreso. Clic para desmarcar">
-              <span class="badge" style="background: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.68rem; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px; font-weight: 700;">
-                <i class="ri-printer-fill" style="font-size: 0.75rem;"></i> Impreso
+              <span class="badge" style="background: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.66rem; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 2px; font-weight: 700;">
+                <i class="ri-printer-fill"></i> Impreso
               </span>
             </button>
           ` : ''}
         </div>
-        <div style="font-weight: 600;">${dec.title}</div>
-        ${dec.parallel_count ? `
-        <div style="margin-top: 3px;">
-          <span class="badge" style="background: rgba(95, 6, 250, 0.12); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.3); font-size: 0.68rem; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; font-weight: 700;">
-            <i class="ri-refresh-line" style="animation: spin 3s linear infinite;"></i> Conteo en Paralelo (Stock Ingresado)
-          </span>
+        <div style="font-weight: 700; font-size: 0.88rem; color: var(--color-text-main); line-height: 1.25;">${dec.title}</div>
+        <div style="font-size: 0.71rem; color: var(--color-text-muted); margin-top: 0.25rem; display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;" title="${v.creatorName} ${v.creatorEmail ? `(${v.creatorEmail})` : ''}">
+          <span>${dec.profiles?.company_name || 'Empresa'}</span>
+          <span>•</span>
+          <span><i class="${v.isAdminCreated ? 'ri-shield-user-fill' : 'ri-user-line'}" style="${v.isAdminCreated ? 'color:#6366f1;' : ''}"></i> ${v.creatorName} (${v.dateFormatted})</span>
         </div>
+        ${(dec.parallel_count || v.hasAdminEdit) ? `
+          <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.3rem;">
+            ${dec.parallel_count ? `
+              <span class="badge" style="background: rgba(95, 6, 250, 0.12); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.3); font-size: 0.66rem; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px; font-weight: 700;">
+                <i class="ri-refresh-line" style="animation: spin 3s linear infinite;"></i> Conteo en Paralelo
+              </span>
+            ` : ''}
+            ${v.hasAdminEdit ? `
+              <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); border: 1px solid rgba(59, 130, 246, 0.25); font-size: 0.66rem; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;">
+                <i class="ri-shield-check-line"></i> Editado Admin
+              </span>
+            ` : ''}
+          </div>
         ` : ''}
-        ${hasAdminEdit ? `
-        <div style="margin-top: 3px;">
-          <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); border: 1px solid rgba(59, 130, 246, 0.25); font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Registra modificaciones realizadas por Administración">
-            <i class="ri-shield-check-line"></i> Modificado por Admin
+      </td>
+
+      <!-- Col 2: Llegada, Envío & Sucursal -->
+      <td style="vertical-align: top; padding: 0.75rem 0.85rem; min-width: 175px;">
+        <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.35rem;">
+          <span style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">
+            <i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.2rem;"></i>${v.etaText}
+          </span>
+          <span style="font-size: 0.72rem; background: var(--color-surface-hover); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--color-border); color: var(--color-text-muted); white-space: nowrap;">
+            <i class="ri-truck-line"></i> ${dec.delivery_method || '—'}
           </span>
         </div>
-        ` : ''}
-        ${dec.warehouses ? `
-        <div style="margin-top: 3px;">
-          <button type="button" onclick="window.openChangeDeclarationWarehouseModal('${dec.id}')" style="background: rgba(124, 58, 237, 0.08); border: 1px solid rgba(124, 58, 237, 0.25); border-radius: 5px; padding: 2px 7px; font-size: 0.73rem; color: #7c3aed; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; text-align: left;" title="Sucursal asignada: ${dec.warehouses.name}. Clic para cambiar sucursal y notificar al comercio">
-            <i class="ri-map-pin-line"></i> ${dec.warehouses.name} <i class="ri-arrow-left-right-line" style="font-size: 0.7rem; opacity: 0.75;"></i>
-          </button>
+        <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+          ${v.warehouseButtonHtml}
+          ${dec.requires_unloading ? '<span class="badge" style="font-size: 0.66rem; padding: 2px 5px; border-radius: 4px; background-color: var(--badge-warning-bg); color: var(--badge-warning-text); font-weight: 700; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-inbox-unarchive-line"></i> Descarga</span>' : ''}
         </div>
-        ` : `
-        <div style="margin-top: 3px;">
-          <button type="button" onclick="window.openChangeDeclarationWarehouseModal('${dec.id}')" style="background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: 5px; padding: 2px 7px; font-size: 0.7rem; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;" title="Asignar sucursal / bodega de destino y notificar al comercio">
-            <i class="ri-building-2-line"></i> Asignar Sucursal
-          </button>
-        </div>
-        `}
       </td>
-      <td style="font-size: 0.85rem;"><i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${etaText}</td>
-      <td style="font-size: 0.85rem;"><strong>${dec.quantity_declared}</strong></td>
-      <td style="font-size: 0.85rem;">
-        <strong>${dec.package_count}</strong> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${dec.package_type})</span>
-        <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 2px;">
-          C: ${dec.container_count || 0} | P: ${dec.pallet_count || 0} | Cx: ${dec.box_count || 0}
-        </div>
-        ${dec.requires_unloading ? '<span class="badge" style="font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; display: inline-block; margin-top: 2px; background-color: var(--badge-warning-bg); color: var(--badge-warning-text); font-weight: 600;">Descarga</span>' : ''}
-      </td>
-      <td style="font-size: 0.85rem;">
-        <div style="font-size: 0.85rem;">
-          <span>Decl: <strong>${dec.volume_declared || 0} m³</strong></span><br>
-          <span style="font-size: 0.75rem; color: var(--color-text-muted);">
-            Conf: <strong>${dec.status !== 'Creada' && dec.status !== 'Bodega Asignada' ? (dec.volume_confirmed || 0) + ' m³' : '—'}</strong>
+
+      <!-- Col 3: Carga & Recepción (Unidades, Bultos, Volumen m³) -->
+      <td style="vertical-align: top; padding: 0.75rem 0.85rem; min-width: 215px;">
+        <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.3rem;">
+          ${v.qtyProgressBadgeHtml}
+          <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">
+            • ${dec.package_count || 0} ${dec.package_type || 'Bultos'}
           </span>
         </div>
+        <div style="font-size: 0.73rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+          <span>C:${dec.container_count || 0} | P:${dec.pallet_count || 0} | Cx:${dec.box_count || 0}</span>
+          <span>•</span>
+          <span>Decl: <strong style="color: var(--color-text-main);">${dec.volume_declared || 0} m³</strong></span>
+          <span>•</span>
+          <span>Conf: <strong>${confirmedVolStr}</strong></span>
+        </div>
       </td>
-      <td style="font-size: 0.85rem;">
-        <div style="font-size: 0.85rem;">
+
+      <!-- Col 4: Costos & Facturación -->
+      <td style="vertical-align: top; padding: 0.75rem 0.85rem; min-width: 195px;">
+        <div style="font-size: 0.78rem; color: var(--color-text-main); display: flex; align-items: baseline; gap: 0.3rem; flex-wrap: wrap; margin-bottom: 0.3rem;">
           <span>Est: <strong>${(dec.estimated_cost || 0).toFixed(4)} UF</strong></span>
-          <span id="clp-est-${dec.id}" style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 1px;">Cargando CLP...</span>
-          <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 4px;">
-            Real: <strong>${dec.real_cost !== null && dec.real_cost !== undefined && dec.real_cost > 0 ? dec.real_cost.toFixed(4) + ' UF' : '—'}</strong>
-          </span>
-          <span id="clp-real-${dec.id}" style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 1px;"></span>
+          <span id="clp-est-${dec.id}" style="font-size: 0.71rem; color: var(--color-text-muted);">Cargando...</span>
+          <span style="color: var(--color-text-muted);">•</span>
+          <span style="font-size: 0.74rem; color: var(--color-text-muted);">Real: <strong style="color: var(--color-text-main);">${realCostStr}</strong></span>
+          <span id="clp-real-${dec.id}" style="font-size: 0.71rem; color: var(--color-text-muted);"></span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+          ${v.billingBadgeHtml}
+          ${v.periodBadgeHtml}
+        </div>
+        ${dec.billing_notes && !dec.billing_notes.startsWith('Periodo:') ? `<div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; max-width: 185px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${dec.billing_notes}">${dec.billing_notes}</div>` : ''}
+      </td>
+
+      <!-- Col 5: Etapa con Mini Barra de Progreso -->
+      <td style="vertical-align: top; padding: 0.75rem 0.75rem; min-width: 135px;">
+        <div>${v.statusBadge}</div>
+        <div style="width: 100%; max-width: 110px; height: 5px; background: var(--color-border); border-radius: 99px; overflow: hidden; margin-top: 0.4rem;">
+          <div style="width: ${v.stepPct}%; height: 100%; background: ${v.stepColor}; border-radius: 99px;"></div>
         </div>
       </td>
-      <td style="font-size: 0.85rem;">
-        <div style="display: flex; flex-direction: column; gap: 3px; align-items: flex-start;">
-          ${billingBadgeHtml}
-          ${periodBadgeHtml}
-          ${dec.billing_notes && !dec.billing_notes.startsWith('Periodo:') ? `<div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; max-width: 105px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${dec.billing_notes}">${dec.billing_notes}</div>` : ''}
-        </div>
-      </td>
-      <td style="font-size: 0.85rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
-      <td style="font-size: 0.85rem;">${statusBadge}</td>
-      <td style="font-size: 0.85rem;">${qtyReceivedText}</td>
-      <td style="font-size: 0.85rem; text-align: center; overflow: visible;">
-        <div style="display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
-          <!-- Botón Rápido de Check Impreso -->
+
+      <!-- Col 6: Acciones Directas -->
+      <td style="vertical-align: middle; padding: 0.75rem 0.85rem; text-align: right; white-space: nowrap; overflow: visible;">
+        <div style="display: inline-flex; align-items: center; justify-content: flex-end; gap: 0.35rem;">
+          <button
+            type="button"
+            onclick="manageDeclaration('${dec.id}')"
+            class="btn btn-primary btn-sm"
+            style="height: 30px; padding: 0 0.65rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;"
+            title="Abrir modal completo de gestión de recepción"
+          >
+            <i class="ri-settings-4-line"></i> Gestionar
+          </button>
           <button 
             type="button" 
             class="btn-dec-print-check" 
-            onclick="window.toggleDeclarationPrintedStatus('${dec.id}', ${isPrinted})"
-            style="height: 30px; padding: 0 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.2s; white-space: nowrap; ${isPrinted ? 'background: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.35); box-shadow: 0 1px 3px rgba(16, 185, 129, 0.1);' : 'background: var(--color-surface); color: var(--color-text-muted); border: 1px dashed var(--color-border);'}"
-            title="${isPrinted ? 'Marcado como Impreso. Clic para desmarcar' : 'Sin imprimir. Clic rápido para marcar como Impreso'}"
+            onclick="window.toggleDeclarationPrintedStatus('${dec.id}', ${v.isPrinted})"
+            style="height: 30px; padding: 0 7px; border-radius: 6px; font-size: 0.74rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; transition: all 0.2s; white-space: nowrap; ${v.isPrinted ? 'background: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.35);' : 'background: var(--color-surface); color: var(--color-text-muted); border: 1px dashed var(--color-border);'}"
+            title="${v.isPrinted ? 'Marcado como Impreso. Clic para desmarcar' : 'Sin imprimir. Clic rápido para marcar como Impreso'}"
           >
-            <i class="${isPrinted ? 'ri-checkbox-circle-fill' : 'ri-checkbox-blank-circle-line'}" style="font-size: 0.95rem; ${isPrinted ? 'color: var(--color-success);' : 'color: var(--color-text-muted);'}"></i>
-            <i class="ri-printer-line" style="font-size: 0.85rem;"></i>
-            <span>${isPrinted ? 'Impreso' : 'Impreso'}</span>
+            <i class="${v.isPrinted ? 'ri-checkbox-circle-fill' : 'ri-printer-line'}" style="font-size: 0.9rem;"></i>
           </button>
-
-          <div class="table-action-menu">
-            <button class="table-action-menu-btn" onclick="toggleTableActionMenu(event, this)">
-              <i class="ri-more-2-fill"></i> Acciones
-            </button>
-            <div class="table-action-menu-content">
-              <button class="table-action-menu-item" onclick="window.toggleDeclarationPrintedStatus('${dec.id}', ${isPrinted})">
-                <i class="${isPrinted ? 'ri-checkbox-circle-fill' : 'ri-printer-line'}" style="color: ${isPrinted ? 'var(--color-success)' : 'var(--color-primary)'};"></i> ${isPrinted ? 'Marcar como Sin Imprimir' : 'Marcar como Impreso'}
-              </button>
-              <button class="table-action-menu-item" onclick="window.viewDeclarationProducts('${dec.id}')">
-                <i class="ri-eye-line" style="color: var(--color-primary);"></i> Ver Productos
-              </button>
-              <button class="table-action-menu-item" onclick="window.editDeclarationAdmin('${dec.id}')" style="color: var(--color-primary); font-weight: 600;" title="Editar datos declarados, bultos y productos">
-                <i class="ri-edit-box-line" style="color: var(--color-primary);"></i> Editar Ingreso
-              </button>
-              <button class="table-action-menu-item" onclick="window.openChangeDeclarationWarehouseModal('${dec.id}')" style="color: #7c3aed; font-weight: 600;" title="Asignar o cambiar la sucursal de destino y notificar al comercio">
-                <i class="ri-building-2-line" style="color: #7c3aed;"></i> Cambiar Sucursal / Bodega
-              </button>
-              <button class="table-action-menu-item" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '${assignedPeriod.replace(/'/g, "\\'")}')">
-                <i class="ri-calendar-check-line" style="color: #5f06fa;"></i> Asignar Periodo Facturación
-              </button>
-              <button class="table-action-menu-item" onclick="window.toggleDeclarationBillingStatus('${dec.id}', '${billingStatus}')">
-                <i class="ri-money-dollar-circle-line" style="color: var(--color-success);"></i> ${isBilled ? 'Marcar como Pendiente' : 'Marcar como Facturado'}
-              </button>
-              <button class="table-action-menu-item" onclick="window.exportDeclarationOperationsPDF('${dec.id}')" title="Hoja de recepción operativa para bodega">
-                <i class="ri-file-list-3-line" style="color: var(--color-success);"></i> PDF Operaciones
-              </button>
-              <button class="table-action-menu-item" onclick="window.exportDeclarationToPDF('${dec.id}')" title="Comprobante general del ingreso">
-                <i class="ri-file-pdf-line" style="color: var(--color-primary);"></i> Comprobante PDF
-              </button>
-              <button class="table-action-menu-item" onclick="downloadBase64File('${dec.file_base64}', '${dec.file_name}')">
-                <i class="ri-file-excel-2-line" style="color: var(--color-success);"></i> Planilla
-              </button>
-              <button class="table-action-menu-item" onclick="manageDeclaration('${dec.id}')">
-                <i class="ri-settings-4-line" style="color: var(--color-primary);"></i> Gestionar
-              </button>
-              ${['Recibido Conforme', 'Recibido con Incidencias'].indexOf(dec.status) === -1 ? `
-              <button class="table-action-menu-item danger" onclick="deleteDeclarationAdmin('${dec.id}')">
-                <i class="ri-delete-bin-line"></i> Eliminar
-              </button>
-              ` : ''}
-            </div>
-          </div>
+          ${v.actionMenuHtml}
         </div>
       </td>
     </tr>
+  `;
+}
+
+// PROPUESTA B: Vista de Filas-Tarjeta en 2 Niveles (Cabecera + 5 Bloques de Métricas)
+function buildDeclarationCardHtml(dec) {
+  const v = buildDeclarationViewData(dec);
+  const shortCode = `#ING-${dec.id.substring(0, 8).toUpperCase()}`;
+  const confirmedVolStr = (dec.status !== 'Creada' && dec.status !== 'Bodega Asignada')
+    ? `${dec.volume_confirmed || 0} m³`
+    : '—';
+  const realCostStr = (dec.real_cost !== null && dec.real_cost !== undefined && dec.real_cost > 0)
+    ? `${dec.real_cost.toFixed(4)} UF`
+    : '—';
+
+  return `
+    <div id="admin-dec-row-${dec.id}" style="background: ${v.isSelected ? 'rgba(95, 6, 250, 0.04)' : 'var(--color-surface)'}; border: 1px solid ${v.isSelected ? 'rgba(95, 6, 250, 0.4)' : 'var(--color-border)'}; border-left: 4px solid ${v.stepColor}; border-radius: 12px; padding: 0.85rem 1.1rem; box-shadow: var(--shadow-sm); transition: all 0.18s;">
+      <!-- Nivel 1: Cabecera de Identificación, Sucursal, Etapa y Acciones -->
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.65rem; padding-bottom: 0.65rem; border-bottom: 1px dashed var(--color-border);">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; min-width: 0;">
+          <input type="checkbox" class="admin-dec-row-checkbox" data-dec-id="${dec.id}" ${v.isSelected ? 'checked' : ''} onchange="window.toggleDeclarationRowSelection('${dec.id}', this.checked)" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-primary);">
+          <span style="font-weight: 800; font-family: monospace; font-size: 0.74rem; background: rgba(5, 150, 105, 0.1); border: 1px solid rgba(5, 150, 105, 0.3); padding: 2px 7px; border-radius: 5px; color: #059669;">${shortCode}</span>
+          <span style="background: rgba(37, 99, 235, 0.1); color: var(--color-primary); font-weight: 800; font-size: 0.75rem; padding: 2px 8px; border-radius: 5px; text-transform: uppercase; display: inline-flex; align-items: center; gap: 4px;">
+            <i class="ri-store-2-line"></i> ${dec.comercio || 'Sin Comercio'}
+          </span>
+          <strong style="font-size: 0.94rem; color: var(--color-text-main);">${dec.title}</strong>
+          <span style="font-size: 0.73rem; color: var(--color-text-muted);">
+            (${dec.profiles?.company_name || 'Empresa'} • ${v.creatorName} • ${v.dateFormatted})
+          </span>
+          ${dec.parallel_count ? `
+            <span class="badge" style="background: rgba(95, 6, 250, 0.12); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.3); font-size: 0.68rem; padding: 2px 6px; border-radius: 4px; font-weight: 700;">
+              <i class="ri-refresh-line" style="animation: spin 3s linear infinite;"></i> Conteo en Paralelo
+            </span>
+          ` : ''}
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+          ${v.warehouseButtonHtml}
+          ${v.statusBadge}
+          <button 
+            type="button" 
+            class="btn-dec-print-check" 
+            onclick="window.toggleDeclarationPrintedStatus('${dec.id}', ${v.isPrinted})"
+            style="height: 30px; padding: 0 8px; border-radius: 6px; font-size: 0.74rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; ${v.isPrinted ? 'background: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.35);' : 'background: var(--color-surface); color: var(--color-text-muted); border: 1px dashed var(--color-border);'}"
+          >
+            <i class="${v.isPrinted ? 'ri-checkbox-circle-fill' : 'ri-printer-line'}"></i>
+            <span>Impreso</span>
+          </button>
+          <button
+            type="button"
+            onclick="manageDeclaration('${dec.id}')"
+            class="btn btn-primary btn-sm"
+            style="height: 30px; padding: 0 0.75rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;"
+          >
+            <i class="ri-settings-4-line"></i> Gestionar
+          </button>
+          ${v.actionMenuHtml}
+        </div>
+      </div>
+
+      <!-- Nivel 2: 5 Bloques Horizontales de Métricas -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap: 0.6rem; padding-top: 0.65rem;">
+        <!-- Bloque 1: Llegada & Transporte -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.45rem 0.65rem;">
+          <div style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 4px;"><i class="ri-calendar-event-line"></i> Llegada & Envío</div>
+          <div style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); margin-top: 2px; display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+            <span>${v.etaText}</span>
+            <span style="color: var(--color-text-muted);">•</span>
+            <span style="font-weight: 600; color: var(--color-text-muted);">${dec.delivery_method || '—'}</span>
+            ${dec.requires_unloading ? '<span class="badge" style="font-size: 0.63rem; padding: 1px 5px; background: var(--badge-warning-bg); color: var(--badge-warning-text); display: inline-flex; align-items: center; gap: 3px;"><i class="ri-inbox-unarchive-line"></i> Descarga</span>' : ''}
+          </div>
+        </div>
+
+        <!-- Bloque 2: Unidades & Recepción -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.45rem 0.65rem;">
+          <div style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 4px;"><i class="ri-stack-line"></i> Unidades & Conteo</div>
+          <div style="margin-top: 3px; display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+            ${v.qtyProgressBadgeHtml}
+          </div>
+        </div>
+
+        <!-- Bloque 3: Bultos & Desglose -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.45rem 0.65rem;">
+          <div style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 4px;"><i class="ri-archive-line"></i> Bultos & Embalaje</div>
+          <div style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); margin-top: 2px;">
+            ${dec.package_count || 0} ${dec.package_type || 'Bultos'}
+            <span style="font-size: 0.72rem; font-weight: 500; color: var(--color-text-muted); margin-left: 4px;">(C:${dec.container_count || 0} | P:${dec.pallet_count || 0} | Cx:${dec.box_count || 0})</span>
+          </div>
+        </div>
+
+        <!-- Bloque 4: Cubicaje m³ -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.45rem 0.65rem;">
+          <div style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 4px;"><i class="ri-ruler-2-line"></i> Cubicaje (m³)</div>
+          <div style="font-size: 0.8rem; color: var(--color-text-main); margin-top: 2px;">
+            Decl: <strong>${dec.volume_declared || 0} m³</strong> <span style="color: var(--color-text-muted);">• Conf:</span> <strong>${confirmedVolStr}</strong>
+          </div>
+        </div>
+
+        <!-- Bloque 5: Costos UF/CLP & Facturación -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.45rem 0.65rem; display: flex; flex-direction: column; gap: 3px;">
+          <div style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 4px;"><i class="ri-money-dollar-circle-line"></i> Costos & Facturación</div>
+          <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 4px; flex-wrap: wrap; font-size: 0.76rem;">
+            <span>Est: <strong>${(dec.estimated_cost || 0).toFixed(4)} UF</strong> <span id="clp-est-${dec.id}" style="font-size: 0.69rem; color: var(--color-text-muted);"></span></span>
+            <span>Real: <strong>${realCostStr}</strong> <span id="clp-real-${dec.id}" style="font-size: 0.69rem; color: var(--color-text-muted);"></span></span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+            ${v.billingBadgeHtml}
+            ${v.periodBadgeHtml}
+          </div>
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -47888,7 +48236,7 @@ function getEmptyDeclarationMessage(currentTab) {
   } else if (currentTab === 'completed') {
     emptyMsg = 'No hay declaraciones en el Historial Completado.';
   }
-  return `<tr><td colspan="13" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);"><i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>${emptyMsg}</td></tr>`;
+  return `<tr><td colspan="7" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);"><i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>${emptyMsg}</td></tr>`;
 }
 
 // =========================================================================
@@ -48131,6 +48479,129 @@ window.resolveDeclarationCalendarInfo = function(dec, warehouseMap = {}) {
   };
 };
 
+window._operationalCalendarEventsCache = window._operationalCalendarEventsCache || null;
+window._operationalCalendarEventsFetching = false;
+
+window.ensureOperationalEventsForInboundCalendar = async function(forceRefresh = false) {
+  if (Array.isArray(window._operationalCalendarEventsCache) && !forceRefresh) {
+    return window._operationalCalendarEventsCache;
+  }
+  if (!forceRefresh && window.adminCalendarState && Array.isArray(window.adminCalendarState.events) && window.adminCalendarState.events.length > 0) {
+    window._operationalCalendarEventsCache = window.adminCalendarState.events;
+    return window._operationalCalendarEventsCache;
+  }
+  if (window._operationalCalendarEventsFetching) {
+    return window._operationalCalendarEventsCache || [];
+  }
+  window._operationalCalendarEventsFetching = true;
+  try {
+    const { data, error } = await supabase
+      .from('dashboard_events')
+      .select('*')
+      .order('event_date', { ascending: true });
+    if (!error && Array.isArray(data)) {
+      window._operationalCalendarEventsCache = data;
+      if (window.adminCalendarState) {
+        window.adminCalendarState.events = data;
+      }
+      // Re-renderizar calendarios activos si están en pantalla
+      if (document.getElementById('admin-dashboard-inbound-calendar-container')) {
+        window.renderInboundStockCalendarWidget('dashboard');
+      }
+      if (document.getElementById('admin-dec-inbound-calendar-container')) {
+        window.renderInboundStockCalendarWidget('declarations');
+      }
+    }
+  } catch (e) {
+    console.warn('Error cargando eventos del calendario de operaciones:', e);
+  } finally {
+    window._operationalCalendarEventsFetching = false;
+  }
+  return window._operationalCalendarEventsCache || [];
+};
+
+window.resolveOperationalEventCalendarInfo = function(ev) {
+  if (!ev || !ev.event_date) return null;
+  const rawDate = String(ev.event_date).trim();
+  const datePart = rawDate.split('T')[0].split(' ')[0];
+  const parts = datePart.split('-').map(Number);
+  if (parts.length !== 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) return null;
+
+  const [ey, em, ed] = parts;
+  const dateStr = `${ey}-${String(em).padStart(2, '0')}-${String(ed).padStart(2, '0')}`;
+  const todayStr = window.getLocalTodayDateStr();
+  const [ty, tm, td] = todayStr.split('-').map(Number);
+  const diffDays = Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(ty, tm - 1, td)) / 86400000);
+
+  const isHoliday = typeof window.isEventHoliday === 'function'
+    ? window.isEventHoliday(ev)
+    : (ev.is_holiday === true || ev.event_type === 'holiday' || (ev.title || '').toLowerCase().includes('feriado'));
+  const isNonOp = typeof window.isEventNonOperational === 'function'
+    ? window.isEventNonOperational(ev)
+    : (ev.is_non_operational === true || ev.event_type === 'non_operational' || isHoliday || (ev.title || '').toLowerCase().includes('sin operacion'));
+
+  const timePart = rawDate.includes('T') ? rawDate.split('T')[1].slice(0, 5) : '';
+  const timeStr = timePart && timePart !== '00:00' ? timePart : '';
+
+  let color = '#0284c7';
+  let bg = 'rgba(14, 165, 233, 0.12)';
+  let border = 'rgba(14, 165, 233, 0.35)';
+  let icon = 'ri-calendar-event-line';
+  let typeLabel = 'Evento Operativo';
+
+  if (isHoliday) {
+    color = '#dc2626';
+    bg = 'rgba(239, 68, 68, 0.14)';
+    border = 'rgba(239, 68, 68, 0.4)';
+    icon = 'ri-flag-line';
+    typeLabel = 'Feriado / Sin Operaciones';
+  } else if (isNonOp) {
+    color = '#dc2626';
+    bg = 'rgba(239, 68, 68, 0.14)';
+    border = 'rgba(239, 68, 68, 0.4)';
+    icon = 'ri-forbid-2-line';
+    typeLabel = 'Sin Operaciones';
+  } else if (ev.color_type === 'warning') {
+    color = '#d97706';
+    bg = 'rgba(245, 158, 11, 0.14)';
+    border = 'rgba(245, 158, 11, 0.38)';
+    icon = 'ri-error-warning-line';
+    typeLabel = 'Aviso Operativo';
+  } else if (ev.color_type === 'alert' || ev.color_type === 'danger') {
+    color = '#dc2626';
+    bg = 'rgba(239, 68, 68, 0.13)';
+    border = 'rgba(239, 68, 68, 0.38)';
+    icon = 'ri-alarm-warning-line';
+    typeLabel = 'Alerta Operativa';
+  } else if (ev.color_type === 'success') {
+    color = '#059669';
+    bg = 'rgba(16, 185, 129, 0.13)';
+    border = 'rgba(16, 185, 129, 0.38)';
+    icon = 'ri-checkbox-circle-line';
+    typeLabel = 'Hito Operativo';
+  }
+
+  return {
+    ev,
+    dateStr,
+    year: ey,
+    month: em - 1,
+    day: ed,
+    diffDays,
+    isToday: diffDays === 0,
+    isTomorrow: diffDays === 1,
+    isNext7Days: diffDays >= 0 && diffDays <= 7,
+    isHoliday,
+    isNonOp,
+    timeStr,
+    color,
+    bg,
+    border,
+    icon,
+    typeLabel
+  };
+};
+
 window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawDeclarations, options = {}) {
   const stateObj = window._inboundStockCalendarState[contextKey] || window._inboundStockCalendarState.declarations;
   if (containerId) stateObj.containerId = containerId;
@@ -48139,6 +48610,19 @@ window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawD
 
   const container = document.getElementById(stateObj.containerId);
   if (!container) return;
+
+  // Asegurar carga asíncrona de eventos del calendario de operaciones si aún no están en memoria
+  if (!Array.isArray(window._operationalCalendarEventsCache)) {
+    if (window.adminCalendarState && Array.isArray(window.adminCalendarState.events) && window.adminCalendarState.events.length > 0) {
+      window._operationalCalendarEventsCache = window.adminCalendarState.events;
+    } else {
+      window.ensureOperationalEventsForInboundCalendar(false);
+    }
+  }
+  const rawOpEvents = Array.isArray(window._operationalCalendarEventsCache) ? window._operationalCalendarEventsCache : [];
+  const enrichedOpEvents = rawOpEvents
+    .map(ev => window.resolveOperationalEventCalendarInfo(ev))
+    .filter(Boolean);
 
   const declarations = Array.isArray(stateObj.lastDeclarations) ? stateObj.lastDeclarations : [];
   const warehouseMap = stateObj.warehouseMap || window._adminDashboardWarehouseMap || {};
@@ -48184,6 +48668,13 @@ window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawD
   const monthItems = filteredItems.filter(x => x.cal.year === viewYear && x.cal.month === viewMonth);
   const monthUnits = monthItems.reduce((acc, x) => acc + (parseInt(x.dec.quantity_declared, 10) || 0), 0);
   const monthVol = monthItems.reduce((acc, x) => acc + (parseFloat(x.dec.volume_declared) || 0), 0);
+
+  const monthOpEvents = enrichedOpEvents.filter(op => op.year === viewYear && op.month === viewMonth);
+  const opEventsByDate = {};
+  monthOpEvents.forEach(op => {
+    if (!opEventsByDate[op.dateStr]) opEventsByDate[op.dateStr] = [];
+    opEventsByDate[op.dateStr].push(op);
+  });
 
   // Agrupar items del mes por fecha 'YYYY-MM-DD'
   const itemsByDate = {};
@@ -48233,6 +48724,8 @@ window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawD
   for (let d = 1; d <= daysInMonth; d++) {
     const dateKey = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const dayList = itemsByDate[dateKey] || [];
+    const dayOpList = opEventsByDate[dateKey] || [];
+    const hasNonOpInCell = dayOpList.some(op => op.isNonOp || op.isHoliday);
     const isTodayCell = dateKey === todayStr;
     const isSelectedCell = stateObj.selectedDateStr === dateKey && stateObj.agendaMode === 'day';
     const hasOverdueInCell = dayList.some(x => x.cal.isOverdue);
@@ -48250,15 +48743,37 @@ window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawD
     } else if (isTodayCell) {
       cellBg = 'rgba(37, 99, 235, 0.05)';
       cellBorder = '1.5px solid var(--color-primary)';
+    } else if (hasNonOpInCell) {
+      cellBg = 'rgba(239, 68, 68, 0.045)';
+      cellBorder = '1px solid rgba(239, 68, 68, 0.4)';
     } else if (hasOverdueInCell) {
       cellBg = 'rgba(239, 68, 68, 0.03)';
       cellBorder = '1px solid rgba(239, 68, 68, 0.35)';
     } else if (hasActiveInCell) {
       cellBg = 'rgba(124, 58, 237, 0.025)';
       cellBorder = '1px solid rgba(124, 58, 237, 0.25)';
+    } else if (dayOpList.length > 0) {
+      cellBg = 'rgba(14, 165, 233, 0.03)';
+      cellBorder = '1px solid rgba(14, 165, 233, 0.3)';
     }
 
-    const pillsHtml = dayList.slice(0, 3).map(({ dec, cal }) => {
+    const opPillsHtml = dayOpList.slice(0, 2).map(op => {
+      const evTooltip = `${op.typeLabel}: ${op.ev.title || 'Evento'}${op.ev.description ? '\n' + op.ev.description : ''}`;
+      return `
+        <div
+          title="${esc(evTooltip)}"
+          style="background: ${op.bg}; border-left: 3px solid ${op.color}; border-radius: 4px; padding: 2px 5px; font-size: 0.65rem; line-height: 1.2; display: flex; align-items: center; gap: 4px; overflow: hidden;"
+        >
+          <i class="${op.icon}" style="color: ${op.color}; flex-shrink: 0; font-size: 0.7rem;"></i>
+          <span style="font-weight: 700; color: ${op.color}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;">
+            ${esc(op.ev.title || op.typeLabel)}
+          </span>
+        </div>
+      `;
+    }).join('');
+
+    const maxDecPills = dayOpList.length > 0 ? 2 : 3;
+    const pillsHtml = dayList.slice(0, maxDecPills).map(({ dec, cal }) => {
       const comLabel = (dec.comercio || dec.title || 'Ingreso').trim();
       const qty = parseInt(dec.quantity_declared, 10) || 0;
       const shortId = (dec.id || '').substring(0, 8).toUpperCase();
@@ -48279,7 +48794,7 @@ window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawD
       `;
     }).join('');
 
-    const moreCount = dayList.length > 3 ? dayList.length - 3 : 0;
+    const moreCount = (dayList.length > maxDecPills ? dayList.length - maxDecPills : 0) + (dayOpList.length > 2 ? dayOpList.length - 2 : 0);
     const moreBadgeHtml = moreCount > 0 ? `
       <div style="font-size: 0.65rem; font-weight: 700; color: #7c3aed; text-align: center; background: rgba(124, 58, 237, 0.08); border-radius: 4px; padding: 1px 4px;">
         +${moreCount} más en este día
@@ -48291,17 +48806,25 @@ window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawD
         onclick="window.selectInboundCalendarDay('${contextKey}', '${dateKey}')"
         style="background: ${cellBg}; border: ${cellBorder}; box-shadow: ${cellShadow}; border-radius: 8px; min-height: 84px; padding: 0.35rem 0.4rem; display: flex; flex-direction: column; justify-content: space-between; gap: 0.25rem; cursor: pointer; transition: all 0.15s; min-width: 0;"
       >
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 2px;">
-          <span style="font-size: 0.74rem; font-weight: ${isTodayCell || isSelectedCell || dayList.length > 0 ? '800' : '600'}; color: ${isTodayCell ? '#fff' : (isSelectedCell ? '#7c3aed' : 'var(--color-text-main)')}; background: ${isTodayCell ? 'var(--color-primary)' : 'transparent'}; padding: ${isTodayCell ? '1px 6px' : '0'}; border-radius: 99px; display: inline-flex; align-items: center; gap: 3px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 2px; flex-wrap: wrap;">
+          <span style="font-size: 0.74rem; font-weight: ${isTodayCell || isSelectedCell || dayList.length > 0 || dayOpList.length > 0 ? '800' : '600'}; color: ${isTodayCell ? '#fff' : (isSelectedCell ? '#7c3aed' : (hasNonOpInCell ? '#dc2626' : 'var(--color-text-main)'))}; background: ${isTodayCell ? 'var(--color-primary)' : 'transparent'}; padding: ${isTodayCell ? '1px 6px' : '0'}; border-radius: 99px; display: inline-flex; align-items: center; gap: 3px;">
             ${d}${isTodayCell ? ' <span style="font-size:0.6rem;">HOY</span>' : ''}
           </span>
-          ${dayList.length > 0 ? `
-            <span style="font-size: 0.63rem; font-weight: 800; background: ${hasOverdueInCell ? 'rgba(239, 68, 68, 0.15)' : 'rgba(124, 58, 237, 0.14)'}; color: ${hasOverdueInCell ? '#dc2626' : '#6d28d9'}; padding: 1px 5px; border-radius: 99px; white-space: nowrap;" title="${dayList.length} ingresos • ${totalDayUnits.toLocaleString('es-CL')} unidades">
-              ${dayList.length} ing • ${totalDayUnits}u
-            </span>
-          ` : ''}
+          <div style="display: inline-flex; align-items: center; gap: 2px;">
+            ${dayOpList.length > 0 ? `
+              <span style="font-size: 0.61rem; font-weight: 800; background: ${hasNonOpInCell ? 'rgba(239, 68, 68, 0.16)' : 'rgba(14, 165, 233, 0.15)'}; color: ${hasNonOpInCell ? '#dc2626' : '#0284c7'}; padding: 1px 4px; border-radius: 99px;" title="${dayOpList.length} evento(s) del Calendario de Operaciones">
+                <i class="${hasNonOpInCell ? 'ri-forbid-2-line' : 'ri-calendar-event-line'}"></i> ${dayOpList.length}
+              </span>
+            ` : ''}
+            ${dayList.length > 0 ? `
+              <span style="font-size: 0.63rem; font-weight: 800; background: ${hasOverdueInCell ? 'rgba(239, 68, 68, 0.15)' : 'rgba(124, 58, 237, 0.14)'}; color: ${hasOverdueInCell ? '#dc2626' : '#6d28d9'}; padding: 1px 5px; border-radius: 99px; white-space: nowrap;" title="${dayList.length} ingresos • ${totalDayUnits.toLocaleString('es-CL')} unidades">
+                ${dayList.length} ing • ${totalDayUnits}u
+              </span>
+            ` : ''}
+          </div>
         </div>
         <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+          ${opPillsHtml}
           ${pillsHtml}
           ${moreBadgeHtml}
         </div>
@@ -48309,34 +48832,38 @@ window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawD
     `;
   }
 
-  // Construcción de la lista de la Agenda Lateral Derecha según el modo activo
+  // Construcción de la lista de la Agenda Lateral Derecha según el modo activo (Ingresos + Eventos Operacionales)
   let agendaTitle = '';
   let agendaSubtitle = '';
   let agendaList = [];
+  let agendaOpList = [];
 
   if (stateObj.agendaMode === 'day' && stateObj.selectedDateStr) {
     const p = stateObj.selectedDateStr.split('-');
     const formattedDay = p.length === 3 ? `${parseInt(p[2], 10)} de ${monthNames[parseInt(p[1], 10) - 1]} ${p[0]}` : stateObj.selectedDateStr;
-    agendaTitle = `Ingresos del ${formattedDay}`;
-    agendaSubtitle = stateObj.selectedDateStr === todayStr ? 'Llegadas programadas para hoy' : 'Fecha seleccionada en el calendario';
+    agendaTitle = `Agenda del ${formattedDay}`;
+    agendaSubtitle = stateObj.selectedDateStr === todayStr ? 'Ingresos y eventos operacionales para hoy' : 'Fecha seleccionada en el calendario';
     agendaList = filteredItems.filter(x => x.cal.dateStr === stateObj.selectedDateStr);
+    agendaOpList = enrichedOpEvents.filter(op => op.dateStr === stateObj.selectedDateStr);
   } else if (stateObj.agendaMode === 'today') {
-    agendaTitle = 'Ingresos Programados para Hoy';
-    agendaSubtitle = 'Recepciones esperadas en andén hoy';
+    agendaTitle = 'Agenda Programada para Hoy';
+    agendaSubtitle = 'Recepciones y eventos esperados hoy';
     agendaList = todayItems;
+    agendaOpList = enrichedOpEvents.filter(op => op.isToday);
   } else if (stateObj.agendaMode === 'next7d') {
     agendaTitle = 'Próximos 7 Días';
-    agendaSubtitle = 'Llegadas programadas para esta semana';
+    agendaSubtitle = 'Llegadas y eventos programados para esta semana';
     agendaList = [...next7dItems].sort((a, b) => a.cal.dateStr.localeCompare(b.cal.dateStr));
+    agendaOpList = enrichedOpEvents.filter(op => op.isNext7Days).sort((a, b) => a.dateStr.localeCompare(b.dateStr));
   } else if (stateObj.agendaMode === 'overdue') {
     agendaTitle = 'Ingresos con Fecha Vencida / Pendientes';
     agendaSubtitle = 'Fecha estimada cumplida sin cierre de recepción';
     agendaList = [...overdueItems].sort((a, b) => a.cal.dateStr.localeCompare(b.cal.dateStr));
+    agendaOpList = [];
   } else {
     agendaTitle = `Agenda de ${monthNames[viewMonth]} ${viewYear}`;
-    agendaSubtitle = `${monthItems.length} ${monthItems.length === 1 ? 'ingreso' : 'ingresos'} en el mes (${monthUnits.toLocaleString('es-CL')} uds • ${monthVol.toFixed(2)} m³)`;
+    agendaSubtitle = `${monthItems.length} ${monthItems.length === 1 ? 'ingreso' : 'ingresos'} (${monthUnits.toLocaleString('es-CL')} uds)${monthOpEvents.length > 0 ? ` • ${monthOpEvents.length} ${monthOpEvents.length === 1 ? 'evento operativo' : 'eventos operativos'}` : ''}`;
     agendaList = [...monthItems].sort((a, b) => {
-      // Ordenar: Hoy primero, luego próximos días, luego atrasados, luego completados por fecha
       const rank = (c) => {
         if (c.isToday && c.isScheduledActive) return 0;
         if (c.diffDays > 0 && c.isScheduledActive) return 1;
@@ -48348,24 +48875,38 @@ window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawD
       if (rA !== rB) return rA - rB;
       return a.cal.dateStr.localeCompare(b.cal.dateStr);
     });
+    agendaOpList = [...monthOpEvents].sort((a, b) => a.dateStr.localeCompare(b.dateStr));
   }
 
   const activeTableDateFilter = window.adminDeclarationCalendarDateFilter || null;
 
-  const agendaCardsHtml = agendaList.length === 0 ? `
-    <div style="padding: 2.25rem 1rem; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.45rem;">
-      <div style="width: 44px; height: 44px; border-radius: 50%; background: rgba(124, 58, 237, 0.08); color: #7c3aed; display: flex; align-items: center; justify-content: center; font-size: 1.35rem;">
-        <i class="ri-calendar-check-line"></i>
+  const opEventsCardsHtml = agendaOpList.map(op => {
+    const dayBadgeText = op.isToday
+      ? 'HOY'
+      : (op.isTomorrow ? 'MAÑANA' : `${op.day} ${monthShortNames[op.month]}`);
+    return `
+      <div style="background: var(--color-surface); border: 1px solid ${op.border}; border-left: 4px solid ${op.color}; border-radius: 10px; padding: 0.65rem 0.8rem; display: flex; flex-direction: column; gap: 0.35rem; box-shadow: var(--shadow-sm);">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+          <span style="background: ${op.bg}; color: ${op.color}; font-size: 0.66rem; font-weight: 800; padding: 0.12rem 0.45rem; border-radius: 6px; text-transform: uppercase; display: inline-flex; align-items: center; gap: 3px;">
+            <i class="ri-calendar-event-line"></i> ${dayBadgeText}${op.timeStr ? ` • ${op.timeStr}` : ''}
+          </span>
+          <span style="background: ${op.bg}; color: ${op.color}; border: 1px solid ${op.border}; padding: 0.1rem 0.5rem; border-radius: 99px; font-size: 0.66rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="${op.icon}"></i> ${esc(op.typeLabel)}
+          </span>
+        </div>
+        <div style="font-size: 0.83rem; font-weight: 800; color: var(--color-text-main); line-height: 1.3;">
+          ${esc(op.ev.title || 'Evento Operacional')}
+        </div>
+        ${op.ev.description ? `
+          <div style="font-size: 0.74rem; color: var(--color-text-muted); line-height: 1.4; background: var(--color-bg); padding: 0.35rem 0.55rem; border-radius: 6px;">
+            ${esc(op.ev.description)}
+          </div>
+        ` : ''}
       </div>
-      <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main);">Sin ingresos para esta selección</div>
-      <div style="font-size: 0.76rem; color: var(--color-text-muted); max-width: 240px;">Puedes cambiar de día, navegar a otro mes o mostrar todos los ingresos del mes.</div>
-      ${stateObj.agendaMode !== 'month' ? `
-        <button type="button" onclick="window.setInboundCalendarAgendaMode('${contextKey}', 'month')" class="btn btn-outline btn-sm" style="margin-top: 0.35rem; font-size: 0.74rem; padding: 0.3rem 0.75rem;">
-          Ver todos los del mes (${monthItems.length})
-        </button>
-      ` : ''}
-    </div>
-  ` : agendaList.map(({ dec, cal }) => {
+    `;
+  }).join('');
+
+  const decCardsHtml = agendaList.map(({ dec, cal }) => {
     const shortId = (dec.id || '').substring(0, 8).toUpperCase();
     const qty = parseInt(dec.quantity_declared, 10) || 0;
     const vol = parseFloat(dec.volume_declared || 0);
@@ -48386,7 +48927,7 @@ window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawD
             <span style="background: ${dayBadgeBg}; color: ${dayBadgeColor}; border: 1px solid var(--color-border); font-size: 0.66rem; font-weight: 800; padding: 0.12rem 0.45rem; border-radius: 6px; text-transform: uppercase;">
               <i class="ri-calendar-event-line"></i> ${dayBadgeText}
             </span>
-            ${cal.isOverdue ? `<span style="background: rgba(239, 68, 68, 0.14); color: #dc2626; font-size: 0.64rem; font-weight: 800; padding: 0.1rem 0.4rem; border-radius: 99px;">⚠️ Fecha vencida</span>` : ''}
+            ${cal.isOverdue ? `<span style="background: rgba(239, 68, 68, 0.14); color: #dc2626; font-size: 0.64rem; font-weight: 800; padding: 0.1rem 0.4rem; border-radius: 99px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-error-warning-line"></i> Fecha vencida</span>` : ''}
             <span style="font-family: monospace; font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted);">#ING-${shortId}</span>
           </div>
           <span style="background: ${cal.statusMeta.bg}; color: ${cal.statusMeta.color}; border: 1px solid ${cal.statusMeta.border}; padding: 0.12rem 0.5rem; border-radius: 99px; font-size: 0.67rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.25rem;">
@@ -48396,8 +48937,8 @@ window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawD
 
         <div>
           <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.15rem;">
-            <span style="background: rgba(37, 99, 235, 0.1); color: var(--color-primary); font-size: 0.7rem; font-weight: 800; padding: 0.1rem 0.45rem; border-radius: 4px;">
-              🏢 ${esc(dec.comercio || 'Sin Comercio')}
+            <span style="background: rgba(37, 99, 235, 0.1); color: var(--color-primary); font-size: 0.7rem; font-weight: 800; padding: 0.1rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;">
+              <i class="ri-store-2-line"></i> ${esc(dec.comercio || 'Sin Comercio')}
             </span>
             <span style="background: ${cal.branchBg}; color: ${cal.branchColor}; font-size: 0.69rem; font-weight: 800; padding: 0.1rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;">
               <i class="ri-map-pin-2-fill"></i> ${esc(cal.branchLabel)}
@@ -48430,6 +48971,21 @@ window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawD
     `;
   }).join('');
 
+  const agendaCardsHtml = (agendaList.length === 0 && agendaOpList.length === 0) ? `
+    <div style="padding: 2.25rem 1rem; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.45rem;">
+      <div style="width: 44px; height: 44px; border-radius: 50%; background: rgba(124, 58, 237, 0.08); color: #7c3aed; display: flex; align-items: center; justify-content: center; font-size: 1.35rem;">
+        <i class="ri-calendar-check-line"></i>
+      </div>
+      <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main);">Sin ingresos ni eventos para esta selección</div>
+      <div style="font-size: 0.76rem; color: var(--color-text-muted); max-width: 240px;">Puedes cambiar de día, navegar a otro mes o mostrar todos los registros del mes.</div>
+      ${stateObj.agendaMode !== 'month' ? `
+        <button type="button" onclick="window.setInboundCalendarAgendaMode('${contextKey}', 'month')" class="btn btn-outline btn-sm" style="margin-top: 0.35rem; font-size: 0.74rem; padding: 0.3rem 0.75rem;">
+          Ver todos los del mes (${monthItems.length + monthOpEvents.length})
+        </button>
+      ` : ''}
+    </div>
+  ` : (opEventsCardsHtml + decCardsHtml);
+
   container.innerHTML = `
     <div style="display: flex; flex-direction: column; gap: 0.9rem;">
       <!-- Franja de 4 KPIs Interactivos + Filtros y Navegación de Mes -->
@@ -48450,10 +49006,10 @@ window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawD
             <span style="font-size: 0.68rem; color: var(--color-text-muted);">(${next7dUnits.toLocaleString('es-CL')}u)</span>
           </button>
 
-          <button type="button" onclick="window.setInboundCalendarAgendaMode('${contextKey}', 'month')" style="border: 1px solid ${stateObj.agendaMode === 'month' ? '#059669' : 'var(--color-border)'}; background: ${stateObj.agendaMode === 'month' ? 'rgba(16, 185, 129, 0.12)' : 'var(--color-surface)'}; border-radius: 8px; padding: 0.35rem 0.65rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; transition: all 0.15s;" title="Ver todos los ingresos del mes seleccionado">
+          <button type="button" onclick="window.setInboundCalendarAgendaMode('${contextKey}', 'month')" style="border: 1px solid ${stateObj.agendaMode === 'month' ? '#059669' : 'var(--color-border)'}; background: ${stateObj.agendaMode === 'month' ? 'rgba(16, 185, 129, 0.12)' : 'var(--color-surface)'}; border-radius: 8px; padding: 0.35rem 0.65rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; transition: all 0.15s;" title="Ver todos los ingresos y eventos del mes seleccionado">
             <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
             <span style="font-size: 0.74rem; color: var(--color-text-muted); font-weight: 600;">En ${monthShortNames[viewMonth]}:</span>
-            <strong style="font-size: 0.78rem; color: var(--color-text-main);">${monthItems.length}</strong>
+            <strong style="font-size: 0.78rem; color: var(--color-text-main);">${monthItems.length} ing${monthOpEvents.length > 0 ? ` • ${monthOpEvents.length} ev` : ''}</strong>
             <span style="font-size: 0.68rem; color: var(--color-text-muted);">(${monthUnits.toLocaleString('es-CL')}u • ${monthVol.toFixed(1)}m³)</span>
           </button>
 
@@ -48471,19 +49027,25 @@ window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawD
 
         <!-- Filtros de Sucursal, Estado y Navegador de Mes -->
         <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
-          <select onchange="window.setInboundCalendarFilter('${contextKey}', 'warehouseFilter', this.value)" class="form-input" style="height: 32px; padding: 0 0.55rem; font-size: 0.75rem; font-weight: 600; border-radius: 7px; width: auto; min-width: 148px; margin: 0;">
-            <option value="all" ${stateObj.warehouseFilter === 'all' ? 'selected' : ''}>📍 Todas las Sucursales</option>
-            <option value="nunoa" ${stateObj.warehouseFilter === 'nunoa' ? 'selected' : ''}>🔵 Matriz Ñuñoa</option>
-            <option value="lareina" ${stateObj.warehouseFilter === 'lareina' ? 'selected' : ''}>🟣 CDD La Reina</option>
-            <option value="recoleta" ${stateObj.warehouseFilter === 'recoleta' ? 'selected' : ''}>🟢 CDD Recoleta</option>
-            <option value="unassigned" ${stateObj.warehouseFilter === 'unassigned' ? 'selected' : ''}>🟠 Sin sucursal asignada</option>
-          </select>
+          <div style="position: relative; display: inline-flex; align-items: center;">
+            <i class="ri-map-pin-2-line" style="position: absolute; left: 0.55rem; color: var(--color-text-muted); font-size: 0.85rem; pointer-events: none;"></i>
+            <select onchange="window.setInboundCalendarFilter('${contextKey}', 'warehouseFilter', this.value)" class="form-input" style="height: 32px; padding: 0 0.55rem 0 1.65rem; font-size: 0.75rem; font-weight: 600; border-radius: 7px; width: auto; min-width: 156px; margin: 0;">
+              <option value="all" ${stateObj.warehouseFilter === 'all' ? 'selected' : ''}>Todas las Sucursales</option>
+              <option value="nunoa" ${stateObj.warehouseFilter === 'nunoa' ? 'selected' : ''}>Matriz Ñuñoa</option>
+              <option value="lareina" ${stateObj.warehouseFilter === 'lareina' ? 'selected' : ''}>CDD La Reina</option>
+              <option value="recoleta" ${stateObj.warehouseFilter === 'recoleta' ? 'selected' : ''}>CDD Recoleta</option>
+              <option value="unassigned" ${stateObj.warehouseFilter === 'unassigned' ? 'selected' : ''}>Sin sucursal asignada</option>
+            </select>
+          </div>
 
-          <select onchange="window.setInboundCalendarFilter('${contextKey}', 'statusFilter', this.value)" class="form-input" style="height: 32px; padding: 0 0.55rem; font-size: 0.75rem; font-weight: 600; border-radius: 7px; width: auto; min-width: 162px; margin: 0;">
-            <option value="scheduled" ${stateObj.statusFilter === 'scheduled' ? 'selected' : ''}>📅 Programados / En curso</option>
-            <option value="all" ${stateObj.statusFilter === 'all' ? 'selected' : ''}>📋 Todos (incl. Recibidos)</option>
-            <option value="completed" ${stateObj.statusFilter === 'completed' ? 'selected' : ''}>✅ Solo Recibidos</option>
-          </select>
+          <div style="position: relative; display: inline-flex; align-items: center;">
+            <i class="ri-calendar-check-line" style="position: absolute; left: 0.55rem; color: var(--color-text-muted); font-size: 0.85rem; pointer-events: none;"></i>
+            <select onchange="window.setInboundCalendarFilter('${contextKey}', 'statusFilter', this.value)" class="form-input" style="height: 32px; padding: 0 0.55rem 0 1.65rem; font-size: 0.75rem; font-weight: 600; border-radius: 7px; width: auto; min-width: 168px; margin: 0;">
+              <option value="scheduled" ${stateObj.statusFilter === 'scheduled' ? 'selected' : ''}>Programados / En curso</option>
+              <option value="all" ${stateObj.statusFilter === 'all' ? 'selected' : ''}>Todos (incl. Recibidos)</option>
+              <option value="completed" ${stateObj.statusFilter === 'completed' ? 'selected' : ''}>Solo Recibidos</option>
+            </select>
+          </div>
 
           <div style="display: inline-flex; align-items: center; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 2px;">
             <button type="button" onclick="window.changeInboundCalendarMonth('${contextKey}', -1)" style="border: none; background: transparent; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: var(--color-text-main);" title="Mes anterior">
@@ -48516,15 +49078,17 @@ window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawD
           <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.35rem;">
             ${cellsHtml}
           </div>
-          <!-- Leyenda rápida de etapas y sucursales -->
+          <!-- Leyenda rápida de etapas, sucursales y eventos operacionales -->
           <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.65rem; padding-top: 0.55rem; border-top: 1px dashed var(--color-border); font-size: 0.68rem; color: var(--color-text-muted);">
             <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
               <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #2563eb; display: inline-block;"></span> 1. Creada</span>
               <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #7c3aed; display: inline-block;"></span> 2. Bod. Asignada</span>
               <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #d97706; display: inline-block;"></span> 3-4. Recepción / Conteo</span>
               <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #059669; display: inline-block;"></span> 5. Recibido</span>
+              <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #0284c7; display: inline-block;"></span> Evento Operativo</span>
+              <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #dc2626; display: inline-block;"></span> Feriado / Sin Operaciones</span>
             </div>
-            <span>💡 Clic en un día para ver su agenda • Clic en un ingreso para gestionarlo</span>
+            <span style="display: inline-flex; align-items: center; gap: 4px;"><i class="ri-information-line"></i> Clic en un día para ver su agenda • Clic en un ingreso para gestionarlo</span>
           </div>
         </div>
 
@@ -48545,7 +49109,7 @@ window.renderInboundStockCalendarWidget = function(contextKey, containerId, rawD
               ` : ''}
               ${stateObj.agendaMode !== 'month' ? `
                 <button type="button" onclick="window.setInboundCalendarAgendaMode('${contextKey}', 'month')" class="btn btn-outline btn-sm" style="font-size: 0.7rem; padding: 0.24rem 0.55rem; font-weight: 700;">
-                  Ver Mes (${monthItems.length})
+                  Ver Mes (${monthItems.length + monthOpEvents.length})
                 </button>
               ` : ''}
             </div>
@@ -48873,11 +49437,62 @@ window.filterAndRenderDeclarationsAdminTable = function() {
 
   window._adminFilteredDeclarations = filteredDeclarations;
 
-  // Renderizar filas
-  if (filteredDeclarations.length === 0) {
-    tbody.innerHTML = getEmptyDeclarationMessage(currentTab);
+  const layoutMode = window.adminDeclarationLayoutMode || 'cards';
+  const tableWrapper = document.getElementById('admin-dec-table-wrapper');
+  const cardsContainer = document.getElementById('admin-dec-cards-container');
+  const btnLayoutTable = document.getElementById('btn-dec-layout-table');
+  const btnLayoutCards = document.getElementById('btn-dec-layout-cards');
+
+  if (btnLayoutTable && btnLayoutCards) {
+    if (layoutMode === 'cards') {
+      btnLayoutCards.style.background = 'var(--color-primary)';
+      btnLayoutCards.style.color = '#ffffff';
+      btnLayoutTable.style.background = 'transparent';
+      btnLayoutTable.style.color = 'var(--color-text-muted)';
+    } else {
+      btnLayoutTable.style.background = 'var(--color-primary)';
+      btnLayoutTable.style.color = '#ffffff';
+      btnLayoutCards.style.background = 'transparent';
+      btnLayoutCards.style.color = 'var(--color-text-muted)';
+    }
+  }
+
+  // Renderizar según modo activo (limpiando el contenedor inactivo para evitar IDs duplicados)
+  if (layoutMode === 'cards' && cardsContainer) {
+    if (tableWrapper) tableWrapper.style.display = 'none';
+    tbody.innerHTML = '';
+    cardsContainer.style.display = 'flex';
+
+    if (filteredDeclarations.length === 0) {
+      cardsContainer.innerHTML = `
+        <div style="background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: 12px; padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
+          <i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+          No se encontraron declaraciones de ingresos que coincidan con los filtros aplicados.
+        </div>
+      `;
+    } else {
+      const selectAllBarHtml = `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.35rem 0.65rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; font-size: 0.78rem; color: var(--color-text-muted);">
+          <label style="display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: 600; color: var(--color-text-main);">
+            <input type="checkbox" id="admin-dec-cards-select-all" onchange="window.toggleSelectAllDeclarationsAdmin(this.checked)" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-primary);">
+            <span>Seleccionar todos los ingresos visibles (${filteredDeclarations.length})</span>
+          </label>
+          <span>Vista Tarjetas Detalladas (2 niveles)</span>
+        </div>
+      `;
+      cardsContainer.innerHTML = selectAllBarHtml + filteredDeclarations.map(dec => buildDeclarationCardHtml(dec)).join('');
+    }
   } else {
-    tbody.innerHTML = filteredDeclarations.map(dec => buildDeclarationRowHtml(dec)).join('');
+    if (tableWrapper) tableWrapper.style.display = 'block';
+    if (cardsContainer) {
+      cardsContainer.style.display = 'none';
+      cardsContainer.innerHTML = '';
+    }
+    if (filteredDeclarations.length === 0) {
+      tbody.innerHTML = getEmptyDeclarationMessage(currentTab);
+    } else {
+      tbody.innerHTML = filteredDeclarations.map(dec => buildDeclarationRowHtml(dec)).join('');
+    }
   }
 
   // Sincronizar checkbox "Seleccionar todos" y barra de acciones masivas
@@ -48960,13 +49575,22 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
 
   try {
     if (!window._adminDeclarationsCache || forceRefresh) {
-      const { data: declarations, error } = await supabase
-        .from('stock_declarations')
-        .select('*, profiles!inner (company_name, full_name, email), warehouses (name, address, comuna)')
-        .order('created_at', { ascending: false });
+      const [decRes, evRes] = await Promise.all([
+        supabase
+          .from('stock_declarations')
+          .select('*, profiles!inner (company_name, full_name, email), warehouses (name, address, comuna)')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('dashboard_events')
+          .select('*')
+          .order('event_date', { ascending: true })
+      ]);
 
-      if (error) throw error;
-      window._adminDeclarationsCache = declarations || [];
+      if (decRes.error) throw decRes.error;
+      window._adminDeclarationsCache = decRes.data || [];
+      if (!evRes.error && Array.isArray(evRes.data)) {
+        window._operationalCalendarEventsCache = evRes.data;
+      }
     }
 
     if (refreshBtn) {
@@ -48981,12 +49605,13 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
 
     const merchantOptionsHtml = uniqueMerchants.map(m => {
       const isSelected = window.adminDeclarationMerchantFilter === m ? 'selected' : '';
-      return `<option value="${m}" ${isSelected}>🏢 ${m}</option>`;
+      return `<option value="${m}" ${isSelected}>${m}</option>`;
     }).join('');
 
-    // Si la estructura aún no existe en appContent (o no tiene la barra de acciones masivas o calendario), la montamos
-    if (!document.getElementById('admin-dec-table-card') || !document.getElementById('admin-dec-bulk-actions-bar') || !document.getElementById('admin-dec-scheduled-calendar-section')) {
+    // Si la estructura aún no existe en appContent (o no tiene la barra de acciones masivas, calendario o contenedor de tarjetas), la montamos
+    if (!document.getElementById('admin-dec-table-card') || !document.getElementById('admin-dec-bulk-actions-bar') || !document.getElementById('admin-dec-scheduled-calendar-section') || !document.getElementById('admin-dec-cards-container')) {
       const calCollapsed = window._inboundStockCalendarState?.declarations?.collapsed === true;
+      const curLayout = window.adminDeclarationLayoutMode || 'cards';
       appContent.innerHTML = `
         <div class="card" id="admin-dec-table-card">
           <div class="card-header" style="border-bottom: none; padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
@@ -49025,10 +49650,10 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
             <div id="admin-dec-inbound-calendar-container"></div>
           </div>
 
-          <!-- Toolbar de Búsqueda y Filtros de Administración -->
-          <div style="padding: 0.75rem 1.5rem 1rem 1.5rem; display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; justify-content: space-between; background: var(--color-bg); border-bottom: 1px solid var(--color-border);">
+          <!-- Toolbar de Búsqueda, Filtros y Selector de Vista -->
+          <div style="padding: 0.75rem 1.5rem 0.85rem 1.5rem; display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: center; justify-content: space-between; background: var(--color-bg); border-bottom: 1px solid var(--color-border);">
             <!-- Buscador por texto con lupa -->
-            <div style="position: relative; flex: 1; min-width: 260px; max-width: 380px;">
+            <div style="position: relative; flex: 1; min-width: 240px; max-width: 360px;">
               <i class="ri-search-line" style="position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 1.05rem;"></i>
               <input 
                 type="text" 
@@ -49036,7 +49661,7 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
                 class="form-input" 
                 placeholder="Buscar por #ING, título, comercio, SKU, notas..." 
                 value="${window.adminDeclarationSearchTerm || ''}"
-                style="padding-left: 2.35rem; padding-right: 2rem; height: 38px; font-size: 0.85rem; width: 100%; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border);"
+                style="padding-left: 2.35rem; padding-right: 2rem; height: 36px; font-size: 0.83rem; width: 100%; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border);"
               >
               <button 
                 type="button" 
@@ -49048,36 +49673,59 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
               </button>
             </div>
 
-            <!-- Filtros de Comercio, Facturación e Impresión -->
-            <div style="display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center;">
+            <!-- Filtros de Comercio, Facturación, Impresión y Alternador de Vista -->
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
               <!-- Filtro de Comercio -->
-              <div style="min-width: 170px;">
-                <select id="admin-dec-merchant-select" class="form-input" style="height: 38px; font-size: 0.85rem; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border); font-weight: 500;">
-                  <option value="all" ${window.adminDeclarationMerchantFilter === 'all' ? 'selected' : ''}>🏢 Todos los Comercios (${uniqueMerchants.length})</option>
+              <div style="min-width: 155px; position: relative; display: inline-flex; align-items: center;">
+                <i class="ri-store-2-line" style="position: absolute; left: 0.6rem; color: var(--color-text-muted); font-size: 0.9rem; pointer-events: none;"></i>
+                <select id="admin-dec-merchant-select" class="form-input" style="height: 36px; font-size: 0.82rem; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border); font-weight: 500; padding: 0 0.6rem 0 1.85rem; width: 100%;">
+                  <option value="all" ${window.adminDeclarationMerchantFilter === 'all' ? 'selected' : ''}>Todos los Comercios (${uniqueMerchants.length})</option>
                   ${merchantOptionsHtml}
                 </select>
               </div>
 
               <!-- Filtro de Facturación -->
-              <div style="min-width: 160px;">
-                <select id="admin-dec-billing-select" class="form-input" style="height: 38px; font-size: 0.85rem; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border); font-weight: 500;">
-                  <option value="all" ${window.adminDeclarationBillingFilter === 'all' ? 'selected' : ''}>💵 Facturación: Todos</option>
-                  <option value="Pendiente" ${window.adminDeclarationBillingFilter === 'Pendiente' ? 'selected' : ''}>⏳ Pendientes de Cobro</option>
-                  <option value="Facturado" ${window.adminDeclarationBillingFilter === 'Facturado' ? 'selected' : ''}>✅ Facturados (Incluidos)</option>
+              <div style="min-width: 148px; position: relative; display: inline-flex; align-items: center;">
+                <i class="ri-money-dollar-circle-line" style="position: absolute; left: 0.6rem; color: var(--color-text-muted); font-size: 0.9rem; pointer-events: none;"></i>
+                <select id="admin-dec-billing-select" class="form-input" style="height: 36px; font-size: 0.82rem; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border); font-weight: 500; padding: 0 0.6rem 0 1.85rem; width: 100%;">
+                  <option value="all" ${window.adminDeclarationBillingFilter === 'all' ? 'selected' : ''}>Facturación: Todos</option>
+                  <option value="Pendiente" ${window.adminDeclarationBillingFilter === 'Pendiente' ? 'selected' : ''}>Pendientes de Cobro</option>
+                  <option value="Facturado" ${window.adminDeclarationBillingFilter === 'Facturado' ? 'selected' : ''}>Facturados (Incluidos)</option>
                 </select>
               </div>
 
               <!-- Filtro de Impresión -->
-              <div style="min-width: 165px;">
-                <select id="admin-dec-printed-select" class="form-input" style="height: 38px; font-size: 0.85rem; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border); font-weight: 500;">
-                  <option value="all" ${window.adminDeclarationPrintedFilter === 'all' ? 'selected' : ''}>🖨️ Impresión: Todos</option>
-                  <option value="printed" ${window.adminDeclarationPrintedFilter === 'printed' ? 'selected' : ''}>✅ Impresos</option>
-                  <option value="unprinted" ${window.adminDeclarationPrintedFilter === 'unprinted' ? 'selected' : ''}>📄 Sin Imprimir (Pendientes)</option>
+              <div style="min-width: 145px; position: relative; display: inline-flex; align-items: center;">
+                <i class="ri-printer-line" style="position: absolute; left: 0.6rem; color: var(--color-text-muted); font-size: 0.9rem; pointer-events: none;"></i>
+                <select id="admin-dec-printed-select" class="form-input" style="height: 36px; font-size: 0.82rem; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border); font-weight: 500; padding: 0 0.6rem 0 1.85rem; width: 100%;">
+                  <option value="all" ${window.adminDeclarationPrintedFilter === 'all' ? 'selected' : ''}>Impresión: Todos</option>
+                  <option value="printed" ${window.adminDeclarationPrintedFilter === 'printed' ? 'selected' : ''}>Impresos</option>
+                  <option value="unprinted" ${window.adminDeclarationPrintedFilter === 'unprinted' ? 'selected' : ''}>Sin Imprimir</option>
                 </select>
               </div>
 
+              <!-- Alternador de Vista: Tarjetas Detalladas (Propuesta B) vs Tabla Consolidada -->
+              <div style="display: inline-flex; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 2px; gap: 2px;" title="Alternar diseño de visualización">
+                <button
+                  type="button"
+                  id="btn-dec-layout-cards"
+                  onclick="window.setAdminDeclarationLayoutMode('cards')"
+                  style="border: none; border-radius: 6px; padding: 0 0.65rem; height: 30px; font-size: 0.76rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.15s; ${curLayout === 'cards' ? 'background: var(--color-primary); color: #fff;' : 'background: transparent; color: var(--color-text-muted);'}"
+                >
+                  <i class="ri-layout-row-line"></i> Tarjetas
+                </button>
+                <button
+                  type="button"
+                  id="btn-dec-layout-table"
+                  onclick="window.setAdminDeclarationLayoutMode('table')"
+                  style="border: none; border-radius: 6px; padding: 0 0.65rem; height: 30px; font-size: 0.76rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.15s; ${curLayout === 'table' ? 'background: var(--color-primary); color: #fff;' : 'background: transparent; color: var(--color-text-muted);'}"
+                >
+                  <i class="ri-table-line"></i> Tabla
+                </button>
+              </div>
+
               <!-- Contador de resultados -->
-              <div style="font-size: 0.8rem; color: var(--color-text-muted); white-space: nowrap; padding-left: 0.25rem;">
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); white-space: nowrap;">
                 <span id="admin-dec-count-badge" class="badge" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 0.75rem; font-weight: 600; padding: 5px 8px; border-radius: 6px;">
                   Calculando...
                 </span>
@@ -49093,32 +49741,30 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
           <!-- Barra de Acciones Masivas de Ingresos -->
           <div id="admin-dec-bulk-actions-bar" style="display: none; padding: 0.65rem 1.5rem; background: linear-gradient(90deg, rgba(95, 6, 250, 0.08) 0%, rgba(37, 99, 235, 0.06) 100%); border-bottom: 1px solid rgba(95, 6, 250, 0.25);"></div>
 
-          <div class="card-body table-responsive">
-            <table class="data-table">
+          <!-- Vista 1: Tabla Consolidada de 6 Columnas (Sin scroll horizontal) -->
+          <div id="admin-dec-table-wrapper" class="card-body table-responsive" style="display: ${curLayout === 'cards' ? 'none' : 'block'}; overflow-x: visible;">
+            <table class="data-table" style="width: 100%; table-layout: auto;">
               <thead>
                 <tr>
-                  <th style="width: 38px; text-align: center;">
+                  <th style="width: 36px; text-align: center;">
                     <input type="checkbox" id="admin-dec-select-all" onchange="window.toggleSelectAllDeclarationsAdmin(this.checked)" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-primary);" title="Seleccionar o desmarcar todos los ingresos visibles">
                   </th>
-                  <th>Comercio</th>
-                  <th>Título / Descripción</th>
-                  <th>Llegada Estimada</th>
-                  <th>Declaradas</th>
-                  <th>Bultos</th>
-                  <th>Volumen (m³)</th>
-                  <th>Costos (Est. / Real)</th>
-                  <th>Facturación</th>
-                  <th>Método Envío</th>
-                  <th>Estado</th>
-                  <th>Recibido / Incidencias</th>
-                  <th>Acciones</th>
+                  <th>Ingreso & Comercio</th>
+                  <th>Llegada, Envío & Sucursal</th>
+                  <th>Carga & Recepción</th>
+                  <th>Costos & Facturación</th>
+                  <th>Etapa</th>
+                  <th style="text-align: right;">Acciones</th>
                 </tr>
               </thead>
               <tbody id="admin-dec-table-body">
-                <tr><td colspan="13" class="text-center" style="padding: 2rem;">Cargando tabla...</td></tr>
+                <tr><td colspan="7" class="text-center" style="padding: 2rem;">Cargando tabla...</td></tr>
               </tbody>
             </table>
           </div>
+
+          <!-- Vista 2: Tarjetas Horizontales en 2 Niveles -->
+          <div id="admin-dec-cards-container" style="display: ${curLayout === 'cards' ? 'flex' : 'none'}; padding: 1rem 1.25rem; flex-direction: column; gap: 0.75rem; background: var(--color-bg);"></div>
         </div>
       `;
 
@@ -49185,7 +49831,7 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
       if (merchantSelect) {
         const curVal = window.adminDeclarationMerchantFilter || 'all';
         merchantSelect.innerHTML = `
-          <option value="all" ${curVal === 'all' ? 'selected' : ''}>🏢 Todos los Comercios (${uniqueMerchants.length})</option>
+          <option value="all" ${curVal === 'all' ? 'selected' : ''}>Todos los Comercios (${uniqueMerchants.length})</option>
           ${merchantOptionsHtml}
         `;
       }
@@ -49219,7 +49865,8 @@ window.toggleDeclarationRowSelection = function(decId, checked) {
   }
   const rowEl = document.getElementById(`admin-dec-row-${decId}`);
   if (rowEl) {
-    rowEl.style.backgroundColor = checked ? 'rgba(95, 6, 250, 0.05)' : '';
+    const isCard = rowEl.tagName === 'DIV';
+    rowEl.style.backgroundColor = checked ? 'rgba(95, 6, 250, 0.05)' : (isCard ? 'var(--color-surface)' : '');
   }
   window.updateDeclarationsBulkActionBar();
 };
@@ -49235,7 +49882,8 @@ window.toggleSelectAllDeclarationsAdmin = function(checked) {
     }
     const rowEl = document.getElementById(`admin-dec-row-${dec.id}`);
     if (rowEl) {
-      rowEl.style.backgroundColor = checked ? 'rgba(95, 6, 250, 0.05)' : '';
+      const isCard = rowEl.tagName === 'DIV';
+      rowEl.style.backgroundColor = checked ? 'rgba(95, 6, 250, 0.05)' : (isCard ? 'var(--color-surface)' : '');
     }
   });
   document.querySelectorAll('.admin-dec-row-checkbox').forEach(cb => {
@@ -49252,13 +49900,16 @@ window.clearDeclarationSelection = function() {
     cb.checked = false;
   });
   document.querySelectorAll('[id^="admin-dec-row-"]').forEach(rowEl => {
-    rowEl.style.backgroundColor = '';
+    const isCard = rowEl.tagName === 'DIV';
+    rowEl.style.backgroundColor = isCard ? 'var(--color-surface)' : '';
   });
-  const selectAllCb = document.getElementById('admin-dec-select-all');
-  if (selectAllCb) {
-    selectAllCb.checked = false;
-    selectAllCb.indeterminate = false;
-  }
+  ['admin-dec-select-all', 'admin-dec-cards-select-all'].forEach(cbId => {
+    const selectAllCb = document.getElementById(cbId);
+    if (selectAllCb) {
+      selectAllCb.checked = false;
+      selectAllCb.indeterminate = false;
+    }
+  });
   window.updateDeclarationsBulkActionBar();
 };
 
@@ -49273,17 +49924,19 @@ window.updateDeclarationsBulkActionBar = function() {
   }
 
   const visibleDecs = window._adminFilteredDeclarations || [];
-  const selectAllCb = document.getElementById('admin-dec-select-all');
-  if (selectAllCb) {
-    if (visibleDecs.length === 0) {
-      selectAllCb.checked = false;
-      selectAllCb.indeterminate = false;
-    } else {
-      const selectedVisibleCount = visibleDecs.filter(d => window.selectedDeclarationIds.has(d.id)).length;
-      selectAllCb.checked = selectedVisibleCount === visibleDecs.length;
-      selectAllCb.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleDecs.length;
+  ['admin-dec-select-all', 'admin-dec-cards-select-all'].forEach(cbId => {
+    const selectAllCb = document.getElementById(cbId);
+    if (selectAllCb) {
+      if (visibleDecs.length === 0) {
+        selectAllCb.checked = false;
+        selectAllCb.indeterminate = false;
+      } else {
+        const selectedVisibleCount = visibleDecs.filter(d => window.selectedDeclarationIds.has(d.id)).length;
+        selectAllCb.checked = selectedVisibleCount === visibleDecs.length;
+        selectAllCb.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleDecs.length;
+      }
     }
-  }
+  });
 
   const barEl = document.getElementById('admin-dec-bulk-actions-bar');
   if (!barEl) return;
@@ -49550,8 +50203,8 @@ window.bulkToggleDeclarationPrintedStatus = async function() {
       <div style="text-align: left; font-size: 0.88rem;">
         <label style="font-weight: 600; display: block; margin-bottom: 0.4rem; color: var(--color-text-main);">Selecciona el estado de impresión a aplicar:</label>
         <select id="swal-bulk-dec-print-action" class="swal2-input" style="width: 100%; margin: 0; height: 42px; font-weight: 600; box-sizing: border-box;">
-          <option value="printed">✅ Marcar todos los seleccionados como IMPRESO</option>
-          <option value="unprinted">📄 Marcar todos los seleccionados como SIN IMPRIMIR</option>
+          <option value="printed">Marcar todos los seleccionados como IMPRESO</option>
+          <option value="unprinted">Marcar todos los seleccionados como SIN IMPRIMIR</option>
         </select>
       </div>
     `,
@@ -49636,7 +50289,7 @@ window.openBulkDeclarationBillingModal = async function() {
           <label style="font-weight: 600; display: block; margin-bottom: 0.3rem; color: var(--color-text-main);">1. Periodo de Facturación</label>
           <select id="swal-bulk-dec-period" class="swal2-input" style="width: 100%; margin: 0; height: 42px; font-weight: 700; box-sizing: border-box;">
             <option value="__KEEP__">-- Mantener periodo actual de cada ingreso --</option>
-            <option value="__CLEAR__">🚫 Quitar / Desmarcar periodo asignado</option>
+            <option value="__CLEAR__">Quitar / Desmarcar periodo asignado</option>
             ${optionsHtml}
             <option value="__NEW__">+ Crear Nuevo Periodo...</option>
           </select>
@@ -49644,9 +50297,9 @@ window.openBulkDeclarationBillingModal = async function() {
         <div>
           <label style="font-weight: 600; display: block; margin-bottom: 0.3rem; color: var(--color-text-main);">2. Estado de Facturación</label>
           <select id="swal-bulk-dec-billing-status" class="swal2-input" style="width: 100%; margin: 0; height: 42px; font-weight: 600; box-sizing: border-box;">
-            <option value="auto">⚡ Automático (Facturado si se asigna periodo, Pendiente si se quita)</option>
-            <option value="Facturado">✅ Marcar como Facturado</option>
-            <option value="Pendiente">⏳ Marcar como Pendiente</option>
+            <option value="auto">Automático (Facturado si se asigna periodo, Pendiente si se quita)</option>
+            <option value="Facturado">Marcar como Facturado</option>
+            <option value="Pendiente">Marcar como Pendiente</option>
             <option value="__KEEP__">-- Mantener estado de facturación actual --</option>
           </select>
         </div>
@@ -49865,19 +50518,19 @@ window.openBulkDeclarationStatusModal = async function() {
           <i class="ri-route-line" style="color: #5f06fa; font-size: 1rem;"></i> 1. Selecciona la Nueva Etapa / Estado Destino:
         </label>
         <select id="bulk-dec-target-status" class="form-input" onchange="window.onBulkDecTargetStatusChange()" style="width: 100%; height: 42px; font-size: 0.9rem; font-weight: 700; border-radius: 7px; border: 1.5px solid #5f06fa; background: var(--color-bg); color: var(--color-text-main);">
-          <optgroup label="📋 Etapas Operativas del Flujo">
+          <optgroup label="Etapas Operativas del Flujo">
             <option value="Creada" ${suggestedTargetStatus === 'Creada' ? 'selected' : ''}>1. Creada (Etapa inicial)</option>
             <option value="Bodega Asignada" ${suggestedTargetStatus === 'Bodega Asignada' ? 'selected' : ''}>2. Bodega Asignada (Asignar sucursal destino)</option>
             <option value="En Recepción - Pendiente Conteo" ${suggestedTargetStatus === 'En Recepción - Pendiente Conteo' ? 'selected' : ''}>3. En Recepción - Pendiente Conteo (Llegada a andén)</option>
             <option value="En proceso de conteo/clasificación" ${suggestedTargetStatus === 'En proceso de conteo/clasificación' ? 'selected' : ''}>4. En Conteo / Clasificación (Apertura y auditoría)</option>
           </optgroup>
-          <optgroup label="✅ Etapas de Recepción y Cierre (Acreditación de Stock)">
+          <optgroup label="Etapas de Recepción y Cierre (Acreditación de Stock)">
             <option value="Recibido Conforme" ${suggestedTargetStatus === 'Recibido Conforme' ? 'selected' : ''}>5. Recibido Conforme (100% Carga Completa sin diferencias)</option>
             <option value="Recepción Parcial" ${suggestedTargetStatus === 'Recepción Parcial' ? 'selected' : ''}>5. Recepción Parcial (Acreditar avance y dejar saldo pendiente)</option>
             <option value="Recibido con Incidencias" ${suggestedTargetStatus === 'Recibido con Incidencias' ? 'selected' : ''}>5. Recibido con Incidencias (Diferencias de conteo o daños)</option>
           </optgroup>
-          <optgroup label="⚙️ Otras Acciones">
-            <option value="__KEEP__">⏸️ Mantener etapa actual de cada ingreso (Solo actualizar datos / bodega / conteo paralelo)</option>
+          <optgroup label="Otras Acciones">
+            <option value="__KEEP__">Mantener etapa actual de cada ingreso (Solo actualizar datos / bodega / conteo paralelo)</option>
           </optgroup>
         </select>
         <div id="bulk-dec-stage-helper-banner" style="margin-top: 0.45rem; font-size: 0.77rem; color: var(--color-text-muted); line-height: 1.35;"></div>
@@ -49910,14 +50563,14 @@ window.openBulkDeclarationStatusModal = async function() {
           <label style="display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.5rem 0.65rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; margin: 0;">
             <input type="checkbox" id="bulk-dec-send-picker" style="width: 16px; height: 16px; margin-top: 2px; accent-color: var(--color-primary); cursor: pointer;">
             <div style="font-size: 0.8rem; line-height: 1.35;">
-              <strong style="color: var(--color-text-main); display: block;">📲 Enviar ingresos seleccionados al Sistema Picker (Cola Activa <code>ING-...</code>)</strong>
+              <strong style="color: var(--color-text-main); display: block;"><i class="ri-smartphone-line" style="color: var(--color-primary);"></i> Enviar ingresos seleccionados al Sistema Picker (Cola Activa <code>ING-...</code>)</strong>
               <span style="color: var(--color-text-muted); font-size: 0.74rem;">Carga automáticamente los SKUs y códigos de barras en la sucursal del Picker para que los operarios inicien el conteo.</span>
             </div>
           </label>
           <label style="display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.5rem 0.65rem; background: rgba(95, 6, 250, 0.04); border: 1px dashed rgba(95, 6, 250, 0.35); border-radius: 6px; cursor: pointer; margin: 0;">
             <input type="checkbox" id="bulk-dec-parallel-count" style="width: 16px; height: 16px; margin-top: 2px; accent-color: #5f06fa; cursor: pointer;">
             <div style="font-size: 0.8rem; line-height: 1.35;">
-              <strong style="color: #5f06fa; display: block;">⚡ Activar Conteo en Paralelo (Acreditar Stock Declarado de Inmediato)</strong>
+              <strong style="color: #5f06fa; display: block;"><i class="ri-flashlight-line" style="color: #5f06fa;"></i> Activar Conteo en Paralelo (Acreditar Stock Declarado de Inmediato)</strong>
               <span style="color: var(--color-text-muted); font-size: 0.74rem;">Suma inmediatamente las unidades declaradas al inventario físico de la bodega para habilitar ventas/despachos mientras se audita físicamente.</span>
             </div>
           </label>
@@ -49937,10 +50590,10 @@ window.openBulkDeclarationStatusModal = async function() {
           </label>
           <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
             <select id="bulk-dec-vol-mode" class="form-input" onchange="document.getElementById('bulk-dec-vol-custom-wrap').style.display = this.value === 'custom' ? 'block' : 'none';" style="flex: 1; min-width: 240px; height: 36px; font-size: 0.8rem;">
-              <option value="keep_or_declared" selected>✅ Conservar volumen confirmado actual (o usar Volumen Declarado si está vacío)</option>
-              <option value="declared">📐 Igualar siempre al Volumen Declarado de cada ingreso</option>
-              <option value="recalc_catalog">📦 Recalcular según medidas de productos en catálogo × cantidad recibida</option>
-              <option value="custom">✏️ Asignar un volumen confirmado específico (m³) a cada ingreso...</option>
+              <option value="keep_or_declared" selected>Conservar volumen confirmado actual (o usar Volumen Declarado si está vacío)</option>
+              <option value="declared">Igualar siempre al Volumen Declarado de cada ingreso</option>
+              <option value="recalc_catalog">Recalcular según medidas de productos en catálogo × cantidad recibida</option>
+              <option value="custom">Asignar un volumen confirmado específico (m³) a cada ingreso...</option>
             </select>
             <div id="bulk-dec-vol-custom-wrap" style="display: none; width: 140px;">
               <input type="number" id="bulk-dec-vol-custom" class="form-input" step="0.0001" min="0.0001" placeholder="Ej: 0.2500" style="height: 36px; font-size: 0.8rem; width: 100%;">
@@ -49997,9 +50650,9 @@ window.openBulkDeclarationStatusModal = async function() {
             </label>
             <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
               <select id="bulk-dec-labeling-mode" class="form-input" onchange="document.getElementById('bulk-dec-labeling-custom-wrap').style.display = this.value === 'custom' ? 'block' : 'none';" style="flex: 1; min-width: 240px; height: 36px; font-size: 0.8rem;">
-                <option value="requested" selected>✅ Confirmar según lo solicitado en cada ingreso (o mantener confirmado actual)</option>
-                <option value="zero">0️⃣ Confirmar 0 unidades etiquetadas en todos</option>
-                <option value="custom">✏️ Asignar cantidad fija de unidades etiquetadas...</option>
+                <option value="requested" selected>Confirmar según lo solicitado en cada ingreso (o mantener confirmado actual)</option>
+                <option value="zero">Confirmar 0 unidades etiquetadas en todos</option>
+                <option value="custom">Asignar cantidad fija de unidades etiquetadas...</option>
               </select>
               <div id="bulk-dec-labeling-custom-wrap" style="display: none; width: 130px;">
                 <input type="number" id="bulk-dec-labeling-custom" class="form-input" min="0" value="0" style="height: 36px; font-size: 0.8rem; width: 100%;">
@@ -50012,13 +50665,13 @@ window.openBulkDeclarationStatusModal = async function() {
             <label style="display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.45rem 0.6rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; margin: 0;">
               <input type="checkbox" id="bulk-dec-credit-inventory" checked style="width: 16px; height: 16px; margin-top: 2px; accent-color: #059669; cursor: pointer;">
               <div style="font-size: 0.78rem; line-height: 1.35;">
-                <strong style="color: var(--color-text-main);">📦 Acreditar unidades en Inventario Físico y registrar en Kardex (<code>movements</code>)</strong>
+                <strong style="color: var(--color-text-main);"><i class="ri-archive-line" style="color: #059669;"></i> Acreditar unidades en Inventario Físico y registrar en Kardex (<code>movements</code>)</strong>
                 <div style="color: var(--color-text-muted); font-size: 0.72rem;">Calcula automáticamente el saldo pendiente por acreditar (<code>qty_confirmed - qty_inventory_added</code>) para evitar duplicidad de stock.</div>
               </div>
             </label>
             <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.6rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; margin: 0;">
               <input type="checkbox" id="bulk-dec-recalc-cost" checked style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
-              <span style="font-size: 0.78rem; color: var(--color-text-main); font-weight: 600;">💰 Calcular y confirmar automáticamente el Costo Real (UF) de liquidación en cada ingreso</span>
+              <span style="font-size: 0.78rem; color: var(--color-text-main); font-weight: 600;"><i class="ri-coins-line" style="color: var(--color-primary);"></i> Calcular y confirmar automáticamente el Costo Real (UF) de liquidación en cada ingreso</span>
             </label>
           </div>
         </div>
@@ -50048,15 +50701,15 @@ window.openBulkDeclarationStatusModal = async function() {
             <label style="font-size: 0.73rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Estado Facturación</label>
             <select id="bulk-dec-billing-status" class="form-input" style="width: 100%; height: 34px; font-size: 0.78rem;">
               <option value="__KEEP__">-- Mantener actual --</option>
-              <option value="Pendiente">⏳ Pendiente</option>
-              <option value="Facturado">✅ Facturado</option>
+              <option value="Pendiente">Pendiente</option>
+              <option value="Facturado">Facturado</option>
             </select>
           </div>
           <div>
             <label style="font-size: 0.73rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Periodo Facturación</label>
             <select id="bulk-dec-billing-period" class="form-input" style="width: 100%; height: 34px; font-size: 0.78rem;">
               <option value="__KEEP__">-- Mantener actual --</option>
-              <option value="__CLEAR__">🚫 Sin periodo (Desmarcar)</option>
+              <option value="__CLEAR__">Sin periodo (Desmarcar)</option>
               ${periodOptionsHtml}
             </select>
           </div>
@@ -50073,7 +50726,7 @@ window.openBulkDeclarationStatusModal = async function() {
           </div>
           <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.76rem; color: var(--color-text-main); cursor: pointer; margin-top: 0.55rem;">
             <input type="checkbox" id="bulk-dec-notify-clients" checked style="width: 15px; height: 15px; accent-color: var(--color-primary); cursor: pointer;">
-            <span>📧 Notificar actualización a cada comercio</span>
+            <span style="display: inline-flex; align-items: center; gap: 4px;"><i class="ri-mail-send-line" style="color: var(--color-primary);"></i> Notificar actualización a cada comercio</span>
           </label>
         </div>
       </div>
@@ -50930,8 +51583,8 @@ window.renderDeclarationStepper = function(currentStatus, targetStatus) {
           <span style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-main); letter-spacing: 0.5px; display: flex; align-items: center; gap: 0.35rem;">
             <i class="ri-route-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Ruta del Ingreso de Stock
           </span>
-          <span class="badge" style="background: rgba(95, 6, 250, 0.1); color: var(--color-primary); font-weight: 700; font-size: 0.75rem;">
-            📍 Etapa Actual: ${currentStatus}
+          <span class="badge" style="background: rgba(95, 6, 250, 0.1); color: var(--color-primary); font-weight: 700; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 4px;">
+            <i class="ri-map-pin-2-line"></i> Etapa Actual: ${currentStatus}
           </span>
         </div>
         <div>
@@ -51098,7 +51751,7 @@ window.renderStageTransitionController = function(dec, targetStatus) {
         warehouseInlineStatusHtml = `
           <div style="margin-top: 0.4rem; display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.65rem; border-radius: 999px; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); color: #b45309; font-size: 0.74rem; font-weight: 700;">
             <i class="ri-error-warning-fill" style="color: #f59e0b;"></i>
-            <span>Paso requerido: Elige una sucursal en las tarjetas de abajo 👇</span>
+            <span>Paso requerido: Elige una sucursal en las tarjetas de abajo <i class="ri-arrow-down-line"></i></span>
           </div>
         `;
       }
@@ -51468,7 +52121,7 @@ window.renderManageWarehouseCards = function(targetStatusOverride = null) {
 
   if (requiredPill) {
     if (isAdvancingToWarehouseStage) {
-      requiredPill.textContent = selectedWh ? '✓ Sucursal Lista' : '⚠️ Selección Obligatoria';
+      requiredPill.innerHTML = selectedWh ? '<i class="ri-check-line"></i> Sucursal Lista' : '<i class="ri-error-warning-line"></i> Selección Obligatoria';
       requiredPill.style.background = selectedWh ? 'rgba(16, 185, 129, 0.16)' : 'rgba(245, 158, 11, 0.2)';
       requiredPill.style.color = selectedWh ? '#047857' : '#b45309';
     } else {
@@ -54440,7 +55093,7 @@ window.startParallelCountStockIntake = async function() {
           Se ingresarán inmediatamente <strong>${totalToCredit.toLocaleString()} unidades</strong> de <strong>${products.length} SKU(s)</strong> al inventario de <strong>${whName}</strong>.
         </p>
         <div style="background: rgba(95, 6, 250, 0.08); border-left: 3px solid #5f06fa; padding: 0.65rem 0.85rem; border-radius: 0 6px 6px 0; margin-bottom: 0.75rem; font-size: 0.82rem;">
-          <strong style="color: #5f06fa; display: block; margin-bottom: 2px;">⚡ Ventajas del Conteo en Paralelo:</strong>
+          <strong style="color: #5f06fa; display: block; margin-bottom: 2px;"><i class="ri-flashlight-line"></i> Ventajas del Conteo en Paralelo:</strong>
           • Las unidades quedan <strong>disponibles de inmediato</strong> para venta y despacho.<br>
           • La recepción pasa a <strong>"En proceso de conteo/clasificación"</strong>.<br>
           • El personal de bodega puede auditar físicamente la mercadería en simultáneo.<br>
@@ -56552,13 +57205,13 @@ window.showAdminDecSpreadsheetPreviewModal = function(analysis, isReopen = false
               Todas (${analysis.stats.total})
             </button>
             <button type="button" class="btn btn-sm preview-filter-btn" data-filter="match" onclick="window.filterAdminExcelPreviewRows('match')" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; border-radius: 5px; font-weight: 600; background: transparent; color: #059669; border: 1px solid rgba(16, 185, 129, 0.4); cursor: pointer;">
-              ✓ Coincidencias (${analysis.stats.matched})
+              <i class="ri-check-line"></i> Coincidencias (${analysis.stats.matched})
             </button>
             <button type="button" class="btn btn-sm preview-filter-btn" data-filter="unmatched" onclick="window.filterAdminExcelPreviewRows('unmatched')" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; border-radius: 5px; font-weight: 600; background: transparent; color: #d97706; border: 1px solid rgba(245, 158, 11, 0.4); cursor: pointer;">
-              ⚠️ Fuera de Catálogo (${analysis.stats.unmatched})
+              <i class="ri-alert-line"></i> Fuera de Catálogo (${analysis.stats.unmatched})
             </button>
             <button type="button" class="btn btn-sm preview-filter-btn" data-filter="error" onclick="window.filterAdminExcelPreviewRows('error')" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; border-radius: 5px; font-weight: 600; background: transparent; color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.4); cursor: pointer;">
-              ✗ Con Error (${analysis.stats.errors})
+              <i class="ri-close-line"></i> Con Error (${analysis.stats.errors})
             </button>
           </div>
           <div style="position: relative; width: 220px;">
@@ -57489,13 +58142,13 @@ window.initAdminNewDeclarationModalDom = function() {
                 }
 
                 const dimsSource = sheetHasDims ? 'Medidas de la planilla' : (largo ? 'Medidas del catálogo master' : 'Sin medidas');
-                detail = `✓ Coincidencia en Catálogo Master. Nombre y precio autocompletados (${dimsSource}).`;
+                detail = `<i class="ri-check-line"></i> Coincidencia en Catálogo Master. Nombre y precio autocompletados (${dimsSource}).`;
               } else {
                 status = 'unmatched';
                 if (largo && ancho && alto) {
                   vol = (largo * ancho * alto) / 1000000;
                 }
-                detail = `⚠️ SKU no encontrado en el catálogo de ${commerce}. Se registrará como producto fuera de catálogo.`;
+                detail = `<i class="ri-alert-line"></i> SKU no encontrado en el catálogo de ${commerce}. Se registrará como producto fuera de catálogo.`;
               }
 
               analysisItems.push({
@@ -57689,7 +58342,7 @@ window.openAdminNewDeclarationModal = async function() {
 
       comSelect.innerHTML = `
         <option value="">-- Selecciona el Comercio Destino (${uniqueList.length}) --</option>
-        ${uniqueList.map(item => `<option value="${item.comercio}">🏢 ${item.comercio} (${item.company_name})</option>`).join('')}
+        ${uniqueList.map(item => `<option value="${item.comercio}">${item.comercio} (${item.company_name})</option>`).join('')}
       `;
     } catch (errCom) {
       console.error('Error cargando comercios para nueva declaración admin:', errCom);
@@ -57711,7 +58364,7 @@ window.openAdminNewDeclarationModal = async function() {
         : (rawWarehouses || []);
       if (warehouses) {
         warehouses.forEach(w => {
-          whSelect.innerHTML += `<option value="${w.id}">🏭 ${w.name} (${w.comuna})</option>`;
+          whSelect.innerHTML += `<option value="${w.id}">${w.name} (${w.comuna})</option>`;
         });
       }
     } catch (wErr) {
@@ -116276,6 +116929,10 @@ window.toggleAutomationMerchantFlag = async function(integrationId, field, value
       window._automationsCache.stats.activeSyncStoresCount = window._automationsCache.integrations.filter(i => i.sync_tracking_enabled === true).length;
     }
 
+    if (typeof window.ensureShopifyIntegrationsMapLoaded === 'function') {
+      window.ensureShopifyIntegrationsMapLoaded(true);
+    }
+
     const toast = Swal.mixin({
       toast: true,
       position: 'top-end',
@@ -116669,10 +117326,11 @@ window.openShopifyStatusControlModal = async function(orderId, opts = {}) {
         <!-- Tarjeta de Estado Actual Comparado (WMS vs Shopify) -->
         <div style="background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: 10px; padding: 0.85rem;">
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem;">
-            <div>
+            <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
               <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Comercio:</span>
-              <strong style="font-size: 0.88rem; color: var(--color-text-main); margin-left: 0.25rem;">${order.comercio || '-'}</strong>
-              <span style="font-size: 0.75rem; color: var(--color-text-muted); margin-left: 0.35rem;">(${isRetiro ? '🏪 RETIRO' : '🚚 DISTRIBUCIÓN'})</span>
+              <strong style="font-size: 0.88rem; color: var(--color-text-main);">${order.comercio || '-'}</strong>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${isRetiro ? '🏪 RETIRO' : '🚚 DISTRIBUCIÓN'})</span>
+              ${typeof window.renderShopifyBidirBadgeHtml === 'function' ? window.renderShopifyBidirBadgeHtml(order.comercio) : ''}
             </div>
             <button type="button" id="btn-verify-live-shopify-status" onclick="window.verifyLiveShopifyOrderStatus('${order.id}', true)" class="btn btn-outline btn-sm" style="padding: 0.22rem 0.6rem; font-size: 0.74rem; font-weight: 700; border-color: #3b82f6; color: #1d4ed8; background: #eff6ff; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
               <i class="ri-refresh-line"></i> Verificar en vivo con Shopify
