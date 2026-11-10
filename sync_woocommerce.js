@@ -257,7 +257,8 @@ async function wcFetchWithProxyFallback(baseUrl, endpoint, options, integration)
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'x-region': 'sa-east-1'
       },
       body: JSON.stringify({
         action: 'proxy_wc_api',

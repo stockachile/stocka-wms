@@ -522,10 +522,12 @@ async function runIntegrationsGuardian() {
 
   const forceSummary = process.env.FORCE_DAILY_SUMMARY === 'true';
   const shouldSendEmail =
-    results.critical.length > 0 ||
-    results.autoHealed.length > 0 ||
-    results.warnings.length > 0 ||
-    forceSummary;
+    process.env.SKIP_EMAIL_REPORT !== 'true' && (
+      results.critical.length > 0 ||
+      results.autoHealed.length > 0 ||
+      results.warnings.length > 0 ||
+      forceSummary
+    );
 
   if (shouldSendEmail) {
     const statusEmoji = results.critical.length > 0 ? '🔴 ALERTA CRÍTICA' : (results.autoHealed.length > 0 ? '🟡 AUTO-REPARACIÓN APLICADA' : '🟢 REPORTE DIARIO OK');
@@ -550,7 +552,8 @@ async function wcFetchWithProxyFallback(baseUrl, endpoint, options, integration)
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'x-region': 'sa-east-1'
       },
       body: JSON.stringify({
         action: 'proxy_wc_api',
