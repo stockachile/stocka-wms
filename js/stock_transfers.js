@@ -89,7 +89,13 @@ export async function resolveCurrentAdminIdentity() {
         ? prof.full_name
         : (user.user_metadata?.full_name || user.email?.split('@')[0] || 'Administrador');
       window.stockTransfersState.currentAdminName = displayName;
-      return { id: user.id, name: displayName, email: user.email, role: prof?.role || 'admin' };
+      window.stockTransfersState.currentAdminEmail = prof?.email || user.email || '';
+      return {
+        id: user.id,
+        name: displayName,
+        email: prof?.email || user.email || '',
+        role: prof?.role || 'admin'
+      };
     }
   } catch (e) {
     console.warn('[StockTransfers] No se pudo resolver identidad admin:', e);
@@ -97,9 +103,163 @@ export async function resolveCurrentAdminIdentity() {
   return {
     id: window.stockTransfersState.currentAdminId,
     name: window.stockTransfersState.currentAdminName || 'Administrador WMS',
+    email: window.stockTransfersState.currentAdminEmail || '',
     role: 'admin'
   };
 }
+
+function normalizeAdminIdentityStr(str) {
+  if (!str) return '';
+  return String(str)
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
+ * Carga la lista de todos los usuarios administradores (role = 'admin') desde public.profiles
+ */
+export async function ensureAllAdminsLoaded(forceRefresh = false) {
+  if (!forceRefresh && Array.isArray(window.stockTransfersState.adminUsers) && window.stockTransfersState.adminUsers.length > 0) {
+    return window.stockTransfersState.adminUsers;
+  }
+
+  const currentAdmin = await resolveCurrentAdminIdentity();
+  const list = [];
+
+  try {
+    const { data: admins, error } = await supabase
+      .from('profiles')
+      .select('id, full_name, company_name, email, role')
+      .eq('role', 'admin')
+      .order('full_name', { ascending: true });
+
+    if (!error && Array.isArray(admins)) {
+      for (const a of admins) {
+        const displayName = (a.full_name && a.full_name !== 'Nuevo Usuario')
+          ? a.full_name
+          : (a.company_name || (a.email ? a.email.split('@')[0] : 'Administrador'));
+        list.push({
+          id: a.id,
+          name: displayName.trim(),
+          email: a.email || '',
+          company_name: a.company_name || ''
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('[StockTransfers] Error cargando lista de administradores:', e);
+  }
+
+  if (currentAdmin && currentAdmin.id && !list.some(u => String(u.id) === String(currentAdmin.id))) {
+    list.unshift({
+      id: currentAdmin.id,
+      name: currentAdmin.name || 'Administrador',
+      email: currentAdmin.email || '',
+      company_name: ''
+    });
+  }
+
+  window.stockTransfersState.adminUsers = list;
+  return list;
+}
+window.ensureAllAdminsLoaded = ensureAllAdminsLoaded;
+
+/**
+ * Verifica si un usuario administrador coincide con un actor registrado (por UUID, email o nombre)
+ */
+function doesAdminMatchActor(currentAdmin, actorId, actorName, actorEmail = '') {
+  if (!currentAdmin) return false;
+  if (actorId && currentAdmin.id && String(actorId) === String(currentAdmin.id)) {
+    return true;
+  }
+  if (actorEmail && currentAdmin.email && String(actorEmail).trim().toLowerCase() === String(currentAdmin.email).trim().toLowerCase()) {
+    return true;
+  }
+  const normCurrentName = normalizeAdminIdentityStr(currentAdmin.name);
+  const normCurrentEmailUser = normalizeAdminIdentityStr((currentAdmin.email || '').split('@')[0]);
+  const normActorName = normalizeAdminIdentityStr(actorName);
+  if (!normActorName) return false;
+  if (normCurrentName && normCurrentName === normActorName) return true;
+  if (normCurrentEmailUser && normCurrentEmailUser === normActorName) return true;
+
+  const adminList = window.stockTransfersState.adminUsers || [];
+  const myProfile = adminList.find(a => String(a.id) === String(currentAdmin.id));
+  if (myProfile) {
+    if (normalizeAdminIdentityStr(myProfile.name) === normActorName) return true;
+    if (myProfile.email && normalizeAdminIdentityStr(myProfile.email.split('@')[0]) === normActorName) return true;
+  }
+  return false;
+}
+
+/**
+ * Calcula los permisos de acción sobre un movimiento para el administrador actual:
+ * - Todos los administradores pueden VER todos los movimientos y su detalle/guía.
+ * - Las acciones operativas están reservadas a QUIEN REALIZA el movimiento y A QUIEN ESTÁ DIRIGIDO.
+ */
+export function getTransferActionPermissions(transfer, currentAdmin = null) {
+  const admin = currentAdmin || {
+    id: window.stockTransfersState.currentAdminId,
+    name: window.stockTransfersState.currentAdminName,
+    email: window.stockTransfersState.currentAdminEmail
+  };
+
+  if (!transfer) {
+    return {
+      canView: true,
+      isCreatorOrPerformer: false,
+      isDirectedRecipient: false,
+      isParticipant: false,
+      canDispatch: false,
+      canReceive: false,
+      canEdit: false,
+      canCorrect: false,
+      canCancelOrDelete: false
+    };
+  }
+
+  const isCreatorOrPerformer =
+    doesAdminMatchActor(admin, transfer.requested_by_id, transfer.requested_by_name) ||
+    doesAdminMatchActor(admin, transfer.dispatched_by_id, transfer.dispatched_by_name);
+
+  const directedId = String(transfer.directed_to_id || '').trim();
+  const directedNameNorm = normalizeAdminIdentityStr(transfer.directed_to_name);
+  const isDirectedToAll =
+    directedId === 'ALL' ||
+    directedNameNorm === 'todos los admins' ||
+    directedNameNorm === 'cualquier admin' ||
+    directedNameNorm === 'todos';
+
+  let isDirectedRecipient = false;
+  if (isDirectedToAll) {
+    isDirectedRecipient = true;
+  } else if (directedId || directedNameNorm || transfer.directed_to_email) {
+    isDirectedRecipient =
+      doesAdminMatchActor(admin, transfer.directed_to_id, transfer.directed_to_name, transfer.directed_to_email) ||
+      doesAdminMatchActor(admin, transfer.received_by_id, transfer.received_by_name);
+  } else {
+    // Movimientos previos sin destinatario explícito: habilitados para quien los realizó o recepcionó
+    isDirectedRecipient =
+      isCreatorOrPerformer ||
+      doesAdminMatchActor(admin, transfer.received_by_id, transfer.received_by_name);
+  }
+
+  const isParticipant = isCreatorOrPerformer || isDirectedRecipient;
+
+  return {
+    canView: true,
+    isCreatorOrPerformer,
+    isDirectedRecipient,
+    isParticipant,
+    canDispatch: isCreatorOrPerformer || isDirectedRecipient,
+    canReceive: isDirectedRecipient || isCreatorOrPerformer,
+    canEdit: isCreatorOrPerformer || isDirectedRecipient,
+    canCorrect: isDirectedRecipient || isCreatorOrPerformer,
+    canCancelOrDelete: isCreatorOrPerformer || isDirectedRecipient
+  };
+}
+window.getTransferActionPermissions = getTransferActionPermissions;
 
 const DEFAULT_STOCKA_WAREHOUSES = [
   { id: 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09', name: 'Bodega Central', comuna: 'Santiago' },
@@ -324,8 +484,146 @@ window.getProductInTransitQty = function(warehouseId, productId, invRecord = nul
   return 0;
 };
 
+const CLOUD_SHARED_MARKER = 'stock_transfer_v1';
+
+function getCloudTransferRowId(transferOrId) {
+  const raw = typeof transferOrId === 'object'
+    ? String(transferOrId?.id || transferOrId?.folio || '')
+    : String(transferOrId || '');
+  const clean = raw.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 44);
+  return `trf_${clean}`;
+}
+
+async function upsertCloudFallbackTransfer(transfer) {
+  if (!transfer || (!transfer.id && !transfer.folio)) return false;
+  try {
+    const rowId = getCloudTransferRowId(transfer);
+    const syncedCopy = { ...transfer, _isLocalOnly: true, _cloudSynced: true };
+    const { error } = await supabase
+      .from('calendar_integration_settings')
+      .upsert([{
+        id: rowId,
+        google_calendar_id: CLOUD_SHARED_MARKER,
+        google_client_id: String(transfer.folio || ''),
+        auto_sync_gcal: false,
+        auto_pause_whatsapp: false,
+        bot_out_of_office_message: JSON.stringify(syncedCopy),
+        updated_at: transfer.updated_at || new Date().toISOString()
+      }], { onConflict: 'id' });
+
+    if (!error) {
+      transfer._cloudSynced = true;
+      return true;
+    }
+    console.warn('[StockTransfers] Aviso guardando traslado en almacén compartido Supabase:', error.message);
+  } catch (e) {
+    console.warn('[StockTransfers] Error guardando traslado en almacén compartido:', e);
+  }
+  return false;
+}
+
+async function deleteCloudFallbackTransfer(transferOrId, folio = '') {
+  try {
+    const rowId = getCloudTransferRowId(transferOrId);
+    await supabase.from('calendar_integration_settings').delete().eq('id', rowId);
+    if (folio) {
+      await supabase
+        .from('calendar_integration_settings')
+        .delete()
+        .eq('google_calendar_id', CLOUD_SHARED_MARKER)
+        .eq('google_client_id', String(folio));
+    }
+  } catch (e) {
+    console.warn('[StockTransfers] Error eliminando traslado en almacén compartido:', e);
+  }
+}
+
+async function fetchCloudSharedTransfers() {
+  const localList = loadLocalTransfersBackup();
+  try {
+    const { data: cloudRows, error: cloudErr } = await supabase
+      .from('calendar_integration_settings')
+      .select('id, google_client_id, bot_out_of_office_message, updated_at')
+      .eq('google_calendar_id', CLOUD_SHARED_MARKER);
+
+    if (cloudErr || !Array.isArray(cloudRows)) {
+      window.stockTransfersState.usingLocalFallback = true;
+      window.stockTransfersState.usingCloudSharedStore = false;
+      window.stockTransfersState.transfers = localList;
+      rebuildTransferLiveStockMaps(localList);
+      return localList;
+    }
+
+    const byId = new Map();
+    const byFolio = new Map();
+
+    for (const row of cloudRows) {
+      if (!row || !row.bot_out_of_office_message) continue;
+      try {
+        const parsed = JSON.parse(row.bot_out_of_office_message);
+        if (parsed && (parsed.id || parsed.folio)) {
+          parsed._isLocalOnly = true;
+          parsed._cloudSynced = true;
+          byId.set(String(parsed.id), parsed);
+          if (parsed.folio) byFolio.set(String(parsed.folio).toUpperCase(), parsed);
+        }
+      } catch (parseErr) {}
+    }
+
+    // Sincronizar hacia Supabase cualquier transferencia local que aún no haya sido subida
+    // o que tenga una versión más reciente que la almacenada en la nube
+    const toUpload = [];
+    for (const lt of localList) {
+      if (!lt || (!lt.id && !lt.folio)) continue;
+      const existingById = byId.get(String(lt.id));
+      const existingByFolio = lt.folio ? byFolio.get(String(lt.folio).toUpperCase()) : null;
+      const existingCloud = existingById || existingByFolio;
+
+      if (!existingCloud) {
+        // Si nunca se había sincronizado a la nube, publicarla para que todos los admins la vean
+        if (!lt._cloudSynced) {
+          const syncedLt = { ...lt, _isLocalOnly: true, _cloudSynced: true };
+          byId.set(String(syncedLt.id), syncedLt);
+          if (syncedLt.folio) byFolio.set(String(syncedLt.folio).toUpperCase(), syncedLt);
+          toUpload.push(syncedLt);
+        }
+      } else {
+        const localTs = new Date(lt.updated_at || lt.created_at || 0).getTime();
+        const cloudTs = new Date(existingCloud.updated_at || existingCloud.created_at || 0).getTime();
+        if (localTs > cloudTs) {
+          const syncedLt = { ...lt, _isLocalOnly: true, _cloudSynced: true };
+          byId.set(String(existingCloud.id), syncedLt);
+          if (syncedLt.folio) byFolio.set(String(syncedLt.folio).toUpperCase(), syncedLt);
+          toUpload.push(syncedLt);
+        }
+      }
+    }
+
+    if (toUpload.length > 0) {
+      await Promise.all(toUpload.map(t => upsertCloudFallbackTransfer(t)));
+    }
+
+    const mergedList = Array.from(byId.values()).sort(
+      (a, b) => new Date(b.created_at || b.requested_at || 0) - new Date(a.created_at || a.requested_at || 0)
+    );
+
+    window.stockTransfersState.usingLocalFallback = false;
+    window.stockTransfersState.usingCloudSharedStore = true;
+    window.stockTransfersState.transfers = mergedList;
+    saveLocalTransfersBackup(mergedList);
+    rebuildTransferLiveStockMaps(mergedList);
+    return mergedList;
+  } catch (e) {
+    console.warn('[StockTransfers] Error consultando almacén compartido en Supabase:', e);
+    window.stockTransfersState.usingLocalFallback = true;
+    window.stockTransfersState.transfers = localList;
+    rebuildTransferLiveStockMaps(localList);
+    return localList;
+  }
+}
+
 /**
- * Carga todas las transferencias desde Supabase (o backup local si la tabla aún no existe)
+ * Carga todas las transferencias desde Supabase (tabla dedicada o almacén compartido multi-admin en Supabase)
  */
 export async function fetchAllStockTransfers(forceRefresh = false) {
   try {
@@ -341,17 +639,14 @@ export async function fetchAllStockTransfers(forceRefresh = false) {
       const code = String(error.code || '');
       const msg = String(error.message || '').toLowerCase();
       if (code === '42P01' || code === 'PGRST205' || msg.includes('does not exist') || msg.includes('schema cache')) {
-        window.stockTransfersState.usingLocalFallback = true;
         window.stockTransfersState.tableVerified = false;
-        const localList = loadLocalTransfersBackup();
-        window.stockTransfersState.transfers = localList;
-        rebuildTransferLiveStockMaps(localList);
-        return localList;
+        return await fetchCloudSharedTransfers();
       }
       throw error;
     }
 
     window.stockTransfersState.usingLocalFallback = false;
+    window.stockTransfersState.usingCloudSharedStore = false;
     window.stockTransfersState.tableVerified = true;
 
     const normalized = (data || []).map(row => ({
@@ -380,12 +675,8 @@ export async function fetchAllStockTransfers(forceRefresh = false) {
     rebuildTransferLiveStockMaps(normalized);
     return normalized;
   } catch (err) {
-    console.warn('[StockTransfers] Fallback a almacenamiento local:', err.message);
-    window.stockTransfersState.usingLocalFallback = true;
-    const localList = loadLocalTransfersBackup();
-    window.stockTransfersState.transfers = localList;
-    rebuildTransferLiveStockMaps(localList);
-    return localList;
+    console.warn('[StockTransfers] Fallback a almacén compartido en Supabase:', err.message);
+    return await fetchCloudSharedTransfers();
   }
 }
 window.fetchAllStockTransfers = fetchAllStockTransfers;
@@ -629,7 +920,11 @@ export async function createStockTransferOrder({
   notes = '',
   carrierInfo = '',
   packageCount = 1,
+  requestedById = null,
   requestedByName = '',
+  directedToId = null,
+  directedToName = '',
+  directedToEmail = '',
   dispatchedByName = '',
   receivedByName = '',
   items = []
@@ -642,9 +937,13 @@ export async function createStockTransferOrder({
   if (validItems.length === 0) throw new Error('Debes incluir al menos un producto con cantidad mayor a 0.');
 
   const adminUser = await resolveCurrentAdminIdentity();
+  const reqActorId = requestedById || adminUser.id || null;
   const reqActor = (requestedByName || adminUser.name || 'Administrador').trim();
+  const dirId = directedToId || reqActorId || 'ALL';
+  const dirName = (directedToName || reqActor || 'Todos los Admins').trim();
+  const dirEmail = (directedToEmail || '').trim();
   const dispActor = initialStatus !== 'Solicitada' ? ((dispatchedByName || reqActor).trim()) : null;
-  const recActor = initialStatus === 'Recepcionada' ? ((receivedByName || reqActor).trim()) : null;
+  const recActor = initialStatus === 'Recepcionada' ? ((receivedByName || (dirId !== 'ALL' ? dirName : reqActor)).trim()) : null;
   const nowIso = new Date().toISOString();
 
   const totalSkus = validItems.length;
@@ -660,7 +959,7 @@ export async function createStockTransferOrder({
       actor: reqActor,
       action: 'created',
       status: initialStatus,
-      detail: `Transferencia creada en modalidad "${modeLabel}" (${totalSkus} SKUs · ${totalUnits} uds) desde ${sourceWarehouseName} hacia ${destWarehouseName}.${notes ? ' Nota: ' + notes : ''}`
+      detail: `Transferencia creada en modalidad "${modeLabel}" (${totalSkus} SKUs · ${totalUnits} uds) desde ${sourceWarehouseName} hacia ${destWarehouseName} · Dirigido a: ${dirName}.${notes ? ' Nota: ' + notes : ''}`
     }
   ];
 
@@ -704,13 +1003,16 @@ export async function createStockTransferOrder({
     total_requested: totalUnits,
     total_sent: totalUnits,
     total_received: initialStatus === 'Recepcionada' ? totalUnits : 0,
-    requested_by_id: adminUser.id || null,
+    requested_by_id: reqActorId,
     requested_by_name: reqActor,
     requested_at: nowIso,
-    dispatched_by_id: initialStatus !== 'Solicitada' ? (adminUser.id || null) : null,
+    directed_to_id: dirId,
+    directed_to_name: dirName,
+    directed_to_email: dirEmail,
+    dispatched_by_id: initialStatus !== 'Solicitada' ? reqActorId : null,
     dispatched_by_name: dispActor,
     dispatched_at: initialStatus !== 'Solicitada' ? nowIso : null,
-    received_by_id: initialStatus === 'Recepcionada' ? (adminUser.id || null) : null,
+    received_by_id: initialStatus === 'Recepcionada' ? (dirId !== 'ALL' ? dirId : reqActorId) : null,
     received_by_name: recActor,
     received_at: initialStatus === 'Recepcionada' ? nowIso : null,
     history: initialHistory
@@ -747,8 +1049,11 @@ export async function createStockTransferOrder({
     if (dbItemsErr) throw dbItemsErr;
     createdTransfer = { ...dbHeader, items: dbItems || itemsInsert };
   } else {
-    // Fallback local resiliente si la tabla aún no fue creada en SQL Editor
-    const existingLocal = loadLocalTransfersBackup();
+    // Almacenamiento compartido multi-admin en Supabase + respaldo local
+    const existingLocal = [
+      ...(window.stockTransfersState.transfers || []),
+      ...loadLocalTransfersBackup()
+    ];
     const folio = generateNextLocalFolio(existingLocal);
     const localId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('trf-' + Date.now());
     const localItems = validItems.map((i, idx) => {
@@ -775,10 +1080,13 @@ export async function createStockTransferOrder({
       items: localItems,
       created_at: nowIso,
       updated_at: nowIso,
-      _isLocalOnly: true
+      _isLocalOnly: true,
+      _cloudSynced: true
     };
-    existingLocal.unshift(createdTransfer);
-    saveLocalTransfersBackup(existingLocal);
+    await upsertCloudFallbackTransfer(createdTransfer);
+    const currentLocal = loadLocalTransfersBackup().filter(x => String(x.id) !== String(createdTransfer.id));
+    currentLocal.unshift(createdTransfer);
+    saveLocalTransfersBackup(currentLocal);
   }
 
   const folioCode = createdTransfer.folio;
@@ -895,6 +1203,10 @@ export async function dispatchStockTransferOrder({
   }
 
   const adminUser = await resolveCurrentAdminIdentity();
+  const perms = getTransferActionPermissions(transfer, adminUser);
+  if (!perms.canDispatch) {
+    throw new Error(`Permiso restringido: Solo quien realizó el movimiento (${transfer.requested_by_name || 'Solicitante'}) o a quien está dirigido (${transfer.directed_to_name || 'Destinatario'}) puede despachar este traslado.`);
+  }
   const dispActor = (dispatchedByName || adminUser.name || 'Jefe de Bodega').trim();
   const nowIso = new Date().toISOString();
   const affectedProductIds = [];
@@ -985,10 +1297,14 @@ export async function dispatchStockTransferOrder({
   } else {
     const localList = loadLocalTransfersBackup();
     const idx = localList.findIndex(x => String(x.id) === String(transfer.id));
+    const mergedObj = { ...transfer, ...headerUpdates, items: updatedItems, updated_at: nowIso };
     if (idx >= 0) {
-      localList[idx] = { ...localList[idx], ...headerUpdates, items: updatedItems, updated_at: nowIso };
-      saveLocalTransfersBackup(localList);
+      localList[idx] = mergedObj;
+    } else {
+      localList.unshift(mergedObj);
     }
+    saveLocalTransfersBackup(localList);
+    await upsertCloudFallbackTransfer(mergedObj);
   }
 
   await notifyInventoryChangeAfterTransfer(transfer.comercio, affectedProductIds);
@@ -1015,6 +1331,10 @@ export async function receiveStockTransferOrder({
   }
 
   const adminUser = await resolveCurrentAdminIdentity();
+  const perms = getTransferActionPermissions(transfer, adminUser);
+  if (!perms.canReceive) {
+    throw new Error(`Permiso restringido: Solo quien realizó el movimiento (${transfer.requested_by_name || 'Solicitante'}) o a quien está dirigido (${transfer.directed_to_name || 'Destinatario'}) puede recepcionar este traslado.`);
+  }
   const recActor = (receivedByName || adminUser.name || 'Encargado Recepción').trim();
   const nowIso = new Date().toISOString();
   const wasSolicitada = transfer.status === 'Solicitada';
@@ -1206,10 +1526,14 @@ export async function receiveStockTransferOrder({
   } else {
     const localList = loadLocalTransfersBackup();
     const idx = localList.findIndex(x => String(x.id) === String(transfer.id));
+    const mergedObj = { ...transfer, ...headerUpdates, items: updatedItems, updated_at: nowIso };
     if (idx >= 0) {
-      localList[idx] = { ...localList[idx], ...headerUpdates, items: updatedItems, updated_at: nowIso };
-      saveLocalTransfersBackup(localList);
+      localList[idx] = mergedObj;
+    } else {
+      localList.unshift(mergedObj);
     }
+    saveLocalTransfersBackup(localList);
+    await upsertCloudFallbackTransfer(mergedObj);
   }
 
   await notifyInventoryChangeAfterTransfer(transfer.comercio, affectedProductIds);
@@ -1227,7 +1551,7 @@ export async function editOrCorrectStockTransferOrder({
   actorName = '',
   reason = '',
   discrepancyPolicy = null,
-  metadataUpdates = {} // { priority?, carrier_info?, package_count?, title?, notes? }
+  metadataUpdates = {} // { priority?, carrier_info?, package_count?, title?, notes?, directed_to_id?, directed_to_name?, directed_to_email? }
 }) {
   const finalReason = (reason && String(reason).trim())
     ? String(reason).trim()
@@ -1239,6 +1563,10 @@ export async function editOrCorrectStockTransferOrder({
   if (transfer.status === 'Cancelada') throw new Error('No se puede editar una transferencia cancelada.');
 
   const adminUser = await resolveCurrentAdminIdentity();
+  const perms = getTransferActionPermissions(transfer, adminUser);
+  if (!perms.isParticipant) {
+    throw new Error(`Permiso restringido: Solo quien realizó el movimiento (${transfer.requested_by_name || 'Solicitante'}) o a quien está dirigido (${transfer.directed_to_name || 'Destinatario'}) puede editar o corregir este traslado.`);
+  }
   const actor = (actorName || adminUser.name || 'Supervisor WMS').trim();
   const nowIso = new Date().toISOString();
   const activePolicy = discrepancyPolicy || transfer.discrepancy_policy || 'sync_direct';
@@ -1524,6 +1852,9 @@ export async function editOrCorrectStockTransferOrder({
     package_count: metadataUpdates.package_count !== undefined ? Number(metadataUpdates.package_count) : (transfer.package_count || 1),
     title: metadataUpdates.title !== undefined ? metadataUpdates.title : (transfer.title || ''),
     notes: metadataUpdates.notes !== undefined ? metadataUpdates.notes : (transfer.notes || ''),
+    directed_to_id: metadataUpdates.directed_to_id !== undefined ? metadataUpdates.directed_to_id : (transfer.directed_to_id || null),
+    directed_to_name: metadataUpdates.directed_to_name !== undefined ? metadataUpdates.directed_to_name : (transfer.directed_to_name || ''),
+    directed_to_email: metadataUpdates.directed_to_email !== undefined ? metadataUpdates.directed_to_email : (transfer.directed_to_email || ''),
     history: newHistory
   };
 
@@ -1536,10 +1867,14 @@ export async function editOrCorrectStockTransferOrder({
   } else {
     const localList = loadLocalTransfersBackup();
     const idx = localList.findIndex(x => String(x.id) === String(transfer.id));
+    const mergedObj = { ...transfer, ...headerUpdates, items: updatedItems, updated_at: nowIso };
     if (idx >= 0) {
-      localList[idx] = { ...localList[idx], ...headerUpdates, items: updatedItems, updated_at: nowIso };
-      saveLocalTransfersBackup(localList);
+      localList[idx] = mergedObj;
+    } else {
+      localList.unshift(mergedObj);
     }
+    saveLocalTransfersBackup(localList);
+    await upsertCloudFallbackTransfer(mergedObj);
   }
 
   await notifyInventoryChangeAfterTransfer(transfer.comercio, affectedProductIds);
@@ -1560,6 +1895,10 @@ export async function cancelStockTransferOrder(transferId, actorName = '', reaso
   }
 
   const adminUser = await resolveCurrentAdminIdentity();
+  const perms = getTransferActionPermissions(transfer, adminUser);
+  if (!perms.canCancelOrDelete) {
+    throw new Error(`Permiso restringido: Solo quien realizó el movimiento (${transfer.requested_by_name || 'Solicitante'}) o a quien está dirigido (${transfer.directed_to_name || 'Destinatario'}) puede anular este traslado.`);
+  }
   const actor = (actorName || adminUser.name || 'Administrador').trim();
   const nowIso = new Date().toISOString();
   const prevStatus = transfer.status;
@@ -1640,10 +1979,14 @@ export async function cancelStockTransferOrder(transferId, actorName = '', reaso
   } else {
     const localList = loadLocalTransfersBackup();
     const idx = localList.findIndex(x => String(x.id) === String(transfer.id));
+    const mergedObj = { ...transfer, ...headerUpdates, updated_at: nowIso };
     if (idx >= 0) {
-      localList[idx] = { ...localList[idx], ...headerUpdates, updated_at: nowIso };
-      saveLocalTransfersBackup(localList);
+      localList[idx] = mergedObj;
+    } else {
+      localList.unshift(mergedObj);
     }
+    saveLocalTransfersBackup(localList);
+    await upsertCloudFallbackTransfer(mergedObj);
   }
 
   await notifyInventoryChangeAfterTransfer(transfer.comercio, affectedProductIds);
@@ -1661,6 +2004,12 @@ export async function revertAndDeleteStockTransferOrder(transferId, revertStock 
   const list = await fetchAllStockTransfers(false);
   const transfer = list.find(t => String(t.id) === String(transferId) || String(t.folio) === String(transferId));
   if (!transfer) throw new Error('No se encontró la transferencia a eliminar.');
+
+  const adminUser = await resolveCurrentAdminIdentity();
+  const perms = getTransferActionPermissions(transfer, adminUser);
+  if (!perms.canCancelOrDelete) {
+    throw new Error(`Permiso restringido: Solo quien realizó el movimiento (${transfer.requested_by_name || 'Solicitante'}) o a quien está dirigido (${transfer.directed_to_name || 'Destinatario'}) puede eliminar este traslado.`);
+  }
 
   const items = Array.isArray(transfer.items) ? transfer.items : [];
   const affectedProductIds = items.map(it => it.product_id).filter(Boolean);
@@ -1735,7 +2084,7 @@ export async function revertAndDeleteStockTransferOrder(transferId, revertStock 
     }
   }
 
-  // Eliminar de Supabase si existe tabla o de localStorage
+  // Eliminar de Supabase si existe tabla o de localStorage / nube compartida
   if (!transfer._isLocalOnly) {
     try {
       await supabase.from('stock_transfer_items').delete().eq('transfer_id', transfer.id);
@@ -1743,6 +2092,8 @@ export async function revertAndDeleteStockTransferOrder(transferId, revertStock 
     } catch (e) {
       console.warn('[StockTransfers] Error eliminando fila en Supabase:', e);
     }
+  } else {
+    await deleteCloudFallbackTransfer(transfer, transfer.folio);
   }
 
   const localList = loadLocalTransfersBackup().filter(
@@ -1990,6 +2341,7 @@ async function ensureTransfer1004Restored(transfersList) {
     existingLocal.push(restoredTransfer);
     existingLocal.sort((a, b) => new Date(b.created_at || b.requested_at || 0) - new Date(a.created_at || a.requested_at || 0));
     saveLocalTransfersBackup(existingLocal);
+    await Promise.all(existingLocal.map(item => upsertCloudFallbackTransfer(item)));
 
     try {
       localStorage.setItem(RESTORED_1004_FLAG_KEY, 'true');
@@ -2825,11 +3177,12 @@ export async function renderStockTransfersAdmin(containerOverride = null) {
     </div>
   `;
 
-  await resolveCurrentAdminIdentity();
+  const adminUser = await resolveCurrentAdminIdentity();
   let [, transfers] = await Promise.all([
     ensureAllWarehousesLoaded(),
     fetchAllStockTransfers(true),
-    ensureAllCommercesLoaded()
+    ensureAllCommercesLoaded(),
+    ensureAllAdminsLoaded()
   ]);
 
   // Restaurar automáticamente #TRF-1004 si se borraron tanto #TRF-1004 como #TRF-1005 al limpiar el duplicado
@@ -2871,7 +3224,7 @@ export async function renderStockTransfersAdmin(containerOverride = null) {
       const q = state.searchQuery.toLowerCase().trim();
       const matchHeader = [
         t.folio, t.comercio, t.source_warehouse_name, t.dest_warehouse_name,
-        t.requested_by_name, t.dispatched_by_name, t.received_by_name, t.notes, t.title
+        t.requested_by_name, t.directed_to_name, t.dispatched_by_name, t.received_by_name, t.notes, t.title
       ].some(val => String(val || '').toLowerCase().includes(q));
       const matchItem = (t.items || []).some(it =>
         String(it.sku || '').toLowerCase().includes(q) ||
@@ -2895,18 +3248,17 @@ export async function renderStockTransfersAdmin(containerOverride = null) {
               <span class="trf-pill trf-pill-indigo">
                 <i class="ri-route-line"></i> LOGÍSTICA INTER-BODEGAS · TRAZABILIDAD 360°
               </span>
+              <span class="trf-pill trf-pill-emerald">
+                <i class="ri-team-line"></i> Visible para todos los Admins · Sincronizado en Supabase
+              </span>
               <span class="trf-pill trf-pill-purple">
-                <i class="ri-shield-user-line"></i> Exclusivo Administradores
+                <i class="ri-shield-user-line"></i> Sesión activa: ${escHtml(adminUser.name || 'Admin')}
               </span>
               ${state.usingLocalFallback ? `
                 <button type="button" id="btn-trf-open-sql-banner" class="trf-pill trf-pill-amber" style="cursor:pointer;" title="Haz clic para copiar el script SQL de Supabase">
-                  <i class="ri-Sim-card-line"></i> Respaldo Local Activo · Activar SQL Supabase
+                  <i class="ri-database-2-line"></i> Nube Compartida Activa · Ver Script SQL
                 </button>
-              ` : `
-                <span class="trf-pill trf-pill-emerald">
-                  <i class="ri-checkbox-circle-fill"></i> Sincronizado con Supabase
-                </span>
-              `}
+              ` : ''}
             </div>
             <h2 class="trf-hero-title">
               <i class="ri-truck-line" style="color:#6366f1;"></i>
@@ -3160,6 +3512,10 @@ export async function renderStockTransfersAdmin(containerOverride = null) {
                 const previewSkus = items.slice(0, 2).map(i => `${i.sku} (${i.quantity_sent || i.quantity_requested}u)`).join(', ');
                 const extraSkus = items.length > 2 ? ` +${items.length - 2} más` : '';
                 const isRec = t.status === 'Recepcionada' || t.status === 'Con Diferencias';
+                const perms = getTransferActionPermissions(t, adminUser);
+                const directedLabel = (t.directed_to_name && String(t.directed_to_name).trim())
+                  ? String(t.directed_to_name).trim()
+                  : 'Todos los Admins';
 
                 let stockImpactSub = '';
                 if (t.status === 'Solicitada') stockImpactSub = `Reserva activa: ${t.total_requested} uds en ${t.source_warehouse_name}`;
@@ -3207,6 +3563,7 @@ export async function renderStockTransfersAdmin(containerOverride = null) {
 
                     <td style="font-size:0.76rem; line-height:1.5;">
                       <div><span style="color:var(--trf-muted);">Solicitó:</span> <strong style="color:var(--trf-text);">${escHtml(t.requested_by_name || '-')}</strong></div>
+                      <div><span style="color:var(--trf-muted);">Dirigido a:</span> <strong style="color:#6366f1;">${escHtml(directedLabel)}</strong></div>
                       <div><span style="color:var(--trf-muted);">Despachó:</span> <strong style="color:${t.dispatched_by_name ? '#38bdf8' : 'var(--trf-muted)'};">${escHtml(t.dispatched_by_name || 'Pendiente')}</strong></div>
                       <div><span style="color:var(--trf-muted);">Recepcionó:</span> <strong style="color:${t.received_by_name ? '#10b981' : 'var(--trf-muted)'};">${escHtml(t.received_by_name || 'Pendiente')}</strong></div>
                       ${t.last_edited_by_name ? `<div style="color:#a78bfa; font-size:0.71rem; margin-top:2px;"><i class="ri-edit-2-line"></i> Ajustado por: <strong>${escHtml(t.last_edited_by_name)}</strong></div>` : ''}
@@ -3218,41 +3575,49 @@ export async function renderStockTransfersAdmin(containerOverride = null) {
                     </td>
 
                     <td style="text-align:right;">
-                      <div style="display:flex; gap:6px; justify-content:flex-end; flex-wrap:wrap;">
-                        ${t.status === 'Solicitada' ? `
-                          <button type="button" class="trf-btn trf-btn-action" data-id="${escHtml(t.id)}" data-mode="dispatch" style="height:32px; padding:0 0.7rem; font-size:0.74rem; background:#0284c7; color:#fff; border-color:#0284c7;" title="Despachar a ruta y rebajar stock físico en origen">
-                            <i class="ri-truck-line"></i> Despachar
-                          </button>
-                          <button type="button" class="trf-btn trf-btn-action" data-id="${escHtml(t.id)}" data-mode="receive" style="height:32px; padding:0 0.7rem; font-size:0.74rem; background:#10b981; color:#fff; border-color:#10b981;" title="Marcar como Recepcionado directamente">
-                            <i class="ri-checkbox-circle-line"></i> Recepcionar
-                          </button>
-                          <button type="button" class="trf-btn trf-btn-action" data-id="${escHtml(t.id)}" data-mode="edit" style="height:32px; padding:0 0.65rem; font-size:0.74rem;" title="Editar cantidades solicitadas">
-                            <i class="ri-edit-line"></i> Editar
-                          </button>
-                        ` : ''}
+                      <div style="display:flex; gap:6px; justify-content:flex-end; align-items:center; flex-wrap:wrap;">
+                        ${perms.isParticipant ? `
+                          ${t.status === 'Solicitada' ? `
+                            <button type="button" class="trf-btn trf-btn-action" data-id="${escHtml(t.id)}" data-mode="dispatch" style="height:32px; padding:0 0.7rem; font-size:0.74rem; background:#0284c7; color:#fff; border-color:#0284c7;" title="Despachar a ruta y rebajar stock físico en origen">
+                              <i class="ri-truck-line"></i> Despachar
+                            </button>
+                            <button type="button" class="trf-btn trf-btn-action" data-id="${escHtml(t.id)}" data-mode="receive" style="height:32px; padding:0 0.7rem; font-size:0.74rem; background:#10b981; color:#fff; border-color:#10b981;" title="Marcar como Recepcionado directamente">
+                              <i class="ri-checkbox-circle-line"></i> Recepcionar
+                            </button>
+                            <button type="button" class="trf-btn trf-btn-action" data-id="${escHtml(t.id)}" data-mode="edit" style="height:32px; padding:0 0.65rem; font-size:0.74rem;" title="Editar cantidades solicitadas">
+                              <i class="ri-edit-line"></i> Editar
+                            </button>
+                          ` : ''}
 
-                        ${t.status === 'En Tránsito' ? `
-                          <button type="button" class="trf-btn trf-btn-action" data-id="${escHtml(t.id)}" data-mode="receive" style="height:32px; padding:0 0.8rem; font-size:0.75rem; background:#10b981; color:#fff; border-color:#10b981; box-shadow:0 2px 8px rgba(16,185,129,0.28);">
-                            <i class="ri-checkbox-circle-line"></i> Marcar Recepcionado
-                          </button>
-                          <button type="button" class="trf-btn trf-btn-action" data-id="${escHtml(t.id)}" data-mode="edit" style="height:32px; padding:0 0.65rem; font-size:0.74rem;" title="Editar unidades enviadas en tránsito">
-                            <i class="ri-edit-line"></i> Editar Envío
-                          </button>
-                        ` : ''}
+                          ${t.status === 'En Tránsito' ? `
+                            <button type="button" class="trf-btn trf-btn-action" data-id="${escHtml(t.id)}" data-mode="receive" style="height:32px; padding:0 0.8rem; font-size:0.75rem; background:#10b981; color:#fff; border-color:#10b981; box-shadow:0 2px 8px rgba(16,185,129,0.28);">
+                              <i class="ri-checkbox-circle-line"></i> Marcar Recepcionado
+                            </button>
+                            <button type="button" class="trf-btn trf-btn-action" data-id="${escHtml(t.id)}" data-mode="edit" style="height:32px; padding:0 0.65rem; font-size:0.74rem;" title="Editar unidades enviadas en tránsito">
+                              <i class="ri-edit-line"></i> Editar Envío
+                            </button>
+                          ` : ''}
 
-                        ${isRec ? `
-                          <button type="button" class="trf-btn trf-btn-action" data-id="${escHtml(t.id)}" data-mode="correct" style="height:32px; padding:0 0.75rem; font-size:0.74rem; border-color:rgba(139,92,246,0.45); color:#a78bfa; background:rgba(139,92,246,0.12);" title="Corregir un ingreso ya recepcionado y ajustar niveles de stock automáticamente">
-                            <i class="ri-tools-line"></i> Corregir Ingreso
-                          </button>
-                        ` : ''}
+                          ${isRec ? `
+                            <button type="button" class="trf-btn trf-btn-action" data-id="${escHtml(t.id)}" data-mode="correct" style="height:32px; padding:0 0.75rem; font-size:0.74rem; border-color:rgba(139,92,246,0.45); color:#a78bfa; background:rgba(139,92,246,0.12);" title="Corregir un ingreso ya recepcionado y ajustar niveles de stock automáticamente">
+                              <i class="ri-tools-line"></i> Corregir Ingreso
+                            </button>
+                          ` : ''}
+                        ` : `
+                          <span class="trf-pill" style="background:rgba(148,163,184,0.12); color:var(--trf-muted); border:1px solid var(--trf-border); font-size:0.7rem; padding:4px 8px;" title="Acciones operativas reservadas a quien realizó el movimiento (${escHtml(t.requested_by_name || 'Solicitante')}) y a quien está dirigido (${escHtml(directedLabel)})">
+                            <i class="ri-lock-2-line" style="color:#f59e0b;"></i> Solo ${escHtml(t.requested_by_name || 'Solicitante')}${t.directed_to_name && t.directed_to_name !== t.requested_by_name ? ' / ' + escHtml(t.directed_to_name) : ''}
+                          </span>
+                        `}
 
                         <button type="button" class="trf-btn trf-btn-action" data-id="${escHtml(t.id)}" data-mode="view" style="height:32px; padding:0 0.65rem; font-size:0.74rem;" title="Ver detalle completo, historial y guía">
                           <i class="ri-eye-line"></i> Detalle
                         </button>
 
-                        <button type="button" class="trf-btn trf-btn-revert-delete" data-id="${escHtml(t.id)}" data-folio="${escHtml(t.folio)}" style="height:32px; padding:0 0.6rem; font-size:0.74rem; color:#f87171; border-color:rgba(239,68,68,0.35); background:rgba(239,68,68,0.08);" title="Revertir stock y eliminar esta transferencia">
-                          <i class="ri-delete-bin-line"></i>
-                        </button>
+                        ${perms.canCancelOrDelete ? `
+                          <button type="button" class="trf-btn trf-btn-revert-delete" data-id="${escHtml(t.id)}" data-folio="${escHtml(t.folio)}" style="height:32px; padding:0 0.6rem; font-size:0.74rem; color:#f87171; border-color:rgba(239,68,68,0.35); background:rgba(239,68,68,0.08);" title="Revertir stock y eliminar esta transferencia">
+                            <i class="ri-delete-bin-line"></i>
+                          </button>
+                        ` : ''}
                       </div>
                     </td>
                   </tr>
@@ -3412,14 +3777,19 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
     return;
   }
 
-  const adminUser = await resolveCurrentAdminIdentity();
+  const [adminUser, adminUsers] = await Promise.all([
+    resolveCurrentAdminIdentity(),
+    ensureAllAdminsLoaded()
+  ]);
+  const perms = getTransferActionPermissions(transfer, adminUser);
   const isReceivedState = transfer.status === 'Recepcionada' || transfer.status === 'Con Diferencias';
 
-  // Determinar modo activo válido según el estado
+  // Determinar modo activo válido según el estado y permisos de participación
   let activeMode = initialMode || 'view';
+  if (!perms.isParticipant) activeMode = 'view';
   if (activeMode === 'dispatch' && transfer.status !== 'Solicitada') activeMode = 'view';
-  if (activeMode === 'receive' && isReceivedState) activeMode = 'correct';
-  if (activeMode === 'edit' && isReceivedState) activeMode = 'correct';
+  if (activeMode === 'receive' && isReceivedState) activeMode = perms.canCorrect ? 'correct' : 'view';
+  if (activeMode === 'edit' && isReceivedState) activeMode = perms.canCorrect ? 'correct' : 'view';
   if (transfer.status === 'Cancelada') activeMode = 'view';
 
   const existing = document.getElementById('modal-transfer-detail-360');
@@ -3486,18 +3856,18 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
 
         <!-- Barra de Modos Operativos -->
         <div class="trf-modal-subbar">
-          <div style="display:flex; gap:0.45rem; flex-wrap:wrap;">
+          <div style="display:flex; gap:0.45rem; flex-wrap:wrap; align-items:center;">
             <button type="button" class="trf-btn trf-mode-tab" data-mode="view" style="height:34px; font-size:0.78rem; ${activeMode === 'view' ? 'background:#4f46e5; color:#fff; border-color:#4f46e5;' : ''}">
               <i class="ri-eye-line"></i> Resumen y Auditoría
             </button>
 
-            ${transfer.status === 'Solicitada' ? `
+            ${perms.isParticipant && transfer.status === 'Solicitada' ? `
               <button type="button" class="trf-btn trf-mode-tab" data-mode="dispatch" style="height:34px; font-size:0.78rem; ${activeMode === 'dispatch' ? 'background:#0284c7; color:#fff; border-color:#0284c7;' : 'color:#38bdf8; border-color:rgba(56,189,248,0.4);'}">
                 <i class="ri-truck-line"></i> 1. Despachar a Ruta
               </button>
             ` : ''}
 
-            ${(transfer.status === 'Solicitada' || transfer.status === 'En Tránsito') ? `
+            ${perms.isParticipant && (transfer.status === 'Solicitada' || transfer.status === 'En Tránsito') ? `
               <button type="button" class="trf-btn trf-mode-tab" data-mode="receive" style="height:34px; font-size:0.78rem; ${activeMode === 'receive' ? 'background:#10b981; color:#fff; border-color:#10b981;' : 'color:#10b981; border-color:rgba(16,185,129,0.4);'}">
                 <i class="ri-checkbox-circle-line"></i> Marcar como Recepcionado
               </button>
@@ -3506,18 +3876,22 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
               </button>
             ` : ''}
 
-            ${isReceivedState ? `
+            ${perms.isParticipant && isReceivedState ? `
               <button type="button" class="trf-btn trf-mode-tab" data-mode="correct" style="height:34px; font-size:0.78rem; ${activeMode === 'correct' ? 'background:#7c3aed; color:#fff; border-color:#7c3aed;' : 'color:#a78bfa; border-color:rgba(167,139,250,0.4);'}">
                 <i class="ri-tools-line"></i> Corregir un Ingreso / Recepción
               </button>
             ` : ''}
           </div>
 
-          ${(transfer.status === 'Solicitada' || transfer.status === 'En Tránsito') ? `
+          ${!perms.isParticipant ? `
+            <span class="trf-pill" style="background:rgba(245,158,11,0.12); color:#f59e0b; border:1px solid rgba(245,158,11,0.35); font-size:0.74rem; padding:4px 10px;">
+              <i class="ri-lock-2-line"></i> Modo Lectura · Acciones reservadas a: ${escHtml(transfer.requested_by_name || 'Solicitante')}${transfer.directed_to_name && transfer.directed_to_name !== transfer.requested_by_name ? ' / ' + escHtml(transfer.directed_to_name) : ''}
+            </span>
+          ` : ((transfer.status === 'Solicitada' || transfer.status === 'En Tránsito') ? `
             <button type="button" id="btn-trf-cancel-order" class="trf-btn" style="height:32px; padding:0 0.75rem; font-size:0.74rem; border-color:rgba(239,68,68,0.4); color:#f87171; background:rgba(239,68,68,0.1);">
               <i class="ri-close-circle-line"></i> Anular Transferencia
             </button>
-          ` : ''}
+          ` : '')}
         </div>
 
         <!-- Cuerpo desplazable -->
@@ -3547,13 +3921,15 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
             </div>
 
             <div class="trf-step-card" style="border-left:4px solid ${step3Done ? '#10b981' : 'var(--trf-border)'};">
-              <div style="font-size:0.69rem; font-weight:800; text-transform:uppercase; color:#10b981;">3. Quién Recepcionó (Destino: ${escHtml(transfer.dest_warehouse_name)})</div>
-              <div style="font-size:0.92rem; font-weight:800; color:var(--trf-text); margin-top:4px; display:flex; align-items:center; gap:0.35rem;">
-                <i class="ri-user-follow-line" style="color:#10b981;"></i> ${escHtml(transfer.received_by_name || 'Pendiente de Recepción')}
+              <div style="font-size:0.69rem; font-weight:800; text-transform:uppercase; color:#10b981;">3. Dirigido a / Quién Recepcionó (${escHtml(transfer.dest_warehouse_name)})</div>
+              <div style="font-size:0.88rem; font-weight:800; color:var(--trf-text); margin-top:4px; display:flex; align-items:center; gap:0.35rem;">
+                <i class="ri-user-follow-line" style="color:#10b981;"></i> ${escHtml(transfer.received_by_name || transfer.directed_to_name || 'Todos los Admins')}
               </div>
-              <div style="font-size:0.73rem; color:var(--trf-muted); margin-top:2px;">${formatDateTimeCL(transfer.received_at)}</div>
-              <div style="font-size:0.72rem; color:#10b981; margin-top:5px; font-weight:700;">
-                ${step3Done ? `+${transfer.total_received} uds ingresadas al físico de ${escHtml(transfer.dest_warehouse_name)}` : 'Pendiente de marcar como recepcionado'}
+              <div style="font-size:0.72rem; color:#6366f1; margin-top:2px; font-weight:700;">
+                Dirigido a: ${escHtml(transfer.directed_to_name || 'Todos los Admins')}
+              </div>
+              <div style="font-size:0.72rem; color:#10b981; margin-top:4px; font-weight:700;">
+                ${step3Done ? `+${transfer.total_received} uds ingresadas (${formatDateTimeCL(transfer.received_at)})` : 'Pendiente de recepción en destino'}
               </div>
             </div>
           </div>
@@ -3718,6 +4094,20 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
                 </label>
                 <input type="text" id="trf-form-actor" class="trf-input" value="${escHtml(adminUser.name || 'Administrador')}">
               </div>
+
+              ${(activeMode === 'edit' || activeMode === 'correct') ? `
+                <div>
+                  <label class="trf-field-label"><i class="ri-user-received-2-line" style="color:#6366f1;"></i> Dirigido a / Responsable Destino (Admin)</label>
+                  <select id="trf-form-directed-to" class="trf-select">
+                    <option value="ALL" ${(!transfer.directed_to_id || String(transfer.directed_to_id) === 'ALL' || transfer.directed_to_name === 'Todos los Admins') ? 'selected' : ''}>Todos los Admins (Cualquier administrador)</option>
+                    ${(adminUsers || []).map(a => {
+                      const isSel = (transfer.directed_to_id && String(transfer.directed_to_id) === String(a.id)) ||
+                                    (!transfer.directed_to_id && transfer.directed_to_name && transfer.directed_to_name.toLowerCase() === String(a.name || '').toLowerCase());
+                      return `<option value="${escHtml(a.id)}" ${isSel ? 'selected' : ''}>${escHtml(a.name)}${a.email ? ' (' + escHtml(a.email) + ')' : ''}</option>`;
+                    }).join('')}
+                  </select>
+                </div>
+              ` : ''}
 
               ${activeMode === 'dispatch' ? `
                 <div>
@@ -4047,12 +4437,30 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
               patchMap[pid] = entry;
             });
 
+            const dirSelVal = overlay.querySelector('#trf-form-directed-to')?.value;
+            let metaUpdates = {};
+            if (dirSelVal !== undefined) {
+              if (dirSelVal === 'ALL' || !dirSelVal) {
+                metaUpdates = { directed_to_id: 'ALL', directed_to_name: 'Todos los Admins', directed_to_email: '' };
+              } else {
+                const chosenAdmin = (adminUsers || []).find(a => String(a.id) === String(dirSelVal));
+                if (chosenAdmin) {
+                  metaUpdates = {
+                    directed_to_id: chosenAdmin.id,
+                    directed_to_name: chosenAdmin.name,
+                    directed_to_email: chosenAdmin.email || ''
+                  };
+                }
+              }
+            }
+
             await editOrCorrectStockTransferOrder({
               transferId: transfer.id,
               updatedItemsMap: patchMap,
               actorName: actor,
               reason: notes,
-              discrepancyPolicy: policy
+              discrepancyPolicy: policy,
+              metadataUpdates: metaUpdates
             });
             if (typeof window.showToast === 'function') window.showToast(`🛠️ #${transfer.folio} actualizada y diferencias de stock sincronizadas en Kardex.`, 'success');
           }
@@ -4093,8 +4501,9 @@ export async function openEnhancedStockTransferModal(
   defaultDestWarehouseId = null
 ) {
   injectStockTransfersStyles();
-  const [adminUser, loadedWarehouses, loadedCommerces] = await Promise.all([
+  const [adminUser, adminUsers, loadedWarehouses, loadedCommerces] = await Promise.all([
     resolveCurrentAdminIdentity(),
+    ensureAllAdminsLoaded(),
     ensureAllWarehousesLoaded(),
     ensureAllCommercesLoaded(),
     fetchAllStockTransfers(false)
@@ -4473,8 +4882,8 @@ export async function openEnhancedStockTransferModal(
             </div>
           </div>
 
-          <!-- Fila 2: Modalidad de Estado Inicial, Quién Solicita, Prioridad y Motivo -->
-          <div style="display:grid; grid-template-columns:1.8fr 1fr 0.75fr 1.25fr; gap:0.75rem; align-items:end;">
+          <!-- Fila 2: Modalidad de Estado Inicial, Quién Solicita, A Quién va Dirigido, Prioridad y Motivo -->
+          <div style="display:grid; grid-template-columns:1.5fr 1fr 1.1fr 0.65fr 1.1fr; gap:0.65rem; align-items:end;">
             <div>
               <label class="trf-field-label"><i class="ri-settings-4-line" style="color:#6366f1;"></i> Estado Inicial y Efecto en Niveles de Stock *</label>
               <select id="trf-new-initial-status" class="trf-select" style="height:36px; border-color:rgba(99,102,241,0.5);">
@@ -4484,8 +4893,25 @@ export async function openEnhancedStockTransferModal(
               </select>
             </div>
             <div>
-              <label class="trf-field-label"><i class="ri-user-star-line"></i> Solicitado por (Admin) *</label>
-              <input type="text" id="trf-new-req-by" class="trf-input" style="height:36px;" value="${escHtml(adminUser.name || 'Administrador')}">
+              <label class="trf-field-label"><i class="ri-user-star-line" style="color:#f59e0b;"></i> Realizado por (Admin) *</label>
+              <select id="trf-new-req-by" class="trf-select" style="height:36px;">
+                ${(adminUsers || []).map(a => {
+                  const isMe = (adminUser.id && String(a.id) === String(adminUser.id)) ||
+                               (!adminUser.id && String(a.name || '').toLowerCase() === String(adminUser.name || '').toLowerCase());
+                  return `<option value="${escHtml(a.id)}" data-name="${escHtml(a.name)}" ${isMe ? 'selected' : ''}>${escHtml(a.name)}</option>`;
+                }).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="trf-field-label" title="Las acciones operativas estarán habilitadas para quien realiza el movimiento y para el admin destinatario seleccionado"><i class="ri-user-received-2-line" style="color:#10b981;"></i> Dirigido a (Admin Destino) *</label>
+              <select id="trf-new-directed-to" class="trf-select" style="height:36px; border-color:rgba(16,185,129,0.45);">
+                ${(adminUsers || []).map(a => {
+                  const isMe = (adminUser.id && String(a.id) === String(adminUser.id)) ||
+                               (!adminUser.id && String(a.name || '').toLowerCase() === String(adminUser.name || '').toLowerCase());
+                  return `<option value="${escHtml(a.id)}" data-name="${escHtml(a.name)}" data-email="${escHtml(a.email || '')}" ${isMe ? 'selected' : ''}>${escHtml(a.name)}</option>`;
+                }).join('')}
+                <option value="ALL" data-name="Todos los Admins" data-email="">Todos los Admins (Cualquier admin)</option>
+              </select>
             </div>
             <div>
               <label class="trf-field-label"><i class="ri-flag-2-line"></i> Prioridad</label>
@@ -4800,7 +5226,26 @@ export async function openEnhancedStockTransferModal(
       const srcWhObj = warehouses.find(w => String(w.id) === String(sourceWhId));
       const dstWhObj = warehouses.find(w => String(w.id) === String(destWhId));
       const initialSt = overlay.querySelector('#trf-new-initial-status')?.value || 'Solicitada';
-      const reqBy = (overlay.querySelector('#trf-new-req-by')?.value || adminUser.name || 'Administrador').trim();
+
+      const reqSel = overlay.querySelector('#trf-new-req-by');
+      const reqAdminObj = (adminUsers || []).find(a => String(a.id) === String(reqSel?.value)) || adminUser;
+      const reqById = reqAdminObj?.id || adminUser.id || null;
+      const reqBy = (reqAdminObj?.name || adminUser.name || 'Administrador').trim();
+
+      const dirSel = overlay.querySelector('#trf-new-directed-to');
+      const dirVal = dirSel?.value || 'ALL';
+      let directedToId = 'ALL';
+      let directedToName = 'Todos los Admins';
+      let directedToEmail = '';
+      if (dirVal !== 'ALL') {
+        const dirAdminObj = (adminUsers || []).find(a => String(a.id) === String(dirVal));
+        if (dirAdminObj) {
+          directedToId = dirAdminObj.id;
+          directedToName = dirAdminObj.name;
+          directedToEmail = dirAdminObj.email || '';
+        }
+      }
+
       const prio = overlay.querySelector('#trf-new-priority')?.value || 'Normal';
       const notes = (overlay.querySelector('#trf-new-notes')?.value || '').trim();
 
@@ -4872,7 +5317,11 @@ export async function openEnhancedStockTransferModal(
           initialStatus: initialSt,
           priority: prio,
           notes,
+          requestedById: reqById,
           requestedByName: reqBy,
+          directedToId,
+          directedToName,
+          directedToEmail,
           dispatchedByName: initialSt !== 'Solicitada' ? reqBy : '',
           receivedByName: initialSt === 'Recepcionada' ? reqBy : '',
           items: itemsArray

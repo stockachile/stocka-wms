@@ -41,16 +41,19 @@ CREATE TABLE IF NOT EXISTS public.stock_transfers (
   carrier_info TEXT,
   package_count INTEGER NOT NULL DEFAULT 1 CHECK (package_count >= 0),
   discrepancy_policy TEXT NOT NULL DEFAULT 'return_origin' CHECK (
-    discrepancy_policy IN ('return_origin', 'incident_loss')
+    discrepancy_policy IN ('return_origin', 'incident_loss', 'sync_direct')
   ),
   total_skus INTEGER NOT NULL DEFAULT 0 CHECK (total_skus >= 0),
   total_requested INTEGER NOT NULL DEFAULT 0 CHECK (total_requested >= 0),
   total_sent INTEGER NOT NULL DEFAULT 0 CHECK (total_sent >= 0),
   total_received INTEGER NOT NULL DEFAULT 0 CHECK (total_received >= 0),
-  -- Trazabilidad de responsables
+  -- Trazabilidad de responsables y destinatario dirigido
   requested_by_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   requested_by_name TEXT NOT NULL,
   requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  directed_to_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  directed_to_name TEXT DEFAULT 'Todos los Admins',
+  directed_to_email TEXT,
   dispatched_by_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   dispatched_by_name TEXT,
   dispatched_at TIMESTAMPTZ,
@@ -64,6 +67,11 @@ CREATE TABLE IF NOT EXISTS public.stock_transfers (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT stock_transfers_different_warehouses CHECK (source_warehouse_id <> dest_warehouse_id)
 );
+
+ALTER TABLE public.stock_transfers
+  ADD COLUMN IF NOT EXISTS directed_to_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS directed_to_name TEXT DEFAULT 'Todos los Admins',
+  ADD COLUMN IF NOT EXISTS directed_to_email TEXT;
 
 -- 3. Tabla Detalle de Ítems por Transferencia
 CREATE TABLE IF NOT EXISTS public.stock_transfer_items (
