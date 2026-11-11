@@ -919,8 +919,7 @@ async function handleBulkMode(limiteCarga) {
   } else {
     // Obtener pedidos que tengan courier 'LIGHTDATA' o 'PENDIENTE_LIGHTDATA' u operador 'ALPHA' y no tengan tracking ni etiqueta
     query = query
-      .or('courier.eq.LIGHTDATA,courier.eq.PENDIENTE_LIGHTDATA,operador.eq.ALPHA')
-      .or('tracking_number.is.null,tracking_number.eq.No informado')
+      .or('and(operador.eq.ALPHA,tracking_number.is.null),and(operador.eq.ALPHA,tracking_number.eq.No informado),and(courier.eq.LIGHTDATA,tracking_number.is.null),and(courier.eq.PENDIENTE_LIGHTDATA,tracking_number.is.null)')
       .is('label_base64', null)
       .in('estado_wms', ['En preparación', 'En procesamiento'])
       .limit(limiteCarga);
@@ -1009,7 +1008,10 @@ async function handleBulkMode(limiteCarga) {
     
     const street = order.shipping_address || '';
     const comuna = resolveExactLightDataComuna(order.shipping_city || '');
-    const phone = String(order.customer_phone || '').replace(/[^\d+]/g, '');
+    let phone = String(order.customer_phone || '').replace(/[^\d+]/g, '');
+    if (phone.length < 6) {
+      phone = '999999999';
+    }
     const email = order.customer_email || 'correo@temp.com';
 
     const orderDate = new Date(order.created_at);
