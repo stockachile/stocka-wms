@@ -215,13 +215,23 @@ function saveLocalTransfersBackup(list) {
   }
 }
 
+const LAST_FOLIO_NUM_KEY = 'stocka_wms_last_trf_folio_num';
+
 function generateNextLocalFolio(existingList = []) {
   let maxNum = 1000;
+  try {
+    const savedMax = Number(localStorage.getItem(LAST_FOLIO_NUM_KEY) || 0);
+    if (savedMax > maxNum) maxNum = savedMax;
+  } catch (e) {}
   existingList.forEach(t => {
     const m = String(t.folio || '').match(/TRF-(\d+)/i);
     if (m && Number(m[1]) > maxNum) maxNum = Number(m[1]);
   });
-  return `TRF-${maxNum + 1}`;
+  const nextNum = maxNum + 1;
+  try {
+    localStorage.setItem(LAST_FOLIO_NUM_KEY, String(nextNum));
+  } catch (e) {}
+  return `TRF-${nextNum}`;
 }
 
 /**
@@ -1695,7 +1705,7 @@ export async function revertAndDeleteStockTransferOrder(transferId, revertStock 
 }
 window.revertAndDeleteStockTransferOrder = revertAndDeleteStockTransferOrder;
 
-const RESTORED_1004_FLAG_KEY = 'stocka_wms_trf_1004_restored_v1';
+const RESTORED_1004_FLAG_KEY = 'stocka_wms_trf_1004_restored_v2';
 
 const TRF_1004_RECOVERY_ITEMS = [
   { product_id: 'd5b5045a-1f6f-43bb-b1ec-56629ebca9f1', sku: 'lutaiblanca34', product_name: 'Lutai Blanca - 34', qty: 3 },
@@ -1734,10 +1744,12 @@ const TRF_1004_RECOVERY_ITEMS = [
  */
 async function ensureTransfer1004Restored(transfersList) {
   const list = Array.isArray(transfersList) ? transfersList : [];
-  const exists1004 = list.some(t => String(t.folio || '').toUpperCase() === 'TRF-1004');
-  const exists1005 = list.some(t => String(t.folio || '').toUpperCase() === 'TRF-1005');
+  const hasRestoredLutai28 = list.some(
+    t => String(t.id || '') === 'trf-1004-restored' ||
+         (t.comercio === 'LUTAI' && Number(t.total_skus || (t.items || []).length) === 28 && Number(t.total_sent) === 72)
+  );
 
-  if (exists1004 || exists1005) {
+  if (hasRestoredLutai28) {
     return list;
   }
 
@@ -1904,9 +1916,27 @@ async function ensureTransfer1004Restored(transfersList) {
       ]
     };
 
-    const existingLocal = loadLocalTransfersBackup().filter(
-      x => String(x.folio || '').toUpperCase() !== 'TRF-1004'
+    let existingLocal = loadLocalTransfersBackup().filter(
+      x => String(x.id || '') !== 'trf-1004-restored' &&
+           !(x.comercio === 'LUTAI' && Number(x.total_skus || (x.items || []).length) === 28 && Number(x.total_sent) === 72)
     );
+
+    // Si los movimientos creados el 11 nov reutilizaron los folios TRF-1004, TRF-1005, TRF-1006, desplazarlos +1
+    // para que #TRF-1004 quede en su posición cronológica original (10 nov 2026, 09:32 p. m.) sin perder ningún movimiento
+    const hasCollisionOn1004 = existingLocal.some(x => String(x.folio || '').toUpperCase() === 'TRF-1004');
+    if (hasCollisionOn1004) {
+      existingLocal = existingLocal.map(x => {
+        const m = String(x.folio || '').match(/^TRF-(\d+)$/i);
+        const num = m ? Number(m[1]) : 0;
+        const ts = new Date(x.created_at || x.requested_at || 0).getTime();
+        const refTs = new Date(createdAtIso).getTime();
+        if (num >= 1004 && ts > refTs) {
+          return { ...x, folio: `TRF-${num + 1}` };
+        }
+        return x;
+      });
+    }
+
     existingLocal.push(restoredTransfer);
     existingLocal.sort((a, b) => new Date(b.created_at || b.requested_at || 0) - new Date(a.created_at || a.requested_at || 0));
     saveLocalTransfersBackup(existingLocal);
