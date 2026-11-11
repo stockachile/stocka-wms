@@ -1100,7 +1100,7 @@ async function handleBulkMode(limiteCarga) {
       $("#enviosNoFlex_listado").css("display", "block");
       appEnviosNoFlex.open();
     });
-    await page.locator('#fileInputSubirEnviosNoflex').first().waitFor({ state: 'attached', timeout: 5000 }).catch(() => page.waitForTimeout(500));
+    await page.waitForTimeout(2000);
     
     // Cargar archivo
     console.log('📤 Subiendo archivo Excel a LightData...');
