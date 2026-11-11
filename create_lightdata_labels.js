@@ -503,8 +503,7 @@ async function handleIndividualMode(idPedido) {
   console.log(`🏷️ Código de tracking generado: ${trackingCode}`);
 
   // Validar si la comuna es soportada (solo si la agenda es RM)
-  const isRm = String(order.agenda || '').toUpperCase() === 'RM';
-  if (isRm && !isComunaSupported(order.shipping_city)) {
+  if (!isComunaSupported(order.shipping_city)) {
     console.error(`❌ ERROR: La comuna "${order.shipping_city}" no es soportada por LightData (NoFlex RM).`);
     try {
       const { data: profile } = await supabase
@@ -921,7 +920,7 @@ async function handleBulkMode(limiteCarga) {
     query = query
       .or('and(operador.eq.ALPHA,tracking_number.is.null),and(operador.eq.ALPHA,tracking_number.eq.No informado),and(courier.eq.LIGHTDATA,tracking_number.is.null),and(courier.eq.PENDIENTE_LIGHTDATA,tracking_number.is.null)')
       .is('label_base64', null)
-      .in('estado_wms', ['En preparación', 'En procesamiento'])
+      .eq('estado_wms', 'En preparación')
       .limit(limiteCarga);
   }
 
@@ -942,8 +941,7 @@ async function handleBulkMode(limiteCarga) {
   // Filtrar pedidos válidos por comuna soportada (solo si la agenda es RM)
   const activeOrdersList = [];
   for (const order of pendingOrders) {
-    const isRm = String(order.agenda || '').toUpperCase() === 'RM';
-    if (isRm && !isComunaSupported(order.shipping_city)) {
+    if (!isComunaSupported(order.shipping_city)) {
       console.warn(`⚠️ Omitiendo pedido ${order.external_order_number || order.id}: comuna "${order.shipping_city}" no es soportada por LightData (NoFlex RM).`);
       try {
         const { data: profile } = await supabase
