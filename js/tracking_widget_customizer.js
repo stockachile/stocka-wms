@@ -170,7 +170,7 @@ function renderCustomizerUI(container, comerciosList, initialConfig) {
     <div class="tw-customizer-wrap" id="tracking-customizer-app" style="max-width: 1400px; margin: 0 auto; padding: 1.5rem 0.5rem 3rem 0.5rem;">
       
       <!-- Top Title and Selector Header -->
-      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg, 12px); padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: var(--shadow-sm);">
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg, 12px); padding: 1.5rem; margin-bottom: 1.25rem; box-shadow: var(--shadow-sm);">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
           <div>
             <div style="display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(92, 36, 255, 0.1); color: #5c24ff; padding: 0.3rem 0.75rem; border-radius: 99px; font-size: 0.8rem; font-weight: 700; margin-bottom: 0.5rem;">
@@ -178,7 +178,7 @@ function renderCustomizerUI(container, comerciosList, initialConfig) {
             </div>
             <h2 style="font-size: 1.5rem; font-weight: 800; color: var(--color-text-main); margin: 0;">Portal de Seguimiento para tu Tienda</h2>
             <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
-              Personaliza los colores, logotipo, mensajes y botones del tracking para que se integre 100% al diseño de tu web (Shopify, WooCommerce, etc.).
+              Personaliza los colores, logotipo, mensajes y botones del tracking para que se integre 100% al diseño de tu web (Shopify, WooCommerce, Jumpseller, etc.).
             </p>
           </div>
           
@@ -187,6 +187,31 @@ function renderCustomizerUI(container, comerciosList, initialConfig) {
             <select id="tw-select-commerce" class="form-input" style="padding: 0.5rem 1rem; font-weight: 600; min-width: 220px; border-radius: 8px;">
               ${commerceOptions}
             </select>
+          </div>
+        </div>
+
+        <!-- Quick 3-Steps Workflow Banner -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.85rem; margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--color-border);">
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem; background: rgba(92, 36, 255, 0.04); border: 1px solid rgba(92, 36, 255, 0.14); border-radius: 10px; padding: 0.85rem 1rem;">
+            <div style="width: 28px; height: 28px; border-radius: 50%; background: #5c24ff; color: #fff; font-weight: 800; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">1</div>
+            <div>
+              <div style="font-weight: 800; font-size: 0.85rem; color: var(--color-text-main);">Personaliza tu Diseño</div>
+              <div style="font-size: 0.76rem; color: var(--color-text-muted); line-height: 1.35; margin-top: 2px;">Elige tu color corporativo, logo y canales de soporte viendo la vista previa en vivo.</div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem; background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.18); border-radius: 10px; padding: 0.85rem 1rem;">
+            <div style="width: 28px; height: 28px; border-radius: 50%; background: #10b981; color: #fff; font-weight: 800; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">2</div>
+            <div>
+              <div style="font-weight: 800; font-size: 0.85rem; color: var(--color-text-main);">Guarda tu Configuración</div>
+              <div style="font-size: 0.76rem; color: var(--color-text-muted); line-height: 1.35; margin-top: 2px;">Presiona <strong>"Guardar Configuración"</strong> para aplicarla automáticamente a todos tus pedidos.</div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem; background: rgba(37, 99, 235, 0.05); border: 1px solid rgba(37, 99, 235, 0.18); border-radius: 10px; padding: 0.85rem 1rem;">
+            <div style="width: 28px; height: 28px; border-radius: 50%; background: #2563eb; color: #fff; font-weight: 800; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">3</div>
+            <div>
+              <div style="font-weight: 800; font-size: 0.85rem; color: var(--color-text-main);">Instálalo en tu Tienda</div>
+              <div style="font-size: 0.76rem; color: var(--color-text-muted); line-height: 1.35; margin-top: 2px;">Copia el código HTML y pégalo en una página de tu web siguiendo la guía paso a paso de abajo.</div>
+            </div>
           </div>
         </div>
       </div>
@@ -251,7 +276,10 @@ function renderCustomizerUI(container, comerciosList, initialConfig) {
             <div class="form-group" style="margin-bottom: 0;">
               <label class="form-label" style="font-weight: 700;">URL del Logotipo de tu Tienda (PNG / SVG transparente):</label>
               <input type="url" id="tw-logo-url" value="${escapeHtml(state.logo_url || '')}" class="form-input" placeholder="https://mitienda.cl/cdn/logo.png">
-              <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.35rem;">Aparecerá en la parte superior del portal en modo embebido.</span>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.35rem; line-height: 1.4;">
+                Aparecerá en la parte superior del portal.<br>
+                💡 <strong>¿Cómo obtener el link en Shopify?</strong> Ve a <em>Contenido → Archivos</em>, sube tu logo y haz clic en el ícono de <strong>Copiar enlace</strong>.
+              </span>
             </div>
           </div>
 
@@ -443,26 +471,198 @@ function renderCustomizerUI(container, comerciosList, initialConfig) {
             </div>
           </div>
 
-          <!-- Bottom: Code Generator Box -->
+          <!-- Bottom: Code Generator & Direct Link Box -->
           <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 1.25rem; box-shadow: var(--shadow-sm);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-              <span style="font-weight: 800; font-size: 0.95rem; color: var(--color-text-main);">
-                📋 Código de Inserción para tu Tienda
-              </span>
-              <button type="button" id="btn-copy-tw-code" class="btn btn-primary" style="padding: 0.4rem 0.85rem; font-size: 0.8rem; font-weight: 700; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem;">
-                <i class="ri-file-copy-line"></i> Copiar Código
+            <!-- Option A: HTML Embed Code -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div>
+                <span style="font-weight: 800; font-size: 0.95rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-code-s-slash-line" style="color: #5c24ff;"></i> Opción A: Código HTML para Insertar en tu Web (Recomendado)
+                </span>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 2px;">
+                  Incrusta el buscador de pedidos directamente dentro de una página de tu tienda online.
+                </span>
+              </div>
+              <button type="button" id="btn-copy-tw-code" class="btn btn-primary" style="padding: 0.45rem 0.95rem; font-size: 0.8rem; font-weight: 700; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-file-copy-line"></i> Copiar Código HTML
               </button>
             </div>
             
-            <textarea id="tw-generated-code" readonly style="width: 100%; height: 110px; font-family: monospace; font-size: 0.75rem; background: #0f172a; color: #38bdf8; border: 1px solid #334155; border-radius: 8px; padding: 0.75rem; resize: none;"></textarea>
-            
-            <div style="display: flex; gap: 0.5rem; margin-top: 0.65rem; font-size: 0.75rem; color: var(--color-text-muted);">
-              <span>💡 <strong>Shopify:</strong> Crea una Página > Botón &lt;&gt; (HTML) > Pega este código.</span>
+            <textarea id="tw-generated-code" readonly style="width: 100%; height: 105px; font-family: monospace; font-size: 0.74rem; background: #0f172a; color: #38bdf8; border: 1px solid #334155; border-radius: 8px; padding: 0.75rem; resize: none;"></textarea>
+
+            <!-- Option B: Direct Standalone Link -->
+            <div style="margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--color-border);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div>
+                  <span style="font-weight: 800; font-size: 0.9rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                    <i class="ri-links-line" style="color: #10b981;"></i> Opción B: Enlace Directo Listo para Compartir
+                  </span>
+                  <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 2px;">
+                    Ideal para poner en el menú superior, pie de página, bio de Instagram, WhatsApp o correos de confirmación.
+                  </span>
+                </div>
+              </div>
+              <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <input type="text" id="tw-direct-link-input" readonly class="form-input" style="flex: 1; min-width: 200px; font-family: monospace; font-size: 0.76rem; background: #f8fafc; color: #334155; padding: 0.5rem 0.75rem;">
+                <button type="button" id="btn-copy-tw-link" class="btn btn-outline" style="padding: 0.48rem 0.85rem; font-size: 0.78rem; font-weight: 700; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;">
+                  <i class="ri-link"></i> Copiar Enlace
+                </button>
+                <a id="btn-open-tw-link" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="padding: 0.48rem 0.85rem; font-size: 0.78rem; font-weight: 700; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem; text-decoration: none; white-space: nowrap; color: #5c24ff; border-color: rgba(92,36,255,0.3); background: rgba(92,36,255,0.04);">
+                  <i class="ri-external-link-line"></i> Probar Portal
+                </a>
+              </div>
             </div>
           </div>
 
         </div>
 
+      </div>
+
+      <!-- Full-Width Step-by-Step Installation & Usage Guide -->
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 14px; padding: 1.5rem; margin-top: 1.75rem; box-shadow: var(--shadow-sm);">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.15rem;">
+          <div>
+            <h3 style="font-size: 1.15rem; font-weight: 800; color: var(--color-text-main); margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-book-open-line" style="color: #5c24ff;"></i> Guía Paso a Paso: ¿Cómo instalarlo y cómo funciona?
+            </h3>
+            <p style="font-size: 0.84rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">
+              Selecciona la plataforma de tu tienda online para ver las instrucciones exactas de instalación:
+            </p>
+          </div>
+          <!-- Platform Selector Tabs -->
+          <div style="display: flex; gap: 0.45rem; flex-wrap: wrap; background: #f1f5f9; padding: 0.3rem; border-radius: 10px;">
+            <button type="button" class="tw-guide-tab active" data-guide-tab="shopify" style="padding: 0.45rem 0.9rem; border-radius: 7px; border: none; font-size: 0.8rem; font-weight: 700; cursor: pointer; background: #ffffff; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-shopping-bag-3-line" style="color: #059669;"></i> Shopify
+            </button>
+            <button type="button" class="tw-guide-tab" data-guide-tab="woocommerce" style="padding: 0.45rem 0.9rem; border-radius: 7px; border: none; font-size: 0.8rem; font-weight: 700; cursor: pointer; background: transparent; color: #475569; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-wordpress-line" style="color: #7c3aed;"></i> WooCommerce / WordPress
+            </button>
+            <button type="button" class="tw-guide-tab" data-guide-tab="jumpseller" style="padding: 0.45rem 0.9rem; border-radius: 7px; border: none; font-size: 0.8rem; font-weight: 700; cursor: pointer; background: transparent; color: #475569; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-store-2-line" style="color: #2563eb;"></i> Jumpseller / Tiendanube
+            </button>
+            <button type="button" class="tw-guide-tab" data-guide-tab="usage" style="padding: 0.45rem 0.9rem; border-radius: 7px; border: none; font-size: 0.8rem; font-weight: 700; cursor: pointer; background: transparent; color: #475569; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-question-answer-line" style="color: #ea580c;"></i> ¿Cómo lo usan tus clientes?
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab 1: Shopify -->
+        <div class="tw-guide-panel" id="tw-guide-shopify" style="display: block;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem;">
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem;">
+              <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; font-weight: 800; color: #059669; background: #ecfdf5; padding: 3px 9px; border-radius: 99px; margin-bottom: 0.5rem;">PASO 1</div>
+              <div style="font-weight: 800; font-size: 0.9rem; color: #0f172a; margin-bottom: 0.35rem;">Crea una página en Shopify</div>
+              <p style="font-size: 0.8rem; color: #475569; line-height: 1.45; margin: 0;">
+                En el panel de tu tienda Shopify, entra en el menú izquierdo a <strong>Tienda online → Páginas</strong> y haz clic en el botón <strong>"Agregar página"</strong>. Ponle de título <em>"Seguimiento de tu Pedido"</em>.
+              </p>
+            </div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem;">
+              <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; font-weight: 800; color: #059669; background: #ecfdf5; padding: 3px 9px; border-radius: 99px; margin-bottom: 0.5rem;">PASO 2</div>
+              <div style="font-weight: 800; font-size: 0.9rem; color: #0f172a; margin-bottom: 0.35rem;">Activa el modo HTML (&lt;&gt;)</div>
+              <p style="font-size: 0.8rem; color: #475569; line-height: 1.45; margin: 0;">
+                En el cuadro de Contenido, haz clic en el botón <strong><code>&lt;&gt;</code> (Mostrar HTML)</strong> ubicado en la esquina superior derecha de la barra de herramientas del editor.
+              </p>
+            </div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem;">
+              <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; font-weight: 800; color: #059669; background: #ecfdf5; padding: 3px 9px; border-radius: 99px; margin-bottom: 0.5rem;">PASO 3</div>
+              <div style="font-weight: 800; font-size: 0.9rem; color: #0f172a; margin-bottom: 0.35rem;">Pega el código y guarda</div>
+              <p style="font-size: 0.8rem; color: #475569; line-height: 1.45; margin: 0;">
+                Pega el <strong>Código HTML (Opción A)</strong> que copiaste más arriba dentro del recuadro en blanco y presiona <strong>"Guardar"</strong>. ¡Tu página ya tendrá el buscador activo!
+              </p>
+            </div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem;">
+              <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; font-weight: 800; color: #059669; background: #ecfdf5; padding: 3px 9px; border-radius: 99px; margin-bottom: 0.5rem;">PASO 4</div>
+              <div style="font-weight: 800; font-size: 0.9rem; color: #0f172a; margin-bottom: 0.35rem;">Agrégalo al Menú de tu Tienda</div>
+              <p style="font-size: 0.8rem; color: #475569; line-height: 1.45; margin: 0;">
+                Ve a <strong>Tienda online → Navegación</strong>, selecciona tu <em>Menú principal</em> o <em>Menú inferior (Footer)</em>, haz clic en <strong>Agregar elemento de menú</strong> y vincula la página que acabas de crear.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: WooCommerce / WordPress -->
+        <div class="tw-guide-panel" id="tw-guide-woocommerce" style="display: none;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem;">
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem;">
+              <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; font-weight: 800; color: #7c3aed; background: #f3e8ff; padding: 3px 9px; border-radius: 99px; margin-bottom: 0.5rem;">PASO 1</div>
+              <div style="font-weight: 800; font-size: 0.9rem; color: #0f172a; margin-bottom: 0.35rem;">Añade una nueva Página</div>
+              <p style="font-size: 0.8rem; color: #475569; line-height: 1.45; margin: 0;">
+                En tu panel de <strong>WordPress</strong>, dirígete a <strong>Páginas → Añadir nueva</strong> y asígnale un nombre como <em>"Seguimiento de Pedidos"</em>.
+              </p>
+            </div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem;">
+              <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; font-weight: 800; color: #7c3aed; background: #f3e8ff; padding: 3px 9px; border-radius: 99px; margin-bottom: 0.5rem;">PASO 2</div>
+              <div style="font-weight: 800; font-size: 0.9rem; color: #0f172a; margin-bottom: 0.35rem;">Inserta un bloque HTML</div>
+              <p style="font-size: 0.8rem; color: #475569; line-height: 1.45; margin: 0;">
+                Si usas el editor de bloques (Gutenberg) o <strong>Elementor</strong>, agrega un bloque o widget de tipo <strong>"HTML Personalizado"</strong> (<em>Custom HTML</em>).
+              </p>
+            </div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem;">
+              <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; font-weight: 800; color: #7c3aed; background: #f3e8ff; padding: 3px 9px; border-radius: 99px; margin-bottom: 0.5rem;">PASO 3</div>
+              <div style="font-weight: 800; font-size: 0.9rem; color: #0f172a; margin-bottom: 0.35rem;">Pega el código y publica</div>
+              <p style="font-size: 0.8rem; color: #475569; line-height: 1.45; margin: 0;">
+                Pega el <strong>Código HTML (Opción A)</strong> dentro del bloque, haz clic en <strong>"Publicar"</strong> y luego agrégalo a tu menú en <strong>Apariencia → Menús</strong>.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 3: Jumpseller / Tiendanube -->
+        <div class="tw-guide-panel" id="tw-guide-jumpseller" style="display: none;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem;">
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem;">
+              <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; font-weight: 800; color: #2563eb; background: #dbeafe; padding: 3px 9px; border-radius: 99px; margin-bottom: 0.5rem;">PASO 1</div>
+              <div style="font-weight: 800; font-size: 0.9rem; color: #0f172a; margin-bottom: 0.35rem;">Ve a la sección de Páginas</div>
+              <p style="font-size: 0.8rem; color: #475569; line-height: 1.45; margin: 0;">
+                En <strong>Jumpseller</strong> entra a <em>Temas → Páginas</em> (o en <strong>Tiendanube</strong> ve a <em>Mi Tienda → Páginas</em>) y crea una nueva página llamada <em>"Seguimiento de Pedido"</em>.
+              </p>
+            </div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem;">
+              <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; font-weight: 800; color: #2563eb; background: #dbeafe; padding: 3px 9px; border-radius: 99px; margin-bottom: 0.5rem;">PASO 2</div>
+              <div style="font-weight: 800; font-size: 0.9rem; color: #0f172a; margin-bottom: 0.35rem;">Pega el Código HTML o usa el Enlace</div>
+              <p style="font-size: 0.8rem; color: #475569; line-height: 1.45; margin: 0;">
+                Haz clic en el ícono de código fuente <strong><code>&lt;&gt;</code> HTML</strong> del editor y pega el <strong>Código HTML (Opción A)</strong>. Si tu plan no permite iframes, usa el <strong>Enlace Directo (Opción B)</strong> en tu menú de navegación.
+              </p>
+            </div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem;">
+              <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; font-weight: 800; color: #2563eb; background: #dbeafe; padding: 3px 9px; border-radius: 99px; margin-bottom: 0.5rem;">PASO 3</div>
+              <div style="font-weight: 800; font-size: 0.9rem; color: #0f172a; margin-bottom: 0.35rem;">Publícalo en tu Navegación</div>
+              <p style="font-size: 0.8rem; color: #475569; line-height: 1.45; margin: 0;">
+                Guarda los cambios y añade el acceso directo en el encabezado o pie de página de tu tienda para que tus compradores consulten sus envíos 24/7.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 4: How Customers Use It & Key Benefits -->
+        <div class="tw-guide-panel" id="tw-guide-usage" style="display: none;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem;">
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem;">
+              <div style="font-weight: 800; font-size: 0.9rem; color: #0f172a; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-shield-check-line" style="color: #059669; font-size: 1.1rem;"></i> 1. Consulta Segura (2 Factores)
+              </div>
+              <p style="font-size: 0.8rem; color: #475569; line-height: 1.45; margin: 0;">
+                Tu comprador ingresa su <strong>Número de Pedido</strong> (ej: <code>#1045</code>) y el <strong>Correo Electrónico</strong> con el que realizó la compra. Esto protege la privacidad de tus clientes.
+              </p>
+            </div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem;">
+              <div style="font-weight: 800; font-size: 0.9rem; color: #0f172a; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-radar-line" style="color: #5c24ff; font-size: 1.1rem;"></i> 2. Estado en Tiempo Real
+              </div>
+              <p style="font-size: 0.8rem; color: #475569; line-height: 1.45; margin: 0;">
+                El portal muestra automáticamente las 4 etapas (<strong>Confirmado, Preparación en Bodega, En Despacho y Entregado</strong>), junto con el courier asignado, código de seguimiento y fotos de entrega cuando aplique.
+              </p>
+            </div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem;">
+              <div style="font-weight: 800; font-size: 0.9rem; color: #0f172a; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-refresh-line" style="color: #2563eb; font-size: 1.1rem;"></i> 3. Cambios sin Reinstalar
+              </div>
+              <p style="font-size: 0.8rem; color: #475569; line-height: 1.45; margin: 0;">
+                Cada vez que modifiques tus colores, logo o WhatsApp aquí y presiones <strong>"Guardar Configuración de Tracking"</strong>, tu portal se actualizará al instante para todos tus pedidos.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -485,6 +685,28 @@ function attachCustomizerEvents(container, state) {
   const commerceSelect = container.querySelector('#tw-select-commerce');
   const saveBtn = container.querySelector('#btn-save-tw-settings');
   const copyBtn = container.querySelector('#btn-copy-tw-code');
+  const copyLinkBtn = container.querySelector('#btn-copy-tw-link');
+  const openLinkBtn = container.querySelector('#btn-open-tw-link');
+  const directLinkInput = container.querySelector('#tw-direct-link-input');
+
+  // Guide Tabs switching
+  const guideTabs = container.querySelectorAll('.tw-guide-tab');
+  const guidePanels = container.querySelectorAll('.tw-guide-panel');
+  guideTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.getAttribute('data-guide-tab');
+      guideTabs.forEach(t => {
+        const isActive = t === tab;
+        t.classList.toggle('active', isActive);
+        t.style.background = isActive ? '#ffffff' : 'transparent';
+        t.style.color = isActive ? '#0f172a' : '#475569';
+        t.style.boxShadow = isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none';
+      });
+      guidePanels.forEach(panel => {
+        panel.style.display = panel.id === `tw-guide-${target}` ? 'block' : 'none';
+      });
+    });
+  });
 
   function updateStateAndPreview() {
     state.primary_color = colorHex.value.trim() || '#5c24ff';
@@ -598,6 +820,13 @@ function attachCustomizerEvents(container, state) {
 </script>`;
 
     codeArea.value = snippet;
+
+    // Also update Direct Standalone URL (without embed=1)
+    const directParams = new URLSearchParams(params);
+    directParams.delete('embed');
+    const directUrl = `https://wms.stocka.cl/seguimiento.html?${directParams.toString()}`;
+    if (directLinkInput) directLinkInput.value = directUrl;
+    if (openLinkBtn) openLinkBtn.href = directUrl;
   }
 
   // Color picker sync
@@ -711,7 +940,7 @@ function attachCustomizerEvents(container, state) {
         });
         Toast.fire({
           icon: 'success',
-          title: 'Código copiado al portapapeles. ¡Listo para pegar en Shopify!'
+          title: 'Código HTML copiado al portapapeles. ¡Listo para pegar en tu tienda!'
         });
       }
     };
@@ -724,6 +953,51 @@ function attachCustomizerEvents(container, state) {
       });
     }
   });
+
+  // Copy Direct Link Button
+  if (copyLinkBtn && directLinkInput) {
+    copyLinkBtn.addEventListener('click', () => {
+      directLinkInput.focus();
+      directLinkInput.select();
+      if (directLinkInput.setSelectionRange) {
+        directLinkInput.setSelectionRange(0, 999999);
+      }
+
+      let execOk = false;
+      try {
+        execOk = document.execCommand('copy');
+      } catch (e) {
+        execOk = false;
+      }
+
+      const onLinkCopySuccess = () => {
+        const origHtml = copyLinkBtn.innerHTML;
+        copyLinkBtn.innerHTML = `<i class="ri-check-line" style="color: #10b981;"></i> ¡Enlace Copiado!`;
+        setTimeout(() => { copyLinkBtn.innerHTML = origHtml; }, 2500);
+        if (window.Swal) {
+          const Toast = window.Swal.mixin({
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true
+          });
+          Toast.fire({
+            icon: 'success',
+            title: 'Enlace directo copiado al portapapeles.'
+          });
+        }
+      };
+
+      if (execOk) {
+        onLinkCopySuccess();
+      } else if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(directLinkInput.value).then(onLinkCopySuccess).catch(err => {
+          console.error("Error al copiar enlace:", err);
+        });
+      }
+    });
+  }
 
   // Initialize Code snippet
   generateEmbedSnippet(state);
