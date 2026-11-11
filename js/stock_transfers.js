@@ -2272,6 +2272,16 @@ function injectStockTransfersStyles() {
       color: var(--trf-text);
     }
 
+    .trf-modal-shell .trf-table th {
+      padding: 0.55rem 0.6rem;
+      font-size: 0.68rem;
+    }
+
+    .trf-modal-shell .trf-table td {
+      padding: 0.55rem 0.6rem;
+      font-size: 0.8rem;
+    }
+
     /* Empty State */
     .trf-empty-box {
       padding: 3.2rem 1.5rem;
@@ -4024,45 +4034,45 @@ export async function openEnhancedStockTransferModal(
 
   const renderModal = () => {
     overlay.innerHTML = `
-      <div class="trf-modal-shell" style="max-width:1020px; max-height:93vh;">
+      <div class="trf-modal-shell" style="max-width:1180px; width:96vw; max-height:95vh;">
         <!-- Header -->
-        <div style="padding:1.15rem 1.5rem; background:linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color:#fff; display:flex; justify-content:space-between; align-items:center;">
+        <div style="padding:0.9rem 1.35rem; background:linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color:#fff; display:flex; justify-content:space-between; align-items:center;">
           <div>
-            <h3 style="margin:0; font-size:1.12rem; font-weight:800; color:#fff; display:flex; align-items:center; gap:0.5rem;">
+            <h3 style="margin:0; font-size:1.06rem; font-weight:800; color:#fff; display:flex; align-items:center; gap:0.5rem;">
               <i class="ri-truck-line" style="color:#a5b4fc;"></i> Solicitar / Ejecutar Transferencia de Stock entre Bodegas
             </h3>
-            <p style="margin:3px 0 0 0; font-size:0.78rem; color:#c7d2fe;">
+            <p style="margin:2px 0 0 0; font-size:0.75rem; color:#c7d2fe;">
               El sistema limita automáticamente las cantidades al stock disponible en origen y proyecta el saldo resultante en ambas bodegas.
             </p>
           </div>
-          <button type="button" id="btn-create-trf-close" style="background:rgba(255,255,255,0.12); border:none; color:#fff; width:34px; height:34px; border-radius:8px; cursor:pointer; font-weight:700;">✕</button>
+          <button type="button" id="btn-create-trf-close" style="background:rgba(255,255,255,0.12); border:none; color:#fff; width:32px; height:32px; border-radius:8px; cursor:pointer; font-weight:700;">✕</button>
         </div>
 
         <!-- Body -->
-        <div style="padding:1.25rem 1.5rem; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:0.95rem; background:var(--trf-surface);">
+        <div style="padding:0.95rem 1.35rem; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:0.7rem; background:var(--trf-surface);">
           <!-- Fila 1: Comercio, Bodega Origen y Bodega Destino -->
-          <div class="trf-step-card" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.85rem;">
+          <div class="trf-step-card" style="padding:0.7rem 0.9rem; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.75rem;">
             <div>
               <label class="trf-field-label"><i class="ri-store-2-line"></i> Comercio / Cliente *</label>
-              <select id="trf-new-commerce" class="trf-select">
+              <select id="trf-new-commerce" class="trf-select" style="height:36px;">
                 ${availableCommerces.map(c => `<option value="${escHtml(c)}" ${c === activeCommerce ? 'selected' : ''}>${escHtml(c)}</option>`).join('')}
               </select>
             </div>
             <div>
               <label class="trf-field-label" style="color:#f59e0b;"><i class="ri-upload-2-line"></i> Bodega de Origen (Salida) *</label>
-              <select id="trf-new-source-wh" class="trf-select" style="border-color:rgba(245,158,11,0.45);"></select>
+              <select id="trf-new-source-wh" class="trf-select" style="height:36px; border-color:rgba(245,158,11,0.45);"></select>
             </div>
             <div>
               <label class="trf-field-label" style="color:#10b981;"><i class="ri-download-2-line"></i> Bodega de Destino (Entrada) *</label>
-              <select id="trf-new-dest-wh" class="trf-select" style="border-color:rgba(16,185,129,0.45);"></select>
+              <select id="trf-new-dest-wh" class="trf-select" style="height:36px; border-color:rgba(16,185,129,0.45);"></select>
             </div>
           </div>
 
           <!-- Fila 2: Modalidad de Estado Inicial, Quién Solicita, Prioridad y Motivo -->
-          <div style="display:grid; grid-template-columns:1.8fr 1fr 0.75fr 1.25fr; gap:0.85rem; align-items:end;">
+          <div style="display:grid; grid-template-columns:1.8fr 1fr 0.75fr 1.25fr; gap:0.75rem; align-items:end;">
             <div>
               <label class="trf-field-label"><i class="ri-settings-4-line" style="color:#6366f1;"></i> Estado Inicial y Efecto en Niveles de Stock *</label>
-              <select id="trf-new-initial-status" class="trf-select" style="border-color:rgba(99,102,241,0.5);">
+              <select id="trf-new-initial-status" class="trf-select" style="height:36px; border-color:rgba(99,102,241,0.5);">
                 <option value="Solicitada" selected>1. Solicitar Transferencia (Reserva unidades en Bodega Origen · Descuenta de Disponible)</option>
                 <option value="En Tránsito">2. Despachar En Tránsito Ahora (Rebaja Stock Físico en Origen + Kardex OUT · Pendiente Recepción)</option>
                 <option value="Recepcionada">3. Traspaso Directo 1-Paso (Rebaja Origen y Suma Físico en Destino inmediatamente + Kardex OUT/IN)</option>
@@ -4070,46 +4080,46 @@ export async function openEnhancedStockTransferModal(
             </div>
             <div>
               <label class="trf-field-label"><i class="ri-user-star-line"></i> Solicitado por (Admin) *</label>
-              <input type="text" id="trf-new-req-by" class="trf-input" value="${escHtml(adminUser.name || 'Administrador')}">
+              <input type="text" id="trf-new-req-by" class="trf-input" style="height:36px;" value="${escHtml(adminUser.name || 'Administrador')}">
             </div>
             <div>
               <label class="trf-field-label"><i class="ri-flag-2-line"></i> Prioridad</label>
-              <select id="trf-new-priority" class="trf-select">
+              <select id="trf-new-priority" class="trf-select" style="height:36px;">
                 <option value="Normal">Normal</option>
                 <option value="Urgente">🔥 Urgente</option>
               </select>
             </div>
             <div>
               <label class="trf-field-label"><i class="ri-file-list-3-line"></i> Motivo / Nota Operativa</label>
-              <input type="text" id="trf-new-notes" class="trf-input" placeholder="Ej: Reposición de stock CDD...">
+              <input type="text" id="trf-new-notes" class="trf-input" style="height:36px;" placeholder="Ej: Reposición de stock CDD...">
             </div>
           </div>
 
           <!-- Acción Rápida: Trasladar todo el stock disponible de la bodega origen -->
-          <div style="padding:0.7rem 1rem; background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.3); border-radius:11px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
-            <label style="display:flex; align-items:center; gap:0.6rem; cursor:pointer; margin:0; font-size:0.82rem; font-weight:700; color:var(--trf-text);">
-              <input type="checkbox" id="chk-trf-all-available" style="width:17px; height:17px; accent-color:#6366f1;">
+          <div style="padding:0.55rem 0.9rem; background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.3); border-radius:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+            <label style="display:flex; align-items:center; gap:0.55rem; cursor:pointer; margin:0; font-size:0.8rem; font-weight:700; color:var(--trf-text);">
+              <input type="checkbox" id="chk-trf-all-available" style="width:16px; height:16px; accent-color:#6366f1;">
               <span>Cargar automáticamente todos los SKUs con stock disponible en la bodega de origen</span>
             </label>
             <div class="trf-input-wrap" style="width:260px;">
               <i class="ri-search-line trf-input-icon"></i>
-              <input type="text" id="trf-sku-search" class="trf-input has-left-icon" placeholder="Filtrar SKU o producto..." value="${escHtml(searchFilter)}" style="height:34px; font-size:0.8rem;">
+              <input type="text" id="trf-sku-search" class="trf-input has-left-icon" placeholder="Filtrar SKU o producto..." value="${escHtml(searchFilter)}" style="height:32px; font-size:0.79rem;">
             </div>
           </div>
 
           <!-- Tabla de Selección de Productos y Cantidades -->
-          <div class="trf-table-card" style="max-height:290px; overflow-y:auto;">
-            <table class="trf-table">
+          <div class="trf-table-card" style="max-height:390px; min-height:240px; flex:1; overflow-y:auto; overflow-x:auto;">
+            <table class="trf-table" style="min-width:860px;">
               <thead style="position:sticky; top:0; z-index:2;">
                 <tr>
                   <th style="width:42px; text-align:center;">Incluir</th>
-                  <th>SKU / Producto</th>
-                  <th style="text-align:center;">Físico Origen</th>
-                  <th style="text-align:center;">Comprom. / Reserv.</th>
-                  <th style="text-align:center;">Disponible Origen</th>
-                  <th style="text-align:center;">Físico Destino</th>
-                  <th style="text-align:center; width:130px;">Cant. a Transferir</th>
-                  <th style="text-align:center;">Saldo Final (Origen → Destino)</th>
+                  <th style="min-width:210px;">SKU / Producto</th>
+                  <th style="width:82px; text-align:center;">Físico Orig.</th>
+                  <th style="width:86px; text-align:center;">Comprom.</th>
+                  <th style="width:92px; text-align:center;">Disp. Origen</th>
+                  <th style="width:82px; text-align:center;">Físico Dest.</th>
+                  <th style="width:110px; text-align:center;">Cant. a Mover</th>
+                  <th style="width:185px; text-align:center;">Saldo Final (Orig. → Dest.)</th>
                 </tr>
               </thead>
               <tbody id="trf-new-products-tbody"></tbody>
@@ -4117,7 +4127,7 @@ export async function openEnhancedStockTransferModal(
           </div>
 
           <!-- Barra de Proyección Global de Saldos en Origen y Destino Luego del Movimiento -->
-          <div id="trf-live-projection-banner" style="padding:0.75rem 1rem; border-radius:12px; border:1px solid var(--trf-border); background:var(--trf-surface-alt); display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:0.75rem; align-items:center;"></div>
+          <div id="trf-live-projection-banner" style="padding:0.6rem 0.9rem; border-radius:11px; border:1px solid var(--trf-border); background:var(--trf-surface-alt); display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:0.65rem; align-items:center;"></div>
         </div>
 
         <!-- Footer -->
