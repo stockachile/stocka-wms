@@ -878,30 +878,268 @@ window.getPeriodColor = function(period) {
 window.pickerOperatorsMap = window.pickerOperatorsMap || {};
 window.pickerStatusMap = window.pickerStatusMap || {};
 
+// Helper para resolver la sigla de un comercio (si está cargada en memoria o derivada de las primeras 3 letras)
+window.resolveCommercePickerSigla = function(comercio) {
+  if (!comercio) return '';
+  const comUpper = String(comercio).trim().toUpperCase();
+  if (!comUpper) return '';
+  if (window.wmsComerciosSiglasMap && window.wmsComerciosSiglasMap[comUpper]) {
+    return String(window.wmsComerciosSiglasMap[comUpper]).trim().toUpperCase();
+  }
+  if (window.loadedCommerceConfigsMap) {
+    const cfg = window.loadedCommerceConfigsMap[comercio] || window.loadedCommerceConfigsMap[comUpper];
+    if (cfg && cfg.sigla) return String(cfg.sigla).trim().toUpperCase();
+  }
+  const alphaOnly = comUpper.replace(/[^A-Z0-9]/g, '');
+  return alphaOnly.length >= 3 ? alphaOnly.slice(0, 3) : '';
+};
+
 // Helper para normalizar identificadores de pedidos al buscar en mapas de Picker
-window.normalizeOrderKeys = function(rawKey) {
+window.normalizeOrderKeys = function(rawKey, comercio = '') {
   if (!rawKey) return [];
   const str = String(rawKey).trim();
   if (!str) return [];
-  const clean = str.replace(/^#/, '');
+  const clean = str.replace(/^#/, '').trim();
   const withHash = '#' + clean;
-  const keys = new Set([str, clean, withHash, str.toUpperCase(), clean.toUpperCase(), withHash.toUpperCase()]);
+  const keys = new Set([
+    str,
+    clean,
+    withHash,
+    str.toUpperCase(),
+    clean.toUpperCase(),
+    withHash.toUpperCase()
+  ]);
+
+  const cleanUpper = clean.toUpperCase();
+  const digitsOnly = cleanUpper.replace(/\D/g, '');
+  const comNorm = String(comercio || '').trim().toUpperCase();
+
+  // Si viene con prefijo de sigla (ej: "BLE#1114", "BLE-1114", "BLE1114", "DOR55019434")
+  const prefixSepMatch = cleanUpper.match(/^([A-Z]{2,8})[#\-_\s]+(\d+.*)$/);
+  const prefixDirectMatch = !prefixSepMatch ? cleanUpper.match(/^([A-Z]{2,6})(\d{3,})$/) : null;
+  if (prefixSepMatch) {
+    const pfx = prefixSepMatch[1];
+    const numPart = prefixSepMatch[2].replace(/^#/, '').trim();
+    keys.add(`${pfx}${numPart}`);
+    keys.add(`${pfx}#${numPart}`);
+    keys.add(`#${pfx}${numPart}`);
+    keys.add(`${pfx}-${numPart}`);
+    keys.add(`SIGLA::${pfx}::${numPart}`);
+    // Solo agregar la parte numérica suelta si tiene >= 6 dígitos para evitar colisiones entre comercios en folios cortos (#1111, #1114)
+    if (numPart.length >= 6) {
+      keys.add(numPart);
+      keys.add(`#${numPart}`);
+    }
+  } else if (prefixDirectMatch) {
+    const pfx = prefixDirectMatch[1];
+    const numPart = prefixDirectMatch[2];
+    keys.add(`${pfx}#${numPart}`);
+    keys.add(`#${pfx}${numPart}`);
+    keys.add(`${pfx}-${numPart}`);
+    keys.add(`SIGLA::${pfx}::${numPart}`);
+    if (numPart.length >= 6) {
+      keys.add(numPart);
+      keys.add(`#${numPart}`);
+    }
+  }
+
+  // Si conocemos el comercio, agregar variantes con su sigla y claves compuestas por comercio
+  if (comNorm) {
+    keys.add(`COMERCIO::${comNorm}::${cleanUpper}`);
+    if (digitsOnly) {
+      keys.add(`COMERCIO::${comNorm}::${digitsOnly}`);
+    }
+    const sigla = window.resolveCommercePickerSigla ? window.resolveCommercePickerSigla(comNorm) : '';
+    if (sigla && digitsOnly) {
+      keys.add(`SIGLA::${sigla}::${digitsOnly}`);
+      keys.add(`${sigla}${digitsOnly}`);
+      keys.add(`${sigla}#${digitsOnly}`);
+      keys.add(`#${sigla}${digitsOnly}`);
+      keys.add(`${sigla}-${digitsOnly}`);
+    }
+  }
+
   return Array.from(keys);
+};
+
+// Genera todas las claves candidatas de búsqueda para una orden del WMS (priorizando claves con comercio/sigla)
+window.getPickerOrderCandidateKeys = function(order, options = {}) {
+  if (!order) return [];
+  const includeInternal = options.includeInternal !== false;
+  const includeUuid = options.includeUuid !== false;
+  const compactForQuery = options.compactForQuery === true;
+  const comNorm = String(order.comercio || '').trim().toUpperCase();
+  const extRaw = String(order.external_order_number || '').trim();
+  const rawShopifyName = String(order.raw_shopify_data?.name || '').trim();
+  const rawShopifyNum = order.raw_shopify_data?.order_number != null ? String(order.raw_shopify_data.order_number).trim() : '';
+
+  const orderedKeys = [];
+  const seen = new Set();
+  const addKey = (k) => {
+    if (!k) return;
+    if (!includeInternal && (String(k).startsWith('COMERCIO::') || String(k).startsWith('SIGLA::'))) return;
+    if (!seen.has(k)) {
+      seen.add(k);
+      orderedKeys.push(k);
+    }
+  };
+
+  const extCleanUpper = extRaw.replace(/^#/, '').trim().toUpperCase();
+  const digits = extCleanUpper.replace(/\D/g, '') || String(rawShopifyName || rawShopifyNum || '').replace(/\D/g, '');
+  const sigla = comNorm && window.resolveCommercePickerSigla ? window.resolveCommercePickerSigla(comNorm) : '';
+
+  // 1. Claves compuestas por comercio y sigla (máxima precisión para evitar colisiones de folios cortos como #1111 / #1114)
+  if (includeInternal) {
+    if (comNorm && extCleanUpper) addKey(`COMERCIO::${comNorm}::${extCleanUpper}`);
+    if (comNorm && digits) addKey(`COMERCIO::${comNorm}::${digits}`);
+    if (sigla && digits) addKey(`SIGLA::${sigla}::${digits}`);
+    if (order.id) addKey(`ORDER_ID::${order.id}`);
+  }
+
+  if (compactForQuery) {
+    if (extRaw) {
+      addKey(extRaw);
+      addKey(extCleanUpper);
+      addKey('#' + extCleanUpper);
+    }
+    if (sigla && digits) {
+      addKey(`${sigla}${digits}`);
+      addKey(`${sigla}#${digits}`);
+      addKey(`#${sigla}${digits}`);
+    }
+    if (digits) {
+      addKey(`#${digits}`);
+      addKey(digits);
+    }
+    if (order.id && (includeUuid || !extRaw)) {
+      addKey(String(order.id).trim());
+    }
+    return orderedKeys;
+  }
+
+  // 2. Claves normalizadas desde external_order_number y datos de tienda
+  if (extRaw) {
+    window.normalizeOrderKeys(extRaw, comNorm).forEach(addKey);
+  }
+  if (rawShopifyName && rawShopifyName !== extRaw) {
+    window.normalizeOrderKeys(rawShopifyName, comNorm).forEach(addKey);
+  }
+  if (rawShopifyNum && rawShopifyNum !== extRaw && rawShopifyNum !== rawShopifyName) {
+    window.normalizeOrderKeys(rawShopifyNum, comNorm).forEach(addKey);
+  }
+
+  // Fallback de dígitos puros al final (en caso de que el pedido tenga prefijo en WMS pero esté sin prefijo en Picker)
+  if (digits && digits.length >= 3) {
+    addKey(`#${digits}`);
+    addKey(digits);
+  }
+
+  // 3. Claves desde UUID (solo cuando se solicita o si no tiene external_order_number)
+  if (order.id && (includeUuid || !extRaw)) {
+    window.normalizeOrderKeys(order.id).forEach(addKey);
+  }
+
+  return orderedKeys;
+};
+
+// Registra un estado de Picker en memoria para todas las variantes de clave del pedido
+window.registerOrderInPickerStatusMap = function(orderOrRow, statusObj, options = {}) {
+  if (!orderOrRow || !statusObj) return;
+  const overwriteExisting = options.overwrite !== false;
+  const comNorm = String(orderOrRow.comercio || statusObj.comercio || '').trim().toUpperCase();
+  const enrichedStatus = comNorm && !statusObj.comercio
+    ? { ...statusObj, comercio: comNorm }
+    : statusObj;
+
+  const rawNum = orderOrRow.external_order_number || orderOrRow.order_number || orderOrRow.pedido || orderOrRow.id;
+  const keys = new Set([
+    ...(rawNum ? window.normalizeOrderKeys(rawNum, comNorm) : []),
+    ...(orderOrRow.external_order_number || orderOrRow.raw_shopify_data
+      ? window.getPickerOrderCandidateKeys(orderOrRow, { includeInternal: true, includeUuid: true })
+      : [])
+  ]);
+  if (orderOrRow.id) {
+    keys.add(`ORDER_ID::${orderOrRow.id}`);
+    keys.add(String(orderOrRow.id).trim());
+  }
+
+  keys.forEach(k => {
+    const isInternalKey = String(k).startsWith('COMERCIO::') || String(k).startsWith('SIGLA::') || String(k).startsWith('ORDER_ID::');
+    const isShortGenericKey = !isInternalKey && /^#?\d{1,5}$/.test(String(k));
+    const existing = window.pickerStatusMap[k];
+
+    // Evitar que un pedido de otro comercio sobreescriba una clave numérica corta (#1111, #1114) que ya pertenece a otro comercio
+    if (isShortGenericKey && existing && existing.comercio && comNorm && existing.comercio !== comNorm) {
+      if (existing.isActive && !enrichedStatus.isActive) return;
+      if (existing.isCompleted && !enrichedStatus.isCompleted) return;
+    }
+
+    if (overwriteExisting || !existing) {
+      window.pickerStatusMap[k] = enrichedStatus;
+    }
+    if (enrichedStatus.operator && enrichedStatus.operator !== '-') {
+      if (!isShortGenericKey || !window.pickerOperatorsMap[k] || !existing?.comercio || existing.comercio === comNorm) {
+        window.pickerOperatorsMap[k] = enrichedStatus.operator;
+      }
+    }
+  });
 };
 
 // Helper para obtener el estado del Picker asignado a un pedido
 window.getPickerStatusForOrder = function(order) {
   if (!order) return null;
-  const candidates = [
-    ...(order.external_order_number ? window.normalizeOrderKeys(order.external_order_number) : []),
-    ...(order.id ? window.normalizeOrderKeys(order.id) : [])
-  ];
+  const comNorm = String(order.comercio || '').trim().toUpperCase();
+  const candidates = window.getPickerOrderCandidateKeys
+    ? window.getPickerOrderCandidateKeys(order, { includeInternal: true, includeUuid: true })
+    : [
+        ...(order.external_order_number ? window.normalizeOrderKeys(order.external_order_number, comNorm) : []),
+        ...(order.id ? window.normalizeOrderKeys(order.id) : [])
+      ];
 
   for (const k of candidates) {
-    if (window.pickerStatusMap[k]) {
-      return window.pickerStatusMap[k];
+    const st = window.pickerStatusMap[k];
+    if (st) {
+      const isInternalKey = String(k).startsWith('COMERCIO::') || String(k).startsWith('SIGLA::') || String(k).startsWith('ORDER_ID::');
+      const isShortGenericKey = !isInternalKey && /^#?\d{1,5}$/.test(String(k));
+      // Si es una clave genérica corta (ej: "#1111", "#1114") y ambos tienen comercio distinto, seguir buscando clave específica
+      if (isShortGenericKey && comNorm && st.comercio && String(st.comercio).trim().toUpperCase() !== comNorm) {
+        continue;
+      }
+      return st;
     }
   }
+
+  // Fallback a columnas sincronizadas directamente en la tabla orders (si existen)
+  if (order.picker_status && String(order.picker_status).trim()) {
+    const rawSt = String(order.picker_status).trim();
+    const isComp = ['COMPLETADO', 'COMPLETADO-ASISTIDO', 'LISTO PARA RETIRO', 'RETIRADO'].includes(rawSt.toUpperCase());
+    return {
+      status: rawSt,
+      operator: order.picker_operator || window.pickerOperatorsMap[`ORDER_ID::${order.id}`] || window.pickerOperatorsMap[order.external_order_number || order.id] || null,
+      sucursal: order.sucursal_pickeo || null,
+      comercio: comNorm || null,
+      isActive: order.estado_wms === 'En preparación' && !isComp,
+      isCompleted: isComp,
+      source: 'orders_column',
+      updatedAt: order.picker_last_synced_at || null
+    };
+  }
+
+  // Fallback cuando el pedido ya está en estado WMS 'Pickeado' (o 'Despachado' con operario registrado)
+  if (order.estado_wms === 'Pickeado' || (order.estado_wms === 'Despachado' && order.picker_operator)) {
+    const resolvedOp = order.picker_operator || window.pickerOperatorsMap[`ORDER_ID::${order.id}`] || window.pickerOperatorsMap[order.external_order_number || order.id] || null;
+    return {
+      status: 'Completado',
+      operator: resolvedOp,
+      sucursal: order.sucursal_pickeo || null,
+      comercio: comNorm || null,
+      isActive: false,
+      isCompleted: true,
+      source: 'wms_pickeado_state',
+      updatedAt: order.picker_last_synced_at || order.stock_descontado_at || order.shopify_status_updated_at || null
+    };
+  }
+
   return null;
 };
 
@@ -1106,124 +1344,388 @@ window.fetchPickerOperators = async function(ordersList) {
   ) : null;
   if (!client) return;
 
+  const mapPickupStateToPickerStatus = (rawState) => {
+    const st = String(rawState || '').trim().toUpperCase();
+    if (st === 'ENTREGADO' || st === 'RETIRADO') {
+      return { status: 'Retirado', isCompleted: true, isActive: false };
+    }
+    if (st === 'LISTO PARA RETIRO' || st === 'PREPARADO' || st === 'COMPLETADO') {
+      return { status: 'Listo para retiro', isCompleted: true, isActive: false };
+    }
+    if (st === 'CANCELADO') {
+      return null;
+    }
+    return { status: 'EN PREPARACIÓN', isCompleted: false, isActive: true };
+  };
+
+  // Construir índices rápidos de ordersList por dígitos y por claves para asociar history_logs (que no tiene columna comercio) al pedido correcto
+  const ordersByDigitsMap = new Map();
+  const ordersByKeyMap = new Map();
+  const getOrderSkusUpper = (ord) => {
+    const s = new Set();
+    if (ord?.sku) {
+      String(ord.sku).split(/[,;|/]/).forEach(part => {
+        const clean = part.trim().replace(/\s*\(x\d+\)\s*$/i, '').trim().toUpperCase();
+        if (clean) s.add(clean);
+      });
+    }
+    if (Array.isArray(ord?.order_items)) {
+      ord.order_items.forEach(oi => {
+        const pSku = String(oi?.products?.sku || oi?.sku || '').trim().toUpperCase();
+        if (pSku) s.add(pSku);
+      });
+    }
+    return s;
+  };
+
+  ordersList.forEach(o => {
+    if (!o) return;
+    const ext = String(o.external_order_number || '').trim();
+    const digits = ext.replace(/\D/g, '');
+    if (digits && digits.length >= 3) {
+      if (!ordersByDigitsMap.has(digits)) ordersByDigitsMap.set(digits, []);
+      ordersByDigitsMap.get(digits).push(o);
+    }
+    if (typeof window.getPickerOrderCandidateKeys === 'function') {
+      window.getPickerOrderCandidateKeys(o, { includeInternal: true, includeUuid: true }).forEach(k => {
+        const kUp = String(k).toUpperCase();
+        if (!ordersByKeyMap.has(kUp)) ordersByKeyMap.set(kUp, []);
+        ordersByKeyMap.get(kUp).push(o);
+      });
+    }
+  });
+
+  const matchPickerRowToWmsOrders = (pedRaw, rowComercio = '', itemsSummary = '', rowSucursal = '') => {
+    if (!pedRaw) return [];
+    const pedClean = String(pedRaw).trim().replace(/^#/, '').trim().toUpperCase();
+    const digits = pedClean.replace(/\D/g, '');
+    const comUpper = String(rowComercio || '').trim().toUpperCase();
+    const pfxMatch = pedClean.match(/^([A-Z]{2,8})[#\-_\s]*(\d+.*)$/);
+    const rowPrefix = pfxMatch ? pfxMatch[1] : '';
+
+    let candidates = (digits && ordersByDigitsMap.get(digits)) || ordersByKeyMap.get(pedClean) || [];
+    if (candidates.length <= 1) {
+      if (candidates.length === 1 && comUpper) {
+        const ordCom = String(candidates[0].comercio || '').trim().toUpperCase();
+        if (ordCom && ordCom !== comUpper) return [];
+      }
+      if (candidates.length === 1 && rowPrefix && !comUpper) {
+        const ordCom = String(candidates[0].comercio || '').trim().toUpperCase();
+        const ordSigla = window.resolveCommercePickerSigla ? window.resolveCommercePickerSigla(ordCom) : '';
+        if (ordCom && ordSigla && ordSigla !== rowPrefix && !ordCom.startsWith(rowPrefix)) {
+          return [];
+        }
+      }
+      return candidates;
+    }
+
+    // Desambiguar cuando múltiples comercios comparten el mismo folio corto (ej: #1111 o #1114)
+    if (comUpper) {
+      const byCom = candidates.filter(o => String(o.comercio || '').trim().toUpperCase() === comUpper);
+      if (byCom.length > 0) return byCom;
+    }
+    if (rowPrefix) {
+      const byPfx = candidates.filter(o => {
+        const ordCom = String(o.comercio || '').trim().toUpperCase();
+        const ordSigla = window.resolveCommercePickerSigla ? window.resolveCommercePickerSigla(ordCom) : '';
+        return ordSigla === rowPrefix || ordCom.startsWith(rowPrefix) || String(o.external_order_number || '').trim().toUpperCase().startsWith(rowPrefix);
+      });
+      if (byPfx.length > 0) return byPfx;
+    }
+    if (itemsSummary && itemsSummary !== '-') {
+      const summarySkus = String(itemsSummary)
+        .split(',')
+        .map(s => s.trim().replace(/\s*\(\d+\/\d+\)\s*$/, '').trim().toUpperCase())
+        .filter(s => s && s !== '-');
+      if (summarySkus.length > 0) {
+        const bySku = candidates.filter(o => {
+          const oSkus = getOrderSkusUpper(o);
+          return summarySkus.some(sk => oSkus.has(sk));
+        });
+        if (bySku.length > 0) return bySku;
+      }
+    }
+    if (rowSucursal) {
+      const sucLow = String(rowSucursal).trim().toLowerCase();
+      const bySuc = candidates.filter(o => String(o.sucursal_pickeo || '').trim().toLowerCase() === sucLow);
+      if (bySuc.length === 1) return bySuc;
+    }
+    return candidates;
+  };
+
+  const applyActiveRow = (row) => {
+    const num = row?.order_number;
+    if (!num) return;
+    const comNorm = String(row.comercio || '').trim().toUpperCase();
+    const statusObj = {
+      status: row.sheet_status || 'EN PREPARACIÓN',
+      operator: row.operator || null,
+      observation: row.observation || null,
+      sucursal: row.sucursal || null,
+      totu: row.totu || null,
+      comercio: comNorm || null,
+      isActive: true,
+      isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(row.sheet_status),
+      source: 'active_orders',
+      updatedAt: row.created_at || null
+    };
+    if (typeof window.registerOrderInPickerStatusMap === 'function') {
+      window.registerOrderInPickerStatusMap(row, statusObj, { overwrite: true });
+      const matchedOrders = matchPickerRowToWmsOrders(num, comNorm, '', row.sucursal);
+      matchedOrders.forEach(ord => window.registerOrderInPickerStatusMap(ord, statusObj, { overwrite: true }));
+    } else {
+      window.normalizeOrderKeys(num, comNorm).forEach(k => {
+        window.pickerStatusMap[k] = statusObj;
+        if (row.operator) window.pickerOperatorsMap[k] = row.operator;
+      });
+    }
+  };
+
+  const applyPickupRow = (pRow) => {
+    const ped = pRow?.pedido;
+    if (!ped) return;
+    const mapped = mapPickupStateToPickerStatus(pRow.estado_pedido);
+    if (!mapped) return;
+    const comNorm = String(pRow.comercio || '').trim().toUpperCase();
+    const statusObj = {
+      status: mapped.status,
+      operator: mapped.status === 'Retirado' ? 'Punto de Retiro' : 'Sucursal Ñuñoa',
+      observation: null,
+      sucursal: pRow.sucursal || 'Sucursal Ñuñoa',
+      comercio: comNorm || null,
+      isActive: mapped.isActive,
+      isCompleted: mapped.isCompleted,
+      source: 'sucursal_pickups',
+      updatedAt: pRow.updated_at || pRow.created_at || null
+    };
+    const matchedOrders = matchPickerRowToWmsOrders(ped, comNorm, '', pRow.sucursal);
+    if (matchedOrders.length > 0 && typeof window.registerOrderInPickerStatusMap === 'function') {
+      matchedOrders.forEach(ord => {
+        const existing = window.getPickerStatusForOrder ? window.getPickerStatusForOrder(ord) : null;
+        if (!existing || existing.source === 'wms_pickeado_state' || mapped.status === 'Retirado' || (mapped.isCompleted && !existing.isCompleted)) {
+          window.registerOrderInPickerStatusMap(ord, statusObj, { overwrite: true });
+        }
+      });
+    }
+    window.normalizeOrderKeys(ped, comNorm).forEach(k => {
+      const existing = window.pickerStatusMap[k];
+      if (!existing || mapped.status === 'Retirado' || (mapped.isCompleted && !existing.isCompleted)) {
+        window.pickerStatusMap[k] = statusObj;
+      }
+    });
+  };
+
+  const seenOrderIdsInHistory = new Set();
+  const seenRawHistoryKeys = new Set();
+
+  const applyHistoryRow = (row) => {
+    const ped = row?.pedido;
+    if (!ped) return;
+    const pedNorm = String(ped).trim().toUpperCase();
+    const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(row.estado);
+    const histTime = row.created_at ? new Date(row.created_at).getTime() : 0;
+
+    const matchedOrders = matchPickerRowToWmsOrders(ped, '', row.items_summary, row.sucursal);
+    if (matchedOrders.length > 0) {
+      matchedOrders.forEach(ord => {
+        if (!ord || !ord.id) return;
+        if (seenOrderIdsInHistory.has(ord.id)) return;
+        seenOrderIdsInHistory.add(ord.id);
+
+        const ordComNorm = String(ord.comercio || '').trim().toUpperCase();
+        const statusObj = {
+          status: row.estado || 'Completado',
+          operator: row.picker || null,
+          observation: row.comentarios || null,
+          sucursal: row.sucursal || ord.sucursal_pickeo || null,
+          itemsSummary: row.items_summary || null,
+          comercio: ordComNorm || null,
+          isActive: false,
+          isCompleted: isComp,
+          source: 'history_logs',
+          updatedAt: row.created_at || `${row.fecha || ''} ${row.hora || ''}`.trim()
+        };
+
+        const existingDirect = window.pickerStatusMap[`ORDER_ID::${ord.id}`] || (ordComNorm ? window.pickerStatusMap[`COMERCIO::${ordComNorm}::${String(ord.external_order_number || '').replace(/\D/g, '')}`] : null);
+        if (existingDirect && existingDirect.isActive && (!existingDirect.comercio || existingDirect.comercio === ordComNorm)) {
+          const actTime = existingDirect.updatedAt ? new Date(existingDirect.updatedAt).getTime() : 0;
+          if (!isComp || (actTime && histTime && histTime < actTime - 60000)) {
+            if (row.picker && row.picker !== '-') {
+              window.pickerOperatorsMap[`ORDER_ID::${ord.id}`] = row.picker;
+            }
+            return;
+          }
+        }
+        if (typeof window.registerOrderInPickerStatusMap === 'function') {
+          window.registerOrderInPickerStatusMap(ord, statusObj, { overwrite: true });
+        }
+      });
+    }
+
+    if (!seenRawHistoryKeys.has(pedNorm)) {
+      seenRawHistoryKeys.add(pedNorm);
+      const statusObj = {
+        status: row.estado || 'Completado',
+        operator: row.picker || null,
+        observation: row.comentarios || null,
+        sucursal: row.sucursal || null,
+        itemsSummary: row.items_summary || null,
+        isActive: false,
+        isCompleted: isComp,
+        source: 'history_logs',
+        updatedAt: row.created_at || `${row.fecha || ''} ${row.hora || ''}`.trim()
+      };
+
+      window.normalizeOrderKeys(ped).forEach(k => {
+        const isShortGenericKey = !String(k).startsWith('COMERCIO::') && !String(k).startsWith('SIGLA::') && /^#?\d{1,5}$/.test(String(k));
+        if (row.picker && row.picker !== '-' && (!isShortGenericKey || !window.pickerOperatorsMap[k])) {
+          window.pickerOperatorsMap[k] = row.picker;
+        }
+        const existing = window.pickerStatusMap[k];
+        if (!existing) {
+          window.pickerStatusMap[k] = statusObj;
+          return;
+        }
+        // Si la clave genérica corta pertenece a otro comercio activo, no mezclarla sin comercio
+        if (isShortGenericKey && existing.comercio) {
+          return;
+        }
+        if (existing.isActive) {
+          const actTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+          if (isComp && (!actTime || !histTime || histTime >= actTime - 60000)) {
+            window.pickerStatusMap[k] = {
+              ...statusObj,
+              comercio: existing.comercio || null
+            };
+          }
+        } else if (isComp || !existing.isCompleted) {
+          window.pickerStatusMap[k] = statusObj;
+        }
+      });
+    }
+  };
+
   try {
-    // Optimización: Filtrar solo a pedidos activos o recientes (últimos 10 días) para evitar cientos de peticiones con históricos
+    // 0. Descargar cola activa, historial reciente y retiros recientes directamente (sin límite de longitud de .in() ni discrepancia de siglas)
+    try {
+      const [
+        { data: allActiveRows, error: allActiveErr },
+        { data: recentHistoryRows, error: recentHistErr },
+        { data: recentPickupRows, error: recentPickupErr }
+      ] = await Promise.all([
+        client
+          .from('active_orders')
+          .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu, comercio')
+          .limit(3000),
+        client
+          .from('history_logs')
+          .select('pedido, picker, estado, comentarios, sucursal, fecha, hora, created_at, items_summary')
+          .order('created_at', { ascending: false })
+          .limit(2500),
+        client
+          .from('sucursal_pickups')
+          .select('pedido, comercio, estado_pedido, sucursal, created_at, updated_at')
+          .order('created_at', { ascending: false })
+          .limit(2000)
+      ]);
+      if (!allActiveErr && Array.isArray(allActiveRows)) {
+        allActiveRows.forEach(applyActiveRow);
+      }
+      if (!recentPickupErr && Array.isArray(recentPickupRows)) {
+        recentPickupRows.forEach(applyPickupRow);
+      }
+      if (!recentHistErr && Array.isArray(recentHistoryRows)) {
+        recentHistoryRows.forEach(applyHistoryRow);
+      }
+    } catch (directSyncErr) {
+      console.warn('[Picker Sync] Aviso en descarga directa de tablas Picker:', directSyncErr);
+    }
+
+    // 1. Filtrar solo los pedidos activos o recientes (últimos 14 días) que aún NO quedaron resueltos en las descargas globales
     const nowMs = Date.now();
-    const tenDaysMs = 10 * 24 * 60 * 60 * 1000;
-    const targetOrders = ordersList.filter(o => {
+    const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
+    const unresolvedOrders = ordersList.filter(o => {
       if (!o) return false;
+      const directSt = window.pickerStatusMap[`ORDER_ID::${o.id}`];
+      if (directSt && (directSt.source === 'active_orders' || directSt.source === 'history_logs' || directSt.source === 'sucursal_pickups')) {
+        return false;
+      }
       const isTerminal = ['despachado', 'entregado', 'retirado', 'cancelado'].includes((o.status || '').toLowerCase()) ||
                          ['Despachado', 'Cancelado', 'Archivado'].includes(o.estado_wms);
-      if (!isTerminal) return true; // Activo o en preparación
+      if (!isTerminal) return true;
       if (o.created_at) {
         const age = nowMs - new Date(o.created_at).getTime();
-        if (age <= tenDaysMs) return true; // Reciente (últimos 10 días)
+        if (age <= fourteenDaysMs) return true;
       }
       return false;
     });
 
-    if (targetOrders.length === 0) return;
+    if (unresolvedOrders.length === 0) {
+      ordersList.forEach(o => { if (o && o._wmsTags) delete o._wmsTags; });
+      return;
+    }
 
-    // Generar conjunto completo de identificadores a consultar
+    // Generar conjunto compacto de identificadores para los pedidos restantes
     const allQueryKeysSet = new Set();
-    targetOrders.forEach(o => {
-      if (o.external_order_number) {
-        window.normalizeOrderKeys(o.external_order_number).forEach(k => allQueryKeysSet.add(k));
-      }
-      if (o.id) {
+    unresolvedOrders.forEach(o => {
+      if (typeof window.getPickerOrderCandidateKeys === 'function') {
+        const keys = window.getPickerOrderCandidateKeys(o, {
+          includeInternal: false,
+          includeUuid: !o.external_order_number,
+          compactForQuery: true
+        });
+        keys.forEach(k => allQueryKeysSet.add(k));
+      } else if (o.external_order_number) {
+        window.normalizeOrderKeys(o.external_order_number, o.comercio).forEach(k => {
+          if (!String(k).startsWith('COMERCIO::') && !String(k).startsWith('SIGLA::')) allQueryKeysSet.add(k);
+        });
+      } else if (o.id) {
         window.normalizeOrderKeys(o.id).forEach(k => allQueryKeysSet.add(k));
       }
     });
 
     const allKeys = Array.from(allQueryKeysSet);
-    const chunkSize = 250;
+    const chunkSize = 80;
     const chunks = [];
     for (let i = 0; i < allKeys.length; i += chunkSize) {
       chunks.push(allKeys.slice(i, i + chunkSize));
     }
 
-    await Promise.all(chunks.map(async (chunk) => {
-      // 1 y 2. Consultar active_orders y history_logs en paralelo
-      const [
-        { data: activeRows, error: activeErr },
-        { data: historyRows, error: histErr }
-      ] = await Promise.all([
-        client
-          .from('active_orders')
-          .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu')
-          .in('order_number', chunk),
-        client
-          .from('history_logs')
-          .select('pedido, picker, estado, comentarios, sucursal, fecha, hora, created_at, items_summary')
-          .in('pedido', chunk)
-          .order('created_at', { ascending: false })
-      ]);
+    // Ejecutar en lotes controlados de máximo 6 chunks en paralelo para evitar saturar conexiones del navegador
+    const concurrency = 6;
+    for (let cIdx = 0; cIdx < chunks.length; cIdx += concurrency) {
+      const batch = chunks.slice(cIdx, cIdx + concurrency);
+      await Promise.all(batch.map(async (chunk) => {
+        const [
+          { data: activeRows, error: activeErr },
+          { data: historyRows, error: histErr },
+          { data: pickupRows, error: pickupErr }
+        ] = await Promise.all([
+          client
+            .from('active_orders')
+            .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu, comercio')
+            .in('order_number', chunk),
+          client
+            .from('history_logs')
+            .select('pedido, picker, estado, comentarios, sucursal, fecha, hora, created_at, items_summary')
+            .in('pedido', chunk)
+            .order('created_at', { ascending: false }),
+          client
+            .from('sucursal_pickups')
+            .select('pedido, comercio, estado_pedido, sucursal, created_at, updated_at')
+            .in('pedido', chunk)
+        ]);
 
-      if (!activeErr && activeRows) {
-        activeRows.forEach(row => {
-          const num = row.order_number;
-          if (!num) return;
-          const statusObj = {
-            status: row.sheet_status || 'EN PREPARACIÓN',
-            operator: row.operator || null,
-            observation: row.observation || null,
-            sucursal: row.sucursal || null,
-            totu: row.totu || null,
-            isActive: true,
-            isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(row.sheet_status),
-            source: 'active_orders',
-            updatedAt: row.created_at || null
-          };
+        if (!activeErr && activeRows) activeRows.forEach(applyActiveRow);
+        if (!pickupErr && Array.isArray(pickupRows)) pickupRows.forEach(applyPickupRow);
+        if (!histErr && historyRows) historyRows.forEach(applyHistoryRow);
+      }));
+    }
 
-          window.normalizeOrderKeys(num).forEach(k => {
-            window.pickerStatusMap[k] = statusObj;
-            if (row.operator) window.pickerOperatorsMap[k] = row.operator;
-          });
-        });
-      }
-
-      if (!histErr && historyRows) {
-        const seenInHistory = new Set();
-        historyRows.forEach(row => {
-          const ped = row.pedido;
-          if (!ped) return;
-          const pedNorm = String(ped).trim().toUpperCase();
-
-          // Registrar el operario
-          if (row.picker && row.picker !== '-') {
-            window.normalizeOrderKeys(ped).forEach(k => {
-              window.pickerOperatorsMap[k] = row.picker;
-            });
-          }
-
-          // Solo guardamos el registro más reciente de cada pedido en el mapa principal
-          if (!seenInHistory.has(pedNorm)) {
-            seenInHistory.add(pedNorm);
-
-            const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(row.estado);
-            const statusObj = {
-              status: row.estado || 'Completado',
-              operator: row.picker || null,
-              observation: row.comentarios || null,
-              sucursal: row.sucursal || null,
-              itemsSummary: row.items_summary || null,
-              isActive: false,
-              isCompleted: isComp,
-              source: 'history_logs',
-              updatedAt: row.created_at || `${row.fecha} ${row.hora}`
-            };
-
-            // Si el pedido no estaba en active_orders, o si en history_logs ya está completado/retirado, toma prioridad
-            window.normalizeOrderKeys(ped).forEach(k => {
-              const existing = window.pickerStatusMap[k];
-              if (!existing || isComp || !existing.isActive) {
-                window.pickerStatusMap[k] = statusObj;
-              }
-            });
-          }
-        });
-      }
-    }));
+    // Limpiar caché de tags en los pedidos procesados para que recalculen su estado Picker real
+    ordersList.forEach(o => {
+      if (o && o._wmsTags) delete o._wmsTags;
+    });
   } catch (err) {
     console.warn('[Picker Status & Operators Sync] Error:', err);
   }
@@ -1266,23 +1768,97 @@ window.openPickerOrderHistoryModal = async function(orderId) {
   });
 
   try {
-    const searchKeys = window.normalizeOrderKeys(orderNumber);
-    if (order && order.id && order.id !== orderNumber) {
-      window.normalizeOrderKeys(order.id).forEach(k => searchKeys.push(k));
-    }
+    const searchKeys = order && typeof window.getPickerOrderCandidateKeys === 'function'
+      ? window.getPickerOrderCandidateKeys(order, { includeInternal: false, includeUuid: true })
+      : [
+          ...window.normalizeOrderKeys(orderNumber, commerceName).filter(k => !String(k).startsWith('COMERCIO::') && !String(k).startsWith('SIGLA::')),
+          ...(order && order.id && order.id !== orderNumber ? window.normalizeOrderKeys(order.id) : [])
+        ];
 
     // 1. Consultar estado activo actual
-    const { data: activeItems, error: activeErr } = await client
+    let { data: activeItems, error: activeErr } = await client
       .from('active_orders')
       .select('*')
       .in('order_number', searchKeys);
 
+    // Fallback por comercio + dígitos si en Picker tiene otro prefijo o formato
+    const digitsOnly = String(orderNumber || '').replace(/\D/g, '');
+    if (activeItems && activeItems.length > 0 && order?.comercio) {
+      const ordComUpper = String(order.comercio).trim().toUpperCase();
+      const filteredByCom = activeItems.filter(r => !r.comercio || String(r.comercio).trim().toUpperCase() === ordComUpper);
+      if (filteredByCom.length > 0 || activeItems.every(r => r.comercio && String(r.comercio).trim().toUpperCase() !== ordComUpper)) {
+        activeItems = filteredByCom;
+      }
+    }
+    if ((!activeItems || activeItems.length === 0) && order?.comercio && digitsOnly.length >= 3) {
+      const { data: fbActive } = await client
+        .from('active_orders')
+        .select('*')
+        .ilike('comercio', order.comercio.trim())
+        .ilike('order_number', `%${digitsOnly}%`);
+      if (fbActive && fbActive.length > 0) {
+        activeItems = fbActive.filter(r => String(r.order_number || '').replace(/\D/g, '') === digitsOnly);
+      }
+    }
+
     // 2. Consultar historial de eventos completo
-    const { data: historyLogs, error: logsErr } = await client
+    let { data: historyLogs, error: logsErr } = await client
       .from('history_logs')
       .select('*')
       .in('pedido', searchKeys)
       .order('created_at', { ascending: false });
+
+    // Fallback en history_logs por dígitos cuando el pedido se guardó con otro prefijo/espacio
+    if ((!historyLogs || historyLogs.length === 0) && digitsOnly.length >= 3) {
+      const { data: fbLogs } = await client
+        .from('history_logs')
+        .select('*')
+        .ilike('pedido', `%${digitsOnly}%`)
+        .order('created_at', { ascending: false })
+        .limit(30);
+      if (fbLogs && fbLogs.length > 0) {
+        const ordComUpper = String(order?.comercio || '').trim().toUpperCase();
+        const ordSigla = ordComUpper && window.resolveCommercePickerSigla ? window.resolveCommercePickerSigla(ordComUpper) : '';
+        historyLogs = fbLogs.filter(r => {
+          const pClean = String(r.pedido || '').trim().replace(/^#/, '').trim().toUpperCase();
+          if (pClean.replace(/\D/g, '') !== digitsOnly) return false;
+          const pfxMatch = pClean.match(/^([A-Z]{2,8})[#\-_\s]*(\d+.*)$/);
+          if (pfxMatch && ordComUpper) {
+            const pfx = pfxMatch[1];
+            if (pfx !== ordSigla && !ordComUpper.startsWith(pfx)) return false;
+          }
+          return true;
+        });
+      }
+    }
+
+    // Si hay múltiples logs en un folio corto (#1111), filtrar/priorizar los que coincidan con SKUs o sucursal del pedido
+    if (historyLogs && historyLogs.length > 0 && order && digitsOnly.length <= 5) {
+      const orderSkus = new Set();
+      if (order.sku) {
+        String(order.sku).split(/[,;|/]/).forEach(part => {
+          const c = part.trim().replace(/\s*\(x\d+\)\s*$/i, '').trim().toUpperCase();
+          if (c) orderSkus.add(c);
+        });
+      }
+      if (Array.isArray(order.order_items)) {
+        order.order_items.forEach(oi => {
+          const s = String(oi?.products?.sku || oi?.sku || '').trim().toUpperCase();
+          if (s) orderSkus.add(s);
+        });
+      }
+      if (orderSkus.size > 0) {
+        const skuMatchedLogs = historyLogs.filter(l => {
+          const sum = String(l.items_summary || '').trim();
+          if (!sum || sum === '-') return false;
+          const logSkus = sum.split(',').map(s => s.trim().replace(/\s*\(\d+\/\d+\)\s*$/, '').trim().toUpperCase());
+          return logSkus.some(sk => orderSkus.has(sk));
+        });
+        if (skuMatchedLogs.length > 0) {
+          historyLogs = skuMatchedLogs;
+        }
+      }
+    }
 
     // 3. Consultar registro de Punto de Retiro (sucursal_pickups) para trazabilidad de correo de aviso
     let pickupRecord = null;
@@ -1292,9 +1868,21 @@ window.openPickerOrderHistoryModal = async function(orderId) {
         .select('*')
         .in('pedido', searchKeys)
         .order('created_at', { ascending: false })
-        .limit(1);
+        .limit(5);
       if (pickupRows && pickupRows.length > 0) {
-        pickupRecord = pickupRows[0];
+        const ordComUpper = String(order?.comercio || '').trim().toUpperCase();
+        pickupRecord = (ordComUpper ? pickupRows.find(r => !r.comercio || String(r.comercio).trim().toUpperCase() === ordComUpper) : pickupRows[0]) || null;
+      }
+      if (!pickupRecord && order?.comercio && digitsOnly.length >= 3) {
+        const { data: fbPickups } = await client
+          .from('sucursal_pickups')
+          .select('*')
+          .ilike('comercio', order.comercio.trim())
+          .ilike('pedido', `%${digitsOnly}%`)
+          .order('created_at', { ascending: false });
+        if (fbPickups && fbPickups.length > 0) {
+          pickupRecord = fbPickups.find(r => String(r.pedido || '').replace(/\D/g, '') === digitsOnly) || null;
+        }
       }
     } catch (pickupErr) {
       console.warn('Aviso consultando sucursal_pickups en historial:', pickupErr);
@@ -1303,8 +1891,9 @@ window.openPickerOrderHistoryModal = async function(orderId) {
     if (activeErr) throw activeErr;
     if (logsErr) throw logsErr;
 
-    const hasActive = activeItems && activeItems.length > 0;
-    const hasLogs = historyLogs && historyLogs.length > 0;
+    const hasActive = Boolean(activeItems && activeItems.length > 0);
+    const hasLogs = Boolean(historyLogs && historyLogs.length > 0);
+    const hasPickup = Boolean(pickupRecord);
 
     // Actualizar datos en memoria para este pedido
     if (hasActive) {
@@ -1315,15 +1904,39 @@ window.openPickerOrderHistoryModal = async function(orderId) {
         observation: firstActive.observation || null,
         sucursal: firstActive.sucursal || null,
         totu: firstActive.totu || null,
+        comercio: firstActive.comercio || order?.comercio || null,
         isActive: true,
         isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro'].includes(firstActive.sheet_status),
         source: 'active_orders',
         updatedAt: firstActive.created_at || null
       };
-      searchKeys.forEach(k => {
-        window.pickerStatusMap[k] = statusObj;
-        if (firstActive.operator) window.pickerOperatorsMap[k] = firstActive.operator;
-      });
+      if (typeof window.registerOrderInPickerStatusMap === 'function') {
+        window.registerOrderInPickerStatusMap(order || firstActive, statusObj);
+      } else {
+        searchKeys.forEach(k => {
+          window.pickerStatusMap[k] = statusObj;
+          if (firstActive.operator) window.pickerOperatorsMap[k] = firstActive.operator;
+        });
+      }
+    } else if (hasPickup && !hasLogs) {
+      const pStateUpper = String(pickupRecord.estado_pedido || '').trim().toUpperCase();
+      const mappedStatus = (pStateUpper === 'ENTREGADO' || pStateUpper === 'RETIRADO')
+        ? 'Retirado'
+        : ((pStateUpper === 'LISTO PARA RETIRO' || pStateUpper === 'PREPARADO') ? 'Listo para retiro' : 'EN PREPARACIÓN');
+      const statusObj = {
+        status: mappedStatus,
+        operator: mappedStatus === 'Retirado' ? 'Punto de Retiro' : 'Sucursal Ñuñoa',
+        observation: pickupRecord.observaciones || null,
+        sucursal: pickupRecord.sucursal || 'Sucursal Ñuñoa',
+        comercio: pickupRecord.comercio || order?.comercio || null,
+        isActive: mappedStatus === 'EN PREPARACIÓN',
+        isCompleted: mappedStatus !== 'EN PREPARACIÓN',
+        source: 'sucursal_pickups',
+        updatedAt: pickupRecord.updated_at || pickupRecord.created_at || null
+      };
+      if (typeof window.registerOrderInPickerStatusMap === 'function') {
+        window.registerOrderInPickerStatusMap(order || pickupRecord, statusObj);
+      }
     }
 
     if (hasLogs) {
@@ -1335,19 +1948,74 @@ window.openPickerOrderHistoryModal = async function(orderId) {
         observation: firstLog.comentarios || null,
         sucursal: firstLog.sucursal || null,
         itemsSummary: firstLog.items_summary || null,
+        comercio: order?.comercio || null,
         isActive: hasActive,
         isCompleted: isComp,
         source: 'history_logs',
         updatedAt: firstLog.created_at || `${firstLog.fecha} ${firstLog.hora}`
       };
-      searchKeys.forEach(k => {
-        if (!hasActive || isComp) window.pickerStatusMap[k] = statusObj;
-        if (firstLog.picker) window.pickerOperatorsMap[k] = firstLog.picker;
-      });
+      if (!hasActive || isComp) {
+        if (typeof window.registerOrderInPickerStatusMap === 'function') {
+          window.registerOrderInPickerStatusMap(order || { pedido: orderNumber, id: orderId }, statusObj);
+        } else {
+          searchKeys.forEach(k => {
+            window.pickerStatusMap[k] = statusObj;
+            if (firstLog.picker) window.pickerOperatorsMap[k] = firstLog.picker;
+          });
+        }
+      }
     }
 
-    // Si no hay datos en ninguna de las dos tablas
-    if (!hasActive && !hasLogs) {
+    if (order && (hasActive || hasLogs || hasPickup)) {
+      delete order._wmsTags;
+      if (typeof window.applyWmsFiltersAndRender === 'function') {
+        window.applyWmsFiltersAndRender();
+      }
+    }
+
+    // Si no hay datos en ninguna de las tres tablas del Picker, pero el pedido en WMS ya figura como Pickeado o tiene picker_status sincronizado
+    if (!hasActive && !hasLogs && !hasPickup) {
+      const hasWmsPickerState = order && (order.estado_wms === 'Pickeado' || order.picker_status || order.picker_operator || order.picker_scanned_label);
+      if (hasWmsPickerState) {
+        const effSt = order.picker_status || 'Completado';
+        const effOp = order.picker_operator || window.pickerOperatorsMap[`ORDER_ID::${order.id}`] || window.pickerOperatorsMap[order.external_order_number || order.id] || 'Consolidado / Sistema WMS';
+        const effSyncAt = order.picker_last_synced_at
+          ? new Date(order.picker_last_synced_at).toLocaleString('es-CL')
+          : (order.fecha_procesamiento || '-');
+        Swal.fire({
+          icon: 'success',
+          title: `Trazabilidad Picker: ${orderNumber}`,
+          html: `
+            <div style="text-align: left; padding: 0.35rem; font-size: 0.88rem; line-height: 1.55;">
+              <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-md); padding: 0.9rem; margin-bottom: 0.85rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.45rem;">
+                  <span style="font-weight: 800; color: #059669; display: flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-checkbox-circle-fill" style="font-size: 1.1rem;"></i> PEDIDO PICKEADO EN WMS
+                  </span>
+                  <span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #065f46; font-weight: 700; font-size: 0.72rem; padding: 2px 8px; border-radius: 4px;">
+                    ${window.escapeHtml ? window.escapeHtml(effSt) : effSt}
+                  </span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem 0.75rem; font-size: 0.82rem; color: var(--color-text-main);">
+                  <span><strong>Comercio:</strong> ${window.escapeHtml ? window.escapeHtml(commerceName) : commerceName}</span>
+                  <span><strong>Sucursal:</strong> ${window.escapeHtml ? window.escapeHtml(order.sucursal_pickeo || 'Sucursal Ñuñoa') : (order.sucursal_pickeo || 'Sucursal Ñuñoa')}</span>
+                  <span><strong>Operario:</strong> ${window.escapeHtml ? window.escapeHtml(effOp) : effOp}</span>
+                  <span><strong>Sincronizado:</strong> ${window.escapeHtml ? window.escapeHtml(effSyncAt) : effSyncAt}</span>
+                  ${order.picker_scanned_label ? `<span style="grid-column: 1 / -1;"><strong>Etiqueta Escaneada:</strong> <code style="font-weight: 700; color: var(--color-primary);">${window.escapeHtml ? window.escapeHtml(order.picker_scanned_label) : order.picker_scanned_label}</code></span>` : ''}
+                </div>
+              </div>
+              <div style="background: var(--color-bg); padding: 0.7rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-size: 0.8rem; color: var(--color-text-muted);">
+                <i class="ri-information-line"></i> El pedido ya cuenta con estado <strong>Pickeado</strong> confirmado en el WMS (${order.status || 'preparado'}).
+              </div>
+            </div>
+          `,
+          confirmButtonText: 'Cerrar',
+          confirmButtonColor: 'var(--color-primary)',
+          width: '560px'
+        });
+        return;
+      }
+
       Swal.fire({
         icon: 'info',
         title: 'Sin actividad en Picker',
@@ -1655,28 +2323,108 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
   }
 
   try {
-    const searchKeys = window.normalizeOrderKeys(orderNumber);
-    if (order && order.id && order.id !== orderNumber) {
-      window.normalizeOrderKeys(order.id).forEach(k => searchKeys.push(k));
-    }
+    const searchKeys = order && typeof window.getPickerOrderCandidateKeys === 'function'
+      ? window.getPickerOrderCandidateKeys(order, { includeInternal: false, includeUuid: true })
+      : [
+          ...window.normalizeOrderKeys(orderNumber, order?.comercio || '').filter(k => !String(k).startsWith('COMERCIO::') && !String(k).startsWith('SIGLA::')),
+          ...(order && order.id && order.id !== orderNumber ? window.normalizeOrderKeys(order.id) : [])
+        ];
 
-    const { data: activeItems } = await client
+    let { data: activeItems } = await client
       .from('active_orders')
-      .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu')
+      .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu, comercio')
       .in('order_number', searchKeys);
 
-    const { data: historyLogs } = await client
+    const digitsOnly = String(orderNumber || '').replace(/\D/g, '');
+    if (activeItems && activeItems.length > 0 && order?.comercio) {
+      const ordComUpper = String(order.comercio).trim().toUpperCase();
+      const filteredByCom = activeItems.filter(r => !r.comercio || String(r.comercio).trim().toUpperCase() === ordComUpper);
+      if (filteredByCom.length > 0 || activeItems.every(r => r.comercio && String(r.comercio).trim().toUpperCase() !== ordComUpper)) {
+        activeItems = filteredByCom;
+      }
+    }
+    if ((!activeItems || activeItems.length === 0) && order?.comercio && digitsOnly.length >= 3) {
+      const { data: fbActive } = await client
+        .from('active_orders')
+        .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu, comercio')
+        .ilike('comercio', order.comercio.trim())
+        .ilike('order_number', `%${digitsOnly}%`);
+      if (fbActive && fbActive.length > 0) {
+        activeItems = fbActive.filter(r => String(r.order_number || '').replace(/\D/g, '') === digitsOnly);
+      }
+    }
+
+    let { data: historyLogs } = await client
       .from('history_logs')
       .select('pedido, picker, estado, comentarios, sucursal, fecha, hora, created_at, items_summary')
       .in('pedido', searchKeys)
       .order('created_at', { ascending: false })
-      .limit(5);
+      .limit(15);
 
-    const { data: pickupRow } = await client
+    if ((!historyLogs || historyLogs.length === 0) && digitsOnly.length >= 3) {
+      const { data: fbLogs } = await client
+        .from('history_logs')
+        .select('pedido, picker, estado, comentarios, sucursal, fecha, hora, created_at, items_summary')
+        .ilike('pedido', `%${digitsOnly}%`)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (fbLogs && fbLogs.length > 0) {
+        const ordComUpper = String(order?.comercio || '').trim().toUpperCase();
+        const ordSigla = ordComUpper && window.resolveCommercePickerSigla ? window.resolveCommercePickerSigla(ordComUpper) : '';
+        historyLogs = fbLogs.filter(r => {
+          const pClean = String(r.pedido || '').trim().replace(/^#/, '').trim().toUpperCase();
+          if (pClean.replace(/\D/g, '') !== digitsOnly) return false;
+          const pfxMatch = pClean.match(/^([A-Z]{2,8})[#\-_\s]*(\d+.*)$/);
+          if (pfxMatch && ordComUpper) {
+            const pfx = pfxMatch[1];
+            if (pfx !== ordSigla && !ordComUpper.startsWith(pfx)) return false;
+          }
+          return true;
+        });
+      }
+    }
+
+    if (historyLogs && historyLogs.length > 0 && order && digitsOnly.length <= 5) {
+      const orderSkus = new Set();
+      if (order.sku) {
+        String(order.sku).split(/[,;|/]/).forEach(part => {
+          const c = part.trim().replace(/\s*\(x\d+\)\s*$/i, '').trim().toUpperCase();
+          if (c) orderSkus.add(c);
+        });
+      }
+      if (Array.isArray(order.order_items)) {
+        order.order_items.forEach(oi => {
+          const s = String(oi?.products?.sku || oi?.sku || '').trim().toUpperCase();
+          if (s) orderSkus.add(s);
+        });
+      }
+      if (orderSkus.size > 0) {
+        const skuMatched = historyLogs.filter(l => {
+          const sum = String(l.items_summary || '').trim();
+          if (!sum || sum === '-') return false;
+          const logSkus = sum.split(',').map(s => s.trim().replace(/\s*\(\d+\/\d+\)\s*$/, '').trim().toUpperCase());
+          return logSkus.some(sk => orderSkus.has(sk));
+        });
+        if (skuMatched.length > 0) historyLogs = skuMatched;
+      }
+    }
+
+    let { data: pickupRow } = await client
       .from('sucursal_pickups')
-      .select('pedido, estado_pedido, sucursal')
+      .select('pedido, comercio, estado_pedido, sucursal, created_at, updated_at')
       .in('pedido', searchKeys)
       .maybeSingle();
+
+    if (!pickupRow && order?.comercio && digitsOnly.length >= 3) {
+      const { data: fbPickups } = await client
+        .from('sucursal_pickups')
+        .select('pedido, comercio, estado_pedido, sucursal, created_at, updated_at')
+        .ilike('comercio', order.comercio.trim())
+        .ilike('pedido', `%${digitsOnly}%`);
+      if (fbPickups && fbPickups.length > 0) {
+        pickupRow = fbPickups.find(r => String(r.pedido || '').replace(/\D/g, '') === digitsOnly) || null;
+      }
+    }
 
     let resolvedStatus = null;
 
@@ -1688,6 +2436,7 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
         observation: act.observation || null,
         sucursal: act.sucursal || null,
         totu: act.totu || null,
+        comercio: act.comercio || order?.comercio || null,
         isActive: true,
         isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(act.sheet_status),
         source: 'active_orders',
@@ -1700,14 +2449,17 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
       const retiradoLog = historyLogs.find(h => String(h.estado || '').trim().toUpperCase() === 'RETIRADO');
       const hist = retiradoLog || historyLogs[0];
       const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(hist.estado);
-      if (!resolvedStatus || isComp || !resolvedStatus.isActive) {
+      const histTime = hist.created_at ? new Date(hist.created_at).getTime() : 0;
+      const actTime = resolvedStatus?.updatedAt ? new Date(resolvedStatus.updatedAt).getTime() : 0;
+      if (!resolvedStatus || (!resolvedStatus.isActive && isComp) || (resolvedStatus.isActive && isComp && (!actTime || !histTime || histTime >= actTime - 60000))) {
         resolvedStatus = {
           status: hist.estado || 'Completado',
           operator: hist.picker || null,
           observation: hist.comentarios || null,
           sucursal: hist.sucursal || null,
           itemsSummary: hist.items_summary || null,
-          isActive: Boolean(activeItems && activeItems.length > 0),
+          comercio: order?.comercio || null,
+          isActive: Boolean(activeItems && activeItems.length > 0) && !isComp,
           isCompleted: isComp,
           source: 'history_logs',
           updatedAt: hist.created_at || `${hist.fecha} ${hist.hora}`
@@ -1715,24 +2467,46 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
       }
     }
 
-    if (pickupRow && String(pickupRow.estado_pedido || '').trim().toUpperCase() === 'ENTREGADO') {
-      resolvedStatus = {
-        status: 'Retirado',
-        operator: resolvedStatus?.operator || 'Punto de Retiro',
-        observation: resolvedStatus?.observation || 'Entregado en sucursal',
-        sucursal: pickupRow.sucursal || resolvedStatus?.sucursal || null,
-        isActive: false,
-        isCompleted: true,
-        source: 'sucursal_pickups',
-        updatedAt: resolvedStatus?.updatedAt || new Date().toISOString()
-      };
+    if (pickupRow) {
+      const pStUpper = String(pickupRow.estado_pedido || '').trim().toUpperCase();
+      if (pStUpper === 'ENTREGADO' || pStUpper === 'RETIRADO') {
+        resolvedStatus = {
+          status: 'Retirado',
+          operator: resolvedStatus?.operator || 'Punto de Retiro',
+          observation: resolvedStatus?.observation || 'Entregado en sucursal',
+          sucursal: pickupRow.sucursal || resolvedStatus?.sucursal || null,
+          comercio: pickupRow.comercio || order?.comercio || null,
+          isActive: false,
+          isCompleted: true,
+          source: 'sucursal_pickups',
+          updatedAt: pickupRow.updated_at || resolvedStatus?.updatedAt || new Date().toISOString()
+        };
+      } else if (!resolvedStatus && pStUpper !== 'CANCELADO') {
+        const isReady = pStUpper === 'LISTO PARA RETIRO' || pStUpper === 'PREPARADO';
+        resolvedStatus = {
+          status: isReady ? 'Listo para retiro' : 'EN PREPARACIÓN',
+          operator: 'Sucursal Ñuñoa',
+          observation: null,
+          sucursal: pickupRow.sucursal || 'Sucursal Ñuñoa',
+          comercio: pickupRow.comercio || order?.comercio || null,
+          isActive: !isReady,
+          isCompleted: isReady,
+          source: 'sucursal_pickups',
+          updatedAt: pickupRow.updated_at || pickupRow.created_at || new Date().toISOString()
+        };
+      }
     }
 
     if (resolvedStatus) {
-      searchKeys.forEach(k => {
-        window.pickerStatusMap[k] = resolvedStatus;
-        if (resolvedStatus.operator) window.pickerOperatorsMap[k] = resolvedStatus.operator;
-      });
+      if (typeof window.registerOrderInPickerStatusMap === 'function') {
+        window.registerOrderInPickerStatusMap(order || { id: orderId, external_order_number: orderNumber }, resolvedStatus);
+      } else {
+        searchKeys.forEach(k => {
+          window.pickerStatusMap[k] = resolvedStatus;
+          if (resolvedStatus.operator) window.pickerOperatorsMap[k] = resolvedStatus.operator;
+        });
+      }
+      if (order) delete order._wmsTags;
 
       const isRetirado = ['RETIRADO', 'ENTREGADO'].includes(String(resolvedStatus.status || '').trim().toUpperCase());
 
@@ -8281,6 +9055,8 @@ window.wmsDbCache = {
           orders,
           shipments: Array.isArray(shipments) ? shipments : [],
           inventoryMap: (inventoryMap && typeof inventoryMap === 'object') ? inventoryMap : {},
+          pickerStatusMap: (window.pickerStatusMap && typeof window.pickerStatusMap === 'object') ? window.pickerStatusMap : {},
+          pickerOperatorsMap: (window.pickerOperatorsMap && typeof window.pickerOperatorsMap === 'object') ? window.pickerOperatorsMap : {},
           cachedAt: new Date().toISOString()
         });
         tx.oncomplete = () => resolve(true);
@@ -8426,6 +9202,20 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
         console.error("Error loading enviame configs mapping:", e);
       }
 
+      if (!window.wmsComerciosSiglasMap || Object.keys(window.wmsComerciosSiglasMap).length === 0) {
+        try {
+          const { data: vSiglas } = await supabase.from('v_comercios_config').select('comercio, sigla');
+          if (Array.isArray(vSiglas)) {
+            window.wmsComerciosSiglasMap = window.wmsComerciosSiglasMap || {};
+            vSiglas.forEach(r => {
+              if (r.comercio && r.sigla) {
+                window.wmsComerciosSiglasMap[r.comercio.trim().toUpperCase()] = r.sigla.trim().toUpperCase();
+              }
+            });
+          }
+        } catch (sigErr) {}
+      }
+
       if (typeof window.ensureShopifyIntegrationsMapLoaded === 'function') {
         window.ensureShopifyIntegrationsMapLoaded(true);
       }
@@ -8477,6 +9267,10 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
         estado_ruta_optiroute,
         fecha_procesamiento,
         sucursal_pickeo,
+        picker_status,
+        picker_operator,
+        picker_last_synced_at,
+        picker_scanned_label,
         periodo_facturacion,
         stock_descontado,
         stock_descontado_at,
@@ -8505,7 +9299,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
           attempts++;
           res = await q;
           if (!res.error) break;
-          if (res.error.code === '42703' || String(res.error.message || '').includes('estado_ruta_optiroute')) {
+          if (res.error.code === '42703' || String(res.error.message || '').includes('estado_ruta_optiroute') || String(res.error.message || '').includes('picker_')) {
             break;
           }
           const isTimeout = res.error.code === '57014' || String(res.error.message || '').toLowerCase().includes('timeout');
@@ -8527,10 +9321,21 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
         }
 
         if (res.error) {
-          if (res.error.code === '42703' || String(res.error.message || '').includes('estado_ruta_optiroute')) {
-            console.warn('[Admin] Columna estado_ruta_optiroute aún no existe en orders, reintentando consulta sin esa columna...');
-            selectStr = selectStr.replace(/,?\s*estado_ruta_optiroute/g, '');
-            continue;
+          const errMsg = String(res.error.message || '');
+          if (res.error.code === '42703' || errMsg.includes('estado_ruta_optiroute') || errMsg.includes('picker_')) {
+            if (errMsg.includes('picker_scanned_label')) {
+              selectStr = selectStr.replace(/,?\s*picker_scanned_label/g, '');
+              continue;
+            }
+            if (errMsg.includes('picker_')) {
+              selectStr = selectStr.replace(/,?\s*picker_status/g, '').replace(/,?\s*picker_operator/g, '').replace(/,?\s*picker_last_synced_at/g, '').replace(/,?\s*picker_scanned_label/g, '');
+              continue;
+            }
+            if (errMsg.includes('estado_ruta_optiroute') || selectStr.includes('estado_ruta_optiroute')) {
+              console.warn('[Admin] Columna opcional aún no existe en orders, reintentando consulta sin esa columna...');
+              selectStr = selectStr.replace(/,?\s*estado_ruta_optiroute/g, '').replace(/,?\s*picker_scanned_label/g, '');
+              continue;
+            }
           }
           throw res.error;
         }
@@ -9809,6 +10614,12 @@ async function renderAdminOrders() {
         hasCachedOrders = true;
         window.loadedOrders = cachedWindow.orders;
         window.loadedShipments = cachedWindow.shipments || [];
+        if (cachedWindow.pickerStatusMap && typeof cachedWindow.pickerStatusMap === 'object') {
+          window.pickerStatusMap = Object.assign({}, cachedWindow.pickerStatusMap, window.pickerStatusMap || {});
+        }
+        if (cachedWindow.pickerOperatorsMap && typeof cachedWindow.pickerOperatorsMap === 'object') {
+          window.pickerOperatorsMap = Object.assign({}, cachedWindow.pickerOperatorsMap, window.pickerOperatorsMap || {});
+        }
         if (cachedWindow.inventoryMap && typeof cachedWindow.inventoryMap === 'object') {
           window.loadedOrdersInventoryMap = Object.assign({}, cachedWindow.inventoryMap);
           if (typeof window.hydrateWmsInventoryMetricsFromMap === 'function') {
@@ -9817,6 +10628,9 @@ async function renderAdminOrders() {
         }
         if (typeof window.buildWmsShipmentsByRefMap === 'function') {
           window.buildWmsShipmentsByRefMap(window.loadedShipments);
+        }
+        if (typeof window.fetchPickerOperators === 'function') {
+          await window.fetchPickerOperators(window.loadedOrders).catch(() => {});
         }
         if (typeof window.clearWmsTagsCache === 'function') {
           window.clearWmsTagsCache();
@@ -12624,6 +13438,9 @@ async function renderAdminOrders() {
             <button onclick="window.openCreateOrderModal()" class="btn btn-primary" style="padding: 0.25rem 0.65rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer; background: var(--color-primary); color: white;" title="Crear un nuevo pedido manual en el sistema">
               <i class="ri-add-circle-line"></i> Crear Pedido
             </button>
+            <button onclick="window.openStoxControlTowerMessageModal()" class="btn btn-outline" style="padding: 0.25rem 0.6rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.28rem; font-weight: 700; cursor: pointer; border-color: #10b981; color: #059669; background: rgba(16, 185, 129, 0.08);" title="Enviar mensaje por WhatsApp desde Stox y reenviar la respuesta recibida al grupo NOTIFICACIONES STOX">
+              <i class="ri-whatsapp-fill" style="color: #10b981; font-size: 0.95rem;"></i> Mensaje Stox
+            </button>
             <!-- Botón Dual / Split de Etiqueta Stocka Masiva con Opciones Rápidas -->
             <div id="wms-bulk-print-labels-btn" class="wms-bulk-labels-split-btn" style="display: none; position: relative; vertical-align: middle; box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25); border-radius: 6px;">
               <button id="btn-wms-bulk-labels-main" type="button" onclick="window.showBulkShippingLabelModal()" class="btn btn-primary" style="padding: 0.25rem 0.55rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer; border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none;" title="Abrir configurador de Etiqueta Stocka Masiva">
@@ -12982,6 +13799,12 @@ async function renderAdminOrders() {
           if (cachedWindow && Array.isArray(cachedWindow.orders) && cachedWindow.orders.length > 0) {
             window.loadedOrders = cachedWindow.orders;
             window.loadedShipments = cachedWindow.shipments || [];
+            if (cachedWindow.pickerStatusMap && typeof cachedWindow.pickerStatusMap === 'object') {
+              window.pickerStatusMap = Object.assign({}, cachedWindow.pickerStatusMap, window.pickerStatusMap || {});
+            }
+            if (cachedWindow.pickerOperatorsMap && typeof cachedWindow.pickerOperatorsMap === 'object') {
+              window.pickerOperatorsMap = Object.assign({}, cachedWindow.pickerOperatorsMap, window.pickerOperatorsMap || {});
+            }
             if (cachedWindow.inventoryMap && typeof cachedWindow.inventoryMap === 'object') {
               window.loadedOrdersInventoryMap = Object.assign({}, cachedWindow.inventoryMap);
               if (typeof window.hydrateWmsInventoryMetricsFromMap === 'function') {
@@ -13162,6 +13985,12 @@ async function renderAdminOrders() {
             if (cachedWindow && Array.isArray(cachedWindow.orders) && cachedWindow.orders.length > 0) {
               window.loadedOrders = cachedWindow.orders;
               window.loadedShipments = cachedWindow.shipments || [];
+              if (cachedWindow.pickerStatusMap && typeof cachedWindow.pickerStatusMap === 'object') {
+                window.pickerStatusMap = Object.assign({}, cachedWindow.pickerStatusMap, window.pickerStatusMap || {});
+              }
+              if (cachedWindow.pickerOperatorsMap && typeof cachedWindow.pickerOperatorsMap === 'object') {
+                window.pickerOperatorsMap = Object.assign({}, cachedWindow.pickerOperatorsMap, window.pickerOperatorsMap || {});
+              }
               if (cachedWindow.inventoryMap && typeof cachedWindow.inventoryMap === 'object') {
                 window.loadedOrdersInventoryMap = Object.assign({}, cachedWindow.inventoryMap);
                 if (typeof window.hydrateWmsInventoryMetricsFromMap === 'function') {
@@ -15857,6 +16686,9 @@ window.applyWmsFiltersAndRender = function() {
                     <button onclick="window.openWmsOrderModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-color: #c084fc; color: #7e22ce; background: rgba(147, 51, 234, 0.05);" title="Abrir Ficha Completa del Pedido">
                       <i class="ri-file-user-line"></i> Ficha Completa
                     </button>
+                    <button onclick="window.openStoxControlTowerMessageModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-color: #10b981; color: #059669; background: rgba(16, 185, 129, 0.1);" title="Enviar WhatsApp al cliente con Stox y reenviar su respuesta al grupo NOTIFICACIONES STOX">
+                      <i class="ri-whatsapp-fill" style="color: #10b981;"></i> Stox WA
+                    </button>
                     <button onclick="window.openOrderShippingQuoteModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-color: #10b981; color: #059669; background: rgba(16, 185, 129, 0.08);" title="Cotizar envío con la información de este pedido (comuna, productos, peso y volumen)">
                       <i class="ri-calculator-line"></i> Cotizar Envío
                     </button>
@@ -15873,9 +16705,12 @@ window.applyWmsFiltersAndRender = function() {
                   <i class="ri-mail-line" title="Email" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0;"></i>
                   <span>${displayEmail}</span>${window.renderCopyFieldBtn(displayEmail, 'Email')}
                 </p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
                   <i class="ri-phone-line" title="Teléfono" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0;"></i>
                   <span>${displayPhone}</span>${window.renderCopyFieldBtn(displayPhone, 'Teléfono')}
+                  <button type="button" onclick="window.openStoxControlTowerMessageModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.1rem 0.42rem; font-size: 0.7rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; border-color: #10b981; color: #059669; background: rgba(16, 185, 129, 0.08); border-radius: 99px;" title="Enviar mensaje desde Stox y reenviar respuesta a grupo de WhatsApp">
+                    <i class="ri-whatsapp-fill" style="color: #10b981;"></i> Enviar Stox
+                  </button>
                 </p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem; line-height: 1.4; display: flex; align-items: flex-start; gap: 0.4rem;">
                   <i class="ri-map-pin-line" title="Dirección" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0; margin-top: 0.15rem;"></i>
@@ -15989,13 +16824,17 @@ window.applyWmsFiltersAndRender = function() {
                         </span>
                       </span>
                     `}
-                    <span style="grid-column: 1 / -1;"><strong>Operario Picker:</strong> <span style="font-weight: 600; color: ${window.pickerOperatorsMap[order.external_order_number || order.id] ? 'var(--color-success)' : 'var(--color-text-muted)'};">${window.pickerOperatorsMap[order.external_order_number || order.id] || 'No asignado / En proceso'}</span></span>
                     ${(() => {
                       const pStatus = window.getPickerStatusForOrder ? window.getPickerStatusForOrder(order) : null;
+                      const resolvedOp = pStatus?.operator || window.pickerOperatorsMap[`ORDER_ID::${order.id}`] || window.pickerOperatorsMap[order.external_order_number || order.id] || order.picker_operator || null;
+                      let extraHtml = `<span style="grid-column: 1 / -1;"><strong>Operario Picker:</strong> <span style="font-weight: 600; color: ${resolvedOp ? 'var(--color-success)' : 'var(--color-text-muted)'};">${resolvedOp ? (window.escapeHtml ? window.escapeHtml(resolvedOp) : resolvedOp) : 'No asignado / En proceso'}</span></span>`;
                       if (pStatus && pStatus.totu) {
-                        return `<span style="grid-column: 1 / -1;"><strong>Cesta/Tote:</strong> <span style="font-weight:700; color:var(--color-primary);">#${pStatus.totu}</span></span>`;
+                        extraHtml += `<span style="grid-column: 1 / -1;"><strong>Cesta/Tote:</strong> <span style="font-weight:700; color:var(--color-primary);">#${pStatus.totu}</span></span>`;
                       }
-                      return '';
+                      if (order.picker_scanned_label) {
+                        extraHtml += `<span style="grid-column: 1 / -1;"><strong>Etiqueta Escaneada:</strong> <code style="font-weight:700; color:var(--color-primary); font-size:0.78rem;">${window.escapeHtml ? window.escapeHtml(order.picker_scanned_label) : order.picker_scanned_label}</code></span>`;
+                      }
+                      return extraHtml;
                     })()}
                   </div>
                   ${(() => {
@@ -39482,6 +40321,10 @@ window.getLeadStatusStyle = function(status) {
       return { bg: '#e0f2fe', color: '#0369a1', border: '#bae6fd', label: 'Info Enviada', icon: 'ri-mail-check-line' };
     case 'contactado':
       return { bg: '#fef3c7', color: '#b45309', border: '#fde68a', label: 'Contactado', icon: 'ri-chat-1-fill' };
+    case 'reunion_agendada':
+      return { bg: '#e0f2fe', color: '#0284c7', border: '#7dd3fc', label: 'Reunión Agendada', icon: 'ri-calendar-event-fill' };
+    case 'reunion_realizada':
+      return { bg: '#d1fae5', color: '#047857', border: '#6ee7b7', label: 'Reunión Realizada', icon: 'ri-vidicon-fill' };
     case 'e1_enviado':
     case 'e1':
       return { bg: '#ede9fe', color: '#6d28d9', border: '#ddd6fe', label: 'E1 Enviado', icon: 'ri-mail-send-fill' };
@@ -39719,9 +40562,12 @@ window.buildQuoteCardHtml = function(q, idx, lead) {
             <i class="ri-checkbox-circle-line"></i> ${sim ? 'Simulación Cotizador 360' : 'Cotizador Online'}
           </span>
         </div>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
           <span style="color: var(--color-text-muted); font-size: 0.75rem;">Fecha: ${qDate}</span>
           ${lead?.email ? `
+            <button type="button" class="btn btn-outline btn-sm" onclick="if(document.getElementById('modal-lead-detail')) document.getElementById('modal-lead-detail').remove(); window.openLeadAgentModal('${encodeURIComponent(lead.email)}')" style="padding: 0.22rem 0.55rem; font-size: 0.72rem; font-weight: 700; color: #5e17eb; border-color: rgba(94, 23, 235, 0.35); background: rgba(94, 23, 235, 0.06); display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-sparkling-2-fill"></i> Propuesta Agente IA
+            </button>
             <button type="button" class="btn btn-outline btn-sm" onclick="if(document.getElementById('modal-lead-detail')) document.getElementById('modal-lead-detail').remove(); window.openSendLeadInfoModal({ emailMode: 'quote', email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name || '')}', commerceName: '${encodeURIComponent(lead.company || '')}', quoteParams: { monthlyOrders: ${Number(orders) || 150}, storageVolumeM3: ${Number(vol) || 3}, shipmentsSameDay: ${parseInt(String(sameDay || '0').replace(/\D/g, ''), 10) || 0}, shipmentsCourier: ${parseInt(String(regiones || '0').replace(/\D/g, ''), 10) || 0}, hasVitrinaService: ${Boolean(vitrina)}, hasPosService: ${Boolean(pos)} } })" style="padding: 0.22rem 0.55rem; font-size: 0.72rem; font-weight: 700; color: #059669; border-color: rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.06); display: inline-flex; align-items: center; gap: 0.25rem;">
               <i class="ri-mail-check-line"></i> Enviar Cotización por Correo
             </button>
@@ -39803,6 +40649,7 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
     let e1Logs = [];
     let onboardings = [];
     let infoLogs = [];
+    let meetingsList = [];
 
     // 1. Cargar fuentes de datos principales en paralelo
     const results = await Promise.allSettled([
@@ -39810,7 +40657,8 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
       supabase.from('quote_leads').select('*').order('created_at', { ascending: false }),
       supabase.from('e1_email_logs').select('*').order('sent_at', { ascending: false }),
       supabase.from('onboarding_requests').select('*').order('created_at', { ascending: false }),
-      supabase.from('lead_info_email_logs').select('*').order('sent_at', { ascending: false })
+      supabase.from('lead_info_email_logs').select('*').order('sent_at', { ascending: false }),
+      supabase.from('lead_meetings').select('*').order('meeting_start_at', { ascending: false })
     ]);
 
     if (results[0].status === 'fulfilled' && results[0].value?.data) {
@@ -39828,6 +40676,30 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
     if (results[4].status === 'fulfilled' && results[4].value?.data) {
       infoLogs = results[4].value.data;
     }
+    if (results[5].status === 'fulfilled' && results[5].value?.data) {
+      meetingsList = results[5].value.data;
+    }
+
+    // Merge persistent localStorage meetings (HubSpot + Google Meet Gemini Notes)
+    try {
+      const localMeetings = JSON.parse(localStorage.getItem('stocka_lead_meetings_v1') || '[]');
+      if (Array.isArray(localMeetings) && localMeetings.length > 0) {
+        localMeetings.forEach(lm => {
+          const cleanM = (lm.lead_email || '').trim().toLowerCase();
+          if (!cleanM) return;
+          const existingIdx = meetingsList.findIndex(em =>
+            (em.id && lm.id && em.id === lm.id) ||
+            (em.hubspot_meeting_id && lm.hubspot_meeting_id && em.hubspot_meeting_id === lm.hubspot_meeting_id) ||
+            ((em.lead_email || '').toLowerCase() === cleanM && em.meeting_start_at === lm.meeting_start_at)
+          );
+          if (existingIdx >= 0) {
+            meetingsList[existingIdx] = { ...meetingsList[existingIdx], ...lm };
+          } else {
+            meetingsList.push(lm);
+          }
+        });
+      }
+    } catch (lsMeetErr) { console.warn('Aviso leyendo localMeetings:', lsMeetErr); }
 
     // Merge persistent localStorage logs / leads
     try {
@@ -40078,6 +40950,55 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
       }
     });
 
+    // 6. Procesar Reuniones de HubSpot Meetings + Notas de Gemini en Google Meet
+    meetingsList.forEach(m => {
+      const email = getCleanEmail(m.lead_email);
+      if (!email) return;
+
+      const actDate = m.updated_at || m.meeting_start_at || m.created_at || new Date().toISOString();
+      const autoStatus = m.meeting_status === 'completed' ? 'reunion_realizada' : 'reunion_agendada';
+
+      if (!leadsMap.has(email)) {
+        leadsMap.set(email, {
+          email: email,
+          name: m.contact_name || '',
+          company: m.company_name || '',
+          phone: m.phone || '',
+          sources: ['reunion'],
+          profile_id: null,
+          demo_data: null,
+          lead_status: autoStatus,
+          notes: m.gemini_notes_raw || '',
+          info_history: [],
+          e1_history: [],
+          quotes: [],
+          meetings: [m],
+          onboarding: null,
+          created_at: m.created_at || actDate,
+          last_activity_at: actDate
+        });
+      } else {
+        const lead = leadsMap.get(email);
+        if (!lead.sources.includes('reunion')) lead.sources.push('reunion');
+        if (!lead.name && m.contact_name) lead.name = m.contact_name;
+        if (!lead.company && m.company_name) lead.company = m.company_name;
+        if (!lead.phone && m.phone) lead.phone = m.phone;
+        if (!lead.meetings) lead.meetings = [];
+        lead.meetings.push(m);
+
+        if (lead.lead_status === 'nuevo' || lead.lead_status === 'info_enviada' || lead.lead_status === 'contactado') {
+          if (m.meeting_status === 'completed') {
+            lead.lead_status = 'reunion_realizada';
+          } else if (m.meeting_status === 'scheduled') {
+            lead.lead_status = 'reunion_agendada';
+          }
+        }
+        if (new Date(actDate) > new Date(lead.last_activity_at || 0)) {
+          lead.last_activity_at = actDate;
+        }
+      }
+    });
+
     const unifiedList = Array.from(leadsMap.values())
       .filter(lead => lead.sources && lead.sources.length > 0)
       .map(lead => {
@@ -40090,6 +41011,15 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
         lead.email_read_at = openedEmail?.opened_at || null;
         lead.email_clicked = !!clickedEmail;
         lead.email_clicked_at = clickedEmail?.clicked_at || null;
+
+        // Enriquecer estado de Reuniones HubSpot y Notas de Gemini en Google Meet
+        const meetings = Array.isArray(lead.meetings) ? lead.meetings : [];
+        meetings.sort((a, b) => new Date(b.meeting_start_at || b.updated_at || 0) - new Date(a.meeting_start_at || a.updated_at || 0));
+        lead.meetings = meetings;
+        lead.latest_meeting = meetings[0] || null;
+        lead.has_meeting = meetings.length > 0;
+        lead.meeting_completed = meetings.some(m => m.meeting_status === 'completed');
+        lead.has_gemini_notes = meetings.some(m => Boolean(m.gemini_notes_raw && String(m.gemini_notes_raw).trim().length > 0));
         return lead;
       })
       .sort((a, b) => new Date(b.last_activity_at || b.created_at || 0) - new Date(a.last_activity_at || a.created_at || 0));
@@ -40123,6 +41053,7 @@ window.renderLeadsAdmin = async function(forceReload = false) {
   const demoCount = leads.filter(l => l.sources.includes('demo')).length;
   const quotesCount = leads.filter(l => l.sources.includes('cotizador')).length;
   const infoCount = leads.filter(l => l.sources.includes('info') || (l.info_history && l.info_history.length > 0) || l.lead_status === 'info_enviada' || l.lead_status === 'contactado').length;
+  const meetingsCount = leads.filter(l => l.sources.includes('reunion') || l.has_meeting || l.lead_status === 'reunion_agendada' || l.lead_status === 'reunion_realizada').length;
   const e1Count = leads.filter(l => l.sources.includes('e1') || (l.e1_history && l.e1_history.length > 0)).length;
   const onboardingCount = leads.filter(l => l.sources.includes('onboarding') || l.lead_status === 'convertido').length;
 
@@ -40137,6 +41068,8 @@ window.renderLeadsAdmin = async function(forceReload = false) {
     tabFilteredLeads = leads.filter(l => l.sources.includes('cotizador'));
   } else if (window.activeLeadsTab === 'info') {
     tabFilteredLeads = leads.filter(l => l.sources.includes('info') || (l.info_history && l.info_history.length > 0) || l.lead_status === 'info_enviada' || l.lead_status === 'contactado');
+  } else if (window.activeLeadsTab === 'meetings') {
+    tabFilteredLeads = leads.filter(l => l.sources.includes('reunion') || l.has_meeting || l.lead_status === 'reunion_agendada' || l.lead_status === 'reunion_realizada');
   } else if (window.activeLeadsTab === 'e1') {
     tabFilteredLeads = leads.filter(l => l.sources.includes('e1') || (l.e1_history && l.e1_history.length > 0));
   } else if (window.activeLeadsTab === 'onboarding') {
@@ -40205,19 +41138,55 @@ window.renderLeadsAdmin = async function(forceReload = false) {
       sourceBadges += `<span class="badge" title="Solicitud de Alta Comercial (${onbStatus})" style="background: ${onbColor}15; color: ${onbColor}; border: 1px solid ${onbColor}40; font-weight: 600; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-git-pull-request-fill"></i> Onboarding</span> `;
     }
 
+    // Detectar si el prospecto dejó comentarios / consultas en el formulario
+    const rowSimData = lead.sim_data || (lead.quotes && lead.quotes[0]?._simData) || window.parseLeadSimulationData(lead.notes);
+    const hasClientComment = Boolean(rowSimData?.clientComments && rowSimData.clientComments.trim().length > 0);
+    if (hasClientComment) {
+      const safeCommentTitle = rowSimData.clientComments.replace(/"/g, '&quot;').substring(0, 180);
+      sourceBadges += `<span class="badge" title="Dejó consulta en formulario: &quot;${safeCommentTitle}&quot;" style="background: rgba(245, 158, 11, 0.14); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-chat-quote-fill"></i> Consulta</span> `;
+    }
+
+    // Badges de Reunión HubSpot y Notas de Gemini en Google Meet
+    if (lead.latest_meeting) {
+      const m = lead.latest_meeting;
+      const mDateStr = m.meeting_start_at ? new Date(m.meeting_start_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+      if (m.meeting_status === 'completed') {
+        sourceBadges += `<span class="badge" onclick="window.openLeadMeetingModal('${encodeURIComponent(lead.email)}')" title="Reunión realizada en Google Meet (${mDateStr}). Haz clic para ver detalles o notas." style="background: rgba(16, 185, 129, 0.14); color: #047857; border: 1px solid rgba(16, 185, 129, 0.35); font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px; cursor: pointer;"><i class="ri-vidicon-fill"></i> Meet Realizado</span> `;
+      } else if (m.meeting_status === 'scheduled' || m.meeting_status === 'rescheduled') {
+        sourceBadges += `<span class="badge" onclick="window.openLeadMeetingModal('${encodeURIComponent(lead.email)}')" title="Reunión agendada vía HubSpot (${mDateStr}). Haz clic para ver link o detalles." style="background: rgba(2, 132, 199, 0.14); color: #0284c7; border: 1px solid rgba(2, 132, 199, 0.35); font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px; cursor: pointer;"><i class="ri-calendar-event-fill"></i> Reunión ${mDateStr || 'Agendada'}</span> `;
+      } else if (m.meeting_status === 'no_show') {
+        sourceBadges += `<span class="badge" onclick="window.openLeadMeetingModal('${encodeURIComponent(lead.email)}')" title="No asistió a la reunión agendada (${mDateStr})" style="background: rgba(245, 158, 11, 0.14); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px; cursor: pointer;"><i class="ri-calendar-close-fill"></i> No-Show Meet</span> `;
+      }
+      if (lead.has_gemini_notes) {
+        sourceBadges += `<span class="badge" onclick="window.openLeadMeetingModal('${encodeURIComponent(lead.email)}')" title="Contiene Notas generadas por Gemini de la reunión en Google Meet" style="background: linear-gradient(135deg, rgba(94, 23, 235, 0.16), rgba(37, 99, 235, 0.12)); color: #5e17eb; border: 1px solid rgba(94, 23, 235, 0.4); font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px; cursor: pointer;"><i class="ri-sparkling-2-fill"></i> Notas Gemini Meet</span> `;
+      }
+    }
+
     // Datos logísticos / cotización
     let logisticsInfo = '<span style="color: var(--color-text-muted); font-size: 0.78rem;">—</span>';
-    if (lead.quotes.length > 0) {
-      const latestQuote = lead.quotes[0];
-      const orders = latestQuote.monthly_orders || latestQuote.quote_data?.pickPack?.monthlyOrders || 0;
-      const vol = latestQuote.estimated_volume || latestQuote.quote_data?.storage?.volumeM3 || 0;
-      const net = latestQuote.estimated_monthly_net || latestQuote.quote_data?.totals?.netMonthly || 0;
-      logisticsInfo = `
-        <div style="font-size: 0.8rem; line-height: 1.3;">
-          <div style="font-weight: 600; color: var(--color-text-main);">${orders} ped/mes | ${vol} m³</div>
-          ${net > 0 ? `<div style="color: #10b981; font-weight: 700; font-size: 0.75rem;">$${Math.round(net).toLocaleString('es-CL')} + IVA/mes</div>` : ''}
-        </div>
-      `;
+    const agreedOrders = lead.latest_meeting?.agreed_monthly_orders;
+    const agreedVol = lead.latest_meeting?.agreed_volume_m3;
+    if (lead.quotes.length > 0 || agreedOrders > 0 || agreedVol > 0) {
+      const latestQuote = lead.quotes[0] || {};
+      const orders = agreedOrders || latestQuote.monthly_orders || latestQuote.quote_data?.pickPack?.monthlyOrders || rowSimData?.ordersNum || 0;
+      const vol = agreedVol || latestQuote.estimated_volume || latestQuote.quote_data?.storage?.volumeM3 || rowSimData?.volNum || 0;
+      const net = latestQuote.estimated_monthly_net || latestQuote.quote_data?.totals?.netMonthly || rowSimData?.netNum || 0;
+      if (orders > 0 || vol > 0 || net > 0) {
+        logisticsInfo = `
+          <div style="font-size: 0.8rem; line-height: 1.3;">
+            <div style="font-weight: 600; color: var(--color-text-main);">${orders} ped/mes | ${vol} m³${agreedOrders || agreedVol ? ' <span title="Ajustado en Reunión Meet" style="color: #0284c7; font-size: 0.68rem;">(Meet)</span>' : ''}</div>
+            ${net > 0 ? `<div style="color: #10b981; font-weight: 700; font-size: 0.75rem;">$${Math.round(net).toLocaleString('es-CL')} + IVA/mes</div>` : ''}
+          </div>
+        `;
+      } else if (rowSimData?.ordersLabel && rowSimData.ordersLabel !== 'No indicado' && rowSimData.ordersLabel !== 'No especificado') {
+        logisticsInfo = `
+          <div style="font-size: 0.78rem; color: var(--color-text-main); font-weight: 600;">
+            ${rowSimData.ordersLabel}
+          </div>
+        `;
+      } else {
+        logisticsInfo = `<span style="color: var(--color-text-muted); font-size: 0.78rem;">Solicitud de Info</span>`;
+      }
     } else if (lead.demo_data) {
       logisticsInfo = `
         <div style="font-size: 0.78rem; color: var(--color-text-muted);">
@@ -40227,17 +41196,22 @@ window.renderLeadsAdmin = async function(forceReload = false) {
       `;
     }
 
-    // Fecha formateada y subetiqueta de engagement de lectura
+    // Fecha formateada y subetiqueta de engagement de lectura / reunión
     const dateObj = lead.last_activity_at ? new Date(lead.last_activity_at) : null;
     const dateStr = dateObj ? dateObj.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
     
     let engagementNotice = '';
+    if (lead.latest_meeting?.meeting_start_at) {
+      const mDate = new Date(lead.latest_meeting.meeting_start_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      const isDone = lead.latest_meeting.meeting_status === 'completed';
+      engagementNotice += `<div style="color: ${isDone ? '#047857' : '#0284c7'}; font-weight: 700; font-size: 0.72rem; margin-top: 3px; display: flex; align-items: center; gap: 3px;"><i class="${isDone ? 'ri-vidicon-fill' : 'ri-calendar-check-fill'}"></i> ${isDone ? 'Meet realizado' : 'Meet agendado'}: ${mDate}</div>`;
+    }
     if (lead.email_clicked && lead.email_clicked_at) {
       const clickDateStr = new Date(lead.email_clicked_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-      engagementNotice = `<div style="color: #5e17eb; font-weight: 700; font-size: 0.72rem; margin-top: 3px; display: flex; align-items: center; gap: 2px;"><i class="ri-cursor-fill"></i> Vio PDF / Enlace (${clickDateStr})</div>`;
+      engagementNotice += `<div style="color: #5e17eb; font-weight: 700; font-size: 0.72rem; margin-top: 2px; display: flex; align-items: center; gap: 2px;"><i class="ri-cursor-fill"></i> Vio PDF / Enlace (${clickDateStr})</div>`;
     } else if (lead.email_read && lead.email_read_at) {
       const readDateStr = new Date(lead.email_read_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-      engagementNotice = `<div style="color: #059669; font-weight: 700; font-size: 0.72rem; margin-top: 3px; display: flex; align-items: center; gap: 2px;"><i class="ri-eye-fill"></i> Abrió correo (${readDateStr})</div>`;
+      engagementNotice += `<div style="color: #059669; font-weight: 700; font-size: 0.72rem; margin-top: 2px; display: flex; align-items: center; gap: 2px;"><i class="ri-eye-fill"></i> Abrió correo (${readDateStr})</div>`;
     }
 
     // Dropdown de cambio de estado
@@ -40246,6 +41220,8 @@ window.renderLeadsAdmin = async function(forceReload = false) {
         <option value="nuevo" ${lead.lead_status === 'nuevo' ? 'selected' : ''}>✨ Nuevo Lead</option>
         <option value="info_enviada" ${lead.lead_status === 'info_enviada' ? 'selected' : ''}>📨 Info Enviada</option>
         <option value="contactado" ${lead.lead_status === 'contactado' ? 'selected' : ''}>💬 Contactado</option>
+        <option value="reunion_agendada" ${lead.lead_status === 'reunion_agendada' ? 'selected' : ''}>📅 Reunión Agendada</option>
+        <option value="reunion_realizada" ${lead.lead_status === 'reunion_realizada' ? 'selected' : ''}>🎥 Reunión Realizada</option>
         <option value="e1_enviado" ${lead.lead_status === 'e1_enviado' ? 'selected' : ''}>📋 E1 Enviado</option>
         <option value="seguimiento" ${lead.lead_status === 'seguimiento' || lead.lead_status === 'en_seguimiento' ? 'selected' : ''}>⏳ En Seguimiento</option>
         <option value="onboarding" ${lead.lead_status === 'onboarding' ? 'selected' : ''}>📝 En Onboarding</option>
@@ -40298,6 +41274,12 @@ window.renderLeadsAdmin = async function(forceReload = false) {
         </td>
         <td style="padding: 0.9rem 1rem; text-align: right;">
           <div style="display: flex; gap: 0.35rem; justify-content: flex-end; flex-wrap: wrap;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.openLeadAgentModal('${encodeURIComponent(lead.email)}')" title="Agente Comercial IA: Analizar lead, responder consultas del formulario, notas de Meet y generar propuesta de Correo + WhatsApp" style="padding: 0.35rem 0.6rem; color: #5e17eb; border-color: rgba(94, 23, 235, 0.45); background: linear-gradient(135deg, rgba(94, 23, 235, 0.12), rgba(124, 58, 237, 0.06)); font-weight: 700; font-size: 0.78rem; display: flex; align-items: center; gap: 0.25rem; box-shadow: 0 1px 3px rgba(94, 23, 235, 0.1);">
+              <i class="ri-sparkling-2-fill" style="color: #5e17eb;"></i> Agente IA
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.openLeadMeetingModal('${encodeURIComponent(lead.email)}')" title="Gestionar Reunión HubSpot y Notas de Gemini en Google Meet" style="padding: 0.35rem 0.55rem; color: ${lead.has_gemini_notes ? '#047857' : '#0284c7'}; border-color: ${lead.has_gemini_notes ? 'rgba(16, 185, 129, 0.4)' : 'rgba(2, 132, 199, 0.35)'}; background: ${lead.has_gemini_notes ? 'rgba(16, 185, 129, 0.08)' : 'rgba(2, 132, 199, 0.05)'}; font-weight: 700; font-size: 0.78rem; display: flex; align-items: center; gap: 0.25rem;">
+              <i class="${lead.has_gemini_notes ? 'ri-vidicon-fill' : 'ri-calendar-event-line'}"></i> Meet
+            </button>
             <button type="button" class="btn btn-outline btn-sm" onclick="window.openSendLeadInfoModal({ emailMode: 'presentation', email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" title="Enviar Información y Presentación Comercial" style="padding: 0.35rem 0.55rem; color: #2563eb; border-color: rgba(37, 99, 235, 0.3); background: rgba(37, 99, 235, 0.04); font-weight: 600; font-size: 0.78rem; display: flex; align-items: center; gap: 0.25rem;">
               <i class="ri-mail-star-line"></i> Info
             </button>
@@ -40345,10 +41327,16 @@ window.renderLeadsAdmin = async function(forceReload = false) {
             <i class="ri-user-search-line" style="color: var(--color-primary);"></i> Central de Leads (CRM Comercial)
           </h2>
           <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.88rem;">
-            Seguimiento unificado de prospectos de la Demo WMS, Cotizador Online, Información Comercial y Solicitudes de Alta
+            Seguimiento unificado de prospectos de la Demo WMS, Cotizador Online, Reuniones HubSpot/Meet, Información Comercial y Solicitudes de Alta
           </p>
         </div>
-        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+        <div style="display: flex; gap: 0.65rem; align-items: center; flex-wrap: wrap;">
+          <button type="button" class="btn btn-primary" onclick="window.openLeadAgentModal()" title="Abrir Agente Comercial IA para revisar prospectos y generar propuestas personalizadas" style="background: linear-gradient(135deg, #4f46e5, #7c3aed); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.55rem 1rem; font-weight: 700; box-shadow: 0 3px 10px rgba(94, 23, 235, 0.25);">
+            <i class="ri-sparkling-2-fill" style="font-size: 1.05rem;"></i> Agente Comercial IA
+          </button>
+          <button type="button" class="btn btn-outline" onclick="window.openLeadMeetingModal('')" title="Sincronizar agendamientos de HubSpot Meetings y Notas de Gemini en Google Meet" style="display: flex; align-items: center; gap: 0.35rem; padding: 0.55rem 0.9rem; font-weight: 700; color: #0284c7; border-color: rgba(2, 132, 199, 0.4); background: rgba(2, 132, 199, 0.06);">
+            <i class="ri-vidicon-fill" style="color: #0284c7; font-size: 1.05rem;"></i> HubSpot &amp; Notas Meet
+          </button>
           <button id="btn-sync-lead-emails" class="btn btn-outline" onclick="window.syncLeadEmailEvents()" title="Consultar aperturas y clics en vivo desde Brevo" style="display: flex; align-items: center; gap: 0.35rem; padding: 0.55rem 0.9rem; font-weight: 600;">
             <i class="ri-radar-line" style="color: #5e17eb; font-size: 1.05rem;"></i> Sincronizar Lecturas
           </button>
@@ -40368,7 +41356,7 @@ window.renderLeadsAdmin = async function(forceReload = false) {
       </div>
 
       <!-- Tarjetas KPIs Ejecutivas -->
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 1rem;">
         
         <!-- Total Leads -->
         <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); display: flex; align-items: center; gap: 1rem;">
@@ -40400,6 +41388,17 @@ window.renderLeadsAdmin = async function(forceReload = false) {
           <div>
             <div style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Cotizaciones Online</div>
             <div style="font-size: 1.5rem; font-weight: 800; color: #10b981; line-height: 1.2;">${quotesCount}</div>
+          </div>
+        </div>
+
+        <!-- Reuniones HubSpot & Meet -->
+        <div class="card" onclick="window.switchLeadsTab('meetings')" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); display: flex; align-items: center; gap: 1rem; cursor: pointer;">
+          <div style="width: 46px; height: 46px; border-radius: 12px; background: rgba(2, 132, 199, 0.12); color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0;">
+            <i class="ri-vidicon-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Reuniones / Meet</div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: #0284c7; line-height: 1.2;">${meetingsCount}</div>
           </div>
         </div>
 
@@ -40452,6 +41451,9 @@ window.renderLeadsAdmin = async function(forceReload = false) {
           <button type="button" class="btn-tab" onclick="window.switchLeadsTab('quotes')" style="background: none; border: none; font-size: 0.88rem; font-weight: 600; padding: 0.65rem 0.9rem; cursor: pointer; color: ${window.activeLeadsTab === 'quotes' ? '#10b981' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'quotes' ? '#10b981' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
             <i class="ri-calculator-line"></i> Cotizaciones Online (${quotesCount})
           </button>
+          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('meetings')" style="background: none; border: none; font-size: 0.88rem; font-weight: 600; padding: 0.65rem 0.9rem; cursor: pointer; color: ${window.activeLeadsTab === 'meetings' ? '#0284c7' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'meetings' ? '#0284c7' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
+            <i class="ri-vidicon-line"></i> Reuniones &amp; Meet (${meetingsCount})
+          </button>
           <button type="button" class="btn-tab" onclick="window.switchLeadsTab('info')" style="background: none; border: none; font-size: 0.88rem; font-weight: 600; padding: 0.65rem 0.9rem; cursor: pointer; color: ${window.activeLeadsTab === 'info' ? '#2563eb' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'info' ? '#2563eb' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
             <i class="ri-mail-star-line"></i> Info Enviada (${infoCount})
           </button>
@@ -40476,6 +41478,8 @@ window.renderLeadsAdmin = async function(forceReload = false) {
               <option value="nuevo" ${window.leadsStatusFilter === 'nuevo' ? 'selected' : ''}>✨ Nuevos</option>
               <option value="info_enviada" ${window.leadsStatusFilter === 'info_enviada' ? 'selected' : ''}>📨 Info Enviada</option>
               <option value="contactado" ${window.leadsStatusFilter === 'contactado' ? 'selected' : ''}>💬 Contactados</option>
+              <option value="reunion_agendada" ${window.leadsStatusFilter === 'reunion_agendada' ? 'selected' : ''}>📅 Reunión Agendada</option>
+              <option value="reunion_realizada" ${window.leadsStatusFilter === 'reunion_realizada' ? 'selected' : ''}>🎥 Reunión Realizada</option>
               <option value="e1_enviado" ${window.leadsStatusFilter === 'e1_enviado' ? 'selected' : ''}>📋 E1 Enviados</option>
               <option value="seguimiento" ${window.leadsStatusFilter === 'seguimiento' ? 'selected' : ''}>⏳ En Seguimiento</option>
               <option value="onboarding" ${window.leadsStatusFilter === 'onboarding' ? 'selected' : ''}>📝 En Onboarding</option>
@@ -40832,6 +41836,8 @@ window.showLeadDetailModal = function(encodedEmail) {
               <option value="nuevo" ${lead.lead_status === 'nuevo' ? 'selected' : ''}>✨ Nuevo Lead</option>
               <option value="info_enviada" ${lead.lead_status === 'info_enviada' ? 'selected' : ''}>📨 Info Enviada</option>
               <option value="contactado" ${lead.lead_status === 'contactado' ? 'selected' : ''}>💬 Contactado</option>
+              <option value="reunion_agendada" ${lead.lead_status === 'reunion_agendada' ? 'selected' : ''}>📅 Reunión Agendada</option>
+              <option value="reunion_realizada" ${lead.lead_status === 'reunion_realizada' ? 'selected' : ''}>🎥 Reunión Realizada</option>
               <option value="e1_enviado" ${lead.lead_status === 'e1_enviado' ? 'selected' : ''}>📋 E1 Enviado</option>
               <option value="seguimiento" ${lead.lead_status === 'seguimiento' || lead.lead_status === 'en_seguimiento' ? 'selected' : ''}>⏳ En Seguimiento</option>
               <option value="onboarding" ${lead.lead_status === 'onboarding' ? 'selected' : ''}>📝 En Onboarding</option>
@@ -40841,8 +41847,78 @@ window.showLeadDetailModal = function(encodedEmail) {
           </div>
         </div>
 
+        <!-- Banner Agente Comercial IA en Ficha 360° -->
+        <div style="background: linear-gradient(135deg, rgba(94, 23, 235, 0.08), rgba(37, 99, 235, 0.06)); border: 1.5px solid rgba(94, 23, 235, 0.3); border-radius: 10px; padding: 0.9rem 1.1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div style="width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, #5e17eb, #7c3aed); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; box-shadow: 0 3px 8px rgba(94, 23, 235, 0.25);">
+              <i class="ri-sparkling-2-fill"></i>
+            </div>
+            <div>
+              <div style="font-weight: 800; font-size: 0.9rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                Copiloto Comercial IA • Propuesta de Contacto Personalizada
+              </div>
+              <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 1px;">
+                Analiza su cotización, canales, reuniones de Meet y consultas del formulario para redactar Correo + WhatsApp.
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('modal-lead-detail').remove(); window.openLeadMeetingModal('${encodeURIComponent(lead.email)}')" style="color: #0284c7; border-color: rgba(2, 132, 199, 0.4); background: rgba(2, 132, 199, 0.08); font-weight: 700; font-size: 0.8rem; padding: 0.48rem 0.85rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-vidicon-fill"></i> ${lead.has_meeting ? 'Ver Reunión / Notas Meet' : 'Vincular Reunión / Notas Meet'}
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('modal-lead-detail').remove(); window.openLeadAgentModal('${encodeURIComponent(lead.email)}')" style="background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white; font-weight: 700; font-size: 0.8rem; padding: 0.48rem 0.95rem; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 3px 10px rgba(94, 23, 235, 0.25);">
+              <i class="ri-sparkling-2-fill"></i> Generar Propuesta con Agente IA
+            </button>
+          </div>
+        </div>
+
         <!-- Secciones 360° -->
         <div style="display: flex; flex-direction: column; gap: 1rem;">
+
+          <!-- Reuniones HubSpot & Notas de Gemini en Google Meet -->
+          <div style="background: var(--color-surface); border: 1.5px solid ${lead.has_gemini_notes ? 'rgba(16, 185, 129, 0.4)' : (lead.has_meeting ? 'rgba(2, 132, 199, 0.35)' : 'var(--color-border)')}; border-radius: 10px; padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-vidicon-fill" style="color: #0284c7;"></i> Reuniones (HubSpot) y Notas de Gemini en Google Meet (${(lead.meetings || []).length})
+              </div>
+              <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('modal-lead-detail').remove(); window.openLeadMeetingModal('${encodeURIComponent(lead.email)}')" style="font-size: 0.75rem; font-weight: 700; color: #0284c7; border-color: rgba(2, 132, 199, 0.35); padding: 3px 9px;">
+                <i class="ri-edit-box-line"></i> ${lead.has_meeting ? 'Editar Reunión / Pegar Notas Gemini' : '+ Registrar Reunión / Pegar Notas Meet'}
+              </button>
+            </div>
+            ${lead.latest_meeting ? `
+              <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.85rem; font-size: 0.82rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.4rem;">
+                  <div>
+                    <strong style="color: var(--color-text-main); font-size: 0.88rem;">${lead.latest_meeting.meeting_title || 'Reunión Comercial Stocka'}</strong>
+                    <div style="font-size: 0.76rem; color: var(--color-text-muted); margin-top: 2px;">
+                      <i class="ri-calendar-event-line"></i> ${lead.latest_meeting.meeting_start_at ? new Date(lead.latest_meeting.meeting_start_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Fecha por confirmar'}
+                      ${lead.latest_meeting.meet_url ? ` • <a href="${lead.latest_meeting.meet_url}" target="_blank" style="color: #0284c7; font-weight: 700; text-decoration: underline;">Abrir Google Meet ↗</a>` : ''}
+                      ${lead.latest_meeting.gemini_doc_url ? ` • <a href="${lead.latest_meeting.gemini_doc_url}" target="_blank" style="color: #5e17eb; font-weight: 700; text-decoration: underline;">Abrir Google Doc de Gemini ↗</a>` : ''}
+                    </div>
+                  </div>
+                  <span style="padding: 3px 9px; border-radius: 12px; font-size: 0.72rem; font-weight: 700; background: ${lead.latest_meeting.meeting_status === 'completed' ? '#d1fae5' : '#e0f2fe'}; color: ${lead.latest_meeting.meeting_status === 'completed' ? '#047857' : '#0284c7'};">
+                    ${lead.latest_meeting.meeting_status === 'completed' ? '🎥 Reunión Realizada' : (lead.latest_meeting.meeting_status === 'no_show' ? '⚠️ No Asistió' : '📅 Reunión Agendada')}
+                  </span>
+                </div>
+                ${lead.latest_meeting.gemini_notes_raw ? `
+                  <div style="background: var(--color-surface); border-left: 3px solid #5e17eb; border-radius: 6px; padding: 0.65rem 0.8rem; margin-top: 0.2rem;">
+                    <div style="font-size: 0.73rem; font-weight: 800; color: #5e17eb; text-transform: uppercase; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+                      <i class="ri-sparkling-2-fill"></i> Notas Generadas por Gemini en Google Meet:
+                    </div>
+                    <div style="font-size: 0.79rem; color: var(--color-text-main); white-space: pre-wrap; max-height: 150px; overflow-y: auto; line-height: 1.45;">${String(lead.latest_meeting.gemini_notes_raw).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+                  </div>
+                ` : `
+                  <div style="font-size: 0.76rem; color: var(--color-text-muted); font-style: italic;">
+                    Aún no se han adjuntado las Notas de Gemini de esta reunión. Una vez finalizada la videollamada en Meet, pega aquí el resumen de Gemini para que el Agente IA redacte el seguimiento con los acuerdos.
+                  </div>
+                `}
+              </div>
+            ` : `
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); padding: 0.35rem 0;">
+                Sin reuniones sincronizadas para este correo aún. Puedes sincronizar con HubSpot o pegar directamente las Notas de Gemini de una reunión realizada en Meet.
+              </div>
+            `}
+          </div>
           
           <!-- Cotizaciones -->
           <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 1rem;">
@@ -40931,6 +42007,9 @@ ${rawQuoteText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
         </div>
         <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
           <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-lead-detail').remove()">Cerrar</button>
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-lead-detail').remove(); window.openLeadAgentModal('${encodeURIComponent(lead.email)}')" style="color: #5e17eb; border-color: rgba(94, 23, 235, 0.45); background: rgba(94, 23, 235, 0.08); font-weight: 700; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-sparkling-2-fill"></i> Agente IA
+          </button>
           <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-lead-detail').remove(); window.openSendLeadInfoModal({ emailMode: 'presentation', email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" style="color: #2563eb; border-color: rgba(37, 99, 235, 0.4); background: rgba(37, 99, 235, 0.05); font-weight: 600; display: flex; align-items: center; gap: 0.35rem;">
             <i class="ri-mail-star-line"></i> Enviar Info Comercial
           </button>
@@ -40997,6 +42076,2630 @@ window.syncLeadEmailEvents = async function() {
       btn.innerHTML = originalHtml || '<i class="ri-radar-line" style="color: #5e17eb; font-size: 1.05rem;"></i> Sincronizar Lecturas';
     }
   }
+};
+
+// =========================================================================
+// AGENTE COMERCIAL IA DE LEADS (ANÁLISIS 360°, RESPUESTA A CONSULTAS Y PROPUESTAS)
+// =========================================================================
+
+window.analyzeLeadWithAgent = async function(lead, options = {}) {
+  const strategy = options.strategy || 'consultivo'; // 'consultivo' | 'seguimiento' | 'optimizacion' | 'cierre_reunion'
+  const extraContext = (options.extraContext || '').trim();
+
+  // 1. Cargar motor de tarifas oficial de Stocka para cálculos reales
+  let pricingConfig = null;
+  let calcQuotationFn = null;
+  let fmtClp = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('es-CL');
+  try {
+    const pricingMod = await import('./pricing_manager.js');
+    pricingConfig = await pricingMod.loadPricingConfig(supabase);
+    calcQuotationFn = pricingMod.calculateQuotation;
+    if (typeof pricingMod.formatCLP === 'function') {
+      fmtClp = pricingMod.formatCLP;
+    }
+  } catch (e) {
+    console.warn('[LeadAgent] Aviso cargando pricing_manager:', e);
+  }
+
+  // 2. Normalizar datos del lead y su simulación / cotización
+  const rawName = (lead?.name || '').trim();
+  const isGenericName = !rawName || ['sin nombre', 'sin nombre registrado', 'contacto web', 'cliente', 'usuario'].includes(rawName.toLowerCase());
+  const firstName = !isGenericName
+    ? rawName.split(/\s+/)[0].replace(/^./, c => c.toUpperCase())
+    : '';
+  const fullName = !isGenericName ? rawName : '';
+
+  const rawCompany = (lead?.company || lead?.onboarding?.nombre_fantasia || lead?.onboarding?.razon_social || '').trim();
+  const isGenericCompany = !rawCompany || ['—', '-', 'tienda ecommerce', 'comercio', 'por definir', 'no especificado', 'sin empresa'].includes(rawCompany.toLowerCase());
+  const companyName = !isGenericCompany ? rawCompany : '';
+
+  const latestQuote = Array.isArray(lead?.quotes) && lead.quotes.length > 0 ? lead.quotes[0] : null;
+  const qData = latestQuote?.quote_data || null;
+  const sim = lead?.sim_data || latestQuote?._simData || window.parseLeadSimulationData(latestQuote?.notes || lead?.notes || '');
+  const latestMeeting = lead?.latest_meeting || (Array.isArray(lead?.meetings) && lead.meetings.length > 0 ? lead.meetings[0] : null);
+  const geminiMeetNotes = (latestMeeting?.gemini_notes_raw || '').trim();
+  const hasMeeting = Boolean(latestMeeting);
+  const isMeetingCompleted = Boolean(latestMeeting?.meeting_status === 'completed' || geminiMeetNotes.length > 0);
+
+  const parseNumFromStr = (val) => {
+    if (typeof val === 'number') return val;
+    if (!val) return 0;
+    const m = String(val).match(/(\d+)/);
+    return m ? parseInt(m[1], 10) : 0;
+  };
+
+  const orders = Number(
+    options.overrideQuoteParams?.monthlyOrders ??
+    latestMeeting?.agreed_monthly_orders ??
+    latestQuote?.monthly_orders ??
+    qData?.pickPack?.monthlyOrders ??
+    sim?.ordersNum ??
+    0
+  );
+  const volumeM3 = Number(
+    options.overrideQuoteParams?.storageVolumeM3 ??
+    latestMeeting?.agreed_volume_m3 ??
+    latestQuote?.estimated_volume ??
+    qData?.storage?.volumeM3 ??
+    sim?.volNum ??
+    0
+  );
+  const sameDayCount = Number(
+    options.overrideQuoteParams?.shipmentsSameDay ??
+    qData?.shipping?.shipmentsSameDay ??
+    parseNumFromStr(sim?.sameDay) ??
+    0
+  );
+  const courierCount = Number(
+    options.overrideQuoteParams?.shipmentsCourier ??
+    qData?.shipping?.shipmentsCourier ??
+    parseNumFromStr(sim?.regiones) ??
+    0
+  );
+  const hasPos = Boolean(
+    options.overrideQuoteParams?.hasPosService ??
+    qData?.extras?.services?.hasPosService ??
+    sim?.pos
+  );
+  const hasVitrina = Boolean(
+    options.overrideQuoteParams?.hasVitrinaService ??
+    qData?.extras?.services?.hasVitrinaService ??
+    sim?.vitrina
+  );
+  const skuPerOrder = Number(options.overrideQuoteParams?.skuPerOrder ?? qData?.pickPack?.skuPerOrder ?? 1);
+  const unitsPerOrder = Number(options.overrideQuoteParams?.unitsPerOrder ?? qData?.pickPack?.unitsPerOrder ?? 2);
+
+  const hasQuoteSimulation = Boolean(
+    orders > 0 ||
+    volumeM3 > 0 ||
+    (lead?.sources && lead.sources.includes('cotizador')) ||
+    sim?.isQuoteSimulation
+  );
+
+  // Calcular cotización exacta con el motor oficial si tiene datos o valores base
+  const quoteParams = {
+    monthlyOrders: orders > 0 ? orders : 150,
+    storageVolumeM3: volumeM3 > 0 ? volumeM3 : 3,
+    skuPerOrder: skuPerOrder > 0 ? skuPerOrder : 1,
+    unitsPerOrder: unitsPerOrder > 0 ? unitsPerOrder : 2,
+    shipmentsSameDay: sameDayCount,
+    shipmentsCourier: courierCount,
+    regionalWeightBracket: options.overrideQuoteParams?.regionalWeightBracket || qData?.shipping?.regionalWeightBracketId || '0.5_3',
+    pickupsExpress: Number(options.overrideQuoteParams?.pickupsExpress ?? qData?.shipping?.pickupsExpress ?? 0),
+    hasPosService: hasPos,
+    hasVitrinaService: hasVitrina,
+    isProtectedSale: Boolean(options.overrideQuoteParams?.isProtectedSale ?? qData?.pickPack?.isProtectedSale),
+    isMarketplaceCollect: Boolean(options.overrideQuoteParams?.isMarketplaceCollect ?? (qData?.pickPack?.surcharges?.marketplace > 0)),
+    hasOver100SkuCatalogue: Boolean(options.overrideQuoteParams?.hasOver100SkuCatalogue ?? (qData?.pickPack?.surcharges?.catalogue > 0))
+  };
+
+  let calculatedQuote = null;
+  if (typeof calcQuotationFn === 'function') {
+    try {
+      calculatedQuote = calcQuotationFn(quoteParams, pricingConfig);
+    } catch (e) {
+      console.warn('[LeadAgent] Error calculando cotización:', e);
+    }
+  }
+
+  const netMonthlyCLP = Number(
+    (hasQuoteSimulation && calculatedQuote?.totals?.netMonthly) ||
+    latestQuote?.estimated_monthly_net ||
+    qData?.totals?.netMonthly ||
+    sim?.netNum ||
+    0
+  );
+  const ufValue = Number(calculatedQuote?.ufValue || pricingConfig?.uf_value || 40867);
+  const netMonthlyUF = netMonthlyCLP > 0 ? (netMonthlyCLP / ufValue) : 0;
+  const avgOrderCostCLP = Number(calculatedQuote?.totals?.costPerOrderNet || (orders > 0 && netMonthlyCLP > 0 ? Math.round(netMonthlyCLP / orders) : 0));
+
+  // Extraer canales de venta
+  const rawChannels = (sim?.canales && sim.canales.length > 0)
+    ? sim.canales
+    : (qData?.channels ? (Array.isArray(qData.channels) ? qData.channels : [qData.channels]) : []);
+  const channels = rawChannels.filter(Boolean);
+  const webIg = (sim?.webIg || latestQuote?.website || lead?.website || '').trim();
+  const cleanWebIg = (webIg && webIg.toLowerCase() !== 'no indicado' && webIg.toLowerCase() !== 'no especificado') ? webIg : '';
+
+  // Extraer consulta o comentario real dejado por el prospecto en el formulario
+  let clientQuestion = (sim?.clientComments || '').trim();
+  if (!clientQuestion && lead?.notes && typeof lead.notes === 'string') {
+    const rawN = lead.notes.trim();
+    if (!rawN.startsWith('[COTIZADOR') && !rawN.startsWith('[COTIZACIÓN ENVIADA') && !rawN.startsWith('Servicios:') && !rawN.startsWith('Envío automático')) {
+      clientQuestion = rawN;
+    }
+  }
+  if (clientQuestion && ['sin comentarios adicionales', 'no indicado', 'no especificado'].includes(clientQuestion.toLowerCase())) {
+    clientQuestion = '';
+  }
+
+  // 3. Analizar intenciones, dudas del formulario y contexto operativo
+  const combinedSearchText = `${clientQuestion} ${extraContext} ${channels.join(' ')} ${sim?.servicios || ''}`.toLowerCase();
+  const detectedTopics = [];
+
+  if (clientQuestion) {
+    // Detectar temas específicos dentro de la consulta del formulario
+    if (/precio|tarifa|costo|valor|cobro|minimo|mínimo|fijo|uf|descuento|barato|presupuesto|caro|mensualidad/.test(combinedSearchText)) {
+      detectedTopics.push({
+        id: 'tarifas_fijo',
+        icon: 'ri-money-dollar-circle-line',
+        color: '#059669',
+        title: 'Consulta sobre Tarifas, Mínimos y Escalabilidad',
+        answerHtml: `<strong style="color: #059669;">Estructura Tarifaria Transparente y Escalable:</strong> En Stocka pagas proporcionalmente a los <strong>m³ reales que utiliza tu mercadería</strong> y por cada pedido efectivamente preparado (Pick &amp; Pack). Además, al superar los <strong>${pricingConfig?.fixed_service_fee?.exemption_min_orders ?? 75} pedidos/mes o ${pricingConfig?.fixed_service_fee?.exemption_min_volume ?? 1.5} m³</strong> en bodega, el cargo base mensual queda <strong>100% exento ($0)</strong>, y tu tarifa por pedido disminuye automáticamente a medida que subes de tramo.`
+      });
+    }
+
+    if (/integra|shopify|woocommerce|woo|jumpseller|mercado\s*libre|meli|flex|full|falabella|ripley|paris|tiendanube|api|sincroniza|plataforma|web/.test(combinedSearchText)) {
+      const chMention = channels.length > 0 ? channels.join(', ') : 'Shopify, Mercado Libre, WooCommerce, Jumpseller y Falabella';
+      detectedTopics.push({
+        id: 'integraciones',
+        icon: 'ri-plug-line',
+        color: '#5e17eb',
+        title: 'Integración Automática con Tienda Online / Marketplaces',
+        answerHtml: `<strong style="color: #5e17eb;">Integración WMS 24/7 Sin Costo Adicional:</strong> Conectamos directamente tu operación (${chMention}) a nuestro portal <strong>WMS Stocka</strong> sin costo de activación. Cada venta entra automáticamente a preparación y el stock se descuenta en tiempo real en todos tus canales.`
+      });
+    }
+
+    if (/despacho|envio|envío|santiago|rm|same\s*day|mismo\s*dia|mismo\s*día|corte|horario|rapido|rápido/.test(combinedSearchText)) {
+      detectedTopics.push({
+        id: 'despachos_rm',
+        icon: 'ri-truck-line',
+        color: '#2563eb',
+        title: 'Despachos Same Day RM y Mercado Envíos Flex',
+        answerHtml: `<strong style="color: #2563eb;">Entregas Same Day en RM y Flex:</strong> Contamos con despacho en el mismo día en toda la Región Metropolitana (y Mercado Envíos Flex) con tarifa plana de <strong>${fmtClp(pricingConfig?.shipping?.same_day_rm ?? 3200)} + IVA</strong> y horarios de corte extendidos para que tus clientes reciban el mismo día de su compra.`
+      });
+    }
+
+    if (/region|regiones|starken|bluex|blue\s*express|chilexpress|courier|enviame|envíame|todo\s*chile|provincia/.test(combinedSearchText)) {
+      detectedTopics.push({
+        id: 'despachos_regiones',
+        icon: 'ri-plane-line',
+        color: '#7c3aed',
+        title: 'Despachos a Regiones Multicourier',
+        answerHtml: `<strong style="color: #7c3aed;">Cobertura Nacional Multicourier:</strong> Para envíos a regiones operamos integrados con <strong>Starken, Blue Express y Envíame</strong>, asignando automáticamente el courier más conveniente según destino y peso con tarifas corporativas preferenciales.`
+      });
+    }
+
+    if (/embalaje|packaging|caja|bolsa|burbuja|etiqueta|insumo|armado|kit|pack|fragil|frágil/.test(combinedSearchText)) {
+      detectedTopics.push({
+        id: 'packaging',
+        icon: 'ri-Archive-drawer-line',
+        color: '#d97706',
+        title: 'Packaging, Embalaje y Cuidado del Producto',
+        answerHtml: `<strong style="color: #d97706;">Flexibilidad en Packaging y Embalaje:</strong> La tarifa de Pick &amp; Pack incluye toda la preparación operativa y etiquetado (hasta ${pricingConfig?.pick_pack_rules?.base_included_sku ?? 3} SKUs y ${pricingConfig?.pick_pack_rules?.base_included_units ?? 10} unidades por pedido). Puedes enviarnos tus propias cajas/bolsas con marca o utilizar nuestros insumos y plástico burbuja según consumo real.`
+      });
+    }
+
+    if (/recepcion|recepción|bodega|inventario|stock|ingreso|descarga|pallet|sku|ubicacion|ubicación|donde\s*estan|dónde\s*están|comuna|visita|retiro|sucursal|showroom|vitrina|pos/.test(combinedSearchText)) {
+      detectedTopics.push({
+        id: 'bodega_sucursal',
+        icon: 'ri-store-3-line',
+        color: '#0d9488',
+        title: 'Recepción en Bodega, Retiros y Servicios en Sucursal',
+        answerHtml: `<strong style="color: #0d9488;">Control de Inventario y Sucursal Habilitada:</strong> Coordinamos el ingreso de tu mercadería mediante declaraciones en línea en el WMS, dejándola inventariada por código de barras y ubicación. Además, puedes habilitar <strong>Retiro en Sucursal</strong> para tus clientes, <strong>Vitrina Showroom</strong> y <strong>Punto de Venta (POS)</strong> conectado al mismo stock.`
+      });
+    }
+
+    if (/reunion|reunión|llamar|llamada|hablar|whatsapp|urgente|cuando|cuándo|empezar|partir|alta|onboarding|migrar|cambiarnos/.test(combinedSearchText)) {
+      detectedTopics.push({
+        id: 'puesta_en_marcha',
+        icon: 'ri-rocket-2-line',
+        color: '#4f46e5',
+        title: 'Puesta en Marcha Rápida y Reunión 1 a 1',
+        answerHtml: `<strong style="color: #4f46e5;">Activación Rápida (Onboarding en 24-48 hrs):</strong> Nuestro proceso de alta es 100% digital y sin contratos de permanencia forzosa. Podemos dejar tu cuenta WMS creada, tus canales conectados y coordinar la recepción de tu inventario esta misma semana.`
+      });
+    }
+
+    // Si dejó un comentario general que no cayó en las categorías anteriores, agregar respuesta directa personalizada
+    if (detectedTopics.length === 0) {
+      detectedTopics.push({
+        id: 'consulta_directa',
+        icon: 'ri-question-answer-line',
+        color: '#5e17eb',
+        title: 'Respuesta Directa a su Requerimiento en Formulario',
+        answerHtml: `<strong style="color: #5e17eb;">Sobre lo que nos comentaste (<em>"${clientQuestion}"</em>):</strong> Nuestro modelo <strong>Fulfillment 360</strong> se adapta a la medida de tu operación; conectamos tus canales de venta sin costo, almacenamos por m³ real utilizado y despachamos en el día tanto en RM como a regiones.`
+      });
+    }
+  }
+
+  // Si hay Notas de Gemini en Google Meet adjuntas a la reunión, extraer acuerdos y puntos clave
+  let parsedMeetHighlights = [];
+  if (geminiMeetNotes) {
+    const rawLines = geminiMeetNotes
+      .split(/\r?\n/)
+      .map(l => l.replace(/^[-*•\d.)\s]+/, '').trim())
+      .filter(l => l.length > 15 && !/^(resumen|summary|detalles|details|próximos pasos|proximos pasos|next steps|notas de gemini|notes by gemini)[:\s]*$/i.test(l));
+    parsedMeetHighlights = rawLines.slice(0, 4);
+
+    const shortMeetPreview = parsedMeetHighlights.length > 0
+      ? parsedMeetHighlights.slice(0, 2).join(' • ')
+      : geminiMeetNotes.substring(0, 220);
+
+    detectedTopics.unshift({
+      id: 'notas_gemini_meet',
+      icon: 'ri-vidicon-fill',
+      color: '#0284c7',
+      title: 'Acuerdos y Puntos Clave de la Reunión en Google Meet (Notas de Gemini)',
+      answerHtml: `<strong style="color: #0284c7;">Lo que conversamos en nuestra reunión de Google Meet:</strong> ${shortMeetPreview}${geminiMeetNotes.length > 220 ? '...' : ''}`
+    });
+  }
+
+  // Si hay instrucción adicional escrita por el ejecutivo en el panel del Agente
+  if (extraContext) {
+    detectedTopics.push({
+      id: 'nota_ejecutivo',
+      icon: 'ri-Focus-3-line',
+      color: '#ec4899',
+      title: 'Punto Especial Destacado para este Contacto',
+      answerHtml: `<strong style="color: #5e17eb;">Atención personalizada para ${companyName || 'tu tienda'}:</strong> ${extraContext}`
+    });
+  }
+
+  // 4. Construir Insights Logísticos y Diagnóstico Ejecutivo
+  const insights = [];
+  const activeRangeLabel = calculatedQuote?.activeRange?.label || (orders <= 25 ? '0 a 25 pedidos' : orders <= 100 ? '26 a 100 pedidos' : '101+ pedidos');
+  const pickPackUnit = calculatedQuote?.pickPack?.unitCost || 1200;
+  const storageRate = calculatedQuote?.storage?.baseRatePerM3 || 43500;
+  const isFixedExempt = Boolean(calculatedQuote?.fixedFee?.isExempt);
+  const minOrdersExemption = pricingConfig?.fixed_service_fee?.exemption_min_orders ?? 75;
+  const minVolumeExemption = pricingConfig?.fixed_service_fee?.exemption_min_volume ?? 1.5;
+
+  if (hasMeeting) {
+    const mDateStr = latestMeeting.meeting_start_at
+      ? new Date(latestMeeting.meeting_start_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : 'Registrada';
+    if (isMeetingCompleted) {
+      insights.push({
+        icon: 'ri-vidicon-fill',
+        color: '#047857',
+        text: `<strong>Reunión Google Meet Realizada (${mDateStr}):</strong> ${geminiMeetNotes ? 'Cuenta con <strong>Notas de Gemini</strong> vinculadas; la propuesta incorpora los acuerdos y temas tratados en la videollamada.' : 'Reunión marcada como realizada. Puedes pegar las Notas de Gemini del Meet para enriquecer el recap.'}`
+      });
+    } else if (latestMeeting.meeting_status === 'scheduled' || latestMeeting.meeting_status === 'rescheduled') {
+      insights.push({
+        icon: 'ri-calendar-event-fill',
+        color: '#0284c7',
+        text: `<strong>Reunión Agendada en HubSpot (${mDateStr}):</strong> El prospecto ya reservó reunión en tu calendario. Conviene enviarle el resumen previo o confirmar los puntos que revisarán en Meet.`
+      });
+    }
+  }
+
+  if (hasQuoteSimulation && (orders > 0 || volumeM3 > 0)) {
+    insights.push({
+      icon: 'ri-calculator-line',
+      color: '#10b981',
+      text: `<strong>Cotización ${latestMeeting?.agreed_monthly_orders ? 'acordada en Meet' : 'simulada'}:</strong> ${orders} ped/mes y ${volumeM3} m³ en bodega (${activeRangeLabel}) → Estimado neto: <strong>${fmtClp(netMonthlyCLP)} + IVA/mes</strong> (~${netMonthlyUF.toFixed(2)} UF).`
+    });
+
+    if (!isFixedExempt && orders > 0 && orders < minOrdersExemption && volumeM3 < minVolumeExemption) {
+      insights.push({
+        icon: 'ri-lightbulb-flash-line',
+        color: '#f59e0b',
+        text: `<strong>Tip Comercial Clave (Etapa Inicial):</strong> Por tener &lt; ${minOrdersExemption} ped/mes y &lt; ${minVolumeExemption} m³, su simulación incluye el cargo base mensual (${calculatedQuote?.fixedFee?.uf || 0.9} UF). Conviene explicarle que al alcanzar <strong>${minOrdersExemption} pedidos/mes o ${minVolumeExemption} m³</strong> ese cargo queda <strong>100% exento ($0)</strong>.`
+      });
+    } else if (isFixedExempt) {
+      insights.push({
+        icon: 'ri-shield-check-line',
+        color: '#059669',
+        text: `<strong>Beneficio Activo:</strong> Por su volumen (${orders} ped/mes | ${volumeM3} m³), califica con <strong>Costo Fijo Mensual $0 (100% Exento)</strong> y tarifa Pick &amp; Pack de <strong>${fmtClp(pickPackUnit)}/pedido</strong>.`
+      });
+    }
+
+    if (calculatedQuote?.nextRange && calculatedQuote.ordersToNextRange > 0 && calculatedQuote.ordersToNextRange <= 60) {
+      insights.push({
+        icon: 'ri-line-chart-line',
+        color: '#2563eb',
+        text: `<strong>Próximo Tramo Cercano:</strong> Está a solo <strong>${calculatedQuote.ordersToNextRange} pedidos/mes</strong> de subir al tramo <em>${calculatedQuote.nextRange.label}</em>, reduciendo su Pick &amp; Pack a ${fmtClp(calculatedQuote.nextRange.pick_pack_base)}/pedido y el m³ a ${fmtClp(calculatedQuote.nextRange.storage_m3)}.`
+      });
+    }
+  } else {
+    insights.push({
+      icon: 'ri-information-line',
+      color: '#2563eb',
+      text: `<strong>Sin cantidades definidas aún:</strong> El prospecto solicitó información general sin especificar volumen exacto. Se sugiere consultarle su promedio de pedidos mensuales y tipo de producto para armarle su cotización a medida.`
+    });
+  }
+
+  if (channels.length > 0) {
+    insights.push({
+      icon: 'ri-store-2-line',
+      color: '#7c3aed',
+      text: `<strong>Canales detectados:</strong> ${channels.join(', ')}. Destacar sincronización automática de pedidos e inventario en tiempo real.`
+    });
+  }
+
+  if (sameDayCount > 0 || courierCount > 0 || hasPos || hasVitrina) {
+    const parts = [];
+    if (sameDayCount > 0) parts.push(`${sameDayCount} envíos Same Day RM`);
+    if (courierCount > 0) parts.push(`${courierCount} envíos Regiones`);
+    if (hasPos) parts.push(`Punto de Venta POS`);
+    if (hasVitrina) parts.push(`Vitrina Showroom`);
+    insights.push({
+      icon: 'ri-truck-line',
+      color: '#0284c7',
+      text: `<strong>Servicios logísticos de interés:</strong> ${parts.join(' • ')}.`
+    });
+  }
+
+  if (lead?.email_clicked) {
+    insights.push({
+      icon: 'ri-cursor-fill',
+      color: '#5e17eb',
+      text: `<strong>Señal de Alta Intención (Brevo):</strong> El prospecto abrió el correo e <strong>hizo clic en los documentos/enlaces</strong>. Es el momento ideal para escribirle por WhatsApp o enviarle propuesta personalizada.`
+    });
+  } else if (lead?.email_read) {
+    insights.push({
+      icon: 'ri-eye-fill',
+      color: '#059669',
+      text: `<strong>Correo Abierto (Brevo):</strong> Ya abrió y leyó el correo enviado anteriormente. Conviene hacer seguimiento consultivo sobre sus dudas.`
+    });
+  } else if ((lead?.info_history?.length || 0) > 0) {
+    insights.push({
+      icon: 'ri-mail-send-line',
+      color: '#64748b',
+      text: `<strong>Info enviada pendiente de lectura:</strong> Se le envió correo previamente pero aún no registra apertura; se recomienda contacto directo por WhatsApp + correo con asunto personalizado.`
+    });
+  }
+
+  // Determinar prioridad y resumen del diagnóstico
+  let priorityLabel = '✨ Nuevo Prospecto por Contactar';
+  let priorityColor = '#0369a1';
+  let priorityBg = '#e0f2fe';
+  let priorityBorder = '#bae6fd';
+  let recommendedEmailMode = (hasQuoteSimulation || isMeetingCompleted) && (orders > 0 || volumeM3 > 0) ? 'quote' : 'presentation';
+
+  if (isMeetingCompleted && geminiMeetNotes) {
+    priorityLabel = '🎥 Post-Reunión Meet • Con Notas de Gemini';
+    priorityColor = '#047857';
+    priorityBg = '#d1fae5';
+    priorityBorder = '#6ee7b7';
+  } else if (hasMeeting && latestMeeting?.meeting_status === 'scheduled') {
+    priorityLabel = '📅 Reunión Agendada en HubSpot • Preparar Meet';
+    priorityColor = '#0284c7';
+    priorityBg = '#e0f2fe';
+    priorityBorder = '#7dd3fc';
+  } else if (clientQuestion) {
+    priorityLabel = '💬 Prioridad Alta • Dejó Consulta en Formulario';
+    priorityColor = '#b45309';
+    priorityBg = '#fef3c7';
+    priorityBorder = '#fde68a';
+  } else if (lead?.email_clicked) {
+    priorityLabel = '🔥 Alta Intención • Revisó Presentaciones / Links';
+    priorityColor = '#5e17eb';
+    priorityBg = '#ede9fe';
+    priorityBorder = '#ddd6fe';
+  } else if (orders >= 100 || volumeM3 >= 3) {
+    priorityLabel = '🚀 Oportunidad Destacada • Volumen Medio/Alto';
+    priorityColor = '#047857';
+    priorityBg = '#d1fae5';
+    priorityBorder = '#a7f3d0';
+  } else if (hasQuoteSimulation) {
+    priorityLabel = '🧮 Cotización Realizada • Requiere Acercamiento';
+    priorityColor = '#059669';
+    priorityBg = '#ecfdf5';
+    priorityBorder = '#a7f3d0';
+  }
+
+  // 5. Generar Propuesta de Correo HTML con Formato Stocka según la estrategia seleccionada
+  const commerceMention = companyName ? `<strong>${companyName}</strong>` : 'tu ecommerce';
+  const contactGreetingInline = firstName ? `${firstName}` : '';
+
+  let customBoxTitle = '';
+  let emailSubject = '';
+  let customHtml = '';
+  let centerMode = 'both';
+  let customBoxStyle = 'card';
+
+  // Construir viñetas personalizadas según su cotización, canales y consultas del formulario
+  const buildBulletsHtml = () => {
+    const items = [];
+
+    // 1. Si dejó preguntas/comentarios en el formulario o notas de reunión, van primero
+    detectedTopics.forEach(t => {
+      items.push(`<li>${t.answerHtml}</li>`);
+    });
+
+    // 2. Si tiene cotización simulada y aún no hemos detallado su tramo/bodega
+    if (hasQuoteSimulation && (orders > 0 || volumeM3 > 0)) {
+      if (!detectedTopics.some(t => t.id === 'tarifas_fijo')) {
+        if (!isFixedExempt && orders < minOrdersExemption && volumeM3 < minVolumeExemption) {
+          items.push(`<li><strong style="color: #5e17eb;">Análisis de tu Simulación (${orders} ped/mes y ${volumeM3} m³):</strong> Tu cotización considera el almacenamiento proporcional de <strong>${volumeM3} m³</strong> y preparación de <strong>${orders} pedidos/mes</strong>. Como estás en etapa de crecimiento (&lt; ${minOrdersExemption} pedidos), incluye el cargo base mensual de servicio; sin embargo, apenas alcances <strong>${minOrdersExemption} pedidos/mes o ${minVolumeExemption} m³</strong>, dicho cargo pasa automáticamente a <strong>$0 (100% Exento)</strong>.</li>`);
+        } else {
+          items.push(`<li><strong style="color: #059669;">Condición Preferencial para tu Volumen (${orders} ped/mes | ${volumeM3} m³):</strong> Por tu nivel de operación calificas con <strong>Costo Fijo Mensual $0 (Exento)</strong>, tarifa de Pick &amp; Pack de <strong>${fmtClp(pickPackUnit)} + IVA por pedido</strong> y pago exclusivo por los m³ realmente ocupados.</li>`);
+        }
+      }
+    } else if (detectedTopics.length === 0) {
+      items.push(`<li><strong style="color: #5e17eb;">Almacenamiento 100% Flexible por m³:</strong> Solo pagas por el espacio real que utiliza tu inventario en bodega, sin contratos de permanencia forzosa ni costos fijos sobredimensionados.</li>`);
+    }
+
+    // 3. Canales de venta e integración
+    if (!detectedTopics.some(t => t.id === 'integraciones')) {
+      if (channels.length > 0) {
+        items.push(`<li><strong style="color: #5e17eb;">Integración Directa con ${channels.join(' y ')}:</strong> Conectamos tu tienda sin costo a nuestro <strong>WMS Stocka</strong> para recibir tus pedidos en tiempo real, preparar el mismo día y mantener tu stock cuadrado 24/7.</li>`);
+      } else {
+        items.push(`<li><strong style="color: #5e17eb;">Integración Plug &amp; Play sin Costo:</strong> Sincronizamos tu tienda (Shopify, Mercado Libre, WooCommerce, Jumpseller o Falabella) en minutos para automatizar el flujo completo de tus pedidos.</li>`);
+      }
+    }
+
+    // 4. Despachos Same Day RM / Regiones / Extras
+    if (!detectedTopics.some(t => t.id === 'despachos_rm' || t.id === 'despachos_regiones')) {
+      if (sameDayCount > 0 || courierCount > 0) {
+        items.push(`<li><strong style="color: #2563eb;">Despachos Same Day RM y Cobertura Nacional:</strong> Operamos tus envíos Same Day en RM y Mercado Envíos Flex (${fmtClp(pricingConfig?.shipping?.same_day_rm ?? 3200)} + IVA) con horarios de corte extendidos, además de tarifas preferenciales a regiones vía Starken y Blue Express.</li>`);
+      } else {
+        items.push(`<li><strong style="color: #2563eb;">Despachos el Mismo Día (RM, Flex y Regiones):</strong> Preparamos y despachamos tus ventas en el día dentro de Santiago (${fmtClp(pricingConfig?.shipping?.same_day_rm ?? 3200)} + IVA) y hacia todo Chile mediante integración multicourier.</li>`);
+      }
+    }
+
+    // 5. POS / Vitrina si los seleccionó
+    if ((hasPos || hasVitrina) && !detectedTopics.some(t => t.id === 'bodega_sucursal')) {
+      const extrasNames = [hasVitrina ? 'Vitrina Showroom' : '', hasPos ? 'Punto de Venta POS' : ''].filter(Boolean).join(' y ');
+      items.push(`<li><strong style="color: #059669;">${extrasNames} en Sucursal Stocka:</strong> Hemos incluido en tu propuesta la habilitación presencial en nuestra sucursal, conectada en línea al mismo inventario de tu ecommerce.</li>`);
+    }
+
+    return `<ul>${items.join('\n')}</ul>`;
+  };
+
+  if (strategy === 'post_reunion') {
+    customBoxStyle = 'highlight';
+    customBoxTitle = `🎥 Resumen de nuestra reunión en Google Meet y Propuesta para ${companyName || 'tu tienda'}:`;
+    emailSubject = `Resumen de nuestra reunión y Propuesta Fulfillment 360 - STOCKA${companyName ? ' - ' + companyName : ''}`;
+    const meetBullets = parsedMeetHighlights.length > 0
+      ? parsedMeetHighlights.map(line => `<li><strong style="color: #0284c7;">Acuerdo / Punto revisado en Meet:</strong> ${line}</li>`).join('\n')
+      : `<li><strong style="color: #0284c7;">Operación a Medida para ${commerceMention}:</strong> Configuramos el flujo de recepción en bodega, control de inventario WMS en tiempo real e integración automática con tus canales de venta.</li>`;
+    customHtml = `
+      <p>¡Muchas gracias por tu tiempo en nuestra reunión por Google Meet! Tal como conversamos, te comparto el resumen de los puntos clave que revisamos para la operación logística de ${commerceMention} junto con tu propuesta actualizada:</p>
+      <ul>
+        ${meetBullets}
+        <li><strong style="color: #059669;">Condiciones Tarifarias Acordadas (${orders > 0 ? `${orders} ped/mes | ${volumeM3} m³` : 'Modelo Flexible por m³'}):</strong> ${!isFixedExempt && orders > 0 && orders < minOrdersExemption ? `Pago proporcional por uso real y exención automática del 100% del cargo fijo mensual ($0) al superar los ${minOrdersExemption} pedidos/mes o ${minVolumeExemption} m³.` : `Costo Fijo Mensual $0 (Exento), Pick &amp; Pack de ${fmtClp(pickPackUnit)} + IVA/pedido y cobro exclusivo por los m³ ocupados.`}</li>
+        <li><strong style="color: #5e17eb;">Próximo Paso (Activación e Integración WMS):</strong> Podemos dejar creada tu cuenta en nuestro portal WMS, conectar tu tienda online sin costo y coordinar la primera recepción de tu mercadería apenas nos des el vamos.</li>
+      </ul>
+      <p>Quedo muy atento a tus comentarios sobre este resumen o si necesitas que ajustemos algún detalle adicional para comenzar. ¡Un gusto conversar contigo!</p>
+    `.trim();
+  } else if (strategy === 'consultivo') {
+    if (clientQuestion) {
+      customBoxTitle = `💬 Respuesta a tus consultas y propuesta para ${companyName || 'tu tienda'}:`;
+      emailSubject = `Respuesta a tu consulta y Propuesta Fulfillment 360 - STOCKA${companyName ? ' - ' + companyName : ''}`;
+      customHtml = `
+        <p>Vi tu registro en nuestro sitio${hasQuoteSimulation ? ` junto con la simulación que realizaste para ${commerceMention}` : ` para ${commerceMention}`} y quería responder personalmente a lo que nos comentaste en el formulario (<em>"${clientQuestion}"</em>):</p>
+        ${buildBulletsHtml()}
+        <p>Me encantaría conocer un poco más sobre los productos que manejan en ${commerceMention}${cleanWebIg ? ` (estuve viendo <strong>${cleanWebIg}</strong>)` : ''} y resolver cualquier duda sobre la cotización. ¿Te acomoda si conversamos 15 minutos por Google Meet o WhatsApp esta semana?</p>
+      `.trim();
+    } else if (hasQuoteSimulation && (orders > 0 || volumeM3 > 0)) {
+      customBoxTitle = `📌 Análisis de tu cotización y operación para ${companyName || 'tu ecommerce'}:`;
+      emailSubject = `Análisis de tu Cotización Fulfillment (${orders} ped/mes) - STOCKA${companyName ? ' - ' + companyName : ''}`;
+      customHtml = `
+        <p>Estuve revisando la simulación que realizaste en nuestro cotizador online para ${commerceMention} (considerando <strong>${orders} pedidos/mes</strong> y <strong>${volumeM3} m³</strong> de bodega${cleanWebIg ? `, y aproveché de visitar <strong>${cleanWebIg}</strong>` : ''}). Quería compartirte algunos puntos clave sobre cómo operaría tu marca con nosotros:</p>
+        ${buildBulletsHtml()}
+        <p>Si quieres ajustar alguna variable (como cantidad de SKUs por pedido, tipo de embalaje o proporción de envíos en RM vs. Regiones), podemos revisarlo juntos en una breve llamada de 15 minutos o directamente por WhatsApp. ¡Quedo muy atento a tus comentarios!</p>
+      `.trim();
+    } else {
+      customBoxTitle = `💡 ¿Cómo podemos potenciar la logística de ${companyName || 'tu tienda'}?`;
+      emailSubject = `Propuesta Fulfillment 360 y Asesoría Logística - STOCKA${companyName ? ' - ' + companyName : ''}`;
+      customHtml = `
+        <p>Vi que estuviste revisando nuestros servicios de Fulfillment para ${commerceMention}${cleanWebIg ? ` (aproveché de mirar <strong>${cleanWebIg}</strong>)` : ''} y quería escribirte personalmente para ponernos a tu disposición y entender mejor qué etapa está viviendo hoy tu operación:</p>
+        ${buildBulletsHtml()}
+        <p>Para prepararte una simulación 100% ajustada a tu negocio, cuéntame por favor: <strong>¿cuántos pedidos mensuales están promediando hoy y qué tipo de productos comercializan?</strong> Si prefieres, puedes responderme directo a este correo o por WhatsApp.</p>
+      `.trim();
+    }
+  } else if (strategy === 'seguimiento') {
+    customBoxStyle = 'highlight';
+    customBoxTitle = `🤝 Seguimiento a tu solicitud en Stocka${companyName ? ' — ' + companyName : ''}:`;
+    emailSubject = `¿Pudiste revisar la propuesta para ${companyName || 'tu ecommerce'}? - Felipe de STOCKA`;
+    const readMention = lead?.email_clicked
+      ? `Vi que pudiste revisar nuestra documentación y enlaces de servicio`
+      : (lead?.email_read ? `Vi que pudiste abrir la información que te enviamos anteriormente` : `Te escribo brevemente para saber si pudiste recibir y revisar la información que te enviamos`);
+    customHtml = `
+      <p>${readMention} para ${commerceMention} y quería acercarme para saber <strong>qué te pareció la propuesta y si te surgió alguna consulta sobre las tarifas o la operatoria</strong>.</p>
+      ${clientQuestion ? `<p>Además, respecto a lo que nos habías comentado (<em>"${clientQuestion}"</em>), te resumo los puntos clave:</p>` : `<p>Te resumo los 3 pilares que más valoran las marcas que operan hoy con nosotros:</p>`}
+      ${buildBulletsHtml()}
+      <p>Sabemos que externalizar la logística es una decisión importante, por lo que si tienes cualquier duda sobre <strong>costos de recepción, packaging, tarifas de envío o cómo funciona el WMS</strong>, feliz lo conversamos 10 minutos por teléfono, Meet o WhatsApp sin ningún compromiso.</p>
+    `.trim();
+  } else if (strategy === 'optimizacion') {
+    recommendedEmailMode = 'quote';
+    customBoxTitle = `📊 Cómo optimizar tus costos por pedido en Stocka (${companyName || 'Análisis Tarifario'}):`;
+    emailSubject = `Optimización de Tarifas y Escalabilidad Logística - STOCKA${companyName ? ' - ' + companyName : ''}`;
+    customHtml = `
+      <p>Preparé este desglose para ${commerceMention} con el objetivo de mostrarte con total transparencia cómo optimizar tu costo unitario por pedido en <strong>Stocka</strong> a medida que crece tu volumen:</p>
+      <ul>
+        <li><strong style="color: #059669;">Exención de Costo Fijo Mensual ($0):</strong> Al operar con <strong>${minOrdersExemption}+ pedidos mensuales o ${minVolumeExemption}+ m³</strong> de bodegaje, el cargo base mensual queda <strong>100% bonificado ($0)</strong>, pagando únicamente por tus m³ ocupados y pedidos despachados.</li>
+        <li><strong style="color: #5e17eb;">Descuentos Automáticos por Tramo:</strong> Nuestro sistema ajusta tu tarifa mes a mes según tu volumen real de ventas, bajando automáticamente el valor del Pick &amp; Pack y del m³ sin que tengas que renegociar contrato.</li>
+        <li><strong style="color: #2563eb;">Ahorro en Última Milla (RM y Regiones):</strong> Al consolidar volumen con nuestra flota Same Day RM (${fmtClp(pricingConfig?.shipping?.same_day_rm ?? 3200)} + IVA) y convenios multicourier a regiones, logras tarifas de despacho muy competitivas desde el primer pedido.</li>
+        ${clientQuestion ? `<li><strong style="color: #5e17eb;">Respecto a tu consulta:</strong> Sobre <em>"${clientQuestion}"</em>, podemos adaptar el flujo operativo exactamente a lo que requiere tu catálogo.</li>` : ''}
+      </ul>
+      <p>Revisa más abajo el detalle numérico de tu cotización. Si quieres que simulemos un escenario proyectado para los próximos meses, avísame y lo ajustamos al instante.</p>
+    `.trim();
+  } else if (strategy === 'cierre_reunion') {
+    customBoxStyle = 'highlight';
+    customBoxTitle = `🚀 Próximos pasos para comenzar a operar con ${companyName || 'tu marca'}:`;
+    emailSubject = `Coordinemos reunión / Activación de Cuenta WMS - STOCKA${companyName ? ' - ' + companyName : ''}`;
+    customHtml = `
+      <p>¡Espero que estés muy bien! Te escribo porque tenemos disponibilidad inmediata en bodega e integraciones para sumar a ${commerceMention} a <strong>Stocka Fulfillment</strong> esta semana.</p>
+      <p>Para que puedas evaluar el sistema en vivo o dar el siguiente paso sin fricciones, te propongo dos caminos muy simples:</p>
+      <ul>
+        <li><strong style="color: #5e17eb;">1. Reunión Rápida 1 a 1 (15-20 min vía Google Meet):</strong> Te muestro por pantalla cómo funciona nuestro <strong>Portal WMS en tiempo real</strong>, revisamos tu cotización${clientQuestion ? ` y despejamos en detalle tu consulta sobre <em>"${clientQuestion}"</em>` : ''} (puedes elegir el horario que más te acomode en el botón de más abajo).</li>
+        <li><strong style="color: #059669;">2. Activación Rápida de Onboarding (Paso E1):</strong> Si ya revisaste los números y estás listo para partir, el alta digital toma menos de 5 minutos, conectamos tu tienda online y coordinamos la primera recepción de tu inventario.</li>
+      </ul>
+      <p>Quedo atento por aquí o directo en mi WhatsApp para que avancemos cuando te acomode.</p>
+    `.trim();
+  }
+
+  // 6. Generar 3 propuestas de WhatsApp (Consultivo, Sobre Cotización, Corto)
+  const greetingWa = firstName ? `¡Hola ${firstName}! ¿Cómo estás?` : `¡Hola! ¿Cómo estás?`;
+  const companyWa = companyName ? ` de *${companyName}*` : '';
+  const questionWaSnippet = clientQuestion
+    ? `\n\nVi también tu consulta en el formulario sobre _"${clientQuestion.length > 90 ? clientQuestion.substring(0, 90) + '...' : clientQuestion}"_ y te dejé los detalles resueltos.`
+    : '';
+  const meetWaSnippet = (strategy === 'post_reunion' || isMeetingCompleted)
+    ? `\n\n¡Muchas gracias por tu tiempo en nuestra reunión por Google Meet! Te acabo de dejar en tu correo (${lead?.email || ''}) el resumen de lo que conversamos${parsedMeetHighlights[0] ? ` (incluyendo _"${parsedMeetHighlights[0].substring(0, 85)}..."_)` : ''} junto con la propuesta actualizada.`
+    : '';
+
+  const waConsultivo = (strategy === 'post_reunion' || isMeetingCompleted)
+    ? `${greetingWa} Te escribe *Felipe Trujillo* de *Stocka Fulfillment* 📦.${meetWaSnippet}\n\nQuedo atento por acá por si quieres que revisemos algún detalle de los números o si avanzamos con las instrucciones de alta (Paso E1) para conectar tu tienda y coordinar la recepción. ¡Un abrazo!`
+    : (hasQuoteSimulation && (orders > 0 || volumeM3 > 0)
+      ? `${greetingWa} Te escribe *Felipe Trujillo*, fundador de *Stocka Fulfillment* 📦.\n\nVi que realizaste una simulación en nuestro cotizador online para tu tienda${companyWa} (por *${orders} pedidos/mes* y *${volumeM3} m³* de bodega)${cleanWebIg ? ` y aproveché de ver *${cleanWebIg}*` : ''}.${questionWaSnippet}\n\nTe acabo de enviar a tu correo (${lead?.email || ''}) el desglose completo con algunos comentarios para tu operación. Quería escribirte por acá por si tienes alguna duda sobre las tarifas, cómo funciona la integración con tu tienda o los despachos Same Day RM / Regiones.\n\n¿Qué te pareció la cotización? Si te acomoda, podemos conversar unos minutos por acá o agendar un Meet breve 🙌`
+      : `${greetingWa} Te escribe *Felipe Trujillo*, fundador de *Stocka Fulfillment* 📦.\n\nVi tu solicitud de información en nuestra web${companyWa}${cleanWebIg ? ` (estuve mirando *${cleanWebIg}*)` : ''} y quería escribirte personalmente para ponernos a tu disposición.${questionWaSnippet}\n\nTe envié a tu correo (${lead?.email || ''}) nuestra presentación y accesos, pero por acá es mucho más rápido: cuéntame, *¿cuántos pedidos mensuales están moviendo aprox. y qué tipo de productos venden?* Así te armo una cotización exacta a la medida de tu tienda 🙌`);
+
+  const waCotizacion = hasQuoteSimulation && (orders > 0 || volumeM3 > 0)
+    ? `${greetingWa} Soy *Felipe* de *Stocka.cl* 👋\n\nEstuve revisando la cotización ${isMeetingCompleted ? 'que conversamos en nuestra reunión' : 'que generaste'}${companyWa} por *${orders} ped/mes y ${volumeM3} m³* (estimado de *${fmtClp(netMonthlyCLP)} + IVA/mes*).\n\n${!isFixedExempt && orders < minOrdersExemption ? `Te quería comentar un detalle importante: en ese volumen inicial se incluye el cargo base mensual, pero apenas superes los *${minOrdersExemption} pedidos/mes o ${minVolumeExemption} m³*, ese cargo queda *100% exento ($0)* y tu costo por pedido baja considerablemente 💡.` : `Por tu volumen calificas con *Costo Fijo Mensual $0 (100% Exento)* e integración directa sin costo con ${channels.length > 0 ? channels.join(', ') : 'tu tienda online'} 🚀.`}${questionWaSnippet}\n\n¿Pudiste revisar los números? Cuéntame si tienes cualquier consulta o si quieres que ajustemos alguna variable de la cotización.`
+    : `${greetingWa} Soy *Felipe* de *Stocka.cl* 👋\n\nTe escribo respecto a la información de *Fulfillment 360* que solicitaste${companyWa}.${questionWaSnippet}\n\nEn Stocka operamos sin contratos de amarre, pagando solo por los m³ ocupados, con preparación el mismo día y despachos Same Day en RM (${fmtClp(pricingConfig?.shipping?.same_day_rm ?? 3200)} + IVA) y a todo Chile.\n\n¿Te gustaría que simulemos cuánto te saldría mensualmente según tus pedidos actuales?`;
+
+  const waCorto = `${greetingWa} Te habla *Felipe Trujillo* de *Stocka Fulfillment* 📦.\n\nTe escribo cortito porque ${isMeetingCompleted ? 'te acabo de enviar al correo el resumen de nuestra reunión en Google Meet y la propuesta actualizada' : `vi tu ${hasQuoteSimulation ? 'cotización online' : 'registro en nuestra web'}${companyWa}${clientQuestion ? ' y la consulta que nos dejaste en el formulario' : ''}`}. ¿Pudiste revisarlo o te quedó alguna duda en que te pueda ayudar por acá? ¡Quedo atento!`;
+
+  let finalWhatsappProposals = {
+    consultivo: waConsultivo,
+    cotizacion: waCotizacion,
+    corto: waCorto
+  };
+
+  let meetingSummary = {
+    executiveSummary: parsedMeetHighlights.length > 0 ? parsedMeetHighlights.join(' ') : '',
+    painPoints: [],
+    agreements: parsedMeetHighlights,
+    nextSteps: isMeetingCompleted ? 'Enviar propuesta post-reunión y activar Onboarding E1' : ''
+  };
+
+  let aiEngineUsed = 'Motor Experto Stocka 360';
+
+  // 7. Conector Opcional con IA Generativa (Google Gemini 2.5 Flash / OpenAI GPT-4o)
+  const aiConfig = typeof window.getLeadAiConfig === 'function' ? window.getLeadAiConfig() : { mode: 'hybrid', provider: 'gemini', apiKey: '' };
+  const shouldTryGenerativeLlm = options.useLlm !== false && aiConfig.mode === 'hybrid' && (aiConfig.apiKey || options.tryEdgeSecrets);
+
+  if (shouldTryGenerativeLlm) {
+    const quoteSummaryPayload = {
+      hasQuoteSimulation,
+      orders,
+      volumeM3,
+      sameDayCount,
+      courierCount,
+      hasPos,
+      hasVitrina,
+      channels,
+      activeRangeLabel,
+      pickPackUnitFormatted: fmtClp(pickPackUnit),
+      sameDayRateFormatted: fmtClp(pricingConfig?.shipping?.same_day_rm ?? 3200),
+      netMonthlyFormatted: netMonthlyCLP > 0 ? fmtClp(netMonthlyCLP) : 'Por calcular',
+      netMonthlyUF: netMonthlyUF > 0 ? netMonthlyUF.toFixed(2) : '0.00',
+      isFixedExempt,
+      minOrdersExemption,
+      minVolumeExemption
+    };
+
+    const leadPayload = {
+      name: fullName || lead?.name || '',
+      company: companyName || lead?.company || '',
+      email: lead?.email || '',
+      phone: lead?.phone || '',
+      website: cleanWebIg || '',
+      sources: lead?.sources || [],
+      lead_status: lead?.lead_status || 'nuevo',
+      email_read: Boolean(lead?.email_read),
+      email_clicked: Boolean(lead?.email_clicked)
+    };
+
+    const meetingPayload = latestMeeting ? {
+      meeting_status: latestMeeting.meeting_status || 'scheduled',
+      meeting_start_at: latestMeeting.meeting_start_at || '',
+      meet_url: latestMeeting.meet_url || '',
+      gemini_notes_raw: geminiMeetNotes,
+      agreed_monthly_orders: latestMeeting.agreed_monthly_orders || null,
+      agreed_volume_m3: latestMeeting.agreed_volume_m3 || null
+    } : null;
+
+    let llmData = null;
+    let llmProviderLabel = '';
+
+    // 7a. Intentar primero vía Supabase Edge Function (lead-ai-agent)
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || '';
+      const edgeRes = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/lead-ai-agent', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          lead: leadPayload,
+          quoteSummary: quoteSummaryPayload,
+          meetingInfo: meetingPayload,
+          clientQuestion,
+          extraContext,
+          strategy,
+          provider: aiConfig.provider || 'auto',
+          apiKey: aiConfig.apiKey || ''
+        })
+      });
+
+      if (edgeRes.ok) {
+        const edgeJson = await edgeRes.json();
+        if (edgeJson?.success && edgeJson?.data) {
+          llmData = edgeJson.data;
+          llmProviderLabel = edgeJson.provider === 'openai' ? 'OpenAI GPT-4o' : 'Google Gemini 2.5 Flash';
+        }
+      }
+    } catch (edgeErr) {
+      console.warn('[LeadAgent] Edge function lead-ai-agent no disponible aún, probando llamada directa si hay API Key:', edgeErr.message);
+    }
+
+    // 7b. Respaldo directo con API Key configurada en el navegador si la Edge Function aún no fue desplegada
+    if (!llmData && aiConfig.apiKey) {
+      try {
+        const cleanKey = aiConfig.apiKey.trim();
+        const isOpenAi = aiConfig.provider === 'openai' || cleanKey.startsWith('sk-');
+        const sysPrompt = `Eres el Agente Comercial Senior de STOCKA SpA (stocka.cl / wms.stocka.cl), empresa de Fulfillment 360 para Ecommerce en Chile. Redactas en primera persona como Felipe Trujillo, Socio Fundador de Stocka, en español chileno profesional, cercano y consultivo ("tú").
+Usa exclusivamente las tarifas oficiales entregadas en los datos. Si el prospecto dejó una consulta en el formulario ("clientQuestion"), respóndela directamente. Si hay Notas de Gemini de una reunión en Google Meet ("geminiMeetNotes"), haz un recap cálido y ejecutivo de los acuerdos, dolores y puntos conversados en la reunión.
+En "customHtml" NO pongas saludo inicial ("¡Hola!") ni despedida con firma porque la plantilla del correo ya los tiene; genera 1 párrafo inicial, un <ul> con 3 o 4 <li> usando <strong style="color: #5e17eb;"> o <strong style="color: #059669;"> y 1 párrafo breve de cierre.`;
+
+        const usrPrompt = `Prospecto: ${leadPayload.name || 'Cliente'} | Tienda: ${leadPayload.company || 'Ecommerce'} | Web/IG: ${leadPayload.website || 'No indicado'} | Canales: ${channels.join(', ') || 'Estándar'}
+Simulación Cotizador: ${hasQuoteSimulation ? `${orders} ped/mes, ${volumeM3} m³, Neto estimado: ${quoteSummaryPayload.netMonthlyFormatted} + IVA (~${quoteSummaryPayload.netMonthlyUF} UF), Tramo: ${activeRangeLabel}, Pick&Pack: ${quoteSummaryPayload.pickPackUnitFormatted}/ped, Exento fijo mensual: ${isFixedExempt ? 'SÍ ($0)' : `No aún (exento desde ${minOrdersExemption} ped/mes o ${minVolumeExemption} m³)`}` : 'Solicitó información sin cantidades definidas'}
+Estado lectura correos: ${leadPayload.email_clicked ? 'Hizo clic en PDFs/links' : (leadPayload.email_read ? 'Abrió correo previo' : 'Primer contacto / No leído')}
+Reunión HubSpot / Google Meet: ${meetingPayload ? `Estado=${meetingPayload.meeting_status}, Fecha=${meetingPayload.meeting_start_at}` : 'Sin reunión aún'}
+Notas de Gemini en Google Meet: """${geminiMeetNotes || 'Sin notas de reunión'}"""
+Consulta dejada en formulario: "${clientQuestion || 'Sin comentarios adicionales'}"
+Instrucción adicional de Felipe: "${extraContext || 'Ninguna'}"
+Enfoque elegido: ${strategy}
+
+Responde SOLO un JSON válido con las claves:
+{ "priorityLabel": "...", "aiInsight": "...", "meetingSummary": { "executiveSummary": "...", "agreements": ["..."], "nextSteps": "..." }, "subject": "...", "customBoxTitle": "...", "customHtml": "...", "whatsappProposals": { "consultivo": "...", "cotizacion": "...", "corto": "..." } }`;
+
+        if (!isOpenAi) {
+          const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(cleanKey)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: sysPrompt }] },
+              contents: [{ role: 'user', parts: [{ text: usrPrompt }] }],
+              generationConfig: { temperature: 0.45, responseMimeType: 'application/json' }
+            })
+          });
+          if (gRes.ok) {
+            const gJson = await gRes.json();
+            const txt = gJson?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            if (txt) {
+              llmData = JSON.parse(txt);
+              llmProviderLabel = 'Google Gemini 2.5 Flash';
+            }
+          }
+        } else {
+          const oRes = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cleanKey}` },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              temperature: 0.45,
+              response_format: { type: 'json_object' },
+              messages: [{ role: 'system', content: sysPrompt }, { role: 'user', content: usrPrompt }]
+            })
+          });
+          if (oRes.ok) {
+            const oJson = await oRes.json();
+            const txt = oJson?.choices?.[0]?.message?.content || '';
+            if (txt) {
+              llmData = JSON.parse(txt);
+              llmProviderLabel = 'OpenAI GPT-4o';
+            }
+          }
+        }
+      } catch (directErr) {
+        console.warn('[LeadAgent] Aviso en llamada directa LLM (usando Motor Experto):', directErr.message);
+      }
+    }
+
+    // 7c. Si el LLM devolvió una propuesta enriquecida, integrarla manteniendo intactos los cálculos tarifarios
+    if (llmData && typeof llmData === 'object') {
+      aiEngineUsed = `IA Generativa (${llmProviderLabel}) + Motor Tarifario Stocka`;
+      if (llmData.subject) emailSubject = llmData.subject;
+      if (llmData.customBoxTitle) customBoxTitle = llmData.customBoxTitle;
+      if (llmData.customHtml) customHtml = llmData.customHtml;
+      if (llmData.priorityLabel) priorityLabel = llmData.priorityLabel;
+      if (llmData.meetingSummary && typeof llmData.meetingSummary === 'object') {
+        meetingSummary = {
+          ...meetingSummary,
+          ...llmData.meetingSummary
+        };
+      }
+      if (llmData.whatsappProposals && typeof llmData.whatsappProposals === 'object') {
+        finalWhatsappProposals = {
+          consultivo: llmData.whatsappProposals.consultivo || waConsultivo,
+          cotizacion: llmData.whatsappProposals.cotizacion || waCotizacion,
+          corto: llmData.whatsappProposals.corto || waCorto
+        };
+      }
+      if (llmData.aiInsight) {
+        insights.unshift({
+          icon: 'ri-sparkling-2-fill',
+          color: '#5e17eb',
+          text: `<strong>Recomendación IA (${llmProviderLabel}):</strong> ${llmData.aiInsight}`
+        });
+      }
+    }
+  }
+
+  return {
+    lead,
+    aiEngineUsed,
+    pricingConfig,
+    latestMeeting,
+    geminiMeetNotes,
+    meetingSummary,
+    firstName,
+    fullName,
+    companyName,
+    cleanWebIg,
+    channels,
+    hasQuoteSimulation,
+    orders,
+    volumeM3,
+    sameDayCount,
+    courierCount,
+    hasPos,
+    hasVitrina,
+    netMonthlyCLP,
+    netMonthlyUF,
+    avgOrderCostCLP,
+    calculatedQuote,
+    quoteParams,
+    clientQuestion,
+    detectedTopics,
+    insights,
+    diagnosis: {
+      priorityLabel,
+      priorityColor,
+      priorityBg,
+      priorityBorder,
+      recommendedEmailMode
+    },
+    emailProposal: {
+      emailMode: recommendedEmailMode,
+      subject: emailSubject,
+      centerMode,
+      customBoxStyle,
+      customBoxTitle,
+      customHtml,
+      quoteParams
+    },
+    whatsappProposals: finalWhatsappProposals
+  };
+};
+
+window.getLeadAiConfig = function() {
+  try {
+    const raw = localStorage.getItem('stocka_lead_ai_config_v1');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        mode: parsed.mode || 'hybrid', // 'hybrid' | 'expert'
+        provider: parsed.provider || 'gemini', // 'gemini' | 'openai'
+        apiKey: parsed.apiKey || ''
+      };
+    }
+  } catch (e) {}
+  return { mode: 'hybrid', provider: 'gemini', apiKey: '' };
+};
+
+window.saveLeadAiConfig = function(newCfg) {
+  const merged = { ...window.getLeadAiConfig(), ...newCfg };
+  try {
+    localStorage.setItem('stocka_lead_ai_config_v1', JSON.stringify(merged));
+  } catch (e) {}
+  return merged;
+};
+
+window.openLeadAgentModal = async function(encodedEmail = '', initialStrategy = 'consultivo') {
+  const oldModal = document.getElementById('modal-lead-ai-agent');
+  if (oldModal) oldModal.remove();
+
+  // Asegurar que la lista unificada de leads esté cargada
+  let leads = window.cachedUnifiedLeads;
+  if (!Array.isArray(leads) || leads.length === 0) {
+    leads = await window.fetchUnifiedLeads(false);
+  }
+  if (!Array.isArray(leads) || leads.length === 0) {
+    alert('No hay leads registrados actualmente para analizar.');
+    return;
+  }
+
+  // Determinar el lead inicial seleccionado
+  let targetEmail = encodedEmail ? decodeURIComponent(encodedEmail).trim().toLowerCase() : '';
+  let currentLead = targetEmail ? leads.find(l => (l.email || '').toLowerCase() === targetEmail) : null;
+
+  if (!currentLead) {
+    // Priorizar el lead más reciente que tenga consulta en formulario o cotización y esté 'nuevo' o 'contactado'
+    currentLead = leads.find(l => {
+      const s = l.sim_data || window.parseLeadSimulationData(l.notes);
+      return (l.has_gemini_notes || s?.clientComments) && (l.lead_status === 'nuevo' || l.lead_status === 'contactado' || l.lead_status === 'reunion_realizada');
+    }) || leads.find(l => l.lead_status === 'nuevo') || leads[0];
+  }
+
+  let currentStrategy = initialStrategy || ((currentLead?.has_gemini_notes || currentLead?.meeting_completed) ? 'post_reunion' : 'consultivo');
+  let currentWaVariant = 'consultivo';
+  let currentExtraContext = '';
+  let activeProposalTab = 'email'; // 'email' | 'whatsapp'
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay active';
+  modal.id = 'modal-lead-ai-agent';
+  modal.style.zIndex = '2150';
+
+  // Opciones del selector de leads en el header
+  const buildLeadSelectorOptions = (selectedEmail) => {
+    return leads.map(l => {
+      const sim = l.sim_data || (l.quotes && l.quotes[0]?._simData) || window.parseLeadSimulationData(l.notes);
+      const hasQ = Boolean(sim?.clientComments);
+      const ord = l.quotes?.[0]?.monthly_orders || sim?.ordersNum || 0;
+      const statusTag = l.has_gemini_notes ? '🎥 NOTAS MEET' : (l.has_meeting ? '📅 REUNIÓN' : (l.lead_status === 'nuevo' ? '✨ NUEVO' : (l.email_clicked ? '🔥 VIO LINKS' : (l.email_read ? '👁️ LEYÓ' : l.lead_status.toUpperCase()))));
+      const qTag = hasQ ? ' • 💬 CON CONSULTA' : (ord > 0 ? ` • 🧮 ${ord} ped/mes` : '');
+      const displayName = l.name && l.name !== 'Sin nombre registrado' ? l.name : l.email;
+      const displayComp = l.company && l.company !== '—' ? ` (${l.company})` : '';
+      const isSelected = (l.email || '').toLowerCase() === (selectedEmail || '').toLowerCase() ? 'selected' : '';
+      return `<option value="${encodeURIComponent(l.email)}" ${isSelected}>[${statusTag}${qTag}] ${displayName}${displayComp} — ${l.email}</option>`;
+    }).join('');
+  };
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 1280px !important; width: 95vw !important; height: 90vh; max-height: 92vh; display: flex; flex-direction: column; padding: 0; border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-xl); background: var(--color-surface);">
+      <style>
+        .agent-split-grid {
+          display: grid;
+          grid-template-columns: 0.95fr 1.05fr;
+          flex: 1;
+          min-height: 0;
+          overflow: hidden;
+        }
+        .agent-pane-scroll {
+          overflow-y: auto;
+          padding: 1.25rem 1.4rem;
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+        }
+        .agent-strategy-btn {
+          border: 1.5px solid var(--color-border);
+          background: var(--color-surface);
+          border-radius: 8px;
+          padding: 0.5rem 0.65rem;
+          text-align: left;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        .agent-strategy-btn:hover {
+          border-color: rgba(94, 23, 235, 0.45);
+          background: rgba(94, 23, 235, 0.04);
+        }
+        .agent-strategy-btn.active {
+          border-color: #5e17eb;
+          background: rgba(94, 23, 235, 0.08);
+          box-shadow: 0 2px 6px rgba(94, 23, 235, 0.1);
+        }
+        #agent-email-editor ul {
+          margin: 6px 0 10px 0;
+          padding-left: 20px;
+          list-style-type: disc;
+        }
+        #agent-email-editor li {
+          margin-bottom: 6px;
+          line-height: 1.55;
+        }
+        #agent-email-editor p {
+          margin: 0 0 8px 0;
+          line-height: 1.6;
+        }
+        @media (max-width: 1024px) {
+          .agent-split-grid {
+            grid-template-columns: 1fr;
+            overflow-y: auto;
+          }
+        }
+      </style>
+
+      <!-- Header del Agente Comercial IA -->
+      <div style="background: linear-gradient(135deg, #1e1b4b 0%, #4c1d95 55%, #5e17eb 100%); color: white; padding: 0.95rem 1.5rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; flex-shrink: 0;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div style="width: 42px; height: 42px; border-radius: 11px; background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.25); display: flex; align-items: center; justify-content: center; font-size: 1.35rem; flex-shrink: 0;">
+            <i class="ri-sparkling-2-fill" style="color: #c4b5fd;"></i>
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <h3 style="margin: 0; font-size: 1.12rem; font-weight: 800; color: white;">Agente Comercial IA • Central de Leads</h3>
+              <span id="agent-active-engine-badge" style="background: rgba(16, 185, 129, 0.25); color: #6ee7b7; border: 1px solid rgba(110, 231, 183, 0.4); font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 20px;">Copiloto 360° Activo</span>
+            </div>
+            <p style="margin: 2px 0 0 0; font-size: 0.76rem; color: rgba(255,255,255,0.82);">
+              Analiza cada prospecto, sus simulaciones de cotización y las consultas del formulario para redactar una propuesta de acercamiento lista para enviar
+            </p>
+          </div>
+        </div>
+
+        <!-- Selector Rápido de Prospecto + Configuración IA -->
+        <div style="display: flex; align-items: center; gap: 0.55rem; flex: 1; max-width: 580px; min-width: 280px; justify-content: flex-end;">
+          <div style="flex: 1; position: relative;">
+            <select id="agent-lead-selector" class="form-input" style="width: 100%; height: 36px; font-size: 0.8rem; font-weight: 600; background: rgba(15, 23, 42, 0.45); color: #ffffff; border: 1px solid rgba(255,255,255,0.28); border-radius: 8px; padding: 0 0.75rem; cursor: pointer;">
+              ${buildLeadSelectorOptions(currentLead.email)}
+            </select>
+          </div>
+          <button type="button" id="btn-toggle-agent-ai-settings" title="Configurar Motor IA Generativa (Gemini / OpenAI)" style="height: 36px; padding: 0 0.7rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.3); background: rgba(15, 23, 42, 0.35); color: white; font-size: 0.76rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap;">
+            <i class="ri-settings-4-line"></i> Motor IA
+          </button>
+          <button type="button" id="btn-close-lead-agent" style="color: white; font-size: 1.5rem; background: transparent; border: none; cursor: pointer; line-height: 1; padding: 0 0.25rem;">&times;</button>
+        </div>
+      </div>
+
+      <!-- Barra Desplegable de Configuración de IA Generativa (Gemini / OpenAI) -->
+      <div id="agent-ai-settings-drawer" style="display: none; background: #1e1b4b; color: #e2e8f0; padding: 0.8rem 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.15); font-size: 0.78rem; flex-shrink: 0;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; flex: 1;">
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <strong style="color: #c4b5fd;"><i class="ri-cpu-line"></i> Modo del Agente:</strong>
+              <select id="agent-cfg-mode" class="form-input" style="height: 30px; font-size: 0.76rem; padding: 0 0.5rem; background: rgba(255,255,255,0.1); color: white; border-color: rgba(255,255,255,0.25); width: auto;">
+                <option value="hybrid" style="color: #0f172a;">🤖 Híbrido: IA Generativa (Gemini / OpenAI) + Tarifario Stocka</option>
+                <option value="expert" style="color: #0f172a;">⚡ Instantáneo: Motor Experto Stocka 360 (Local, 0s)</option>
+              </select>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <strong style="color: #c4b5fd;">Proveedor LLM:</strong>
+              <select id="agent-cfg-provider" class="form-input" style="height: 30px; font-size: 0.76rem; padding: 0 0.5rem; background: rgba(255,255,255,0.1); color: white; border-color: rgba(255,255,255,0.25); width: auto;">
+                <option value="gemini" style="color: #0f172a;">✨ Google Gemini 2.5 Flash (Recomendado)</option>
+                <option value="openai" style="color: #0f172a;">🧠 OpenAI GPT-4o mini</option>
+              </select>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; flex: 1; min-width: 240px; max-width: 380px;">
+              <input type="password" id="agent-cfg-apikey" class="form-input" placeholder="API Key (AIza... de Gemini o sk-... de OpenAI)" style="height: 30px; font-size: 0.76rem; background: rgba(255,255,255,0.12); color: white; border-color: rgba(255,255,255,0.25); width: 100%;">
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <a href="https://aistudio.google.com/apikey" target="_blank" style="color: #93c5fd; font-size: 0.72rem; text-decoration: underline; white-space: nowrap;">Obtener Gemini Key gratis ↗</a>
+            <button type="button" id="btn-save-agent-ai-cfg" class="btn btn-primary btn-sm" style="background: #10b981; border: none; color: white; height: 30px; padding: 0 0.85rem; font-size: 0.75rem; font-weight: 700;">
+              <i class="ri-save-line"></i> Guardar y Regenerar
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cuerpo Dividido en 2 Columnas -->
+      <div class="agent-split-grid" id="agent-modal-body-grid">
+        <!-- Se inyecta dinámicamente al analizar el lead -->
+      </div>
+
+      <!-- Footer con Acciones de 1 Clic -->
+      <div style="padding: 0.85rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; flex-shrink: 0;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.78rem; color: var(--color-text-muted);">
+          <i class="ri-shield-user-line" style="color: #5e17eb; font-size: 1rem;"></i>
+          <span>Modo Copiloto con Aprobación: Revisa o edita el borrador antes de abrir el enviador oficial de Correo o WhatsApp.</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+          <button type="button" class="btn btn-outline" id="btn-agent-view-ficha" style="font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-eye-line"></i> Ver Ficha 360°
+          </button>
+          <button type="button" class="btn btn-outline" id="btn-agent-open-wa-footer" style="color: #059669; border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.06); font-size: 0.82rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-whatsapp-fill" style="font-size: 1rem;"></i> Contactar por WhatsApp
+          </button>
+          <button type="button" class="btn btn-primary" id="btn-agent-load-into-email-modal" style="background: linear-gradient(135deg, #5e17eb, #2563eb); border: none; color: white; font-size: 0.84rem; font-weight: 700; padding: 0.55rem 1.2rem; display: inline-flex; align-items: center; gap: 0.4rem; box-shadow: 0 4px 12px rgba(94, 23, 235, 0.25);">
+            <i class="ri-mail-send-fill"></i> Cargar en Editor de Correo y Previsualizar →
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const closeModal = () => {
+    modal.classList.remove('active');
+    setTimeout(() => modal.remove(), 250);
+  };
+
+  document.getElementById('btn-close-lead-agent')?.addEventListener('click', closeModal);
+
+  // Configuración del Motor IA Generativo (Gemini / OpenAI / Híbrido / Local)
+  const currentAiCfg = window.getLeadAiConfig ? window.getLeadAiConfig() : { mode: 'hybrid', provider: 'gemini', apiKey: '' };
+  const cfgModeEl = document.getElementById('agent-cfg-mode');
+  const cfgProviderEl = document.getElementById('agent-cfg-provider');
+  const cfgApiKeyEl = document.getElementById('agent-cfg-apikey');
+  if (cfgModeEl) cfgModeEl.value = currentAiCfg.mode || 'hybrid';
+  if (cfgProviderEl) cfgProviderEl.value = currentAiCfg.provider || 'gemini';
+  if (cfgApiKeyEl) cfgApiKeyEl.value = currentAiCfg.apiKey || '';
+
+  document.getElementById('btn-toggle-agent-ai-settings')?.addEventListener('click', () => {
+    const drawer = document.getElementById('agent-ai-settings-drawer');
+    if (drawer) {
+      drawer.style.display = drawer.style.display === 'none' ? 'block' : 'none';
+    }
+  });
+
+  document.getElementById('btn-save-agent-ai-cfg')?.addEventListener('click', () => {
+    const newCfg = {
+      mode: document.getElementById('agent-cfg-mode')?.value || 'hybrid',
+      provider: document.getElementById('agent-cfg-provider')?.value || 'gemini',
+      apiKey: (document.getElementById('agent-cfg-apikey')?.value || '').trim()
+    };
+    if (typeof window.saveLeadAiConfig === 'function') {
+      window.saveLeadAiConfig(newCfg);
+    }
+    const drawer = document.getElementById('agent-ai-settings-drawer');
+    if (drawer) drawer.style.display = 'none';
+    if (typeof window.showToast === 'function') {
+      window.showToast('Configuración de Motor IA guardada. Regenerando análisis...', 'success');
+    }
+    renderAgentAnalysisView();
+  });
+
+  let latestAnalysis = null;
+
+  const renderAgentAnalysisView = async () => {
+    const bodyGrid = document.getElementById('agent-modal-body-grid');
+    if (!bodyGrid) return;
+
+    bodyGrid.innerHTML = `
+      <div style="grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem; padding: 3rem;">
+        <i class="ri-loader-4-line spin" style="font-size: 2.2rem; color: #5e17eb;"></i>
+        <div style="font-weight: 700; color: var(--color-text-main);">El Agente Comercial está analizando a ${currentLead.name || currentLead.email}...</div>
+      </div>
+    `;
+
+    latestAnalysis = await window.analyzeLeadWithAgent(currentLead, {
+      strategy: currentStrategy,
+      extraContext: currentExtraContext
+    });
+
+    const badgeEngineEl = document.getElementById('agent-active-engine-badge');
+    if (badgeEngineEl && latestAnalysis?.aiEngineUsed) {
+      badgeEngineEl.textContent = latestAnalysis.aiEngineUsed;
+    }
+
+    const {
+      pricingConfig,
+      quoteParams,
+      latestMeeting,
+      geminiMeetNotes,
+      meetingSummary,
+      firstName,
+      companyName,
+      cleanWebIg,
+      channels,
+      hasQuoteSimulation,
+      orders,
+      volumeM3,
+      netMonthlyCLP,
+      netMonthlyUF,
+      clientQuestion,
+      detectedTopics,
+      insights,
+      diagnosis,
+      emailProposal,
+      whatsappProposals
+    } = latestAnalysis;
+
+    const currentWaText = whatsappProposals[currentWaVariant] || whatsappProposals.consultivo;
+
+    // Construir HTML de consultas detectadas en el formulario
+    const topicsHtml = detectedTopics.length > 0
+      ? detectedTopics.map(t => `
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-left: 3px solid ${t.color}; border-radius: 7px; padding: 0.6rem 0.75rem; font-size: 0.77rem; line-height: 1.45;">
+            <div style="font-weight: 700; color: ${t.color}; margin-bottom: 3px; display: flex; align-items: center; gap: 0.3rem;">
+              <i class="${t.icon}"></i> ${t.title}
+            </div>
+            <div style="color: var(--color-text-main);">${t.answerHtml}</div>
+          </div>
+        `).join('')
+      : '';
+
+    bodyGrid.innerHTML = `
+      <!-- COLUMNA IZQUIERDA: DIAGNÓSTICO DEL AGENTE, CONSULTAS DEL FORMULARIO Y ENFOQUE -->
+      <div class="agent-pane-scroll" style="border-right: 1px solid var(--color-border); background: var(--color-bg);">
+        
+        <!-- Tarjeta Resumen del Prospecto y Prioridad -->
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.95rem 1.1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem;">
+            <div>
+              <div style="font-size: 1.05rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                ${currentLead.name || 'Prospecto sin nombre'}
+                ${companyName ? `<span style="font-size: 0.82rem; font-weight: 700; color: #5e17eb; background: rgba(94, 23, 235, 0.08); padding: 2px 8px; border-radius: 6px;">${companyName}</span>` : ''}
+              </div>
+              <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 2px; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                <span><i class="ri-mail-line"></i> ${currentLead.email}</span>
+                ${currentLead.phone ? `<span><i class="ri-phone-line"></i> ${currentLead.phone}</span>` : '<span style="color: #f59e0b;"><i class="ri-phone-line"></i> Sin teléfono</span>'}
+                ${cleanWebIg ? `<span><i class="ri-global-line" style="color: #5e17eb;"></i> ${cleanWebIg}</span>` : ''}
+              </div>
+            </div>
+            <span style="background: ${diagnosis.priorityBg}; color: ${diagnosis.priorityColor}; border: 1px solid ${diagnosis.priorityBorder}; font-size: 0.72rem; font-weight: 700; padding: 3px 9px; border-radius: 20px; white-space: nowrap;">
+              ${diagnosis.priorityLabel}
+            </span>
+          </div>
+
+          <!-- Mini KPIs del Lead -->
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-top: 0.5rem;">
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.5rem 0.65rem;">
+              <div style="font-size: 0.67rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Volumen Cotizado</div>
+              <div style="font-size: 0.9rem; font-weight: 800; color: var(--color-text-main); margin-top: 1px;">
+                ${hasQuoteSimulation && (orders > 0 || volumeM3 > 0) ? `${orders} ped | ${volumeM3} m³` : 'Por definir'}
+              </div>
+            </div>
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.5rem 0.65rem;">
+              <div style="font-size: 0.67rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Costo Estimado</div>
+              <div style="font-size: 0.9rem; font-weight: 800; color: #059669; margin-top: 1px;">
+                ${netMonthlyCLP > 0 ? `$${Math.round(netMonthlyCLP).toLocaleString('es-CL')} + IVA` : 'Sin cotización'}
+              </div>
+            </div>
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.5rem 0.65rem;">
+              <div style="font-size: 0.67rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Canales / Origen</div>
+              <div style="font-size: 0.8rem; font-weight: 700; color: #5e17eb; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                ${channels.length > 0 ? channels.join(', ') : (currentLead.sources || []).join(', ').toUpperCase()}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tarjeta de Reunión HubSpot & Notas de Gemini en Google Meet -->
+        <div style="background: ${geminiMeetNotes ? 'rgba(16, 185, 129, 0.06)' : (latestMeeting ? 'rgba(2, 132, 199, 0.06)' : 'var(--color-surface)')}; border: 1.5px solid ${geminiMeetNotes ? 'rgba(16, 185, 129, 0.4)' : (latestMeeting ? 'rgba(2, 132, 199, 0.35)' : 'var(--color-border)')}; border-radius: 10px; padding: 0.85rem 1.05rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.4rem;">
+            <div style="font-weight: 800; font-size: 0.82rem; color: ${geminiMeetNotes ? '#047857' : '#0284c7'}; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-vidicon-fill" style="font-size: 1rem;"></i>
+              ${latestMeeting
+                ? (latestMeeting.meeting_status === 'completed' ? '🎥 Reunión Google Meet Realizada' : '📅 Reunión Agendada en HubSpot')
+                : '📅 Reunión HubSpot &amp; Notas de Gemini en Meet'}
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" id="btn-agent-open-meeting-modal" style="height: 28px; padding: 0 0.65rem; font-size: 0.73rem; font-weight: 700; color: #0284c7; border-color: rgba(2, 132, 199, 0.4); background: var(--color-surface);">
+              <i class="ri-sparkling-line"></i> ${geminiMeetNotes ? 'Ver / Editar Notas Meet' : '+ Vincular Reunión / Pegar Notas Gemini'}
+            </button>
+          </div>
+          ${latestMeeting ? `
+            <div style="font-size: 0.76rem; color: var(--color-text-main); margin-bottom: ${geminiMeetNotes ? '0.45rem' : '0'};">
+              <strong>Fecha:</strong> ${latestMeeting.meeting_start_at ? new Date(latestMeeting.meeting_start_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Registrada'}
+              ${latestMeeting.meet_url ? ` • <a href="${latestMeeting.meet_url}" target="_blank" style="color: #0284c7; font-weight: 700;">Abrir Google Meet ↗</a>` : ''}
+              ${latestMeeting.gemini_doc_url ? ` • <a href="${latestMeeting.gemini_doc_url}" target="_blank" style="color: #5e17eb; font-weight: 700;">Doc Notas Gemini ↗</a>` : ''}
+            </div>
+          ` : ''}
+          ${geminiMeetNotes ? `
+            <div style="background: var(--color-surface); border-left: 3px solid #10b981; border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.76rem; color: var(--color-text-main); max-height: 95px; overflow-y: auto; white-space: pre-wrap; line-height: 1.4;">${geminiMeetNotes.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+          ` : `
+            <div style="font-size: 0.74rem; color: var(--color-text-muted);">
+              ${latestMeeting ? 'Cuando termine la reunión en Google Meet, haz clic en "+ Vincular Reunión / Pegar Notas Gemini" para incorporar los acuerdos a la propuesta.' : 'Sincroniza con HubSpot o pega las notas generadas por Gemini en Google Meet para armar un Recap Post-Reunión.'}
+            </div>
+          `}
+        </div>
+
+        <!-- Caja de Consulta o Comentario dejado en el Formulario -->
+        <div style="background: ${clientQuestion ? 'rgba(245, 158, 11, 0.07)' : 'var(--color-surface)'}; border: 1.5px solid ${clientQuestion ? 'rgba(245, 158, 11, 0.4)' : 'var(--color-border)'}; border-radius: 10px; padding: 0.9rem 1.05rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+            <div style="font-weight: 800; font-size: 0.84rem; color: ${clientQuestion ? '#b45309' : 'var(--color-text-main)'}; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-chat-quote-fill" style="font-size: 1rem; color: ${clientQuestion ? '#d97706' : '#5e17eb'};"></i>
+              ${clientQuestion ? 'Consulta / Comentario Dejado en el Formulario:' : 'Consultas en Formulario y Contexto Adicional:'}
+            </div>
+            ${clientQuestion ? `<span style="font-size: 0.68rem; font-weight: 700; background: rgba(245, 158, 11, 0.18); color: #b45309; padding: 2px 7px; border-radius: 10px;">Respondido en la propuesta</span>` : ''}
+          </div>
+
+          ${clientQuestion ? `
+            <div style="background: var(--color-surface); border-left: 3px solid #f59e0b; border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 0.83rem; color: var(--color-text-main); font-style: italic; margin-bottom: 0.65rem;">
+              "${clientQuestion}"
+            </div>
+          ` : `
+            <div style="font-size: 0.77rem; color: var(--color-text-muted); margin-bottom: 0.55rem;">
+              Este prospecto no dejó una pregunta abierta en el campo de comentarios, por lo que el Agente estructuró la propuesta en base a ${hasQuoteSimulation ? 'los datos de su cotización simulada' : 'su solicitud de información comercial'}.
+            </div>
+          `}
+
+          ${topicsHtml ? `
+            <div style="display: flex; flex-direction: column; gap: 0.45rem; margin-bottom: 0.65rem;">
+              <div style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Argumentos que el Agente incluyó en la respuesta:</div>
+              ${topicsHtml}
+            </div>
+          ` : ''}
+
+          <!-- Input para darle una indicación adicional al Agente en vivo -->
+          <div style="margin-top: 0.4rem; padding-top: 0.55rem; border-top: 1px dashed var(--color-border);">
+            <label style="display: block; font-size: 0.73rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.3rem;">
+              <i class="ri-magic-line" style="color: #5e17eb;"></i> ¿Quieres que el Agente agregue o responda algún punto específico?
+            </label>
+            <div style="display: flex; gap: 0.45rem;">
+              <input type="text" id="agent-extra-context-input" class="form-input" placeholder="Ej: Ofrecerle reunión mañana a las 11:00 / Destacar que operamos cosmética con registro ISP..." value="${currentExtraContext.replace(/"/g, '&quot;')}" style="flex: 1; height: 34px; font-size: 0.78rem;">
+              <button type="button" class="btn btn-outline btn-sm" id="btn-agent-apply-extra" style="height: 34px; padding: 0 0.75rem; font-size: 0.76rem; font-weight: 700; color: #5e17eb; border-color: rgba(94, 23, 235, 0.35); background: rgba(94, 23, 235, 0.06); white-space: nowrap;">
+                <i class="ri-refresh-line"></i> Regenerar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Diagnóstico e Insights del Agente -->
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.9rem 1.05rem;">
+          <div style="font-weight: 800; font-size: 0.84rem; color: var(--color-text-main); margin-bottom: 0.55rem; display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-radar-line" style="color: #5e17eb;"></i> Diagnóstico 360° e Insights Comerciales
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+            ${insights.map(ins => `
+              <div style="display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.78rem; color: var(--color-text-main); line-height: 1.45; background: var(--color-bg); padding: 0.5rem 0.65rem; border-radius: 7px; border: 1px solid var(--color-border);">
+                <i class="${ins.icon}" style="color: ${ins.color}; font-size: 0.95rem; margin-top: 1px; flex-shrink: 0;"></i>
+                <div>${ins.text}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Selector de Estrategia / Enfoque del Agente -->
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.9rem 1.05rem;">
+          <div style="font-weight: 800; font-size: 0.84rem; color: var(--color-text-main); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-compass-3-line" style="color: #2563eb;"></i> Elegir Enfoque de la Propuesta del Agente:
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+            <button type="button" class="agent-strategy-btn ${currentStrategy === 'consultivo' ? 'active' : ''}" data-agent-strategy="consultivo">
+              <div style="font-weight: 700; font-size: 0.78rem; color: #5e17eb; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-question-answer-fill"></i> 1. Consultivo + Cotización
+              </div>
+              <div style="font-size: 0.69rem; color: var(--color-text-muted); margin-top: 2px;">
+                Responde consultas del formulario y explica su cotización
+              </div>
+            </button>
+
+            <button type="button" class="agent-strategy-btn ${currentStrategy === 'seguimiento' ? 'active' : ''}" data-agent-strategy="seguimiento">
+              <div style="font-weight: 700; font-size: 0.78rem; color: #2563eb; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-chat-heart-fill"></i> 2. Seguimiento Cercano
+              </div>
+              <div style="font-size: 0.69rem; color: var(--color-text-muted); margin-top: 2px;">
+                Ideal si ya recibió u abrió el correo para destrabar dudas
+              </div>
+            </button>
+
+            <button type="button" class="agent-strategy-btn ${currentStrategy === 'optimizacion' ? 'active' : ''}" data-agent-strategy="optimizacion">
+              <div style="font-weight: 700; font-size: 0.78rem; color: #059669; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-funds-box-fill"></i> 3. Optimización de Costos
+              </div>
+              <div style="font-size: 0.69rem; color: var(--color-text-muted); margin-top: 2px;">
+                Destaca exención de fijo ($0 sobre ${pricingConfig?.fixed_service_fee?.exemption_min_orders ?? 75} ped) y tramos
+              </div>
+            </button>
+
+            <button type="button" class="agent-strategy-btn ${currentStrategy === 'cierre_reunion' ? 'active' : ''}" data-agent-strategy="cierre_reunion">
+              <div style="font-weight: 700; font-size: 0.78rem; color: #d97706; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-calendar-check-fill"></i> 4. Agendar Meet / Paso a E1
+              </div>
+              <div style="font-size: 0.69rem; color: var(--color-text-muted); margin-top: 2px;">
+                Invitación directa a reunión 1 a 1 o iniciar Onboarding
+              </div>
+            </button>
+
+            <button type="button" class="agent-strategy-btn ${currentStrategy === 'post_reunion' ? 'active' : ''}" data-agent-strategy="post_reunion" style="grid-column: 1 / -1; border-color: ${currentStrategy === 'post_reunion' ? '#047857' : 'rgba(16, 185, 129, 0.35)'}; background: ${currentStrategy === 'post_reunion' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(16, 185, 129, 0.03)'};">
+              <div style="font-weight: 800; font-size: 0.8rem; color: #047857; display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-vidicon-fill"></i> 5. Recap Post-Reunión Google Meet (Usa Notas de Gemini + Acuerdos)
+              </div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 2px;">
+                Resume los acuerdos tomados en la reunión por Meet (Notas de Gemini) y presenta la propuesta actualizada
+              </div>
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- COLUMNA DERECHA: PROPUESTAS REDACTADAS (CORREO + WHATSAPP) -->
+      <div class="agent-pane-scroll" style="background: var(--color-surface);">
+        
+        <!-- Pestañas Correo vs WhatsApp -->
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 0.6rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div style="display: inline-flex; background: var(--color-bg); padding: 4px; border-radius: 10px; border: 1px solid var(--color-border);">
+            <button type="button" id="tab-btn-agent-email" style="border: none; padding: 0.45rem 0.95rem; border-radius: 7px; font-size: 0.8rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; ${activeProposalTab === 'email' ? 'background: #5e17eb; color: white; box-shadow: 0 2px 6px rgba(94, 23, 235, 0.2);' : 'background: transparent; color: var(--color-text-muted);'}">
+              <i class="ri-mail-star-fill"></i> Propuesta de Correo Oficial
+            </button>
+            <button type="button" id="tab-btn-agent-wa" style="border: none; padding: 0.45rem 0.95rem; border-radius: 7px; font-size: 0.8rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; ${activeProposalTab === 'whatsapp' ? 'background: #10b981; color: white; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.2);' : 'background: transparent; color: var(--color-text-muted);'}">
+              <i class="ri-whatsapp-fill"></i> Propuesta de WhatsApp (3 tonos)
+            </button>
+          </div>
+
+          <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600;">
+            <i class="ri-edit-2-line" style="color: #5e17eb;"></i> 100% editable antes de enviar
+          </span>
+        </div>
+
+        <!-- PANEL 1: PROPUESTA DE CORREO PERSONALIZADO -->
+        <div id="agent-panel-email" style="display: ${activeProposalTab === 'email' ? 'flex' : 'none'}; flex-direction: column; gap: 0.85rem; flex: 1;">
+          
+          <!-- Configuración sugerida por el Agente -->
+          <div style="display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 0.65rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 9px; padding: 0.75rem 0.9rem;">
+            <div>
+              <label style="display: block; font-size: 0.71rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 3px; text-transform: uppercase;">Formato de Correo Sugerido</label>
+              <select id="agent-email-mode-select" class="form-input" style="height: 34px; font-size: 0.8rem; font-weight: 700; color: ${emailProposal.emailMode === 'quote' ? '#059669' : '#2563eb'};">
+                <option value="quote" ${emailProposal.emailMode === 'quote' ? 'selected' : ''}>🧮 Correo con Cotización + Comentarios</option>
+                <option value="presentation" ${emailProposal.emailMode === 'presentation' ? 'selected' : ''}>📨 Presentación Comercial + Respuesta</option>
+              </select>
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.71rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 3px; text-transform: uppercase;">Título del Bloque Personalizado</label>
+              <input type="text" id="agent-email-box-title" class="form-input" value="${emailProposal.customBoxTitle.replace(/"/g, '&quot;')}" style="height: 34px; font-size: 0.8rem; font-weight: 600;">
+            </div>
+            <div style="grid-column: 1 / -1;">
+              <label style="display: block; font-size: 0.71rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 3px; text-transform: uppercase;">Asunto del Correo</label>
+              <input type="text" id="agent-email-subject" class="form-input" value="${emailProposal.subject.replace(/"/g, '&quot;')}" style="height: 34px; font-size: 0.8rem; font-weight: 600;">
+            </div>
+          </div>
+
+          <!-- Vista Previa / Editor del Bloque Personalizado del Agente -->
+          <div style="display: flex; flex-direction: column; flex: 1; border: 1.5px solid rgba(94, 23, 235, 0.3); border-radius: 10px; overflow: hidden; background: #ffffff;">
+            <div style="background: linear-gradient(90deg, rgba(94, 23, 235, 0.08), rgba(37, 99, 235, 0.05)); padding: 0.5rem 0.85rem; border-bottom: 1px solid rgba(94, 23, 235, 0.15); display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size: 0.76rem; font-weight: 700; color: #5e17eb; display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-quill-pen-fill"></i> Borrador Redactado por el Agente (Haz clic en el texto para editar)
+              </span>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-copy-agent-email" style="font-size: 0.71rem; padding: 2px 8px; height: 24px;">
+                <i class="ri-file-copy-line"></i> Copiar Texto
+              </button>
+            </div>
+
+            <div id="agent-email-editor" contenteditable="true" style="padding: 1rem 1.15rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 0.85rem; line-height: 1.6; color: #1e293b; flex: 1; overflow-y: auto; outline: none; min-height: 210px;">
+              ${emailProposal.customHtml}
+            </div>
+          </div>
+
+          <div style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 0.6rem 0.85rem; font-size: 0.76rem; color: #065f46; display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-checkbox-circle-fill" style="color: #10b981; font-size: 1rem; flex-shrink: 0;"></i>
+            <span>Al hacer clic en <strong>"Cargar en Editor de Correo y Previsualizar"</strong>, este mensaje se insertará automáticamente en la plantilla oficial de Stocka junto con ${emailProposal.emailMode === 'quote' ? `la tabla de cotización (${quoteParams.monthlyOrders} ped/mes | ${quoteParams.storageVolumeM3} m³)` : 'las 4 tarjetas de servicio'}, los PDFs descargables y tu link de agendamiento de Google Meet.</span>
+          </div>
+
+        </div>
+
+        <!-- PANEL 2: PROPUESTA DE MENSAJE DE WHATSAPP -->
+        <div id="agent-panel-whatsapp" style="display: ${activeProposalTab === 'whatsapp' ? 'flex' : 'none'}; flex-direction: column; gap: 0.85rem; flex: 1;">
+          
+          <!-- Selector de 3 Tonos de WhatsApp -->
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;">
+            <button type="button" class="agent-strategy-btn ${currentWaVariant === 'consultivo' ? 'active' : ''}" data-wa-variant="consultivo">
+              <div style="font-weight: 700; font-size: 0.76rem; color: #059669;"><i class="ri-chat-smile-3-fill"></i> Consultivo Completo</div>
+              <div style="font-size: 0.68rem; color: var(--color-text-muted);">Cercano, menciona su tienda y dudas</div>
+            </button>
+            <button type="button" class="agent-strategy-btn ${currentWaVariant === 'cotizacion' ? 'active' : ''}" data-wa-variant="cotizacion">
+              <div style="font-weight: 700; font-size: 0.76rem; color: #2563eb;"><i class="ri-calculator-fill"></i> Foco en Cotización</div>
+              <div style="font-size: 0.68rem; color: var(--color-text-muted);">Explica su monto, tramo y exención</div>
+            </button>
+            <button type="button" class="agent-strategy-btn ${currentWaVariant === 'corto' ? 'active' : ''}" data-wa-variant="corto">
+              <div style="font-weight: 700; font-size: 0.76rem; color: #5e17eb;"><i class="ri-flashlight-fill"></i> Corto / Directo</div>
+              <div style="font-size: 0.68rem; color: var(--color-text-muted);">Mensaje breve para abrir conversación</div>
+            </button>
+          </div>
+
+          <!-- Teléfono Destinatario WhatsApp -->
+          <div style="display: flex; align-items: center; gap: 0.6rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.55rem 0.85rem;">
+            <i class="ri-whatsapp-fill" style="color: #10b981; font-size: 1.2rem;"></i>
+            <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">Teléfono WhatsApp:</span>
+            <input type="text" id="agent-wa-phone-input" class="form-input" placeholder="Ej: +56991234567" value="${(currentLead.phone || '').replace(/"/g, '&quot;')}" style="height: 32px; font-size: 0.82rem; font-weight: 600; max-width: 220px;">
+            <span style="font-size: 0.72rem; color: var(--color-text-muted);">Puedes editar o ingresar el número si no estaba registrado.</span>
+          </div>
+
+          <!-- Editor Textarea estilo WhatsApp -->
+          <div style="display: flex; flex-direction: column; flex: 1; background: #efeae2; border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.9rem; position: relative;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <span style="font-size: 0.74rem; font-weight: 700; color: #075e54; background: #d9fdd3; padding: 2px 8px; border-radius: 6px; border: 1px solid #b2f2bb;">
+                <i class="ri-check-double-line"></i> Vista Previa Mensaje de WhatsApp
+              </span>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-copy-agent-wa" style="background: #ffffff; font-size: 0.72rem; padding: 3px 9px; font-weight: 700; color: #0f172a;">
+                <i class="ri-file-copy-line"></i> Copiar Mensaje WhatsApp
+              </button>
+            </div>
+            <textarea id="agent-wa-textarea" class="form-input" style="flex: 1; min-height: 200px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.85rem; font-size: 0.86rem; line-height: 1.55; color: #0f172a; resize: vertical;">${currentWaText}</textarea>
+          </div>
+
+        </div>
+
+      </div>
+    `;
+
+    // Conectar eventos dentro del panel renderizado
+    document.querySelectorAll('[data-agent-strategy]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentStrategy = btn.getAttribute('data-agent-strategy') || 'consultivo';
+        const extraEl = document.getElementById('agent-extra-context-input');
+        if (extraEl) currentExtraContext = extraEl.value.trim();
+        renderAgentAnalysisView();
+      });
+    });
+
+    const btnApplyExtra = document.getElementById('btn-agent-apply-extra');
+    const extraInput = document.getElementById('agent-extra-context-input');
+    btnApplyExtra?.addEventListener('click', () => {
+      currentExtraContext = extraInput?.value.trim() || '';
+      renderAgentAnalysisView();
+    });
+    extraInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        currentExtraContext = extraInput.value.trim();
+        renderAgentAnalysisView();
+      }
+    });
+
+    document.getElementById('tab-btn-agent-email')?.addEventListener('click', () => {
+      activeProposalTab = 'email';
+      renderAgentAnalysisView();
+    });
+    document.getElementById('tab-btn-agent-wa')?.addEventListener('click', () => {
+      activeProposalTab = 'whatsapp';
+      renderAgentAnalysisView();
+    });
+
+    document.querySelectorAll('[data-wa-variant]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentWaVariant = btn.getAttribute('data-wa-variant') || 'consultivo';
+        const waTextarea = document.getElementById('agent-wa-textarea');
+        if (waTextarea && latestAnalysis?.whatsappProposals) {
+          waTextarea.value = latestAnalysis.whatsappProposals[currentWaVariant] || '';
+        }
+        document.querySelectorAll('[data-wa-variant]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
+    document.getElementById('btn-copy-agent-email')?.addEventListener('click', () => {
+      const editor = document.getElementById('agent-email-editor');
+      const text = (editor?.innerText || editor?.textContent || '').trim();
+      if (text) {
+        navigator.clipboard.writeText(text);
+        if (typeof window.showNotification === 'function') {
+          window.showNotification('Texto de la propuesta de correo copiado al portapapeles.', 'success');
+        }
+      }
+    });
+
+    document.getElementById('btn-copy-agent-wa')?.addEventListener('click', () => {
+      const waTextarea = document.getElementById('agent-wa-textarea');
+      const text = (waTextarea?.value || '').trim();
+      if (text) {
+        navigator.clipboard.writeText(text);
+        if (typeof window.showNotification === 'function') {
+          window.showNotification('Mensaje de WhatsApp copiado al portapapeles.', 'success');
+        }
+      }
+    });
+
+    document.getElementById('btn-agent-open-meeting-modal')?.addEventListener('click', () => {
+      const targetEmail = currentLead?.email || '';
+      closeModal();
+      window.openLeadMeetingModal(encodeURIComponent(targetEmail));
+    });
+  };
+
+  // Listener cambio de lead en el selector superior
+  const leadSelector = document.getElementById('agent-lead-selector');
+  leadSelector?.addEventListener('change', () => {
+    const newEmail = decodeURIComponent(leadSelector.value).trim().toLowerCase();
+    const found = leads.find(l => (l.email || '').toLowerCase() === newEmail);
+    if (found) {
+      currentLead = found;
+      currentExtraContext = '';
+      renderAgentAnalysisView();
+    }
+  });
+
+  // Botón Ver Ficha 360°
+  document.getElementById('btn-agent-view-ficha')?.addEventListener('click', () => {
+    const target = currentLead?.email;
+    closeModal();
+    if (target) window.showLeadDetailModal(encodeURIComponent(target));
+  });
+
+  // Botón Abrir WhatsApp con el mensaje personalizado
+  document.getElementById('btn-agent-open-wa-footer')?.addEventListener('click', () => {
+    const waTextarea = document.getElementById('agent-wa-textarea');
+    const waPhoneInput = document.getElementById('agent-wa-phone-input');
+    const msg = (waTextarea?.value || latestAnalysis?.whatsappProposals?.[currentWaVariant] || '').trim();
+    const rawPhone = (waPhoneInput?.value || currentLead?.phone || '').replace(/\D/g, '');
+
+    if (!rawPhone || rawPhone.length < 8) {
+      activeProposalTab = 'whatsapp';
+      renderAgentAnalysisView().then(() => {
+        const pInput = document.getElementById('agent-wa-phone-input');
+        pInput?.focus();
+        alert('Este prospecto no registró un número de teléfono válido. Puedes escribir su número en el campo "Teléfono WhatsApp" o copiar el mensaje.');
+      });
+      return;
+    }
+
+    const formattedPhone = rawPhone.startsWith('56') ? rawPhone : '56' + rawPhone;
+    const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank');
+  });
+
+  // Botón Cargar en Editor de Correo y Previsualizar
+  document.getElementById('btn-agent-load-into-email-modal')?.addEventListener('click', () => {
+    if (!latestAnalysis) return;
+    const selectedMode = document.getElementById('agent-email-mode-select')?.value || latestAnalysis.emailProposal.emailMode || 'quote';
+    const customTitle = document.getElementById('agent-email-box-title')?.value.trim() ?? latestAnalysis.emailProposal.customBoxTitle;
+    const customSubj = document.getElementById('agent-email-subject')?.value.trim() || latestAnalysis.emailProposal.subject;
+    const editorEl = document.getElementById('agent-email-editor');
+    const customHtmlContent = editorEl ? editorEl.innerHTML.trim() : latestAnalysis.emailProposal.customHtml;
+    const customPlainContent = editorEl ? (editorEl.innerText || editorEl.textContent || '').trim() : '';
+
+    closeModal();
+
+    window.openSendLeadInfoModal({
+      emailMode: selectedMode,
+      email: encodeURIComponent(currentLead.email || ''),
+      contactName: encodeURIComponent(latestAnalysis.fullName || currentLead.name || ''),
+      commerceName: encodeURIComponent(latestAnalysis.companyName || currentLead.company || ''),
+      subject: customSubj,
+      centerMode: 'both',
+      customBoxStyle: latestAnalysis.emailProposal.customBoxStyle || 'card',
+      customBoxTitle: customTitle,
+      customMessage: customPlainContent,
+      customHtml: customHtmlContent,
+      quoteParams: latestAnalysis.quoteParams
+    });
+  });
+
+  await renderAgentAnalysisView();
+};
+
+// =========================================================================
+// INTEGRACIÓN HUBSPOT MEETINGS & NOTAS DE GEMINI EN GOOGLE MEET
+// =========================================================================
+
+window.getHubSpotMeetConfig = function () {
+  const defaults = {
+    hubspotToken: '',
+    hubspotSchedulerUrl: 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5',
+    googleMeetBridgeUrl: '',
+    autoSyncEnabled: true,
+    lastSyncAt: null
+  };
+  try {
+    const raw = localStorage.getItem('stocka_hubspot_meet_config_v1');
+    if (!raw) return defaults;
+    return { ...defaults, ...JSON.parse(raw) };
+  } catch (e) {
+    return defaults;
+  }
+};
+
+window.saveHubSpotMeetConfig = function (partial) {
+  const next = { ...window.getHubSpotMeetConfig(), ...(partial || {}) };
+  try {
+    localStorage.setItem('stocka_hubspot_meet_config_v1', JSON.stringify(next));
+  } catch (e) {
+    console.warn('No se pudo guardar stocka_hubspot_meet_config_v1:', e);
+  }
+  return next;
+};
+
+window.cleanHubSpotInviteBoilerplate = function (rawText) {
+  const txt = String(rawText || '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .trim();
+  if (!txt) return '';
+  const isOnlyBoilerplate =
+    (txt.includes('rescheduleId=') || txt.includes('cancelId=') || txt.includes('¿Necesitas hacer cambios?')) &&
+    txt.length < 450 &&
+    !txt.toLowerCase().includes('resumen') &&
+    !txt.toLowerCase().includes('gemini');
+  if (isOnlyBoilerplate) return '';
+  return txt
+    .replace(/Reunión de información de servicios de Stocka\.cl[\s\S]*?cancelId=[a-zA-Z0-9_-]+(&ms=\d+)?/gi, '')
+    .replace(/¿Necesitas hacer cambios\?[\s\S]*?cancelId=[a-zA-Z0-9_-]+(&ms=\d+)?/gi, '')
+    .trim();
+};
+
+/**
+ * Guarda o actualiza una reunión y sus Notas de Gemini en Google Meet (Dual: Supabase + localStorage)
+ */
+window.saveLeadMeetingData = async function (meetingPayload = {}) {
+  const email = (meetingPayload.lead_email || '').trim().toLowerCase();
+  if (!email) throw new Error('Debes indicar el correo del prospecto para asociar la reunión.');
+
+  const nowIso = new Date().toISOString();
+  const cleanedNotes = window.cleanHubSpotInviteBoilerplate(meetingPayload.gemini_notes_raw || '');
+  const record = {
+    id: meetingPayload.id || `meet_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    lead_email: email,
+    lead_name: (meetingPayload.lead_name || '').trim(),
+    company_name: (meetingPayload.company_name || '').trim(),
+    hubspot_meeting_id: meetingPayload.hubspot_meeting_id || null,
+    meeting_title: (meetingPayload.meeting_title || `Reunión Comercial Stocka - ${meetingPayload.company_name || meetingPayload.lead_name || email}`).trim(),
+    meeting_status: meetingPayload.meeting_status || 'scheduled',
+    meeting_start_at: meetingPayload.meeting_start_at || nowIso,
+    meeting_end_at: meetingPayload.meeting_end_at || null,
+    meet_url: (meetingPayload.meet_url || '').trim(),
+    scheduler_url: meetingPayload.scheduler_url || 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5',
+    gemini_notes_raw: cleanedNotes,
+    gemini_summary: window.cleanHubSpotInviteBoilerplate(meetingPayload.gemini_summary || ''),
+    gemini_doc_url: (meetingPayload.gemini_doc_url || '').trim(),
+    agreed_monthly_orders: meetingPayload.agreed_monthly_orders ? Number(meetingPayload.agreed_monthly_orders) : null,
+    agreed_volume_m3: meetingPayload.agreed_volume_m3 ? Number(meetingPayload.agreed_volume_m3) : null,
+    source: meetingPayload.source || 'manual',
+    updated_at: nowIso,
+    created_at: meetingPayload.created_at || nowIso
+  };
+
+  // 1. Guardar en caché local (garantiza disponibilidad inmediata incluso sin tabla remota)
+  try {
+    const rawLocal = localStorage.getItem('stocka_lead_meetings_v1');
+    const list = rawLocal ? JSON.parse(rawLocal) : [];
+    const arr = Array.isArray(list) ? list : [];
+    const existingIdx = arr.findIndex(item =>
+      (record.hubspot_meeting_id && item.hubspot_meeting_id === record.hubspot_meeting_id) ||
+      (item.id && item.id === record.id) ||
+      ((item.lead_email || '').toLowerCase() === email && !record.hubspot_meeting_id)
+    );
+    if (existingIdx >= 0) {
+      arr[existingIdx] = { ...arr[existingIdx], ...record, updated_at: nowIso };
+    } else {
+      arr.unshift(record);
+    }
+    localStorage.setItem('stocka_lead_meetings_v1', JSON.stringify(arr));
+  } catch (localErr) {
+    console.warn('Error guardando reunión en localStorage:', localErr);
+  }
+
+  // 2. Intentar persistir en Supabase (tabla lead_meetings)
+  try {
+    const dbPayload = {
+      lead_email: record.lead_email,
+      lead_name: record.lead_name,
+      company_name: record.company_name,
+      hubspot_meeting_id: record.hubspot_meeting_id,
+      meeting_title: record.meeting_title,
+      meeting_status: record.meeting_status,
+      meeting_start_at: record.meeting_start_at,
+      meeting_end_at: record.meeting_end_at,
+      meet_url: record.meet_url,
+      scheduler_url: record.scheduler_url,
+      gemini_notes_raw: record.gemini_notes_raw,
+      gemini_summary: record.gemini_summary,
+      gemini_doc_url: record.gemini_doc_url,
+      agreed_monthly_orders: record.agreed_monthly_orders,
+      agreed_volume_m3: record.agreed_volume_m3,
+      source: record.source,
+      updated_at: nowIso
+    };
+    const { data: existingRows, error: checkErr } = await supabase
+      .from('lead_meetings')
+      .select('id')
+      .eq('lead_email', record.lead_email)
+      .order('meeting_start_at', { ascending: false })
+      .limit(1);
+
+    if (!checkErr) {
+      if (existingRows && existingRows.length > 0) {
+        await supabase.from('lead_meetings').update(dbPayload).eq('id', existingRows[0].id);
+      } else {
+        await supabase.from('lead_meetings').insert([dbPayload]);
+      }
+    }
+  } catch (dbErr) {
+    console.warn('Aviso: tabla lead_meetings aún no disponible o sin permisos, usando almacenamiento híbrido:', dbErr);
+  }
+
+  // 3. Actualizar automáticamente el estado del Lead en Central de Leads
+  const newLeadStatus = record.meeting_status === 'completed' ? 'reunion_realizada' : (record.meeting_status === 'scheduled' ? 'reunion_agendada' : null);
+  if (newLeadStatus && typeof window.updateLeadTrackingStatus === 'function') {
+    await window.updateLeadTrackingStatus(record.lead_email, newLeadStatus, null, { silent: true });
+  }
+
+  return record;
+};
+
+/**
+ * Sincroniza reuniones desde HubSpot API v3 + Puente Google Meet Gemini Notes
+ */
+window.syncHubSpotMeetingsNow = async function (options = {}) {
+  const cfg = window.getHubSpotMeetConfig();
+  const hubspotToken = (options.hubspotToken ?? cfg.hubspotToken ?? '').trim();
+  const googleMeetBridgeUrl = (options.googleMeetBridgeUrl ?? cfg.googleMeetBridgeUrl ?? '').trim();
+
+  if (!hubspotToken && !googleMeetBridgeUrl) {
+    throw new Error('Configura tu Private App Token de HubSpot (pat-na1-...) o la URL del puente de Google Calendar/Docs para sincronizar automáticamente.');
+  }
+
+  let meetings = [];
+  let syncedViaEdge = false;
+
+  // 1. Intentar vía Supabase Edge Function (lead-ai-agent)
+  try {
+    const { data, error } = await supabase.functions.invoke('lead-ai-agent', {
+      body: {
+        action: 'sync_hubspot_meetings',
+        hubspotToken,
+        googleMeetBridgeUrl
+      }
+    });
+
+    if (!error && data && !data.error && Array.isArray(data.meetings)) {
+      meetings = data.meetings;
+      syncedViaEdge = true;
+    } else if (data && data.error) {
+      throw new Error(data.error);
+    }
+  } catch (edgeErr) {
+    console.warn('Edge Function sync_hubspot_meetings no disponible o con error, activando fallback directo:', edgeErr);
+  }
+
+  // 2. Fallback vía Bridge Local (http://localhost:3099/sync-hubspot) o Puente Google Apps Script
+  if (!syncedViaEdge) {
+    // 2a. Intentar Bridge Local de desarrollo (localhost:3099) que consulta HubSpot CRM v3 sin bloqueo CORS
+    try {
+      const localRes = await fetch('http://localhost:3099/sync-hubspot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hubspotToken, googleMeetBridgeUrl })
+      });
+      const localData = await localRes.json();
+      if (!localRes.ok || localData?.error) {
+        throw new Error(localData?.error || `Error en Bridge Local (${localRes.status})`);
+      }
+      if (Array.isArray(localData?.meetings)) {
+        meetings = localData.meetings;
+        syncedViaEdge = true;
+      }
+    } catch (localErr) {
+      if (localErr.message && localErr.message.includes('HubSpot API')) {
+        throw localErr;
+      }
+      console.warn('Bridge local (3099) no disponible, probando puente Google Apps Script:', localErr);
+    }
+  }
+
+  if (!syncedViaEdge) {
+    if (googleMeetBridgeUrl) {
+      try {
+        const sep = googleMeetBridgeUrl.includes('?') ? '&' : '?';
+        const bridgeUrlWithToken = hubspotToken
+          ? `${googleMeetBridgeUrl}${sep}hubspotToken=${encodeURIComponent(hubspotToken)}`
+          : googleMeetBridgeUrl;
+        const bridgeRes = await fetch(bridgeUrlWithToken);
+        if (bridgeRes.ok) {
+          const bridgeJson = await bridgeRes.json();
+          if (Array.isArray(bridgeJson?.meetings)) {
+            meetings.push(...bridgeJson.meetings);
+            syncedViaEdge = true;
+          }
+        }
+      } catch (bErr) {
+        console.warn('Error consultando Google Meet Bridge URL en navegador:', bErr);
+      }
+    }
+
+    if (!syncedViaEdge) {
+      throw new Error('La función Edge "lead-ai-agent" aún no está desplegada en Supabase Cloud o debes recargar la página (Ctrl + F5) para conectar con el puente local de HubSpot.');
+    }
+  }
+
+  let savedCount = 0;
+
+  for (const m of meetings) {
+    if (!m.lead_email) continue;
+    await window.saveLeadMeetingData({
+      lead_email: m.lead_email,
+      lead_name: m.lead_name || '',
+      company_name: m.company_name || '',
+      hubspot_meeting_id: m.hubspot_meeting_id || null,
+      meeting_title: m.meeting_title || 'Reunión Comercial HubSpot',
+      meeting_status: m.meeting_status || 'scheduled',
+      meeting_start_at: m.meeting_start_at || new Date().toISOString(),
+      meeting_end_at: m.meeting_end_at || null,
+      meet_url: m.meet_url || '',
+      gemini_notes_raw: m.gemini_notes_raw || '',
+      gemini_doc_url: m.gemini_doc_url || '',
+      source: m.source || 'hubspot_sync'
+    });
+    savedCount++;
+  }
+
+  window.saveHubSpotMeetConfig({
+    hubspotToken,
+    googleMeetBridgeUrl,
+    lastSyncAt: new Date().toISOString()
+  });
+
+  if (typeof window.fetchUnifiedLeads === 'function') {
+    await window.fetchUnifiedLeads(true);
+  }
+  const tbody = document.getElementById('leads-admin-tbody');
+  if (tbody && typeof window.renderLeadsAdmin === 'function') {
+    window.renderLeadsAdmin();
+  }
+
+  return { count: savedCount, meetings };
+};
+
+/**
+ * Modal de Gestión de Reuniones HubSpot + Notas de Gemini en Google Meet
+ */
+window.openLeadMeetingModal = async function (encodedEmail = '') {
+  const targetEmail = encodedEmail ? decodeURIComponent(encodedEmail).trim().toLowerCase() : '';
+  const leads = await window.fetchUnifiedLeads();
+
+  // Separar prospectos que YA tienen reunión agendada/realizada de los que aún no tienen reunión
+  const leadsWithMeetings = leads
+    .filter(l => l.has_meeting || (Array.isArray(l.meetings) && l.meetings.length > 0))
+    .sort((a, b) => {
+      const da = new Date(a.latest_meeting?.meeting_start_at || 0).getTime();
+      const db = new Date(b.latest_meeting?.meeting_start_at || 0).getTime();
+      return db - da;
+    });
+  const leadsWithoutMeetings = leads.filter(l => !l.has_meeting && (!Array.isArray(l.meetings) || l.meetings.length === 0));
+
+  let selectedLead =
+    leads.find(l => (l.email || '').toLowerCase() === targetEmail) ||
+    leadsWithMeetings.find(l => l.meeting_completed) ||
+    leadsWithMeetings[0] ||
+    leads[0] ||
+    null;
+
+  const hsConfig = window.getHubSpotMeetConfig();
+
+  const existingOverlay = document.getElementById('lead-meeting-modal-overlay');
+  if (existingOverlay) existingOverlay.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'lead-meeting-modal-overlay';
+  overlay.style.cssText = 'position: fixed; inset: 0; background: rgba(15, 23, 42, 0.72); backdrop-filter: blur(4px); z-index: 10055; display: flex; align-items: center; justify-content: center; padding: 1.25rem; animation: fadeIn 0.18s ease;';
+
+  const formatDatetimeLocal = (isoStr) => {
+    try {
+      const d = isoStr ? new Date(isoStr) : new Date();
+      if (isNaN(d.getTime())) return '';
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    } catch (e) {
+      return '';
+    }
+  };
+
+  overlay.innerHTML = `
+    <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 16px; width: 100%; max-width: 960px; max-height: 92vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.45); overflow: hidden;">
+      
+      <!-- Header -->
+      <div style="padding: 1rem 1.4rem; background: linear-gradient(135deg, #065f46 0%, #059669 55%, #0d9488 100%); color: #ffffff; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 0.85rem;">
+          <div style="width: 42px; height: 42px; border-radius: 12px; background: rgba(255,255,255,0.18); display: flex; align-items: center; justify-content: center; font-size: 1.35rem;">
+            <i class="ri-calendar-check-fill"></i>
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <h3 style="margin: 0; font-size: 1.08rem; font-weight: 800; color: #ffffff;">HubSpot Meetings & Notas de Gemini en Google Meet</h3>
+              <span style="background: rgba(255,255,255,0.2); color: #ecfdf5; font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 12px;">
+                CONECTADO AL AGENTE COMERCIAL IA
+              </span>
+            </div>
+            <p style="margin: 2px 0 0 0; font-size: 0.78rem; color: rgba(255,255,255,0.9);">
+              Sincroniza reuniones agendadas en HubSpot, vincula el resumen de Gemini en Google Meet y genera la Propuesta Post-Reunión
+            </p>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <button type="button" id="btn-toggle-hubspot-sync-drawer" style="background: rgba(255,255,255,0.16); color: #ffffff; border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 0.4rem 0.75rem; font-size: 0.76rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-links-line"></i> Conexión Automática HubSpot / Meet
+          </button>
+          <button type="button" id="btn-close-lead-meeting-modal" style="background: rgba(255,255,255,0.15); border: none; color: #ffffff; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
+            <i class="ri-close-line"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Drawer de Configuración Automática HubSpot API + Google Meet Bridge -->
+      <div id="hubspot-sync-config-drawer" style="display: ${hsConfig.hubspotToken ? 'none' : 'block'}; background: #f0fdf4; border-bottom: 1px solid #bbf7d0; padding: 0.95rem 1.4rem;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.65rem;">
+          <div>
+            <div style="font-size: 0.82rem; font-weight: 800; color: #065f46; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-refresh-line"></i> Sincronización Automática con HubSpot CRM y Google Workspace (Meet / Docs)
+            </div>
+            <div style="font-size: 0.73rem; color: #047857; margin-top: 2px;">
+              Conecta tu Private App Token de HubSpot (con el permiso <code>crm.objects.contacts.read</code> —que en HubSpot incluye reuniones y notas— y opcionalmente <code>scheduler.meetings.meeting-link.read</code>).
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.4rem; align-items: center;">
+            ${hsConfig.lastSyncAt ? `<span style="font-size: 0.7rem; color: #059669; font-weight: 600;">Última sync: ${new Date(hsConfig.lastSyncAt).toLocaleString('es-CL')}</span>` : ''}
+            <button type="button" id="btn-copy-gas-bridge-script" class="btn btn-secondary btn-sm" style="height: 28px; padding: 0 0.65rem; font-size: 0.71rem; background: #ffffff; border: 1px solid #86efac; color: #065f46; font-weight: 700;">
+              <i class="ri-google-fill"></i> Copiar Script Puente Google Meet/Docs
+            </button>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1.2fr 1.2fr auto; gap: 0.6rem; align-items: end;">
+          <div>
+            <label style="display: block; font-size: 0.71rem; font-weight: 700; color: #065f46; margin-bottom: 3px;">
+              🔑 HubSpot Private App Token (<code>pat-na1-...</code>)
+            </label>
+            <input type="password" id="hs-config-token-input" class="form-input" value="${escapeHtml(hsConfig.hubspotToken || '')}" placeholder="pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="height: 34px; font-size: 0.78rem; background: #ffffff; font-family: monospace;">
+          </div>
+          <div>
+            <label style="display: block; font-size: 0.71rem; font-weight: 700; color: #065f46; margin-bottom: 3px;">
+              📄 URL Puente Google Apps Script (Opcional - Auto-importa "Notas de Gemini" de Google Drive/Calendar)
+            </label>
+            <input type="text" id="hs-config-bridge-input" class="form-input" value="${escapeHtml(hsConfig.googleMeetBridgeUrl || '')}" placeholder="https://script.google.com/macros/s/.../exec" style="height: 34px; font-size: 0.78rem; background: #ffffff;">
+          </div>
+          <div style="display: flex; gap: 0.4rem;">
+            <button type="button" id="btn-run-hubspot-sync-now" class="btn btn-primary btn-sm" style="height: 34px; padding: 0 0.9rem; background: #059669; border: none; font-size: 0.76rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-refresh-line"></i> Sincronizar HubSpot Ahora
+            </button>
+          </div>
+        </div>
+        <div id="hs-sync-status-msg" style="margin-top: 0.45rem; font-size: 0.73rem; font-weight: 600; display: none;"></div>
+      </div>
+
+      <!-- Body -->
+      <div style="padding: 1.2rem 1.4rem; overflow-y: auto; flex: 1; display: grid; grid-template-columns: 340px 1fr; gap: 1.15rem;">
+        
+        <!-- Columna Izquierda: Datos de la Reunión y Acuerdos -->
+        <div style="display: flex; flex-direction: column; gap: 0.8rem;">
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 0.95rem;">
+            <div style="font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: #059669; margin-bottom: 0.65rem; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-user-star-line"></i> 1. Prospecto & Estado de Reunión
+            </div>
+
+            <div style="margin-bottom: 0.65rem;">
+              <label style="display: block; font-size: 0.73rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 3px;">Prospecto (Lead):</label>
+              <select id="meeting-lead-selector" class="form-input" style="font-size: 0.8rem; padding: 0.35rem 0.6rem; height: 34px; font-weight: 600;">
+                ${leadsWithMeetings.length > 0 ? `
+                  <optgroup label="🎥 Prospectos con Reunión en HubSpot / Calendar (${leadsWithMeetings.length})">
+                    ${leadsWithMeetings.map(l => {
+                      const sel = selectedLead && l.email.toLowerCase() === selectedLead.email.toLowerCase() ? 'selected' : '';
+                      const mDate = l.latest_meeting?.meeting_start_at ? new Date(l.latest_meeting.meeting_start_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' }) : '';
+                      const tag = l.meeting_completed ? `🎥 Meet Realizado (${mDate})` : `📅 Agendada (${mDate})`;
+                      return `<option value="${encodeURIComponent(l.email)}" ${sel}>${escapeHtml(l.name || l.email)} ${l.company ? `(${escapeHtml(l.company)})` : ''} — ${tag}</option>`;
+                    }).join('')}
+                  </optgroup>
+                ` : ''}
+                <optgroup label="📋 Otros Prospectos sin reunión registrada (${leadsWithoutMeetings.length})">
+                  ${leadsWithoutMeetings.map(l => {
+                    const sel = selectedLead && l.email.toLowerCase() === selectedLead.email.toLowerCase() ? 'selected' : '';
+                    return `<option value="${encodeURIComponent(l.email)}" ${sel}>${escapeHtml(l.name || l.email)} ${l.company ? `(${escapeHtml(l.company)})` : ''}</option>`;
+                  }).join('')}
+                </optgroup>
+              </select>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.65rem;">
+              <div>
+                <label style="display: block; font-size: 0.72rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 3px;">Estado Reunión:</label>
+                <select id="meeting-status-select" class="form-input" style="font-size: 0.78rem; padding: 0.3rem 0.5rem; height: 34px; font-weight: 700;">
+                  <option value="scheduled">📅 Reunión Agendada</option>
+                  <option value="completed">🎥 Reunión Realizada (Meet)</option>
+                  <option value="rescheduled">🔄 Reagendada</option>
+                  <option value="no_show">⚠️ No asistió (No-Show)</option>
+                  <option value="canceled">❌ Cancelada</option>
+                </select>
+              </div>
+              <div>
+                <label style="display: block; font-size: 0.72rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 3px;">Fecha y Hora:</label>
+                <input type="datetime-local" id="meeting-datetime-input" class="form-input" style="font-size: 0.76rem; padding: 0.3rem 0.45rem; height: 34px;">
+              </div>
+            </div>
+
+            <div style="margin-bottom: 0.65rem;">
+              <label style="display: block; font-size: 0.72rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 3px;">Título de la Reunión:</label>
+              <input type="text" id="meeting-title-input" class="form-input" placeholder="Ej: Reunión Comercial Stocka + Ecommerce" style="font-size: 0.78rem; height: 32px;">
+            </div>
+
+            <div style="margin-bottom: 0.65rem;">
+              <label style="display: block; font-size: 0.72rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 3px;">Link Google Meet / HubSpot:</label>
+              <input type="text" id="meeting-url-input" class="form-input" placeholder="https://meet.google.com/xxx-xxxx-xxx" style="font-size: 0.76rem; height: 32px;">
+            </div>
+
+            <div>
+              <label style="display: block; font-size: 0.72rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 3px;">Link Documento Google Docs ("Notas de Gemini"):</label>
+              <div style="display: flex; gap: 0.35rem; align-items: center;">
+                <input type="text" id="meeting-doc-url-input" class="form-input" placeholder="https://docs.google.com/document/d/..." style="font-size: 0.75rem; height: 32px; flex: 1;">
+                <button type="button" id="btn-fetch-doc-notes-now" class="btn btn-secondary btn-sm" title="Extraer el contenido de este Google Doc a la caja de Notas de Gemini" style="height: 32px; padding: 0 0.6rem; font-size: 0.72rem; font-weight: 700; color: #059669; border-color: rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.08); white-space: nowrap;">
+                  <i class="ri-download-cloud-2-line"></i> Extraer Doc
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Parámetros Logísticos Acordados en la Reunión (Opcionales para ajustar la cotización post-meet) -->
+          <div style="background: rgba(94, 23, 235, 0.04); border: 1px solid rgba(94, 23, 235, 0.22); border-radius: 12px; padding: 0.9rem;">
+            <div style="font-size: 0.74rem; font-weight: 800; color: #5e17eb; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-calculator-line"></i> 2. Volumen Conversado en Reunión (Opcional)
+            </div>
+            <p style="margin: 0 0 0.6rem 0; font-size: 0.71rem; color: var(--color-text-muted); line-height: 1.35;">
+              Si en la reunión el cliente indicó un volumen distinto al que cotizó en la web, ingrésalo aquí para que el Agente IA recalcule su tramo automáticamente:
+            </p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+              <div>
+                <label style="display: block; font-size: 0.7rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 2px;">📦 Pedidos / Mes Reales:</label>
+                <input type="number" id="meeting-agreed-orders-input" class="form-input" min="0" step="1" placeholder="Ej: 250" style="font-size: 0.78rem; height: 32px;">
+              </div>
+              <div>
+                <label style="display: block; font-size: 0.7rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 2px;">📐 Bodegaje Real (m³):</label>
+                <input type="number" id="meeting-agreed-m3-input" class="form-input" min="0" step="0.5" placeholder="Ej: 4" style="font-size: 0.78rem; height: 32px;">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Columna Derecha: Notas Generadas por Gemini en Google Meet -->
+        <div style="display: flex; flex-direction: column; background: var(--color-surface); border: 1.5px solid rgba(16, 185, 129, 0.35); border-radius: 12px; padding: 1rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
+            <div>
+              <div style="font-size: 0.85rem; font-weight: 800; color: #065f46; display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-sparkling-2-fill" style="color: #059669;"></i> 3. Notas de la Reunión generadas por Gemini (Google Meet)
+              </div>
+              <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 2px;">
+                Pega aquí el resumen o transcripción que genera Gemini al finalizar el Google Meet (o sincronízalo desde HubSpot / Google Docs).
+              </div>
+            </div>
+            <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
+              <button type="button" id="btn-auto-find-gemini-notes" class="lead-rte-btn" style="font-size: 0.72rem; color: #ffffff; border-color: #059669; background: #059669; font-weight: 700; padding: 4px 9px;">
+                <i class="ri-search-eye-line"></i> Buscar Notas en Google Drive / Calendar
+              </button>
+              <button type="button" id="btn-insert-sample-gemini-notes" class="lead-rte-btn" style="font-size: 0.71rem; color: #059669; border-color: rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.06); font-weight: 700;">
+                <i class="ri-file-text-line"></i> Insertar Estructura Guía
+              </button>
+            </div>
+          </div>
+
+          <textarea id="meeting-gemini-notes-textarea" class="form-input" placeholder="Pega aquí las Notas de Gemini en Google Meet...&#10;&#10;Ejemplo de lo que genera Gemini en Meet:&#10;• Resumen de la reunión: Conversamos sobre la operación actual del ecommerce en Shopify...&#10;• Dolores o consultas del cliente: Necesitan despacho Same Day en RM con corte a las 13:00 hrs y control de inventario en tiempo real...&#10;• Acuerdos y próximos pasos: Enviar cotización ajustada a Tramo 300 pedidos/mes y formulario E1 para iniciar recepción en bodega la próxima semana." style="flex: 1; min-height: 270px; font-size: 0.82rem; line-height: 1.55; padding: 0.85rem; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 10px; resize: vertical;"></textarea>
+
+          <div style="margin-top: 0.65rem; padding: 0.6rem 0.8rem; background: rgba(94, 23, 235, 0.05); border: 1px solid rgba(94, 23, 235, 0.2); border-radius: 8px; font-size: 0.74rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.55rem;">
+            <i class="ri-robot-2-fill" style="color: #5e17eb; font-size: 1.15rem; flex-shrink: 0;"></i>
+            <div>
+              <strong>¿Qué hará el Agente Comercial IA con estas notas?</strong> Analizará los puntos conversados en el Meet, cruzará los volúmenes acordados con la tarifa oficial de Stocka y redactará el <strong>Correo y WhatsApp de Recap Post-Reunión + Propuesta Formal</strong> listos para enviar.
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Footer -->
+      <div style="padding: 0.9rem 1.4rem; background: var(--color-surface); border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.4rem;">
+          <i class="ri-calendar-event-line" style="color: #059669;"></i>
+          <span>Agendador oficial: <a href="${escapeHtml(hsConfig.hubspotSchedulerUrl)}" target="_blank" style="color: #059669; font-weight: 700; text-decoration: underline;">meetings.hubspot.com/stocka</a></span>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+          <button type="button" id="btn-save-meeting-only" class="btn btn-secondary btn-sm" style="height: 36px; padding: 0 0.95rem; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-save-3-line"></i> Guardar Reunión / Notas
+          </button>
+          <button type="button" id="btn-save-and-open-agent-post-meet" class="btn btn-primary btn-sm" style="height: 36px; padding: 0 1.15rem; background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; font-size: 0.82rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.45rem; box-shadow: 0 4px 12px rgba(94, 23, 235, 0.28);">
+            <i class="ri-sparkling-2-fill"></i> Guardar y Generar Propuesta Post-Reunión con Agente IA →
+          </button>
+        </div>
+      </div>
+
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const closeModal = () => overlay.remove();
+  document.getElementById('btn-close-lead-meeting-modal')?.addEventListener('click', closeModal);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeModal();
+  });
+
+  // Rellenar campos según el lead seleccionado
+  const populateFieldsForLead = (leadObj) => {
+    if (!leadObj) return;
+    const latest = leadObj.latest_meeting || null;
+    const statusEl = document.getElementById('meeting-status-select');
+    const dtEl = document.getElementById('meeting-datetime-input');
+    const titleEl = document.getElementById('meeting-title-input');
+    const urlEl = document.getElementById('meeting-url-input');
+    const docUrlEl = document.getElementById('meeting-doc-url-input');
+    const ordersEl = document.getElementById('meeting-agreed-orders-input');
+    const m3El = document.getElementById('meeting-agreed-m3-input');
+    const notesEl = document.getElementById('meeting-gemini-notes-textarea');
+
+    if (latest) {
+      const cleanedNotes = window.cleanHubSpotInviteBoilerplate(latest.gemini_notes_raw || latest.gemini_summary || '');
+      if (statusEl) statusEl.value = latest.meeting_status || (cleanedNotes ? 'completed' : 'scheduled');
+      if (dtEl) dtEl.value = formatDatetimeLocal(latest.meeting_start_at || latest.created_at);
+      if (titleEl) titleEl.value = latest.meeting_title || `Reunión Comercial Stocka + ${leadObj.company || leadObj.name || ''}`;
+      if (urlEl) urlEl.value = latest.meet_url || '';
+      if (docUrlEl) docUrlEl.value = latest.gemini_doc_url || '';
+      if (ordersEl) ordersEl.value = latest.agreed_monthly_orders || leadObj.latest_orders || '';
+      if (m3El) m3El.value = latest.agreed_volume_m3 || leadObj.latest_m3 || '';
+      if (notesEl) notesEl.value = cleanedNotes;
+    } else {
+      if (statusEl) statusEl.value = 'completed';
+      if (dtEl) dtEl.value = formatDatetimeLocal(new Date().toISOString());
+      if (titleEl) titleEl.value = `Reunión Comercial Stocka + ${leadObj.company || leadObj.name || leadObj.email}`;
+      if (urlEl) urlEl.value = '';
+      if (docUrlEl) docUrlEl.value = '';
+      if (ordersEl) ordersEl.value = leadObj.latest_orders || '';
+      if (m3El) m3El.value = leadObj.latest_m3 || '';
+      if (notesEl) notesEl.value = '';
+    }
+  };
+
+  populateFieldsForLead(selectedLead);
+
+  const leadSelectEl = document.getElementById('meeting-lead-selector');
+  leadSelectEl?.addEventListener('change', () => {
+    const emailVal = decodeURIComponent(leadSelectEl.value).trim().toLowerCase();
+    const found = leads.find(l => (l.email || '').toLowerCase() === emailVal);
+    if (found) {
+      selectedLead = found;
+      populateFieldsForLead(found);
+    }
+  });
+
+  // Botón para extraer contenido directo desde un link de Google Docs ("Notas de Gemini")
+  const btnFetchDocNotes = document.getElementById('btn-fetch-doc-notes-now');
+  btnFetchDocNotes?.addEventListener('click', async () => {
+    const docUrlEl = document.getElementById('meeting-doc-url-input');
+    const rawUrl = (docUrlEl?.value || '').trim();
+    const match = rawUrl.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
+    if (!match || !match[1]) {
+      alert('Pega primero el enlace del documento de Google Docs (ej: https://docs.google.com/document/d/...) en el campo "Link Documento Google Docs".');
+      docUrlEl?.focus();
+      return;
+    }
+    const docId = match[1];
+    const cfg = window.getHubSpotMeetConfig();
+    const bridgeUrl = (document.getElementById('hs-config-bridge-input')?.value || cfg.googleMeetBridgeUrl || '').trim();
+
+    const origHtml = btnFetchDocNotes.innerHTML;
+    btnFetchDocNotes.disabled = true;
+    btnFetchDocNotes.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Leyendo...';
+
+    try {
+      let extractedText = '';
+      if (bridgeUrl) {
+        const sep = bridgeUrl.includes('?') ? '&' : '?';
+        const res = await fetch(`${bridgeUrl}${sep}docId=${encodeURIComponent(docId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.text) extractedText = data.text.trim();
+        }
+      }
+      if (!extractedText) {
+        const expRes = await fetch(`https://docs.google.com/document/d/${docId}/export?format=txt`);
+        if (expRes.ok) {
+          extractedText = (await expRes.text()).trim();
+        }
+      }
+
+      if (extractedText && !extractedText.startsWith('<!DOCTYPE html')) {
+        const notesEl = document.getElementById('meeting-gemini-notes-textarea');
+        if (notesEl) notesEl.value = extractedText;
+        const statusEl = document.getElementById('meeting-status-select');
+        if (statusEl) statusEl.value = 'completed';
+        if (typeof window.showNotification === 'function') {
+          window.showNotification('Notas de Gemini extraídas exitosamente desde Google Docs.', 'success');
+        }
+      } else {
+        alert('Para leer documentos privados de Google Docs automáticamente, actualiza el código de tu Google Apps Script con el botón "Copiar Script Puente Google Meet/Docs", o bien copia y pega el texto del documento directamente en la caja derecha.');
+      }
+    } catch (err) {
+      alert('No se pudo leer el documento directamente (puede ser privado). Copia y pega el resumen de Gemini en la caja derecha o actualiza tu Script Puente.');
+    } finally {
+      btnFetchDocNotes.disabled = false;
+      btnFetchDocNotes.innerHTML = origHtml;
+    }
+  });
+
+  // Auto-cambiar estado a "completed" cuando se pegan notas de Gemini
+  const notesTextarea = document.getElementById('meeting-gemini-notes-textarea');
+  notesTextarea?.addEventListener('input', () => {
+    const statusEl = document.getElementById('meeting-status-select');
+    if (notesTextarea.value.trim().length > 20 && statusEl && statusEl.value === 'scheduled') {
+      statusEl.value = 'completed';
+    }
+  });
+
+  // Insertar estructura guía de Notas de Gemini
+  document.getElementById('btn-insert-sample-gemini-notes')?.addEventListener('click', () => {
+    if (!notesTextarea) return;
+    const companyLabel = selectedLead?.company || selectedLead?.name || 'el cliente';
+    const template = `📋 RESUMEN DE GEMINI (GOOGLE MEET) - ${companyLabel.toUpperCase()}:\n` +
+      `• Contexto actual: Venden por canal online (Shopify / WooCommerce / MercadoLibre) y buscan externalizar su operación de bodega y fulfillment para escalar ventas.\n` +
+      `• Volumen proyectado conversado en reunión: ${selectedLead?.latest_orders || 150} pedidos mensuales y ${selectedLead?.latest_m3 || 2} m³ de almacenamiento.\n` +
+      `• Consultas clave abordadas en el Meet:\n` +
+      `  1. Integración nativa con su tienda online y sincronización de stock en tiempo real.\n` +
+      `  2. Tarifas de despacho Same Day en Región Metropolitana y envíos a regiones.\n` +
+      `  3. Proceso de recepción inicial de mercadería (Formulario E1).\n` +
+      `• Próximos pasos acordados: Enviar cotización actualizada con el detalle conversado y coordinar el ingreso de inventario.`;
+    notesTextarea.value = notesTextarea.value.trim() ? `${notesTextarea.value.trim()}\n\n${template}` : template;
+    const statusEl = document.getElementById('meeting-status-select');
+    if (statusEl) statusEl.value = 'completed';
+    notesTextarea.focus();
+  });
+
+  // Botón para buscar automáticamente las Notas de Gemini del prospecto seleccionado en Google Drive / Calendar
+  const btnAutoFindNotes = document.getElementById('btn-auto-find-gemini-notes');
+  btnAutoFindNotes?.addEventListener('click', async () => {
+    if (!selectedLead) return;
+    const cfg = window.getHubSpotMeetConfig();
+    const bridgeInput = document.getElementById('hs-config-bridge-input');
+    const bridgeUrl = (bridgeInput?.value || cfg.googleMeetBridgeUrl || '').trim();
+    if (!bridgeUrl) {
+      const drawer = document.getElementById('hubspot-sync-config-drawer');
+      if (drawer) drawer.style.display = 'block';
+      alert('Pega primero la URL de tu Google Apps Script en el campo "URL Puente Google Apps Script" para que el sistema pueda buscar en tu Google Drive / Calendar.');
+      return;
+    }
+
+    window.saveHubSpotMeetConfig({ googleMeetBridgeUrl: bridgeUrl });
+
+    const origHtml = btnAutoFindNotes.innerHTML;
+    btnAutoFindNotes.disabled = true;
+    btnAutoFindNotes.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Buscando en Drive/Calendar...';
+
+    try {
+      const dtVal = document.getElementById('meeting-datetime-input')?.value || '';
+      let data = null;
+
+      // Intentar vía bridge local (registra diagnóstico detallado) y fallback directo
+      try {
+        const localRes = await fetch('http://localhost:3099/find-gemini-notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bridgeUrl,
+            leadEmail: selectedLead.email || '',
+            leadName: selectedLead.name || '',
+            companyName: selectedLead.company || '',
+            meetingDate: dtVal
+          })
+        });
+        if (localRes.ok) {
+          data = await localRes.json();
+        }
+      } catch (e) {}
+
+      if (!data) {
+        const sep = bridgeUrl.includes('?') ? '&' : '?';
+        const targetUrl = `${bridgeUrl}${sep}leadEmail=${encodeURIComponent(selectedLead.email || '')}&leadName=${encodeURIComponent(selectedLead.name || '')}&companyName=${encodeURIComponent(selectedLead.company || '')}&meetingDate=${encodeURIComponent(dtVal)}&_t=${Date.now()}`;
+        const res = await fetch(targetUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        data = await res.json();
+      }
+
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+
+      const meetingsList = Array.isArray(data?.meetings) ? data.meetings : [];
+      const matched = data?.matchedDoc
+        || meetingsList.find(m => (m.lead_email || '').toLowerCase() === (selectedLead.email || '').toLowerCase() && m.gemini_notes_raw)
+        || meetingsList.find(m => (m.lead_email || '').toLowerCase() === (selectedLead.email || '').toLowerCase());
+
+      let cleaned = window.cleanHubSpotInviteBoilerplate(matched?.gemini_notes_raw || matched?.text || '');
+      let foundDocUrl = matched?.gemini_doc_url || matched?.url || '';
+      let foundMeetUrl = matched?.meet_url || '';
+
+      // Si no vino directo pero el script devolvió recentDocs de Google Drive, buscar por fecha de la reunión
+      const recentDocs = Array.isArray(data?.recentDocs) ? data.recentDocs : [];
+      if (!cleaned && recentDocs.length > 0 && dtVal) {
+        const targetDateObj = new Date(dtVal);
+        const y = targetDateObj.getFullYear();
+        const m = String(targetDateObj.getMonth() + 1).padStart(2, '0');
+        const d = String(targetDateObj.getDate()).padStart(2, '0');
+        const dateSlash = `${y}/${m}/${d}`;
+        const dateDash = `${y}-${m}-${d}`;
+
+        const candidate = recentDocs.find(doc =>
+          (doc.title || '').includes(dateSlash) ||
+          (doc.title || '').includes(dateDash) ||
+          Math.abs(new Date(doc.created).getTime() - targetDateObj.getTime()) <= 12 * 3600 * 1000
+        );
+
+        if (candidate && candidate.id) {
+          const sep = bridgeUrl.includes('?') ? '&' : '?';
+          const docRes = await fetch(`${bridgeUrl}${sep}docId=${encodeURIComponent(candidate.id)}`);
+          if (docRes.ok) {
+            const docJson = await docRes.json();
+            cleaned = window.cleanHubSpotInviteBoilerplate(docJson?.text || '');
+            foundDocUrl = candidate.url || foundDocUrl;
+          }
+        }
+      }
+
+      if (cleaned) {
+        const notesEl = document.getElementById('meeting-gemini-notes-textarea');
+        const docUrlEl = document.getElementById('meeting-doc-url-input');
+        const meetUrlEl = document.getElementById('meeting-url-input');
+        const statusEl = document.getElementById('meeting-status-select');
+        if (notesEl) notesEl.value = cleaned;
+        if (docUrlEl && foundDocUrl) docUrlEl.value = foundDocUrl;
+        if (meetUrlEl && foundMeetUrl && !meetUrlEl.value) meetUrlEl.value = foundMeetUrl;
+        if (statusEl) statusEl.value = 'completed';
+        if (typeof window.showNotification === 'function') {
+          window.showNotification('¡Notas de Gemini encontradas y cargadas automáticamente desde tu Google Drive / Calendar!', 'success');
+        }
+      } else if (!data?.version) {
+        const drawer = document.getElementById('hubspot-sync-config-drawer');
+        if (drawer) drawer.style.display = 'block';
+        bridgeInput?.focus();
+        alert('¡Atención! La URL "/exec" que está guardada en Stocka sigue ejecutando la versión 1 del script.\n\nSolución rápida:\n1. En Google Apps Script haz clic en "Implementar > Nueva implementación > Implementar".\n2. COPIA la nueva URL terminada en "/exec" que te entrega Google.\n3. Pégala aquí arriba en el campo "URL Puente Google Apps Script".');
+      } else if (data?.driveError) {
+        alert(`⚠️ Google Drive reportó en tu Script Puente:\n"${data.driveError}"\n\nCómo solucionarlo en 15 segundos:\n1. Ve a tu pestaña de script.google.com.\n2. Arriba en la barra del código, haz clic en el botón "▷ Ejecutar" y acepta el permiso de Google Drive.\n3. Luego dale a "Implementar > Administrar implementaciones > Editar (lápiz) > Versión: Nueva versión > Implementar".`);
+      } else {
+        const hasMeetingRegistered = selectedLead?.has_meeting || (Array.isArray(selectedLead?.meetings) && selectedLead.meetings.length > 0);
+        const leadWarning = !hasMeetingRegistered
+          ? `\n\nNota: El prospecto seleccionado (${selectedLead.name || selectedLead.email}) NO tiene ninguna reunión registrada en tu Google Calendar ni en HubSpot. Selecciona arriba en "1. Prospecto (Lead)" a uno de los prospectos del grupo "🎥 Prospectos con Reunión".`
+          : '';
+        const docsSummary = recentDocs.length > 0
+          ? `\n\nDocumentos encontrados en tu Google Drive (${recentDocs.length}):\n` + recentDocs.slice(0, 8).map(d => `• ${d.title}`).join('\n')
+          : '\n\nNo se encontraron documentos de Google Docs en el Google Drive de la cuenta stockachile@gmail.com (verifica si las Notas de Gemini se guardan en el Drive de otra cuenta de correo o actualiza el Script a v4).';
+        alert(`No se encontró un documento de "Notas de Gemini" para la fecha ${dtVal || 'seleccionada'}.${leadWarning}${docsSummary}`);
+      }
+    } catch (err) {
+      alert('Error al consultar el puente de Google Workspace: ' + (err.message || err));
+    } finally {
+      btnAutoFindNotes.disabled = false;
+      btnAutoFindNotes.innerHTML = origHtml;
+    }
+  });
+
+  // Toggle drawer de conexión HubSpot
+  document.getElementById('btn-toggle-hubspot-sync-drawer')?.addEventListener('click', () => {
+    const drawer = document.getElementById('hubspot-sync-config-drawer');
+    if (drawer) {
+      drawer.style.display = drawer.style.display === 'none' ? 'block' : 'none';
+    }
+  });
+
+  // Copiar Script Puente Google Apps Script para auto-importar Notas de Gemini de Google Calendar/Docs
+  document.getElementById('btn-copy-gas-bridge-script')?.addEventListener('click', () => {
+    const gasCode = [
+      '// ============================================================================',
+      '// PUENTE GOOGLE WORKSPACE v4 (CALENDAR + GOOGLE DRIVE GEMINI DOCS) -> STOCKA',
+      '// 1. Pega este código en script.google.com y guarda (Ctrl+S)',
+      '// 2. Haz clic en "▷ Ejecutar" arriba para autorizar Google Drive',
+      '// 3. Ve a "Implementar" > "Nueva implementación" > "Implementar" y copia la URL /exec',
+      '// ============================================================================',
+      'function doGet(e) {',
+      '  if (e && e.parameter && e.parameter.docId) {',
+      '    try {',
+      '      var doc = DocumentApp.openById(e.parameter.docId);',
+      '      return ContentService.createTextOutput(JSON.stringify({ ok: true, version: "v4", text: doc.getBody().getText(), url: doc.getUrl() })).setMimeType(ContentService.MimeType.JSON);',
+      '    } catch (err) {',
+      '      return ContentService.createTextOutput(JSON.stringify({ ok: false, version: "v4", error: err.message })).setMimeType(ContentService.MimeType.JSON);',
+      '    }',
+      '  }',
+      '',
+      '  var now = new Date();',
+      '  var past = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);',
+      '  var future = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);',
+      '',
+      '  var recentDocs = [];',
+      '  var driveError = "";',
+      '  try {',
+      '    var q = \'title contains "Notas" or title contains "Gemini" or title contains "Notes" or title contains "Servicios Stocka"\';',
+      '    var files = DriveApp.searchFiles(q);',
+      '    var count = 0;',
+      '    while (files.hasNext() && count < 60) {',
+      '      var f = files.next();',
+      '      count++;',
+      '      recentDocs.push({ id: f.getId(), title: f.getName(), url: f.getUrl(), created: f.getDateCreated().toISOString() });',
+      '    }',
+      '    if (recentDocs.length === 0) {',
+      '      var allDocs = DriveApp.getFilesByType(MimeType.GOOGLE_DOCS);',
+      '      var c2 = 0;',
+      '      while (allDocs.hasNext() && c2 < 40) {',
+      '        var f2 = allDocs.next();',
+      '        c2++;',
+      '        recentDocs.push({ id: f2.getId(), title: f2.getName(), url: f2.getUrl(), created: f2.getDateCreated().toISOString() });',
+      '      }',
+      '    }',
+      '  } catch (dErr) {',
+      '    driveError = dErr.message || String(dErr);',
+      '  }',
+      '',
+      '  var findBestDocForDateAndTitle = function(targetDate, title, guestName) {',
+      '    if (!targetDate || recentDocs.length === 0) return null;',
+      '    var y = targetDate.getFullYear();',
+      '    var m = ("0" + (targetDate.getMonth() + 1)).slice(-2);',
+      '    var d = ("0" + targetDate.getDate()).slice(-2);',
+      '    var dateSlash = y + "/" + m + "/" + d;',
+      '    var dateDash = y + "-" + m + "-" + d;',
+      '    var bestDoc = null;',
+      '    var bestDiff = 999999999999;',
+      '    for (var j = 0; j < recentDocs.length; j++) {',
+      '      var rd = recentDocs[j];',
+      '      var tLower = (rd.title || "").toLowerCase();',
+      '      var createdTime = new Date(rd.created);',
+      '      var diffMs = Math.abs(createdTime.getTime() - targetDate.getTime());',
+      '      var hasDateInTitle = rd.title.indexOf(dateSlash) !== -1 || rd.title.indexOf(dateDash) !== -1;',
+      '      var hasGuest = guestName && guestName.length > 3 && tLower.indexOf(guestName.toLowerCase()) !== -1;',
+      '      var isCloseInTime = diffMs <= 14 * 3600 * 1000;',
+      '      if ((hasDateInTitle || hasGuest || isCloseInTime) && diffMs < bestDiff) {',
+      '        bestDiff = diffMs;',
+      '        bestDoc = rd;',
+      '      }',
+      '    }',
+      '    return bestDoc;',
+      '  };',
+      '',
+      '  var matchedDoc = null;',
+      '  if (e && e.parameter && e.parameter.meetingDate) {',
+      '    var reqDate = new Date(e.parameter.meetingDate);',
+      '    if (!isNaN(reqDate.getTime())) {',
+      '      var found = findBestDocForDateAndTitle(reqDate, "", e.parameter.leadName || "");',
+      '      if (found) {',
+      '        try {',
+      '          var txt = DocumentApp.openById(found.id).getBody().getText();',
+      '          matchedDoc = { id: found.id, title: found.title, url: found.url, text: txt };',
+      '        } catch (err) {}',
+      '      }',
+      '    }',
+      '  }',
+      '',
+      '  var events = CalendarApp.getDefaultCalendar().getEvents(past, future);',
+      '  var meetings = [];',
+      '  for (var i = 0; i < events.length; i++) {',
+      '    var ev = events[i];',
+      '    var guests = ev.getGuestList();',
+      '    if (!guests || guests.length === 0) continue;',
+      '    var title = ev.getTitle() || "";',
+      '    var desc = ev.getDescription() || "";',
+      '    var startTime = ev.getStartTime();',
+      '    var isCanceled = title.toLowerCase().indexOf("cancelado:") === 0 || title.toLowerCase().indexOf("canceled:") === 0;',
+      '    var geminiNotes = "";',
+      '    var docUrl = "";',
+      '',
+      '    var docMatch = desc.match(/https:\\/\\/docs\\.google\\.com\\/document\\/d\\/([a-zA-Z0-9_-]+)/);',
+      '    if (docMatch && docMatch[1]) {',
+      '      docUrl = docMatch[0];',
+      '      try { geminiNotes = DocumentApp.openById(docMatch[1]).getBody().getText(); } catch (err) {}',
+      '    }',
+      '    if (!geminiNotes && !isCanceled) {',
+      '      var bDoc = findBestDocForDateAndTitle(startTime, title, guests[0].getName() || "");',
+      '      if (bDoc) {',
+      '        docUrl = bDoc.url;',
+      '        try { geminiNotes = DocumentApp.openById(bDoc.id).getBody().getText(); } catch (err) {}',
+      '      }',
+      '    }',
+      '    for (var g = 0; g < guests.length; g++) {',
+      '      var email = (guests[g].getEmail() || "").toLowerCase();',
+      '      if (!email || email.indexOf("stocka") !== -1) continue;',
+      '      meetings.push({',
+      '        lead_email: email,',
+      '        lead_name: guests[g].getName() || "",',
+      '        meeting_title: title,',
+      '        meeting_start_at: startTime.toISOString(),',
+      '        meeting_end_at: ev.getEndTime().toISOString(),',
+      '        meeting_status: isCanceled ? "canceled" : ((ev.getEndTime() < now || geminiNotes) ? "completed" : "scheduled"),',
+      '        gemini_notes_raw: geminiNotes,',
+      '        gemini_doc_url: docUrl,',
+      '        source: "google_calendar_gemini"',
+      '      });',
+      '    }',
+      '  }',
+      '  return ContentService.createTextOutput(JSON.stringify({ version: "v4", driveError: driveError, matchedDoc: matchedDoc, recentDocs: recentDocs, meetings: meetings })).setMimeType(ContentService.MimeType.JSON);',
+      '}'
+    ].join('\n');
+
+    navigator.clipboard.writeText(gasCode);
+    if (typeof window.showNotification === 'function') {
+      window.showNotification('Código Google Apps Script copiado al portapapeles. Pégalo en script.google.com para lectura automática de Google Docs / Meet.', 'success');
+    } else {
+      alert('Código Google Apps Script copiado al portapapeles.');
+    }
+  });
+
+  // Botón Sincronizar HubSpot Ahora
+  const btnSyncNow = document.getElementById('btn-run-hubspot-sync-now');
+  btnSyncNow?.addEventListener('click', async () => {
+    const tokenInput = document.getElementById('hs-config-token-input');
+    const bridgeInput = document.getElementById('hs-config-bridge-input');
+    const statusMsg = document.getElementById('hs-sync-status-msg');
+    const hubspotToken = tokenInput?.value.trim() || '';
+    const googleMeetBridgeUrl = bridgeInput?.value.trim() || '';
+
+    window.saveHubSpotMeetConfig({ hubspotToken, googleMeetBridgeUrl });
+
+    if (statusMsg) {
+      statusMsg.style.display = 'block';
+      statusMsg.style.color = '#047857';
+      statusMsg.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Conectando con HubSpot CRM y puente de Google Meet...';
+    }
+    btnSyncNow.disabled = true;
+
+    try {
+      const res = await window.syncHubSpotMeetingsNow({ hubspotToken, googleMeetBridgeUrl });
+      if (statusMsg) {
+        statusMsg.style.color = '#059669';
+        statusMsg.innerHTML = `✅ Sincronización completada: ${res.count} reunión(es) vinculada(s) con la Central de Leads.`;
+      }
+      if (typeof window.showNotification === 'function') {
+        window.showNotification(`Sincronización exitosa: ${res.count} reuniones actualizadas.`, 'success');
+      }
+    } catch (err) {
+      if (statusMsg) {
+        statusMsg.style.color = '#dc2626';
+        statusMsg.innerHTML = `⚠️ ${escapeHtml(err.message || 'Error al sincronizar con HubSpot.')}`;
+      }
+    } finally {
+      btnSyncNow.disabled = false;
+    }
+  });
+
+  // Función auxiliar para recolectar y guardar los datos del formulario
+  const collectAndSaveMeeting = async () => {
+    if (!selectedLead) throw new Error('Selecciona un prospecto.');
+    const statusVal = document.getElementById('meeting-status-select')?.value || 'scheduled';
+    const dtVal = document.getElementById('meeting-datetime-input')?.value;
+    const titleVal = document.getElementById('meeting-title-input')?.value.trim() || '';
+    const urlVal = document.getElementById('meeting-url-input')?.value.trim() || '';
+    const docUrlVal = document.getElementById('meeting-doc-url-input')?.value.trim() || '';
+    const ordersVal = document.getElementById('meeting-agreed-orders-input')?.value;
+    const m3Val = document.getElementById('meeting-agreed-m3-input')?.value;
+    const notesVal = document.getElementById('meeting-gemini-notes-textarea')?.value.trim() || '';
+
+    const saved = await window.saveLeadMeetingData({
+      id: selectedLead.latest_meeting?.id,
+      lead_email: selectedLead.email,
+      lead_name: selectedLead.name || '',
+      company_name: selectedLead.company || '',
+      meeting_status: notesVal && statusVal === 'scheduled' ? 'completed' : statusVal,
+      meeting_start_at: dtVal ? new Date(dtVal).toISOString() : new Date().toISOString(),
+      meeting_title: titleVal,
+      meet_url: urlVal,
+      gemini_doc_url: docUrlVal,
+      agreed_monthly_orders: ordersVal ? Number(ordersVal) : null,
+      agreed_volume_m3: m3Val ? Number(m3Val) : null,
+      gemini_notes_raw: notesVal,
+      source: 'manual_or_gemini'
+    });
+
+    await window.fetchUnifiedLeads(true);
+    const tbody = document.getElementById('leads-admin-tbody');
+    if (tbody && typeof window.renderLeadsAdmin === 'function') {
+      window.renderLeadsAdmin();
+    }
+    return saved;
+  };
+
+  // Botón Solo Guardar
+  document.getElementById('btn-save-meeting-only')?.addEventListener('click', async () => {
+    try {
+      await collectAndSaveMeeting();
+      if (typeof window.showNotification === 'function') {
+        window.showNotification('Reunión y Notas de Gemini guardadas en la ficha del prospecto.', 'success');
+      }
+      closeModal();
+    } catch (err) {
+      alert(err.message || 'Error al guardar la reunión.');
+    }
+  });
+
+  // Botón Guardar y Abrir Agente Comercial IA en modo Post-Reunión
+  document.getElementById('btn-save-and-open-agent-post-meet')?.addEventListener('click', async () => {
+    try {
+      const saved = await collectAndSaveMeeting();
+      closeModal();
+      window.openLeadAgentModal(encodeURIComponent(saved.lead_email), 'post_reunion');
+    } catch (err) {
+      alert(err.message || 'Error al guardar y abrir el Agente IA.');
+    }
+  });
 };
 
 // Manejo de eventos delegados para cambios de rol y comercios asignados
@@ -44306,6 +48009,602 @@ window.triggerDashboardManualOrdersStoxWA = async function(btn) {
   }
 };
 
+
+// ============================================================================
+// CENTRO DE MENSAJES STOX DESDE TORRE DE CONTROL (CON REENVÍO DE RESPUESTA A GRUPO WA)
+// ============================================================================
+window._stoxTrackedGroupsCache = null;
+
+window.extractOrderContactInfoForStox = function(order) {
+  if (!order) {
+    return {
+      orderId: '',
+      orderNumber: '',
+      comercio: '',
+      contactName: '',
+      phone: '',
+      shippingAddress: '',
+      shippingCity: ''
+    };
+  }
+
+  let displayName = order.customer_name || '';
+  if (!displayName || displayName === 'No registrado' || displayName === 'Cliente Jumpseller') {
+    if (order.raw_shopify_data) {
+      const b = order.raw_shopify_data.billing_address;
+      const c = order.raw_shopify_data.customer;
+      if (b) displayName = `${b.first_name || ''} ${b.last_name || ''}`.trim();
+      else if (c) displayName = `${c.first_name || ''} ${c.last_name || ''}`.trim();
+    } else if (order.raw_jumpseller_data) {
+      const r = order.raw_jumpseller_data;
+      displayName = r.customer?.fullname || [r.shipping_address?.name, r.shipping_address?.surname].filter(Boolean).join(' ').trim() || displayName;
+    }
+  }
+
+  let displayPhone = order.customer_phone || '';
+  if (!displayPhone || displayPhone === 'No registrado') {
+    if (order.raw_shopify_data) {
+      displayPhone = order.raw_shopify_data.shipping_address?.phone || order.raw_shopify_data.billing_address?.phone || order.raw_shopify_data.customer?.phone || '';
+    } else if (order.raw_jumpseller_data) {
+      displayPhone = order.raw_jumpseller_data.customer?.phone || order.raw_jumpseller_data.shipping_address?.phone || '';
+    }
+  }
+
+  const fullAddress = [order.shipping_address, order.shipping_complement].filter(Boolean).join(', ').trim();
+
+  return {
+    orderId: String(order.id || ''),
+    orderNumber: String(order.external_order_number || order.id || '').trim(),
+    comercio: String(order.comercio || 'Stocka').trim(),
+    contactName: String(displayName || '').trim(),
+    phone: String(displayPhone || '').trim(),
+    shippingAddress: fullAddress,
+    shippingCity: String(order.shipping_city || order.comuna || '').trim()
+  };
+};
+
+window.applyStoxControlTowerTemplate = function(templateType) {
+  const nameEl = document.getElementById('stox-ct-contact-name');
+  const orderNumEl = document.getElementById('stox-ct-order-number');
+  const comercioEl = document.getElementById('stox-ct-comercio');
+  const addressEl = document.getElementById('stox-ct-address');
+  const msgEl = document.getElementById('stox-ct-message');
+  if (!msgEl) return;
+
+  const fullName = (nameEl?.value || '').trim();
+  const firstName = fullName ? fullName.split(' ')[0] : 'Hola';
+  const greeting = fullName ? `Hola *${firstName}* 👋` : `¡Hola! 👋`;
+  const orderNum = (orderNumEl?.value || '').trim();
+  const comercio = (comercioEl?.value || '').trim() || 'nuestra tienda';
+  const addr = (addressEl?.value || '').trim();
+  const orderRef = orderNum ? `tu pedido *#${orderNum}* de *${comercio}*` : `tu pedido de *${comercio}*`;
+
+  let text = '';
+  switch (templateType) {
+    case 'direccion':
+      text = `${greeting}, te escribimos del equipo logístico por ${orderRef}.\n\nNecesitamos confirmar o complementar tu dirección de entrega${addr ? ` (*${addr}*)` : ''} para despachar tu compra sin inconvenientes.\n\n¿Nos confirmas los datos correctos respondiendo a este mensaje por favor? ¡Muchas gracias!`;
+      break;
+    case 'retiro':
+      text = `${greeting}, te informamos que ${orderRef} ya se encuentra preparado y *listo para retiro en bodega* 📦.\n\nPuedes responder a este mensaje para coordinar tu retiro o si tienes cualquier consulta.`;
+      break;
+    case 'entrega':
+      text = `${greeting}, te contactamos por el despacho de ${orderRef}${addr ? ` con destino a *${addr}*` : ''} 🚚.\n\n¿Se encontrará alguien disponible para recibir el pedido? Quedamos atentos a tu respuesta por este medio.`;
+      break;
+    case 'incidencia':
+      text = `${greeting}, te escribimos respecto a ${orderRef}.\n\nNecesitamos coordinar un detalle importante antes de despachar tu compra. ¿Nos puedes responder por este medio cuando tengas un momento por favor?`;
+      break;
+    case 'clear':
+      text = '';
+      break;
+  }
+
+  msgEl.value = text;
+  msgEl.focus();
+};
+
+window.onStoxControlTowerOrderPicked = function(inputVal) {
+  const val = String(inputVal || '').trim();
+  if (!val) return;
+  const orders = window.loadedOrders || [];
+  const matched = orders.find(o => {
+    const ext = String(o.external_order_number || '').trim();
+    return String(o.id) === val || ext === val || val.startsWith(`#${ext} `) || val.includes(`[ID:${o.id}]`);
+  });
+  if (!matched) return;
+
+  const info = window.extractOrderContactInfoForStox(matched);
+  const idEl = document.getElementById('stox-ct-order-id');
+  const numEl = document.getElementById('stox-ct-order-number');
+  const comEl = document.getElementById('stox-ct-comercio');
+  const nameEl = document.getElementById('stox-ct-contact-name');
+  const phoneEl = document.getElementById('stox-ct-phone');
+  const addrEl = document.getElementById('stox-ct-address');
+
+  if (idEl) idEl.value = info.orderId;
+  if (numEl) numEl.value = info.orderNumber;
+  if (comEl) comEl.value = info.comercio;
+  if (nameEl) nameEl.value = info.contactName;
+  if (phoneEl) phoneEl.value = info.phone;
+  if (addrEl) addrEl.value = [info.shippingAddress, info.shippingCity].filter(Boolean).join(', ');
+};
+
+window.switchStoxControlTowerTab = function(tab) {
+  const sendPane = document.getElementById('stox-ct-pane-send');
+  const trackPane = document.getElementById('stox-ct-pane-tracked');
+  const btnSend = document.getElementById('stox-ct-tab-send');
+  const btnTrack = document.getElementById('stox-ct-tab-tracked');
+  const confirmBtn = document.querySelector('.swal2-confirm');
+
+  if (tab === 'tracked') {
+    if (sendPane) sendPane.style.display = 'none';
+    if (trackPane) trackPane.style.display = 'block';
+    if (btnSend) {
+      btnSend.style.background = 'transparent';
+      btnSend.style.color = 'var(--color-text-muted)';
+    }
+    if (btnTrack) {
+      btnTrack.style.background = '#10b981';
+      btnTrack.style.color = '#ffffff';
+    }
+    if (confirmBtn) confirmBtn.style.display = 'none';
+    window.loadStoxTrackedContactsList();
+  } else {
+    if (sendPane) sendPane.style.display = 'flex';
+    if (trackPane) trackPane.style.display = 'none';
+    if (btnSend) {
+      btnSend.style.background = '#10b981';
+      btnSend.style.color = '#ffffff';
+    }
+    if (btnTrack) {
+      btnTrack.style.background = 'transparent';
+      btnTrack.style.color = 'var(--color-text-muted)';
+    }
+    if (confirmBtn) confirmBtn.style.display = 'inline-block';
+  }
+};
+
+window.loadStoxTrackedContactsList = async function() {
+  const container = document.getElementById('stox-ct-tracked-list-container');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div style="text-align: center; padding: 1.5rem; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line ri-spin" style="font-size: 1.3rem;"></i> Cargando contactos en seguimiento activo...
+    </div>
+  `;
+
+  const waUrl = (window.WHATSAPP_API_URL || 'https://stocka-whatsapp-bot.onrender.com').replace(/\/+$/, '');
+  const waKey = window.WHATSAPP_API_KEY || 'stocka_wa_internal_secret_2026';
+
+  let activeContacts = [];
+  try {
+    const resp = await fetch(`${waUrl}/tracked-messages`, {
+      headers: { 'x-api-key': waKey }
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (Array.isArray(data.activeContacts)) {
+        activeContacts = data.activeContacts;
+      }
+    }
+  } catch (_) {}
+
+  // Combinar con espejo local por si el servidor remoto aún no expone /tracked-messages
+  try {
+    const localList = JSON.parse(localStorage.getItem('stox_ct_local_tracked_v1') || '[]');
+    if (Array.isArray(localList)) {
+      localList.forEach(loc => {
+        if (!activeContacts.some(r => String(r.phone).slice(-8) === String(loc.phone).slice(-8))) {
+          activeContacts.push(loc);
+        }
+      });
+    }
+  } catch (_) {}
+
+  if (activeContacts.length === 0) {
+    container.innerHTML = `
+      <div style="padding: 1.5rem; text-align: center; background: var(--color-bg, #f8fafc); border: 1px dashed var(--color-border, #cbd5e1); border-radius: 10px; color: var(--color-text-muted); font-size: 0.82rem;">
+        No hay contactos en seguimiento activo todavía. Cuando envíes un mensaje desde esta ventana, Stox quedará atento a la respuesta del contacto y la reenviará automáticamente al grupo de WhatsApp.
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = `
+    <div style="display: flex; flex-direction: column; gap: 0.55rem; max-height: 360px; overflow-y: auto; padding-right: 4px;">
+      ${activeContacts.map(c => {
+        const sentTime = c.sentAt ? new Date(c.sentAt).toLocaleString('es-CL') : '-';
+        const hasReplies = (c.repliesCount || 0) > 0 || !!c.lastReplyText;
+        return `
+          <div style="background: var(--color-bg, #f8fafc); border: 1px solid ${hasReplies ? '#10b981' : 'var(--color-border, #cbd5e1)'}; border-left: 4px solid ${hasReplies ? '#10b981' : '#6366f1'}; border-radius: 8px; padding: 0.65rem 0.8rem; font-size: 0.8rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+              <div>
+                <strong style="color: var(--color-text-main); font-size: 0.86rem;">${window.escapeHtml ? window.escapeHtml(c.contactName || 'Contacto') : (c.contactName || 'Contacto')}</strong>
+                <span style="color: var(--color-text-muted); font-family: monospace; margin-left: 0.35rem;">+${c.phone}</span>
+                ${c.orderNumber ? `<span style="background: rgba(99, 102, 241, 0.1); color: #4f46e5; padding: 0.08rem 0.4rem; border-radius: 4px; font-weight: 700; font-size: 0.72rem; margin-left: 0.35rem;">#${window.escapeHtml ? window.escapeHtml(c.orderNumber) : c.orderNumber}${c.comercio ? ` · ${window.escapeHtml ? window.escapeHtml(c.comercio) : c.comercio}` : ''}</span>` : ''}
+              </div>
+              <span style="font-size: 0.7rem; font-weight: 700; padding: 0.12rem 0.45rem; border-radius: 99px; background: ${hasReplies ? '#d1fae5' : '#e0e7ff'}; color: ${hasReplies ? '#065f46' : '#3730a3'};">
+                ${hasReplies ? `💬 ${c.repliesCount || 1} respuesta(s) reenviada(s)` : '⏳ Esperando respuesta'}
+              </span>
+            </div>
+            <div style="margin-top: 0.35rem; color: var(--color-text-muted); font-size: 0.76rem;">
+              <strong>Enviado (${sentTime}):</strong> <em>"${window.escapeHtml ? window.escapeHtml(String(c.sentMessage || '').slice(0, 140)) : String(c.sentMessage || '').slice(0, 140)}"</em>
+            </div>
+            ${c.lastReplyText ? `
+              <div style="margin-top: 0.35rem; padding: 0.4rem 0.55rem; background: rgba(16, 185, 129, 0.08); border-radius: 6px; color: #065f46; font-size: 0.78rem;">
+                <strong>📩 Última respuesta (${c.lastReplyAt ? new Date(c.lastReplyAt).toLocaleString('es-CL') : ''}):</strong> "${window.escapeHtml ? window.escapeHtml(c.lastReplyText) : c.lastReplyText}"
+              </div>
+            ` : ''}
+            <div style="margin-top: 0.35rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.72rem; color: var(--color-text-muted);">
+              <span><i class="ri-group-line"></i> Reenvía a: <strong>${window.escapeHtml ? window.escapeHtml(c.targetGroupName || 'NOTIFICACIONES STOX') : 'NOTIFICACIONES STOX'}</strong></span>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+};
+
+window.openStoxControlTowerMessageModal = async function(orderId = null) {
+  let order = null;
+  if (orderId) {
+    order = (window.loadedOrders || []).find(o => String(o.id) === String(orderId));
+    if (!order && typeof supabase !== 'undefined') {
+      try {
+        const { data } = await supabase
+          .from('orders')
+          .select('id, external_order_number, comercio, customer_name, customer_phone, shipping_address, shipping_complement, shipping_city, raw_shopify_data, raw_jumpseller_data')
+          .eq('id', orderId)
+          .maybeSingle();
+        if (data) order = data;
+      } catch (_) {}
+    }
+  }
+
+  const info = window.extractOrderContactInfoForStox(order);
+  const fullAddr = [info.shippingAddress, info.shippingCity].filter(Boolean).join(', ');
+
+  // Preparar datalist de pedidos de Torre de Control por si se abre desde el botón superior
+  const recentOrders = (window.loadedOrders || []).slice(0, 150);
+  const ordersDatalistHtml = recentOrders.map(o => {
+    const num = o.external_order_number || o.id;
+    const cust = o.customer_name || 'Sin nombre';
+    const com = o.comercio || '';
+    const ph = o.customer_phone || '';
+    return `<option value="#${window.escapeHtml ? window.escapeHtml(String(num)) : num} - ${window.escapeHtml ? window.escapeHtml(String(cust)) : cust} (${window.escapeHtml ? window.escapeHtml(String(com)) : com}) [ID:${o.id}]">${ph}</option>`;
+  }).join('');
+
+  const DEFAULT_GROUP_JID = '120363413357945543@g.us';
+
+  const modalHtml = `
+    <div style="text-align: left; font-size: 0.84rem;">
+      <!-- Sub-navegación del Modal -->
+      <div style="display: flex; gap: 0.4rem; background: var(--color-bg, #f1f5f9); padding: 0.3rem; border-radius: 8px; margin-bottom: 0.85rem; border: 1px solid var(--color-border, #e2e8f0);">
+        <button type="button" id="stox-ct-tab-send" onclick="window.switchStoxControlTowerTab('send')" style="flex: 1; border: none; border-radius: 6px; padding: 0.4rem 0.6rem; font-size: 0.78rem; font-weight: 700; cursor: pointer; background: #10b981; color: #ffffff; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
+          <i class="ri-send-plane-fill"></i> Enviar Mensaje con Reenvío a Grupo
+        </button>
+        <button type="button" id="stox-ct-tab-tracked" onclick="window.switchStoxControlTowerTab('tracked')" style="flex: 1; border: none; border-radius: 6px; padding: 0.4rem 0.6rem; font-size: 0.78rem; font-weight: 700; cursor: pointer; background: transparent; color: var(--color-text-muted); display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
+          <i class="ri-chat-follow-up-line"></i> Respuestas y Seguimiento Activo
+        </button>
+      </div>
+
+      <!-- PESTAÑA 1: ENVIAR MENSAJE -->
+      <div id="stox-ct-pane-send" style="display: flex; flex-direction: column; gap: 0.75rem;">
+        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 0.55rem 0.75rem; font-size: 0.78rem; color: var(--color-text-main); line-height: 1.4;">
+          <i class="ri-whatsapp-fill" style="color: #10b981; font-size: 0.95rem;"></i>
+          <strong>¿Cómo funciona?</strong> Stox enviará este mensaje al WhatsApp del contacto. Si el contacto responde, Stox <strong>reenviará automáticamente al grupo seleccionado</strong> el nombre del contacto, teléfono, pedido y la respuesta recibida.
+        </div>
+
+        ${!order ? `
+          <div>
+            <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 0.25rem;">
+              <i class="ri-search-eye-line"></i> Cargar datos desde un pedido en Torre de Control (Opcional)
+            </label>
+            <input type="text" list="stox-ct-orders-datalist" onchange="window.onStoxControlTowerOrderPicked(this.value)" oninput="window.onStoxControlTowerOrderPicked(this.value)" placeholder="Busca por #Pedido, cliente o comercio para autocompletar..." style="width: 100%; box-sizing: border-box; padding: 0.42rem 0.6rem; border-radius: 6px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.82rem;">
+            <datalist id="stox-ct-orders-datalist">${ordersDatalistHtml}</datalist>
+          </div>
+        ` : ''}
+
+        <input type="hidden" id="stox-ct-order-id" value="${window.escapeHtml ? window.escapeHtml(info.orderId) : info.orderId}">
+
+        <!-- Datos del Contacto y Pedido -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
+          <div>
+            <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.2rem;">
+              👤 Nombre del Contacto *
+            </label>
+            <input type="text" id="stox-ct-contact-name" value="${window.escapeHtml ? window.escapeHtml(info.contactName) : info.contactName}" placeholder="Ej. Camila Torres" style="width: 100%; box-sizing: border-box; padding: 0.42rem 0.6rem; border-radius: 6px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.83rem;">
+          </div>
+          <div>
+            <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.2rem;">
+              📞 Teléfono WhatsApp *
+            </label>
+            <input type="text" id="stox-ct-phone" value="${window.escapeHtml ? window.escapeHtml(info.phone === 'No registrado' ? '' : info.phone) : (info.phone === 'No registrado' ? '' : info.phone)}" placeholder="Ej. +56 9 8765 4321" style="width: 100%; box-sizing: border-box; padding: 0.42rem 0.6rem; border-radius: 6px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.83rem; font-family: monospace;">
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 0.55rem;">
+          <div>
+            <label style="display: block; font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.2rem;">📦 N° Pedido</label>
+            <input type="text" id="stox-ct-order-number" value="${window.escapeHtml ? window.escapeHtml(info.orderNumber) : info.orderNumber}" placeholder="Ej. 10452" style="width: 100%; box-sizing: border-box; padding: 0.36rem 0.55rem; border-radius: 6px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.8rem;">
+          </div>
+          <div>
+            <label style="display: block; font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.2rem;">🏪 Comercio</label>
+            <input type="text" id="stox-ct-comercio" value="${window.escapeHtml ? window.escapeHtml(info.comercio) : info.comercio}" placeholder="Ej. Joyas Gloss" style="width: 100%; box-sizing: border-box; padding: 0.36rem 0.55rem; border-radius: 6px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.8rem;">
+          </div>
+          <div>
+            <label style="display: block; font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.2rem;">📍 Dirección / Comuna</label>
+            <input type="text" id="stox-ct-address" value="${window.escapeHtml ? window.escapeHtml(fullAddr) : fullAddr}" placeholder="Dirección o comuna de referencia" style="width: 100%; box-sizing: border-box; padding: 0.36rem 0.55rem; border-radius: 6px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.8rem;">
+          </div>
+        </div>
+
+        <!-- Plantillas Rápidas -->
+        <div>
+          <label style="display: block; font-size: 0.74rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 0.3rem;">
+            ⚡ Plantillas Rápidas de Torre de Control:
+          </label>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.35rem;">
+            <button type="button" onclick="window.applyStoxControlTowerTemplate('direccion')" style="background: var(--color-bg, #f1f5f9); border: 1px solid var(--color-border, #cbd5e1); border-radius: 99px; padding: 0.22rem 0.6rem; font-size: 0.73rem; font-weight: 600; cursor: pointer; color: var(--color-text-main);">
+              📍 Confirmar Dirección
+            </button>
+            <button type="button" onclick="window.applyStoxControlTowerTemplate('retiro')" style="background: var(--color-bg, #f1f5f9); border: 1px solid var(--color-border, #cbd5e1); border-radius: 99px; padding: 0.22rem 0.6rem; font-size: 0.73rem; font-weight: 600; cursor: pointer; color: var(--color-text-main);">
+              📦 Listo para Retiro
+            </button>
+            <button type="button" onclick="window.applyStoxControlTowerTemplate('entrega')" style="background: var(--color-bg, #f1f5f9); border: 1px solid var(--color-border, #cbd5e1); border-radius: 99px; padding: 0.22rem 0.6rem; font-size: 0.73rem; font-weight: 600; cursor: pointer; color: var(--color-text-main);">
+              🚚 Coordinar Entrega
+            </button>
+            <button type="button" onclick="window.applyStoxControlTowerTemplate('incidencia')" style="background: var(--color-bg, #f1f5f9); border: 1px solid var(--color-border, #cbd5e1); border-radius: 99px; padding: 0.22rem 0.6rem; font-size: 0.73rem; font-weight: 600; cursor: pointer; color: var(--color-text-main);">
+              ⚠️ Consulta / Incidencia
+            </button>
+            <button type="button" onclick="window.applyStoxControlTowerTemplate('clear')" style="background: transparent; border: 1px dashed var(--color-border, #cbd5e1); border-radius: 99px; padding: 0.22rem 0.55rem; font-size: 0.72rem; cursor: pointer; color: var(--color-text-muted);">
+              Limpiar
+            </button>
+          </div>
+        </div>
+
+        <!-- Mensaje a enviar -->
+        <div>
+          <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.25rem;">
+            💬 Mensaje a enviar desde Stox *
+          </label>
+          <textarea id="stox-ct-message" rows="4" placeholder="Escribe el mensaje que Stox enviará al contacto o elige una plantilla arriba..." style="width: 100%; box-sizing: border-box; padding: 0.5rem 0.65rem; border-radius: 8px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.84rem; resize: vertical; line-height: 1.4;"></textarea>
+        </div>
+
+        <!-- Grupo de WhatsApp destino para reenvío de la respuesta -->
+        <div style="background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px; padding: 0.6rem 0.75rem;">
+          <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.3rem;">
+            <i class="ri-share-forward-fill" style="color: #10b981;"></i> Si el contacto responde, reenviar su respuesta al grupo:
+          </label>
+          <select id="stox-ct-target-group" style="width: 100%; box-sizing: border-box; padding: 0.4rem 0.55rem; border-radius: 6px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.82rem; font-weight: 600;">
+            <option value="${DEFAULT_GROUP_JID}" data-name="NOTIFICACIONES STOX">📢 NOTIFICACIONES STOX (Predeterminado)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- PESTAÑA 2: RESPUESTAS Y SEGUIMIENTO ACTIVO -->
+      <div id="stox-ct-pane-tracked" style="display: none;">
+        <div id="stox-ct-tracked-list-container"></div>
+      </div>
+    </div>
+  `;
+
+  if (typeof Swal === 'undefined') {
+    alert('SweetAlert2 no está disponible.');
+    return;
+  }
+
+  const swalPromise = Swal.fire({
+    title: '🤖 Mensaje Stox · Torre de Control',
+    html: modalHtml,
+    width: '620px',
+    showCancelButton: true,
+    confirmButtonColor: '#10b981',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: '<i class="ri-whatsapp-line"></i> Enviar Mensaje y Activar Reenvío',
+    cancelButtonText: 'Cerrar',
+    didOpen: async () => {
+      // Si se abrió desde un pedido, pre-cargar plantilla de dirección o dejar listo
+      if (order) {
+        window.applyStoxControlTowerTemplate('direccion');
+      }
+      // Cargar grupos disponibles del bot de Stox en segundo plano
+      try {
+        const waUrl = (window.WHATSAPP_API_URL || 'https://stocka-whatsapp-bot.onrender.com').replace(/\/+$/, '');
+        const waKey = window.WHATSAPP_API_KEY || 'stocka_wa_internal_secret_2026';
+        if (!window._stoxTrackedGroupsCache) {
+          const resp = await fetch(`${waUrl}/groups`, {
+            headers: { 'x-api-key': waKey }
+          });
+          if (resp.ok) {
+            const gData = await resp.json();
+            if (Array.isArray(gData.groups) && gData.groups.length > 0) {
+              window._stoxTrackedGroupsCache = gData.groups;
+            }
+          }
+        }
+        const selectEl = document.getElementById('stox-ct-target-group');
+        if (selectEl && Array.isArray(window._stoxTrackedGroupsCache)) {
+          window._stoxTrackedGroupsCache.forEach(g => {
+            if (g.id === DEFAULT_GROUP_JID) return;
+            const opt = document.createElement('option');
+            opt.value = g.id;
+            opt.dataset.name = g.subject || g.id;
+            opt.textContent = `👥 ${g.subject || g.id} (${g.participantsCount || 0} miembros)`;
+            selectEl.appendChild(opt);
+          });
+        }
+      } catch (_) {}
+    },
+    preConfirm: () => {
+      const contactName = (document.getElementById('stox-ct-contact-name')?.value || '').trim();
+      const rawPhone = (document.getElementById('stox-ct-phone')?.value || '').trim();
+      const message = (document.getElementById('stox-ct-message')?.value || '').trim();
+      const orderIdVal = (document.getElementById('stox-ct-order-id')?.value || '').trim();
+      const orderNumber = (document.getElementById('stox-ct-order-number')?.value || '').trim();
+      const comercio = (document.getElementById('stox-ct-comercio')?.value || '').trim();
+      const address = (document.getElementById('stox-ct-address')?.value || '').trim();
+      const groupSelect = document.getElementById('stox-ct-target-group');
+      const targetGroup = groupSelect?.value || DEFAULT_GROUP_JID;
+      const targetGroupName = groupSelect?.selectedOptions?.[0]?.dataset?.name || 'NOTIFICACIONES STOX';
+
+      let digits = rawPhone.replace(/\D/g, '');
+      if (digits.length === 9 && digits.startsWith('9')) digits = '56' + digits;
+      else if (digits.length === 8) digits = '569' + digits;
+
+      if (!digits || digits.length < 8) {
+        Swal.showValidationMessage('Ingresa un número de teléfono de WhatsApp válido (ej. +56 9 1234 5678).');
+        return false;
+      }
+      if (!message) {
+        Swal.showValidationMessage('Escribe el mensaje que deseas enviar al contacto.');
+        return false;
+      }
+
+      return {
+        contactName: contactName || 'Cliente',
+        phone: digits,
+        message,
+        orderId: orderIdVal || null,
+        orderNumber,
+        comercio,
+        shippingAddress: address,
+        targetGroup,
+        targetGroupName
+      };
+    }
+  });
+
+  const { value: formValues } = await swalPromise;
+  if (!formValues) return;
+
+  Swal.fire({
+    title: 'Enviando mensaje por Stox...',
+    text: `Contactando a ${formValues.contactName} (+${formValues.phone})`,
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading()
+  });
+
+  try {
+    const waUrl = (window.WHATSAPP_API_URL || 'https://stocka-whatsapp-bot.onrender.com').replace(/\/+$/, '');
+    const waKey = window.WHATSAPP_API_KEY || 'stocka_wa_internal_secret_2026';
+
+    let userEmail = 'Torre de Control WMS';
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.email) userEmail = session.user.email;
+    } catch (_) {}
+
+    const payload = {
+      to: formValues.phone,
+      message: formValues.message,
+      withPrefix: true,
+      trackReply: true,
+      contactName: formValues.contactName,
+      orderId: formValues.orderId,
+      orderNumber: formValues.orderNumber,
+      comercio: formValues.comercio,
+      shippingAddress: formValues.shippingAddress,
+      targetGroup: formValues.targetGroup,
+      targetGroupName: formValues.targetGroupName,
+      sentBy: userEmail
+    };
+
+    // 1. Intentar primero el endpoint dedicado /send-tracked-message y hacer fallback automático a /send-message
+    let resp = await fetch(`${waUrl}/send-tracked-message`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': waKey
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (resp.status === 404) {
+      resp = await fetch(`${waUrl}/send-message`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': waKey
+        },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    const resData = await resp.json();
+    if (!resp.ok || !resData.success) {
+      throw new Error(resData.error || 'No se pudo enviar el mensaje por Stox WhatsApp.');
+    }
+
+    // 2. Guardar espejo local de seguimiento en el navegador
+    try {
+      const localList = JSON.parse(localStorage.getItem('stox_ct_local_tracked_v1') || '[]');
+      const filtered = Array.isArray(localList)
+        ? localList.filter(i => String(i.phone).slice(-8) !== String(formValues.phone).slice(-8))
+        : [];
+      filtered.unshift({
+        phone: formValues.phone,
+        contactName: formValues.contactName,
+        orderId: formValues.orderId,
+        orderNumber: formValues.orderNumber,
+        comercio: formValues.comercio,
+        sentMessage: formValues.message,
+        targetGroup: formValues.targetGroup,
+        targetGroupName: formValues.targetGroupName,
+        sentBy: userEmail,
+        sentAt: new Date().toISOString(),
+        repliesCount: 0
+      });
+      localStorage.setItem('stox_ct_local_tracked_v1', JSON.stringify(filtered.slice(0, 60)));
+    } catch (_) {}
+
+    // 3. Registrar en order_audit_logs de Supabase para trazabilidad y respaldo del reenviador
+    if (formValues.orderId && typeof supabase !== 'undefined') {
+      try {
+        await supabase.from('order_audit_logs').insert({
+          order_id: formValues.orderId,
+          user_email: userEmail,
+          action: 'Mensaje WhatsApp Enviado (Stox)',
+          details: {
+            comment: `Mensaje enviado por Stox a ${formValues.contactName} (+${formValues.phone}). Respuestas se reenviarán a ${formValues.targetGroupName}.`,
+            phone: formValues.phone,
+            contact_name: formValues.contactName,
+            order_number: formValues.orderNumber,
+            comercio: formValues.comercio,
+            shipping_address: formValues.shippingAddress,
+            sent_message: formValues.message,
+            target_group: formValues.targetGroup,
+            target_group_name: formValues.targetGroupName,
+            sent_by: userEmail
+          }
+        });
+        if (typeof window.loadOrderAuditLogs === 'function') {
+          window.loadOrderAuditLogs(formValues.orderId);
+        }
+      } catch (_) {}
+    }
+
+    Swal.fire({
+      title: '¡Mensaje Enviado con Stox!',
+      html: `
+        <div style="font-size: 0.88rem; line-height: 1.5; text-align: left;">
+          <p style="margin: 0 0 0.5rem 0;">✅ Se envió el WhatsApp a <strong>${window.escapeHtml ? window.escapeHtml(formValues.contactName) : formValues.contactName}</strong> (<code>+${formValues.phone}</code>).</p>
+          <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.35); padding: 0.55rem 0.75rem; border-radius: 8px; font-size: 0.8rem; color: #065f46;">
+            <i class="ri-share-forward-fill"></i> <strong>Seguimiento Activo:</strong> Cuando el contacto responda, Stox reenviará automáticamente su respuesta junto con sus datos al grupo <strong>${window.escapeHtml ? window.escapeHtml(formValues.targetGroupName) : formValues.targetGroupName}</strong>.
+          </div>
+        </div>
+      `,
+      icon: 'success',
+      confirmButtonColor: '#10b981'
+    });
+  } catch (err) {
+    console.error('[Stox Control Tower Error]:', err);
+    Swal.fire({
+      title: 'No se pudo enviar el mensaje',
+      text: err.message || 'Verifica que el servicio de WhatsApp de Stox esté conectado.',
+      icon: 'error'
+    });
+  }
+};
 
 window.updateDashboardCalendarView_admin = async function() {
   const startOfMonth = new Date(window.adminCalendarState.currentDate.getFullYear(), window.adminCalendarState.currentDate.getMonth(), 1).toISOString();
@@ -81867,7 +86166,12 @@ window.openWmsOrderModal = async function(orderId) {
             <input type="email" id="wms-modal-email" class="wms-input-ctrl" value="${window.escapeHtml ? window.escapeHtml(displayEmail) : displayEmail}" placeholder="correo@ejemplo.com">
           </div>
           <div class="wms-modal-field">
-            <label class="wms-modal-label">Teléfono</label>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.2rem;">
+              <label class="wms-modal-label" style="margin-bottom: 0;">Teléfono</label>
+              <button type="button" onclick="window.openStoxControlTowerMessageModal('${order.id}')" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid #10b981; border-radius: 99px; padding: 0.1rem 0.48rem; font-size: 0.68rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;" title="Enviar mensaje con Stox y reenviar respuesta al grupo de WhatsApp">
+                <i class="ri-whatsapp-fill" style="color: #10b981;"></i> Mensaje Stox
+              </button>
+            </div>
             <input type="text" id="wms-modal-phone" class="wms-input-ctrl" value="${window.escapeHtml ? window.escapeHtml(displayPhone) : displayPhone}" placeholder="+56 9 1234 5678">
           </div>
         </div>
@@ -82651,6 +86955,20 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
 
     if (updErr) {
       console.warn("Aviso actualizando datos en Picker:", updErr);
+    } else if (typeof window.registerOrderInPickerStatusMap === 'function') {
+      const existingStatus = existingItems[0]?.sheet_status || 'EN PREPARACIÓN';
+      window.registerOrderInPickerStatusMap(order, {
+        status: existingStatus,
+        operator: finalOperator || null,
+        observation: existingItems[0]?.observation || null,
+        sucursal: updatePayload.sucursal,
+        comercio: order.comercio || null,
+        isActive: true,
+        isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(existingStatus),
+        source: 'active_orders',
+        updatedAt: new Date().toISOString()
+      });
+      delete order._wmsTags;
     }
     return;
   }
@@ -82826,6 +87144,21 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
       .insert(payloads);
     if (insErr) {
       console.error("Error insertando ítems actualizados en Picker:", insErr);
+    } else if (typeof window.registerOrderInPickerStatusMap === 'function') {
+      const finalSheetSt = String(targetSheetStatus || 'EN PREPARACIÓN');
+      window.registerOrderInPickerStatusMap(order, {
+        status: finalSheetSt,
+        operator: finalOperator || null,
+        observation: finalObs || null,
+        sucursal: payloads[0]?.sucursal || order.sucursal_pickeo || 'Sucursal Ñuñoa',
+        totu: totu,
+        comercio: order.comercio || null,
+        isActive: true,
+        isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(finalSheetSt),
+        source: 'active_orders',
+        updatedAt: new Date().toISOString()
+      });
+      delete order._wmsTags;
     }
   }
 };
@@ -83265,6 +87598,30 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
       .from('active_orders')
       .insert(payloads);
     if (insErr) throw insErr;
+
+    // Actualizar pickerStatusMap en memoria inmediatamente para evitar falsas alertas de "Picker: Sin registro"
+    const insertedStatus = payloads[0]?.sheet_status || 'EN PREPARACIÓN';
+    const insertedStatusObj = {
+      status: insertedStatus,
+      operator: cleanOperator || null,
+      observation: payloads[0]?.observation || null,
+      sucursal: payloads[0]?.sucursal || order.sucursal_pickeo || 'Sucursal Ñuñoa',
+      totu: payloads[0]?.totu || totu,
+      comercio: order.comercio || null,
+      isActive: true,
+      isCompleted: false,
+      source: 'active_orders',
+      updatedAt: new Date().toISOString()
+    };
+    if (typeof window.registerOrderInPickerStatusMap === 'function') {
+      window.registerOrderInPickerStatusMap(order, insertedStatusObj);
+    } else if (typeof window.normalizeOrderKeys === 'function') {
+      window.normalizeOrderKeys(orderNumber, order.comercio).forEach(k => {
+        window.pickerStatusMap[k] = insertedStatusObj;
+        if (cleanOperator) window.pickerOperatorsMap[k] = cleanOperator;
+      });
+    }
+    delete order._wmsTags;
 
     if (finalHasPickingReq && typeof window.syncPickingRequestToPicker === 'function' && order.id) {
       window.syncPickingRequestToPicker(order.id, {
@@ -86836,8 +91193,18 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
 
   const searchKeysSet = new Set();
   candidateOrders.forEach(o => {
-    if (o.external_order_number) window.normalizeOrderKeys(o.external_order_number).forEach(k => searchKeysSet.add(k));
-    if (o.id) window.normalizeOrderKeys(o.id).forEach(k => searchKeysSet.add(k));
+    if (typeof window.getPickerOrderCandidateKeys === 'function') {
+      window.getPickerOrderCandidateKeys(o, {
+        includeInternal: false,
+        includeUuid: !o.external_order_number
+      }).forEach(k => searchKeysSet.add(k));
+    } else if (o.external_order_number) {
+      window.normalizeOrderKeys(o.external_order_number, o.comercio).forEach(k => {
+        if (!String(k).startsWith('COMERCIO::')) searchKeysSet.add(k);
+      });
+    } else if (o.id) {
+      window.normalizeOrderKeys(o.id).forEach(k => searchKeysSet.add(k));
+    }
   });
   const orderNumbers = Array.from(searchKeysSet);
   if (orderNumbers.length === 0) return;
@@ -86846,7 +91213,7 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
     const completedStatuses = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'];
     const isDeliveredPickerStatus = (st) => ['RETIRADO', 'ENTREGADO'].includes(String(st || '').trim().toUpperCase());
 
-    const chunkSize = 120;
+    const chunkSize = 80;
     const logs = [];
     const activeCompleted = [];
     const deliveredPickups = [];
@@ -86861,12 +91228,12 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
           .in('estado', completedStatuses),
         pickerSupabase
           .from('active_orders')
-          .select('order_number, sheet_status, operator')
+          .select('order_number, sheet_status, operator, comercio')
           .in('order_number', chunk)
           .in('sheet_status', completedStatuses),
         pickerSupabase
           .from('sucursal_pickups')
-          .select('pedido, estado_pedido')
+          .select('pedido, estado_pedido, comercio')
           .in('pedido', chunk)
           .eq('estado_pedido', 'ENTREGADO')
       ]);
@@ -86896,13 +91263,14 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
       const completedKeysSet = new Set();
       const statusMetaMap = new Map();
 
-      const setOrUpgradeMeta = (key, newStatus, newOperator) => {
+      const setOrUpgradeMeta = (key, newStatus, newOperator, rowComercio = null) => {
         completedKeysSet.add(key);
         const existing = statusMetaMap.get(key);
         if (!existing || (isDeliveredPickerStatus(newStatus) && !isDeliveredPickerStatus(existing.status))) {
           statusMetaMap.set(key, {
             status: newStatus || 'Completado',
-            operator: newOperator || existing?.operator || null
+            operator: newOperator || existing?.operator || null,
+            comercio: rowComercio || existing?.comercio || null
           });
         }
       };
@@ -86910,40 +91278,45 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
       if (hasLogs) {
         logs.forEach(l => {
           window.normalizeOrderKeys(l.pedido).forEach(k => {
-            setOrUpgradeMeta(k, l.estado || 'Completado', l.picker || null);
+            setOrUpgradeMeta(k, l.estado || 'Completado', l.picker || null, null);
           });
         });
       }
 
       if (hasActive) {
         activeCompleted.forEach(a => {
-          window.normalizeOrderKeys(a.order_number).forEach(k => {
-            setOrUpgradeMeta(k, a.sheet_status || 'Completado', a.operator || null);
+          const comNorm = String(a.comercio || '').trim().toUpperCase() || null;
+          window.normalizeOrderKeys(a.order_number, comNorm || '').forEach(k => {
+            setOrUpgradeMeta(k, a.sheet_status || 'Completado', a.operator || null, comNorm);
           });
         });
       }
 
       if (hasDeliveredPickups) {
         deliveredPickups.forEach(p => {
-          window.normalizeOrderKeys(p.pedido).forEach(k => {
-            setOrUpgradeMeta(k, 'Retirado', 'Punto de Retiro');
+          const comNorm = String(p.comercio || '').trim().toUpperCase() || null;
+          window.normalizeOrderKeys(p.pedido, comNorm || '').forEach(k => {
+            setOrUpgradeMeta(k, 'Retirado', 'Punto de Retiro', comNorm);
           });
         });
       }
 
       const resolveMetaForOrder = (o) => {
-        const extNorm = o.external_order_number ? String(o.external_order_number).trim().toUpperCase() : '';
-        const idNorm = o.id ? String(o.id).trim().toUpperCase() : '';
-        const keysToTry = [
-          extNorm,
-          '#' + extNorm.replace(/^#/, ''),
-          extNorm.replace(/^#/, ''),
-          idNorm
-        ].filter(Boolean);
+        const ordComUpper = String(o.comercio || '').trim().toUpperCase();
+        const keysToTry = typeof window.getPickerOrderCandidateKeys === 'function'
+          ? window.getPickerOrderCandidateKeys(o, { includeInternal: true, includeUuid: true })
+          : [
+              o.external_order_number ? String(o.external_order_number).trim().toUpperCase() : '',
+              o.external_order_number ? '#' + String(o.external_order_number).trim().toUpperCase().replace(/^#/, '') : '',
+              o.external_order_number ? String(o.external_order_number).trim().toUpperCase().replace(/^#/, '') : '',
+              o.id ? String(o.id).trim().toUpperCase() : ''
+            ].filter(Boolean);
         let bestMeta = null;
         for (const k of keysToTry) {
           if (statusMetaMap.has(k)) {
             const m = statusMetaMap.get(k);
+            const isShortKey = !String(k).startsWith('COMERCIO::') && !String(k).startsWith('SIGLA::') && /^#?\d{1,5}$/.test(String(k));
+            if (isShortKey && ordComUpper && m.comercio && m.comercio !== ordComUpper) continue;
             if (!bestMeta || (isDeliveredPickerStatus(m.status) && !isDeliveredPickerStatus(bestMeta.status))) {
               bestMeta = m;
             }
@@ -86963,14 +91336,19 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
         const stObj = {
           status: meta.status,
           operator: meta.operator,
+          comercio: o.comercio || meta.comercio || null,
           isCompleted: true,
           isActive: false,
           source: 'picker_sync'
         };
-        window.normalizeOrderKeys(o.external_order_number || o.id).forEach(k => {
-          window.pickerStatusMap[k] = stObj;
-          if (meta.operator) window.pickerOperatorsMap[k] = meta.operator;
-        });
+        if (typeof window.registerOrderInPickerStatusMap === 'function') {
+          window.registerOrderInPickerStatusMap(o, stObj);
+        } else {
+          window.normalizeOrderKeys(o.external_order_number || o.id, o.comercio || '').forEach(k => {
+            window.pickerStatusMap[k] = stObj;
+            if (meta.operator) window.pickerOperatorsMap[k] = meta.operator;
+          });
+        }
 
         if (isDeliveredPickerStatus(meta.status) && o.estado_wms !== 'Despachado') {
           ordersToDespachado.push({ order: o, meta });
@@ -86994,9 +91372,11 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
           if (wmsErr) throw wmsErr;
         }
 
-        ordersToPickeado.forEach(({ order: o }) => {
+        ordersToPickeado.forEach(({ order: o, meta }) => {
           o.estado_wms = 'Pickeado';
           o.status = 'preparado';
+          if (meta?.status) o.picker_status = meta.status;
+          if (meta?.operator) o.picker_operator = meta.operator;
           delete o._wmsTags;
           delete o._wmsSearchIndex;
           syncedShopifyIds.push(o.id);
@@ -88637,7 +93017,8 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
       supabase
         .from('billing_records')
         .select('*, billing_periods(name, period_month, period_year)')
-        .ilike('comercio', commerceName),
+        .ilike('comercio', commerceName)
+        .order('created_at', { ascending: false }),
       supabase
         .from('profiles')
         .select('email, full_name, comercio, role'),
@@ -88966,6 +93347,7 @@ window.executeSendBillingEmail = async function(recordId, periodId, e) {
   const emailType = document.getElementById('email-type-select').value;
   const customMessage = document.getElementById('email-custom-message').value || '';
   const isCorrection = document.getElementById('email-is-correction')?.checked || false;
+  const ctxCommerceName = (window._currentBillingEmailModalCtx && (window._currentBillingEmailModalCtx.commerceName || window._currentBillingEmailModalCtx.record?.comercio)) || '';
   
   const btn = document.getElementById('btn-submit-send-email');
   const originalHtml = btn.innerHTML;
@@ -88982,7 +93364,17 @@ window.executeSendBillingEmail = async function(recordId, periodId, e) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${session.access_token}`
       },
-      body: JSON.stringify({ recordId, serviceType, emails, ccEmails, customMessage, emailType, isCorrection })
+      body: JSON.stringify({
+        recordId,
+        commerceName: ctxCommerceName,
+        comercio: ctxCommerceName,
+        serviceType,
+        emails,
+        ccEmails,
+        customMessage,
+        emailType,
+        isCorrection
+      })
     });
     
     const result = await response.json();
@@ -99043,6 +103435,7 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
 
   const defaultMeeting = defaultData.meetingUrl || 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5';
   const defaultCustomMsg = defaultData.customMessage || '';
+  const defaultCustomHtml = defaultData.customHtml || (defaultCustomMsg ? defaultCustomMsg.replace(/\n/g, '<br>') : '');
   const defaultCenterMode = defaultData.centerMode || 'cards'; // 'cards' | 'custom_replace' | 'both'
   const defaultCustomBoxStyle = defaultData.customBoxStyle || 'card'; // 'card' | 'clean' | 'highlight'
   const defaultCustomBoxTitle = defaultData.customBoxTitle !== undefined ? defaultData.customBoxTitle : '';
@@ -99577,13 +103970,25 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
                     </button>
                   </div>
 
-                  <button type="button" class="lead-rte-btn" id="btn-insert-qa-template" style="color: #5e17eb; border-color: rgba(94, 23, 235, 0.3); background: rgba(94, 23, 235, 0.05); font-weight: 600; font-size: 0.71rem;" title="Insertar estructura de ejemplo con formato">
-                    <i class="ri-magic-line"></i> Insertar Plantilla con Formato
-                  </button>
+                  <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                    <select id="lead-info-ai-strategy-select" class="form-input" title="Enfoque del Agente Comercial IA" style="height: 26px; font-size: 0.7rem; font-weight: 600; padding: 0 0.45rem; border-color: rgba(94, 23, 235, 0.35); color: #5e17eb; background: rgba(94, 23, 235, 0.04); border-radius: 5px; width: auto;">
+                      <option value="consultivo">🎯 Enfoque: Consultivo + Consultas</option>
+                      <option value="seguimiento">🤝 Enfoque: Seguimiento Cercano</option>
+                      <option value="optimizacion">💡 Enfoque: Optimizar Costos / Tramo</option>
+                      <option value="cierre_reunion">🚀 Enfoque: Agendar Meet / Paso a E1</option>
+                      <option value="post_reunion">🎥 Enfoque: Recap Post-Reunión (Notas Meet)</option>
+                    </select>
+                    <button type="button" class="lead-rte-btn" id="btn-generate-ai-lead-proposal" style="color: #ffffff; border-color: #5e17eb; background: linear-gradient(135deg, #5e17eb, #7c3aed); font-weight: 700; font-size: 0.72rem; padding: 4px 10px; box-shadow: 0 2px 5px rgba(94, 23, 235, 0.2);" title="El Agente Comercial IA analiza los datos del lead, su cotización y sus consultas del formulario para redactar una propuesta personalizada">
+                      <i class="ri-sparkling-2-fill"></i> Redactar con Agente IA
+                    </button>
+                    <button type="button" class="lead-rte-btn" id="btn-insert-qa-template" style="color: #5e17eb; border-color: rgba(94, 23, 235, 0.3); background: rgba(94, 23, 235, 0.05); font-weight: 600; font-size: 0.71rem;" title="Insertar estructura de ejemplo con formato">
+                      <i class="ri-magic-line"></i> Plantilla Base
+                    </button>
+                  </div>
                 </div>
 
                 <!-- Editor ContentEditable -->
-                <div id="info-input-custom-editor" contenteditable="true" data-placeholder="Escribe aquí tus comentarios o respuestas con formato (puedes usar negritas, viñetas, numeración y colores)..." style="min-height: 125px; max-height: 240px; flex: 1; overflow-y: auto; padding: 0.7rem 0.85rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 0.84rem; line-height: 1.55; color: #0f172a; background: #ffffff; outline: none;">${defaultCustomMsg ? defaultCustomMsg.replace(/\n/g, '<br>') : ''}</div>
+                <div id="info-input-custom-editor" contenteditable="true" data-placeholder="Escribe aquí tus comentarios o respuestas con formato (puedes usar negritas, viñetas, numeración y colores)..." style="min-height: 125px; max-height: 240px; flex: 1; overflow-y: auto; padding: 0.7rem 0.85rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 0.84rem; line-height: 1.55; color: #0f172a; background: #ffffff; outline: none;">${defaultCustomHtml}</div>
                 <textarea id="info-input-custom-msg" style="display: none;">${defaultCustomMsg}</textarea>
               </div>
 
@@ -100622,6 +105027,76 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
       customEditor.innerHTML = templateHtml;
       updateCenterPreview();
       customEditor.focus();
+    }
+  });
+
+  // Botón para Redactar con Agente Comercial IA directamente dentro del modal de Correo / Cotización
+  document.getElementById('btn-generate-ai-lead-proposal')?.addEventListener('click', async () => {
+    if (!customEditor || typeof window.analyzeLeadWithAgent !== 'function') return;
+
+    const btnAi = document.getElementById('btn-generate-ai-lead-proposal');
+    const strategySel = document.getElementById('lead-info-ai-strategy-select');
+    const chosenStrategy = strategySel?.value || 'consultivo';
+
+    const typedEmail = (emailInput?.value || '').trim().toLowerCase();
+    const typedContact = (contactInput?.value || '').trim();
+    const typedCommerce = (commerceInput?.value || '').trim();
+
+    // Buscar el lead en cache para aprovechar sus consultas del formulario, canales y lecturas Brevo
+    let matchedLead = null;
+    if (typedEmail && Array.isArray(window.cachedUnifiedLeads)) {
+      matchedLead = window.cachedUnifiedLeads.find(l => (l.email || '').toLowerCase() === typedEmail);
+    }
+
+    const syntheticOrMatchedLead = {
+      ...(matchedLead || {}),
+      email: typedEmail || matchedLead?.email || '',
+      name: typedContact || matchedLead?.name || '',
+      company: typedCommerce || matchedLead?.company || '',
+      sources: matchedLead?.sources || (currentEmailMode === 'quote' ? ['cotizador'] : ['info'])
+    };
+
+    const liveQuoteInputs = getQuoteInputsFromDom();
+    const origBtnHtml = btnAi ? btnAi.innerHTML : '';
+    if (btnAi) {
+      btnAi.disabled = true;
+      btnAi.innerHTML = '<i class="ri-loader-4-line spin"></i> Redactando...';
+    }
+
+    try {
+      const analysis = await window.analyzeLeadWithAgent(syntheticOrMatchedLead, {
+        strategy: chosenStrategy,
+        overrideQuoteParams: currentEmailMode === 'quote' ? liveQuoteInputs : null
+      });
+
+      if (currentCenterMode === 'cards') {
+        setCenterMode('both');
+      }
+
+      if (boxTitleInput && analysis.emailProposal?.customBoxTitle) {
+        boxTitleInput.value = analysis.emailProposal.customBoxTitle;
+      }
+      if (boxStyleSelect && analysis.emailProposal?.customBoxStyle) {
+        boxStyleSelect.value = analysis.emailProposal.customBoxStyle;
+      }
+      if (subjectInput && analysis.emailProposal?.subject) {
+        subjectInput.value = analysis.emailProposal.subject;
+      }
+
+      customEditor.innerHTML = analysis.emailProposal?.customHtml || '';
+      updateCenterPreview();
+      customEditor.focus();
+
+      if (typeof window.showNotification === 'function') {
+        window.showNotification('✨ Propuesta personalizada generada por el Agente Comercial IA.', 'success');
+      }
+    } catch (err) {
+      console.error('Error generando propuesta con Agente IA:', err);
+    } finally {
+      if (btnAi) {
+        btnAi.disabled = false;
+        btnAi.innerHTML = origBtnHtml || '<i class="ri-sparkling-2-fill"></i> Redactar con Agente IA';
+      }
     }
   });
 
@@ -123051,13 +127526,26 @@ window.reconcileShopifyTransportStatuses = async function(orders) {
       let desiredAction = null;
       let desiredShopifyState = null;
 
+      // Evaluar antigüedad del pedido para no enviar eventos retroactivos de pedidos antiguos al cargar la tabla
+      const orderCreatedMs = order.created_at ? new Date(order.created_at).getTime() : 0;
+      const isRecentOrder = orderCreatedMs > (Date.now() - 36 * 60 * 60 * 1000);
+
       if (!isRetiro && shipLabel === 'ENTREGADO' && shState !== 'delivered') {
+        if (!isRecentOrder) {
+          if (shState === 'fulfilled') order.shopify_order_status = 'delivered';
+          continue;
+        }
         desiredAction = 'set_delivered';
         desiredShopifyState = 'delivered';
       } else if (!isRetiro && shipLabel === 'EN TRÁNSITO' && !['in_transit', 'delivered'].includes(shState)) {
+        if (!isRecentOrder) {
+          if (shState === 'fulfilled') order.shopify_order_status = 'in_transit';
+          continue;
+        }
         desiredAction = 'set_in_transit';
         desiredShopifyState = 'in_transit';
       } else if (!isRetiro && (order.estado_wms === 'Pickeado' || order.estado_wms === 'Despachado') && !['fulfilled', 'in_transit', 'delivered'].includes(shState)) {
+        if (!isRecentOrder) continue;
         desiredAction = 'create_fulfillment';
         desiredShopifyState = 'fulfilled';
       }
@@ -123067,15 +127555,19 @@ window.reconcileShopifyTransportStatuses = async function(orders) {
       if (window._reconciledShopifyLifecycleSet.has(dedupKey)) continue;
       window._reconciledShopifyLifecycleSet.add(dedupKey);
 
-      const sTrack = (shipInfo && shipInfo.shipment && shipInfo.shipment.tracking && shipInfo.shipment.tracking !== 'N/A')
-        ? shipInfo.shipment.tracking
-        : (order.tracking_number || null);
-      const sUrl = (shipInfo && shipInfo.shipment && shipInfo.shipment.tracking_url && shipInfo.shipment.tracking_url !== 'N/A')
-        ? shipInfo.shipment.tracking_url
-        : (order.tracking_url || null);
-      const sCourier = (shipInfo && shipInfo.shipment && shipInfo.shipment.courier)
-        ? shipInfo.shipment.courier
-        : (order.courier || order.operador || null);
+      const shipObj = shipInfo && shipInfo.shipment ? shipInfo.shipment : null;
+      const rawShipTrack = shipObj
+        ? (shipObj.source_table === 'lightdata_envios' && shipObj.source_id ? String(shipObj.source_id) : shipObj.tracking)
+        : null;
+      const sTrack = (order.tracking_number && order.tracking_number !== 'N/A')
+        ? order.tracking_number
+        : ((rawShipTrack && rawShipTrack !== 'N/A' && rawShipTrack !== order.external_order_number) ? rawShipTrack : null);
+      const sUrl = (order.tracking_url && order.tracking_url !== 'N/A')
+        ? order.tracking_url
+        : ((shipObj && shipObj.tracking_url && shipObj.tracking_url !== 'N/A') ? shipObj.tracking_url : null);
+      const sCourier = (order.courier || order.operador)
+        ? (order.courier || order.operador)
+        : (shipObj && shipObj.courier ? shipObj.courier : null);
 
       toEnqueue.push({
         order_id: order.id,

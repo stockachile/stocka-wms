@@ -41,16 +41,41 @@ async function checkWhatsAppStatus() {
   }
 }
 
-async function sendWhatsAppMessage(to, message) {
+async function sendWhatsAppMessage(to, message, options = {}) {
   try {
     const response = await fetch(`${WHATSAPP_API_URL}/send-message`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ to, message })
+      body: JSON.stringify({ to, message, ...options })
     });
     return await response.json();
   } catch (error) {
     console.error('[WhatsApp Client] Error enviando mensaje:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+async function sendTrackedWhatsAppMessage(payload) {
+  try {
+    const response = await fetch(`${WHATSAPP_API_URL}/send-tracked-message`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('[WhatsApp Client] Error enviando mensaje con seguimiento:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+async function getTrackedMessages() {
+  try {
+    const response = await fetch(`${WHATSAPP_API_URL}/tracked-messages`, {
+      headers: getHeaders()
+    });
+    return await response.json();
+  } catch (error) {
     return { success: false, error: error.message };
   }
 }
@@ -178,6 +203,8 @@ async function importChileHolidays(year = 2026) {
 module.exports = {
   checkWhatsAppStatus,
   sendWhatsAppMessage,
+  sendTrackedWhatsAppMessage,
+  getTrackedMessages,
   sendWhatsAppDocument,
   sendPickupAlert,
   listBotGroups,

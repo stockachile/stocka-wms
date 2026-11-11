@@ -54,6 +54,12 @@ function getWorkspaceReminderService() {
   return require('../services/workspace_reminder_service');
 }
 
+function getReplyForwardingService() {
+  const localPath = path.join(__dirname, 'services/reply_forwarding_service.js');
+  if (fs.existsSync(localPath)) return require(localPath);
+  return require('../services/reply_forwarding_service');
+}
+
 const OLD_COORDINACION_GROUP = '120363043911687615@g.us'; // Coordinación Stocka
 const OLD_GESTION_GROUP = '120363422429248666@g.us';      // Gestión Stocka
 const NOTIFICACIONES_STOX_GROUP = '120363413357945543@g.us'; // NOTIFICACIONES STOX
@@ -118,6 +124,12 @@ async function connectToWhatsApp() {
       console.log(`📱 Número conectado: ${sock.user?.id ? sock.user.id.split(':')[0] : 'Desconocido'}`);
       console.log(`🏷️ Nombre: ${sock.user?.name || 'Bot Stocka'}`);
       console.log('======================================================\n');
+
+      // Sincronizar al arrancar los mensajes enviados desde Torre de Control registrados en Supabase
+      try {
+        const { syncRecentAuditLogsToTrackedState } = getReplyForwardingService();
+        syncRecentAuditLogsToTrackedState(sock).catch(() => {});
+      } catch (_) {}
     }
   });
 
@@ -152,6 +164,14 @@ async function connectToWhatsApp() {
         if (handled) continue;
       } catch (cmdErr) {
         console.error('[Workspace Command Error]:', cmdErr.message);
+      }
+
+      // Reenvío automático de respuestas de contactos contactados desde Torre de Control (Stox)
+      try {
+        const { handleIncomingTrackedReply } = getReplyForwardingService();
+        await handleIncomingTrackedReply(sock, msg, formatJid, resolveTargetWaGroup);
+      } catch (fwdErr) {
+        console.error('[Stox Reply Forwarder Error]:', fwdErr.message);
       }
 
       // Si es un chat individual (no grupo) y el día es no operativo o feriado
@@ -225,7 +245,7 @@ function requireAuth(req, res, next) {
 // 1. Estado de conexión
 app.get('/status', requireAuth, (req, res) => {
   res.json({
-    version: '1.3.0-stox-notificaciones',
+    version: '1.4.0-stox-reply-forwarder',
     status: connectionStatus,
     targetGroup: resolveTargetWaGroup(),
     user: botUser,
@@ -316,9 +336,24 @@ app.get('/groups', requireAuth, async (req, res) => {
   }
 });
 
-// 4. Enviar Mensaje de Texto Simple
+// 4. Enviar Mensaje de Texto Simple (con soporte opcional de seguimiento de respuestas hacia grupo WA)
 app.post('/send-message', requireAuth, async (req, res) => {
-  const { to, message, withPrefix = true } = req.body;
+  const {
+    to,
+    message,
+    withPrefix = true,
+    trackReply = false,
+    contactName = '',
+    orderId = null,
+    orderNumber = '',
+    comercio = '',
+    shippingAddress = '',
+    shippingCity = '',
+    targetGroup,
+    targetGroupName = 'NOTIFICACIONES STOX',
+    sentBy = 'Torre de Control WMS',
+    ttlHours = 168
+  } = req.body;
 
   if (!to || !message) {
     return res.status(400).json({ error: 'Se requieren los campos "to" y "message"' });
@@ -335,10 +370,148 @@ app.post('/send-message', requireAuth, async (req, res) => {
       : `🤖 *Stox:*\n${message}`;
 
     const result = await sock.sendMessage(jid, { text: finalMessage });
-    res.json({ success: true, jid, messageId: result?.key?.id, sentMessage: finalMessage });
+
+    let trackedRecord = null;
+    if (trackReply || contactName || orderNumber) {
+      try {
+        let lid = null;
+        try {
+          lid = await sock.signalRepository?.lidMapping?.getLIDForPN(jid);
+        } catch (_) {}
+        const { registerTrackedContact } = getReplyForwardingService();
+        trackedRecord = registerTrackedContact({
+          to,
+          jid,
+          lid,
+          messageId: result?.key?.id || null,
+          message: finalMessage,
+          contactName,
+          orderId,
+          orderNumber,
+          comercio,
+          shippingAddress,
+          shippingCity,
+          targetGroup: resolveTargetWaGroup(targetGroup),
+          targetGroupName,
+          sentBy,
+          ttlHours
+        });
+      } catch (trkErr) {
+        console.error('[Error registrando seguimiento de respuesta]:', trkErr.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      jid,
+      messageId: result?.key?.id,
+      sentMessage: finalMessage,
+      tracked: trackedRecord
+    });
   } catch (err) {
     console.error('[Error enviando mensaje]:', err);
     res.status(500).json({ error: 'Fallo al enviar mensaje: ' + err.message });
+  }
+});
+
+// 4.0.1 Enviar Mensaje con Seguimiento Activo de Respuesta hacia Grupo de WhatsApp (Torre de Control)
+app.post('/send-tracked-message', requireAuth, async (req, res) => {
+  const {
+    to,
+    message,
+    withPrefix = true,
+    contactName = '',
+    orderId = null,
+    orderNumber = '',
+    comercio = '',
+    shippingAddress = '',
+    shippingCity = '',
+    targetGroup,
+    targetGroupName = 'NOTIFICACIONES STOX',
+    sentBy = 'Torre de Control WMS',
+    ttlHours = 168
+  } = req.body;
+
+  if (!to || !message) {
+    return res.status(400).json({ error: 'Se requieren los campos "to" y "message"' });
+  }
+
+  if (connectionStatus !== 'CONNECTED' || !sock) {
+    return res.status(503).json({ error: 'WhatsApp no está conectado' });
+  }
+
+  try {
+    const jid = formatJid(to);
+    const finalMessage = (withPrefix === false || message.startsWith('🤖'))
+      ? message
+      : `🤖 *Stox:*\n${message}`;
+
+    const result = await sock.sendMessage(jid, { text: finalMessage });
+    const resolvedGroup = resolveTargetWaGroup(targetGroup);
+
+    let lid = null;
+    try {
+      lid = await sock.signalRepository?.lidMapping?.getLIDForPN(jid);
+    } catch (_) {}
+
+    const { registerTrackedContact } = getReplyForwardingService();
+    const trackedRecord = registerTrackedContact({
+      to,
+      jid,
+      lid,
+      messageId: result?.key?.id || null,
+      message: finalMessage,
+      contactName,
+      orderId,
+      orderNumber,
+      comercio,
+      shippingAddress,
+      shippingCity,
+      targetGroup: resolvedGroup,
+      targetGroupName,
+      sentBy,
+      ttlHours
+    });
+
+    res.json({
+      success: true,
+      jid,
+      messageId: result?.key?.id,
+      sentMessage: finalMessage,
+      targetGroup: resolvedGroup,
+      tracked: trackedRecord
+    });
+  } catch (err) {
+    console.error('[Error en /send-tracked-message]:', err);
+    res.status(500).json({ error: 'Fallo al enviar mensaje con seguimiento: ' + err.message });
+  }
+});
+
+// 4.0.2 Consultar Contactos en Seguimiento y Respuestas Recibidas (Torre de Control)
+app.get('/tracked-messages', requireAuth, async (req, res) => {
+  try {
+    const { getTrackedMessagesSummary, syncRecentAuditLogsToTrackedState } = getReplyForwardingService();
+    await syncRecentAuditLogsToTrackedState(sock);
+    const summary = getTrackedMessagesSummary();
+    res.json({
+      success: true,
+      defaultGroup: resolveTargetWaGroup(),
+      defaultGroupName: 'NOTIFICACIONES STOX',
+      ...summary
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Error consultando mensajes en seguimiento: ' + err.message });
+  }
+});
+
+// 4.0.3 Desactivar Seguimiento de un Contacto
+app.delete('/tracked-messages/:phone', requireAuth, (req, res) => {
+  try {
+    const { deactivateTrackedContact } = getReplyForwardingService();
+    const deactivated = deactivateTrackedContact(req.params.phone);
+    res.json({ success: true, deactivated });
+  } catch (err) {
+    res.status(500).json({ error: 'Error desactivando seguimiento: ' + err.message });
   }
 });
 
