@@ -208,6 +208,39 @@ function getFechaProcesamiento() {
   return `${day}-${month}`;
 }
 
+const commerceStrictCache = new Map();
+const commerceSiglaCache = new Map();
+let allComerciosConfigCache = null;
+
+async function getCommerceStrictPicking(comercioName) {
+  if (!comercioName) return false;
+  const key = comercioName.trim();
+  if (commerceStrictCache.has(key)) {
+    return commerceStrictCache.get(key);
+  }
+  const { data: commConfig } = await supabase
+    .from('comercios_adicional_config')
+    .select('picking_match_strict')
+    .eq('comercio', key)
+    .maybeSingle();
+  const isStrict = Boolean(commConfig && commConfig.picking_match_strict);
+  commerceStrictCache.set(key, isStrict);
+  return isStrict;
+}
+
+async function runWithConcurrency(items, concurrencyLimit, asyncFn) {
+  const results = new Array(items.length);
+  let currentIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrencyLimit, items.length) }, async () => {
+    while (currentIndex < items.length) {
+      const idx = currentIndex++;
+      results[idx] = await asyncFn(items[idx], idx);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 async function sendSingleOrderToPicker(order) {
   if (!pickerSupabase) return;
 
@@ -221,17 +254,7 @@ async function sendSingleOrderToPicker(order) {
   }
   console.log(`📡 Enviando pedido ${orderNumber} al Picker (tracking: ${order.tracking_number})...`);
 
-  let commerceStrict = false;
-  if (order.comercio) {
-    const { data: commConfig } = await supabase
-      .from('comercios_adicional_config')
-      .select('picking_match_strict')
-      .eq('comercio', order.comercio)
-      .maybeSingle();
-    if (commConfig && commConfig.picking_match_strict) {
-      commerceStrict = true;
-    }
-  }
+  const commerceStrict = await getCommerceStrictPicking(order.comercio);
 
   const cleanDid = String(order.raw_lightdata_data?.did || order.raw_lightdata_data?.id || order.tracking_number || '').trim();
   const searchNumbers = [orderNumber, '#' + orderNumber.replace(/^#/, ''), orderNumber.replace(/^#/, '')];
@@ -414,9 +437,6 @@ const limit = parseInt(args.limit || '10', 10);
 
 async function main() {
   try {
-    // 1. Limpieza de etiquetas Base64 antiguas (> 7 días) para ahorrar espacio
-    await runCleanup();
-
     if (mode === 'individual') {
       if (!orderId) {
         console.error('❌ ERROR: Se requiere el parámetro --orderId=<UUID> en modo individual.');
@@ -428,6 +448,9 @@ async function main() {
     } else {
       console.error(`❌ ERROR: Modo desconocido: ${mode}`);
     }
+
+    // Limpieza de etiquetas Base64 antiguas (> 7 días) al final para no retrasar la emisión
+    await runCleanup();
   } catch (err) {
     console.error('❌ Error en el proceso principal:', err);
     process.exit(1);
@@ -1077,7 +1100,7 @@ async function handleBulkMode(limiteCarga) {
       $("#enviosNoFlex_listado").css("display", "block");
       appEnviosNoFlex.open();
     });
-    await page.waitForTimeout(2000);
+    await page.locator('#fileInputSubirEnviosNoflex').first().waitFor({ state: 'attached', timeout: 5000 }).catch(() => page.waitForTimeout(500));
     
     // Cargar archivo
     console.log('📤 Subiendo archivo Excel a LightData...');
@@ -1365,9 +1388,9 @@ async function handleBulkMode(limiteCarga) {
       } catch (_) {}
     }
 
-    // 2. Descargar etiqueta térmica individual para cada pedido verificado
+    // 2. Descargar etiqueta térmica individual para cada pedido verificado (en paralelo controlado)
     console.log(`📥 Descargando etiquetas individuales para ${verifiedOrderMatches.length} pedidos verificados...`);
-    for (const matchItem of verifiedOrderMatches) {
+    await runWithConcurrency(verifiedOrderMatches, 6, async (matchItem) => {
       const didNum = parseInt(matchItem.did, 10);
       try {
         const printResponse = await fetch("https://printserver.lightdata.app/print/etiqueta", {
@@ -1392,7 +1415,7 @@ async function handleBulkMode(limiteCarga) {
       } catch (printErr) {
         console.error(`❌ Excepción al descargar etiqueta del Print Server para DID ${matchItem.did}:`, printErr.message);
       }
-    }
+    });
 
     // 3. Actualizar en Supabase y enviar al Picker únicamente los pedidos con DID verificado
     console.log(`📡 Actualizando ${verifiedOrderMatches.length} pedidos verificados en Supabase y sincronizando al Picker...`);
@@ -1422,7 +1445,7 @@ async function handleBulkMode(limiteCarga) {
       }
     }
 
-    for (const matchItem of verifiedOrderMatches) {
+    await runWithConcurrency(verifiedOrderMatches, 6, async (matchItem) => {
       const { order, did, trackingUrl, labelBase64 } = matchItem;
 
       const updatedOrderData = {
@@ -1449,15 +1472,16 @@ async function handleBulkMode(limiteCarga) {
       };
 
       const targetWarehouseId = getWarehouseIdFromSucursal(order.sucursal_pickeo);
-      await supabase
-        .from('order_items')
-        .update({ warehouse_id: targetWarehouseId })
-        .eq('order_id', order.id);
-
-      const { error: updateError } = await supabase
-        .from('orders')
-        .update(updatedOrderData)
-        .eq('id', order.id);
+      const [, { error: updateError }] = await Promise.all([
+        supabase
+          .from('order_items')
+          .update({ warehouse_id: targetWarehouseId })
+          .eq('order_id', order.id),
+        supabase
+          .from('orders')
+          .update(updatedOrderData)
+          .eq('id', order.id)
+      ]);
 
       if (updateError) {
         console.error(`⚠️ Error al actualizar orden ${order.external_order_number}:`, updateError.message);
@@ -1472,7 +1496,7 @@ async function handleBulkMode(limiteCarga) {
           console.error(`❌ Error al enviar la orden ${order.external_order_number} al Picker:`, pickerErr.message);
         }
       }
-    }
+    });
 
     console.log(`🎉 Carga masiva completada: ${verifiedOrderMatches.length} pedidos vinculados exactamente, ${unmatchedOrders.length} omitidos sin riesgo de desfase.`);
 
@@ -1492,24 +1516,31 @@ async function handleBulkMode(limiteCarga) {
  */
 async function getCommerceSigla(comercioName) {
   if (!comercioName) return 'STK';
+  const key = comercioName.trim();
+  if (commerceSiglaCache.has(key)) {
+    return commerceSiglaCache.get(key);
+  }
   
   const { data, error } = await supabase
     .from('v_comercios_config')
     .select('sigla')
-    .eq('nombre', comercioName.trim())
+    .eq('nombre', key)
     .maybeSingle();
 
   if (error || !data) {
-    // Si no se encuentra, buscar por coincidencia parcial o retornar por defecto
-    const { data: list } = await supabase.from('v_comercios_config').select('sigla, nombre');
-    if (list) {
-      const match = list.find(c => c.nombre.toLowerCase().includes(comercioName.toLowerCase()));
-      if (match) return match.sigla.trim().toUpperCase();
+    if (!allComerciosConfigCache) {
+      const { data: list } = await supabase.from('v_comercios_config').select('sigla, nombre');
+      allComerciosConfigCache = list || [];
     }
-    return 'STK';
+    const match = allComerciosConfigCache.find(c => c.nombre && c.nombre.toLowerCase().includes(key.toLowerCase()));
+    const resolved = match ? match.sigla.trim().toUpperCase() : 'STK';
+    commerceSiglaCache.set(key, resolved);
+    return resolved;
   }
   
-  return data.sigla.trim().toUpperCase();
+  const resolved = data.sigla.trim().toUpperCase();
+  commerceSiglaCache.set(key, resolved);
+  return resolved;
 }
 
 main();
