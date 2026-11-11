@@ -1108,7 +1108,7 @@ async function handleBulkMode(limiteCarga) {
 
     // Esperar a que el Excel sea parseado y cargado en la tabla de pre-subida
     console.log('⏳ Esperando renderizado de la tabla de pre-subida...');
-    await page.waitForSelector('#listado_enviosNoflex_presubida tr', { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelectorAll('#listado_enviosNoflex_presubida tr').length > 0, { timeout: 15000 });
     const loadedRows = await page.locator('#listado_enviosNoflex_presubida tr').count();
     console.log(`📋 Filas cargadas en previsualización: ${loadedRows}`);
 
