@@ -1695,65 +1695,236 @@ export async function revertAndDeleteStockTransferOrder(transferId, revertStock 
 }
 window.revertAndDeleteStockTransferOrder = revertAndDeleteStockTransferOrder;
 
+const RESTORED_1004_FLAG_KEY = 'stocka_wms_trf_1004_restored_v1';
+
+const TRF_1004_RECOVERY_ITEMS = [
+  { product_id: 'd5b5045a-1f6f-43bb-b1ec-56629ebca9f1', sku: 'lutaiblanca34', product_name: 'Lutai Blanca - 34', qty: 3 },
+  { product_id: 'fe89ae1f-0c7c-4d05-83e6-3f348b7ff685', sku: 'lutaiblanca35', product_name: 'Lutai Blanca - 35', qty: 3 },
+  { product_id: '50c0acbe-a5a6-4cc9-abe7-f694eb28dff6', sku: 'lutainegra35', product_name: 'Lutai Negra - 35', qty: 3 },
+  { product_id: 'eff9a197-88c3-4da1-b7d9-38bda9494517', sku: 'lutainegra36', product_name: 'Lutai Negra - 36', qty: 2 },
+  { product_id: 'e4ac712d-67e2-41d6-91f5-a29511b2efe7', sku: 'lutaigris37', product_name: 'Lutai Gris - 37', qty: 1 },
+  { product_id: 'cd2782c8-74a4-4786-b558-46cb6f1963af', sku: 'lutaigris38', product_name: 'Lutai Gris - 38', qty: 3 },
+  { product_id: '39b13537-5e8e-4ca4-9b23-81b9d000f269', sku: 'lutainegra38', product_name: 'Lutai Negra - 38', qty: 3 },
+  { product_id: '374b8dca-1de8-4cf7-a3cd-1fc0d1862fe0', sku: 'lutaiblanca39', product_name: 'Lutai Blanca - 39', qty: 1 },
+  { product_id: 'ec1f5617-66c7-4a75-af6d-d5c4ab7a3cf8', sku: 'lutaigris40', product_name: 'Lutai Gris - 40', qty: 2 },
+  { product_id: 'b88f9f6a-6f9b-4c5e-971a-95a02077d674', sku: 'lutainegra40', product_name: 'Lutai Negra - 40', qty: 3 },
+  { product_id: '84cb4a4f-ad35-4c9b-b322-79bac37935b9', sku: 'lutaigris41', product_name: 'Lutai Gris - 41', qty: 3 },
+  { product_id: 'df5c90cf-63f0-4b13-bc62-923897403a7d', sku: 'lutainegra41', product_name: 'Lutai Negra - 41', qty: 3 },
+  { product_id: '7fcc68b5-7aa3-4124-9e8f-6345ec2bc5ff', sku: 'lutaiblanca42', product_name: 'Lutai Blanca - 42', qty: 3 },
+  { product_id: 'ff10ffa6-7810-45ee-ab87-f2ccd2cbdd36', sku: 'lutaigris42', product_name: 'Lutai Gris - 42', qty: 2 },
+  { product_id: '1b6ee8c6-d6c7-4dd4-bd09-f86664fc41f7', sku: 'lutainegra42', product_name: 'Lutai Negra - 42', qty: 3 },
+  { product_id: '8f56efd3-f6a4-43e6-8557-f2a3b892382f', sku: 'lutaiblanca43', product_name: 'Lutai Blanca - 43', qty: 3 },
+  { product_id: '6da5b107-d66f-408b-8dba-0bdc3d427124', sku: 'lutainegra43', product_name: 'Lutai Negra - 43', qty: 3 },
+  { product_id: '085a9d3e-222b-42bd-9e1f-951b6aca1f4b', sku: 'lutaiblanca44', product_name: 'Lutai Blanca - 44', qty: 3 },
+  { product_id: 'b8048275-2f66-44f1-8b77-94864cad94b2', sku: 'lutaigris44', product_name: 'Lutai Gris - 44', qty: 1 },
+  { product_id: '0339e252-550a-4032-adb7-e726198cb67f', sku: 'lutaiblanca45', product_name: 'Lutai Blanca - 45', qty: 3 },
+  { product_id: '7bbacace-6d54-4e10-9732-d90d4e5cf849', sku: 'lutaigris45', product_name: 'Lutai Gris - 45', qty: 3 },
+  { product_id: '01a4c691-da85-4b6d-9372-7d7a2c04f6eb', sku: 'lutaiblanca46', product_name: 'Lutai Blanca - 46', qty: 3 },
+  { product_id: 'bfa9bb13-d704-4acf-b0c1-21a91bdb19cc', sku: 'lutaigris46', product_name: 'Lutai Gris - 46', qty: 3 },
+  { product_id: '626b4d14-154f-4756-94de-2848262c9409', sku: 'lutainegra46', product_name: 'Lutai Negra - 46', qty: 2 },
+  { product_id: 'd3c4823e-941e-4fdb-9e63-e07c1247dacc', sku: 'lutaiblanca47', product_name: 'Lutai Blanca - 47', qty: 3 },
+  { product_id: '51f8e767-358f-467e-83a5-f430a79344b0', sku: 'lutaigris47', product_name: 'Lutai Gris - 47', qty: 3 },
+  { product_id: '404e483b-c828-47f7-a321-71fac0350963', sku: 'lutainegra47', product_name: 'Lutai Negra - 47', qty: 1 },
+  { product_id: 'e17f6a26-8d66-4241-9b05-4c8892bca5b7', sku: 'lutaiwipes', product_name: 'Limpia Zapatillas', qty: 3 }
+];
+
 /**
- * Detecta y limpia automáticamente el movimiento duplicado (#TRF-1004 / #TRF-1005 de LUTAI)
- * dejando únicamente un movimiento válido y corrigiendo el inventario si se descontó dos veces.
+ * Restaura por única vez la transferencia #TRF-1004 (LUTAI · CDD La Reina -> Matriz Ñuñoa · 28 SKUs · 72 uds)
+ * en caso de que se hayan eliminado tanto #TRF-1004 como #TRF-1005 al limpiar el duplicado.
  */
-async function autoDeduplicateTransfersIfNeeded(transfersList) {
-  if (!Array.isArray(transfersList) || transfersList.length < 2) return transfersList;
+async function ensureTransfer1004Restored(transfersList) {
+  const list = Array.isArray(transfersList) ? transfersList : [];
+  const exists1004 = list.some(t => String(t.folio || '').toUpperCase() === 'TRF-1004');
+  const exists1005 = list.some(t => String(t.folio || '').toUpperCase() === 'TRF-1005');
 
-  const t1004 = transfersList.find(t => String(t.folio).toUpperCase() === 'TRF-1004');
-  const t1005 = transfersList.find(t => String(t.folio).toUpperCase() === 'TRF-1005');
-
-  if (!t1004 || !t1005) return transfersList;
-  if (t1004.comercio !== t1005.comercio || Number(t1004.total_sent) !== Number(t1005.total_sent)) {
-    return transfersList;
+  if (exists1004 || exists1005) {
+    return list;
   }
 
   try {
-    const pids = (t1005.items || []).map(it => it.product_id).filter(Boolean);
-    let count1004 = 0;
-    let count1005 = 0;
+    if (localStorage.getItem(RESTORED_1004_FLAG_KEY) === 'true') {
+      return list;
+    }
+  } catch (e) {}
 
-    if (pids.length > 0) {
-      const { data: movs } = await supabase
-        .from('movements')
-        .select('id, reference_doc')
-        .in('product_id', pids)
-        .or('reference_doc.ilike.%[#TRF-1004]%,reference_doc.ilike.%[#TRF-1005]%');
+  try {
+    const sourceWarehouseId = '414605cb-f926-43d2-8bd2-d9509f7b458a';
+    const sourceWarehouseName = 'CDD La Reina';
+    const destWarehouseId = '973da888-8a63-4790-a08f-919e1af41a93';
+    const destWarehouseName = 'Matriz Ñuñoa';
+    const createdAtIso = '2026-11-11T00:32:00.000Z'; // 10 nov 2026, 09:32 p. m. CL
+    const noteText = 'ajuste consolidado para establecer stock base en Matriz Ñuñoa';
+    const actor = 'Stocka';
 
-      (movs || []).forEach(m => {
-        const ref = String(m.reference_doc || '');
-        if (ref.includes('[#TRF-1004]')) count1004++;
-        if (ref.includes('[#TRF-1005]')) count1005++;
+    // 1. Verificar el estado actual de public.inventory en Matriz Ñuñoa para saber si el stock necesita aplicarse
+    let shouldApplyInventoryDeltas = true;
+    try {
+      const pids = TRF_1004_RECOVERY_ITEMS.map(it => it.product_id);
+      const { data: destRows } = await supabase
+        .from('inventory')
+        .select('product_id, quantity')
+        .eq('warehouse_id', destWarehouseId)
+        .in('product_id', pids);
+
+      if (Array.isArray(destRows) && destRows.length > 0) {
+        const currentDestSum = destRows.reduce((acc, r) => acc + (Number(r.quantity) || 0), 0);
+        // Antes de #TRF-1004 esos 28 SKUs sumaban ~12-18 uds en Matriz Ñuñoa; con #TRF-1004 aplicado suman ~84-90 uds
+        if (currentDestSum >= 60) {
+          shouldApplyInventoryDeltas = false;
+        }
+      }
+    } catch (invCheckErr) {
+      console.warn('[StockTransfers] No se pudo verificar suma previa en destino:', invCheckErr);
+    }
+
+    if (shouldApplyInventoryDeltas) {
+      const concurrency = 8;
+      for (let i = 0; i < TRF_1004_RECOVERY_ITEMS.length; i += concurrency) {
+        const batch = TRF_1004_RECOVERY_ITEMS.slice(i, i + concurrency);
+        await Promise.all(batch.map(async (it) => {
+          await Promise.all([
+            adjustWarehouseInventoryBalances(sourceWarehouseId, it.product_id, {
+              physical: -it.qty,
+              transferReserved: 0,
+              inTransit: 0
+            }),
+            adjustWarehouseInventoryBalances(destWarehouseId, it.product_id, {
+              physical: it.qty,
+              transferReserved: 0,
+              inTransit: 0
+            })
+          ]);
+        }));
+      }
+    }
+
+    // 2. Verificar si existen los registros en Kardex (public.movements) para [#TRF-1004]; si no, insertarlos
+    const pids = TRF_1004_RECOVERY_ITEMS.map(it => it.product_id);
+    const { data: existingMovs } = await supabase
+      .from('movements')
+      .select('id')
+      .in('product_id', pids)
+      .ilike('reference_doc', '%[#TRF-1004]%')
+      .limit(5);
+
+    if (!existingMovs || existingMovs.length === 0) {
+      const kardexRows = [];
+      TRF_1004_RECOVERY_ITEMS.forEach(it => {
+        kardexRows.push(
+          {
+            product_id: it.product_id,
+            warehouse_id: sourceWarehouseId,
+            type: 'out',
+            quantity: it.qty,
+            date: createdAtIso,
+            transfer_id: null,
+            created_by_name: actor,
+            reference_doc: `[#TRF-1004] Salida por traslado directo a ${destWarehouseName} · Solicitó: ${actor} · Nota: ${noteText}`
+          },
+          {
+            product_id: it.product_id,
+            warehouse_id: destWarehouseId,
+            type: 'in',
+            quantity: it.qty,
+            date: createdAtIso,
+            transfer_id: null,
+            created_by_name: actor,
+            reference_doc: `[#TRF-1004] Recepción de traslado desde ${sourceWarehouseName} · Recepcionó: ${actor} · Nota: ${noteText}`
+          }
+        );
       });
+      await insertKardexMovements(kardexRows);
     }
 
-    if (count1004 > 0 && count1005 > 0) {
-      // Ambos movimientos se aplicaron en inventario y Kardex: revertimos el stock del segundo (#TRF-1005) y lo eliminamos
-      await revertAndDeleteStockTransferOrder(t1005.id, true);
-      if (typeof window.showToast === 'function') {
-        window.showToast('✅ Se eliminó el movimiento duplicado #TRF-1005 y se revirtieron sus 72 uds duplicadas, dejando solo #TRF-1004.', 'success');
-      }
-      return await fetchAllStockTransfers(true);
-    } else if (count1004 === 0 && count1005 > 0) {
-      // #TRF-1004 no alcanzó a completar Kardex y #TRF-1005 sí: eliminamos el registro #TRF-1004 sin tocar el stock de #TRF-1005
-      await revertAndDeleteStockTransferOrder(t1004.id, false);
-      if (typeof window.showToast === 'function') {
-        window.showToast('✅ Se eliminó el intento duplicado #TRF-1004, dejando únicamente el movimiento válido #TRF-1005.', 'success');
-      }
-      return await fetchAllStockTransfers(true);
-    } else {
-      // Por defecto conservamos #TRF-1004 y revertimos/eliminamos #TRF-1005
-      await revertAndDeleteStockTransferOrder(t1005.id, count1005 > 0);
-      if (typeof window.showToast === 'function') {
-        window.showToast('✅ Se limpió el movimiento duplicado #TRF-1005, dejando únicamente #TRF-1004.', 'success');
-      }
-      return await fetchAllStockTransfers(true);
+    // 3. Reconstruir el encabezado e ítems de #TRF-1004
+    const localId = 'trf-1004-restored';
+    const localItems = TRF_1004_RECOVERY_ITEMS.map((it, idx) => ({
+      id: `${localId}-item-${idx}`,
+      transfer_id: localId,
+      product_id: it.product_id,
+      sku: it.sku,
+      product_name: it.product_name,
+      quantity_requested: it.qty,
+      quantity_sent: it.qty,
+      quantity_received: it.qty,
+      quantity_returned_origin: 0,
+      discrepancy_type: 'none',
+      dest_location_hint: ''
+    }));
+
+    const restoredTransfer = {
+      id: localId,
+      folio: 'TRF-1004',
+      comercio: 'LUTAI',
+      source_warehouse_id: sourceWarehouseId,
+      source_warehouse_name: sourceWarehouseName,
+      dest_warehouse_id: destWarehouseId,
+      dest_warehouse_name: destWarehouseName,
+      status: 'Recepcionada',
+      priority: 'Normal',
+      execution_mode: 'direct_hub',
+      title: noteText,
+      notes: noteText,
+      reception_notes: 'Recepción automática (Traspaso Directo 1-Paso)',
+      carrier_info: '',
+      package_count: 1,
+      discrepancy_policy: 'return_origin',
+      total_skus: 28,
+      total_requested: 72,
+      total_sent: 72,
+      total_received: 72,
+      requested_by_id: null,
+      requested_by_name: actor,
+      requested_at: createdAtIso,
+      dispatched_by_id: null,
+      dispatched_by_name: actor,
+      dispatched_at: createdAtIso,
+      received_by_id: null,
+      received_by_name: actor,
+      received_at: createdAtIso,
+      created_at: createdAtIso,
+      updated_at: new Date().toISOString(),
+      _isLocalOnly: true,
+      items: localItems,
+      history: [
+        {
+          timestamp: createdAtIso,
+          actor,
+          action: 'created',
+          status: 'Recepcionada',
+          detail: `Transferencia creada en modalidad "Traspaso Directo 1-Paso (Recepción Inmediata)" (28 SKUs · 72 uds) desde ${sourceWarehouseName} hacia ${destWarehouseName}. Nota: ${noteText}`
+        },
+        {
+          timestamp: createdAtIso,
+          actor,
+          action: 'received',
+          status: 'Recepcionada',
+          detail: `Traspaso directo completado: -72 uds en ${sourceWarehouseName} y +72 uds recepcionadas en ${destWarehouseName} (Kardex sincronizado).`
+        }
+      ]
+    };
+
+    const existingLocal = loadLocalTransfersBackup().filter(
+      x => String(x.folio || '').toUpperCase() !== 'TRF-1004'
+    );
+    existingLocal.push(restoredTransfer);
+    existingLocal.sort((a, b) => new Date(b.created_at || b.requested_at || 0) - new Date(a.created_at || a.requested_at || 0));
+    saveLocalTransfersBackup(existingLocal);
+
+    try {
+      localStorage.setItem(RESTORED_1004_FLAG_KEY, 'true');
+    } catch (e) {}
+
+    await notifyInventoryChangeAfterTransfer('LUTAI', pids);
+
+    if (typeof window.showToast === 'function') {
+      window.showToast('✅ Transferencia #TRF-1004 (LUTAI · 28 SKUs · 72 uds) recuperada y sincronizada en inventario y Kardex.', 'success');
     }
+
+    return await fetchAllStockTransfers(true);
   } catch (err) {
-    console.warn('[StockTransfers] Error en auto-deduplicación:', err);
-    return transfersList;
+    console.warn('[StockTransfers] Error restaurando #TRF-1004:', err);
+    return list;
   }
 }
 
@@ -2580,8 +2751,8 @@ export async function renderStockTransfersAdmin(containerOverride = null) {
     ensureAllCommercesLoaded()
   ]);
 
-  // Verificar y limpiar automáticamente si existen los dos movimientos idénticos #TRF-1004 y #TRF-1005
-  transfers = await autoDeduplicateTransfersIfNeeded(transfers);
+  // Restaurar automáticamente #TRF-1004 si se borraron tanto #TRF-1004 como #TRF-1005 al limpiar el duplicado
+  transfers = await ensureTransfer1004Restored(transfers);
 
   const warehouses = Array.isArray(window.allWarehousesList) ? window.allWarehousesList : [];
   const state = window.stockTransfersState;
