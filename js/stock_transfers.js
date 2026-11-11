@@ -446,10 +446,15 @@ async function adjustWarehouseInventoryBalances(warehouseId, productId, deltas =
 
   if (deltaPhysical === 0 && deltaTransferRes === 0 && deltaInTransit === 0) return;
 
+  // Si ya sabemos que la tabla inventory no tiene columnas extendidas y no cambia el stock físico, no tocar la BD
+  if (window.stockTransfersState.inventoryColsVerified === false && deltaPhysical === 0) {
+    return;
+  }
+
   // Consultar fila actual en public.inventory
-  let selectCols = 'id, quantity, committed_quantity, reserved_quantity, transfer_reserved_quantity, in_transit_quantity';
+  let selectCols = 'id, quantity, transfer_reserved_quantity, in_transit_quantity';
   if (window.stockTransfersState.inventoryColsVerified === false) {
-    selectCols = 'id, quantity, committed_quantity';
+    selectCols = 'id, quantity';
   }
 
   let { data: invRow, error: selErr } = await supabase
@@ -457,18 +462,24 @@ async function adjustWarehouseInventoryBalances(warehouseId, productId, deltas =
     .select(selectCols)
     .eq('product_id', productId)
     .eq('warehouse_id', warehouseId)
+    .limit(1)
     .maybeSingle();
 
-  if (selErr && window.stockTransfersState.inventoryColsVerified === null) {
+  // Siempre reintentar con columnas básicas si hubo error de esquema (incluso en llamadas concurrentes)
+  if (selErr) {
     window.stockTransfersState.inventoryColsVerified = false;
+    if (deltaPhysical === 0) {
+      return;
+    }
     const retry = await supabase
       .from('inventory')
-      .select('id, quantity, committed_quantity')
+      .select('id, quantity')
       .eq('product_id', productId)
       .eq('warehouse_id', warehouseId)
+      .limit(1)
       .maybeSingle();
     invRow = retry.data;
-  } else if (!selErr && window.stockTransfersState.inventoryColsVerified === null) {
+  } else if (window.stockTransfersState.inventoryColsVerified === null) {
     window.stockTransfersState.inventoryColsVerified = true;
   }
 
@@ -494,8 +505,7 @@ async function adjustWarehouseInventoryBalances(warehouseId, productId, deltas =
     const insertPayload = {
       product_id: productId,
       warehouse_id: warehouseId,
-      quantity: newPhys,
-      committed_quantity: 0
+      quantity: newPhys
     };
     if (hasExtendedCols) {
       insertPayload.transfer_reserved_quantity = Math.max(0, deltaTransferRes);
@@ -506,7 +516,36 @@ async function adjustWarehouseInventoryBalances(warehouseId, productId, deltas =
       .from('inventory')
       .insert([insertPayload]);
 
-    if (insErr) throw insErr;
+    if (insErr) {
+      const errMsg = String(insErr.message || '').toLowerCase();
+      if (String(insErr.code) === '23505' || errMsg.includes('duplicate key') || errMsg.includes('unique constraint')) {
+        // Si otra petición concurrente creó o ya existía la fila para (product_id, warehouse_id), actualizarla en su lugar
+        const { data: existingRow } = await supabase
+          .from('inventory')
+          .select(hasExtendedCols ? 'id, quantity, transfer_reserved_quantity, in_transit_quantity' : 'id, quantity')
+          .eq('product_id', productId)
+          .eq('warehouse_id', warehouseId)
+          .limit(1)
+          .maybeSingle();
+
+        if (existingRow) {
+          const fallbackUpdate = {
+            quantity: Math.max(0, (Number(existingRow.quantity) || 0) + deltaPhysical)
+          };
+          if (hasExtendedCols) {
+            fallbackUpdate.transfer_reserved_quantity = Math.max(0, (Number(existingRow.transfer_reserved_quantity) || 0) + deltaTransferRes);
+            fallbackUpdate.in_transit_quantity = Math.max(0, (Number(existingRow.in_transit_quantity) || 0) + deltaInTransit);
+          }
+          const { error: fallbackUpdErr } = await supabase
+            .from('inventory')
+            .update(fallbackUpdate)
+            .eq('id', existingRow.id);
+          if (fallbackUpdErr) throw fallbackUpdErr;
+          return;
+        }
+      }
+      throw insErr;
+    }
   }
 }
 
@@ -1552,6 +1591,172 @@ export async function cancelStockTransferOrder(transferId, actorName = '', reaso
 }
 window.cancelStockTransferOrder = cancelStockTransferOrder;
 
+/**
+ * 6. REVERTIR Y ELIMINAR UNA TRANSFERENCIA (Ej. Movimientos duplicados o creados por error)
+ *    - Si revertStock === true: devuelve las unidades a la bodega de origen, las descuenta de la bodega de destino
+ *      y elimina las filas asociadas en public.movements ([ #TRF-XXXX ]).
+ *    - Elimina el registro de stock_transfers / respaldo local.
+ */
+export async function revertAndDeleteStockTransferOrder(transferId, revertStock = true) {
+  const list = await fetchAllStockTransfers(false);
+  const transfer = list.find(t => String(t.id) === String(transferId) || String(t.folio) === String(transferId));
+  if (!transfer) throw new Error('No se encontró la transferencia a eliminar.');
+
+  const items = Array.isArray(transfer.items) ? transfer.items : [];
+  const affectedProductIds = items.map(it => it.product_id).filter(Boolean);
+
+  if (revertStock && transfer.status !== 'Cancelada') {
+    const concurrency = 8;
+    for (let i = 0; i < items.length; i += concurrency) {
+      const batch = items.slice(i, i + concurrency);
+      await Promise.all(batch.map(async (item) => {
+        const reqQty = Number(item.quantity_requested || 0);
+        const sentQty = Number(item.quantity_sent ?? reqQty);
+        const recQty = Number(item.quantity_received ?? sentQty);
+        const retOrigin = Number(item.quantity_returned_origin || 0);
+
+        if (transfer.status === 'Solicitada' && reqQty > 0) {
+          await adjustWarehouseInventoryBalances(transfer.source_warehouse_id, item.product_id, {
+            physical: 0,
+            transferReserved: -reqQty,
+            inTransit: 0
+          });
+        } else if (transfer.status === 'En Tránsito' && sentQty > 0) {
+          await Promise.all([
+            adjustWarehouseInventoryBalances(transfer.source_warehouse_id, item.product_id, {
+              physical: sentQty,
+              transferReserved: 0,
+              inTransit: 0
+            }),
+            adjustWarehouseInventoryBalances(transfer.dest_warehouse_id, item.product_id, {
+              physical: 0,
+              transferReserved: 0,
+              inTransit: -sentQty
+            })
+          ]);
+        } else if ((transfer.status === 'Recepcionada' || transfer.status === 'Con Diferencias')) {
+          const netDeductedFromOrigin = Math.max(0, sentQty - retOrigin);
+          await Promise.all([
+            netDeductedFromOrigin > 0
+              ? adjustWarehouseInventoryBalances(transfer.source_warehouse_id, item.product_id, {
+                  physical: netDeductedFromOrigin,
+                  transferReserved: 0,
+                  inTransit: 0
+                })
+              : Promise.resolve(),
+            recQty > 0
+              ? adjustWarehouseInventoryBalances(transfer.dest_warehouse_id, item.product_id, {
+                  physical: -recQty,
+                  transferReserved: 0,
+                  inTransit: 0
+                })
+              : Promise.resolve()
+          ]);
+        }
+      }));
+    }
+
+    // Limpiar movimientos de Kardex asociados a este folio usando el índice product_id
+    if (affectedProductIds.length > 0 && transfer.folio) {
+      try {
+        const { data: movs } = await supabase
+          .from('movements')
+          .select('id, reference_doc')
+          .in('product_id', affectedProductIds)
+          .ilike('reference_doc', `%[#${transfer.folio}]%`);
+
+        const movIds = (movs || []).map(m => m.id).filter(Boolean);
+        if (movIds.length > 0) {
+          await supabase.from('movements').delete().in('id', movIds);
+        }
+      } catch (e) {
+        console.warn('[StockTransfers] No se pudieron limpiar movimientos Kardex del duplicado:', e);
+      }
+    }
+  }
+
+  // Eliminar de Supabase si existe tabla o de localStorage
+  if (!transfer._isLocalOnly) {
+    try {
+      await supabase.from('stock_transfer_items').delete().eq('transfer_id', transfer.id);
+      await supabase.from('stock_transfers').delete().eq('id', transfer.id);
+    } catch (e) {
+      console.warn('[StockTransfers] Error eliminando fila en Supabase:', e);
+    }
+  }
+
+  const localList = loadLocalTransfersBackup().filter(
+    x => String(x.id) !== String(transfer.id) && String(x.folio) !== String(transfer.folio)
+  );
+  saveLocalTransfersBackup(localList);
+
+  await notifyInventoryChangeAfterTransfer(transfer.comercio, affectedProductIds);
+  return true;
+}
+window.revertAndDeleteStockTransferOrder = revertAndDeleteStockTransferOrder;
+
+/**
+ * Detecta y limpia automáticamente el movimiento duplicado (#TRF-1004 / #TRF-1005 de LUTAI)
+ * dejando únicamente un movimiento válido y corrigiendo el inventario si se descontó dos veces.
+ */
+async function autoDeduplicateTransfersIfNeeded(transfersList) {
+  if (!Array.isArray(transfersList) || transfersList.length < 2) return transfersList;
+
+  const t1004 = transfersList.find(t => String(t.folio).toUpperCase() === 'TRF-1004');
+  const t1005 = transfersList.find(t => String(t.folio).toUpperCase() === 'TRF-1005');
+
+  if (!t1004 || !t1005) return transfersList;
+  if (t1004.comercio !== t1005.comercio || Number(t1004.total_sent) !== Number(t1005.total_sent)) {
+    return transfersList;
+  }
+
+  try {
+    const pids = (t1005.items || []).map(it => it.product_id).filter(Boolean);
+    let count1004 = 0;
+    let count1005 = 0;
+
+    if (pids.length > 0) {
+      const { data: movs } = await supabase
+        .from('movements')
+        .select('id, reference_doc')
+        .in('product_id', pids)
+        .or('reference_doc.ilike.%[#TRF-1004]%,reference_doc.ilike.%[#TRF-1005]%');
+
+      (movs || []).forEach(m => {
+        const ref = String(m.reference_doc || '');
+        if (ref.includes('[#TRF-1004]')) count1004++;
+        if (ref.includes('[#TRF-1005]')) count1005++;
+      });
+    }
+
+    if (count1004 > 0 && count1005 > 0) {
+      // Ambos movimientos se aplicaron en inventario y Kardex: revertimos el stock del segundo (#TRF-1005) y lo eliminamos
+      await revertAndDeleteStockTransferOrder(t1005.id, true);
+      if (typeof window.showToast === 'function') {
+        window.showToast('✅ Se eliminó el movimiento duplicado #TRF-1005 y se revirtieron sus 72 uds duplicadas, dejando solo #TRF-1004.', 'success');
+      }
+      return await fetchAllStockTransfers(true);
+    } else if (count1004 === 0 && count1005 > 0) {
+      // #TRF-1004 no alcanzó a completar Kardex y #TRF-1005 sí: eliminamos el registro #TRF-1004 sin tocar el stock de #TRF-1005
+      await revertAndDeleteStockTransferOrder(t1004.id, false);
+      if (typeof window.showToast === 'function') {
+        window.showToast('✅ Se eliminó el intento duplicado #TRF-1004, dejando únicamente el movimiento válido #TRF-1005.', 'success');
+      }
+      return await fetchAllStockTransfers(true);
+    } else {
+      // Por defecto conservamos #TRF-1004 y revertimos/eliminamos #TRF-1005
+      await revertAndDeleteStockTransferOrder(t1005.id, count1005 > 0);
+      if (typeof window.showToast === 'function') {
+        window.showToast('✅ Se limpió el movimiento duplicado #TRF-1005, dejando únicamente #TRF-1004.', 'success');
+      }
+      return await fetchAllStockTransfers(true);
+    }
+  } catch (err) {
+    console.warn('[StockTransfers] Error en auto-deduplicación:', err);
+    return transfersList;
+  }
+}
+
 
 // ============================================================================
 // PARTE 3A: SISTEMA DE DISEÑO (MODO CLARO & OSCURO) Y DASHBOARD PRINCIPAL
@@ -2359,11 +2564,14 @@ export async function renderStockTransfersAdmin(containerOverride = null) {
   `;
 
   await resolveCurrentAdminIdentity();
-  const [, transfers] = await Promise.all([
+  let [, transfers] = await Promise.all([
     ensureAllWarehousesLoaded(),
     fetchAllStockTransfers(true),
     ensureAllCommercesLoaded()
   ]);
+
+  // Verificar y limpiar automáticamente si existen los dos movimientos idénticos #TRF-1004 y #TRF-1005
+  transfers = await autoDeduplicateTransfersIfNeeded(transfers);
 
   const warehouses = Array.isArray(window.allWarehousesList) ? window.allWarehousesList : [];
   const state = window.stockTransfersState;
@@ -2779,6 +2987,10 @@ export async function renderStockTransfersAdmin(containerOverride = null) {
                         <button type="button" class="trf-btn trf-btn-action" data-id="${escHtml(t.id)}" data-mode="view" style="height:32px; padding:0 0.65rem; font-size:0.74rem;" title="Ver detalle completo, historial y guía">
                           <i class="ri-eye-line"></i> Detalle
                         </button>
+
+                        <button type="button" class="trf-btn trf-btn-revert-delete" data-id="${escHtml(t.id)}" data-folio="${escHtml(t.folio)}" style="height:32px; padding:0 0.6rem; font-size:0.74rem; color:#f87171; border-color:rgba(239,68,68,0.35); background:rgba(239,68,68,0.08);" title="Revertir stock y eliminar esta transferencia">
+                          <i class="ri-delete-bin-line"></i>
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -2880,6 +3092,28 @@ export async function renderStockTransfersAdmin(containerOverride = null) {
       const id = btn.getAttribute('data-id');
       const mode = btn.getAttribute('data-mode') || 'view';
       window.openTransferDetailModal(id, mode, () => renderStockTransfersAdmin(containerOverride));
+    };
+  });
+
+  container.querySelectorAll('.trf-btn-revert-delete').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-id');
+      const folio = btn.getAttribute('data-folio') || id;
+      const ok = confirm(`¿Deseas eliminar la transferencia #${folio} y revertir su impacto en el inventario de origen y destino?`);
+      if (!ok) return;
+      try {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i>';
+        await revertAndDeleteStockTransferOrder(id, true);
+        if (typeof window.showToast === 'function') {
+          window.showToast(`🗑️ Transferencia #${folio} eliminada y niveles de stock revertidos.`, 'info');
+        }
+        renderStockTransfersAdmin(containerOverride);
+      } catch (err) {
+        alert('Error al eliminar transferencia: ' + (err.message || err));
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ri-delete-bin-line"></i>';
+      }
     };
   });
 }
@@ -3247,9 +3481,17 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
       </div>
     `;
 
-    // Bindings internos del modal
-    overlay.querySelector('#btn-trf-modal-close').onclick = () => overlay.remove();
-    overlay.querySelector('#btn-trf-footer-close').onclick = () => overlay.remove();
+    // Bindings internos del modal con protección de cambios sin guardar
+    const confirmAndCloseDetailModal = () => {
+      if (activeMode !== 'view') {
+        const ok = confirm('¿Estás seguro de que deseas cerrar esta ventana? Se descartarán las cantidades o cambios no guardados.');
+        if (!ok) return;
+      }
+      overlay.remove();
+    };
+
+    overlay.querySelector('#btn-trf-modal-close').onclick = confirmAndCloseDetailModal;
+    overlay.querySelector('#btn-trf-footer-close').onclick = confirmAndCloseDetailModal;
     overlay.querySelector('#btn-trf-modal-print').onclick = () => printStockTransferGuide(transfer.id);
 
     overlay.querySelectorAll('.trf-mode-tab').forEach(tab => {
@@ -3411,7 +3653,15 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
     }
   };
 
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      if (activeMode !== 'view') {
+        const ok = confirm('¿Estás seguro de que deseas cerrar esta ventana? Se descartarán las cantidades o cambios no guardados.');
+        if (!ok) return;
+      }
+      overlay.remove();
+    }
+  });
   renderModalContent();
 }
 window.openTransferDetailModal = openTransferDetailModal;
@@ -3545,6 +3795,34 @@ export async function openEnhancedStockTransferModal(
   overlay.style.cssText = 'position:fixed; inset:0; background:rgba(7,10,19,0.78); backdrop-filter:blur(5px); z-index:10030; display:flex; align-items:center; justify-content:center; padding:1rem;';
   document.body.appendChild(overlay);
 
+  let isTransferCompletedView = false;
+
+  const confirmAndCloseCreateModal = () => {
+    if (isTransferCompletedView) {
+      overlay.remove();
+      return;
+    }
+    let skusCount = 0;
+    let unitsCount = 0;
+    selectedMap.forEach(v => {
+      if (Number(v.qty) > 0) {
+        skusCount++;
+        unitsCount += Number(v.qty);
+      }
+    });
+    const notesVal = (overlay.querySelector('#trf-new-notes')?.value || '').trim();
+    const msg = skusCount > 0 || notesVal
+      ? `¿Estás seguro de que deseas cancelar y cerrar? Se borrará tu trabajo actual (${skusCount} SKU${skusCount === 1 ? '' : 's'} · ${unitsCount} unidades seleccionadas).`
+      : '¿Estás seguro de que deseas cancelar y cerrar el formulario de transferencia?';
+    if (confirm(msg)) {
+      overlay.remove();
+    }
+  };
+
+  const getWarehouseTotalPhysical = (whId) => {
+    return (commerceProducts || []).reduce((acc, p) => acc + getWarehouseStockInfo(p, whId).physical, 0);
+  };
+
   const updateWarehouseDropdownLabels = () => {
     const srcSel = overlay.querySelector('#trf-new-source-wh');
     const dstSel = overlay.querySelector('#trf-new-dest-wh');
@@ -3556,15 +3834,197 @@ export async function openEnhancedStockTransferModal(
     }
     if (dstSel) {
       dstSel.innerHTML = warehouses.map(w => {
-        const totAv = getWarehouseTotalAvailable(w.id);
-        return `<option value="${w.id}" ${String(w.id) === String(destWhId) ? 'selected' : ''}>${escHtml(w.name)} (${totAv} uds actual)</option>`;
+        const totPhys = getWarehouseTotalPhysical(w.id);
+        return `<option value="${w.id}" ${String(w.id) === String(destWhId) ? 'selected' : ''}>${escHtml(w.name)} (${totPhys} uds actual)</option>`;
       }).join('');
     }
   };
 
+  const renderCompletionResult = (createdTransfer, snapshotItems, whTotalsSnapshot) => {
+    isTransferCompletedView = true;
+    const isRec = createdTransfer.status === 'Recepcionada';
+    const isTransit = createdTransfer.status === 'En Tránsito';
+
+    overlay.innerHTML = `
+      <div class="trf-modal-shell" style="max-width:940px; max-height:92vh;">
+        <!-- Header de Éxito -->
+        <div style="padding:1.25rem 1.5rem; background:linear-gradient(135deg, #065f46 0%, #047857 55%, #0f172a 100%); color:#fff; display:flex; justify-content:space-between; align-items:center; gap:1rem;">
+          <div style="display:flex; align-items:center; gap:0.85rem;">
+            <div style="width:46px; height:46px; border-radius:12px; background:rgba(255,255,255,0.16); display:flex; align-items:center; justify-content:center; font-size:1.55rem; color:#6ee7b7; flex-shrink:0;">
+              <i class="ri-checkbox-circle-fill"></i>
+            </div>
+            <div>
+              <div style="display:flex; align-items:center; gap:0.55rem; flex-wrap:wrap;">
+                <span style="font-family:monospace; font-size:1.15rem; font-weight:900; color:#a7f3d0;">#${escHtml(createdTransfer.folio)}</span>
+                ${getStatusBadgeHtml(createdTransfer.status)}
+                <span class="trf-pill" style="background:rgba(255,255,255,0.15); color:#fff;">
+                  <i class="ri-store-2-line"></i> ${escHtml(createdTransfer.comercio)}
+                </span>
+              </div>
+              <h3 style="margin:4px 0 0 0; font-size:1.08rem; font-weight:800; color:#fff;">
+                Resultado del Movimiento Completado · Niveles de Stock Actualizados
+              </h3>
+            </div>
+          </div>
+          <button type="button" id="btn-trf-done-close-top" style="background:rgba(255,255,255,0.14); border:none; color:#fff; width:34px; height:34px; border-radius:8px; cursor:pointer; font-weight:700;">✕</button>
+        </div>
+
+        <!-- Body -->
+        <div style="padding:1.25rem 1.5rem; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:1.1rem; background:var(--trf-surface);">
+          <!-- Tarjetas de Resumen Total de Unidades en Origen y Destino Luego del Movimiento -->
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:0.9rem;">
+            <!-- Bodega Origen -->
+            <div class="trf-step-card" style="border-left:4px solid #f59e0b;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:0.71rem; font-weight:800; text-transform:uppercase; color:#f59e0b;">
+                  <i class="ri-upload-2-line"></i> Bodega de Origen (Salida)
+                </span>
+                <span class="trf-pill trf-pill-amber">-${whTotalsSnapshot.transferUnits} uds</span>
+              </div>
+              <div style="font-size:1rem; font-weight:800; color:var(--trf-text); margin-top:4px;">
+                ${escHtml(createdTransfer.source_warehouse_name)}
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.6rem; margin-top:0.65rem; padding-top:0.6rem; border-top:1px dashed var(--trf-border);">
+                <div>
+                  <div style="font-size:0.7rem; color:var(--trf-muted);">Disponible en Origen</div>
+                  <div style="font-size:0.95rem; font-weight:900; color:var(--trf-text); margin-top:2px;">
+                    <span style="color:var(--trf-muted); font-weight:600; text-decoration:line-through;">${whTotalsSnapshot.srcAvailBefore}</span>
+                    <i class="ri-arrow-right-line" style="font-size:0.8rem; color:#f59e0b; vertical-align:middle;"></i>
+                    <span style="color:#f59e0b;">${whTotalsSnapshot.srcAvailAfter} uds</span>
+                  </div>
+                </div>
+                <div>
+                  <div style="font-size:0.7rem; color:var(--trf-muted);">Físico Total en Origen</div>
+                  <div style="font-size:0.95rem; font-weight:900; color:var(--trf-text); margin-top:2px;">
+                    ${createdTransfer.status === 'Solicitada'
+                      ? `${whTotalsSnapshot.srcPhysBefore} uds <span style="font-size:0.7rem; color:#f59e0b;">(${whTotalsSnapshot.transferUnits} reserv.)</span>`
+                      : `<span style="color:var(--trf-muted); font-weight:600; text-decoration:line-through;">${whTotalsSnapshot.srcPhysBefore}</span> <i class="ri-arrow-right-line" style="font-size:0.8rem; color:#f59e0b;"></i> <span>${whTotalsSnapshot.srcPhysAfter} uds</span>`
+                    }
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bodega Destino -->
+            <div class="trf-step-card" style="border-left:4px solid #10b981;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:0.71rem; font-weight:800; text-transform:uppercase; color:#10b981;">
+                  <i class="ri-download-2-line"></i> Bodega de Destino (Entrada)
+                </span>
+                <span class="trf-pill trf-pill-emerald">+${whTotalsSnapshot.transferUnits} uds</span>
+              </div>
+              <div style="font-size:1rem; font-weight:800; color:var(--trf-text); margin-top:4px;">
+                ${escHtml(createdTransfer.dest_warehouse_name)}
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.6rem; margin-top:0.65rem; padding-top:0.6rem; border-top:1px dashed var(--trf-border);">
+                <div>
+                  <div style="font-size:0.7rem; color:var(--trf-muted);">
+                    ${isRec ? 'Stock Físico en Destino' : 'Proyección en Destino'}
+                  </div>
+                  <div style="font-size:0.95rem; font-weight:900; color:var(--trf-text); margin-top:2px;">
+                    <span style="color:var(--trf-muted); font-weight:600; text-decoration:line-through;">${whTotalsSnapshot.dstPhysBefore}</span>
+                    <i class="ri-arrow-right-line" style="font-size:0.8rem; color:#10b981; vertical-align:middle;"></i>
+                    <span style="color:#10b981;">${whTotalsSnapshot.dstPhysProjected} uds</span>
+                  </div>
+                </div>
+                <div>
+                  <div style="font-size:0.7rem; color:var(--trf-muted);">Estado de Recepción</div>
+                  <div style="font-size:0.8rem; font-weight:800; color:${isRec ? '#10b981' : (isTransit ? '#38bdf8' : '#f59e0b')}; margin-top:4px;">
+                    ${isRec
+                      ? 'Sumado al Físico + Disponible'
+                      : (isTransit ? `${whTotalsSnapshot.transferUnits} uds En Tránsito a Destino` : `${whTotalsSnapshot.transferUnits} uds Pendientes de Envío`)
+                    }
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Detalle por SKU con saldos antes y después en Origen y Destino -->
+          <div class="trf-table-card" style="max-height:320px; overflow-y:auto;">
+            <table class="trf-table">
+              <thead style="position:sticky; top:0; z-index:2;">
+                <tr>
+                  <th>SKU / Producto</th>
+                  <th style="text-align:center;">Unidades Movidas</th>
+                  <th style="text-align:center;">Origen: ${escHtml(createdTransfer.source_warehouse_name)} (Antes → Después)</th>
+                  <th style="text-align:center;">Destino: ${escHtml(createdTransfer.dest_warehouse_name)} (Antes → Después)</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${snapshotItems.map(it => `
+                  <tr>
+                    <td>
+                      <div style="font-family:monospace; font-weight:800; color:var(--trf-text);">${escHtml(it.sku)}</div>
+                      <div style="font-size:0.75rem; color:var(--trf-muted);">${escHtml(it.name)}</div>
+                    </td>
+                    <td style="text-align:center;">
+                      <span class="trf-pill trf-pill-indigo" style="font-size:0.8rem;">${it.qty} uds</span>
+                    </td>
+                    <td style="text-align:center; font-weight:700;">
+                      <span style="color:var(--trf-muted);">${it.srcAvailBefore} disp.</span>
+                      <i class="ri-arrow-right-line" style="color:#f59e0b; margin:0 4px;"></i>
+                      <strong style="color:#f59e0b;">${it.srcAvailAfter} disp.</strong>
+                      <div style="font-size:0.7rem; color:var(--trf-muted);">
+                        Físico: ${it.srcPhysBefore} → ${createdTransfer.status === 'Solicitada' ? `${it.srcPhysBefore} (${it.qty} reserv.)` : it.srcPhysAfter}
+                      </div>
+                    </td>
+                    <td style="text-align:center; font-weight:700;">
+                      <span style="color:var(--trf-muted);">${it.dstPhysBefore} uds</span>
+                      <i class="ri-arrow-right-line" style="color:#10b981; margin:0 4px;"></i>
+                      <strong style="color:#10b981;">${it.dstPhysAfter} uds</strong>
+                      <div style="font-size:0.7rem; color:var(--trf-muted);">
+                        ${isRec ? 'Ingresado en físico destino' : (isTransit ? `+${it.qty} uds en tránsito` : `+${it.qty} uds al recepcionar`)}
+                      </div>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="trf-modal-footer">
+          <div style="display:flex; gap:0.55rem; flex-wrap:wrap;">
+            <button type="button" id="btn-trf-done-open-detail" class="trf-btn">
+              <i class="ri-eye-line" style="color:#6366f1;"></i> Ver Ficha / Imprimir Guía (#${escHtml(createdTransfer.folio)})
+            </button>
+            <button type="button" id="btn-trf-done-new-another" class="trf-btn">
+              <i class="ri-add-circle-line" style="color:#10b981;"></i> Crear Otra Transferencia
+            </button>
+          </div>
+          <button type="button" id="btn-trf-done-finish" class="trf-btn trf-btn-primary">
+            <i class="ri-check-line"></i> Finalizar y Cerrar
+          </button>
+        </div>
+      </div>
+    `;
+
+    const closeAndRefresh = () => {
+      overlay.remove();
+      if (typeof onComplete === 'function') onComplete(createdTransfer);
+      else if (document.getElementById('admin-inv-transfers-container')) renderStockTransfersAdmin();
+    };
+
+    overlay.querySelector('#btn-trf-done-close-top').onclick = closeAndRefresh;
+    overlay.querySelector('#btn-trf-done-finish').onclick = closeAndRefresh;
+    overlay.querySelector('#btn-trf-done-open-detail').onclick = () => {
+      overlay.remove();
+      if (typeof onComplete === 'function') onComplete(createdTransfer);
+      openTransferDetailModal(createdTransfer.id, 'view', () => {
+        if (document.getElementById('admin-inv-transfers-container')) renderStockTransfersAdmin();
+      });
+    };
+    overlay.querySelector('#btn-trf-done-new-another').onclick = () => {
+      overlay.remove();
+      openEnhancedStockTransferModal(activeCommerce, [], onComplete, sourceWhId, destWhId);
+    };
+  };
+
   const renderModal = () => {
     overlay.innerHTML = `
-      <div class="trf-modal-shell" style="max-width:960px; max-height:92vh;">
+      <div class="trf-modal-shell" style="max-width:1020px; max-height:93vh;">
         <!-- Header -->
         <div style="padding:1.15rem 1.5rem; background:linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color:#fff; display:flex; justify-content:space-between; align-items:center;">
           <div>
@@ -3572,14 +4032,14 @@ export async function openEnhancedStockTransferModal(
               <i class="ri-truck-line" style="color:#a5b4fc;"></i> Solicitar / Ejecutar Transferencia de Stock entre Bodegas
             </h3>
             <p style="margin:3px 0 0 0; font-size:0.78rem; color:#c7d2fe;">
-              Registra quién solicita el movimiento, reserva o descuenta stock en origen y controla la recepción en destino.
+              El sistema limita automáticamente las cantidades al stock disponible en origen y proyecta el saldo resultante en ambas bodegas.
             </p>
           </div>
           <button type="button" id="btn-create-trf-close" style="background:rgba(255,255,255,0.12); border:none; color:#fff; width:34px; height:34px; border-radius:8px; cursor:pointer; font-weight:700;">✕</button>
         </div>
 
         <!-- Body -->
-        <div style="padding:1.25rem 1.5rem; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:1rem; background:var(--trf-surface);">
+        <div style="padding:1.25rem 1.5rem; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:0.95rem; background:var(--trf-surface);">
           <!-- Fila 1: Comercio, Bodega Origen y Bodega Destino -->
           <div class="trf-step-card" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.85rem;">
             <div>
@@ -3626,8 +4086,8 @@ export async function openEnhancedStockTransferModal(
           </div>
 
           <!-- Acción Rápida: Trasladar todo el stock disponible de la bodega origen -->
-          <div style="padding:0.75rem 1rem; background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.3); border-radius:11px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
-            <label style="display:flex; align-items:center; gap:0.6rem; cursor:pointer; margin:0; font-size:0.83rem; font-weight:700; color:var(--trf-text);">
+          <div style="padding:0.7rem 1rem; background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.3); border-radius:11px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+            <label style="display:flex; align-items:center; gap:0.6rem; cursor:pointer; margin:0; font-size:0.82rem; font-weight:700; color:var(--trf-text);">
               <input type="checkbox" id="chk-trf-all-available" style="width:17px; height:17px; accent-color:#6366f1;">
               <span>Cargar automáticamente todos los SKUs con stock disponible en la bodega de origen</span>
             </label>
@@ -3638,7 +4098,7 @@ export async function openEnhancedStockTransferModal(
           </div>
 
           <!-- Tabla de Selección de Productos y Cantidades -->
-          <div class="trf-table-card" style="max-height:310px; overflow-y:auto;">
+          <div class="trf-table-card" style="max-height:290px; overflow-y:auto;">
             <table class="trf-table">
               <thead style="position:sticky; top:0; z-index:2;">
                 <tr>
@@ -3648,12 +4108,16 @@ export async function openEnhancedStockTransferModal(
                   <th style="text-align:center;">Comprom. / Reserv.</th>
                   <th style="text-align:center;">Disponible Origen</th>
                   <th style="text-align:center;">Físico Destino</th>
-                  <th style="text-align:center; width:140px;">Cant. a Transferir</th>
+                  <th style="text-align:center; width:130px;">Cant. a Transferir</th>
+                  <th style="text-align:center;">Saldo Final (Origen → Destino)</th>
                 </tr>
               </thead>
               <tbody id="trf-new-products-tbody"></tbody>
             </table>
           </div>
+
+          <!-- Barra de Proyección Global de Saldos en Origen y Destino Luego del Movimiento -->
+          <div id="trf-live-projection-banner" style="padding:0.75rem 1rem; border-radius:12px; border:1px solid var(--trf-border); background:var(--trf-surface-alt); display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:0.75rem; align-items:center;"></div>
         </div>
 
         <!-- Footer -->
@@ -3676,6 +4140,7 @@ export async function openEnhancedStockTransferModal(
     const renderProductsRows = () => {
       const tbody = overlay.querySelector('#trf-new-products-tbody');
       const summaryEl = overlay.querySelector('#trf-new-summary-counter');
+      const projBanner = overlay.querySelector('#trf-live-projection-banner');
       if (!tbody) return;
 
       const q = searchFilter.toLowerCase().trim();
@@ -3694,20 +4159,24 @@ export async function openEnhancedStockTransferModal(
       });
 
       if (rowsList.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="padding:2rem; text-align:center; color:var(--trf-muted);">No se encontraron productos para este comercio.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="padding:2rem; text-align:center; color:var(--trf-muted);">No se encontraron productos para este comercio.</td></tr>`;
       } else {
         tbody.innerHTML = rowsList.map(p => {
           const pid = String(p.id);
           const srcInfo = getWarehouseStockInfo(p, sourceWhId);
           const dstInfo = getWarehouseStockInfo(p, destWhId);
-          const isChecked = selectedMap.has(pid);
+          const canTransfer = srcInfo.available > 0;
+          const isChecked = canTransfer && selectedMap.has(pid);
           const entry = selectedMap.get(pid);
-          const currentQty = entry ? entry.qty : 1;
+          const currentQty = isChecked ? Math.min(Math.max(1, Number(entry?.qty || 1)), srcInfo.available) : (canTransfer ? 1 : 0);
+
+          const srcAfterAvail = Math.max(0, srcInfo.available - (isChecked ? currentQty : 0));
+          const dstAfterPhys = dstInfo.physical + (isChecked ? currentQty : 0);
 
           return `
-            <tr data-pid="${escHtml(pid)}" style="background:${isChecked ? 'rgba(99,102,241,0.12)' : 'transparent'};">
+            <tr data-pid="${escHtml(pid)}" style="background:${isChecked ? 'rgba(99,102,241,0.12)' : 'transparent'}; ${!canTransfer ? 'opacity:0.58;' : ''}">
               <td style="text-align:center;">
-                <input type="checkbox" class="trf-row-chk" data-pid="${escHtml(pid)}" ${isChecked ? 'checked' : ''} style="width:16px; height:16px; accent-color:#6366f1; cursor:pointer;">
+                <input type="checkbox" class="trf-row-chk" data-pid="${escHtml(pid)}" ${isChecked ? 'checked' : ''} ${!canTransfer ? 'disabled title="Sin stock disponible en la bodega de origen"' : ''} style="width:16px; height:16px; accent-color:#6366f1; cursor:${canTransfer ? 'pointer' : 'not-allowed'};">
               </td>
               <td>
                 <div style="font-family:monospace; font-weight:800; color:var(--trf-text);">${escHtml(p.sku || 'S/SKU')}</div>
@@ -3724,7 +4193,17 @@ export async function openEnhancedStockTransferModal(
               </td>
               <td style="text-align:center; font-weight:700; color:var(--trf-muted);">${dstInfo.physical}</td>
               <td style="text-align:center;">
-                <input type="number" class="trf-input trf-row-qty" data-pid="${escHtml(pid)}" min="1" value="${currentQty}" ${!isChecked ? 'disabled' : ''} style="width:95px; height:34px; margin:0 auto; text-align:center; font-weight:800;">
+                <input type="number" class="trf-input trf-row-qty" data-pid="${escHtml(pid)}" min="${canTransfer ? 1 : 0}" max="${srcInfo.available}" value="${currentQty}" ${!isChecked ? 'disabled' : ''} style="width:92px; height:34px; margin:0 auto; text-align:center; font-weight:800;">
+                ${isChecked ? `<div style="font-size:0.66rem; color:var(--trf-muted); margin-top:2px;">Máx: ${srcInfo.available} uds</div>` : ''}
+              </td>
+              <td class="trf-row-post-cell" data-pid="${escHtml(pid)}" style="text-align:center; font-size:0.77rem; white-space:nowrap;">
+                ${isChecked ? `
+                  <div style="display:inline-flex; align-items:center; gap:0.45rem; padding:3px 8px; border-radius:8px; background:var(--trf-surface-alt); border:1px solid var(--trf-border);">
+                    <span title="Disponible en Origen luego del movimiento">Orig: <strong>${srcInfo.available}</strong> → <strong style="color:#f59e0b;">${srcAfterAvail}</strong></span>
+                    <span style="color:var(--trf-muted);">|</span>
+                    <span title="Stock en Destino luego del movimiento">Dest: <strong>${dstInfo.physical}</strong> → <strong style="color:#10b981;">${dstAfterPhys}</strong></span>
+                  </div>
+                ` : `<span style="color:var(--trf-muted); font-size:0.73rem;">Sin cambio (${srcInfo.available} / ${dstInfo.physical})</span>`}
               </td>
             </tr>
           `;
@@ -3733,14 +4212,65 @@ export async function openEnhancedStockTransferModal(
 
       const updateSummary = () => {
         let skus = 0, units = 0;
-        selectedMap.forEach(v => {
+        selectedMap.forEach((v, pid) => {
+          const av = getWarehouseStockInfo(v.product, sourceWhId).available;
+          if (av <= 0) {
+            selectedMap.delete(pid);
+            return;
+          }
+          if (v.qty > av) v.qty = av;
           if (v.qty > 0) {
             skus++;
             units += Number(v.qty);
           }
         });
+
+        const srcWhObj = warehouses.find(w => String(w.id) === String(sourceWhId));
+        const dstWhObj = warehouses.find(w => String(w.id) === String(destWhId));
+        const srcName = srcWhObj?.name || 'Bodega Origen';
+        const dstName = dstWhObj?.name || 'Bodega Destino';
+
+        const totalSrcAvailBefore = getWarehouseTotalAvailable(sourceWhId);
+        const totalSrcAvailAfter = Math.max(0, totalSrcAvailBefore - units);
+        const totalDstPhysBefore = getWarehouseTotalPhysical(destWhId);
+        const totalDstPhysAfter = totalDstPhysBefore + units;
+
         if (summaryEl) {
-          summaryEl.innerHTML = `<span style="color:#818cf8;">${skus} SKU${skus === 1 ? '' : 's'} seleccionados</span> · <strong>${units} unidades totales</strong> a transferir`;
+          summaryEl.innerHTML = `<span style="color:#6366f1;">${skus} SKU${skus === 1 ? '' : 's'} seleccionados</span> · <strong>${units} unidades totales</strong> a transferir`;
+        }
+
+        if (projBanner) {
+          projBanner.innerHTML = `
+            <div style="display:flex; align-items:center; gap:0.6rem;">
+              <div style="width:32px; height:32px; border-radius:8px; background:rgba(245,158,11,0.15); color:#f59e0b; display:flex; align-items:center; justify-content:center; font-size:1rem; flex-shrink:0;">
+                <i class="ri-upload-2-line"></i>
+              </div>
+              <div>
+                <div style="font-size:0.69rem; font-weight:800; text-transform:uppercase; color:var(--trf-muted);">Total Origen · ${escHtml(srcName)} (Luego del Movimiento)</div>
+                <div style="font-size:0.85rem; font-weight:800; color:var(--trf-text);">
+                  <span>${totalSrcAvailBefore} uds disp.</span>
+                  <i class="ri-arrow-right-line" style="color:#f59e0b; margin:0 4px;"></i>
+                  <strong style="color:#f59e0b;">${totalSrcAvailAfter} uds disp.</strong>
+                  ${units > 0 ? `<span style="font-size:0.74rem; color:#f59e0b; margin-left:4px;">(-${units} uds)</span>` : ''}
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:0.6rem;">
+              <div style="width:32px; height:32px; border-radius:8px; background:rgba(16,185,129,0.15); color:#10b981; display:flex; align-items:center; justify-content:center; font-size:1rem; flex-shrink:0;">
+                <i class="ri-download-2-line"></i>
+              </div>
+              <div>
+                <div style="font-size:0.69rem; font-weight:800; text-transform:uppercase; color:var(--trf-muted);">Total Destino · ${escHtml(dstName)} (Luego del Movimiento)</div>
+                <div style="font-size:0.85rem; font-weight:800; color:var(--trf-text);">
+                  <span>${totalDstPhysBefore} uds actual</span>
+                  <i class="ri-arrow-right-line" style="color:#10b981; margin:0 4px;"></i>
+                  <strong style="color:#10b981;">${totalDstPhysAfter} uds finales</strong>
+                  ${units > 0 ? `<span style="font-size:0.74rem; color:#10b981; margin-left:4px;">(+${units} uds)</span>` : ''}
+                </div>
+              </div>
+            </div>
+          `;
         }
       };
       updateSummary();
@@ -3750,9 +4280,11 @@ export async function openEnhancedStockTransferModal(
           const pid = chk.getAttribute('data-pid');
           const prod = commerceProducts.find(x => String(x.id) === String(pid));
           if (!prod) return;
-          if (chk.checked) {
+          const av = getWarehouseStockInfo(prod, sourceWhId).available;
+          if (chk.checked && av > 0) {
             selectedMap.set(pid, { product: prod, qty: 1 });
           } else {
+            chk.checked = false;
             selectedMap.delete(pid);
           }
           renderProductsRows();
@@ -3764,8 +4296,32 @@ export async function openEnhancedStockTransferModal(
           const pid = inp.getAttribute('data-pid');
           const entry = selectedMap.get(pid);
           if (!entry) return;
+          const srcInfo = getWarehouseStockInfo(entry.product, sourceWhId);
+          const dstInfo = getWarehouseStockInfo(entry.product, destWhId);
+          const av = srcInfo.available;
           let val = Math.max(0, Number(inp.value || 0));
+          if (val > av) {
+            val = av;
+            inp.value = String(av);
+            if (typeof window.showToast === 'function') {
+              window.showToast(`Máximo disponible en bodega de origen para ${entry.product.sku}: ${av} uds.`, 'warning');
+            }
+          }
           entry.qty = val;
+
+          // Actualizar celda de proyección de esta fila en tiempo real
+          const postCell = tbody.querySelector(`.trf-row-post-cell[data-pid="${CSS.escape(pid)}"]`);
+          if (postCell) {
+            const srcAfterAvail = Math.max(0, srcInfo.available - val);
+            const dstAfterPhys = dstInfo.physical + val;
+            postCell.innerHTML = `
+              <div style="display:inline-flex; align-items:center; gap:0.45rem; padding:3px 8px; border-radius:8px; background:var(--trf-surface-alt); border:1px solid var(--trf-border);">
+                <span>Orig: <strong>${srcInfo.available}</strong> → <strong style="color:#f59e0b;">${srcAfterAvail}</strong></span>
+                <span style="color:var(--trf-muted);">|</span>
+                <span>Dest: <strong>${dstInfo.physical}</strong> → <strong style="color:#10b981;">${dstAfterPhys}</strong></span>
+              </div>
+            `;
+          }
           updateSummary();
         };
       });
@@ -3773,8 +4329,8 @@ export async function openEnhancedStockTransferModal(
 
     renderProductsRows();
 
-    overlay.querySelector('#btn-create-trf-close').onclick = () => overlay.remove();
-    overlay.querySelector('#btn-create-trf-cancel').onclick = () => overlay.remove();
+    overlay.querySelector('#btn-create-trf-close').onclick = confirmAndCloseCreateModal;
+    overlay.querySelector('#btn-create-trf-cancel').onclick = confirmAndCloseCreateModal;
 
     overlay.querySelector('#trf-new-commerce').onchange = async (e) => {
       activeCommerce = e.target.value;
@@ -3792,6 +4348,12 @@ export async function openEnhancedStockTransferModal(
           overlay.querySelector('#trf-new-dest-wh').value = destWhId;
         }
       }
+      // Limitar o desmarcar SKUs que superen el disponible en la nueva bodega de origen
+      selectedMap.forEach((v, k) => {
+        const av = getWarehouseStockInfo(v.product, sourceWhId).available;
+        if (av <= 0) selectedMap.delete(k);
+        else if (v.qty > av) v.qty = av;
+      });
       renderProductsRows();
     };
 
@@ -3833,21 +4395,54 @@ export async function openEnhancedStockTransferModal(
       }
 
       const itemsArray = [];
-      selectedMap.forEach(v => {
-        if (v.qty > 0) {
-          itemsArray.push({
-            product_id: v.product.id,
-            sku: v.product.sku || 'S/SKU',
-            name: v.product.name || 'Producto',
-            qty: Number(v.qty)
-          });
+      const snapshotItems = [];
+      for (const [, v] of selectedMap.entries()) {
+        const qty = Number(v.qty || 0);
+        if (qty <= 0) continue;
+        const srcInfo = getWarehouseStockInfo(v.product, sourceWhId);
+        const dstInfo = getWarehouseStockInfo(v.product, destWhId);
+        if (qty > srcInfo.available) {
+          alert(`El SKU ${v.product.sku} solicita transferir ${qty} uds, pero solo hay ${srcInfo.available} uds disponibles en ${srcWhObj?.name || 'Bodega Origen'}.`);
+          return;
         }
-      });
+        itemsArray.push({
+          product_id: v.product.id,
+          sku: v.product.sku || 'S/SKU',
+          name: v.product.name || 'Producto',
+          qty
+        });
+        snapshotItems.push({
+          sku: v.product.sku || 'S/SKU',
+          name: v.product.name || 'Producto',
+          qty,
+          srcPhysBefore: srcInfo.physical,
+          srcPhysAfter: Math.max(0, srcInfo.physical - qty),
+          srcAvailBefore: srcInfo.available,
+          srcAvailAfter: Math.max(0, srcInfo.available - qty),
+          dstPhysBefore: dstInfo.physical,
+          dstPhysAfter: dstInfo.physical + qty
+        });
+      }
 
       if (itemsArray.length === 0) {
-        alert('Selecciona al menos 1 producto con cantidad mayor a 0 para transferir.');
+        alert('Selecciona al menos 1 producto con stock disponible y cantidad mayor a 0 para transferir.');
         return;
       }
+
+      const totalTransferUnits = itemsArray.reduce((acc, it) => acc + it.qty, 0);
+      const srcAvailBeforeTotal = getWarehouseTotalAvailable(sourceWhId);
+      const srcPhysBeforeTotal = getWarehouseTotalPhysical(sourceWhId);
+      const dstPhysBeforeTotal = getWarehouseTotalPhysical(destWhId);
+
+      const whTotalsSnapshot = {
+        transferUnits: totalTransferUnits,
+        srcAvailBefore: srcAvailBeforeTotal,
+        srcAvailAfter: Math.max(0, srcAvailBeforeTotal - totalTransferUnits),
+        srcPhysBefore: srcPhysBeforeTotal,
+        srcPhysAfter: Math.max(0, srcPhysBeforeTotal - totalTransferUnits),
+        dstPhysBefore: dstPhysBeforeTotal,
+        dstPhysProjected: dstPhysBeforeTotal + totalTransferUnits
+      };
 
       try {
         btn.disabled = true;
@@ -3869,11 +4464,9 @@ export async function openEnhancedStockTransferModal(
         });
 
         if (typeof window.showToast === 'function') {
-          window.showToast(`✅ Transferencia #${created.folio} registrada (${initialSt}). Niveles de stock actualizados.`, 'success');
+          window.showToast(`✅ Transferencia #${created.folio} registrada (${initialSt}).`, 'success');
         }
-        overlay.remove();
-        if (typeof onComplete === 'function') onComplete(created);
-        else if (document.getElementById('admin-inv-transfers-container')) renderStockTransfersAdmin();
+        renderCompletionResult(created, snapshotItems, whTotalsSnapshot);
       } catch (err) {
         alert('Error al crear la transferencia: ' + (err.message || err));
         btn.disabled = false;
@@ -3882,7 +4475,17 @@ export async function openEnhancedStockTransferModal(
     };
   };
 
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      if (isTransferCompletedView) {
+        const btnFinish = overlay.querySelector('#btn-trf-done-finish');
+        if (btnFinish) btnFinish.click();
+        else overlay.remove();
+      } else {
+        confirmAndCloseCreateModal();
+      }
+    }
+  });
   renderModal();
 }
 window.openEnhancedStockTransferModal = openEnhancedStockTransferModal;
