@@ -1229,9 +1229,9 @@ export async function editOrCorrectStockTransferOrder({
   discrepancyPolicy = null,
   metadataUpdates = {} // { priority?, carrier_info?, package_count?, title?, notes? }
 }) {
-  if (!reason || !String(reason).trim()) {
-    throw new Error('Debes ingresar un motivo u observación para respaldar la edición o corrección en la auditoría.');
-  }
+  const finalReason = (reason && String(reason).trim())
+    ? String(reason).trim()
+    : 'Corrección administrativa de cantidades en traslado';
 
   const list = await fetchAllStockTransfers(false);
   const transfer = list.find(t => String(t.id) === String(transferId) || String(t.folio) === String(transferId));
@@ -1241,7 +1241,7 @@ export async function editOrCorrectStockTransferOrder({
   const adminUser = await resolveCurrentAdminIdentity();
   const actor = (actorName || adminUser.name || 'Supervisor WMS').trim();
   const nowIso = new Date().toISOString();
-  const activePolicy = discrepancyPolicy || transfer.discrepancy_policy || 'return_origin';
+  const activePolicy = discrepancyPolicy || transfer.discrepancy_policy || 'sync_direct';
 
   const affectedProductIds = [];
   const kardexRows = [];
@@ -1254,8 +1254,28 @@ export async function editOrCorrectStockTransferOrder({
   let hasDiscrepancyAfter = false;
 
   const currentStatus = transfer.status;
+  const existingProductIds = new Set((transfer.items || []).map(it => String(it.product_id)));
+  const combinedItems = [...(transfer.items || [])];
+  for (const [pid, patch] of Object.entries(updatedItemsMap)) {
+    if (!existingProductIds.has(String(pid)) && patch && patch._isNewItem) {
+      combinedItems.push({
+        id: `${transfer.id}-item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        transfer_id: transfer.id,
+        product_id: pid,
+        sku: patch.sku || 'SKU',
+        product_name: patch.product_name || 'Producto',
+        quantity_requested: 0,
+        quantity_sent: 0,
+        quantity_received: 0,
+        quantity_returned_origin: 0,
+        discrepancy_type: 'none',
+        dest_location_hint: patch.dest_location_hint || '',
+        _isNewItem: true
+      });
+    }
+  }
 
-  for (const item of (transfer.items || [])) {
+  for (const item of combinedItems) {
     const patch = updatedItemsMap[item.product_id] || {};
     const locHint = patch.dest_location_hint !== undefined ? String(patch.dest_location_hint).trim() : (item.dest_location_hint || '');
     affectedProductIds.push(item.product_id);
@@ -1344,10 +1364,13 @@ export async function editOrCorrectStockTransferOrder({
 
     // CASO C: CORRECCIÓN DE UN INGRESO / RECEPCIÓN ('Recepcionada' o 'Con Diferencias')
     else if (currentStatus === 'Recepcionada' || currentStatus === 'Con Diferencias') {
-      const sentQty = patch.quantity_sent !== undefined ? Math.max(0, Number(patch.quantity_sent)) : Number(item.quantity_sent || 0);
+      const origSentQty = patch.quantity_sent !== undefined ? Math.max(0, Number(patch.quantity_sent)) : Number(item.quantity_sent || 0);
       const oldRec = Number(item.quantity_received || 0);
       const newRec = patch.quantity_received !== undefined ? Math.max(0, Number(patch.quantity_received)) : oldRec;
       const deltaRec = newRec - oldRec;
+
+      const isDirectSync = activePolicy === 'sync_direct';
+      const sentQty = isDirectSync ? newRec : origSentQty;
 
       // 1. Ajustar diferencial en Bodega Destino + Kardex Destino
       if (deltaRec !== 0) {
@@ -1366,8 +1389,8 @@ export async function editOrCorrectStockTransferOrder({
           transfer_id: transfer._isLocalOnly ? null : transfer.id,
           created_by_name: actor,
           reference_doc: deltaRec > 0
-            ? `[#${transfer.folio}] Corrección de recepción (+${deltaRec} uds sumadas en ${transfer.dest_warehouse_name}, antes ${oldRec} → ahora ${newRec}) · Corrigió: ${actor} · Motivo: ${reason}`
-            : `[#${transfer.folio}] Corrección/Reversión de recepción (-${Math.abs(deltaRec)} uds descontadas en ${transfer.dest_warehouse_name}, antes ${oldRec} → ahora ${newRec}) · Corrigió: ${actor} · Motivo: ${reason}`
+            ? `[#${transfer.folio}] Corrección de recepción (+${deltaRec} uds sumadas en ${transfer.dest_warehouse_name}, antes ${oldRec} → ahora ${newRec}) · Corrigió: ${actor} · Motivo: ${finalReason}`
+            : `[#${transfer.folio}] Corrección/Reversión de recepción (-${Math.abs(deltaRec)} uds descontadas en ${transfer.dest_warehouse_name}, antes ${oldRec} → ahora ${newRec}) · Corrigió: ${actor} · Motivo: ${finalReason}`
         });
       }
 
@@ -1375,18 +1398,26 @@ export async function editOrCorrectStockTransferOrder({
       const oldReturnedOrigin = Number(item.quantity_returned_origin || 0);
       let newReturnedOrigin = 0;
       let newDiscType = 'none';
+      let deltaOriginReturn = 0;
 
-      if (newRec !== sentQty) {
-        hasDiscrepancyAfter = true;
-        if (newRec < sentQty && activePolicy === 'return_origin') {
-          newReturnedOrigin = sentQty - newRec;
-          newDiscType = 'return_origin';
-        } else if (newRec < sentQty) {
-          newDiscType = 'incident_loss';
+      if (isDirectSync) {
+        // Sincronización directa: cualquier ajuste en Destino se compensa de forma exacta en Origen (-deltaRec)
+        deltaOriginReturn = -deltaRec;
+        newReturnedOrigin = 0;
+        newDiscType = 'none';
+      } else {
+        if (newRec !== sentQty) {
+          hasDiscrepancyAfter = true;
+          if (activePolicy === 'return_origin') {
+            newReturnedOrigin = sentQty - newRec;
+            newDiscType = 'return_origin';
+          } else if (newRec < sentQty) {
+            newDiscType = 'incident_loss';
+          }
         }
+        deltaOriginReturn = newReturnedOrigin - oldReturnedOrigin;
       }
 
-      const deltaOriginReturn = newReturnedOrigin - oldReturnedOrigin;
       if (deltaOriginReturn !== 0) {
         await adjustWarehouseInventoryBalances(transfer.source_warehouse_id, item.product_id, {
           physical: deltaOriginReturn,
@@ -1403,21 +1434,23 @@ export async function editOrCorrectStockTransferOrder({
           transfer_id: transfer._isLocalOnly ? null : transfer.id,
           created_by_name: actor,
           reference_doc: deltaOriginReturn > 0
-            ? `[#${transfer.folio}] Reintegro a ${transfer.source_warehouse_name} (+${deltaOriginReturn} uds) por corrección de recepción en ${transfer.dest_warehouse_name} · Corrigió: ${actor} · Motivo: ${reason}`
-            : `[#${transfer.folio}] Descuento en ${transfer.source_warehouse_name} (-${Math.abs(deltaOriginReturn)} uds) por corrección de recepción en ${transfer.dest_warehouse_name} · Corrigió: ${actor} · Motivo: ${reason}`
+            ? `[#${transfer.folio}] Reintegro a ${transfer.source_warehouse_name} (+${deltaOriginReturn} uds) por corrección de traslado hacia ${transfer.dest_warehouse_name} · Corrigió: ${actor} · Motivo: ${finalReason}`
+            : `[#${transfer.folio}] Descuento en ${transfer.source_warehouse_name} (-${Math.abs(deltaOriginReturn)} uds) por corrección de traslado hacia ${transfer.dest_warehouse_name} · Corrigió: ${actor} · Motivo: ${finalReason}`
         });
       }
 
       if (deltaRec !== 0 || deltaOriginReturn !== 0) {
-        changeLogs.push(`${item.sku}: recepcionado ${oldRec} → ${newRec} (${deltaRec >= 0 ? '+' + deltaRec : deltaRec} uds en ${transfer.dest_warehouse_name})`);
+        changeLogs.push(`${item.sku}: ${oldRec} → ${newRec} uds (${deltaRec >= 0 ? '+' + deltaRec : deltaRec} en ${transfer.dest_warehouse_name}, ${deltaOriginReturn >= 0 ? '+' + deltaOriginReturn : deltaOriginReturn} en ${transfer.source_warehouse_name})`);
       }
 
-      totalReq += Number(item.quantity_requested || sentQty);
+      const finalReqQty = isDirectSync ? newRec : Number(item.quantity_requested || sentQty);
+      totalReq += finalReqQty;
       totalSent += sentQty;
       totalRec += newRec;
 
       const newItem = {
         ...item,
+        quantity_requested: finalReqQty,
         quantity_sent: sentQty,
         quantity_received: newRec,
         quantity_returned_origin: newReturnedOrigin,
@@ -1426,14 +1459,30 @@ export async function editOrCorrectStockTransferOrder({
       };
       updatedItems.push(newItem);
 
-      if (!transfer._isLocalOnly && item.id) {
-        await supabase.from('stock_transfer_items').update({
-          quantity_sent: sentQty,
-          quantity_received: newRec,
-          quantity_returned_origin: newReturnedOrigin,
-          discrepancy_type: newDiscType,
-          dest_location_hint: locHint
-        }).eq('id', item.id);
+      if (!transfer._isLocalOnly) {
+        if (item._isNewItem) {
+          await supabase.from('stock_transfer_items').insert([{
+            transfer_id: transfer.id,
+            product_id: item.product_id,
+            sku: item.sku,
+            product_name: item.product_name,
+            quantity_requested: finalReqQty,
+            quantity_sent: sentQty,
+            quantity_received: newRec,
+            quantity_returned_origin: newReturnedOrigin,
+            discrepancy_type: newDiscType,
+            dest_location_hint: locHint
+          }]);
+        } else if (item.id) {
+          await supabase.from('stock_transfer_items').update({
+            quantity_requested: finalReqQty,
+            quantity_sent: sentQty,
+            quantity_received: newRec,
+            quantity_returned_origin: newReturnedOrigin,
+            discrepancy_type: newDiscType,
+            dest_location_hint: locHint
+          }).eq('id', item.id);
+        }
       }
     }
   }
@@ -1457,12 +1506,13 @@ export async function editOrCorrectStockTransferOrder({
       actor,
       action: isCorrection ? 'corrected_reception' : 'edited',
       status: newStatus,
-      detail: `${isCorrection ? 'CORRECCIÓN DE INGRESO / RECEPCIÓN' : 'Edición en estado "' + currentStatus + '"'} ejecutada por ${actor}: ${summaryText}. Motivo: ${reason}`
+      detail: `${isCorrection ? 'CORRECCIÓN DE INGRESO / RECEPCIÓN' : 'Edición en estado "' + currentStatus + '"'} ejecutada por ${actor}: ${summaryText}. Motivo: ${finalReason}`
     }
   ];
 
   const headerUpdates = {
     status: newStatus,
+    total_skus: updatedItems.length,
     total_requested: totalReq,
     total_sent: totalSent,
     total_received: isCorrection ? totalRec : transfer.total_received,
@@ -2428,6 +2478,7 @@ function injectStockTransfersStyles() {
       border-radius: 14px;
       box-shadow: var(--trf-card-shadow);
       overflow: hidden;
+      flex-shrink: 0;
     }
 
     .trf-table {
@@ -3379,16 +3430,34 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
   overlay.style.cssText = 'position:fixed; inset:0; background:rgba(7,10,19,0.78); backdrop-filter:blur(5px); z-index:10020; display:flex; align-items:center; justify-content:center; padding:1rem;';
   document.body.appendChild(overlay);
 
+  let extraCommerceProducts = [];
+  try {
+    if (window.adminInventoryCommerceCache && window.adminInventoryCommerceCache[transfer.comercio]?.products?.length) {
+      extraCommerceProducts = window.adminInventoryCommerceCache[transfer.comercio].products;
+    } else if (transfer.comercio) {
+      const { data: cProds } = await supabase
+        .from('products')
+        .select('id, sku, name, comercio')
+        .eq('comercio', transfer.comercio)
+        .order('sku', { ascending: true });
+      if (Array.isArray(cProds)) extraCommerceProducts = cProds;
+    }
+  } catch (e) {}
+
+  let workingItems = Array.isArray(transfer.items) ? transfer.items.map(it => ({ ...it })) : [];
+
   const renderModalContent = () => {
-    const items = Array.isArray(transfer.items) ? transfer.items : [];
+    const items = workingItems;
     const history = Array.isArray(transfer.history) ? [...transfer.history].reverse() : [];
+    const existingPids = new Set(items.map(it => String(it.product_id)));
+    const addableProducts = (extraCommerceProducts || []).filter(p => !existingPids.has(String(p.id)));
 
     const step1Done = true;
     const step2Done = transfer.status === 'En Tránsito' || isReceivedState;
     const step3Done = isReceivedState;
 
     overlay.innerHTML = `
-      <div class="trf-modal-shell" style="max-width:980px; max-height:92vh;">
+      <div class="trf-modal-shell" style="max-width:1120px; width:96vw; max-height:94vh;">
         <!-- Cabecera -->
         <div style="padding:1.15rem 1.5rem; background:linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color:#fff; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
           <div>
@@ -3452,9 +3521,9 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
         </div>
 
         <!-- Cuerpo desplazable -->
-        <div style="padding:1.25rem 1.5rem; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:1.15rem; background:var(--trf-surface);">
+        <div style="padding:1.15rem 1.5rem; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:1rem; background:var(--trf-surface);">
           <!-- Stepper de 3 Etapas y Cadena de Responsables -->
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:0.85rem;">
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:0.85rem; flex-shrink:0;">
             <div class="trf-step-card" style="border-left:4px solid #f59e0b;">
               <div style="font-size:0.69rem; font-weight:800; text-transform:uppercase; color:#f59e0b;">1. Quién Solicitó (Origen: ${escHtml(transfer.source_warehouse_name)})</div>
               <div style="font-size:0.92rem; font-weight:800; color:var(--trf-text); margin-top:4px; display:flex; align-items:center; gap:0.35rem;">
@@ -3491,13 +3560,13 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
 
           <!-- Banner contextual según el Modo Activo -->
           ${activeMode === 'dispatch' ? `
-            <div style="background:rgba(2,132,199,0.12); border:1px solid rgba(56,189,248,0.35); border-radius:11px; padding:0.9rem 1.1rem; color:var(--trf-text); font-size:0.82rem;">
+            <div style="background:rgba(2,132,199,0.12); border:1px solid rgba(56,189,248,0.35); border-radius:11px; padding:0.9rem 1.1rem; color:var(--trf-text); font-size:0.82rem; flex-shrink:0;">
               <strong style="color:#38bdf8;"><i class="ri-truck-line"></i> Modo Despacho a Ruta:</strong> Al confirmar, se liberará la reserva en <strong>${escHtml(transfer.source_warehouse_name)}</strong>, se descontará el Stock Físico enviado (generando movimiento <code>SALIDA</code> en Kardex) y las unidades quedarán como <strong>Stock en Tránsito</strong> hacia <strong>${escHtml(transfer.dest_warehouse_name)}</strong>.
             </div>
           ` : ''}
 
           ${activeMode === 'receive' ? `
-            <div style="background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.35); border-radius:11px; padding:0.9rem 1.1rem; color:var(--trf-text); font-size:0.82rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+            <div style="background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.35); border-radius:11px; padding:0.9rem 1.1rem; color:var(--trf-text); font-size:0.82rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; flex-shrink:0;">
               <div>
                 <strong style="color:#10b981;"><i class="ri-inbox-archive-line"></i> Modo Recepción en Bodega Destino (${escHtml(transfer.dest_warehouse_name)}):</strong> Ingresa las unidades efectivamente recibidas por SKU. El sistema sumará el stock físico en <strong>${escHtml(transfer.dest_warehouse_name)}</strong> y registrará la <code>ENTRADA</code> en Kardex.
               </div>
@@ -3508,21 +3577,52 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
           ` : ''}
 
           ${activeMode === 'edit' ? `
-            <div style="background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.35); border-radius:11px; padding:0.9rem 1.1rem; color:var(--trf-text); font-size:0.82rem;">
+            <div style="background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.35); border-radius:11px; padding:0.9rem 1.1rem; color:var(--trf-text); font-size:0.82rem; flex-shrink:0;">
               <strong style="color:#818cf8;"><i class="ri-edit-line"></i> Editar Transferencia en estado «${escHtml(transfer.status)}»:</strong> Cualquier cambio en las cantidades ajustará automáticamente ${transfer.status === 'Solicitada' ? `la reserva de unidades en <strong>${escHtml(transfer.source_warehouse_name)}</strong>` : `el stock físico descontado en <strong>${escHtml(transfer.source_warehouse_name)}</strong> y las unidades en tránsito hacia <strong>${escHtml(transfer.dest_warehouse_name)}</strong>`}.
             </div>
           ` : ''}
 
           ${activeMode === 'correct' ? `
-            <div style="background:rgba(139,92,246,0.12); border:1px solid rgba(167,139,250,0.35); border-radius:11px; padding:0.9rem 1.1rem; color:var(--trf-text); font-size:0.82rem;">
-              <strong style="color:#a78bfa;"><i class="ri-tools-line"></i> Corregir un Ingreso / Recepción Post-Cierre:</strong> Modifica la columna <strong>«Nuevo Recepcionado»</strong> si hubo un error de conteo o digitación al recepcionar. El sistema calculará la diferencia matemática (Δ) y ajustará automáticamente el stock físico en <strong>${escHtml(transfer.dest_warehouse_name)}</strong> (y el reintegro en <strong>${escHtml(transfer.source_warehouse_name)}</strong>) dejando constancia en el Kardex.
+            <div style="background:rgba(139,92,246,0.12); border:1px solid rgba(167,139,250,0.35); border-radius:11px; padding:0.9rem 1.1rem; color:var(--trf-text); font-size:0.82rem; flex-shrink:0;">
+              <strong style="color:#a78bfa;"><i class="ri-tools-line"></i> Corregir un Ingreso / Recepción Post-Cierre:</strong> Modifica la columna <strong>«Nuevo Recepcionado»</strong> (o agrega un SKU faltante) si hubo un error de conteo o digitación. El sistema calculará la diferencia matemática (Δ) y ajustará automáticamente el stock físico en <strong>${escHtml(transfer.dest_warehouse_name)}</strong> y <strong>${escHtml(transfer.source_warehouse_name)}</strong> dejando constancia en el Kardex.
             </div>
           ` : ''}
 
-          <!-- Tabla de SKUs del Traslado -->
-          <div class="trf-table-card">
+          <!-- Barra de búsqueda de SKUs en el traslado y botón para agregar SKU -->
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; background:var(--trf-surface-2); border:1px solid var(--trf-border); border-radius:10px; padding:0.6rem 0.9rem; flex-shrink:0;">
+            <div style="display:flex; align-items:center; gap:0.65rem; flex-wrap:wrap;">
+              <span style="font-size:0.8rem; font-weight:800; color:var(--trf-text);">
+                <i class="ri-list-check-2" style="color:#6366f1;"></i> <span id="trf-detail-sku-count">${items.length}</span> SKUs en el traslado
+              </span>
+              <span id="trf-detail-live-totals" class="trf-pill trf-pill-emerald" style="font-size:0.75rem;">
+                Total: ${isReceivedState ? transfer.total_received : transfer.total_sent} uds
+              </span>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:0.55rem; flex-wrap:wrap; flex:1; justify-content:flex-end;">
+              ${(activeMode === 'edit' || activeMode === 'correct') && addableProducts.length > 0 ? `
+                <div style="display:flex; align-items:center; gap:0.35rem;">
+                  <select id="trf-detail-add-sku-select" class="trf-select" style="height:34px; font-size:0.76rem; max-width:250px;">
+                    <option value="">+ Agregar otro SKU de ${escHtml(transfer.comercio)}...</option>
+                    ${addableProducts.map(p => `<option value="${escHtml(p.id)}">${escHtml(p.sku)} · ${escHtml(p.name || '')}</option>`).join('')}
+                  </select>
+                  <button type="button" id="btn-trf-detail-add-sku" class="trf-btn" style="height:34px; padding:0 0.7rem; font-size:0.75rem; background:rgba(99,102,241,0.12); color:#6366f1; border-color:rgba(99,102,241,0.35);">
+                    <i class="ri-add-line"></i> Incluir SKU
+                  </button>
+                </div>
+              ` : ''}
+
+              <div style="position:relative; min-width:220px; max-width:290px; flex:1;">
+                <i class="ri-search-line" style="position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--trf-muted); font-size:0.85rem;"></i>
+                <input type="text" id="trf-detail-sku-search" class="trf-input" placeholder="Filtrar SKU o producto..." style="height:34px; padding-left:2rem; font-size:0.78rem;">
+              </div>
+            </div>
+          </div>
+
+          <!-- Tabla de SKUs del Traslado (Con altura garantizada y scroll propio) -->
+          <div class="trf-table-card" style="max-height:380px; min-height:260px; overflow-y:auto; overflow-x:auto; flex-shrink:0;">
             <table class="trf-table">
-              <thead>
+              <thead style="position:sticky; top:0; z-index:2;">
                 <tr>
                   <th>SKU / Producto</th>
                   <th style="text-align:center;">Solicitado</th>
@@ -3541,25 +3641,39 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
                   const reqQ = Number(it.quantity_requested || 0);
                   const sentQ = Number(it.quantity_sent || reqQ || 0);
                   const recQ = Number(it.quantity_received || 0);
+                  const editRecVal = it._draftRec !== undefined ? Number(it._draftRec) : recQ;
+                  const editReqVal = it._draftReq !== undefined ? Number(it._draftReq) : reqQ;
+                  const editSentVal = it._draftSent !== undefined ? Number(it._draftSent) : sentQ;
+                  const initDelta = editRecVal - recQ;
 
                   return `
-                    <tr class="trf-item-row" data-product-id="${escHtml(it.product_id)}" data-old-req="${reqQ}" data-old-sent="${sentQ}" data-old-rec="${recQ}">
+                    <tr class="trf-item-row"
+                        data-product-id="${escHtml(it.product_id)}"
+                        data-sku="${escHtml(it.sku || '')}"
+                        data-product-name="${escHtml(it.product_name || '')}"
+                        data-is-new="${it._isNewItem ? '1' : '0'}"
+                        data-old-req="${reqQ}"
+                        data-old-sent="${sentQ}"
+                        data-old-rec="${recQ}">
                       <td>
-                        <div style="font-family:monospace; font-weight:800; color:var(--trf-text);">${escHtml(it.sku)}</div>
+                        <div style="display:flex; align-items:center; gap:0.4rem;">
+                          <span style="font-family:monospace; font-weight:800; color:var(--trf-text);">${escHtml(it.sku)}</span>
+                          ${it._isNewItem ? `<span class="trf-pill trf-pill-indigo" style="font-size:0.65rem; padding:1px 6px;">Nuevo</span>` : ''}
+                        </div>
                         <div style="font-size:0.76rem; color:var(--trf-muted);">${escHtml(it.product_name)}</div>
                       </td>
 
                       <!-- Columna Solicitado -->
                       <td style="text-align:center; font-weight:700;">
                         ${activeMode === 'edit' && transfer.status === 'Solicitada' ? `
-                          <input type="number" min="0" class="trf-input trf-inp-req" value="${reqQ}" style="width:92px; height:34px; margin:0 auto; text-align:center; font-weight:800;">
+                          <input type="number" min="0" class="trf-input trf-inp-req" value="${editReqVal}" style="width:92px; height:34px; margin:0 auto; text-align:center; font-weight:800;">
                         ` : reqQ}
                       </td>
 
                       <!-- Columna Enviado -->
                       <td style="text-align:center; font-weight:700;">
                         ${(activeMode === 'dispatch' || (activeMode === 'edit' && transfer.status === 'En Tránsito')) ? `
-                          <input type="number" min="0" class="trf-input trf-inp-sent" value="${sentQ}" style="width:92px; height:34px; margin:0 auto; text-align:center; font-weight:800; border-color:#38bdf8;">
+                          <input type="number" min="0" class="trf-input trf-inp-sent" value="${editSentVal}" style="width:92px; height:34px; margin:0 auto; text-align:center; font-weight:800; border-color:#38bdf8;">
                         ` : sentQ}
                       </td>
 
@@ -3571,14 +3685,14 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
                           <div style="display:flex; align-items:center; justify-content:center; gap:6px;">
                             <span style="font-size:0.74rem; color:var(--trf-muted); text-decoration:line-through;" title="Cantidad recepcionada anterior">${recQ}</span>
                             <i class="ri-arrow-right-line" style="color:var(--trf-muted);"></i>
-                            <input type="number" min="0" class="trf-input trf-inp-rec-correct" value="${recQ}" style="width:92px; height:34px; text-align:center; font-weight:800; border:2px solid #8b5cf6;">
+                            <input type="number" min="0" class="trf-input trf-inp-rec-correct" value="${editRecVal}" style="width:92px; height:34px; text-align:center; font-weight:800; border:2px solid #8b5cf6;">
                           </div>
                         ` : (isReceivedState ? `<span style="color:${recQ !== sentQ ? '#f87171' : '#10b981'}; font-weight:900;">${recQ}</span>` : '<span style="color:var(--trf-muted);">Pendiente</span>'))}
                       </td>
 
                       ${activeMode === 'correct' ? `
-                        <td class="trf-cell-delta" style="text-align:center; font-weight:800; font-size:0.78rem; color:var(--trf-muted);">
-                          0 uds (Sin cambio)
+                        <td class="trf-cell-delta" style="text-align:center; font-weight:800; font-size:0.78rem; color:${initDelta > 0 ? '#10b981' : (initDelta < 0 ? '#f87171' : 'var(--trf-muted)')};">
+                          ${initDelta === 0 ? '0 uds (Sin cambio)' : (initDelta > 0 ? `+${initDelta} uds en ${escHtml(transfer.dest_warehouse_name)}` : `${initDelta} uds en ${escHtml(transfer.dest_warehouse_name)}`)}
                         </td>
                       ` : ''}
 
@@ -3596,7 +3710,7 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
 
           <!-- Formulario de Responsable y Auditoría según Modo -->
           ${activeMode !== 'view' ? `
-            <div class="trf-step-card" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:0.9rem;">
+            <div class="trf-step-card" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:0.9rem; flex-shrink:0;">
               <div>
                 <label class="trf-field-label">
                   <i class="ri-user-line"></i>
@@ -3618,9 +3732,14 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
 
               ${(activeMode === 'receive' || activeMode === 'correct') ? `
                 <div>
-                  <label class="trf-field-label"><i class="ri-scales-3-line"></i> Política ante Diferencias (Recibido ≠ Enviado)</label>
+                  <label class="trf-field-label"><i class="ri-scales-3-line"></i> Acción en Stock al Corregir / Recepcionar</label>
                   <select id="trf-form-policy" class="trf-select">
-                    <option value="return_origin" ${(transfer.discrepancy_policy || 'return_origin') === 'return_origin' ? 'selected' : ''}>
+                    ${activeMode === 'correct' ? `
+                      <option value="sync_direct" ${(transfer.discrepancy_policy || 'sync_direct') === 'sync_direct' ? 'selected' : ''}>
+                        Sincronizar Origen y Destino como Traspaso Conforme (Ajusta ${escHtml(transfer.source_warehouse_name)} y ${escHtml(transfer.dest_warehouse_name)})
+                      </option>
+                    ` : ''}
+                    <option value="return_origin" ${activeMode === 'receive' && (transfer.discrepancy_policy || 'return_origin') === 'return_origin' ? 'selected' : ''}>
                       Reintegrar/Sincronizar diferencia con Bodega Origen (${escHtml(transfer.source_warehouse_name)})
                     </option>
                     <option value="incident_loss" ${transfer.discrepancy_policy === 'incident_loss' ? 'selected' : ''}>
@@ -3633,19 +3752,19 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
               <div style="grid-column:1 / -1;">
                 <label class="trf-field-label">
                   <i class="ri-file-list-3-line"></i>
-                  ${activeMode === 'edit' || activeMode === 'correct' ? 'Motivo Obligatorio de Edición / Corrección (Auditoría Kardex) *' : 'Observaciones / Notas de Recepción o Despacho'}
+                  ${activeMode === 'edit' || activeMode === 'correct' ? 'Motivo o Nota de Edición / Corrección (Opcional · Auditoría Kardex)' : 'Observaciones / Notas de Recepción o Despacho'}
                 </label>
-                <input type="text" id="trf-form-notes" class="trf-input" placeholder="${activeMode === 'correct' ? 'Ej: Se recontó pallet en CDD La Reina, llegaron 48 uds en vez de 45...' : 'Opcional: comentarios del movimiento...'}" value="">
+                <input type="text" id="trf-form-notes" class="trf-input" placeholder="${activeMode === 'correct' ? 'Opcional: Ej. Ajuste de conteo en recepción (si lo dejas en blanco se registrará automáticamente)...' : 'Opcional: comentarios del movimiento...'}" value="">
               </div>
             </div>
           ` : ''}
 
           <!-- Bitácora de Trazabilidad e Historial de Cambios -->
-          <div class="trf-step-card">
+          <div class="trf-step-card" style="flex-shrink:0;">
             <h4 style="margin:0 0 0.75rem 0; font-size:0.79rem; font-weight:800; text-transform:uppercase; color:var(--trf-muted); display:flex; align-items:center; gap:0.4rem;">
               <i class="ri-history-line" style="color:#6366f1;"></i> Bitácora de Auditoría y Ajustes de Stock (${history.length} eventos)
             </h4>
-            <div style="display:flex; flex-direction:column; gap:0.55rem; max-height:190px; overflow-y:auto;">
+            <div style="display:flex; flex-direction:column; gap:0.55rem; max-height:170px; overflow-y:auto;">
               ${history.map(h => `
                 <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.75rem; padding:0.6rem 0.8rem; background:var(--trf-surface); border:1px solid var(--trf-border); border-left:3px solid ${h.action === 'corrected_reception' ? '#8b5cf6' : (h.action === 'received' ? '#10b981' : (h.action === 'dispatched' ? '#38bdf8' : '#f59e0b'))}; border-radius:8px; font-size:0.78rem;">
                   <div>
@@ -3692,6 +3811,86 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
       </div>
     `;
 
+    // Sincronizar borradores en memoria antes de re-renderizar si se agrega un SKU
+    const syncWorkingDraftsFromDom = () => {
+      overlay.querySelectorAll('.trf-item-row').forEach(row => {
+        const pid = row.getAttribute('data-product-id');
+        const target = workingItems.find(w => String(w.product_id) === String(pid));
+        if (!target) return;
+        const inpReq = row.querySelector('.trf-inp-req');
+        const inpSent = row.querySelector('.trf-inp-sent');
+        const inpRec = row.querySelector('.trf-inp-rec-correct') || row.querySelector('.trf-inp-rec');
+        const inpLoc = row.querySelector('.trf-inp-loc');
+        if (inpReq) target._draftReq = Math.max(0, Number(inpReq.value || 0));
+        if (inpSent) target._draftSent = Math.max(0, Number(inpSent.value || 0));
+        if (inpRec) target._draftRec = Math.max(0, Number(inpRec.value || 0));
+        if (inpLoc) target.dest_location_hint = inpLoc.value || '';
+      });
+    };
+
+    const updateLiveTotalsBadge = () => {
+      const badge = overlay.querySelector('#trf-detail-live-totals');
+      if (!badge) return;
+      let sum = 0;
+      overlay.querySelectorAll('.trf-item-row').forEach(row => {
+        if (activeMode === 'correct') {
+          sum += Math.max(0, Number(row.querySelector('.trf-inp-rec-correct')?.value ?? row.getAttribute('data-old-rec')));
+        } else if (activeMode === 'receive') {
+          sum += Math.max(0, Number(row.querySelector('.trf-inp-rec')?.value ?? row.getAttribute('data-old-sent')));
+        } else if (activeMode === 'dispatch' || (activeMode === 'edit' && transfer.status === 'En Tránsito')) {
+          sum += Math.max(0, Number(row.querySelector('.trf-inp-sent')?.value ?? row.getAttribute('data-old-sent')));
+        } else if (activeMode === 'edit' && transfer.status === 'Solicitada') {
+          sum += Math.max(0, Number(row.querySelector('.trf-inp-req')?.value ?? row.getAttribute('data-old-req')));
+        } else {
+          sum += Number(row.getAttribute(isReceivedState ? 'data-old-rec' : 'data-old-sent') || 0);
+        }
+      });
+      badge.textContent = `Total: ${sum} uds`;
+    };
+    updateLiveTotalsBadge();
+
+    // Buscador rápido de SKUs dentro del modal de detalle/corrección
+    const searchInput = overlay.querySelector('#trf-detail-sku-search');
+    if (searchInput) {
+      searchInput.oninput = () => {
+        const q = (searchInput.value || '').trim().toLowerCase();
+        overlay.querySelectorAll('.trf-item-row').forEach(row => {
+          const sku = (row.getAttribute('data-sku') || '').toLowerCase();
+          const name = (row.getAttribute('data-product-name') || '').toLowerCase();
+          row.style.display = (!q || sku.includes(q) || name.includes(q)) ? '' : 'none';
+        });
+      };
+    }
+
+    // Botón para incluir un nuevo SKU al traslado durante edición/corrección
+    const btnAddSku = overlay.querySelector('#btn-trf-detail-add-sku');
+    const selAddSku = overlay.querySelector('#trf-detail-add-sku-select');
+    if (btnAddSku && selAddSku) {
+      btnAddSku.onclick = () => {
+        const pid = selAddSku.value;
+        if (!pid) return;
+        const prod = extraCommerceProducts.find(p => String(p.id) === String(pid));
+        if (!prod) return;
+        syncWorkingDraftsFromDom();
+        workingItems.unshift({
+          id: `${transfer.id}-item-new-${Date.now()}`,
+          transfer_id: transfer.id,
+          product_id: prod.id,
+          sku: prod.sku,
+          product_name: prod.name || prod.sku,
+          quantity_requested: 0,
+          quantity_sent: 0,
+          quantity_received: 0,
+          _draftReq: 1,
+          _draftSent: 1,
+          _draftRec: 1,
+          dest_location_hint: '',
+          _isNewItem: true
+        });
+        renderModalContent();
+      };
+    }
+
     // Bindings internos del modal con protección de cambios sin guardar
     const confirmAndCloseDetailModal = () => {
       if (activeMode !== 'view') {
@@ -3707,6 +3906,7 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
 
     overlay.querySelectorAll('.trf-mode-tab').forEach(tab => {
       tab.onclick = () => {
+        syncWorkingDraftsFromDom();
         activeMode = tab.getAttribute('data-mode') || 'view';
         renderModalContent();
       };
@@ -3720,33 +3920,37 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
           const inp = row.querySelector('.trf-inp-rec');
           if (inp) inp.value = String(sent);
         });
+        updateLiveTotalsBadge();
       };
     }
 
-    // Cálculo en vivo de Delta en modo 'correct'
-    if (activeMode === 'correct') {
-      overlay.querySelectorAll('.trf-item-row').forEach(row => {
-        const oldRec = Number(row.getAttribute('data-old-rec') || 0);
-        const inp = row.querySelector('.trf-inp-rec-correct');
-        const cellDelta = row.querySelector('.trf-cell-delta');
-        if (inp && cellDelta) {
-          inp.oninput = () => {
-            const newRec = Math.max(0, Number(inp.value || 0));
-            const delta = newRec - oldRec;
-            if (delta === 0) {
-              cellDelta.textContent = '0 uds (Sin cambio)';
-              cellDelta.style.color = 'var(--trf-muted)';
-            } else if (delta > 0) {
-              cellDelta.textContent = `+${delta} uds en ${transfer.dest_warehouse_name}`;
-              cellDelta.style.color = '#10b981';
-            } else {
-              cellDelta.textContent = `${delta} uds en ${transfer.dest_warehouse_name}`;
-              cellDelta.style.color = '#f87171';
-            }
-          };
-        }
-      });
-    }
+    // Cálculo en vivo de Delta en modo 'correct' y totales en vivo
+    overlay.querySelectorAll('.trf-item-row').forEach(row => {
+      const oldRec = Number(row.getAttribute('data-old-rec') || 0);
+      const inpCorrect = row.querySelector('.trf-inp-rec-correct');
+      const cellDelta = row.querySelector('.trf-cell-delta');
+      if (inpCorrect && cellDelta) {
+        inpCorrect.oninput = () => {
+          const newRec = Math.max(0, Number(inpCorrect.value || 0));
+          const delta = newRec - oldRec;
+          if (delta === 0) {
+            cellDelta.textContent = '0 uds (Sin cambio)';
+            cellDelta.style.color = 'var(--trf-muted)';
+          } else if (delta > 0) {
+            cellDelta.textContent = `+${delta} uds en ${transfer.dest_warehouse_name}`;
+            cellDelta.style.color = '#10b981';
+          } else {
+            cellDelta.textContent = `${delta} uds en ${transfer.dest_warehouse_name}`;
+            cellDelta.style.color = '#f87171';
+          }
+          updateLiveTotalsBadge();
+        };
+      }
+      const otherInp = row.querySelector('.trf-inp-req') || row.querySelector('.trf-inp-sent') || row.querySelector('.trf-inp-rec');
+      if (otherInp) {
+        otherInp.oninput = () => updateLiveTotalsBadge();
+      }
+    });
 
     // Botón Anular Transferencia
     const btnCancel = overlay.querySelector('#btn-trf-cancel-order');
@@ -3774,12 +3978,12 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
     if (btnSubmit) {
       btnSubmit.onclick = async () => {
         const actor = (overlay.querySelector('#trf-form-actor')?.value || adminUser.name || 'Administrador').trim();
-        const notes = (overlay.querySelector('#trf-form-notes')?.value || '').trim();
-        const policy = overlay.querySelector('#trf-form-policy')?.value || 'return_origin';
+        const rawNotes = (overlay.querySelector('#trf-form-notes')?.value || '').trim();
+        const notes = rawNotes || 'Corrección administrativa de cantidades en traslado';
+        const policy = overlay.querySelector('#trf-form-policy')?.value || (activeMode === 'correct' ? 'sync_direct' : 'return_origin');
 
         try {
           btnSubmit.disabled = true;
-          const origText = btnSubmit.innerHTML;
           btnSubmit.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Procesando ajuste de stock y Kardex...';
 
           if (activeMode === 'dispatch') {
@@ -3798,7 +4002,7 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
               dispatchedByName: actor,
               carrierInfo: carrier,
               packageCount: pkgs,
-              notes
+              notes: rawNotes
             });
             if (typeof window.showToast === 'function') window.showToast(`🚚 #${transfer.folio} despachada En Tránsito. Stock físico descontado en ${transfer.source_warehouse_name}.`, 'success');
           } else if (activeMode === 'receive') {
@@ -3818,21 +4022,21 @@ export async function openTransferDetailModal(transferIdOrFolio, initialMode = '
               itemsLocationMap: locMap,
               receivedByName: actor,
               discrepancyPolicy: policy,
-              receptionNotes: notes
+              receptionNotes: rawNotes
             });
             if (typeof window.showToast === 'function') window.showToast(`✅ #${transfer.folio} recepcionada en ${transfer.dest_warehouse_name}. Niveles de stock actualizados.`, 'success');
           } else if (activeMode === 'edit' || activeMode === 'correct') {
-            if (!notes) {
-              alert('Por favor ingresa el motivo de la edición o corrección para el registro de auditoría en Kardex.');
-              btnSubmit.disabled = false;
-              btnSubmit.innerHTML = origText;
-              return;
-            }
             const patchMap = {};
             overlay.querySelectorAll('.trf-item-row').forEach(row => {
               const pid = row.getAttribute('data-product-id');
               const loc = row.querySelector('.trf-inp-loc')?.value;
-              const entry = { dest_location_hint: loc };
+              const isNew = row.getAttribute('data-is-new') === '1';
+              const entry = {
+                dest_location_hint: loc,
+                _isNewItem: isNew,
+                sku: row.getAttribute('data-sku') || '',
+                product_name: row.getAttribute('data-product-name') || ''
+              };
               if (activeMode === 'edit' && transfer.status === 'Solicitada') {
                 entry.quantity_requested = Math.max(0, Number(row.querySelector('.trf-inp-req')?.value ?? row.getAttribute('data-old-req')));
               } else if (activeMode === 'edit' && transfer.status === 'En Tránsito') {
