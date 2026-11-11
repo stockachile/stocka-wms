@@ -1274,7 +1274,7 @@ async function handleBulkMode(limiteCarga) {
       // 3. Coincidencia de comuna / localidad
       const cityNorm = normStr(order.shipping_city);
       const locNorm = normStr(ldItem.localidad);
-      if (cityNorm && locNorm.includes(cityNorm)) {
+      if (cityNorm && locNorm && (locNorm.includes(cityNorm) || cityNorm.includes(locNorm))) {
         score += 30;
       }
 
@@ -1289,7 +1289,7 @@ async function handleBulkMode(limiteCarga) {
       return score;
     }
 
-    // Generar candidatos de coincidencia orden-DID con puntaje mínimo >= 30
+    // Generar candidatos de coincidencia orden-DID con puntaje mínimo >= 20
     const candidates = [];
     for (let i = 0; i < activeOrdersList.length; i++) {
       const order = activeOrdersList[i];
@@ -1300,7 +1300,7 @@ async function handleBulkMode(limiteCarga) {
         if (activeOrdersList.length === ldTrackingList.length && i === j) {
           score += 25;
         }
-        if (score >= 30) {
+        if (score >= 20) {
           candidates.push({ order, ld, score, orderIdx: i, ldIdx: j });
         }
       }

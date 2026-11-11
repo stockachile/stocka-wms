@@ -270,12 +270,13 @@ class MockQueryBuilder {
       });
       
       const history = [];
-      for (let i = 30; i >= 0; i--) {
+      for (let i = 365; i >= 0; i--) {
         const d = new Date();
         d.setDate(d.getDate() - i);
         const dateStr = d.toISOString().split('T')[0];
-        const fluctuation = (Math.sin(i / 2) * 0.15 + (Math.random() - 0.5) * 0.05);
-        const dayVolume = Math.max(0.1, currentVolume * (1 + fluctuation));
+        const seasonalWave = Math.sin(i / 28) * 0.18;
+        const dailyWave = Math.sin(i / 3) * 0.08 + (Math.cos(i * 1.7) * 0.03);
+        const dayVolume = Math.max(0.1, currentVolume * (1 + seasonalWave + dailyWave));
         
         history.push({
           id: `vol-${i}`,

@@ -186,6 +186,12 @@ serve(async (req) => {
         } else if (item.action_type === "update_tracking") {
           await handleUpdateTracking(item, integration);
           results.push({ id: item.id, status: "completed", action: "update_tracking", shopify_order_status: "fulfilled" });
+        } else if (item.action_type === "set_in_transit") {
+          const fulfillmentId = await handleSetInTransit(item, integration);
+          results.push({ id: item.id, status: "completed", action: "set_in_transit", fulfillment_id: fulfillmentId, shopify_order_status: "in_transit" });
+        } else if (item.action_type === "set_delivered") {
+          const fulfillmentId = await handleSetDelivered(item, integration);
+          results.push({ id: item.id, status: "completed", action: "set_delivered", fulfillment_id: fulfillmentId, shopify_order_status: "delivered" });
         } else if (item.action_type === "set_on_hold") {
           await handleSetOnHold(item, integration);
           results.push({ id: item.id, status: "completed", action: "set_on_hold", shopify_order_status: "on_hold" });
@@ -523,7 +529,13 @@ async function handleCreateFulfillment(item: any, integration: any): Promise<str
   const shopifyOrderId = item.shopify_order_id;
 
   const cleanTrack = (item.tracking_number || "").trim();
-  const hasRealTracking = cleanTrack !== "" && cleanTrack.toUpperCase() !== "N/A" && cleanTrack.toUpperCase() !== "NO INFORMADO";
+  const isTempAlphaTrack = cleanTrack.startsWith("460") || /^46\d{7,}$/.test(cleanTrack);
+  const hasRealTracking = cleanTrack !== "" && cleanTrack.toUpperCase() !== "N/A" && cleanTrack.toUpperCase() !== "NO INFORMADO" && !isTempAlphaTrack;
+  const cLower = `${item.courier || ""} ${item.operador || ""}`.toLowerCase();
+  const isOptiroute = cLower.includes("optiroute") || cLower.includes("stocka x") || (item.tracking_url && String(item.tracking_url).toLowerCase().includes("optiroute.cl"));
+  if (isOptiroute && (item.order_id || hasRealTracking)) {
+    item.tracking_url = `https://wms.stocka.cl/seguimiento.html?t=${encodeURIComponent(item.order_id || cleanTrack)}`;
+  }
   const hasTrackUrl = Boolean(item.tracking_url && item.tracking_url.startsWith("http"));
 
   // 1. Consultar fulfillment orders asociados al pedido
@@ -691,10 +703,27 @@ async function handleCreateFulfillment(item: any, integration: any): Promise<str
     fulfillment_order_id: fo.id
   }));
 
-  // 3. Mapear Courier y Tracking Info (omitir tracking_info si es pedido de retiro sin tracking)
-  const notifyCustomer = typeof item.notify_customer === "boolean"
-    ? item.notify_customer
-    : (integration.notify_customer_on_fulfillment !== false);
+  // 3. Mapear Courier y Tracking Info (omitir tracking_info si aún no tiene tracking real o es pedido de retiro)
+  // Si el pedido se está marcando como Preparado al pasar a Pickeado pero aún no tiene tracking real,
+  // no enviamos el correo al comprador todavía (se enviará cuando se asigne el tracking o pase a En tránsito)
+  let notifyCustomer = integration.notify_customer_on_fulfillment !== false;
+  if (typeof item.notify_customer === "boolean") {
+    notifyCustomer = item.notify_customer;
+  } else if (!hasRealTracking && !hasTrackUrl) {
+    try {
+      const { data: ordCheck } = await supabase
+        .from("orders")
+        .select("status, estado_wms, categoria_entrega, agenda")
+        .eq("id", item.order_id)
+        .maybeSingle();
+      const isPickupOrd = String(ordCheck?.categoria_entrega || "").toUpperCase().trim() === "RETIRO" ||
+                          String(ordCheck?.agenda || "").toUpperCase().trim() === "RETIRO";
+      const wmsSt = String(ordCheck?.estado_wms || ordCheck?.status || "").toLowerCase().trim();
+      if (!isPickupOrd && wmsSt === "pickeado") {
+        notifyCustomer = false;
+      }
+    } catch (_) {}
+  }
 
   const fulfillmentObj: any = {
     line_items_by_fulfillment_order: lineItemsByFulfillmentOrder,
@@ -775,7 +804,7 @@ async function handleUpdateTracking(item: any, integration: any) {
   if (!fulfillmentId) {
     const { data: ordData } = await supabase
       .from("orders")
-      .select("shopify_fulfillment_id, tracking_number, tracking_url, courier, operador")
+      .select("shopify_fulfillment_id, shopify_order_status, tracking_number, tracking_url, courier, operador")
       .eq("id", item.order_id)
       .maybeSingle();
     if (ordData?.shopify_fulfillment_id) {
@@ -786,6 +815,7 @@ async function handleUpdateTracking(item: any, integration: any) {
       if (!item.tracking_url && ordData.tracking_url) item.tracking_url = ordData.tracking_url;
       if (!item.courier && ordData.courier) item.courier = ordData.courier;
       if (!item.operador && ordData.operador) item.operador = ordData.operador;
+      item._current_shopify_order_status = ordData.shopify_order_status;
     }
   }
 
@@ -799,6 +829,12 @@ async function handleUpdateTracking(item: any, integration: any) {
   const notifyCustomer = typeof item.notify_customer === "boolean"
     ? item.notify_customer
     : (integration.notify_customer_on_fulfillment !== false);
+
+  const cLowerUpd = `${item.courier || ""} ${item.operador || ""}`.toLowerCase();
+  const isOptirouteUpd = cLowerUpd.includes("optiroute") || cLowerUpd.includes("stocka x") || (item.tracking_url && String(item.tracking_url).toLowerCase().includes("optiroute.cl"));
+  if (isOptirouteUpd && (item.order_id || item.tracking_number)) {
+    item.tracking_url = `https://wms.stocka.cl/seguimiento.html?t=${encodeURIComponent(item.order_id || item.tracking_number)}`;
+  }
 
   const trackingInfo: any = {
     number: item.tracking_number || "N/A",
@@ -830,12 +866,16 @@ async function handleUpdateTracking(item: any, integration: any) {
     throw new Error(`Shopify API error actualizando tracking (${updateRes.status}): ${errText}`);
   }
 
+  const preservedStatus = (item._current_shopify_order_status === "in_transit" || item._current_shopify_order_status === "delivered")
+    ? item._current_shopify_order_status
+    : "fulfilled";
+
   await supabase
     .from("orders")
     .update({
       shopify_fulfillment_id: fulfillmentId,
       shopify_fulfillment_status: "synced",
-      shopify_order_status: "fulfilled",
+      shopify_order_status: preservedStatus,
       shopify_status_updated_at: new Date().toISOString(),
       shopify_sync_last_error: null
     })
@@ -852,6 +892,158 @@ async function handleUpdateTracking(item: any, integration: any) {
     .eq("id", item.id);
 
   console.log(`Tracking actualizado con éxito en Shopify para fulfillment ${fulfillmentId}`);
+}
+
+/**
+ * Registra un evento de envío en Shopify (in_transit o delivered) sobre el Fulfillment de la orden.
+ * Si la orden aún no tiene un Fulfillment creado en Shopify, lo crea primero automáticamente.
+ */
+async function handleSetShipmentEvent(item: any, integration: any, eventStatus: "in_transit" | "delivered") {
+  const shop = integration.shop_url;
+  const token = integration.access_token;
+  const shopifyOrderId = item.shopify_order_id;
+  let fulfillmentId = item.shopify_fulfillment_id || null;
+
+  const { data: ordData } = await supabase
+    .from("orders")
+    .select("shopify_fulfillment_id, tracking_number, tracking_url, courier, operador")
+    .eq("id", item.order_id)
+    .maybeSingle();
+
+  if (!fulfillmentId && ordData?.shopify_fulfillment_id) {
+    fulfillmentId = String(ordData.shopify_fulfillment_id);
+  }
+  if (ordData) {
+    if (!item.tracking_number && ordData.tracking_number) item.tracking_number = ordData.tracking_number;
+    if (!item.tracking_url && ordData.tracking_url) item.tracking_url = ordData.tracking_url;
+    if (!item.courier && ordData.courier) item.courier = ordData.courier;
+    if (!item.operador && ordData.operador) item.operador = ordData.operador;
+  }
+
+  // Si aún no tenemos fulfillmentId en BD, buscamos en Shopify o lo creamos
+  if (!fulfillmentId) {
+    fulfillmentId = await handleCreateFulfillment(item, integration);
+  }
+
+  if (!fulfillmentId) {
+    throw new Error(`No se pudo obtener ni crear un fulfillment_id en Shopify para registrar el evento ${eventStatus} en la orden ${shopifyOrderId}`);
+  }
+
+  // Si hay tracking real disponible, aseguramos que el fulfillment tenga el tracking actualizado
+  const rawTrack = String(item.tracking_number || "").trim();
+  const isTempAlpha = /^46\d{6,}$/.test(rawTrack);
+  if (rawTrack && rawTrack !== "S/N" && rawTrack !== "N/A" && !isTempAlpha) {
+    try {
+      const companyName = mapCourierToShopify(item.courier, item.operador);
+      const trackingInfo: any = { number: rawTrack, company: companyName };
+      if (item.tracking_url && item.tracking_url.startsWith("http")) {
+        trackingInfo.url = item.tracking_url;
+      }
+      await shopifyFetch(`https://${shop}/admin/api/2024-04/fulfillments/${fulfillmentId}/update_tracking.json`, {
+        method: "POST",
+        headers: {
+          "X-Shopify-Access-Token": token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          fulfillment: {
+            tracking_info: trackingInfo,
+            notify_customer: false
+          }
+        })
+      });
+    } catch (trackErr: any) {
+      console.warn(`Aviso actualizando tracking previo a ${eventStatus} para ${shopifyOrderId}:`, trackErr.message);
+    }
+  }
+
+  // Crear FulfillmentEvent en Shopify REST API
+  const eventUrl = `https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}/fulfillments/${fulfillmentId}/events.json`;
+  const eventRes = await shopifyFetch(eventUrl, {
+    method: "POST",
+    headers: {
+      "X-Shopify-Access-Token": token,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      event: {
+        status: eventStatus
+      }
+    })
+  });
+
+  if (!eventRes.ok) {
+    const errText = await eventRes.text();
+    // Fallback GraphQL fulfillmentEventCreate por si REST falla en alguna versión
+    const gqlStatus = eventStatus === "delivered" ? "DELIVERED" : "IN_TRANSIT";
+    const gqlMutation = `
+      mutation fulfillmentEventCreate($fulfillmentEvent: FulfillmentEventInput!) {
+        fulfillmentEventCreate(fulfillmentEvent: $fulfillmentEvent) {
+          fulfillmentEvent { id status }
+          userErrors { field message }
+        }
+      }
+    `;
+    const gqlRes = await shopifyFetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
+      method: "POST",
+      headers: {
+        "X-Shopify-Access-Token": token,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        query: gqlMutation,
+        variables: {
+          fulfillmentEvent: {
+            fulfillmentId: `gid://shopify/Fulfillment/${fulfillmentId}`,
+            status: gqlStatus
+          }
+        }
+      })
+    });
+    const gqlData = await gqlRes.json().catch(() => ({}));
+    const userErrors = gqlData?.data?.fulfillmentEventCreate?.userErrors || [];
+    if (!gqlRes.ok || gqlData?.errors || userErrors.length > 0) {
+      throw new Error(`Shopify API error creando FulfillmentEvent (${eventStatus}) [HTTP ${eventRes.status}]: ${errText}`);
+    }
+  }
+
+  const tagToAdd = eventStatus === "delivered" ? "Stocka: Entregado" : "Stocka: En Tránsito";
+  const tagsToRemove = eventStatus === "delivered"
+    ? ["Stocka: En Preparación", "Stocka: En Espera", "Stocka: Listo para Retiro", "Stocka: En Tránsito"]
+    : ["Stocka: En Preparación", "Stocka: En Espera", "Stocka: Listo para Retiro"];
+  await updateOrderShopifyTags(shop, token, shopifyOrderId, [tagToAdd], tagsToRemove);
+
+  const nowIso = new Date().toISOString();
+  await supabase
+    .from("orders")
+    .update({
+      shopify_fulfillment_id: String(fulfillmentId),
+      shopify_fulfillment_status: "synced",
+      shopify_order_status: eventStatus,
+      shopify_status_updated_at: nowIso,
+      shopify_sync_last_error: null
+    })
+    .eq("id", item.order_id);
+
+  await supabase
+    .from("shopify_fulfillment_queue")
+    .update({
+      status: "completed",
+      shopify_fulfillment_id: String(fulfillmentId),
+      last_error: null,
+      processed_at: nowIso
+    })
+    .eq("id", item.id);
+
+  console.log(`Orden ${shopifyOrderId} marcada como ${eventStatus.toUpperCase()} en Shopify (fulfillment ${fulfillmentId})`);
+}
+
+async function handleSetInTransit(item: any, integration: any) {
+  await handleSetShipmentEvent(item, integration, "in_transit");
+}
+
+async function handleSetDelivered(item: any, integration: any) {
+  await handleSetShipmentEvent(item, integration, "delivered");
 }
 
 /**
@@ -1267,10 +1459,23 @@ async function handleFetchLiveShopifyStatus(orderId: string) {
   // 3. Determinar estado exacto
   let liveStatus = "unfulfilled";
   const tags = String(shopifyOrder.tags || "");
+  const primaryShipmentStatus = activeFulfillments.length > 0
+    ? String(activeFulfillments[0].shipment_status || "").toLowerCase()
+    : "";
+
   if (shopifyOrder.cancelled_at) {
     liveStatus = "cancelled";
   } else if (shopifyOrder.fulfillment_status === "fulfilled" || activeFulfillments.length > 0) {
-    liveStatus = "fulfilled";
+    if (primaryShipmentStatus === "delivered" || tags.includes("Stocka: Entregado")) {
+      liveStatus = "delivered";
+    } else if (
+      ["in_transit", "out_for_delivery", "attempted_delivery", "ready_for_pickup"].includes(primaryShipmentStatus) ||
+      tags.includes("Stocka: En Tránsito")
+    ) {
+      liveStatus = "in_transit";
+    } else {
+      liveStatus = "fulfilled";
+    }
   } else if (shopifyOrder.fulfillment_status === "partial") {
     liveStatus = "partial";
   } else if (foStatuses.includes("on_hold") || tags.includes("Stocka: En Espera")) {
@@ -1288,7 +1493,7 @@ async function handleFetchLiveShopifyStatus(orderId: string) {
       shopify_order_status: liveStatus,
       shopify_fulfillment_id: resolvedFulfillmentId,
       shopify_fulfillment_order_id: resolvedFoId,
-      shopify_fulfillment_status: liveStatus === "fulfilled" ? "synced" : null,
+      shopify_fulfillment_status: ["fulfilled", "in_transit", "delivered"].includes(liveStatus) ? "synced" : null,
       shopify_status_updated_at: nowIso
     })
     .eq("id", ord.id);

@@ -276,12 +276,15 @@ async function syncMerchantOrders(integration) {
           ? rawSupp.trim()
           : ((integration.comercio && integration.comercio.toLowerCase() !== 'no asignado') ? integration.comercio.trim() : 'STOCKA');
 
+        const resolvedOptiTracking = (detailedOrder.tracking || optiOrder.tracking || '').trim() || null;
         const payloadItem = {
           id: idStr,
           referencia: optiOrder.reference ? optiOrder.reference.trim() : null,
           empresa_comercio_proveedor: finalSupplierName,
-          tracking: (detailedOrder.tracking || optiOrder.tracking || '').trim() || null,
-          tracking_url: (detailedOrder.tracking_url || optiOrder.tracking_url || '').trim() || null,
+          tracking: resolvedOptiTracking,
+          tracking_url: resolvedOptiTracking
+            ? `https://wms.stocka.cl/seguimiento.html?t=${encodeURIComponent(resolvedOptiTracking)}&comercio=${encodeURIComponent(finalSupplierName)}`
+            : null,
           courier: 'STOCKA X',
           status: finalStatus,
           created_at: detailedOrder.created_at || optiOrder.created_at || null,
@@ -445,12 +448,15 @@ async function syncPendingOldOrders(integration) {
         ? rawSuppOld.trim()
         : 'STOCKA';
 
+      const resolvedOldTracking = detailedOrder.tracking ? detailedOrder.tracking.trim() : dbOrder.tracking;
       const payloadItem = {
         id: String(detailedOrder.id),
         referencia: detailedOrder.reference ? detailedOrder.reference.trim() : dbOrder.referencia,
         empresa_comercio_proveedor: finalSupplierNameOld,
-        tracking: detailedOrder.tracking ? detailedOrder.tracking.trim() : dbOrder.tracking,
-        tracking_url: detailedOrder.tracking_url ? detailedOrder.tracking_url.trim() : dbOrder.tracking_url,
+        tracking: resolvedOldTracking,
+        tracking_url: resolvedOldTracking
+          ? `https://wms.stocka.cl/seguimiento.html?t=${encodeURIComponent(resolvedOldTracking)}&comercio=${encodeURIComponent(finalSupplierNameOld)}`
+          : dbOrder.tracking_url,
         courier: 'STOCKA X',
         status: newStatus,
         created_at: detailedOrder.created_at || dbOrder.created_at || null,

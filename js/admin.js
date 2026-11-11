@@ -144,12 +144,48 @@ window.renderCopyFieldBtn = function(value, label, tooltip, customStyle) {
   return `<button type="button" onclick="event.stopPropagation(); window.copyFieldFromData(this, '${window.escapeHtml(label || '')}')" data-copy-val="${cleanVal}" class="btn-copy-field" title="${tip}" style="${baseStyle}" onmouseover="this.style.color='var(--color-primary)'; this.style.background='rgba(59, 130, 246, 0.1)';" onmouseout="this.style.color='var(--color-text-muted)'; this.style.background='transparent';"><i class="ri-file-copy-line"></i></button>`;
 };
 
+// Helper para construir la URL del Portal Público de Seguimiento del WMS (para un pedido o despacho)
+window.getPublicWmsTrackingUrlForTarget = function(shipment, order, trackingNum) {
+  const originUrl = (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file:'))
+    ? window.location.origin
+    : 'https://wms.stocka.cl';
+  const ordId = order?.id || shipment?.linked_order_id || (shipment?.linked_order && shipment.linked_order.id) || '';
+  const trk = (trackingNum && trackingNum !== 'N/A' && trackingNum !== 'No informado' && trackingNum !== '-') ? String(trackingNum).trim() : '';
+  const sTrk = (shipment?.tracking && shipment.tracking !== 'N/A' && shipment.tracking !== '-') ? String(shipment.tracking).trim() : '';
+  const oTrk = (order?.tracking_number && order.tracking_number !== 'N/A') ? String(order.tracking_number).trim() : '';
+  const ref = (shipment?.pedido_referencia && shipment.pedido_referencia !== 'Sin Referencia' && shipment.pedido_referencia !== '-')
+    ? String(shipment.pedido_referencia).trim()
+    : (order?.numero_orden ? String(order.numero_orden).trim() : '');
+
+  // Priorizar UUID del pedido o código de tracking del courier (ambos soportados por get_customer_tracking)
+  const token = ordId || sTrk || trk || oTrk || ref || '';
+  const comercio = shipment?.empresa_comercio_proveedor || shipment?.linked_order?.comercio || order?.comercio || '';
+  const destHint = shipment?.comuna_destino || order?.comuna || '';
+
+  const params = new URLSearchParams();
+  if (token) params.set('t', token);
+  if (comercio) params.set('comercio', comercio);
+  if (destHint) params.set('d', destHint);
+  const qs = params.toString();
+  return `${originUrl}/seguimiento.html${qs ? '?' + qs : ''}`;
+};
+
 // Helper global para resolver la URL pública de seguimiento del courier (limpiando dominios rotos como tracking.enviame.io o API interna)
 window.resolveCourierPublicTrackingUrl = function(rawUrl, trackingNum, courierName, shipment, order) {
   let url = (rawUrl && rawUrl !== 'N/A') ? String(rawUrl).trim() : '';
   const trk = (trackingNum && trackingNum !== 'N/A' && trackingNum !== 'No informado' && trackingNum !== '-') ? String(trackingNum).trim() : '';
   const cLower = String(courierName || shipment?.courier || order?.courier || order?.operador || '').toLowerCase().trim();
   const srcTable = String(shipment?.source_table || '').toLowerCase();
+
+  // 0. Para envíos vía Optiroute / Stocka X (o enlaces a optiroute.cl), usar siempre el Portal Público de Seguimiento del WMS
+  const isOptiroute = srcTable === 'optiroute_orders'
+    || cLower.includes('optiroute')
+    || cLower.includes('stocka x')
+    || (url && url.toLowerCase().includes('optiroute.cl'));
+
+  if (isOptiroute) {
+    return window.getPublicWmsTrackingUrlForTarget(shipment, order, trk);
+  }
 
   // 1. Recuperar URL desde LightData raw_data[31] si corresponde
   if (srcTable === 'lightdata_envios' || order?.raw_lightdata_data) {
@@ -185,9 +221,7 @@ window.resolveCourierPublicTrackingUrl = function(rawUrl, trackingNum, courierNa
 
   // 3. Fallback por courier o tabla de origen cuando no hay URL
   if (!url && trk) {
-    if (srcTable === 'optiroute_orders' || cLower.includes('optiroute') || cLower.includes('stocka x')) {
-      url = `https://app.optiroute.cl/service_requets/tracking/${encodeURIComponent(trk)}/`;
-    } else if (srcTable === 'lightdata_envios' || cLower.includes('alpha') || cLower.includes('lightdata')) {
+    if (srcTable === 'lightdata_envios' || cLower.includes('alpha') || cLower.includes('lightdata')) {
       url = `https://alphagroup.lightdata.com.ar/tracking.php?token=${encodeURIComponent(trk)}d54df4s8a88`;
     } else if (srcTable === 'starken_envios' || cLower.includes('starken')) {
       url = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(trk)}`;
@@ -201,6 +235,154 @@ window.resolveCourierPublicTrackingUrl = function(rawUrl, trackingNum, courierNa
   }
 
   return url || null;
+};
+
+// Helper global para extraer y evaluar la Fecha de Compromiso de Entrega informada por Envíame (deadline_at)
+window.getEnviameCommitmentInfo = function(shipmentOrList, order, isDeliveredOverride) {
+  const list = Array.isArray(shipmentOrList)
+    ? shipmentOrList
+    : (shipmentOrList ? [shipmentOrList] : []);
+
+  let targetShipment = null;
+  let rawDeadline = '';
+
+  for (const s of list) {
+    if (!s) continue;
+    const dl = s.raw_data?.deadline_at || s.raw_payload?.deadline_at || s.deadline_at || '';
+    const str = String(dl || '').trim();
+    if (str && !/^(no informad[oa]\.?|n\/a|null|undefined|-|sin informaci[oó]n)$/i.test(str)) {
+      targetShipment = s;
+      rawDeadline = str;
+      break;
+    }
+    if (!targetShipment && s.source_table === 'enviame_shipments') {
+      targetShipment = s;
+    }
+  }
+
+  const isEnviame = Boolean(
+    targetShipment?.source_table === 'enviame_shipments' ||
+    order?.enviame_delivery_id ||
+    list.some(s => s && s.source_table === 'enviame_shipments')
+  );
+
+  if (!rawDeadline) {
+    return {
+      hasDeadline: false,
+      isEnviame,
+      formattedDate: null,
+      state: 'pending',
+      stateLabel: 'Pendiente admisión courier',
+      shortLabel: 'Sin fecha compromiso',
+      badgeBg: '#f8fafc',
+      badgeColor: '#64748b',
+      badgeBorder: '#e2e8f0',
+      icon: 'ri-calendar-line',
+      tooltip: 'Envíame aún no informa fecha de compromiso de entrega para este envío'
+    };
+  }
+
+  // Parsear DD-MM-YYYY o YYYY-MM-DD
+  let day = null, month = null, year = null;
+  const dmyMatch = rawDeadline.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  const ymdMatch = rawDeadline.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (dmyMatch) {
+    day = parseInt(dmyMatch[1], 10);
+    month = parseInt(dmyMatch[2], 10);
+    year = parseInt(dmyMatch[3], 10);
+  } else if (ymdMatch) {
+    year = parseInt(ymdMatch[1], 10);
+    month = parseInt(ymdMatch[2], 10);
+    day = parseInt(ymdMatch[3], 10);
+  }
+
+  const formattedDate = (day && month && year)
+    ? `${String(day).padStart(2, '0')}-${String(month).padStart(2, '0')}-${year}`
+    : rawDeadline;
+
+  const sStatus = String(targetShipment?.status || targetShipment?.global_status || order?.enviame_status || order?.status || '').toLowerCase();
+  const isDelivered = typeof isDeliveredOverride === 'boolean'
+    ? isDeliveredOverride
+    : (sStatus.includes('entregad') || sStatus.includes('delivered') || String(targetShipment?.global_status || '').toUpperCase() === 'ENTREGADO');
+
+  let state = 'on_time';
+  let stateLabel = 'En plazo';
+  let shortLabel = `Compromiso: ${formattedDate}`;
+  let badgeBg = '#f0f9ff';
+  let badgeColor = '#0284c7';
+  let badgeBorder = '#bae6fd';
+  let icon = 'ri-calendar-check-line';
+  let tooltip = `Fecha de compromiso de entrega informada por Envíame: ${formattedDate}`;
+
+  if (isDelivered) {
+    state = 'delivered';
+    stateLabel = 'Cumplido / Entregado';
+    shortLabel = `Compromiso: ${formattedDate}`;
+    badgeBg = '#ecfdf5';
+    badgeColor = '#059669';
+    badgeBorder = '#a7f3d0';
+    icon = 'ri-calendar-check-fill';
+    tooltip = `Fecha de compromiso de entrega informada por Envíame: ${formattedDate} (Pedido entregado)`;
+  } else if (day && month && year) {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const deadlineStart = new Date(year, month - 1, day).getTime();
+    const diffDays = Math.round((deadlineStart - todayStart) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+      const overdueDays = Math.abs(diffDays);
+      state = 'overdue';
+      stateLabel = `Plazo vencido (${overdueDays}d)`;
+      shortLabel = `Compromiso: ${formattedDate} (Atrasado)`;
+      badgeBg = '#fef2f2';
+      badgeColor = '#dc2626';
+      badgeBorder = '#fecaca';
+      icon = 'ri-calendar-close-fill';
+      tooltip = `Fecha de compromiso de entrega informada por Envíame: ${formattedDate} (Plazo vencido hace ${overdueDays} ${overdueDays === 1 ? 'día' : 'días'})`;
+    } else if (diffDays === 0) {
+      state = 'today';
+      stateLabel = 'Compromiso Hoy';
+      shortLabel = `Compromiso: Hoy (${formattedDate})`;
+      badgeBg = '#fffbeb';
+      badgeColor = '#d97706';
+      badgeBorder = '#fde68a';
+      icon = 'ri-calendar-todo-fill';
+      tooltip = `Fecha de compromiso de entrega informada por Envíame: ${formattedDate} (Comprometido para entregar hoy)`;
+    } else if (diffDays === 1) {
+      state = 'on_time';
+      stateLabel = 'Mañana';
+      shortLabel = `Compromiso: ${formattedDate}`;
+      badgeBg = '#f0f9ff';
+      badgeColor = '#0284c7';
+      badgeBorder = '#bae6fd';
+      icon = 'ri-calendar-check-line';
+      tooltip = `Fecha de compromiso de entrega informada por Envíame: ${formattedDate} (Comprometido para mañana)`;
+    } else {
+      state = 'on_time';
+      stateLabel = `En plazo (${diffDays}d)`;
+      shortLabel = `Compromiso: ${formattedDate}`;
+      badgeBg = '#f0f9ff';
+      badgeColor = '#0284c7';
+      badgeBorder = '#bae6fd';
+      icon = 'ri-calendar-check-line';
+      tooltip = `Fecha de compromiso de entrega informada por Envíame: ${formattedDate} (En plazo, faltan ${diffDays} días)`;
+    }
+  }
+
+  return {
+    hasDeadline: true,
+    isEnviame: true,
+    formattedDate,
+    rawDeadline,
+    state,
+    stateLabel,
+    shortLabel,
+    badgeBg,
+    badgeColor,
+    badgeBorder,
+    icon,
+    tooltip
+  };
 };
 
 window.getOrderPublicTrackingPortalUrl = function(order) {
@@ -232,7 +414,9 @@ window.togglePublicTrackingLinkBox = function(orderId, btnEl) {
 window.renderOrderPublicTrackingSectionHtml = function(order, courierTrackingUrl, courierName) {
   if (!order || !order.id) return '';
   const portalUrl = window.getOrderPublicTrackingPortalUrl(order);
-  const validCourierUrl = (courierTrackingUrl && courierTrackingUrl !== 'N/A' && courierTrackingUrl.startsWith('http')) ? courierTrackingUrl : null;
+  const validCourierUrl = (courierTrackingUrl && courierTrackingUrl !== 'N/A' && courierTrackingUrl.startsWith('http') && !courierTrackingUrl.includes('seguimiento.html') && !courierTrackingUrl.includes('optiroute.cl'))
+    ? courierTrackingUrl
+    : null;
   const escPortal = window.escapeHtmlAttr ? window.escapeHtmlAttr(portalUrl) : portalUrl;
   const escCourier = validCourierUrl ? (window.escapeHtmlAttr ? window.escapeHtmlAttr(validCourierUrl) : validCourierUrl) : '';
   const cleanCourierLabel = (courierName && courierName !== 'Seguimiento' && courierName !== 'Courier') ? courierName : 'Courier';
@@ -1804,6 +1988,7 @@ window.hydrateOrderProductDimensionsIfNeeded = async function(orders) {
 
   if (updatedAny) {
     orders.forEach(o => {
+      if (o) delete o._wmsCartpaperBoxCalc;
       (o?.order_items || []).forEach(oi => {
         const pid = oi?.product_id || oi?.products?.id;
         if (pid && window.loadedProductDimensionsMap[pid] && oi.products) {
@@ -2176,15 +2361,19 @@ window.updateWmsOrderField = async function(orderId, field, value) {
     if (error) throw error;
 
     if (order) {
-      delete order._wmsTags;
-      delete order._wmsEffectiveCat;
-      delete order._wmsShipmentGlobalStatus;
-      delete order._wmsDeliveryTypeInfo;
       Object.assign(order, updatePayload);
+      if (typeof window.clearSingleOrderWmsCache === 'function') {
+        window.clearSingleOrderWmsCache(order);
+      } else {
+        delete order._wmsTags;
+        delete order._wmsEffectiveCat;
+        delete order._wmsShipmentGlobalStatus;
+        delete order._wmsDeliveryTypeInfo;
+      }
 
       const fieldsToPropagate = ['agenda', 'sucursal_pickeo', 'operador', 'fecha_procesamiento', 'tracking_number', 'categoria_entrega'];
-      if (fieldsToPropagate.includes(field) && order.estado_wms === 'En preparación') {
-        await window.propagateOrderUpdateToPicker(order);
+      if (fieldsToPropagate.includes(field) && order.estado_wms === 'En preparación' && typeof window.propagateOrderUpdateToPicker === 'function') {
+        window.propagateOrderUpdateToPicker(order).catch(err => console.warn('Aviso propagando cambio a Picker:', err));
       }
 
       if (['tracking_number', 'tracking_url', 'courier'].includes(field) && (order.external_platform === 'Shopify' || order.origen === 'Shopify') && order.estado_wms === 'Despachado') {
@@ -2279,7 +2468,7 @@ window.triggerShopifyFulfillmentSync = async function(orderIds = []) {
 // Resuelve el estado real actual del pedido en Shopify (sin asumir PREPARADO solo por estado_wms)
 window.resolveShopifyOrderStatus = function(order) {
   if (!order) return 'unfulfilled';
-  const validStates = ['unfulfilled', 'in_progress', 'on_hold', 'ready_for_pickup', 'partial', 'fulfilled', 'cancelled'];
+  const validStates = ['unfulfilled', 'in_progress', 'on_hold', 'ready_for_pickup', 'partial', 'fulfilled', 'in_transit', 'delivered', 'cancelled'];
   const explicit = String(order.shopify_order_status || '').toLowerCase().trim();
   const raw = order.raw_shopify_data || {};
 
@@ -2289,31 +2478,39 @@ window.resolveShopifyOrderStatus = function(order) {
   if (explicit && validStates.includes(explicit)) {
     if (explicit === 'unfulfilled') {
       const rawFul = String(raw.fulfillment_status || '').toLowerCase().trim();
+      const tagsStr = String(raw.tags || '');
+      if (tagsStr.includes('Stocka: Entregado')) return 'delivered';
+      if (tagsStr.includes('Stocka: En Tránsito')) return 'in_transit';
       if (rawFul === 'fulfilled' || order.shopify_fulfillment_status === 'synced' || order.shopify_fulfillment_id) {
         return 'fulfilled';
       }
       if (rawFul === 'partial') return 'partial';
-      const tagsStr = String(raw.tags || '');
       if (tagsStr.includes('Stocka: Listo para Retiro')) return 'ready_for_pickup';
-      if (tagsStr.includes('Stocka: En preparación')) return 'in_progress';
+      if (tagsStr.includes('Stocka: En preparación') || tagsStr.includes('Stocka: En Preparación')) return 'in_progress';
     }
     return explicit;
   }
 
   const rawFul = String(raw.fulfillment_status || '').toLowerCase().trim();
+  const tagsStr = String(raw.tags || '');
+  if (tagsStr.includes('Stocka: Entregado')) return 'delivered';
+  if (tagsStr.includes('Stocka: En Tránsito')) return 'in_transit';
   if (rawFul === 'fulfilled' || order.shopify_fulfillment_status === 'synced' || order.shopify_fulfillment_id) {
     return 'fulfilled';
   }
   if (rawFul === 'partial') return 'partial';
-  const tagsStr = String(raw.tags || '');
   if (tagsStr.includes('Stocka: Listo para Retiro')) return 'ready_for_pickup';
-  if (tagsStr.includes('Stocka: En preparación')) return 'in_progress';
+  if (tagsStr.includes('Stocka: En preparación') || tagsStr.includes('Stocka: En Preparación')) return 'in_progress';
   return 'unfulfilled';
 };
 
 window.getShopifyOrderStatusMeta = function(state) {
   const st = String(state || 'unfulfilled').toLowerCase().trim();
   switch (st) {
+    case 'delivered':
+      return { key: 'delivered', label: 'ENTREGADO', shortLabel: 'Entregado', color: '#059669', bg: '#d1fae5', text: '#065f46', border: '#34d399', icon: 'ri-checkbox-multiple-fill' };
+    case 'in_transit':
+      return { key: 'in_transit', label: 'EN TRÁNSITO', shortLabel: 'En tránsito', color: '#0284c7', bg: '#e0f2fe', text: '#0369a1', border: '#38bdf8', icon: 'ri-truck-fill' };
     case 'fulfilled':
       return { key: 'fulfilled', label: 'PREPARADO', shortLabel: 'Preparado', color: '#10b981', bg: '#d1fae5', text: '#065f46', border: '#6ee7b7', icon: 'ri-checkbox-circle-fill' };
     case 'partial':
@@ -2509,7 +2706,7 @@ window.getOriginalPlatformStatus = function(order) {
       { label: 'Shopify', value: shMeta.label, color: shMeta.color }
     ];
 
-    if (order.estado_wms === 'Despachado' && shopifyState !== 'fulfilled' && shopifyState !== 'cancelled') {
+    if (order.estado_wms === 'Despachado' && !['fulfilled', 'in_transit', 'delivered', 'cancelled'].includes(shopifyState)) {
       details.push({ label: 'Alerta Sync', value: 'WMS Despachado / Shopify ' + shMeta.shortLabel, color: '#ef4444' });
     } else if (order.shopify_fulfillment_status === 'error') {
       details.push({ label: 'Sync WMS', value: 'Error Retorno', color: '#ef4444' });
@@ -3440,13 +3637,19 @@ window.resolveOrderTracking = function(order) {
   }
 
   const isAlpha = order.operador === 'ALPHA' || order.courier === 'LIGHTDATA' || order.courier === 'CARRIER EXTERNO' || order.courier === 'ALPHA';
-  const alphaDid = order.raw_lightdata_data?.did || order.raw_lightdata_data?.id;
+  let alphaDid = order.raw_lightdata_data?.did || order.raw_lightdata_data?.id;
+  if (!alphaDid && isAlpha && typeof window.getOrderShipmentGlobalStatus === 'function') {
+    const shipInfo = window.getOrderShipmentGlobalStatus(order);
+    const ldShip = (shipInfo?.orderShipments || []).find(s => s && s.source_table === 'lightdata_envios' && s.source_id && /^\d+$/.test(String(s.source_id).trim()));
+    if (ldShip) alphaDid = String(ldShip.source_id).trim();
+  }
   if (isAlpha && alphaDid) {
     return String(alphaDid).trim();
   }
 
   const trk = String(order.tracking_number || '').trim();
-  if (trk && trk.toLowerCase() !== 'no informado' && trk !== order.external_order_number) {
+  const extClean = String(order.external_order_number || '').trim().replace(/^#/, '').toUpperCase();
+  if (trk && trk.toLowerCase() !== 'no informado' && trk.replace(/^#/, '').toUpperCase() !== extClean) {
     if (!isAlpha || (!trk.startsWith('460') && !/^46\d{7,}$/.test(trk))) {
       return trk;
     }
@@ -4283,7 +4486,7 @@ window.fetchWmsEdgeFunction = async function(functionName, options = {}) {
 };
 
 // Sondeo en segundo plano para actualizar pedidos y etiquetas generadas en LightData/Alpha
-window.pollForLightDataTracking = function(orderIds, maxWaitSeconds = 90) {
+window.pollForLightDataTracking = function(orderIds, maxWaitSeconds = 180) {
   if (!orderIds || orderIds.length === 0) return;
   const startTime = Date.now();
   const pollIntervalMs = 4000;
@@ -4299,40 +4502,41 @@ window.pollForLightDataTracking = function(orderIds, maxWaitSeconds = 90) {
 
       const { data: updatedOrders, error } = await supabase
         .from('orders')
-        .select('id, tracking_number, tracking_url, courier, operador, label_url, label_base64, raw_lightdata_data, estado_wms')
+        .select('id, external_order_number, tracking_number, tracking_url, courier, operador, label_url, label_base64, lightdata_status, raw_lightdata_data, estado_wms')
         .in('id', Array.from(pendingSet));
 
       if (error || !updatedOrders) return;
 
       let changedCount = 0;
+      const syncedLocalOrders = [];
       for (const uOrd of updatedOrders) {
         const trk = String(uOrd.tracking_number || '').trim();
-        const hasTracking = trk !== '' && trk !== 'null' && trk !== 'undefined';
-        if (hasTracking || uOrd.label_base64 || uOrd.raw_lightdata_data?.did) {
+        const extClean = String(uOrd.external_order_number || '').trim().replace(/^#/, '').toUpperCase();
+        const ldDid = String(uOrd.raw_lightdata_data?.did || uOrd.raw_lightdata_data?.id || '').trim();
+        const hasValidAlphaDid = Boolean(ldDid && /^\d+$/.test(ldDid) && !ldDid.startsWith('460') && !/^46\d{7,}$/.test(ldDid));
+        const hasValidTrk = Boolean(
+          trk &&
+          trk.toLowerCase() !== 'no informado' &&
+          trk !== 'null' &&
+          trk !== 'undefined' &&
+          !trk.startsWith('460') &&
+          !/^46\d{7,}$/.test(trk) &&
+          trk.replace(/^#/, '').toUpperCase() !== extClean
+        );
+        if (hasValidAlphaDid || hasValidTrk || uOrd.label_base64) {
           pendingSet.delete(uOrd.id);
           changedCount++;
           if (Array.isArray(window.loadedOrders)) {
             const localOrd = window.loadedOrders.find(o => o.id === uOrd.id);
             if (localOrd) {
               Object.assign(localOrd, uOrd);
+              delete localOrd._wmsShipmentGlobalStatus;
               delete localOrd._wmsTags;
+              syncedLocalOrders.push(localOrd);
 
-              // Sincronizar inmediatamente en Picker active_orders si está configurado
-              if (typeof pickerSupabase !== 'undefined' && pickerSupabase) {
-                const ordNo = String(localOrd.external_order_number || localOrd.id);
-                const effTrack = String(localOrd.raw_lightdata_data?.did || localOrd.raw_lightdata_data?.id || localOrd.tracking_number || '').trim();
-                if (effTrack) {
-                  const pickerUpd = { tracking: effTrack.slice(0, 255), operator: 'ALPHA' };
-                  if (localOrd.sucursal_pickeo) {
-                    pickerUpd.sucursal = String(localOrd.sucursal_pickeo).trim().slice(0, 100);
-                  }
-                  pickerSupabase
-                    .from('active_orders')
-                    .update(pickerUpd)
-                    .in('order_number', [ordNo, '#' + ordNo.replace(/^#/, ''), ordNo.replace(/^#/, '')])
-                    .then(() => {})
-                    .catch(() => {});
-                }
+              const effTrack = String(ldDid || trk || '').trim();
+              if (effTrack && typeof window.updatePickerTrackingForOrder === 'function') {
+                await window.updatePickerTrackingForOrder(localOrd, effTrack, 'ALPHA');
               }
             }
           }
@@ -4351,6 +4555,12 @@ window.pollForLightDataTracking = function(orderIds, maxWaitSeconds = 90) {
             const shipMap = new Map(window.loadedShipments.map(s => [s.id, s]));
             newShips.forEach(s => shipMap.set(s.id, s));
             window.loadedShipments = Array.from(shipMap.values());
+            if (typeof window.buildWmsShipmentsByRefMap === 'function') {
+              window.buildWmsShipmentsByRefMap(window.loadedShipments);
+            }
+          }
+          if (syncedLocalOrders.length > 0 && typeof window.fetchPickerOperators === 'function') {
+            await window.fetchPickerOperators(syncedLocalOrders);
           }
         } catch (_) {}
 
@@ -5377,7 +5587,7 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
     }
 
     const hasMoreInOtherViews = visibleAlphaPending.length > 0 && allAlphaPending.length > visibleAlphaPending.length;
-    const { isConfirmed, value: syncAllPending } = await Swal.fire({
+    const { isConfirmed, value: modalVal } = await Swal.fire({
       icon: 'question',
       title: 'Sincronizar Pedidos ALPHA',
       html: `
@@ -5397,11 +5607,14 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
       cancelButtonText: 'Cancelar',
       confirmButtonColor: '#7117eb',
       preConfirm: () => {
-        return document.getElementById('swal-sync-all-alpha-pending')?.checked || false;
+        return {
+          syncAll: Boolean(document.getElementById('swal-sync-all-alpha-pending')?.checked)
+        };
       }
     });
 
     if (!isConfirmed) return;
+    const syncAllPending = Boolean(modalVal && modalVal.syncAll);
     ids = (syncAllPending ? allAlphaPending : alphaPendingOrders).map(o => o.id);
   }
 
@@ -5447,9 +5660,10 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
   });
 
   try {
-    // 1. Recopilar candidatos de referencias por orden
+    // 1. Recopilar candidatos de referencias por orden (incluyendo siglas de comercio como REL, DOR, GLS, etc.)
     const allRefs = new Set();
     const orderRefMap = new Map();
+    const commerces = [...new Set(selectedOrders.map(o => (o.comercio || '').trim()).filter(Boolean))];
 
     selectedOrders.forEach(o => {
       const candidates = [];
@@ -5457,14 +5671,26 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
       const uuid = (o.id || '').trim();
       const shortId = uuid.split('-')[0];
       const curTrk = String(o.tracking_number || '').trim();
+      const commClean = String(o.comercio || '').trim().toUpperCase().replace(/[^A-Z]/g, '');
+      const commSigla = commClean.length >= 3 ? commClean.slice(0, 3) : '';
 
       if (ext) {
         candidates.push(ext);
         const noHash = ext.replace(/#/g, '').trim();
-        if (noHash) candidates.push(noHash);
+        if (noHash) {
+          candidates.push(noHash);
+          candidates.push('#' + noHash);
+        }
         
         const numOnly = ext.replace(/^[^0-9]+/i, '').trim();
-        if (numOnly && numOnly.length >= 3) candidates.push(numOnly);
+        if (numOnly && numOnly.length >= 3) {
+          candidates.push(numOnly);
+          candidates.push('#' + numOnly);
+          if (commSigla) {
+            candidates.push(`${commSigla}${numOnly}`);
+            candidates.push(`${commSigla}#${numOnly}`);
+          }
+        }
       }
       if (curTrk && curTrk !== 'NO INFORMADO' && !curTrk.startsWith('460') && !/^46\d{7,}$/.test(curTrk)) {
         candidates.push(curTrk);
@@ -5481,11 +5707,14 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
     const allRefsArr = Array.from(allRefs).slice(0, 500);
     const selectedIdsArr = selectedOrders.map(o => o.id);
 
-    const [ldByRefRes, ldRecentRes, euRes, freshOrdersRes] = await Promise.all([
+    const [ldByRefRes, ldByCommRes, ldRecentRes, euRes, freshOrdersRes] = await Promise.all([
       allRefsArr.length > 0
         ? supabase.from('lightdata_envios').select('*').in('tracking', allRefsArr)
         : Promise.resolve({ data: [], error: null }),
-      supabase.from('lightdata_envios').select('*').order('updated_at', { ascending: false }).limit(2000),
+      commerces.length > 0
+        ? supabase.from('lightdata_envios').select('*').in('comercio', commerces).order('id', { ascending: false }).limit(1000)
+        : Promise.resolve({ data: [], error: null }),
+      supabase.from('lightdata_envios').select('*').order('id', { ascending: false }).limit(2000),
       allRefsArr.length > 0
         ? supabase.from('envios_unificados').select('*').eq('source_table', 'lightdata_envios').in('pedido_referencia', allRefsArr)
         : Promise.resolve({ data: [], error: null }),
@@ -5496,18 +5725,20 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
 
     // Unificar y deduplicar registros de lightdata_envios
     const ldMap = new Map();
-    [...(ldByRefRes.data || []), ...(ldRecentRes.data || [])].forEach(item => {
+    [...(ldByRefRes.data || []), ...(ldByCommRes.data || []), ...(ldRecentRes.data || [])].forEach(item => {
       if (item && item.id) ldMap.set(String(item.id), item);
     });
     const ldList = Array.from(ldMap.values());
     const euList = euRes.data || [];
     const freshOrdersMap = new Map((freshOrdersRes.data || []).map(fo => [fo.id, fo]));
+    const normPersonStr = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
 
     // 3. Cruzar cada orden con los envíos de LightData
     let syncedCount = 0;
     const syncedOrders = [];
     const notFoundOrders = [];
     const notFoundOrderIds = [];
+    const usedLdIdsInPass = new Set();
 
     for (const order of selectedOrders) {
       const forcedInfo = window.getOrderForcedTrackingInfo ? window.getOrderForcedTrackingInfo(order) : null;
@@ -5532,7 +5763,7 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
         const orderExt = (order.external_order_number || '').trim().replace(/#/g, '').toUpperCase();
         const orderDigits = orderExt.replace(/[^0-9]/g, '');
 
-        // Si el tracking en LightData coincide exactamente con el external_order_number (ej. DOR55019434), es match directo sin importar variaciones de nombre de comercio
+        // Si el tracking en LightData coincide exactamente con el external_order_number (ej. DOR55019434, REL718995), es match directo sin importar variaciones de nombre de comercio
         const exactExtMatch = orderExt.length >= 4 && (
           eTracking.replace(/#/g, '').toUpperCase() === orderExt ||
           rawRef1.replace(/#/g, '').toUpperCase() === orderExt
@@ -5573,6 +5804,32 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
 
       let match = matchingLd[0] || null;
 
+      // Fallback 0.5: Si en lightdata_envios hay un envío reciente sin tracking asignado (creado por create_lightdata_labels.js en lote) que coincide exactamente en destinatario y comuna/dirección
+      if (!match && order.customer_name) {
+        const ordCustNorm = normPersonStr(order.customer_name);
+        const ordCityNorm = normPersonStr(order.shipping_city);
+        if (ordCustNorm.length >= 5) {
+          const destMatches = ldList.filter(e => {
+            if (!e || !e.id || usedLdIdsInPass.has(String(e.id))) return false;
+            const stLower = String(e.status || (e.raw_data && e.raw_data[23]) || '').toLowerCase();
+            if (stLower.includes('cancel')) return false;
+            const eComm = (e.comercio || '').toUpperCase().trim();
+            if (orderComm && eComm && eComm !== orderComm && !eComm.includes('STOCKA') && eComm !== 'NO ASIGNADO') return false;
+            // Si el envío ya tiene un tracking explícito de otro pedido distinto, no cruzar
+            if (e.tracking && String(e.tracking).trim() !== '') return false;
+            const eCustNorm = normPersonStr(e.nombre_destinatario);
+            if (!eCustNorm || eCustNorm !== ordCustNorm) return false;
+            const eLocNorm = normPersonStr(e.comuna_destino || e.direccion_destino || '');
+            if (ordCityNorm && eLocNorm && !eLocNorm.includes(ordCityNorm) && !ordCityNorm.includes(eLocNorm)) return false;
+            return true;
+          });
+          destMatches.sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+          if (destMatches.length > 0) {
+            match = destMatches[0];
+          }
+        }
+      }
+
       // Fallback 1: buscar en envios_unificados (priorizando no cancelados)
       if (!match) {
         const euMatches = euList.filter(s => candidates.includes(s.pedido_referencia));
@@ -5596,27 +5853,30 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
         }
       }
 
-      // Fallback 2: verificar si la tabla orders en Supabase ya fue actualizada en segundo plano por sync_lightdata.js
+      // Fallback 2: verificar si la tabla orders en Supabase ya fue actualizada en segundo plano por sync_lightdata.js o create_lightdata_labels.js
       if (!match) {
         const freshOrd = freshOrdersMap.get(order.id);
         const freshLd = freshOrd?.raw_lightdata_data || order.raw_lightdata_data;
-        const freshDid = String(freshLd?.did || freshLd?.id || '').trim();
+        const freshTrk = String(freshOrd?.tracking_number || '').trim();
+        const validFreshTrkDid = (freshTrk && /^\d+$/.test(freshTrk) && !freshTrk.startsWith('460') && !/^46\d{7,}$/.test(freshTrk)) ? freshTrk : '';
+        const freshDid = String(freshLd?.did || freshLd?.id || validFreshTrkDid || '').trim();
         if (freshDid && /^\d+$/.test(freshDid) && !freshDid.startsWith('460') && !/^46\d{7,}$/.test(freshDid)) {
           match = {
             id: freshDid,
-            tracking: freshLd.tracking || order.external_order_number || freshDid,
-            tracking_url: freshLd.tracking_url || freshOrd?.tracking_url || order.tracking_url,
-            status: freshLd.status || freshOrd?.lightdata_status || order.lightdata_status || 'A retirar',
-            comercio: freshLd.comercio || order.comercio,
-            nombre_destinatario: freshLd.nombre_destinatario || order.customer_name,
-            comuna_destino: freshLd.comuna_destino || order.shipping_city,
-            direccion_destino: freshLd.direccion_destino || order.shipping_address,
-            raw_data: freshLd.raw_data || null
+            tracking: freshLd?.tracking || order.external_order_number || freshDid,
+            tracking_url: freshLd?.tracking_url || freshOrd?.tracking_url || order.tracking_url,
+            status: freshLd?.status || freshOrd?.lightdata_status || order.lightdata_status || 'A retirar',
+            comercio: freshLd?.comercio || order.comercio,
+            nombre_destinatario: freshLd?.nombre_destinatario || order.customer_name,
+            comuna_destino: freshLd?.comuna_destino || order.shipping_city,
+            direccion_destino: freshLd?.direccion_destino || order.shipping_address,
+            raw_data: freshLd?.raw_data || null
           };
         }
       }
 
       if (match) {
+        usedLdIdsInPass.add(String(match.id));
         // Si el pedido tiene un tracking forzado activo y el único match en LightData está Cancelado, respetar el forzado
         const matchStLower = String(match.status || (match.raw_data && match.raw_data[23]) || '').toLowerCase();
         if (forcedInfo?.active && forcedInfo.tracking_number && matchStLower.includes('cancel') && String(match.id) !== String(forcedInfo.tracking_number)) {
@@ -5714,13 +5974,32 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
       }
     }
 
-    // Reconstruir índice de envíos en memoria y re-renderizar vista
-    if (syncedCount > 0 && typeof window.buildWmsShipmentsByRefMap === 'function' && Array.isArray(window.loadedShipments)) {
-      window.buildWmsShipmentsByRefMap(window.loadedShipments);
+    // Reconstruir índice de envíos en memoria, refrescar estado Picker y re-renderizar vista
+    if (syncedCount > 0) {
+      if (typeof window.buildWmsShipmentsByRefMap === 'function' && Array.isArray(window.loadedShipments)) {
+        window.buildWmsShipmentsByRefMap(window.loadedShipments);
+      }
+      if (typeof window.fetchPickerOperators === 'function') {
+        try {
+          await window.fetchPickerOperators(selectedOrders);
+        } catch (e) {}
+      }
+      selectedOrders.forEach(o => { delete o._wmsTags; });
     }
     window.applyWmsFiltersAndRender();
 
     const notFoundIdsJson = JSON.stringify(notFoundOrderIds).replace(/"/g, '&quot;');
+
+    // Si no hubo ninguna coincidencia en la base local y no venimos ya de un sondeo del portal, iniciar automáticamente la descarga en vivo desde el portal LightData
+    if (syncedCount === 0 && notFoundOrderIds.length > 0 && !window._isAutoPortalSyncing) {
+      window._isAutoPortalSyncing = true;
+      try {
+        await window.triggerLightDataPortalSync(notFoundOrderIds);
+      } finally {
+        window._isAutoPortalSyncing = false;
+      }
+      return;
+    }
 
     // Mostrar resultado al usuario
     if (syncedCount > 0) {
@@ -6989,6 +7268,14 @@ window.toggleOrderRow = function(orderId) {
     chevron.style.transform = 'rotate(0deg)';
     window.wmsExpandedOrderIds.delete(orderId);
   } else {
+    if (detailsRow.getAttribute('data-rendered') !== '1') {
+      const td = detailsRow.querySelector('td');
+      const renderer = window._wmsOrderDetailRenderers && window._wmsOrderDetailRenderers.get(String(orderId));
+      if (td && typeof renderer === 'function') {
+        td.innerHTML = renderer();
+        detailsRow.setAttribute('data-rendered', '1');
+      }
+    }
     row.classList.add('expanded');
     detailsRow.style.display = 'table-row';
     chevron.style.transform = 'rotate(90deg)';
@@ -7004,7 +7291,8 @@ window.toggleOrderRow = function(orderId) {
     const currentOrder = (window.loadedOrders || []).find(o => o.id === orderId);
     if (currentOrder && Array.isArray(currentOrder.order_items) && currentOrder.order_items.length > 0 && typeof window.fetchInventoryForOrders === 'function') {
       const invMap = window.loadedOrdersInventoryMap || {};
-      const needsInventory = currentOrder.order_items.some(oi => oi.product_id && !oi.products?.is_virtual && !Object.keys(invMap).some(k => k.startsWith(oi.product_id + '_')));
+      const totalMap = window.loadedProductTotalInventoryMap || {};
+      const needsInventory = currentOrder.order_items.some(oi => oi.product_id && !oi.products?.is_virtual && totalMap[oi.product_id] === undefined && !Object.keys(invMap).some(k => k.startsWith(oi.product_id + '_')));
       if (needsInventory) {
         window.fetchInventoryForOrders([currentOrder], true).then(() => {
           if (window.wmsExpandedOrderIds.has(orderId) && typeof window.applyWmsFiltersAndRender === 'function') {
@@ -7344,7 +7632,50 @@ window.loadOrderAuditLogs = async function(orderId) {
 
     if (error) throw error;
 
-    if (!logs || logs.length === 0) {
+    const effectiveLogs = Array.isArray(logs) ? [...logs] : [];
+    const currentOrdForAudit = (window.loadedOrders || []).find(o => String(o.id) === String(targetUuid));
+    const consAuditInfo = (currentOrdForAudit && typeof window.getOrderConsolidationInfo === 'function')
+      ? window.getOrderConsolidationInfo(currentOrdForAudit)
+      : null;
+
+    if (consAuditInfo && consAuditInfo.isConsolidated) {
+      const hasConsolidationAuditRow = effectiveLogs.some(l => l && l.action && String(l.action).toLowerCase().includes('consolid'));
+      if (!hasConsolidationAuditRow) {
+        const isPrimaryRole = consAuditInfo.role === 'primary';
+        const childFoliosStr = (consAuditInfo.childrenFolios && consAuditInfo.childrenFolios.length > 0)
+          ? consAuditInfo.childrenFolios.join(', ')
+          : `${(consAuditInfo.childrenIds || []).length || 1} pedido(s) hermano(s)`;
+        const totalPrepCount = isPrimaryRole ? ((consAuditInfo.childrenIds?.length || 1) + 1) : 2;
+        const primaryTargetStr = consAuditInfo.primaryFolio || 'Pedido Principal';
+
+        effectiveLogs.push({
+          order_id: targetUuid,
+          user_email: consAuditInfo.consolidatedBy || 'admin@stocka.cl',
+          created_at: consAuditInfo.consolidatedAt || currentOrdForAudit.updated_at || currentOrdForAudit.created_at || new Date().toISOString(),
+          action: isPrimaryRole
+            ? 'Consolidado de Envío Confirmado (Pedido Principal)'
+            : 'Consolidado de Envío Confirmado (Pedido Secundario)',
+          details: {
+            changes: isPrimaryRole
+              ? [
+                  'Designado como Pedido Principal (Ancla de Envío) del grupo consolidado.',
+                  `Unificado en 1 solo paquete físico junto con: ${childFoliosStr}.`,
+                  `Facturación: 1 envío + ${totalPrepCount} preparaciones individuales (Pick & Pack).`,
+                  'Solicitud Especial de Picking activa en Picker.'
+                ]
+              : [
+                  `Pedido consolidado dentro del envío del Pedido Principal ${primaryTargetStr}.`,
+                  `Empaque físico unificado usando la guía de despacho de ${primaryTargetStr}.`,
+                  'Facturación: Flete $0 + 1 preparación individual (Pick & Pack).',
+                  'Solicitud Especial de Picking activa en Picker.'
+                ]
+          }
+        });
+        effectiveLogs.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+      }
+    }
+
+    if (effectiveLogs.length === 0) {
       container.innerHTML = `
         <div style="padding: 0.5rem; color: var(--color-text-muted); font-style: italic;">
           No hay registros de modificaciones para este pedido.
@@ -7356,7 +7687,7 @@ window.loadOrderAuditLogs = async function(orderId) {
     const escape = window.escapeHtml || (s => String(s || ''));
 
     // Si existe un log de creación o división, enriquecer el bloque de creador del pedido
-    const creationLog = [...logs].reverse().find(l => l && l.action && (
+    const creationLog = [...effectiveLogs].reverse().find(l => l && l.action && (
       l.action.toLowerCase().includes('creación') ||
       l.action.toLowerCase().includes('creacion') ||
       l.action.toLowerCase().includes('división') ||
@@ -7375,7 +7706,7 @@ window.loadOrderAuditLogs = async function(orderId) {
     }
 
     // Si existe un registro de Nota Interna en la auditoría, sincronizar con la interfaz y el mapa en memoria
-    const latestNoteLog = logs.find(l => l && l.action && l.action.toLowerCase().includes('nota interna'));
+    const latestNoteLog = effectiveLogs.find(l => l && l.action && l.action.toLowerCase().includes('nota interna'));
     if (latestNoteLog) {
       const isDeleted = latestNoteLog.action.toLowerCase().includes('eliminada');
       const noteVal = isDeleted ? '' : (latestNoteLog.details?.admin_note || latestNoteLog.details?.comment || '');
@@ -7457,9 +7788,18 @@ window.loadOrderAuditLogs = async function(orderId) {
     }
 
     let html = `<div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">`;
-    logs.forEach(log => {
+    effectiveLogs.forEach(log => {
       const dateStr = new Date(log.created_at).toLocaleString('es-CL');
       const userStr = log.user_email ? escape(log.user_email) : 'Usuario Desconocido';
+      const actionLower = String(log.action || '').toLowerCase();
+      const isConsolidationLog = actionLower.includes('consolid');
+      const isUnconsolidatedLog = isConsolidationLog && (actionLower.includes('desvincul') || actionLower.includes('revert') || actionLower.includes('deshac'));
+      const accentColor = isConsolidationLog
+        ? (isUnconsolidatedLog ? '#dc2626' : (actionLower.includes('principal') ? '#4f46e5' : '#0d9488'))
+        : 'var(--color-primary)';
+      const actionIconHtml = isConsolidationLog
+        ? `<i class="${isUnconsolidatedLog ? 'ri-link-unlink-m' : 'ri-links-fill'}" style="color: ${accentColor}; margin-right: 0.25rem;"></i>`
+        : '';
       
       let detailsHtml = '';
       if (log.details) {
@@ -7472,15 +7812,15 @@ window.loadOrderAuditLogs = async function(orderId) {
         }
         
         if (log.details.comment) {
-          detailsHtml += `<div style="margin-top: 0.25rem; font-size: 0.775rem; font-style: italic; color: var(--color-text-muted);">Motivo: "${escape(log.details.comment)}"</div>`;
+          detailsHtml += `<div style="margin-top: 0.25rem; font-size: 0.775rem; font-style: italic; color: var(--color-text-muted);">${isConsolidationLog ? 'Detalle' : 'Motivo'}: "${escape(log.details.comment)}"</div>`;
         }
       }
 
       html += `
-        <div style="border-left: 2px solid var(--color-primary); padding-left: 0.75rem; position: relative; text-align: left;">
-          <div style="width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); position: absolute; left: -5px; top: 4px;"></div>
+        <div style="border-left: 2px solid ${accentColor}; padding-left: 0.75rem; position: relative; text-align: left;">
+          <div style="width: 8px; height: 8px; border-radius: 50%; background: ${accentColor}; position: absolute; left: -5px; top: 4px;"></div>
           <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.8rem;">
-            ${escape(log.action)} <span style="font-weight: 400; color: var(--color-text-muted); font-size: 0.75rem;">por ${userStr}</span>
+            ${actionIconHtml}${escape(log.action)} <span style="font-weight: 400; color: var(--color-text-muted); font-size: 0.75rem;">por ${userStr}</span>
           </div>
           <div style="font-size: 0.725rem; color: var(--color-text-muted); margin-top: 0.1rem;">
             📅 ${dateStr}
@@ -7511,6 +7851,25 @@ window.toggleRawOrderJson = async function(orderId) {
     // Si aún no se ha cargado el JSON (contiene el spinner de carga inicial)
     if (container.querySelector('.spin') || container.innerHTML.trim().includes('ri-loader-4-line')) {
       try {
+        const memOrder = (window.loadedOrders || []).find(o => String(o.id) === String(orderId));
+        const memRaw = memOrder && (
+          memOrder.raw_woocommerce_data ||
+          memOrder.raw_jumpseller_data ||
+          memOrder.raw_falabella_data ||
+          memOrder.raw_meli_data ||
+          memOrder.raw_optiroute_data ||
+          memOrder.raw_lightdata_data ||
+          memOrder.raw_paris_data ||
+          memOrder.raw_ripley_data ||
+          memOrder.raw_walmart_data ||
+          memOrder.raw_tiendanube_data ||
+          memOrder.raw_shopify_data
+        );
+        if (memRaw) {
+          container.textContent = JSON.stringify(memRaw, null, 2);
+          return;
+        }
+
         const { data, error } = await supabase
           .from('orders')
           .select('raw_shopify_data, raw_woocommerce_data, raw_meli_data, raw_falabella_data, raw_jumpseller_data, raw_optiroute_data, raw_lightdata_data, raw_paris_data, raw_ripley_data, raw_walmart_data, raw_tiendanube_data')
@@ -8301,6 +8660,9 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
         if (window.clearWmsTagsCache) {
           window.clearWmsTagsCache();
         }
+        if (typeof window.reconcileShopifyTransportStatuses === 'function') {
+          window.reconcileShopifyTransportStatuses(orders);
+        }
       } else {
         window.loadedShipments = [];
       }
@@ -8453,9 +8815,10 @@ window.initWmsOrdersRealtimeSync = function() {
             const current = window.loadedOrders.find(o => String(o.id) === String(updated.id));
             if (current) {
               Object.assign(current, updated);
-              delete current._wmsTags;
-              if (typeof window.clearWmsTagsCache === 'function') {
-                window.clearWmsTagsCache();
+              if (typeof window.clearSingleOrderWmsCache === 'function') {
+                window.clearSingleOrderWmsCache(current);
+              } else {
+                delete current._wmsTags;
               }
 
               // Sincronizar en caché local IndexedDB con debounce de 2 segundos
@@ -9575,19 +9938,33 @@ async function renderAdminOrders() {
       select.value = currentVal;
     };
 
+    window.clearSingleOrderWmsCache = function(o) {
+      if (!o) return;
+      delete o._wmsTags;
+      delete o._wmsSlaInfo;
+      delete o._wmsDeliveryTypeInfo;
+      delete o._wmsCoverageInfo;
+      delete o._wmsStockAlert;
+      delete o._wmsShipmentGlobalStatus;
+      delete o._wmsPacksMap;
+      delete o._wmsQtyMismatchInfo;
+      delete o._wmsEffectiveCat;
+      delete o._wmsDateStr;
+      delete o._wmsDatePart;
+      delete o._wmsTimePart;
+      delete o._wmsSearchIndex;
+      delete o._wmsCartpaperBoxCalc;
+      delete o._wmsNormEmail;
+      delete o._wmsNormAddrKey;
+      delete o._clientShipmentStatus;
+      if (typeof window.invalidateConsolidationCandidatesCache === 'function') {
+        window.invalidateConsolidationCandidatesCache();
+      }
+    };
+
     window.clearWmsTagsCache = function() {
       (window.loadedOrders || []).forEach(o => {
-        delete o._wmsTags;
-        delete o._wmsSlaInfo;
-        delete o._wmsDeliveryTypeInfo;
-        delete o._wmsCoverageInfo;
-        delete o._wmsStockAlert;
-        delete o._wmsShipmentGlobalStatus;
-        delete o._wmsPacksMap;
-        delete o._wmsQtyMismatchInfo;
-        delete o._wmsEffectiveCat;
-        delete o._wmsDateStr;
-        delete o._wmsSearchIndex;
+        window.clearSingleOrderWmsCache(o);
       });
     };
 
@@ -9613,6 +9990,17 @@ async function renderAdminOrders() {
             }
           });
         }
+      }
+
+      // 1.5. Verificar desglose manual de packs (manual_packs_breakdown)
+      if (Array.isArray(order.raw_shopify_data?.manual_packs_breakdown)) {
+        order.raw_shopify_data.manual_packs_breakdown.forEach(pb => {
+          const pSku = String(pb.pack_sku || '').trim().toLowerCase();
+          const pQty = Number(pb.quantity || 1);
+          if (pSku) {
+            foundPacksMap.set(pSku, (foundPacksMap.get(pSku) || 0) + pQty);
+          }
+        });
       }
 
       // 2. Verificar en order_items
@@ -13270,7 +13658,7 @@ window.getWmsFilteredOrders = function(excludeColKey = null, forTab = null, opti
   });
 };
 
-window.wmsOverdueSectionCollapsed = false;
+window.wmsOverdueSectionCollapsed = true;
 window.wmsOverdueSortOldestFirst = false;
 
 window.toggleWmsOverdueSection = function() {
@@ -13775,6 +14163,12 @@ window.applyWmsFiltersAndRender = function() {
     `;
   }
 
+  window._wmsOrderDetailRenderers = new Map();
+  if (!window._wmsClDateFmt) {
+    window._wmsClDateFmt = new Intl.DateTimeFormat('es-CL', { timeZone: 'America/Santiago' });
+    window._wmsClTimeFmt = new Intl.DateTimeFormat('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' });
+  }
+
   const renderOrderRowItem = (order, isOverdueItem = false) => {
     const isInitiallyExpanded = !!(window.wmsExpandedOrderIds && window.wmsExpandedOrderIds.has(order.id));
     const rawShopify = order.raw_shopify_data;
@@ -13796,11 +14190,24 @@ window.applyWmsFiltersAndRender = function() {
     });
 
     if (foundPacks.length > 0) {
+      const manualBreakdown = Array.isArray(order.raw_shopify_data?.manual_packs_breakdown)
+        ? order.raw_shopify_data.manual_packs_breakdown
+        : [];
+      let breakdownDetailsHtml = '';
+      if (manualBreakdown.length > 0) {
+        breakdownDetailsHtml = manualBreakdown.map(pb => {
+          const compsStr = Array.isArray(pb.components)
+            ? pb.components.map(c => `<strong>${escapeHtml(c.sku)}</strong> (x${c.total_quantity || (c.quantity_per_pack * (pb.quantity || 1))})`).join(', ')
+            : '';
+          return `<div style="margin-top: 0.2rem;">• El pack <strong>${escapeHtml(pb.pack_sku || '')}${pb.pack_name ? ' - ' + escapeHtml(pb.pack_name) : ''}</strong> (x${pb.quantity || 1}) fue desglosado para su preparación en bodega${compsStr ? ` en: ${compsStr}` : ''}.</div>`;
+        }).join('');
+      }
       originalPacksHtml = `
-        <div style="margin-top: 1rem; padding: 0.5rem 0.75rem; background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.2); border-radius: var(--radius-sm); font-size: 0.8rem; color: #7c3aed; display: flex; align-items: center; gap: 0.5rem;">
-          <i class="ri-stack-line" style="font-size: 1.1rem;"></i>
-          <div>
-            <strong>Contenía los packs:</strong> ${foundPacks.join(', ')}
+        <div style="margin-top: 1rem; padding: 0.6rem 0.85rem; background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.25); border-radius: var(--radius-sm); font-size: 0.8rem; color: #7c3aed; display: flex; align-items: flex-start; gap: 0.55rem;">
+          <i class="ri-stack-line" style="font-size: 1.15rem; margin-top: 1px;"></i>
+          <div style="flex: 1;">
+            <div><strong>Pack(s) desglosado(s) para preparación en bodega:</strong> ${foundPacks.join(', ')}</div>
+            ${breakdownDetailsHtml}
           </div>
         </div>
       `;
@@ -13814,9 +14221,14 @@ window.applyWmsFiltersAndRender = function() {
 
     const dateSource = order.created_at;
 
-    const dateObj = new Date(dateSource);
-    const datePart = dateObj.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
-    const timePart = dateObj.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' });
+    if (!order._wmsDatePart || !order._wmsTimePart || order._wmsDatePartSrc !== dateSource) {
+      const dateObj = new Date(dateSource);
+      order._wmsDatePart = window._wmsClDateFmt.format(dateObj);
+      order._wmsTimePart = window._wmsClTimeFmt.format(dateObj);
+      order._wmsDatePartSrc = dateSource;
+    }
+    const datePart = order._wmsDatePart;
+    const timePart = order._wmsTimePart;
     
     let badgeBg = 'var(--color-gray)';
     let badgeTextColor = '#1a1a1a';
@@ -13971,7 +14383,11 @@ window.applyWmsFiltersAndRender = function() {
       }
       
       const isShipActive = selectedTag && String(selectedTag).trim().toUpperCase() === String(globStatus).trim().toUpperCase();
-      shipmentBadgeHtml = `<span class="badge wms-order-tag-badge ${isShipActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${globStatus}', event)" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isShipActive ? `outline: 2px solid ${badgeColor}; box-shadow: 0 0 6px rgba(0,0,0,0.25);` : ''}" title="${courierName}: ${shipment.tracking || ''} (Clic para filtrar)"><i class="${badgeIcon}"></i> ${globStatus}</span>`;
+      const badgeCommitInfo = window.getEnviameCommitmentInfo ? window.getEnviameCommitmentInfo(orderShipments, order, globStatus === 'ENTREGADO') : null;
+      const badgeCommitHtml = (badgeCommitInfo && badgeCommitInfo.hasDeadline)
+        ? `<span class="badge" style="background-color: ${badgeCommitInfo.badgeBg}; color: ${badgeCommitInfo.badgeColor}; border: 1px solid ${badgeCommitInfo.badgeBorder}; font-size: 0.65rem; font-weight: 700; padding: 0.14rem 0.42rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.2px;" title="${badgeCommitInfo.tooltip}"><i class="${badgeCommitInfo.icon}"></i> ${badgeCommitInfo.shortLabel}</span>`
+        : '';
+      shipmentBadgeHtml = `<span class="badge wms-order-tag-badge ${isShipActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${globStatus}', event)" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isShipActive ? `outline: 2px solid ${badgeColor}; box-shadow: 0 0 6px rgba(0,0,0,0.25);` : ''}" title="${courierName}: ${shipment.tracking || ''} (Clic para filtrar)"><i class="${badgeIcon}"></i> ${globStatus}</span>${badgeCommitHtml}`;
     }
 
     // 0. Tag de Categoría de Entrega (Distribución vs Retiro vs Logística Inversa)
@@ -14210,8 +14626,10 @@ window.applyWmsFiltersAndRender = function() {
         if (effTrack) {
           trackingNum = effTrack;
           let sUrl = shipment.tracking_url;
-          if (!sUrl && shipment.source_table === 'optiroute_orders' && effTrack) {
-            sUrl = `https://app.optiroute.cl/service_requets/tracking/${encodeURIComponent(effTrack)}/`;
+          if (shipment.source_table === 'optiroute_orders' && effTrack) {
+            sUrl = window.getPublicWmsTrackingUrlForTarget
+              ? window.getPublicWmsTrackingUrlForTarget(shipment, order, effTrack)
+              : null;
           }
           if ((!sUrl || sUrl === 'N/A') && shipment.source_table === 'mercadolibre' && effTrack) {
             sUrl = `https://envios.mercadolibre.cl/seguimiento/${encodeURIComponent(effTrack)}`;
@@ -14664,6 +15082,21 @@ window.applyWmsFiltersAndRender = function() {
         platformBadge = `<span class="badge" style="background-color: #dcfce7; color: #166534; border: 1px solid #86efac; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Falabella</span>`;
       }
       
+      const orderCommitInfo = window.getEnviameCommitmentInfo ? window.getEnviameCommitmentInfo(orderShipments, order, globStatus === 'ENTREGADO') : null;
+      const orderCommitHtml = (orderCommitInfo && orderCommitInfo.hasDeadline)
+        ? `<div style="font-size: 0.78rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.1rem;">
+            <strong style="color: var(--color-text-main);">Compromiso Entrega (Envíame):</strong>
+            <span class="badge" style="background-color: ${orderCommitInfo.badgeBg}; color: ${orderCommitInfo.badgeColor}; border: 1px solid ${orderCommitInfo.badgeBorder}; font-weight: 700; padding: 0.12rem 0.48rem; border-radius: var(--radius-sm); font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.25rem;" title="${orderCommitInfo.tooltip}">
+              <i class="${orderCommitInfo.icon}"></i> ${orderCommitInfo.formattedDate} · ${orderCommitInfo.stateLabel}
+            </span>
+          </div>`
+        : (orderCommitInfo && orderCommitInfo.isEnviame
+            ? `<div style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem; margin-top: 0.05rem;">
+                <strong style="color: var(--color-text-main);">Compromiso Entrega (Envíame):</strong>
+                <span style="font-style: italic;"><i class="ri-calendar-line"></i> Pendiente admisión en planta courier</span>
+              </div>`
+            : '');
+
       shipmentStatusHtml = `
         <div style="display: flex; flex-direction: column; gap: 0.25rem;">
           <div style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
@@ -14674,6 +15107,7 @@ window.applyWmsFiltersAndRender = function() {
             ${platformBadge}
             ${displayRawStatus && displayRawStatus !== '-' ? `<span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600; background: var(--color-surface); padding: 0.1rem 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">${displayRawStatus}</span>` : ''}
           </div>
+          ${orderCommitHtml}
           <div style="font-size: 0.75rem; color: var(--color-text-muted);">
             <strong>Sincronización:</strong> ${shipment.updated_at ? new Date(shipment.updated_at).toLocaleString() : '-'}
           </div>
@@ -14835,6 +15269,16 @@ window.applyWmsFiltersAndRender = function() {
       const cTitle = `Estado informado por courier: ${displayCourierStatus}${cGlobStatus && cGlobStatus.toUpperCase() !== displayCourierStatus.toUpperCase() ? ` (${cGlobStatus})` : ''} (Clic para filtrar)`;
       const filterTag = cGlobStatus || displayCourierStatus;
 
+      const cellCommitInfo = window.getEnviameCommitmentInfo ? window.getEnviameCommitmentInfo(orderShipments, order, cGlobStatus === 'ENTREGADO') : null;
+      const cellCommitRowHtml = (cellCommitInfo && cellCommitInfo.hasDeadline)
+        ? `<div style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.65rem; margin-top: 0.06rem; min-width: 0; overflow: hidden; white-space: nowrap; line-height: 1.2; padding-left: 0.95rem;">
+            <span style="background-color: ${cellCommitInfo.badgeBg}; color: ${cellCommitInfo.badgeColor}; border: 1px solid ${cellCommitInfo.badgeBorder}; padding: 0.06rem 0.38rem; border-radius: 99px; font-size: 0.62rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.18rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 155px;" title="${cellCommitInfo.tooltip}">
+              <i class="${cellCommitInfo.icon}" style="font-size: 0.65rem; flex-shrink: 0;"></i>
+              <span>Comp: ${cellCommitInfo.formattedDate}</span>
+            </span>
+          </div>`
+        : '';
+
       courierStatusRowHtml = `
         <div style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.68rem; margin-top: 0.05rem; min-width: 0; overflow: hidden; white-space: nowrap; line-height: 1.2; padding-left: 0.95rem;">
           <span class="badge" onclick="event.stopPropagation(); if (typeof window.filterByOrderTag === 'function') window.filterByOrderTag('${filterTag.replace(/'/g, "\\'")}', event);" style="background-color: ${cBadgeBg}; color: ${cBadgeColor}; border: 1px solid ${cBadgeColor}28; padding: 0.08rem 0.4rem; border-radius: 99px; font-size: 0.65rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 145px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.25; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;" onmouseover="this.style.transform='scale(1.02)';" onmouseout="this.style.transform='scale(1)';" title="${cTitle.replace(/"/g, '&quot;')}">
@@ -14842,209 +15286,255 @@ window.applyWmsFiltersAndRender = function() {
             <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${displayCourierStatus}</span>
           </span>
         </div>
+        ${cellCommitRowHtml}
       `;
     }
 
-    // Items table breakdown (Agrupando por SKU y Bodega)
-    let itemsRowsHtml = '';
-    if (order.order_items && order.order_items.length > 0) {
-      const grouped = {};
-      order.order_items.forEach(oi => {
-        const pSku = oi.products?.sku || order.sku || 'Sin SKU';
-        const pName = oi.products?.name || order.item || 'Sin Nombre';
-        const pQty = oi.quantity || 0;
-        const pWhId = oi.warehouse_id || 'null';
-        const pWhName = (typeof getWarehouseNameFromId === 'function' && oi.warehouse_id) ? getWarehouseNameFromId(oi.warehouse_id) : (oi.warehouses?.name || 'Bodega Central');
-        const groupKey = pSku + '::' + pWhId;
-        
-        if (!grouped[groupKey]) {
-          grouped[groupKey] = {
-            sku: pSku,
-            name: pName,
-            quantity: 0,
-            price: Number(oi.products?.price) || 0,
-            warehouseId: oi.warehouse_id,
-            warehouseName: pWhName,
-            tag: oi.tag,
-            is_gift: oi.is_gift,
-            campaign_id: oi.campaign_id,
-            is_picking_request: oi.is_picking_request
-          };
-        } else {
-          if (oi.tag) grouped[groupKey].tag = oi.tag;
-          if (oi.is_gift) grouped[groupKey].is_gift = oi.is_gift;
-          if (oi.campaign_id) grouped[groupKey].campaign_id = oi.campaign_id;
-          if (oi.is_picking_request) grouped[groupKey].is_picking_request = oi.is_picking_request;
-        }
-        grouped[groupKey].quantity += pQty;
-      });
-
-      Object.values(grouped).forEach(item => {
-        const pPrice = item.price || (item.quantity > 0 ? (Number(order.total_value) / item.quantity) : 0) || 0;
-        const subtotal = item.quantity * pPrice;
-
-        // Determinar stock de bodega
-        const origItem = order.order_items.find(oi => (oi.products?.sku || order.sku || 'Sin SKU') === item.sku && oi.warehouse_id === item.warehouseId);
-        const tagLabel = item.tag || origItem?.tag || ((item.is_gift || item.campaign_id || origItem?.is_gift || origItem?.campaign_id) ? 'Campaña' : null);
-        const isPickingReqItem = Boolean(item.is_picking_request || origItem?.is_picking_request);
-        const campaignBadgeHtml = (tagLabel
-          ? `<span class="badge" style="background-color: rgba(99, 102, 241, 0.12); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.25); font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem;" title="Artículo bonificado por campaña"><i class="ri-gift-line"></i> ${tagLabel}</span>`
-          : '') + (isPickingReqItem
-          ? `<span class="badge" style="background-color: rgba(14, 165, 233, 0.12); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.28); font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem;" title="Se muestra en Picker como punto a chequear (Solicitud de Picking) y descuenta stock normalmente en WMS"><i class="ri-list-check-2"></i> Solicitud Picking</span>`
-          : '');
-        let stockCellHtml = '';
-        let rowStyle = 'border-bottom: 1px solid var(--color-border);';
-
-        const isAlreadyDescontado = isOrderTerminalOrShipped || !!order.stock_descontado;
-        if (origItem && window.isOrderItemEliminated && window.isOrderItemEliminated(order, origItem)) {
-          stockCellHtml = `<span style="color: #6b7280; font-size: 0.75rem; font-style: italic;" title="Producto eliminado del pedido"><i class="ri-close-circle-line"></i> Eliminado</span>`;
-        } else if (origItem?.products?.is_virtual) {
-          stockCellHtml = `<span style="color: #6b7280; font-size: 0.75rem; font-style: italic;" title="Producto Virtual"><i class="ri-seedling-line"></i> Virtual</span>`;
-        } else if (origItem && !origItem.products?.is_virtual) {
-          const invMap = window.loadedOrdersInventoryMap || {};
-          const prodId = origItem.product_id;
+    // Helper diferido para construir las filas de ítems y JSON solo cuando se expande el detalle del pedido
+    const buildOrderDetailExtraVars = () => {
+      let itemsRowsHtml = '';
+      if (order.order_items && order.order_items.length > 0) {
+        const grouped = {};
+        order.order_items.forEach(oi => {
+          const pSku = oi.products?.sku || order.sku || 'Sin SKU';
+          const pName = oi.products?.name || order.item || 'Sin Nombre';
+          const pQty = oi.quantity || 0;
+          const pWhId = oi.warehouse_id || 'null';
+          const pWhName = (typeof getWarehouseNameFromId === 'function' && oi.warehouse_id) ? getWarehouseNameFromId(oi.warehouse_id) : (oi.warehouses?.name || 'Bodega Central');
+          const groupKey = pSku + '::' + pWhId;
           
-          // Bodega por defecto: la configurada para este comercio o Bodega Central
-          const defaultWhId = (order.comercio && window.loadedCommerceConfigsMap?.[order.comercio]?.default_warehouse_id)
-            || 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09';
-          const defaultWhObj = (window.allWarehousesList || []).find(w => w.id === defaultWhId);
-          const defaultWhName = defaultWhObj ? defaultWhObj.name : 'Bodega Central';
-          
-          // Stock global sumando todas las bodegas
-          let globalStock = 0;
-          if (prodId) {
-            Object.keys(invMap).forEach(k => {
-              if (k.startsWith(prodId + '_')) {
-                globalStock += (Number(invMap[k]) || 0);
-              }
-            });
-          }
-          
-          // Stock de la bodega por defecto
-          const defaultStock = (prodId && defaultWhId) ? (Number(invMap[prodId + '_' + defaultWhId]) || 0) : 0;
-          
-          if (isAlreadyDescontado) {
-            stockCellHtml = `
-              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15rem; min-width: 44px; line-height: 1.2;" title="Stock ya descontado del pedido. Stock actual en sistema: Global: ${globalStock} un. | ${defaultWhName}: ${defaultStock} un.">
-                <span style="color: #10b981; font-weight: 700; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Descontado</span>
-                <span style="display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; color: var(--color-text-muted);">
-                  <span style="display: inline-flex; align-items: center; gap: 0.1rem;" title="Stock global: ${globalStock} un."><i class="ri-global-line"></i> ${globalStock}</span>
-                  <span style="display: inline-flex; align-items: center; gap: 0.1rem;" title="Stock en ${defaultWhName}: ${defaultStock} un."><i class="ri-store-2-line"></i> ${defaultStock}</span>
-                </span>
-              </div>
-            `;
+          if (!grouped[groupKey]) {
+            grouped[groupKey] = {
+              sku: pSku,
+              name: pName,
+              quantity: 0,
+              price: Number(oi.products?.price) || 0,
+              warehouseId: oi.warehouse_id,
+              warehouseName: pWhName,
+              tag: oi.tag,
+              is_gift: oi.is_gift,
+              campaign_id: oi.campaign_id,
+              is_picking_request: oi.is_picking_request
+            };
           } else {
-            const isGlobalInsufficient = globalStock < item.quantity;
-            const isDefaultInsufficient = defaultStock < item.quantity;
-            
-            if (isGlobalInsufficient) {
-              rowStyle += ' background-color: rgba(239, 68, 68, 0.05);';
-            } else if (isDefaultInsufficient) {
-              rowStyle += ' background-color: rgba(245, 158, 11, 0.05);';
-            }
-            
-            const globalColor = isGlobalInsufficient ? '#ef4444' : '#10b981';
-            const defaultColor = isDefaultInsufficient ? '#ef4444' : '#10b981';
-            
-            const assignedInfo = (item.warehouseId && item.warehouseId !== defaultWhId) 
-              ? ` (Asignada: ${item.warehouseName} con ${Number(invMap[origItem.product_id + '_' + item.warehouseId]) || 0} un.)` 
-              : '';
-
-            const itemMetrics = prodId ? (window.loadedProductInventoryMetricsMap?.[prodId] || invMap[`__metrics_${prodId}`]) : null;
-            const isItemOverdemand = !!(itemMetrics && (Number(itemMetrics.physical) || 0) < ((Number(itemMetrics.committed) || 0) + (Number(itemMetrics.reserved) || 0)));
-            if (isItemOverdemand && !isGlobalInsufficient) {
-              rowStyle += ' background-color: rgba(244, 63, 94, 0.06);';
-            }
-            const overdemandItemHtml = isItemOverdemand
-              ? `<span style="display: inline-flex; align-items: center; gap: 0.15rem; font-size: 0.65rem; font-weight: 800; color: #be123c; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 4px; padding: 0.08rem 0.3rem; margin-top: 0.1rem; cursor: help;" title="SOBREDEMANDA STOCK: Físico Total (${itemMetrics.physical} un.) es menor a Comprometido (${itemMetrics.committed} un.) + En Mesa (${itemMetrics.reserved} un.) = ${Number(itemMetrics.committed) + Number(itemMetrics.reserved)} un."><i class="ri-scales-3-line"></i> Fís:${itemMetrics.physical} &lt; C+M:${Number(itemMetrics.committed) + Number(itemMetrics.reserved)}</span>`
-              : '';
-
-            stockCellHtml = `
-              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.18rem; min-width: 44px; line-height: 1.2;">
-                <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; font-size: 0.82rem; color: ${globalColor}; cursor: help;" title="Stock disponible global (todas las bodegas): ${globalStock} un. (Requerido: ${item.quantity})">
-                  <i class="ri-global-line" style="font-size: 0.88rem;"></i>
-                  <span>${globalStock}</span>
-                </span>
-                <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; font-size: 0.78rem; color: ${defaultColor}; cursor: help;" title="Stock disponible en ${defaultWhName} (bodega por defecto): ${defaultStock} un.${assignedInfo}">
-                  <i class="ri-store-2-line" style="font-size: 0.82rem;"></i>
-                  <span>${defaultStock}</span>
-                </span>
-                ${overdemandItemHtml}
-              </div>
-            `;
+            if (oi.tag) grouped[groupKey].tag = oi.tag;
+            if (oi.is_gift) grouped[groupKey].is_gift = oi.is_gift;
+            if (oi.campaign_id) grouped[groupKey].campaign_id = oi.campaign_id;
+            if (oi.is_picking_request) grouped[groupKey].is_picking_request = oi.is_picking_request;
           }
-        } else {
-          stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem;">-</span>`;
-        }
+          grouped[groupKey].quantity += pQty;
+        });
 
+        Object.values(grouped).forEach(item => {
+          const pPrice = item.price || (item.quantity > 0 ? (Number(order.total_value) / item.quantity) : 0) || 0;
+          const subtotal = item.quantity * pPrice;
+
+          // Determinar stock de bodega
+          const origItem = order.order_items.find(oi => (oi.products?.sku || order.sku || 'Sin SKU') === item.sku && oi.warehouse_id === item.warehouseId);
+          const tagLabel = item.tag || origItem?.tag || ((item.is_gift || item.campaign_id || origItem?.is_gift || origItem?.campaign_id) ? 'Campaña' : null);
+          const isPickingReqItem = Boolean(item.is_picking_request || origItem?.is_picking_request);
+          const campaignBadgeHtml = (tagLabel
+            ? `<span class="badge" style="background-color: rgba(99, 102, 241, 0.12); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.25); font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem;" title="Artículo bonificado por campaña"><i class="ri-gift-line"></i> ${tagLabel}</span>`
+            : '') + (isPickingReqItem
+            ? `<span class="badge" style="background-color: rgba(14, 165, 233, 0.12); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.28); font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem;" title="Se muestra en Picker como punto a chequear (Solicitud de Picking) y descuenta stock normalmente en WMS"><i class="ri-list-check-2"></i> Solicitud Picking</span>`
+            : '');
+          let stockCellHtml = '';
+          let rowStyle = 'border-bottom: 1px solid var(--color-border);';
+
+          const isAlreadyDescontado = isOrderTerminalOrShipped || !!order.stock_descontado;
+          if (origItem && window.isOrderItemEliminated && window.isOrderItemEliminated(order, origItem)) {
+            stockCellHtml = `<span style="color: #6b7280; font-size: 0.75rem; font-style: italic;" title="Producto eliminado del pedido"><i class="ri-close-circle-line"></i> Eliminado</span>`;
+          } else if (origItem?.products?.is_virtual) {
+            stockCellHtml = `<span style="color: #6b7280; font-size: 0.75rem; font-style: italic;" title="Producto Virtual"><i class="ri-seedling-line"></i> Virtual</span>`;
+          } else if (origItem && !origItem.products?.is_virtual) {
+            const invMap = window.loadedOrdersInventoryMap || {};
+            const totalMap = window.loadedProductTotalInventoryMap || {};
+            const prodId = origItem.product_id;
+            
+            // Bodega por defecto: la configurada para este comercio o Bodega Central
+            const defaultWhId = (order.comercio && window.loadedCommerceConfigsMap?.[order.comercio]?.default_warehouse_id)
+              || 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09';
+            const defaultWhObj = (window.allWarehousesList || []).find(w => w.id === defaultWhId);
+            const defaultWhName = defaultWhObj ? defaultWhObj.name : 'Bodega Central';
+            
+            // Stock global sumando todas las bodegas (O(1) desde loadedProductTotalInventoryMap)
+            let globalStock = 0;
+            if (prodId) {
+              if (totalMap[prodId] !== undefined) {
+                globalStock = Number(totalMap[prodId]) || 0;
+              } else {
+                Object.keys(invMap).forEach(k => {
+                  if (k.startsWith(prodId + '_')) {
+                    globalStock += (Number(invMap[k]) || 0);
+                  }
+                });
+              }
+            }
+            
+            // Stock de la bodega por defecto
+            const defaultStock = (prodId && defaultWhId) ? (Number(invMap[prodId + '_' + defaultWhId]) || 0) : 0;
+            
+            if (isAlreadyDescontado) {
+              stockCellHtml = `
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15rem; min-width: 44px; line-height: 1.2;" title="Stock ya descontado del pedido. Stock actual en sistema: Global: ${globalStock} un. | ${defaultWhName}: ${defaultStock} un.">
+                  <span style="color: #10b981; font-weight: 700; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Descontado</span>
+                  <span style="display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; color: var(--color-text-muted);">
+                    <span style="display: inline-flex; align-items: center; gap: 0.1rem;" title="Stock global: ${globalStock} un."><i class="ri-global-line"></i> ${globalStock}</span>
+                    <span style="display: inline-flex; align-items: center; gap: 0.1rem;" title="Stock en ${defaultWhName}: ${defaultStock} un."><i class="ri-store-2-line"></i> ${defaultStock}</span>
+                  </span>
+                </div>
+              `;
+            } else {
+              const isGlobalInsufficient = globalStock < item.quantity;
+              const isDefaultInsufficient = defaultStock < item.quantity;
+              
+              if (isGlobalInsufficient) {
+                rowStyle += ' background-color: rgba(239, 68, 68, 0.05);';
+              } else if (isDefaultInsufficient) {
+                rowStyle += ' background-color: rgba(245, 158, 11, 0.05);';
+              }
+              
+              const globalColor = isGlobalInsufficient ? '#ef4444' : '#10b981';
+              const defaultColor = isDefaultInsufficient ? '#ef4444' : '#10b981';
+              
+              const assignedInfo = (item.warehouseId && item.warehouseId !== defaultWhId) 
+                ? ` (Asignada: ${item.warehouseName} con ${Number(invMap[origItem.product_id + '_' + item.warehouseId]) || 0} un.)` 
+                : '';
+
+              const itemMetrics = prodId ? (window.loadedProductInventoryMetricsMap?.[prodId] || invMap[`__metrics_${prodId}`]) : null;
+              const isItemOverdemand = !!(itemMetrics && (Number(itemMetrics.physical) || 0) < ((Number(itemMetrics.committed) || 0) + (Number(itemMetrics.reserved) || 0)));
+              if (isItemOverdemand && !isGlobalInsufficient) {
+                rowStyle += ' background-color: rgba(244, 63, 94, 0.06);';
+              }
+              const overdemandItemHtml = isItemOverdemand
+                ? `<span style="display: inline-flex; align-items: center; gap: 0.15rem; font-size: 0.65rem; font-weight: 800; color: #be123c; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 4px; padding: 0.08rem 0.3rem; margin-top: 0.1rem; cursor: help;" title="SOBREDEMANDA STOCK: Físico Total (${itemMetrics.physical} un.) es menor a Comprometido (${itemMetrics.committed} un.) + En Mesa (${itemMetrics.reserved} un.) = ${Number(itemMetrics.committed) + Number(itemMetrics.reserved)} un."><i class="ri-scales-3-line"></i> Fís:${itemMetrics.physical} &lt; C+M:${Number(itemMetrics.committed) + Number(itemMetrics.reserved)}</span>`
+                : '';
+
+              stockCellHtml = `
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.18rem; min-width: 44px; line-height: 1.2;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; font-size: 0.82rem; color: ${globalColor}; cursor: help;" title="Stock disponible global (todas las bodegas): ${globalStock} un. (Requerido: ${item.quantity})">
+                    <i class="ri-global-line" style="font-size: 0.88rem;"></i>
+                    <span>${globalStock}</span>
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; font-size: 0.78rem; color: ${defaultColor}; cursor: help;" title="Stock disponible en ${defaultWhName} (bodega por defecto): ${defaultStock} un.${assignedInfo}">
+                    <i class="ri-store-2-line" style="font-size: 0.82rem;"></i>
+                    <span>${defaultStock}</span>
+                  </span>
+                  ${overdemandItemHtml}
+                </div>
+              `;
+            }
+          } else {
+            stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem;">-</span>`;
+          }
+
+          itemsRowsHtml += `
+            <tr style="${rowStyle}">
+              <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">
+                ${item.sku}
+                ${campaignBadgeHtml}
+              </td>
+              <td title="${(item.name || '').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">
+                <span style="font-weight: 500;">${item.name}</span><br>
+                <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.2rem; flex-wrap: wrap;">
+                  <small style="color: var(--color-text-muted); font-size: 0.725rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-store-2-line"></i> ${item.warehouseName}</small>
+                  ${(window.renderOrderItemDimensionsInlineBadgeHtml && origItem) ? window.renderOrderItemDimensionsInlineBadgeHtml(origItem.products) : ''}
+                  ${window.getItemProcessingStatusBadge(order, item.sku, item.name)}
+                </div>
+              </td>
+              <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${item.quantity}</td>
+              <td style="padding: 0.5rem; text-align: center;">${stockCellHtml}</td>
+              <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
+              <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(subtotal)}</td>
+            </tr>
+          `;
+        });
+      } else {
+        const pQty = Number(order.cantidad) || 1;
+        const pPrice = pQty > 0 ? (Number(order.total_value) / pQty) : 0;
         itemsRowsHtml += `
-          <tr style="${rowStyle}">
-            <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">
-              ${item.sku}
-              ${campaignBadgeHtml}
-            </td>
-            <td title="${(item.name || '').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">
-              <span style="font-weight: 500;">${item.name}</span><br>
+          <tr style="border-bottom: 1px solid var(--color-border);">
+            <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${order.sku || 'Sin SKU'}</td>
+            <td title="${(order.item || 'Sin Nombre').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">
+              <span style="font-weight: 500;">${order.item || 'Sin Nombre'}</span><br>
               <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.2rem; flex-wrap: wrap;">
-                <small style="color: var(--color-text-muted); font-size: 0.725rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-store-2-line"></i> ${item.warehouseName}</small>
-                ${(window.renderOrderItemDimensionsInlineBadgeHtml && origItem) ? window.renderOrderItemDimensionsInlineBadgeHtml(origItem.products) : ''}
-                ${window.getItemProcessingStatusBadge(order, item.sku, item.name)}
+                <small style="color: var(--color-text-muted); font-size: 0.725rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-store-2-line"></i> Bodega Central</small>
+                ${window.getItemProcessingStatusBadge(order, order.sku, order.item)}
               </div>
             </td>
-            <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${item.quantity}</td>
-            <td style="padding: 0.5rem; text-align: center;">${stockCellHtml}</td>
+            <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
+            <td style="padding: 0.5rem; text-align: center; color: var(--color-text-muted);">-</td>
             <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
-            <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(subtotal)}</td>
+            <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(order.total_value)}</td>
           </tr>
         `;
-      });
-    } else {
-      const pQty = Number(order.cantidad) || 1;
-      const pPrice = pQty > 0 ? (Number(order.total_value) / pQty) : 0;
-      itemsRowsHtml += `
-        <tr style="border-bottom: 1px solid var(--color-border);">
-          <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${order.sku || 'Sin SKU'}</td>
-          <td title="${(order.item || 'Sin Nombre').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">
-            <span style="font-weight: 500;">${order.item || 'Sin Nombre'}</span><br>
-            <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.2rem; flex-wrap: wrap;">
-              <small style="color: var(--color-text-muted); font-size: 0.725rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-store-2-line"></i> Bodega Central</small>
-              ${window.getItemProcessingStatusBadge(order, order.sku, order.item)}
+      }
+
+      let hasRawData = Boolean(
+        order.raw_woocommerce_data ||
+        order.raw_jumpseller_data ||
+        order.raw_falabella_data ||
+        order.raw_meli_data ||
+        order.raw_optiroute_data ||
+        order.raw_lightdata_data ||
+        order.raw_paris_data ||
+        order.raw_ripley_data
+      );
+
+      let rawJsonBtnHtml = '';
+      let rawJsonHeaderBtnHtml = '';
+      if (hasRawData) {
+        rawJsonHeaderBtnHtml = `
+          <button onclick="window.toggleRawOrderJson('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.7rem; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 600; border-radius: 4px; cursor: pointer;" title="Ver JSON de Integración">
+            <i class="ri-code-s-slash-line"></i> JSON
+          </button>
+        `;
+        rawJsonBtnHtml = `
+          <div id="raw-json-${order.id}" style="display: none; margin-top: 0.25rem; text-align: left; background: var(--color-bg); padding: 0.65rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.72rem; white-space: pre-wrap; word-break: break-all;"><i class="ri-loader-4-line spin"></i></div>
+        `;
+      }
+
+      let originalPlatformStatusHtml = '';
+      const origStatus = window.getOriginalPlatformStatus(order);
+      if (origStatus) {
+        const canControlShopify = origStatus.platform === 'Shopify' && isRealShopifyRow;
+        originalPlatformStatusHtml = `
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; flex-wrap: wrap;">
+            <span style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-Equalizer-line" style="font-size: 0.85rem;"></i> Estado Plataforma:</span>
+            <div style="display: flex; gap: 0.25rem; flex-wrap: wrap; justify-content: flex-end; align-items: center;">
+              ${origStatus.details.map(d => `
+                <span class="badge" style="background-color: ${d.color}15; color: ${d.color}; border: 1px solid ${d.color}33; font-size: 0.68rem; font-weight: 700; padding: 0.08rem 0.38rem; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.2px;">
+                  ${d.label}: ${d.value}
+                </span>
+              `).join('')}
+              ${canControlShopify ? `
+                <button type="button" onclick="event.stopPropagation(); window.openShopifyStatusControlModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.1rem 0.45rem; font-size: 0.68rem; font-weight: 700; border-color: #059669; color: #059669; background: rgba(16, 185, 129, 0.08); border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;" title="Cambiar estado en Shopify o verificar estado en vivo">
+                  <i class="ri-shopping-bag-3-line"></i> Cambiar Estado Shopify
+                </button>
+              ` : ''}
             </div>
-          </td>
-          <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
-          <td style="padding: 0.5rem; text-align: center; color: var(--color-text-muted);">-</td>
-          <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
-          <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(order.total_value)}</td>
-        </tr>
-      `;
-    }
+          </div>
+        `;
+      }
 
-    // (Packs detection was moved to the top of the loop to support order row badges)
+      let customPlatformTagsHtml = '';
+      const rawStoreTags = new Set();
+      if (order.raw_shopify_data?.tags) {
+        String(order.raw_shopify_data.tags).split(',').map(t => t.trim()).filter(Boolean).forEach(t => rawStoreTags.add(t));
+      }
+      if (order.tags) {
+        (Array.isArray(order.tags) ? order.tags : String(order.tags).split(',')).map(t => String(t).trim()).filter(Boolean).forEach(t => rawStoreTags.add(t));
+      }
+      if (rawStoreTags.size > 0) {
+        customPlatformTagsHtml = Array.from(rawStoreTags).map(t => {
+          const isCustomActive = selectedTag === t;
+          const escapedTag = t.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+          return `<span class="badge wms-order-tag-badge ${isCustomActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${escapedTag}', event)" style="background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-size: 0.65rem; font-weight: 600; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; cursor: pointer; ${isCustomActive ? 'outline: 2px solid #475569; box-shadow: 0 0 6px rgba(71,85,105,0.4);' : ''}" title="Etiqueta de tienda: ${escapedTag} (Clic para filtrar)"><i class="ri-price-tag-3-line"></i> ${escapedTag}</span>`;
+        }).join('');
+      }
 
-    let rawData = null;
-    if (order.raw_woocommerce_data) rawData = order.raw_woocommerce_data;
-    else if (order.raw_jumpseller_data) rawData = order.raw_jumpseller_data;
-    else if (order.raw_falabella_data) rawData = order.raw_falabella_data;
-    else if (order.raw_meli_data) rawData = order.raw_meli_data;
-    else if (order.raw_optiroute_data) rawData = order.raw_optiroute_data;
-    else if (order.raw_lightdata_data) rawData = order.raw_lightdata_data;
-    else if (order.raw_paris_data) rawData = order.raw_paris_data;
-    else if (order.raw_ripley_data) rawData = order.raw_ripley_data;
-
-    let rawJsonBtnHtml = '';
-    let rawJsonHeaderBtnHtml = '';
-    if (rawData) {
-      rawJsonHeaderBtnHtml = `
-        <button onclick="window.toggleRawOrderJson('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.7rem; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 600; border-radius: 4px; cursor: pointer;" title="Ver JSON de Integración">
-          <i class="ri-code-s-slash-line"></i> JSON
-        </button>
-      `;
-      rawJsonBtnHtml = `
-        <div id="raw-json-${order.id}" style="display: none; margin-top: 0.25rem; text-align: left; background: var(--color-bg); padding: 0.65rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.72rem; white-space: pre-wrap; word-break: break-all;">
-          ${JSON.stringify(rawData, null, 2)}
-        </div>
-      `;
-    }
+      return { itemsRowsHtml, rawJsonBtnHtml, rawJsonHeaderBtnHtml, origStatus, originalPlatformStatusHtml, rawStoreTags, customPlatformTagsHtml };
+    };
 
     // Color del dropdown de WMS según el estado
     let wmsColor = '#0ea5e9'; // info
@@ -15108,30 +15598,6 @@ window.applyWmsFiltersAndRender = function() {
       ? `<span onclick="window.changeOrderBillingPeriod('${order.id}', '${order.periodo_facturacion}')" style="background-color: ${pColor.bg}; color: ${pColor.text}; padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); font-size: 0.72rem; font-weight: 700; cursor: pointer; border: 1px solid ${pColor.text}33; display: inline-block; white-space: nowrap; transition: all 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1" title="Editar periodo de facturación">${order.periodo_facturacion}</span>`
       : `<button onclick="window.changeOrderBillingPeriod('${order.id}', '')" style="background: transparent; border: 1px dashed var(--color-border); color: var(--color-text-muted); padding: 0.12rem 0.3rem; border-radius: var(--radius-sm); font-size: 0.68rem; font-weight: 500; cursor: pointer; white-space: nowrap; transition: all 0.2s; outline: none;" onmouseover="this.style.borderColor='var(--color-primary)'; this.style.color='var(--color-primary)';" onmouseout="this.style.borderColor='var(--color-border)'; this.style.color='var(--color-text-muted)';">+ Asignar</button>`;
 
-    // Obtener estado original de la plataforma
-    let originalPlatformStatusHtml = '';
-    const origStatus = window.getOriginalPlatformStatus(order);
-    if (origStatus) {
-      const canControlShopify = origStatus.platform === 'Shopify' && isRealShopifyRow;
-      originalPlatformStatusHtml = `
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; flex-wrap: wrap;">
-          <span style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-Equalizer-line" style="font-size: 0.85rem;"></i> Estado Plataforma:</span>
-          <div style="display: flex; gap: 0.25rem; flex-wrap: wrap; justify-content: flex-end; align-items: center;">
-            ${origStatus.details.map(d => `
-              <span class="badge" style="background-color: ${d.color}15; color: ${d.color}; border: 1px solid ${d.color}33; font-size: 0.68rem; font-weight: 700; padding: 0.08rem 0.38rem; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.2px;">
-                ${d.label}: ${d.value}
-              </span>
-            `).join('')}
-            ${canControlShopify ? `
-              <button type="button" onclick="event.stopPropagation(); window.openShopifyStatusControlModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.1rem 0.45rem; font-size: 0.68rem; font-weight: 700; border-color: #059669; color: #059669; background: rgba(16, 185, 129, 0.08); border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;" title="Cambiar estado en Shopify o verificar estado en vivo">
-                <i class="ri-shopping-bag-3-line"></i> Cambiar Estado Shopify
-              </button>
-            ` : ''}
-          </div>
-        </div>
-      `;
-    }
-
     const orderNote = window.getOrderNoteText ? window.getOrderNoteText(order) : '';
     let noteBadgeHtml = '';
     if (orderNote) {
@@ -15144,22 +15610,6 @@ window.applyWmsFiltersAndRender = function() {
     if (adminNote) {
       const isAdminNoteActive = selectedTag === 'CON NOTA INTERNA';
       adminNoteBadgeHtml = `<span id="admin-note-badge-${order.id}" class="badge wms-order-tag-badge ${isAdminNoteActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('CON NOTA INTERNA', event)" style="background-color: rgba(99, 102, 241, 0.12); color: #4338ca; border: 1px solid rgba(99, 102, 241, 0.35); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isAdminNoteActive ? 'outline: 2px solid #4338ca; box-shadow: 0 0 6px rgba(67,56,202,0.4);' : ''}" title="Nota Interna Admin: ${(adminNote || '').replace(/"/g, '&quot;')} (Clic para filtrar)"><i class="ri-lock-2-line" style="color: #4f46e5;"></i> NOTA INTERNA <i class="ri-pencil-line" onclick="event.stopPropagation(); window.openOrderAdminNoteModal('${order.id}')" title="Editar nota interna" style="margin-left: 0.15rem; font-size: 0.7rem; opacity: 0.85;"></i></span>`;
-    }
-
-    let customPlatformTagsHtml = '';
-    const rawStoreTags = new Set();
-    if (order.raw_shopify_data?.tags) {
-      String(order.raw_shopify_data.tags).split(',').map(t => t.trim()).filter(Boolean).forEach(t => rawStoreTags.add(t));
-    }
-    if (order.tags) {
-      (Array.isArray(order.tags) ? order.tags : String(order.tags).split(',')).map(t => String(t).trim()).filter(Boolean).forEach(t => rawStoreTags.add(t));
-    }
-    if (rawStoreTags.size > 0) {
-      customPlatformTagsHtml = Array.from(rawStoreTags).map(t => {
-        const isCustomActive = selectedTag === t;
-        const escapedTag = t.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-        return `<span class="badge wms-order-tag-badge ${isCustomActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${escapedTag}', event)" style="background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-size: 0.65rem; font-weight: 600; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; cursor: pointer; ${isCustomActive ? 'outline: 2px solid #475569; box-shadow: 0 0 6px rgba(71,85,105,0.4);' : ''}" title="Etiqueta de tienda: ${escapedTag} (Clic para filtrar)"><i class="ri-price-tag-3-line"></i> ${escapedTag}</span>`;
-      }).join('');
     }
 
     const pickerBadgeHtml = window.renderPickerStatusBadge ? window.renderPickerStatusBadge(order) : '';
@@ -15388,97 +15838,9 @@ window.applyWmsFiltersAndRender = function() {
       `;
     }
 
-    rowsHtml += `
-      <tr id="row-${order.id}" class="order-row ${isOverdueItem ? 'wms-overdue-order-row' : ''} ${isInitiallyExpanded ? 'expanded' : ''}" data-order-id="${order.id}" style="transition: background-color 0.2s;">
-        <td style="text-align: center;" onclick="event.stopPropagation()">
-          <input type="checkbox" class="wms-order-cb ${isOverdueItem ? 'wms-overdue-cb' : ''}" data-order-id="${order.id}" ${window.wmsSelectedOrderIds.has(order.id) ? 'checked' : ''} onclick="window.toggleWmsOrderSelect(this, '${order.id}', event)" style="width: 15px; height: 15px; accent-color: var(--color-primary); cursor: pointer;">
-        </td>
-        <td style="cursor: pointer; text-align: center; font-size: 1.1rem; color: var(--color-primary);" onclick="window.toggleOrderRow('${order.id}')">
-          <i id="chevron-${order.id}" class="ri-arrow-right-s-line expand-icon" style="transition: transform 0.2s; display: inline-block; transform: ${isInitiallyExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};"></i>
-        </td>
-        <td>${orderDisplayId}</td>
-        <td style="max-width: 120px;">
-          <div style="display: flex; flex-direction: column; gap: 0.15rem; align-items: flex-start; overflow: hidden;">
-            <span style="max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.2rem;"></i><strong>${order.comercio || 'Desconocido'}</strong></span>
-            <span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Sucursal de Destino / Pickeo">
-              <i class="ri-map-pin-line" style="color: var(--color-primary); font-size: 0.8rem;"></i> ${order.sucursal_pickeo || 'Sin Sucursal'}
-            </span>
-            ${isStockOverridden ? `
-              <span class="badge" onclick="event.stopPropagation(); window.openChangeStockWarehouseModal(['${order.id}'])" style="font-size: 0.68rem; color: #059669; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; background-color: rgba(5, 150, 105, 0.12); border: 1px solid rgba(5, 150, 105, 0.35); padding: 0.1rem 0.35rem; border-radius: 4px; transition: all 0.15s;" title="Stock descontado de: ${itemWhName}. Clic para cambiar bodega de stock y cuadrar inventarios/kardex">
-                <i class="ri-archive-line" style="font-size: 0.75rem;"></i> Stock: ${itemWhName} <i class="ri-pencil-line" style="font-size: 0.65rem; margin-left: 2px;"></i>
-              </span>
-            ` : ''}
-          </div>
-        </td>
-        <td style="text-align: center;">${originHtml}</td>
-        <td>
-          <div style="display:flex; flex-direction:column; gap:0.15rem; font-size:0.75rem; white-space:nowrap; font-weight:500;">
-            <span style="display: flex; align-items: center; gap: 0.2rem;"><i class="ri-calendar-todo-line" style="color: var(--color-primary); font-size: 0.85rem;"></i> ${datePart}</span>
-            <span style="display: flex; align-items: center; gap: 0.2rem; color: var(--color-text-muted);"><i class="ri-alarm-line" style="color: var(--color-danger); font-size: 0.85rem;"></i> ${timePart}</span>
-            ${overdueAgeBadgeHtml}
-          </div>
-        </td>
-        <td>${fechaProcHtml}</td>
-        <td>${agendaSelectHtml}</td>
-        <td>${operadorSelectHtml}</td>
-        <td style="min-width: 140px; max-width: 195px;">
-          <div style="display:flex; flex-direction:column; gap:0.12rem; font-size:0.75rem; white-space:nowrap; overflow: hidden;">
-            <span style="font-weight:600; color:var(--color-text-main); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${order.shipping_method || ''}">${displayShipMethod}</span>
-            ${(deliveryTypeCellBadgeHtml || slaCellBadgesHtml) ? `
-              <div style="display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; margin-top: 0.05rem; margin-bottom: 0.05rem;">
-                ${deliveryTypeCellBadgeHtml}
-                ${slaCellBadgesHtml}
-              </div>
-            ` : ''}
-            <div style="display: inline-flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.05rem;">
-              <span style="font-size:0.7rem; color:var(--color-text-muted); font-weight:500; max-width:115px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-flex; align-items:center; gap:0.2rem;" title="${order.shipping_city || ''}">
-                ${order.shipping_city || 'Por definir'}
-                ${!window.isChileComuna(order.shipping_city) ? `
-                  <i class="ri-alert-fill" style="color: #ef4444; font-size: 0.85rem; cursor: help;" title="Comuna no coincide con ninguna comuna de Chile ('${(order.shipping_city || '').replace(/"/g, '&quot;')}'). Requiere corrección."></i>
-                ` : ((String(order.agenda || '').toUpperCase() === 'RM' && !window.isAlphaComunaExact(order.shipping_city)) ? `
-                  <i class="ri-error-warning-line" style="color: #f59e0b; font-size: 0.85rem; cursor: help;" title="No coincide exactamente con las 36 comunas de cobertura Alpha RM."></i>
-                ` : '')}
-              </span>
-              ${coverageCellBadgeHtml}
-            </div>
-            ${optirouteAssignedTagHtml}
-          </div>
-        </td>
-        <td style="text-align: center;">${qtyCellHtml}</td>
-        <td style="padding: 0.35rem 0.35rem; vertical-align: middle;">
-          <div style="display: flex; flex-direction: column; gap: 0.25rem; min-width: 145px; max-width: 195px;">
-            <div style="display: flex; align-items: center; gap: 0.25rem;">
-              <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; width: 44px; flex-shrink: 0; line-height: 1;">WMS:</span>
-              <select class="form-input wms-status-select" data-order-id="${order.id}" style="padding: 0.15rem 0.3rem; font-size: 0.74rem; width: 100%; min-width: 95px; font-weight: 700; border: 1.5px solid ${wmsColor}; color: ${wmsColor}; background: ${wmsColor}06; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; height: 24px; line-height: 1;">
-                <option value="En procesamiento" ${order.estado_wms === 'En procesamiento' ? 'selected' : ''}>En procesamiento</option>
-                <option value="En preparación" ${order.estado_wms === 'En preparación' ? 'selected' : ''}>En preparación</option>
-                <option value="Pickeado" ${order.estado_wms === 'Pickeado' ? 'selected' : ''}>Pickeado</option>
-                <option value="Despachado" ${order.estado_wms === 'Despachado' ? 'selected' : ''}>Despachado</option>
-                <option value="Incidencia" ${order.estado_wms === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
-                <option value="Cancelado" ${order.estado_wms === 'Cancelado' ? 'selected' : ''}>Cancelado</option>
-                <option value="Archivado" ${order.estado_wms === 'Archivado' ? 'selected' : ''}>Archivado</option>
-              </select>
-            </div>
-            <div style="display: flex; align-items: center; gap: 0.25rem;">
-              <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; width: 44px; flex-shrink: 0; line-height: 1;">Origen:</span>
-              <span style="background-color: ${badgeBg}; color: ${badgeTextColor}; padding: 0.1rem 0.45rem; border-radius: 99px; font-size: 0.68rem; font-weight: 700; white-space: nowrap; display: inline-block; line-height: 1.25;">${isReturned ? 'devolución' : order.status}</span>
-            </div>
-            ${courierTrackingRowHtml}
-            ${courierStatusRowHtml}
-            ${trackingCountCardHtml}
-          </div>
-        </td>
-        <td style="text-align: center; vertical-align: middle;">${periodHtml}</td>
-      </tr>
-      <tr id="badges-row-${order.id}" class="order-badges-row ${isOverdueItem ? 'wms-overdue-badges-row' : ''}" style="transition: background-color 0.2s;">
-        <td colspan="13" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
-          <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${overdueRowBadgeHtml}${categoryBadgeHtml}${(window.getConsolidationBadgeHtml ? window.getConsolidationBadgeHtml(order) : '')}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${(window.renderOrderCartpaperBoxBadgeHtml ? window.renderOrderCartpaperBoxBadgeHtml(order) : '')}${qtyMismatchBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${noteBadgeHtml}${adminNoteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
-          </div>
-        </td>
-      </tr>
-      <tr id="details-${order.id}" class="order-details-row" style="display: ${isInitiallyExpanded ? 'table-row' : 'none'}; background-color: var(--color-bg);">
-        <td colspan="13" style="padding: 1.25rem 1rem; border-top: none; border-bottom: 2px solid var(--color-border);">
+    const buildOrderDetailsInnerHtml = () => {
+      const { itemsRowsHtml, rawJsonBtnHtml, rawJsonHeaderBtnHtml, origStatus, originalPlatformStatusHtml, rawStoreTags, customPlatformTagsHtml } = buildOrderDetailExtraVars();
+      return `
           <div class="order-detail-container" style="display: flex; flex-direction: column; gap: 1.25rem;">
             ${(window.renderOrderDetailConsolidationCardHtml ? window.renderOrderDetailConsolidationCardHtml(order) : '')}
             <!-- Fila superior: 3 Columnas de Información -->
@@ -15844,6 +16206,102 @@ window.applyWmsFiltersAndRender = function() {
             </div>
 
           </div>
+      `;
+    };
+    window._wmsOrderDetailRenderers.set(String(order.id), buildOrderDetailsInnerHtml);
+
+    rowsHtml += `
+      <tr id="row-${order.id}" class="order-row ${isOverdueItem ? 'wms-overdue-order-row' : ''} ${isInitiallyExpanded ? 'expanded' : ''}" data-order-id="${order.id}" style="transition: background-color 0.2s;">
+        <td style="text-align: center;" onclick="event.stopPropagation()">
+          <input type="checkbox" class="wms-order-cb ${isOverdueItem ? 'wms-overdue-cb' : ''}" data-order-id="${order.id}" ${window.wmsSelectedOrderIds.has(order.id) ? 'checked' : ''} onclick="window.toggleWmsOrderSelect(this, '${order.id}', event)" style="width: 15px; height: 15px; accent-color: var(--color-primary); cursor: pointer;">
+        </td>
+        <td style="cursor: pointer; text-align: center; font-size: 1.1rem; color: var(--color-primary);" onclick="window.toggleOrderRow('${order.id}')">
+          <i id="chevron-${order.id}" class="ri-arrow-right-s-line expand-icon" style="transition: transform 0.2s; display: inline-block; transform: ${isInitiallyExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};"></i>
+        </td>
+        <td>${orderDisplayId}</td>
+        <td style="max-width: 120px;">
+          <div style="display: flex; flex-direction: column; gap: 0.15rem; align-items: flex-start; overflow: hidden;">
+            <span style="max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.2rem;"></i><strong>${order.comercio || 'Desconocido'}</strong></span>
+            <span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Sucursal de Destino / Pickeo">
+              <i class="ri-map-pin-line" style="color: var(--color-primary); font-size: 0.8rem;"></i> ${order.sucursal_pickeo || 'Sin Sucursal'}
+            </span>
+            ${isStockOverridden ? `
+              <span class="badge" onclick="event.stopPropagation(); window.openChangeStockWarehouseModal(['${order.id}'])" style="font-size: 0.68rem; color: #059669; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; background-color: rgba(5, 150, 105, 0.12); border: 1px solid rgba(5, 150, 105, 0.35); padding: 0.1rem 0.35rem; border-radius: 4px; transition: all 0.15s;" title="Stock descontado de: ${itemWhName}. Clic para cambiar bodega de stock y cuadrar inventarios/kardex">
+                <i class="ri-archive-line" style="font-size: 0.75rem;"></i> Stock: ${itemWhName} <i class="ri-pencil-line" style="font-size: 0.65rem; margin-left: 2px;"></i>
+              </span>
+            ` : ''}
+          </div>
+        </td>
+        <td style="text-align: center;">${originHtml}</td>
+        <td>
+          <div style="display:flex; flex-direction:column; gap:0.15rem; font-size:0.75rem; white-space:nowrap; font-weight:500;">
+            <span style="display: flex; align-items: center; gap: 0.2rem;"><i class="ri-calendar-todo-line" style="color: var(--color-primary); font-size: 0.85rem;"></i> ${datePart}</span>
+            <span style="display: flex; align-items: center; gap: 0.2rem; color: var(--color-text-muted);"><i class="ri-alarm-line" style="color: var(--color-danger); font-size: 0.85rem;"></i> ${timePart}</span>
+            ${overdueAgeBadgeHtml}
+          </div>
+        </td>
+        <td>${fechaProcHtml}</td>
+        <td>${agendaSelectHtml}</td>
+        <td>${operadorSelectHtml}</td>
+        <td style="min-width: 140px; max-width: 195px;">
+          <div style="display:flex; flex-direction:column; gap:0.12rem; font-size:0.75rem; white-space:nowrap; overflow: hidden;">
+            <span style="font-weight:600; color:var(--color-text-main); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${order.shipping_method || ''}">${displayShipMethod}</span>
+            ${(deliveryTypeCellBadgeHtml || slaCellBadgesHtml) ? `
+              <div style="display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; margin-top: 0.05rem; margin-bottom: 0.05rem;">
+                ${deliveryTypeCellBadgeHtml}
+                ${slaCellBadgesHtml}
+              </div>
+            ` : ''}
+            <div style="display: inline-flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.05rem;">
+              <span style="font-size:0.7rem; color:var(--color-text-muted); font-weight:500; max-width:115px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-flex; align-items:center; gap:0.2rem;" title="${order.shipping_city || ''}">
+                ${order.shipping_city || 'Por definir'}
+                ${!window.isChileComuna(order.shipping_city) ? `
+                  <i class="ri-alert-fill" style="color: #ef4444; font-size: 0.85rem; cursor: help;" title="Comuna no coincide con ninguna comuna de Chile ('${(order.shipping_city || '').replace(/"/g, '&quot;')}'). Requiere corrección."></i>
+                ` : ((String(order.agenda || '').toUpperCase() === 'RM' && !window.isAlphaComunaExact(order.shipping_city)) ? `
+                  <i class="ri-error-warning-line" style="color: #f59e0b; font-size: 0.85rem; cursor: help;" title="No coincide exactamente con las 36 comunas de cobertura Alpha RM."></i>
+                ` : '')}
+              </span>
+              ${coverageCellBadgeHtml}
+            </div>
+            ${optirouteAssignedTagHtml}
+          </div>
+        </td>
+        <td style="text-align: center;">${qtyCellHtml}</td>
+        <td style="padding: 0.35rem 0.35rem; vertical-align: middle;">
+          <div style="display: flex; flex-direction: column; gap: 0.25rem; min-width: 145px; max-width: 195px;">
+            <div style="display: flex; align-items: center; gap: 0.25rem;">
+              <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; width: 44px; flex-shrink: 0; line-height: 1;">WMS:</span>
+              <select class="form-input wms-status-select" data-order-id="${order.id}" style="padding: 0.15rem 0.3rem; font-size: 0.74rem; width: 100%; min-width: 95px; font-weight: 700; border: 1.5px solid ${wmsColor}; color: ${wmsColor}; background: ${wmsColor}06; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; height: 24px; line-height: 1;">
+                <option value="En procesamiento" ${order.estado_wms === 'En procesamiento' ? 'selected' : ''}>En procesamiento</option>
+                <option value="En preparación" ${order.estado_wms === 'En preparación' ? 'selected' : ''}>En preparación</option>
+                <option value="Pickeado" ${order.estado_wms === 'Pickeado' ? 'selected' : ''}>Pickeado</option>
+                <option value="Despachado" ${order.estado_wms === 'Despachado' ? 'selected' : ''}>Despachado</option>
+                <option value="Incidencia" ${order.estado_wms === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
+                <option value="Cancelado" ${order.estado_wms === 'Cancelado' ? 'selected' : ''}>Cancelado</option>
+                <option value="Archivado" ${order.estado_wms === 'Archivado' ? 'selected' : ''}>Archivado</option>
+              </select>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.25rem;">
+              <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; width: 44px; flex-shrink: 0; line-height: 1;">Origen:</span>
+              <span style="background-color: ${badgeBg}; color: ${badgeTextColor}; padding: 0.1rem 0.45rem; border-radius: 99px; font-size: 0.68rem; font-weight: 700; white-space: nowrap; display: inline-block; line-height: 1.25;">${isReturned ? 'devolución' : order.status}</span>
+            </div>
+            ${courierTrackingRowHtml}
+            ${courierStatusRowHtml}
+            ${trackingCountCardHtml}
+          </div>
+        </td>
+        <td style="text-align: center; vertical-align: middle;">${periodHtml}</td>
+      </tr>
+      <tr id="badges-row-${order.id}" class="order-badges-row ${isOverdueItem ? 'wms-overdue-badges-row' : ''}" style="transition: background-color 0.2s;">
+        <td colspan="13" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
+          <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
+            ${overdueRowBadgeHtml}${categoryBadgeHtml}${(window.getConsolidationBadgeHtml ? window.getConsolidationBadgeHtml(order) : '')}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${(window.renderOrderCartpaperBoxBadgeHtml ? window.renderOrderCartpaperBoxBadgeHtml(order) : '')}${qtyMismatchBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${noteBadgeHtml}${adminNoteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
+          </div>
+        </td>
+      </tr>
+      <tr id="details-${order.id}" class="order-details-row" data-rendered="${isInitiallyExpanded ? '1' : '0'}" style="display: ${isInitiallyExpanded ? 'table-row' : 'none'}; background-color: var(--color-bg);">
+        <td colspan="13" style="padding: 1.25rem 1rem; border-top: none; border-bottom: 2px solid var(--color-border);">
+          ${isInitiallyExpanded ? buildOrderDetailsInnerHtml() : ''}
         </td>
       </tr>
     `;
@@ -37249,9 +37707,12 @@ async function renderConsolidatedShipments() {
           : s.source_table === 'bluex_envios' ? '#0032A0' 
           : s.source_table === 'starken_envios' ? '#b91c1c' : '#8b5cf6';
 
+        const resolvedShipmentUrl = window.resolveCourierPublicTrackingUrl
+          ? window.resolveCourierPublicTrackingUrl(s.tracking_url, s.tracking, s.courier, s, null)
+          : ((s.tracking_url && s.tracking_url !== 'N/A') ? s.tracking_url : null);
         const trackingDisplay = s.tracking
-          ? (s.tracking_url && s.tracking_url !== 'N/A'
-              ? `<a href="${s.tracking_url}" target="_blank" onclick="event.stopPropagation();" style="font-weight:600; display:inline-flex; align-items:center; gap:0.25rem;"><i class="ri-links-line"></i> ${s.tracking}</a>`
+          ? (resolvedShipmentUrl
+              ? `<a href="${resolvedShipmentUrl}" target="_blank" onclick="event.stopPropagation();" style="font-weight:600; display:inline-flex; align-items:center; gap:0.25rem;" title="${s.source_table === 'optiroute_orders' || (s.courier && String(s.courier).toLowerCase().includes('stocka x')) ? 'Abrir Portal Público de Seguimiento WMS' : 'Ver seguimiento'}"><i class="ri-links-line"></i> ${s.tracking}</a>`
               : s.tracking)
           : '-';
 
@@ -37268,15 +37729,31 @@ async function renderConsolidatedShipments() {
             <td><span style="font-weight:600; color: var(--color-text-main);"><i class="ri-truck-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.courier || '-'}</span></td>
             <td>${trackingDisplay}</td>
             <td>
-              <span class="badge ${badgeClass}" style="padding: 0.35rem 0.75rem; border-radius: 99px; font-weight: 600;">
+              <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem;">
+                <span class="badge ${badgeClass}" style="padding: 0.35rem 0.75rem; border-radius: 99px; font-weight: 600;">
+                  ${(() => {
+                    let statusText = s.status || '';
+                    if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && s.raw_data && s.raw_data[23]) {
+                      statusText = s.raw_data[23];
+                    }
+                    return getDisplayStatusName(statusText);
+                  })()}
+                </span>
                 ${(() => {
-                  let statusText = s.status || '';
-                  if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && s.raw_data && s.raw_data[23]) {
-                    statusText = s.raw_data[23];
+                  const shipCommitInfo = window.getEnviameCommitmentInfo ? window.getEnviameCommitmentInfo(s) : null;
+                  if (shipCommitInfo && shipCommitInfo.hasDeadline) {
+                    return `<span style="display: inline-flex; align-items: center; gap: 0.22rem; background-color: ${shipCommitInfo.badgeBg}; color: ${shipCommitInfo.badgeColor}; border: 1px solid ${shipCommitInfo.badgeBorder}; padding: 0.14rem 0.5rem; border-radius: 99px; font-size: 0.68rem; font-weight: 700; white-space: nowrap;" title="${shipCommitInfo.tooltip}">
+                      <i class="${shipCommitInfo.icon}" style="font-size: 0.72rem;"></i> ${shipCommitInfo.shortLabel}
+                    </span>`;
                   }
-                  return getDisplayStatusName(statusText);
+                  if (shipCommitInfo && shipCommitInfo.isEnviame) {
+                    return `<span style="display: inline-flex; align-items: center; gap: 0.2rem; color: var(--color-text-muted); font-size: 0.66rem; font-weight: 500; white-space: nowrap;" title="${shipCommitInfo.tooltip}">
+                      <i class="ri-calendar-line" style="font-size: 0.7rem;"></i> Compromiso: Pendiente courier
+                    </span>`;
+                  }
+                  return '';
                 })()}
-              </span>
+              </div>
             </td>
             <td>
               <span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.35rem 0.75rem; border-radius: 99px; font-size: 0.75rem; font-weight: 700; border: 1px solid ${platformColor}30;">
@@ -37745,13 +38222,15 @@ async function renderConsolidatedShipments() {
           dataToExport = data || [];
         }
 
-        const headers = ['Referencia Pedido', 'Comercio', 'Origen Logistica', 'Courier', 'Tracking', 'Destinatario', 'Direccion', 'Comuna', 'Estado Global', 'Estado Original', 'Fecha Creacion'];
+        const headers = ['Referencia Pedido', 'Comercio', 'Origen Logistica', 'Courier', 'Tracking', 'Destinatario', 'Direccion', 'Comuna', 'Estado Global', 'Estado Original', 'Fecha Compromiso Entrega', 'Fecha Creacion'];
         const rows = dataToExport.map(s => {
           const platformName = s.source_table === 'lightdata_envios' ? 'LightData' 
             : s.source_table === 'enviame_shipments' ? 'Enviame' 
             : s.source_table === 'bluex_envios' ? 'Blue Express' 
             : s.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
           const dateStr = s.created_at ? new Date(s.created_at).toLocaleString() : '-';
+          const commitExportInfo = window.getEnviameCommitmentInfo ? window.getEnviameCommitmentInfo(s) : null;
+          const commitExportStr = (commitExportInfo && commitExportInfo.hasDeadline) ? commitExportInfo.formattedDate : '';
           let curGlobStatus = s.global_status || '';
           const stLower = (s.status || '').toLowerCase().trim();
           if (stLower.includes('rechazado por courier')) {
@@ -37768,6 +38247,7 @@ async function renderConsolidatedShipments() {
             s.comuna_destino || '',
             curGlobStatus,
             s.status || '',
+            commitExportStr,
             dateStr
           ];
         });
@@ -37945,9 +38425,12 @@ function showShipmentDetailsModal(shipment) {
     </div>
   `;
 
-  const hasTracking = shipment.tracking_url && shipment.tracking_url !== 'N/A';
+  const resolvedModalTrackingUrl = window.resolveCourierPublicTrackingUrl
+    ? window.resolveCourierPublicTrackingUrl(shipment.tracking_url, shipment.tracking, shipment.courier, shipment, null)
+    : ((shipment.tracking_url && shipment.tracking_url !== 'N/A') ? shipment.tracking_url : null);
+  const hasTracking = Boolean(resolvedModalTrackingUrl);
   const trackingBtnHtml = hasTracking
-    ? `<a href="${shipment.tracking_url}" target="_blank" class="btn btn-complementary" style="margin-right: auto; text-decoration: none; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-links-line"></i> Seguimiento de Pedido</a>`
+    ? `<a href="${resolvedModalTrackingUrl}" target="_blank" class="btn btn-complementary" style="margin-right: auto; text-decoration: none; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-links-line"></i> Seguimiento de Pedido</a>`
     : ``;
 
   modal.innerHTML = `
@@ -37985,8 +38468,8 @@ function showShipmentDetailsModal(shipment) {
                 <span class="detail-info-label">Código de Tracking:</span>
                 <span class="detail-info-value" style="display: inline-flex; align-items: center; gap: 0.25rem;">
                   ${shipment.tracking 
-                    ? ((shipment.tracking_url && shipment.tracking_url !== 'N/A'
-                        ? `<a href="${shipment.tracking_url}" target="_blank" style="font-weight:700; color:var(--color-accent);"><i class="ri-links-line"></i> ${shipment.tracking}</a>`
+                    ? ((resolvedModalTrackingUrl
+                        ? `<a href="${resolvedModalTrackingUrl}" target="_blank" style="font-weight:700; color:var(--color-accent);"><i class="ri-links-line"></i> ${shipment.tracking}</a>`
                         : `<span style="font-weight:700;">${shipment.tracking}</span>`) +
                       (window.renderCopyFieldBtn ? window.renderCopyFieldBtn(shipment.tracking, 'Tracking', 'Copiar código de tracking') : ''))
                     : '-'}
@@ -38000,6 +38483,28 @@ function showShipmentDetailsModal(shipment) {
                 <span class="detail-info-label">Estado:</span>
                 <span class="detail-info-value"><span style="background: rgba(99,102,241,0.12); color: var(--color-accent); padding: 0.2rem 0.65rem; border-radius: 99px; font-size: 0.78rem; font-weight: 700;">${getDisplayStatusName(shipment.status)}</span></span>
               </div>
+              ${(() => {
+                const modalCommitInfo = window.getEnviameCommitmentInfo ? window.getEnviameCommitmentInfo(shipment, null, isDelivered) : null;
+                if (modalCommitInfo && modalCommitInfo.hasDeadline) {
+                  return `<div class="detail-info-row">
+                    <span class="detail-info-label">Compromiso Entrega (Envíame):</span>
+                    <span class="detail-info-value">
+                      <span style="display: inline-flex; align-items: center; gap: 0.3rem; background-color: ${modalCommitInfo.badgeBg}; color: ${modalCommitInfo.badgeColor}; border: 1px solid ${modalCommitInfo.badgeBorder}; padding: 0.22rem 0.65rem; border-radius: 99px; font-size: 0.78rem; font-weight: 700;" title="${modalCommitInfo.tooltip}">
+                        <i class="${modalCommitInfo.icon}"></i> ${modalCommitInfo.formattedDate} · ${modalCommitInfo.stateLabel}
+                      </span>
+                    </span>
+                  </div>`;
+                }
+                if (modalCommitInfo && modalCommitInfo.isEnviame) {
+                  return `<div class="detail-info-row">
+                    <span class="detail-info-label">Compromiso Entrega (Envíame):</span>
+                    <span class="detail-info-value" style="font-size: 0.8rem; color: var(--color-text-muted); font-style: italic;">
+                      <i class="ri-calendar-line"></i> Pendiente admisión en planta courier
+                    </span>
+                  </div>`;
+                }
+                return '';
+              })()}
               <div class="detail-info-row">
                 <span class="detail-info-label">Ingresado al Sistema:</span>
                 <span class="detail-info-value" style="font-size:0.8rem;">${dateStr}</span>
@@ -60241,6 +60746,89 @@ function injectBillingStyles() {
       color: var(--color-text-main);
       letter-spacing: 0.01em;
     }
+    .commerce-legal-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      margin-top: 0.05rem;
+      margin-bottom: 0.1rem;
+      font-size: 0.72rem;
+      line-height: 1.3;
+    }
+    .commerce-legal-razon {
+      color: var(--color-text-muted);
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      max-width: 260px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .commerce-legal-razon i {
+      color: var(--color-primary);
+      font-size: 0.78rem;
+      flex-shrink: 0;
+    }
+    .commerce-legal-pills {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      flex-wrap: wrap;
+    }
+    .commerce-legal-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.22rem;
+      padding: 0.1rem 0.38rem;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 500;
+      background: rgba(0, 0, 0, 0.035);
+      border: 1px solid var(--color-border);
+      color: var(--color-text-muted);
+      white-space: nowrap;
+      max-width: 240px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    [data-theme="dark"] .commerce-legal-pill {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+    .commerce-legal-pill.pill-rut {
+      color: var(--color-text-main);
+      font-family: 'Outfit', monospace, sans-serif;
+    }
+    .commerce-legal-pill.pill-rut i {
+      color: #6366f1;
+    }
+    .commerce-legal-pill.pill-rep i {
+      color: #0d9488;
+    }
+    .commerce-legal-edit-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--color-text-muted);
+      font-size: 0.72rem;
+      cursor: pointer;
+      padding: 0;
+      opacity: 0.55;
+      transition: all 0.15s ease;
+    }
+    .commerce-legal-edit-btn:hover {
+      opacity: 1;
+      color: var(--color-primary);
+      background: rgba(99, 102, 241, 0.1);
+      border-color: rgba(99, 102, 241, 0.25);
+    }
     .cell-financial-block .amount-cell {
       max-width: 140px;
     }
@@ -62018,12 +62606,20 @@ window.openBillingCommerceDetailModal = async function(recordId, periodId, initi
   document.body.appendChild(modal);
 
   try {
-    const { data: r, error } = await supabase
-      .from('billing_records')
-      .select('*')
-      .eq('id', recordId)
-      .single();
+    const [recRes, statusRes, legalDataset] = await Promise.all([
+      supabase
+        .from('billing_records')
+        .select('*')
+        .eq('id', recordId)
+        .single(),
+      supabase
+        .from('commerce_billing_status')
+        .select('al_dia')
+        .maybeSingle ? Promise.resolve(null) : Promise.resolve(null),
+      window.fetchBillingCommerceLegalDataset ? window.fetchBillingCommerceLegalDataset() : Promise.resolve(null)
+    ]);
 
+    const { data: r, error } = recRes;
     if (error) throw error;
 
     const { data: statusData } = await supabase
@@ -62036,8 +62632,9 @@ window.openBillingCommerceDetailModal = async function(recordId, periodId, initi
     const periods = window.cachedBillingPeriods || [];
     const currentPeriod = periods.find(p => p.id === periodId);
     const periodName = currentPeriod ? currentPeriod.name : 'Periodo actual';
+    const legalInfo = window.getBillingCommerceLegalInfo ? window.getBillingCommerceLegalInfo(r.comercio, legalDataset) : {};
 
-    window.renderCommerceDetailModalContent(r, periodId, periodName, alDia, initialTab);
+    window.renderCommerceDetailModalContent(r, periodId, periodName, alDia, initialTab, legalInfo);
   } catch (err) {
     console.error('Error opening commerce billing detail modal:', err);
     const bodyEl = document.getElementById('modal-detail-body');
@@ -62052,11 +62649,15 @@ window.openBillingCommerceDetailModal = async function(recordId, periodId, initi
   }
 };
 
-window.renderCommerceDetailModalContent = function(r, periodId, periodName, alDia, activeTab) {
+window.renderCommerceDetailModalContent = function(r, periodId, periodName, alDia, activeTab, legalInfo = null) {
   const commTitle = document.getElementById('modal-detail-commerce-title');
   const subBadges = document.getElementById('modal-detail-sub-badges');
   const bodyEl = document.getElementById('modal-detail-body');
   if (!bodyEl) return;
+
+  const legal = legalInfo || (window.getBillingCommerceLegalInfo ? window.getBillingCommerceLegalInfo(r.comercio) : {});
+  const safeComercioQuotes = (r.comercio || '').replace(/'/g, "\\'");
+  const escapeAttr = (str) => String(str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
   const totalFulf = r.total_fulfillment || 0;
   const abonoFulf = r.abono_fulfillment || 0;
@@ -62077,9 +62678,22 @@ window.renderCommerceDetailModalContent = function(r, periodId, periodName, alDi
       <span style="background: rgba(99, 102, 241, 0.1); color: var(--color-primary); padding: 0.15rem 0.55rem; border-radius: 9999px; font-weight: 600;">
         <i class="ri-calendar-line"></i> ${periodName}
       </span>
-      <span id="modal-detail-status-pill" class="badge ${alDia ? 'badge-success' : 'badge-danger'}" style="cursor: pointer; padding: 0.2rem 0.6rem; font-size: 0.76rem;" onclick="window.toggleCommerceStatusFromModal('${r.comercio.replace(/'/g, "\\'")}', this, '${periodId}', '${r.id}')" title="Hacer clic para alternar estado">
+      <span id="modal-detail-status-pill" class="badge ${alDia ? 'badge-success' : 'badge-danger'}" style="cursor: pointer; padding: 0.2rem 0.6rem; font-size: 0.76rem;" onclick="window.toggleCommerceStatusFromModal('${safeComercioQuotes}', this, '${periodId}', '${r.id}')" title="Hacer clic para alternar estado">
         <i class="${alDia ? 'ri-checkbox-circle-line' : 'ri-pause-circle-line'}"></i> ${alDia ? 'Al Día' : 'Servicio Pausado'}
       </span>
+      ${legal.rut ? `
+        <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.12rem 0.5rem; border-radius: 6px; font-weight: 600; color: var(--color-text-main); font-size: 0.75rem;">
+          <i class="ri-fingerprint-line" style="color: var(--color-primary);"></i> ${escapeAttr(legal.rut)}
+          <button type="button" class="copy-amount-btn" style="width: 18px; height: 18px; font-size: 0.65rem; border: none; background: transparent;" onclick="window.copyRutToClipboard('${escapeAttr(legal.rut).replace(/'/g, "\\'")}', this)" title="Copiar RUT sin puntos">
+            <i class="ri-file-copy-line"></i>
+          </button>
+        </span>
+      ` : ''}
+      ${legal.razon_social ? `
+        <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted); font-size: 0.75rem; font-weight: 600;" title="Razón Social">
+          <i class="ri-building-4-line" style="color: var(--color-primary);"></i> ${escapeAttr(legal.razon_social)}
+        </span>
+      ` : ''}
       <span style="color: var(--color-text-muted); font-size: 0.75rem;">ID: ${r.id.substring(0, 8)}...</span>
     `;
   }
@@ -62117,6 +62731,59 @@ window.renderCommerceDetailModalContent = function(r, periodId, periodName, alDi
   bodyEl.innerHTML = `
     <!-- TAB 1: RESUMEN & TOTALES -->
     <div id="modal-detail-pane-totales" class="billing-detail-tab-pane ${activeTab === 'totales' ? 'active' : ''}">
+      <!-- Ficha Legal del Comercio -->
+      <div class="billing-detail-card" style="margin-bottom: 1.25rem; padding: 0.9rem 1.1rem; background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, rgba(13, 148, 136, 0.03) 100%);">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.65rem; border-bottom: 1px dashed var(--color-border); padding-bottom: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">
+            <i class="ri-building-2-line" style="color: var(--color-primary); font-size: 1rem;"></i>
+            <span>Ficha Legal y Tributaria del Comercio</span>
+          </div>
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.openQuickEditCommerceLegalModal('${safeComercioQuotes}', '${periodId}', '${r.id}')" style="padding: 0.2rem 0.6rem; font-size: 0.74rem; display: inline-flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-edit-2-line"></i> Editar Datos Legales
+          </button>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.85rem; font-size: 0.82rem;">
+          <div>
+            <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); font-weight: 700; margin-bottom: 0.2rem;">Razón Social</div>
+            <div style="font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+              ${legal.razon_social ? `
+                <span>${escapeAttr(legal.razon_social)}</span>
+                <button type="button" class="copy-amount-btn" style="width: 20px; height: 20px; font-size: 0.68rem;" onclick="window.copyTextToClipboard('${escapeAttr(legal.razon_social).replace(/'/g, "\\'")}', this)" title="Copiar Razón Social">
+                  <i class="ri-file-copy-line"></i>
+                </button>
+              ` : '<span style="color: var(--color-text-muted); font-style: italic; font-weight: 400;">No registrada</span>'}
+            </div>
+          </div>
+          <div>
+            <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); font-weight: 700; margin-bottom: 0.2rem;">RUT Comercio</div>
+            <div style="font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+              ${legal.rut ? `
+                <span>${escapeAttr(legal.rut)}</span>
+                <button type="button" class="copy-amount-btn" style="width: 20px; height: 20px; font-size: 0.68rem;" onclick="window.copyRutToClipboard('${escapeAttr(legal.rut).replace(/'/g, "\\'")}', this)" title="Copiar RUT sin puntos">
+                  <i class="ri-file-copy-line"></i>
+                </button>
+              ` : '<span style="color: var(--color-text-muted); font-style: italic; font-weight: 400;">No registrado</span>'}
+            </div>
+          </div>
+          <div>
+            <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); font-weight: 700; margin-bottom: 0.2rem;">Representante Legal</div>
+            <div style="font-weight: 600; color: var(--color-text-main); display: flex; flex-direction: column; gap: 0.15rem;">
+              ${legal.rep_legal_nombre ? `
+                <span style="display: inline-flex; align-items: center; gap: 0.3rem;">
+                  <i class="ri-user-star-line" style="color: #0d9488;"></i>
+                  <span>${escapeAttr(legal.rep_legal_nombre)}</span>
+                </span>
+                ${(legal.rep_legal_rut || legal.rep_legal_email) ? `
+                  <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 400;">
+                    ${[legal.rep_legal_rut ? `RUT: ${escapeAttr(legal.rep_legal_rut)}` : '', legal.rep_legal_email ? escapeAttr(legal.rep_legal_email) : ''].filter(Boolean).join(' • ')}
+                  </span>
+                ` : ''}
+              ` : '<span style="color: var(--color-text-muted); font-style: italic; font-weight: 400;">No registrado</span>'}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
         <div class="billing-kpi-metric-box">
           <span class="billing-kpi-metric-title"><i class="ri-file-list-3-line"></i> Total Facturado</span>
@@ -63540,22 +64207,412 @@ window.switchHistoryChartMode = function(mode) {
   window.renderCommerceHistoryModalView();
 };
 
+// ==========================================
+// DATOS LEGALES DEL COMERCIO (Razón Social, RUT, Representante Legal)
+// ==========================================
+window.fetchBillingCommerceLegalDataset = async function(forceRefresh = false) {
+  const nowTs = Date.now();
+  if (!forceRefresh && window.__billingCommerceLegalDataset && window.__billingCommerceLegalDatasetTs && (nowTs - window.__billingCommerceLegalDatasetTs < 30000)) {
+    return window.__billingCommerceLegalDataset;
+  }
+
+  const safeQuery = (promise) => promise.then(r => r?.data || [], () => []);
+
+  const [configs, onboardings, mappings, profiles, contacts] = await Promise.all([
+    safeQuery(
+      supabase
+        .from('comercios_adicional_config')
+        .select('comercio, rut, razon_social, rep_legal_nombre, rep_legal_rut, rep_legal_email, rep_legal_telefono')
+    ),
+    safeQuery(
+      supabase
+        .from('onboarding_requests')
+        .select('nombre_fantasia, razon_social, rut_empresa, rep_legal_nombre, rep_legal_rut, rep_legal_email, rep_legal_telefono, status, created_at')
+        .order('created_at', { ascending: false })
+    ),
+    safeQuery(
+      supabase
+        .from('billing_mappings')
+        .select('comercio_nombre, billing_name')
+    ),
+    safeQuery(
+      supabase
+        .from('profiles')
+        .select('id, full_name, company_name, comercio, email, phone, role, is_demo_user')
+    ),
+    safeQuery(
+      supabase
+        .from('billing_contacts')
+        .select('comercio, nombre, email, rol, activo')
+    )
+  ]);
+
+  const dataset = { configs, onboardings, mappings, profiles, contacts };
+  window.__billingCommerceLegalDataset = dataset;
+  window.__billingCommerceLegalDatasetTs = nowTs;
+  return dataset;
+};
+
+window.getBillingCommerceLegalInfo = function(commerceName, dataset = null) {
+  const ds = dataset || window.__billingCommerceLegalDataset || {};
+  const configs = ds.configs || [];
+  const onboardings = ds.onboardings || [];
+  const mappings = ds.mappings || [];
+  const profiles = ds.profiles || [];
+  const contacts = ds.contacts || [];
+
+  const norm = (s) => String(s || '').trim().toLowerCase();
+  const cleanRutStr = (r) => String(r || '').replace(/\./g, '').replace(/\s+/g, '').toLowerCase();
+  const isInvalidPersonName = (val, aliasesSet) => {
+    const v = norm(val);
+    if (!v || v.length < 3) return true;
+    if (aliasesSet && aliasesSet.has(v)) return true;
+    if (/^(stocka test|nuevo usuario|test|team|administracion|administración|finanzas|contacto|cobranza|facturacion|facturación|pagos|soporte|info|ventas|contabilidad)$/i.test(v)) return true;
+    if (/\b(spa|ltda|limitada|s\.a\.|eirl|empresa|comercializadora|importadora|inversiones|sociedad|group)\b/i.test(v)) return true;
+    return false;
+  };
+
+  const target = norm(commerceName);
+  const aliases = new Set([target]);
+
+  if (target === 'pom kids') aliases.add('poms kids');
+  if (target === 'poms kids') aliases.add('pom kids');
+
+  mappings.forEach(m => {
+    const cName = norm(m.comercio_nombre);
+    const bName = norm(m.billing_name);
+    if (bName === target && cName) aliases.add(cName);
+    if (cName === target && bName) aliases.add(bName);
+  });
+
+  const info = {
+    comercio: commerceName,
+    razon_social: '',
+    rut: '',
+    rep_legal_nombre: '',
+    rep_legal_rut: '',
+    rep_legal_email: '',
+    rep_legal_telefono: ''
+  };
+
+  // 1. Direct match on target in comercios_adicional_config first, then alias match
+  const exactCfg = configs.find(c => norm(c.comercio) === target);
+  const matchingConfigs = [
+    ...(exactCfg ? [exactCfg] : []),
+    ...configs.filter(c => c !== exactCfg && aliases.has(norm(c.comercio)))
+  ];
+
+  for (const cfg of matchingConfigs) {
+    if (!info.rut && cfg.rut && String(cfg.rut).trim()) info.rut = String(cfg.rut).trim();
+    if (!info.razon_social && cfg.razon_social && String(cfg.razon_social).trim()) info.razon_social = String(cfg.razon_social).trim();
+    if (!info.rep_legal_nombre && cfg.rep_legal_nombre && String(cfg.rep_legal_nombre).trim()) info.rep_legal_nombre = String(cfg.rep_legal_nombre).trim();
+    if (!info.rep_legal_rut && cfg.rep_legal_rut && String(cfg.rep_legal_rut).trim()) info.rep_legal_rut = String(cfg.rep_legal_rut).trim();
+    if (!info.rep_legal_email && cfg.rep_legal_email && String(cfg.rep_legal_email).trim()) info.rep_legal_email = String(cfg.rep_legal_email).trim();
+    if (!info.rep_legal_telefono && cfg.rep_legal_telefono && String(cfg.rep_legal_telefono).trim()) info.rep_legal_telefono = String(cfg.rep_legal_telefono).trim();
+  }
+
+  // Expand aliases for stores sharing the same RUT (conglomerates like BIG BANG / SILVER FOX)
+  const targetCleanRut = cleanRutStr(info.rut);
+  if (targetCleanRut) {
+    configs.forEach(c => {
+      if (cleanRutStr(c.rut) === targetCleanRut && c.comercio) {
+        aliases.add(norm(c.comercio));
+      }
+    });
+  }
+
+  // 2. Onboarding requests (by alias or matching RUT)
+  for (const ob of onboardings) {
+    const obFantasia = norm(ob.nombre_fantasia);
+    const obRazon = norm(ob.razon_social);
+    const obRutClean = cleanRutStr(ob.rut_empresa);
+    const matchesOb = aliases.has(obFantasia) || aliases.has(obRazon) || (targetCleanRut && obRutClean === targetCleanRut);
+    if (matchesOb) {
+      if (!info.razon_social && ob.razon_social && String(ob.razon_social).trim()) info.razon_social = String(ob.razon_social).trim();
+      if (!info.rut && ob.rut_empresa && String(ob.rut_empresa).trim()) info.rut = String(ob.rut_empresa).trim();
+      if (!info.rep_legal_nombre && ob.rep_legal_nombre && String(ob.rep_legal_nombre).trim()) info.rep_legal_nombre = String(ob.rep_legal_nombre).trim();
+      if (!info.rep_legal_rut && ob.rep_legal_rut && String(ob.rep_legal_rut).trim()) info.rep_legal_rut = String(ob.rep_legal_rut).trim();
+      if (!info.rep_legal_email && ob.rep_legal_email && String(ob.rep_legal_email).trim()) info.rep_legal_email = String(ob.rep_legal_email).trim();
+      if (!info.rep_legal_telefono && ob.rep_legal_telefono && String(ob.rep_legal_telefono).trim()) info.rep_legal_telefono = String(ob.rep_legal_telefono).trim();
+    }
+  }
+
+  // 3. LocalStorage fallback
+  try {
+    for (const al of aliases) {
+      const localRaw = localStorage.getItem('legal_info_' + al);
+      if (localRaw) {
+        const parsed = JSON.parse(localRaw);
+        if (!info.razon_social && parsed.razon_social) info.razon_social = String(parsed.razon_social).trim();
+        if (!info.rut && parsed.rut) info.rut = String(parsed.rut).trim();
+        if (!info.rep_legal_nombre && parsed.rep_legal_nombre) info.rep_legal_nombre = String(parsed.rep_legal_nombre).trim();
+        if (!info.rep_legal_rut && parsed.rep_legal_rut) info.rep_legal_rut = String(parsed.rep_legal_rut).trim();
+        if (!info.rep_legal_email && parsed.rep_legal_email) info.rep_legal_email = String(parsed.rep_legal_email).trim();
+        if (!info.rep_legal_telefono && parsed.rep_legal_telefono) info.rep_legal_telefono = String(parsed.rep_legal_telefono).trim();
+      }
+    }
+  } catch (e) {
+    // ignore storage errors
+  }
+
+  // 4. Client profiles fallback for Representante Legal
+  if (!info.rep_legal_nombre) {
+    for (const p of profiles) {
+      if (p.role !== 'client' || p.is_demo_user) continue;
+      const pComms = String(p.comercio || '').split(',').map(norm).filter(Boolean);
+      const pComp = norm(p.company_name);
+      const matchesProfile = pComms.some(c => aliases.has(c)) || (pComp && aliases.has(pComp));
+      if (matchesProfile && !isInvalidPersonName(p.full_name, aliases)) {
+        info.rep_legal_nombre = String(p.full_name).trim();
+        if (!info.rep_legal_email && p.email) info.rep_legal_email = String(p.email).trim();
+        if (!info.rep_legal_telefono && p.phone) info.rep_legal_telefono = String(p.phone).trim();
+        break;
+      }
+    }
+  }
+
+  // 5. Billing contacts fallback for Representante Legal
+  if (!info.rep_legal_nombre) {
+    for (const c of contacts) {
+      if (c.activo === false) continue;
+      if (aliases.has(norm(c.comercio)) && !isInvalidPersonName(c.nombre, aliases)) {
+        info.rep_legal_nombre = String(c.nombre).trim();
+        if (!info.rep_legal_email && c.email) info.rep_legal_email = String(c.email).trim();
+        break;
+      }
+    }
+  }
+
+  return info;
+};
+
+window.renderCommerceLegalSubBlockHtml = function(comercioName, legalInfo, periodId = '', recordId = '') {
+  const info = legalInfo || (window.getBillingCommerceLegalInfo ? window.getBillingCommerceLegalInfo(comercioName) : {});
+  const esc = (str) => String(str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const safeComercioJs = String(comercioName || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const safeRutJs = String(info.rut || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+  const razonHtml = info.razon_social
+    ? `<div class="commerce-legal-razon" title="Razón Social: ${esc(info.razon_social)}">
+         <i class="ri-building-4-line"></i>
+         <span style="overflow: hidden; text-overflow: ellipsis;">${esc(info.razon_social)}</span>
+       </div>`
+    : `<div class="commerce-legal-razon" style="opacity: 0.55; font-weight: 400; font-style: italic;" title="Sin Razón Social registrada">
+         <i class="ri-building-4-line"></i>
+         <span>Sin razón social</span>
+       </div>`;
+
+  const rutPillHtml = info.rut
+    ? `<span class="commerce-legal-pill pill-rut" title="RUT del Comercio: ${esc(info.rut)}">
+         <i class="ri-fingerprint-line"></i>
+         <span>${esc(info.rut)}</span>
+         <button type="button" class="copy-amount-btn" style="width: 15px; height: 15px; font-size: 0.6rem; border: none; background: transparent; padding: 0; margin-left: 1px;" onclick="window.copyRutToClipboard('${safeRutJs}', this)" title="Copiar RUT sin puntos">
+           <i class="ri-file-copy-line"></i>
+         </button>
+       </span>`
+    : `<span class="commerce-legal-pill" style="opacity: 0.55; font-style: italic;" title="RUT no registrado">
+         <i class="ri-fingerprint-line"></i>
+         <span>Sin RUT</span>
+       </span>`;
+
+  const repTooltipParts = [
+    info.rep_legal_nombre ? `Rep. Legal: ${info.rep_legal_nombre}` : '',
+    info.rep_legal_rut ? `RUT Rep: ${info.rep_legal_rut}` : '',
+    info.rep_legal_email ? `Email: ${info.rep_legal_email}` : '',
+    info.rep_legal_telefono ? `Tel: ${info.rep_legal_telefono}` : ''
+  ].filter(Boolean).join(' | ');
+
+  const repPillHtml = info.rep_legal_nombre
+    ? `<span class="commerce-legal-pill pill-rep" title="${esc(repTooltipParts)}">
+         <i class="ri-user-star-line"></i>
+         <span style="overflow: hidden; text-overflow: ellipsis;">${esc(info.rep_legal_nombre)}</span>
+       </span>`
+    : `<span class="commerce-legal-pill" style="opacity: 0.55; font-style: italic;" title="Representante Legal no registrado">
+         <i class="ri-user-star-line"></i>
+         <span>Sin rep. legal</span>
+       </span>`;
+
+  return `
+    <div class="commerce-legal-meta">
+      ${razonHtml}
+      <div class="commerce-legal-pills">
+        ${rutPillHtml}
+        ${repPillHtml}
+        <button type="button" class="commerce-legal-edit-btn" onclick="window.openQuickEditCommerceLegalModal('${safeComercioJs}', '${periodId}', '${recordId}')" title="Editar Razón Social, RUT y Representante Legal de ${esc(comercioName)}">
+          <i class="ri-edit-2-line"></i>
+        </button>
+      </div>
+    </div>
+  `;
+};
+
+window.openQuickEditCommerceLegalModal = async function(comercioName, periodId = '', recordId = '') {
+  const existingModal = document.getElementById('modal-quick-edit-commerce-legal');
+  if (existingModal) existingModal.remove();
+
+  const dataset = await window.fetchBillingCommerceLegalDataset();
+  const info = window.getBillingCommerceLegalInfo(comercioName, dataset);
+  const esc = (str) => String(str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-quick-edit-commerce-legal';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '1050';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 500px; width: 95%;">
+      <div class="modal-header">
+        <h3 style="display: flex; align-items: center; gap: 0.5rem; margin: 0; font-size: 1.05rem;">
+          <i class="ri-building-2-line" style="color: var(--color-primary);"></i>
+          <span>Datos Legales — ${esc(comercioName)}</span>
+        </h3>
+        <button type="button" class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <form id="form-quick-edit-commerce-legal">
+        <div class="modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 0.9rem;">
+          <div style="background: rgba(99, 102, 241, 0.06); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 8px; padding: 0.65rem 0.85rem; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.4;">
+            <i class="ri-information-line" style="color: var(--color-primary);"></i>
+            Estos datos se sincronizan con la configuración del comercio y se reflejan en todos los periodos de facturación y exportaciones Excel.
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-size: 0.78rem; font-weight: 600; margin-bottom: 0.3rem; display: block;">Razón Social de la Empresa</label>
+            <input type="text" id="qe-legal-razon-social" class="form-input" value="${esc(info.razon_social)}" placeholder="Ej: COMERCIALIZADORA EJEMPLO SPA" style="width: 100%; margin: 0;">
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-size: 0.78rem; font-weight: 600; margin-bottom: 0.3rem; display: block;">RUT del Comercio (Empresa)</label>
+            <input type="text" id="qe-legal-rut" class="form-input" value="${esc(info.rut)}" placeholder="Ej: 76.123.456-7" style="width: 100%; margin: 0;">
+          </div>
+
+          <div style="border-top: 1px dashed var(--color-border); padding-top: 0.75rem; margin-top: 0.1rem;">
+            <div style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-primary); margin-bottom: 0.65rem; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-user-star-line"></i> Representante Legal
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="form-group" style="margin: 0; grid-column: span 2;">
+                <label class="form-label" style="font-size: 0.76rem; font-weight: 600; margin-bottom: 0.25rem; display: block;">Nombre Completo</label>
+                <input type="text" id="qe-legal-rep-nombre" class="form-input" value="${esc(info.rep_legal_nombre)}" placeholder="Ej: Juan Pérez González" style="width: 100%; margin: 0;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.76rem; font-weight: 600; margin-bottom: 0.25rem; display: block;">RUT Rep. Legal (Opcional)</label>
+                <input type="text" id="qe-legal-rep-rut" class="form-input" value="${esc(info.rep_legal_rut)}" placeholder="Ej: 15.234.567-8" style="width: 100%; margin: 0;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.76rem; font-weight: 600; margin-bottom: 0.25rem; display: block;">Teléfono (Opcional)</label>
+                <input type="text" id="qe-legal-rep-telefono" class="form-input" value="${esc(info.rep_legal_telefono)}" placeholder="Ej: +56 9 1234 5678" style="width: 100%; margin: 0;">
+              </div>
+              <div class="form-group" style="margin: 0; grid-column: span 2;">
+                <label class="form-label" style="font-size: 0.76rem; font-weight: 600; margin-bottom: 0.25rem; display: block;">Correo Electrónico Rep. Legal (Opcional)</label>
+                <input type="email" id="qe-legal-rep-email" class="form-input" value="${esc(info.rep_legal_email)}" placeholder="Ej: representante@empresa.cl" style="width: 100%; margin: 0;">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0.85rem 1.25rem; border-top: 1px solid var(--color-border);">
+          <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-qe-legal">
+            <i class="ri-save-line"></i> Guardar Datos Legales
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const form = document.getElementById('form-quick-edit-commerce-legal');
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const saveBtn = document.getElementById('btn-save-qe-legal');
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<i class="ri-loader-4-line spin"></i> Guardando...';
+    }
+
+    const payload = {
+      comercio: comercioName,
+      razon_social: document.getElementById('qe-legal-razon-social')?.value.trim() || null,
+      rut: document.getElementById('qe-legal-rut')?.value.trim() || null,
+      rep_legal_nombre: document.getElementById('qe-legal-rep-nombre')?.value.trim() || null,
+      rep_legal_rut: document.getElementById('qe-legal-rep-rut')?.value.trim() || null,
+      rep_legal_telefono: document.getElementById('qe-legal-rep-telefono')?.value.trim() || null,
+      rep_legal_email: document.getElementById('qe-legal-rep-email')?.value.trim() || null,
+      updated_at: new Date().toISOString()
+    };
+
+    try {
+      const { error } = await supabase
+        .from('comercios_adicional_config')
+        .upsert(payload, { onConflict: 'comercio' });
+
+      if (error) {
+        // Fallback if optional rep_legal columns are restricted
+        const { error: fallbackErr } = await supabase
+          .from('comercios_adicional_config')
+          .upsert({
+            comercio: comercioName,
+            razon_social: payload.razon_social,
+            rut: payload.rut,
+            updated_at: payload.updated_at
+          }, { onConflict: 'comercio' });
+        if (fallbackErr) throw fallbackErr;
+      }
+
+      try {
+        localStorage.setItem('legal_info_' + String(comercioName).trim().toLowerCase(), JSON.stringify(payload));
+      } catch (e) {}
+
+      await window.fetchBillingCommerceLegalDataset(true);
+      modal.remove();
+
+      if (periodId) {
+        const bodyEl = document.getElementById(`period-body-${periodId}`);
+        if (bodyEl) {
+          await loadBillingRecords(periodId, bodyEl);
+        }
+      }
+
+      if (recordId && document.getElementById('modal-billing-commerce-detail')) {
+        await window.openBillingCommerceDetailModal(recordId, periodId, 'totales');
+      }
+
+      if (document.getElementById('d-content-pending') && typeof renderDashboardPendingView === 'function') {
+        await fetchBillingDashboardData();
+        renderDashboardPendingView();
+      }
+      if (document.getElementById('d-commerce-select') && typeof window.updateDashboardCommerceView === 'function') {
+        window.updateDashboardCommerceView();
+      }
+    } catch (err) {
+      console.error('Error saving legal info:', err);
+      alert('Error al guardar los datos legales: ' + (err.message || err));
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Datos Legales';
+      }
+    }
+  });
+};
+
 async function loadBillingRecords(periodId, bodyElement) {
   try {
-    // 1. Obtener registros de facturación
-    const { data: records, error } = await supabase
-      .from('billing_records')
-      .select('*')
-      .eq('period_id', periodId)
-      .order('comercio', { ascending: true });
-      
+    // 1. Obtener registros de facturación, estados de comercio y datos legales en paralelo
+    const [recordsRes, statusRes, legalDataset] = await Promise.all([
+      supabase
+        .from('billing_records')
+        .select('*')
+        .eq('period_id', periodId)
+        .order('comercio', { ascending: true }),
+      supabase
+        .from('commerce_billing_status')
+        .select('*'),
+      window.fetchBillingCommerceLegalDataset()
+    ]);
+
+    const { data: records, error } = recordsRes;
     if (error) throw error;
     
-    // 2. Obtener estados de comercio ("Al día")
-    const { data: statuses, error: statusErr } = await supabase
-      .from('commerce_billing_status')
-      .select('*');
-      
+    const { data: statuses, error: statusErr } = statusRes;
     if (statusErr) console.warn('Error fetching commerce status:', statusErr);
     
     const statusMap = {};
@@ -63580,6 +64637,7 @@ async function loadBillingRecords(periodId, bodyElement) {
     }
     
     const now = new Date();
+    const escAttr = (s) => String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     let countFulfTotal = records.length;
     let countFulfConSaldo = 0;
@@ -63600,6 +64658,11 @@ async function loadBillingRecords(periodId, bodyElement) {
     let tableRowsResumen = '';
     records.forEach(r => {
       const alDia = statusMap[r.comercio] !== false; // Default true
+      const legalInfo = window.getBillingCommerceLegalInfo(r.comercio, legalDataset);
+      const legalBlockHtml = window.renderCommerceLegalSubBlockHtml(r.comercio, legalInfo, periodId, r.id);
+      const dataRazonAttr = escAttr((legalInfo.razon_social || '').toLowerCase());
+      const dataRutAttr = escAttr((legalInfo.rut || '').toLowerCase());
+      const dataRepAttr = escAttr((legalInfo.rep_legal_nombre || '').toLowerCase());
 
       const totalFulf = r.total_fulfillment || 0;
       const abonoFulf = r.abono_fulfillment || 0;
@@ -63646,6 +64709,9 @@ async function loadBillingRecords(periodId, bodyElement) {
             onclick="window.handleBillingRowClick(event, '${r.id}', '${periodId}', 'fulf')"
             title="Click para abrir detalle y gestión de ${r.comercio}"
             data-comercio="${(r.comercio || '').toLowerCase()}" 
+            data-razon="${dataRazonAttr}"
+            data-rut="${dataRutAttr}"
+            data-rep="${dataRepAttr}"
             data-pago-fulf="${r.pago_fulfillment || ''}" 
             data-fact-fulf="${r.factura_fulfillment || ''}" 
             data-desglose-fulf="${r.desglose_fulfillment || ''}" 
@@ -63661,12 +64727,13 @@ async function loadBillingRecords(periodId, bodyElement) {
 
           <!-- Col 2: Comercio & Plazo -->
           <td class="cell-commerce-block" style="vertical-align: middle;">
-            <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+            <div style="display: flex; flex-direction: column; gap: 0.3rem;">
               <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
                 <span class="commerce-name-title">${r.comercio}</span>
                 <span class="billing-row-inspect-hint" title="Ver detalle completo"><i class="ri-external-link-line"></i></span>
                 ${!alDia ? '<span class="badge badge-danger" style="font-size: 0.65rem; padding: 0.1rem 0.35rem;" title="Servicio Pausado">Pausado</span>' : ''}
               </div>
+              ${legalBlockHtml}
               <div class="deadline-row" style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
                 <input type="date" value="${r.fecha_limite || ''}" class="billing-limit-input" title="Fecha límite de pago" onchange="saveField('${r.id}', 'fecha_limite', this.value); if(window.updateRowFinancialBadge) window.updateRowFinancialBadge('${r.id}', 'fulf');">
                 ${window.getDeadlineBadgeHtml(r.fecha_limite, r.pago_fulfillment)}
@@ -63797,6 +64864,9 @@ async function loadBillingRecords(periodId, bodyElement) {
             onclick="window.handleBillingRowClick(event, '${r.id}', '${periodId}', 'env')"
             title="Click para abrir detalle y gestión de ${r.comercio}"
             data-comercio="${(r.comercio || '').toLowerCase()}" 
+            data-razon="${dataRazonAttr}"
+            data-rut="${dataRutAttr}"
+            data-rep="${dataRepAttr}"
             data-pago-env="${r.pago_enviame || ''}" 
             data-fact-env="${r.factura_enviame || ''}" 
             data-total-env="${totalEnv}" 
@@ -63812,12 +64882,13 @@ async function loadBillingRecords(periodId, bodyElement) {
 
           <!-- Col 2: Comercio & Plazo -->
           <td class="cell-commerce-block" style="vertical-align: middle;">
-            <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+            <div style="display: flex; flex-direction: column; gap: 0.3rem;">
               <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
                 <span class="commerce-name-title">${r.comercio}</span>
                 <span class="billing-row-inspect-hint" title="Ver detalle completo"><i class="ri-external-link-line"></i></span>
                 ${!alDia ? '<span class="badge badge-danger" style="font-size: 0.65rem; padding: 0.1rem 0.35rem;" title="Servicio Pausado">Pausado</span>' : ''}
               </div>
+              ${legalBlockHtml}
               <div class="deadline-row" style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
                 <input type="date" value="${r.fecha_limite_enviame || ''}" class="billing-limit-input" title="Fecha límite Envíame" onchange="saveField('${r.id}', 'fecha_limite_enviame', this.value); if(window.updateRowFinancialBadge) window.updateRowFinancialBadge('${r.id}', 'env');">
                 ${window.getDeadlineBadgeHtml(r.fecha_limite_enviame, r.pago_enviame)}
@@ -63957,12 +65028,15 @@ async function loadBillingRecords(periodId, bodyElement) {
         <tr id="row-resumen-${r.id}" class="billing-record-row-resumen billing-clickable-row" 
             onclick="window.handleBillingRowClick(event, '${r.id}', '${periodId}', 'totales')"
             title="Click para abrir detalle y gestión de ${r.comercio}"
-            data-record-id="${r.id}" data-comercio="${(r.comercio || '').toLowerCase()}" data-debt-status="${debtStatus}" data-total-fulf="${totalFulf}" data-abono-fulf="${abonoFulf}" data-total-env="${totalEnv}" data-abono-env="${abonoEnv}" data-total-general="${totalGeneral}" data-total-abonado="${totalAbonado}" data-saldo="${saldoPendiente}">
-          <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
-            <div style="display: flex; align-items: center; gap: 0.45rem;">
-              <span>${r.comercio}</span>
-              <span class="billing-row-inspect-hint" title="Ver detalle completo"><i class="ri-external-link-line"></i></span>
-              ${!alDia ? '<span class="badge badge-danger" style="font-size: 0.65rem; padding: 0.1rem 0.35rem;" title="Servicio Pausado">Pausado</span>' : ''}
+            data-record-id="${r.id}" data-comercio="${(r.comercio || '').toLowerCase()}" data-razon="${dataRazonAttr}" data-rut="${dataRutAttr}" data-rep="${dataRepAttr}" data-debt-status="${debtStatus}" data-total-fulf="${totalFulf}" data-abono-fulf="${abonoFulf}" data-total-env="${totalEnv}" data-abono-env="${abonoEnv}" data-total-general="${totalGeneral}" data-total-abonado="${totalAbonado}" data-saldo="${saldoPendiente}">
+          <td class="cell-commerce-block" style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
+            <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+              <div style="display: flex; align-items: center; gap: 0.45rem;">
+                <span class="commerce-name-title">${r.comercio}</span>
+                <span class="billing-row-inspect-hint" title="Ver detalle completo"><i class="ri-external-link-line"></i></span>
+                ${!alDia ? '<span class="badge badge-danger" style="font-size: 0.65rem; padding: 0.1rem 0.35rem;" title="Servicio Pausado">Pausado</span>' : ''}
+              </div>
+              ${legalBlockHtml}
             </div>
           </td>
           <td class="resumen-cell-total-fulf" style="text-align: right; vertical-align: middle; font-weight: 600; color: var(--color-text-main);">
@@ -64144,7 +65218,7 @@ async function loadBillingRecords(periodId, bodyElement) {
               <label style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Buscar:</label>
               <div style="position: relative;">
                 <i class="ri-search-line" style="position: absolute; left: 0.5rem; top: 50%; transform: translateY(-50%); font-size: 0.8rem; color: var(--color-text-muted);"></i>
-                <input type="text" id="filter-commerce-search-fulf-${periodId}" placeholder="Comercio..." class="form-input" oninput="window.filterBillingRows('${periodId}')" style="padding: 0.2rem 0.5rem 0.2rem 1.65rem; font-size: 0.78rem; width: 140px; margin: 0; border-radius: var(--radius-sm);">
+                <input type="text" id="filter-commerce-search-fulf-${periodId}" placeholder="Comercio, RUT, Razón Social, Rep..." class="form-input" oninput="window.filterBillingRows('${periodId}')" style="padding: 0.2rem 0.5rem 0.2rem 1.65rem; font-size: 0.78rem; width: 220px; margin: 0; border-radius: var(--radius-sm);">
               </div>
             </div>
             ${generateBillingMultiSelect('Pago Fulf:', 'filter-pago-fulf', periodId, ['Por solicitar', 'Recibido', 'En espera', 'Atrasado', 'abono', 'aprobado', 'incobrable', 'Sin movimientos'])}
@@ -64156,7 +65230,7 @@ async function loadBillingRecords(periodId, bodyElement) {
               <label style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Buscar:</label>
               <div style="position: relative;">
                 <i class="ri-search-line" style="position: absolute; left: 0.5rem; top: 50%; transform: translateY(-50%); font-size: 0.8rem; color: var(--color-text-muted);"></i>
-                <input type="text" id="filter-commerce-search-env-${periodId}" placeholder="Comercio..." class="form-input" oninput="window.filterBillingRows('${periodId}')" style="padding: 0.2rem 0.5rem 0.2rem 1.65rem; font-size: 0.78rem; width: 140px; margin: 0; border-radius: var(--radius-sm);">
+                <input type="text" id="filter-commerce-search-env-${periodId}" placeholder="Comercio, RUT, Razón Social, Rep..." class="form-input" oninput="window.filterBillingRows('${periodId}')" style="padding: 0.2rem 0.5rem 0.2rem 1.65rem; font-size: 0.78rem; width: 220px; margin: 0; border-radius: var(--radius-sm);">
               </div>
             </div>
             ${generateBillingMultiSelect('Pago Env:', 'filter-pago-env', periodId, ['Por solicitar', 'Recibido', 'En espera', 'Atrasado', 'abono', 'aprobado', 'incobrable', 'Sin movimientos'])}
@@ -64168,7 +65242,7 @@ async function loadBillingRecords(periodId, bodyElement) {
               <label style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Buscar:</label>
               <div style="position: relative;">
                 <i class="ri-search-line" style="position: absolute; left: 0.5rem; top: 50%; transform: translateY(-50%); font-size: 0.8rem; color: var(--color-text-muted);"></i>
-                <input type="text" id="filter-resumen-search-${periodId}" placeholder="Comercio..." class="form-input" oninput="window.filterBillingSummaryRows('${periodId}')" style="padding: 0.25rem 0.5rem 0.25rem 1.65rem; font-size: 0.78rem; width: 160px; margin: 0; border-radius: var(--radius-sm);">
+                <input type="text" id="filter-resumen-search-${periodId}" placeholder="Comercio, RUT, Razón Social, Rep..." class="form-input" oninput="window.filterBillingSummaryRows('${periodId}')" style="padding: 0.25rem 0.5rem 0.25rem 1.65rem; font-size: 0.78rem; width: 230px; margin: 0; border-radius: var(--radius-sm);">
               </div>
             </div>
             <div style="display: flex; align-items: center; gap: 0.4rem;">
@@ -64456,7 +65530,9 @@ window.filterBillingRows = function(periodId) {
   };
   
   const queryFulf = (document.getElementById(`filter-commerce-search-fulf-${periodId}`)?.value || '').toLowerCase().trim();
+  const queryFulfCleanRut = queryFulf.replace(/\./g, '');
   const queryEnv = (document.getElementById(`filter-commerce-search-env-${periodId}`)?.value || '').toLowerCase().trim();
+  const queryEnvCleanRut = queryEnv.replace(/\./g, '');
 
   const filterPagoFulf = getSelected('filter-pago-fulf');
   const filterFactFulf = getSelected('filter-fact-fulf');
@@ -64469,6 +65545,10 @@ window.filterBillingRows = function(periodId) {
   const rowsFulf = container.querySelectorAll('.billing-record-row-fulf');
   rowsFulf.forEach(row => {
     const comercio = (row.getAttribute('data-comercio') || '').toLowerCase();
+    const razon = (row.getAttribute('data-razon') || '').toLowerCase();
+    const rut = (row.getAttribute('data-rut') || '').toLowerCase();
+    const rutClean = rut.replace(/\./g, '');
+    const rep = (row.getAttribute('data-rep') || '').toLowerCase();
     const pagoFulf = row.getAttribute('data-pago-fulf') || '';
     const factFulf = row.getAttribute('data-fact-fulf') || '';
     const desgloseFulf = row.getAttribute('data-desglose-fulf') || '';
@@ -64477,7 +65557,12 @@ window.filterBillingRows = function(periodId) {
     const isAtrasado = row.getAttribute('data-is-atrasado-fulf') === 'true';
     const isAlDia = row.getAttribute('data-is-aldia-fulf') === 'true';
 
-    const matchQuery = !queryFulf || comercio.includes(queryFulf);
+    const matchQuery = !queryFulf ||
+      comercio.includes(queryFulf) ||
+      razon.includes(queryFulf) ||
+      rut.includes(queryFulf) ||
+      (queryFulfCleanRut && rutClean.includes(queryFulfCleanRut)) ||
+      rep.includes(queryFulf);
     const matchPago = !filterPagoFulf || filterPagoFulf.includes(pagoFulf);
     const matchFact = !filterFactFulf || filterFactFulf.includes(factFulf);
 
@@ -64504,6 +65589,10 @@ window.filterBillingRows = function(periodId) {
   const rowsEnv = container.querySelectorAll('.billing-record-row-env');
   rowsEnv.forEach(row => {
     const comercio = (row.getAttribute('data-comercio') || '').toLowerCase();
+    const razon = (row.getAttribute('data-razon') || '').toLowerCase();
+    const rut = (row.getAttribute('data-rut') || '').toLowerCase();
+    const rutClean = rut.replace(/\./g, '');
+    const rep = (row.getAttribute('data-rep') || '').toLowerCase();
     const pagoEnv = row.getAttribute('data-pago-env') || '';
     const factEnv = row.getAttribute('data-fact-env') || '';
     const saldoEnv = parseFloat(row.getAttribute('data-saldo-env') || '0');
@@ -64512,7 +65601,12 @@ window.filterBillingRows = function(periodId) {
     const isSinFolio = row.getAttribute('data-sin-folio-env') === 'true';
     const isAlDia = row.getAttribute('data-is-aldia-env') === 'true';
 
-    const matchQuery = !queryEnv || comercio.includes(queryEnv);
+    const matchQuery = !queryEnv ||
+      comercio.includes(queryEnv) ||
+      razon.includes(queryEnv) ||
+      rut.includes(queryEnv) ||
+      (queryEnvCleanRut && rutClean.includes(queryEnvCleanRut)) ||
+      rep.includes(queryEnv);
     const matchPago = !filterPagoEnv || filterPagoEnv.includes(pagoEnv);
     const matchFact = !filterFactEnv || filterFactEnv.includes(factEnv);
 
@@ -64705,14 +65799,24 @@ window.filterBillingSummaryRows = function(periodId) {
   const statusSelect = document.getElementById(`filter-resumen-status-${periodId}`);
 
   const query = (searchInput?.value || '').toLowerCase().trim();
+  const queryCleanRut = query.replace(/\./g, '');
   const statusFilter = statusSelect?.value || 'all';
 
   const rows = container.querySelectorAll('.billing-record-row-resumen');
   rows.forEach(row => {
     const comercio = (row.getAttribute('data-comercio') || '').toLowerCase();
+    const razon = (row.getAttribute('data-razon') || '').toLowerCase();
+    const rut = (row.getAttribute('data-rut') || '').toLowerCase();
+    const rutClean = rut.replace(/\./g, '');
+    const rep = (row.getAttribute('data-rep') || '').toLowerCase();
     const debtStatus = row.getAttribute('data-debt-status') || '';
 
-    const matchQuery = !query || comercio.includes(query);
+    const matchQuery = !query ||
+      comercio.includes(query) ||
+      razon.includes(query) ||
+      rut.includes(query) ||
+      (queryCleanRut && rutClean.includes(queryCleanRut)) ||
+      rep.includes(query);
     const matchStatus = statusFilter === 'all' || debtStatus === statusFilter;
 
     if (matchQuery && matchStatus) {
@@ -64874,11 +65978,16 @@ window.exportBillingPeriodSummaryToExcel = async function(periodId, periodName) 
       }
     }
 
-    const { data: records, error } = await supabase
-      .from('billing_records')
-      .select('*')
-      .eq('period_id', periodId)
-      .order('comercio', { ascending: true });
+    const [recRes, legalDataset] = await Promise.all([
+      supabase
+        .from('billing_records')
+        .select('*')
+        .eq('period_id', periodId)
+        .order('comercio', { ascending: true }),
+      window.fetchBillingCommerceLegalDataset ? window.fetchBillingCommerceLegalDataset() : Promise.resolve(null)
+    ]);
+
+    const { data: records, error } = recRes;
 
     if (error) throw error;
     if (!records || records.length === 0) {
@@ -64887,6 +65996,7 @@ window.exportBillingPeriodSummaryToExcel = async function(periodId, periodName) 
     }
 
     const rows = records.map(r => {
+      const legalInfo = window.getBillingCommerceLegalInfo ? window.getBillingCommerceLegalInfo(r.comercio, legalDataset) : {};
       const totalFulf = r.total_fulfillment || 0;
       const abonoFulf = r.abono_fulfillment || 0;
       const totalEnv = r.enviame || 0;
@@ -64907,6 +66017,9 @@ window.exportBillingPeriodSummaryToExcel = async function(periodId, periodName) 
 
       return {
         'Comercio': r.comercio,
+        'Razón Social': legalInfo.razon_social || '-',
+        'RUT Comercio': legalInfo.rut || '-',
+        'Representante Legal': legalInfo.rep_legal_nombre || '-',
         'Total Fulfillment': totalFulf,
         'Abono Fulfillment': abonoFulf,
         'Estado Pago Fulfillment': r.pago_fulfillment || '-',
@@ -66222,11 +67335,16 @@ window.deleteBillingRecord = async function(recordId, commerceName, periodId) {
 
 window.exportPeriodToExcel = async function(periodId, periodName) {
   try {
-    const { data: records, error } = await supabase
-      .from('billing_records')
-      .select('*')
-      .eq('period_id', periodId)
-      .order('comercio', { ascending: true });
+    const [recRes, legalDataset] = await Promise.all([
+      supabase
+        .from('billing_records')
+        .select('*')
+        .eq('period_id', periodId)
+        .order('comercio', { ascending: true }),
+      window.fetchBillingCommerceLegalDataset ? window.fetchBillingCommerceLegalDataset() : Promise.resolve(null)
+    ]);
+
+    const { data: records, error } = recRes;
       
     if (error) throw error;
     
@@ -66235,23 +67353,29 @@ window.exportPeriodToExcel = async function(periodId, periodName) {
       return;
     }
     
-    const rows = records.map(r => ({
-      'Comercio': r.comercio,
-      'Fecha Límite Fulf.': r.fecha_limite || '-',
-      'Desglose Fulf.': r.desglose_fulfillment || '-',
-      'Total Fulf.': r.total_fulfillment || 0,
-      'Abonos Fulf.': r.abono_fulfillment || 0,
-      'Pago Fulf.': r.pago_fulfillment || '-',
-      'Factura Fulf.': r.factura_fulfillment || '-',
-      'N° Factura Fulf.': r.num_factura || '-',
-      'Fecha Límite Env.': r.fecha_limite_enviame || '-',
-      'Enviame': r.enviame || 0,
-      'Abono Env.': r.abono_enviame || 0,
-      'Pago Env.': r.pago_enviame || '-',
-      'Fact. Env.': r.factura_enviame || '-',
-      'N° Factura Env.': r.num_factura_enviame || '-',
-      'Total General': (r.total_fulfillment || 0) + (r.enviame || 0)
-    }));
+    const rows = records.map(r => {
+      const legalInfo = window.getBillingCommerceLegalInfo ? window.getBillingCommerceLegalInfo(r.comercio, legalDataset) : {};
+      return {
+        'Comercio': r.comercio,
+        'Razón Social': legalInfo.razon_social || '-',
+        'RUT Comercio': legalInfo.rut || '-',
+        'Representante Legal': legalInfo.rep_legal_nombre || '-',
+        'Fecha Límite Fulf.': r.fecha_limite || '-',
+        'Desglose Fulf.': r.desglose_fulfillment || '-',
+        'Total Fulf.': r.total_fulfillment || 0,
+        'Abonos Fulf.': r.abono_fulfillment || 0,
+        'Pago Fulf.': r.pago_fulfillment || '-',
+        'Factura Fulf.': r.factura_fulfillment || '-',
+        'N° Factura Fulf.': r.num_factura || '-',
+        'Fecha Límite Env.': r.fecha_limite_enviame || '-',
+        'Enviame': r.enviame || 0,
+        'Abono Env.': r.abono_enviame || 0,
+        'Pago Env.': r.pago_enviame || '-',
+        'Fact. Env.': r.factura_enviame || '-',
+        'N° Factura Env.': r.num_factura_enviame || '-',
+        'Total General': (r.total_fulfillment || 0) + (r.enviame || 0)
+      };
+    });
     
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -66691,7 +67815,7 @@ let cachedDashboardCommerceAdicionalConfig = [];
 let cachedDashboardBillingMappings = [];
 
 async function fetchBillingDashboardData() {
-  const [recRes, perRes, csRes, adcRes, mapRes] = await Promise.all([
+  const [recRes, perRes, csRes, legalDataset] = await Promise.all([
     supabase
       .from('billing_records')
       .select('*, billing_periods(name, status, period_month, period_year)'),
@@ -66703,20 +67827,7 @@ async function fetchBillingDashboardData() {
     supabase
       .from('commerce_billing_status')
       .select('*'),
-    supabase
-      .from('comercios_adicional_config')
-      .select('comercio, rut, razon_social')
-      .then(r => r, e => {
-        console.warn("Error fetching comercios_adicional_config for dashboard:", e);
-        return { data: [] };
-      }),
-    supabase
-      .from('billing_mappings')
-      .select('comercio_nombre, billing_name')
-      .then(r => r, e => {
-        console.warn("Error fetching billing_mappings for dashboard:", e);
-        return { data: [] };
-      })
+    window.fetchBillingCommerceLegalDataset ? window.fetchBillingCommerceLegalDataset() : Promise.resolve(null)
   ]);
 
   if (recRes.error) throw recRes.error;
@@ -66726,8 +67837,8 @@ async function fetchBillingDashboardData() {
   cachedDashboardRecords = recRes.data || [];
   cachedDashboardPeriods = perRes.data || [];
   cachedDashboardCommerceStatus = csRes.data || [];
-  cachedDashboardCommerceAdicionalConfig = adcRes?.data || [];
-  cachedDashboardBillingMappings = mapRes?.data || [];
+  cachedDashboardCommerceAdicionalConfig = legalDataset?.configs || [];
+  cachedDashboardBillingMappings = legalDataset?.mappings || [];
 }
 
 async function loadBillingMetricsDashboard() {
@@ -67625,13 +68736,17 @@ window.updateDashboardCommerceView = function() {
   
   const statusObj = cachedDashboardCommerceStatus.find(s => s.comercio.toLowerCase() === commerce.toLowerCase());
   const isAlDia = statusObj ? statusObj.al_dia : true;
+  const legalInfo = window.getBillingCommerceLegalInfo ? window.getBillingCommerceLegalInfo(commerce) : {};
   
   const statusIndicator = document.getElementById('d-commerce-status-indicator');
   if (statusIndicator) {
     statusIndicator.innerHTML = `
-      <span class="badge ${isAlDia ? 'badge-success' : 'badge-danger'}" style="text-transform: uppercase; font-size: 0.75rem; padding: 0.25rem 0.5rem; font-weight: 600;">
-        Estado del Servicio: ${isAlDia ? 'Al Día (Activo)' : 'Pausado / Suspendido'}
-      </span>
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; justify-content: flex-end;">
+        ${window.renderCommerceLegalSubBlockHtml ? window.renderCommerceLegalSubBlockHtml(commerce, legalInfo) : ''}
+        <span class="badge ${isAlDia ? 'badge-success' : 'badge-danger'}" style="text-transform: uppercase; font-size: 0.75rem; padding: 0.25rem 0.5rem; font-weight: 600;">
+          Estado del Servicio: ${isAlDia ? 'Al Día (Activo)' : 'Pausado / Suspendido'}
+        </span>
+      </div>
     `;
   }
   
@@ -67798,7 +68913,7 @@ function renderDashboardPendingView() {
   }
 
   cachedDashboardRecords.forEach(r => {
-    const extra = configMap.get((r.comercio || '').toLowerCase().trim()) || {};
+    const legal = window.getBillingCommerceLegalInfo ? window.getBillingCommerceLegalInfo(r.comercio) : (configMap.get((r.comercio || '').toLowerCase().trim()) || {});
     if (r.factura_fulfillment === 'Facturar') {
       invoicesToEmit.push({ 
         recordId: r.id, 
@@ -67808,8 +68923,9 @@ function renderDashboardPendingView() {
         amount: r.total_fulfillment, 
         type: 'fulfillment', 
         paymentStatus: r.pago_fulfillment || 'Sin estado',
-        rut: extra.rut || '',
-        razonSocial: extra.razon_social || ''
+        rut: legal.rut || '',
+        razonSocial: legal.razon_social || '',
+        repLegal: legal.rep_legal_nombre || ''
       });
     }
     if (r.factura_enviame === 'Facturar') {
@@ -67821,8 +68937,9 @@ function renderDashboardPendingView() {
         amount: r.enviame, 
         type: 'enviame', 
         paymentStatus: r.pago_enviame || 'Sin estado',
-        rut: extra.rut || '',
-        razonSocial: extra.razon_social || ''
+        rut: legal.rut || '',
+        razonSocial: legal.razon_social || '',
+        repLegal: legal.rep_legal_nombre || ''
       });
     }
   });
@@ -67850,11 +68967,11 @@ function renderDashboardPendingView() {
   }
   
   let invoicesRows = invoicesToEmit.map(i => `
-    <tr data-commerce="${i.commerce}" data-rut="${i.rut || ''}" data-razon="${i.razonSocial || ''}" data-period="${i.periodName}" data-service="${i.service}">
+    <tr data-commerce="${i.commerce}" data-rut="${i.rut || ''}" data-razon="${i.razonSocial || ''}" data-rep="${i.repLegal || ''}" data-period="${i.periodName}" data-service="${i.service}">
       <td>
         <strong>${i.commerce}</strong>
-        ${i.rut || i.razonSocial ? `
-          <div style="font-size: 0.725rem; color: var(--color-text-muted); margin-top: 0.15rem; font-weight: normal; line-height: 1.2; display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap;">
+        ${i.rut || i.razonSocial || i.repLegal ? `
+          <div style="font-size: 0.725rem; color: var(--color-text-muted); margin-top: 0.15rem; font-weight: normal; line-height: 1.3; display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;">
             ${i.rut ? `
               <span style="display: inline-flex; align-items: center; gap: 0.2rem;">
                 RUT: ${i.rut}
@@ -67865,6 +68982,8 @@ function renderDashboardPendingView() {
             ` : ''}
             ${i.rut && i.razonSocial ? '<span style="opacity: 0.5;">|</span>' : ''}
             ${i.razonSocial ? `<span>${i.razonSocial}</span>` : ''}
+            ${(i.rut || i.razonSocial) && i.repLegal ? '<span style="opacity: 0.5;">|</span>' : ''}
+            ${i.repLegal ? `<span title="Representante Legal"><i class="ri-user-star-line" style="color: #0d9488;"></i> ${i.repLegal}</span>` : ''}
           </div>
         ` : ''}
       </td>
@@ -68201,6 +69320,7 @@ window.applyPendingInvoiceFilters = function() {
     const rowCommerce = row.dataset.commerce || '';
     const rowRut = row.dataset.rut || '';
     const rowRazon = row.dataset.razon || '';
+    const rowRep = row.dataset.rep || '';
     const rowPeriod = row.dataset.period || '';
     const rowService = row.dataset.service || '';
     
@@ -68209,7 +69329,8 @@ window.applyPendingInvoiceFilters = function() {
     const matchSearch = !cleanSearchVal || 
       rowCommerce.toLowerCase().includes(cleanSearchVal) ||
       rowRut.replace(/\./g, '').toLowerCase().includes(cleanSearchVal.replace(/\./g, '')) ||
-      rowRazon.toLowerCase().includes(cleanSearchVal);
+      rowRazon.toLowerCase().includes(cleanSearchVal) ||
+      rowRep.toLowerCase().includes(cleanSearchVal);
       
     const matchPeriod = !periodVal || rowPeriod === periodVal;
     const matchService = !serviceVal || rowService === serviceVal;
@@ -68330,9 +69451,10 @@ window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
       });
     }
 
-    const extra = configMap.get((record.comercio || '').toLowerCase().trim()) || {};
-    const rut = extra.rut || '';
-    const razonSocial = extra.razon_social || '';
+    const legal = window.getBillingCommerceLegalInfo ? window.getBillingCommerceLegalInfo(record.comercio) : (configMap.get((record.comercio || '').toLowerCase().trim()) || {});
+    const rut = legal.rut || '';
+    const razonSocial = legal.razon_social || '';
+    const repLegal = legal.rep_legal_nombre || '';
     const amount = serviceType === 'fulfillment' ? (record.total_fulfillment || 0) : (record.enviame || 0);
 
     const periodRaw = record.billing_periods?.name || '';
@@ -68372,8 +69494,8 @@ window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
                 </div>
               </div>
 
-              <!-- Fila: Datos de la Empresa (Razón Social y RUT) -->
-              ${rut || razonSocial ? `
+              <!-- Fila: Datos de la Empresa (Razón Social, RUT y Representante Legal) -->
+              ${rut || razonSocial || repLegal ? `
                 <div style="display: flex; flex-direction: column; gap: 0.4rem; border-bottom: 1px dashed var(--color-border); padding-bottom: 0.5rem; margin-bottom: 0.25rem;">
                   ${razonSocial ? `
                     <div>
@@ -68390,6 +69512,15 @@ window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
                         <button type="button" class="copy-amount-btn" style="width: 20px; height: 20px; font-size: 0.7rem;" onclick="copyRutToClipboard('${rut}', this)" title="Copiar RUT sin puntos">
                           <i class="ri-file-copy-line"></i>
                         </button>
+                      </div>
+                    </div>
+                  ` : ''}
+                  ${repLegal ? `
+                    <div>
+                      <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600; letter-spacing: 0.03em;">Representante Legal</div>
+                      <div style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; font-weight: 600; color: var(--color-text-main); margin-top: 0.1rem;">
+                        <i class="ri-user-star-line" style="color: #0d9488; font-size: 0.9rem;"></i>
+                        <span>${repLegal}</span>
                       </div>
                     </div>
                   ` : ''}
@@ -79094,8 +80225,10 @@ window.editWmsOrderComuna = async function(orderId) {
 
   const allComunas = window.getChileCommunesList();
 
-  const optionsHtml = allComunas.map(c => `
-    <div class="comuna-option-item" data-value="${c.name}" style="padding: 0.5rem; cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; font-weight: 500; color: var(--color-text-main);">
+  const optionsHtml = allComunas.map(c => {
+    const normSearch = String(c.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    return `
+    <div class="comuna-option-item" data-value="${c.name}" data-search="${normSearch}" style="padding: 0.5rem; cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; font-weight: 500; color: var(--color-text-main);">
       <div>
         <span>${c.name}</span>
         ${c.region ? `<span style="font-size: 0.72rem; color: var(--color-text-muted); margin-left: 0.35rem;">(${c.region})</span>` : ''}
@@ -79105,7 +80238,8 @@ window.editWmsOrderComuna = async function(orderId) {
         : `<span style="background: rgba(59, 130, 246, 0.1); color: #2563eb; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700;">Región / Otras</span>`
       }
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   const modalHtml = `
     <div style="text-align: left; display: flex; flex-direction: column; gap: 0.75rem;">
@@ -79162,15 +80296,8 @@ window.editWmsOrderComuna = async function(orderId) {
         selectedComuna = e.target.value;
 
         items.forEach(item => {
-          const val = item.getAttribute('data-value').toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '');
-          
-          if (val.includes(text)) {
-            item.style.display = 'flex';
-          } else {
-            item.style.display = 'none';
-          }
+          const val = item.getAttribute('data-search') || '';
+          item.style.display = val.includes(text) ? 'flex' : 'none';
         });
       });
 
@@ -79227,50 +80354,60 @@ window.editWmsOrderComuna = async function(orderId) {
         if (order) {
           order.shipping_city = newComuna;
           order.comuna = newComuna;
-          delete order._wmsTags;
           if (rawKey && updatePayload[rawKey]) {
             order[rawKey] = updatePayload[rawKey];
           }
-        }
-
-        // Sincronizar en Picker active_orders si existe
-        if (pickerSupabase && order) {
-          const orderNumber = String(order.external_order_number || order.id);
-          try {
-            await pickerSupabase
-              .from('active_orders')
-              .update({ contact_data_t: String(newComuna || '').slice(0, 255) })
-              .eq('order_number', orderNumber);
-            console.log(`✅ Comuna sincronizada en Picker active_orders para ${orderNumber}: ${newComuna}`);
-          } catch (pErr) {
-            console.warn('Aviso sincronizando comuna con Picker:', pErr);
-          }
-          if (order.estado_wms === 'En preparación' && typeof window.propagateOrderUpdateToPicker === 'function') {
-            window.propagateOrderUpdateToPicker(order).catch(err => console.warn('Picker prop error:', err));
+          if (typeof window.clearSingleOrderWmsCache === 'function') {
+            window.clearSingleOrderWmsCache(order);
+          } else {
+            delete order._wmsTags;
           }
         }
 
-        // Registrar en order_audit_logs
-        try {
-          const { data: { session } } = await supabase.auth.getSession();
-          await supabase.from('order_audit_logs').insert({
-            order_id: orderId,
-            user_id: session?.user?.id || null,
-            user_email: session?.user?.email || 'admin@stocka.cl',
-            action: 'Modificación de Comuna/Ciudad',
-            details: {
-              changes: [`Comuna/Ciudad cambiada a: "${newComuna}" (anterior: "${currentComuna || 'No registrada'}")`]
-            }
-          });
-        } catch (audErr) {
-          console.warn('Error registrando auditoría de comuna:', audErr);
-        }
-
-        Swal.fire('¡Éxito!', 'La comuna ha sido actualizada correctamente.', 'success');
+        // Actualizar interfaz inmediatamente tras confirmar el guardado principal en Supabase
         window.applyWmsFiltersAndRender();
         if (typeof window.refreshAgendasOrderCell === 'function') {
           window.refreshAgendasOrderCell(orderId, 'comuna', newComuna);
         }
+        Swal.fire({
+          icon: 'success',
+          title: '¡Éxito!',
+          text: 'La comuna ha sido actualizada correctamente.',
+          timer: 1500,
+          showConfirmButton: false
+        });
+
+        // Ejecutar sincronización con Picker y registro de auditoría en segundo plano sin bloquear la UI
+        (async () => {
+          if (pickerSupabase && order && (order.estado_wms === 'En preparación' || order.estado_wms === 'Pickeado')) {
+            if (typeof window.propagateOrderUpdateToPicker === 'function') {
+              window.propagateOrderUpdateToPicker(order).catch(err => console.warn('Picker prop error:', err));
+            } else {
+              const orderNumber = String(order.external_order_number || order.id);
+              pickerSupabase
+                .from('active_orders')
+                .update({ contact_data_t: String(newComuna || '').slice(0, 255) })
+                .eq('order_number', orderNumber)
+                .then(() => console.log(`✅ Comuna sincronizada en Picker active_orders para ${orderNumber}: ${newComuna}`))
+                .catch(pErr => console.warn('Aviso sincronizando comuna con Picker:', pErr));
+            }
+          }
+
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            await supabase.from('order_audit_logs').insert({
+              order_id: orderId,
+              user_id: session?.user?.id || null,
+              user_email: session?.user?.email || 'admin@stocka.cl',
+              action: 'Modificación de Comuna/Ciudad',
+              details: {
+                changes: [`Comuna/Ciudad cambiada a: "${newComuna}" (anterior: "${currentComuna || 'No registrada'}")`]
+              }
+            });
+          } catch (audErr) {
+            console.warn('Error registrando auditoría de comuna:', audErr);
+          }
+        })();
       } catch (err) {
         console.error(err);
         Swal.fire('Error', 'No se pudo guardar la comuna: ' + err.message, 'error');
@@ -79475,74 +80612,18 @@ window.editWmsOrderShippingDetails = async function(orderId) {
       order.shipping_complement = formValues.complement;
       order.shipping_city = formValues.city;
       order.comuna = formValues.city;
-      delete order._wmsTags;
       if (order.notas !== undefined) order.notas = formValues.note;
       if (order.observation !== undefined) order.observation = formValues.note;
       if (rawKey && updatePayload[rawKey]) {
         order[rawKey] = updatePayload[rawKey];
       }
-
-      // Sincronizar con el Picker si el pedido está activo en el Picker
-      if (typeof pickerSupabase !== 'undefined' && pickerSupabase) {
-        try {
-          const orderNumber = String(order.external_order_number || order.id);
-          const newObservation = window.buildPickerObservation ? window.buildPickerObservation(order, '') : (formValues.note || '');
-          const { data: activeCheck } = await pickerSupabase
-            .from('active_orders')
-            .select('id')
-            .eq('order_number', orderNumber)
-            .limit(1);
-
-          if (activeCheck && activeCheck.length > 0) {
-            await pickerSupabase
-              .from('active_orders')
-              .update({
-                client_name: (formValues.name || 'Sin nombre').slice(0, 255),
-                contact_data_q: (formValues.email || '').slice(0, 255),
-                contact_data_r: (formValues.phone || '').slice(0, 255),
-                contact_data_s: (formValues.address || '').slice(0, 255),
-                contact_data_t: (formValues.city || '').slice(0, 255),
-                contact_data_u: (formValues.complement || '').slice(0, 255),
-                observation: (newObservation || '').slice(0, 1000)
-              })
-              .eq('order_number', orderNumber);
-            console.log(`✅ Datos de despacho y notas sincronizados en Picker active_orders para ${orderNumber}`);
-          }
-
-          // Si existe en sucursal_pickups, sincronizar también
-          try {
-            await pickerSupabase
-              .from('sucursal_pickups')
-              .update({
-                nombre_apellido: String(formValues.name || 'Sin nombre').slice(0, 255),
-                observaciones: `${String(formValues.name || 'Cliente').slice(0, 255)} | ${formValues.note ? String(formValues.note).slice(0, 500) + ' | ' : ''}Ingreso automático desde WMS`.slice(0, 1000)
-              })
-              .eq('pedido', orderNumber);
-          } catch (pErr) {
-            // opcional
-          }
-        } catch (pickerSyncErr) {
-          console.warn('Error sincronizando cambios de despacho/notas a Picker:', pickerSyncErr);
-        }
+      if (typeof window.clearSingleOrderWmsCache === 'function') {
+        window.clearSingleOrderWmsCache(order);
+      } else {
+        delete order._wmsTags;
       }
 
-      // Registrar en order_audit_logs
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        await supabase.from('order_audit_logs').insert({
-          order_id: orderId,
-          user_id: session?.user?.id || null,
-          user_email: session?.user?.email || 'admin@stocka.cl',
-          action: 'Modificación de Datos de Despacho',
-          details: {
-            changes: changesList.length > 0 ? changesList : ['Datos de despacho actualizados']
-          }
-        });
-      } catch (audErr) {
-        console.warn('Error registrando auditoría de despacho:', audErr);
-      }
-
-      Swal.fire('¡Éxito!', 'Los datos de despacho han sido actualizados correctamente.', 'success');
+      // Actualizar interfaz inmediatamente tras confirmar el guardado principal en Supabase
       window.applyWmsFiltersAndRender();
       if (typeof window.refreshAgendasOrderCell === 'function') {
         window.refreshAgendasOrderCell(orderId, 'cliente', formValues.name);
@@ -79550,6 +80631,76 @@ window.editWmsOrderShippingDetails = async function(orderId) {
         window.refreshAgendasOrderCell(orderId, 'complemento', formValues.complement);
         window.refreshAgendasOrderCell(orderId, 'comuna', formValues.city);
       }
+      Swal.fire({
+        icon: 'success',
+        title: '¡Éxito!',
+        text: 'Los datos de despacho han sido actualizados correctamente.',
+        timer: 1500,
+        showConfirmButton: false
+      });
+
+      // Sincronizar con el Picker y registrar auditoría en segundo plano sin bloquear la UI
+      (async () => {
+        if (typeof pickerSupabase !== 'undefined' && pickerSupabase) {
+          try {
+            const orderNumber = String(order.external_order_number || order.id);
+            const newObservation = window.buildPickerObservation ? window.buildPickerObservation(order, '') : (formValues.note || '');
+            const { data: activeCheck } = await pickerSupabase
+              .from('active_orders')
+              .select('id')
+              .eq('order_number', orderNumber)
+              .limit(1);
+
+            if (activeCheck && activeCheck.length > 0) {
+              await pickerSupabase
+                .from('active_orders')
+                .update({
+                  client_name: (formValues.name || 'Sin nombre').slice(0, 255),
+                  contact_data_q: (formValues.email || '').slice(0, 255),
+                  contact_data_r: (formValues.phone || '').slice(0, 255),
+                  contact_data_s: (formValues.address || '').slice(0, 255),
+                  contact_data_t: (formValues.city || '').slice(0, 255),
+                  contact_data_u: (formValues.complement || '').slice(0, 255),
+                  observation: (newObservation || '').slice(0, 1000)
+                })
+                .eq('order_number', orderNumber);
+              console.log(`✅ Datos de despacho y notas sincronizados en Picker active_orders para ${orderNumber}`);
+            }
+
+            if (String(order.agenda || '').toUpperCase().trim() === 'RETIRO' || String(order.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') {
+              try {
+                await pickerSupabase
+                  .from('sucursal_pickups')
+                  .update({
+                    nombre_apellido: String(formValues.name || 'Sin nombre').slice(0, 255),
+                    observaciones: `${String(formValues.name || 'Cliente').slice(0, 255)} | ${formValues.note ? String(formValues.note).slice(0, 500) + ' | ' : ''}Ingreso automático desde WMS`.slice(0, 1000)
+                  })
+                  .eq('pedido', orderNumber);
+              } catch (pErr) {
+                // opcional
+              }
+            }
+          } catch (pickerSyncErr) {
+            console.warn('Error sincronizando cambios de despacho/notas a Picker:', pickerSyncErr);
+          }
+        }
+
+        // Registrar en order_audit_logs
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          await supabase.from('order_audit_logs').insert({
+            order_id: orderId,
+            user_id: session?.user?.id || null,
+            user_email: session?.user?.email || 'admin@stocka.cl',
+            action: 'Modificación de Datos de Despacho',
+            details: {
+              changes: changesList.length > 0 ? changesList : ['Datos de despacho actualizados']
+            }
+          });
+        } catch (audErr) {
+          console.warn('Error registrando auditoría de despacho:', audErr);
+        }
+      })();
     } catch (err) {
       console.error(err);
       Swal.fire('Error', 'No se pudieron guardar los datos: ' + err.message, 'error');
@@ -79974,8 +81125,10 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
       const effectiveTracking = ldSourceDid || (s.tracking || '').trim() || optiUuid || (s.source_table === 'optiroute_orders' ? (s.source_id ? 'OPT-' + s.source_id : s.pedido_referencia) : null);
       if (effectiveTracking) {
         let tUrl = s.tracking_url;
-        if (s.source_table === 'optiroute_orders' && !tUrl && optiUuid) {
-          tUrl = `https://app.optiroute.cl/service_requets/tracking/${encodeURIComponent(optiUuid)}/`;
+        if (s.source_table === 'optiroute_orders' && optiUuid) {
+          tUrl = window.getPublicWmsTrackingUrlForTarget
+            ? window.getPublicWmsTrackingUrlForTarget(s, order, optiUuid)
+            : null;
         }
         if (isLd) {
           if (s.raw_data && s.raw_data[31]) {
@@ -81161,12 +82314,12 @@ window.openWmsOrderModal = async function(orderId) {
 
     if (updateErr) throw updateErr;
 
-    // Actualizar bodega de ítems si corresponde
+    // Actualizar bodega de ítems solo si realmente cambió respecto a la actual
     const targetWhId = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
       ? formValues.bodegaStock
       : (typeof getWarehouseIdFromSucursal === 'function' ? getWarehouseIdFromSucursal(formValues.sucursal) : null);
 
-    if (targetWhId) {
+    if (targetWhId && (order.order_items || []).some(it => it.warehouse_id !== targetWhId)) {
       const { error: itemsWhErr } = await supabase
         .from('order_items')
         .update({ warehouse_id: targetWhId })
@@ -81178,13 +82331,13 @@ window.openWmsOrderModal = async function(orderId) {
       (order.order_items || []).forEach(it => { it.warehouse_id = targetWhId; });
     }
 
-    // Guardar y sincronizar nota interna de administración si se modificó
-    if (formValues.admin_notes !== undefined && typeof window.saveOrderAdminNote === 'function') {
-      try {
-        await window.saveOrderAdminNote(orderId, formValues.admin_notes, true);
-      } catch (adminNoteErr) {
+    // Guardar y sincronizar nota interna de administración solo si efectivamente se modificó
+    const prevAdminNote = String(order.admin_notes || order._adminNotes || window.orderAdminNotesMap?.[orderId] || '').trim();
+    const nextAdminNote = formValues.admin_notes !== undefined ? String(formValues.admin_notes || '').trim() : prevAdminNote;
+    if (formValues.admin_notes !== undefined && nextAdminNote !== prevAdminNote && typeof window.saveOrderAdminNote === 'function') {
+      window.saveOrderAdminNote(orderId, formValues.admin_notes, true).catch(adminNoteErr => {
         console.warn('Aviso guardando nota interna en openWmsOrderModal:', adminNoteErr);
-      }
+      });
     }
 
     // Actualizar memoria local
@@ -81205,9 +82358,13 @@ window.openWmsOrderModal = async function(orderId) {
     }
     if (order.notas !== undefined) order.notas = formValues.note;
     if (order.observation !== undefined) order.observation = formValues.note;
-    delete order._wmsTags;
-    delete order._wmsShipmentGlobalStatus;
-    delete order._clientShipmentStatus;
+    if (typeof window.clearSingleOrderWmsCache === 'function') {
+      window.clearSingleOrderWmsCache(order);
+    } else {
+      delete order._wmsTags;
+      delete order._wmsShipmentGlobalStatus;
+      delete order._clientShipmentStatus;
+    }
 
     // Sincronizar en memoria en window.agendasGridState.filteredOrders si existe
     if (window.agendasGridState?.filteredOrders) {
@@ -81228,29 +82385,13 @@ window.openWmsOrderModal = async function(orderId) {
             window.orderAdminNotesMap[fOrd.external_order_number] = formValues.admin_notes;
           }
         }
-        delete fOrd._wmsTags;
-        delete fOrd._wmsShipmentGlobalStatus;
-        delete fOrd._clientShipmentStatus;
-      }
-    }
-
-    // Sincronizar Picker si el pedido está activo o en preparación
-    if (order.estado_wms === 'En preparación' || updatePayload.status === 'en preparación') {
-      if (typeof window.propagateOrderUpdateToPicker === 'function') {
-        try {
-          await window.propagateOrderUpdateToPicker(order);
-        } catch (pickErr) {
-          console.warn('Aviso: no se pudo propagar al Picker:', pickErr);
+        if (typeof window.clearSingleOrderWmsCache === 'function') {
+          window.clearSingleOrderWmsCache(fOrd);
+        } else {
+          delete fOrd._wmsTags;
+          delete fOrd._wmsShipmentGlobalStatus;
+          delete fOrd._clientShipmentStatus;
         }
-      }
-    }
-
-    // Registrar retiro en tienda si la agenda es RETIRO
-    if (typeof window.registerPickupIfNeeded === 'function') {
-      try {
-        await window.registerPickupIfNeeded(order);
-      } catch (retErr) {
-        console.warn('Aviso al registrar retiro:', retErr);
       }
     }
 
@@ -81268,7 +82409,7 @@ window.openWmsOrderModal = async function(orderId) {
       window.refreshAgendasOrderCell(orderId, 'admin_notes', formValues.admin_notes);
     }
 
-    // Re-renderizar Torre de Control
+    // Re-renderizar Torre de Control inmediatamente
     if (typeof window.applyWmsFiltersAndRender === 'function') {
       window.applyWmsFiltersAndRender();
     }
@@ -81280,6 +82421,22 @@ window.openWmsOrderModal = async function(orderId) {
       timer: 2000,
       showConfirmButton: false
     });
+
+    // Sincronizar Picker y registrar retiro en tienda en segundo plano sin bloquear la UI
+    (async () => {
+      if (order.estado_wms === 'En preparación' || updatePayload.status === 'en preparación') {
+        if (typeof window.propagateOrderUpdateToPicker === 'function') {
+          window.propagateOrderUpdateToPicker(order).catch(pickErr => {
+            console.warn('Aviso: no se pudo propagar al Picker:', pickErr);
+          });
+        }
+      }
+      if (typeof window.registerPickupIfNeeded === 'function') {
+        window.registerPickupIfNeeded(order).catch(retErr => {
+          console.warn('Aviso al registrar retiro:', retErr);
+        });
+      }
+    })();
 
   } catch (err) {
     console.error('Error al guardar ficha del pedido:', err);
@@ -81727,7 +82884,7 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
     try {
       const { data: freshOrder } = await supabase
         .from('orders')
-        .select('id, external_order_number, tracking_number, operador, courier, agenda, sucursal_pickeo, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, raw_shopify_data, raw_meli_data, raw_woocommerce_data, raw_jumpseller_data, raw_tiendanube_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_walmart_data, cantidad, item, sku, shipping_method')
+        .select('id, external_order_number, tracking_number, operador, courier, agenda, sucursal_pickeo, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, raw_lightdata_data, raw_shopify_data, raw_meli_data, raw_woocommerce_data, raw_jumpseller_data, raw_tiendanube_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_walmart_data, cantidad, item, sku, shipping_method')
         .eq('id', order.id)
         .maybeSingle();
       if (freshOrder) {
@@ -86247,6 +87404,1197 @@ window.deleteContact = async function(id) {
   }
 };
 
+window.BILLING_EMAIL_TEMPLATE_OPTIONS = [
+  {
+    id: 'billing_summary',
+    step: '1',
+    shortLabel: 'Desglose / Resumen',
+    fullLabel: 'Desglose / Resumen de Facturación',
+    description: 'Notificación estándar con el detalle de cobros del periodo, fecha de vencimiento y acceso al desglose PDF/360°.',
+    icon: 'ri-file-list-3-line',
+    color: '#2563eb',
+    bgLight: '#eff6ff',
+    borderColor: '#bfdbfe'
+  },
+  {
+    id: 'payment_reminder',
+    step: '2',
+    shortLabel: 'Recordatorio Vencimiento',
+    fullLabel: 'Recordatorio de Vencimiento Próximo (Aviso preventivo amable)',
+    description: 'Aviso preventivo cordial recordando la fecha límite de pago e instrucciones para subir el comprobante.',
+    icon: 'ri-calendar-event-line',
+    color: '#0284c7',
+    bgLight: '#f0f9ff',
+    borderColor: '#bae6fd'
+  },
+  {
+    id: 'invoice_uploaded',
+    step: '3',
+    shortLabel: 'Factura Cargada',
+    fullLabel: 'Notificación de Factura Cargada',
+    description: 'Informa que la factura tributaria ya fue emitida y se encuentra disponible para descarga en el portal WMS.',
+    icon: 'ri-file-check-line',
+    color: '#059669',
+    bgLight: '#ecfdf5',
+    borderColor: '#a7f3d0'
+  },
+  {
+    id: 'payment_overdue_manual',
+    step: '4',
+    shortLabel: 'Plazo Vencido',
+    fullLabel: 'Aviso de Plazo de Pago Vencido',
+    description: 'Notificación de cobranza informando que la fecha límite venció e invitando a regularizar el saldo.',
+    icon: 'ri-error-warning-line',
+    color: '#ea580c',
+    bgLight: '#fff7ed',
+    borderColor: '#fed7aa'
+  },
+  {
+    id: 'suspension_warning',
+    step: '5',
+    shortLabel: 'Alerta de Corte',
+    fullLabel: 'Alerta de Corte de Servicio (Aviso de suspensión)',
+    description: 'Alerta urgente por retraso crítico de pago e información de deuda acumulada en otros periodos.',
+    icon: 'ri-alarm-warning-line',
+    color: '#dc2626',
+    bgLight: '#fef2f2',
+    borderColor: '#fecaca'
+  },
+  {
+    id: 'service_paused',
+    step: '6',
+    shortLabel: 'Servicio Pausado',
+    fullLabel: 'Notificación Formal de Servicio Pausado (Corte efectivo)',
+    description: 'Comunicación formal de suspensión de cuenta con tabla consolidada de todos los periodos adeudados.',
+    icon: 'ri-pause-circle-line',
+    color: '#991b1b',
+    bgLight: '#fef2f2',
+    borderColor: '#fca5a5'
+  },
+  {
+    id: 'service_restored',
+    step: '7',
+    shortLabel: 'Servicio Reactivado',
+    fullLabel: 'Confirmación de Re-activación del Servicio',
+    description: 'Confirmación positiva de cuenta regularizada y restablecimiento total de operaciones en WMS.',
+    icon: 'ri-checkbox-circle-line',
+    color: '#16a34a',
+    bgLight: '#f0fdf4',
+    borderColor: '#bbf7d0'
+  }
+];
+
+window.STOCKA_CC_PRESETS = [
+  { email: 'felipe.tp@stocka.cl', label: 'Felipe T.', role: 'Stocka' },
+  { email: 'kyria.op@stocka.cl', label: 'Kyria O.', role: 'Operaciones' },
+  { email: 'gestion@stocka.cl', label: 'Gestión', role: 'Stocka' },
+  { email: 'contacto@stocka.cl', label: 'Contacto', role: 'Stocka' }
+];
+
+window.getBillingCcInputEmails = function() {
+  const ccEmailEl = document.getElementById('email-recipient-cc');
+  const raw = ccEmailEl ? ccEmailEl.value.trim() : '';
+  if (!raw) return [];
+  const seen = new Set();
+  const list = [];
+  raw.split(/[,;\s]+/).map(e => e.trim().toLowerCase()).filter(Boolean).forEach(em => {
+    if (!seen.has(em)) {
+      seen.add(em);
+      list.push(em);
+    }
+  });
+  return list;
+};
+
+window.setBillingCcInputEmails = function(emailsArray) {
+  const ccEmailEl = document.getElementById('email-recipient-cc');
+  if (!ccEmailEl) return;
+  const unique = [];
+  const seen = new Set();
+  (emailsArray || []).forEach(em => {
+    const clean = String(em || '').trim().toLowerCase();
+    if (clean && !seen.has(clean)) {
+      seen.add(clean);
+      unique.push(clean);
+    }
+  });
+  ccEmailEl.value = unique.join(', ');
+};
+
+window.toggleBillingCcCapsule = function(targetEmail) {
+  const cleanTarget = String(targetEmail || '').trim().toLowerCase();
+  if (!cleanTarget) return;
+
+  const currentCc = window.getBillingCcInputEmails();
+  const existsInCc = currentCc.includes(cleanTarget);
+
+  if (existsInCc) {
+    window.setBillingCcInputEmails(currentCc.filter(e => e !== cleanTarget));
+  } else {
+    // Si el correo estaba marcado como destinatario principal (Para), desmarcarlo de Para al pasarlo a CC (siempre que quede otro Para o el usuario lo mueva a CC)
+    const paraCheckboxes = document.querySelectorAll('#modal-send-billing-email input[name="email-recipient"]');
+    paraCheckboxes.forEach(cb => {
+      if (String(cb.value || '').trim().toLowerCase() === cleanTarget && cb.checked) {
+        cb.checked = false;
+      }
+    });
+    currentCc.push(cleanTarget);
+    window.setBillingCcInputEmails(currentCc);
+  }
+
+  window.updateBillingEmailLivePreview();
+};
+
+window.toggleAllStockaCcCapsules = function() {
+  const currentCc = window.getBillingCcInputEmails();
+  const stockaEmails = (window.STOCKA_CC_PRESETS || []).map(p => p.email.toLowerCase());
+  const allPresent = stockaEmails.every(em => currentCc.includes(em));
+
+  if (allPresent) {
+    window.setBillingCcInputEmails(currentCc.filter(em => !stockaEmails.includes(em)));
+  } else {
+    const merged = [...currentCc];
+    stockaEmails.forEach(em => {
+      if (!merged.includes(em)) merged.push(em);
+    });
+    window.setBillingCcInputEmails(merged);
+  }
+
+  window.updateBillingEmailLivePreview();
+};
+
+window.renderBillingCcCapsules = function() {
+  const container = document.getElementById('billing-email-cc-capsules-container');
+  if (!container) return;
+
+  const ctx = window._currentBillingEmailModalCtx || {};
+  const commerceSuggestions = Array.isArray(ctx.commerceCcSuggestions) ? ctx.commerceCcSuggestions : [];
+  const stockaPresets = window.STOCKA_CC_PRESETS || [];
+
+  const activeCcSet = new Set(window.getBillingCcInputEmails());
+  const checkedParaSet = new Set(
+    Array.from(document.querySelectorAll('#modal-send-billing-email input[name="email-recipient"]:checked'))
+      .map(cb => String(cb.value || '').trim().toLowerCase())
+  );
+
+  // Filtrar o mostrar todos los contactos del comercio (indicando si ya están en Para o si están en CC)
+  const commercePillsHtml = commerceSuggestions.map(item => {
+    const emLower = item.email.toLowerCase();
+    const isCcActive = activeCcSet.has(emLower);
+    const isInPara = checkedParaSet.has(emLower) && !isCcActive;
+
+    const bg = isCcActive ? '#0284c7' : (isInPara ? '#f8fafc' : '#ffffff');
+    const color = isCcActive ? '#ffffff' : (isInPara ? '#64748b' : '#0f172a');
+    const border = isCcActive ? '#0284c7' : (isInPara ? '#e2e8f0' : '#cbd5e1');
+    const icon = isCcActive ? 'ri-check-line' : 'ri-add-line';
+    const badgeHint = isInPara ? ' <span style="font-size:0.63rem; color:#94a3b8; font-weight:500;">(en Para)</span>' : '';
+
+    return `
+      <button type="button"
+        onclick="window.toggleBillingCcCapsule('${item.email.replace(/'/g, "\\'")}')"
+        title="${isCcActive ? 'Quitar de CC' : (isInPara ? 'Mover de Para a Copia (CC)' : 'Agregar en copia (CC)')}: ${item.email}"
+        style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.2rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600; border: 1px solid ${border}; background: ${bg}; color: ${color}; cursor: pointer; transition: all 0.15s; line-height: 1.2;">
+        <i class="${icon}" style="font-size: 0.75rem; color: ${isCcActive ? '#ffffff' : '#0284c7'};"></i>
+        <span style="max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.label}</span>
+        <span style="opacity: ${isCcActive ? '0.9' : '0.68'}; font-weight: 500;">${item.email}</span>
+        ${badgeHint}
+      </button>
+    `;
+  }).join('');
+
+  const allStockaActive = stockaPresets.every(p => activeCcSet.has(p.email.toLowerCase()));
+  const stockaPillsHtml = stockaPresets.map(p => {
+    const emLower = p.email.toLowerCase();
+    const isCcActive = activeCcSet.has(emLower);
+    const bg = isCcActive ? '#4f46e5' : '#f5f3ff';
+    const color = isCcActive ? '#ffffff' : '#4338ca';
+    const border = isCcActive ? '#4f46e5' : '#ddd6fe';
+    const icon = isCcActive ? 'ri-check-line' : 'ri-add-line';
+
+    return `
+      <button type="button"
+        onclick="window.toggleBillingCcCapsule('${p.email}')"
+        title="${isCcActive ? 'Quitar de CC' : 'Agregar en copia (CC)'}: ${p.email}"
+        style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.22rem 0.52rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600; border: 1px solid ${border}; background: ${bg}; color: ${color}; cursor: pointer; transition: all 0.15s; line-height: 1.2;">
+        <i class="${icon}" style="font-size: 0.75rem;"></i>
+        <span>${p.email}</span>
+      </button>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <div style="margin-top: 0.45rem; padding: 0.5rem 0.6rem; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 6px; display: flex; flex-direction: column; gap: 0.45rem;">
+      ${commerceSuggestions.length > 0 ? `
+        <div>
+          <div style="font-size: 0.68rem; font-weight: 700; color: #475569; margin-bottom: 0.28rem; display: flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-store-2-line" style="color: #0284c7;"></i>
+            <span>Copiar a contactos del comercio (clic para añadir/quitar en CC):</span>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.3rem;">
+            ${commercePillsHtml}
+          </div>
+        </div>
+      ` : ''}
+      <div>
+        <div style="font-size: 0.68rem; font-weight: 700; color: #475569; margin-bottom: 0.28rem; display: flex; justify-content: space-between; align-items: center; gap: 0.35rem;">
+          <span style="display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-team-line" style="color: #4f46e5;"></i>
+            <span>Copiar rápido a Equipo Stocka (CC):</span>
+          </span>
+          <button type="button" onclick="window.toggleAllStockaCcCapsules()" style="background: none; border: none; padding: 0; font-size: 0.67rem; font-weight: 700; color: #4f46e5; cursor: pointer; text-decoration: underline;">
+            ${allStockaActive ? 'Quitar todos' : '+ Copiar a los 4'}
+          </button>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.3rem;">
+          ${stockaPillsHtml}
+        </div>
+      </div>
+    </div>
+  `;
+};
+
+window.getBillingEmailModalFormState = function() {
+  const ctx = window._currentBillingEmailModalCtx || {};
+  const recipientCheckboxes = document.querySelectorAll('#modal-send-billing-email input[name="email-recipient"]:checked');
+  const emails = Array.from(recipientCheckboxes).map(cb => cb.value);
+  const customEmailEl = document.getElementById('email-recipient-custom');
+  const customEmailRaw = customEmailEl ? customEmailEl.value.trim() : '';
+  if (customEmailRaw) {
+    customEmailRaw.split(/[,;\s]+/).map(e => e.trim()).filter(Boolean).forEach(em => {
+      if (!emails.includes(em)) {
+        emails.push(em);
+      }
+    });
+  }
+  const ccEmailEl = document.getElementById('email-recipient-cc');
+  const ccEmailRaw = ccEmailEl ? ccEmailEl.value.trim() : '';
+  const ccEmails = [];
+  if (ccEmailRaw) {
+    ccEmailRaw.split(/[,;\s]+/).map(e => e.trim()).filter(Boolean).forEach(em => {
+      if (!ccEmails.includes(em) && !emails.includes(em)) {
+        ccEmails.push(em);
+      }
+    });
+  }
+  const serviceTypeEl = document.getElementById('email-service-type');
+  const emailTypeEl = document.getElementById('email-type-select');
+  const customMsgEl = document.getElementById('email-custom-message');
+  const isCorrectionEl = document.getElementById('email-is-correction');
+
+  return {
+    record: ctx.record || null,
+    allCommerceRecords: ctx.allCommerceRecords || [],
+    commerceName: ctx.commerceName || (ctx.record && ctx.record.comercio) || 'Comercio',
+    periodName: ctx.periodName || (ctx.record && ctx.record.billing_periods && ctx.record.billing_periods.name) || 'Periodo Actual',
+    serviceType: serviceTypeEl ? serviceTypeEl.value : 'both',
+    emailType: emailTypeEl ? emailTypeEl.value : 'billing_summary',
+    customMessage: customMsgEl ? customMsgEl.value : '',
+    isCorrection: isCorrectionEl ? Boolean(isCorrectionEl.checked) : false,
+    recipients: emails,
+    ccRecipients: ccEmails
+  };
+};
+
+window.buildBillingEmailPreviewData = function(overrideEmailType, overrideServiceType) {
+  const state = window.getBillingEmailModalFormState();
+  const record = state.record || {};
+  const commerceName = state.commerceName || 'Comercio';
+  const periodName = state.periodName || 'Periodo Actual';
+  const emailType = overrideEmailType || state.emailType || 'billing_summary';
+  const resolvedServiceType = overrideServiceType || state.serviceType || 'both';
+  const isCorrection = state.isCorrection;
+  const customMessage = state.customMessage || '';
+  const recipients = state.recipients && state.recipients.length > 0 ? state.recipients : ['(Sin destinatarios seleccionados)'];
+  const ccRecipients = state.ccRecipients || [];
+
+  const formatCLP = (val) => '$' + (Math.round(Number(val) || 0)).toLocaleString('es-CL');
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '-';
+    const parts = String(dateStr).split('T')[0].split('-');
+    if (parts.length !== 3) return dateStr;
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  };
+  const addDays = (dateStr, days) => {
+    if (!dateStr) return '-';
+    const parts = String(dateStr).split('T')[0].split('-');
+    if (parts.length !== 3) return dateStr;
+    const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    d.setDate(d.getDate() + days);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${dd}-${mm}-${yyyy}`;
+  };
+
+  // Calcular registros pendientes acumulados del comercio
+  const allRecords = Array.isArray(state.allCommerceRecords) && state.allCommerceRecords.length > 0
+    ? state.allCommerceRecords
+    : [record];
+  const pendingRecordsList = [];
+  let totalGlobalPendingDebt = 0;
+
+  allRecords.forEach(r => {
+    if (!r) return;
+    const tFulf = Number(r.total_fulfillment) || 0;
+    const aFulf = Number(r.abono_fulfillment) || 0;
+    const pFulf = r.pago_fulfillment || 'Por solicitar';
+    const isFPaid = ['Recibido', 'aprobado', 'Sin movimientos'].includes(pFulf);
+    const pendF = isFPaid ? 0 : Math.max(0, tFulf - aFulf);
+
+    const tEnv = Number(r.enviame) || 0;
+    const aEnv = Number(r.abono_enviame) || 0;
+    const pEnv = r.pago_enviame || 'Por solicitar';
+    const isEPaid = ['Recibido', 'aprobado', 'Sin movimientos'].includes(pEnv);
+    const pendE = isEPaid ? 0 : Math.max(0, tEnv - aEnv);
+
+    if (pendF > 0 || pendE > 0) {
+      const pName = (r.billing_periods && r.billing_periods.name) || periodName;
+      pendingRecordsList.push({
+        recordId: r.id,
+        periodName: pName,
+        totalFulf: tFulf,
+        abonoFulf: aFulf,
+        pendFulf: pendF,
+        pagoFulf: pFulf,
+        totalEnv: tEnv,
+        abonoEnv: aEnv,
+        pendEnv: pendE,
+        pagoEnv: pEnv,
+        totalPending: pendF + pendE
+      });
+      totalGlobalPendingDebt += (pendF + pendE);
+    }
+  });
+
+  const showFulfillment = (resolvedServiceType === 'fulfillment' || resolvedServiceType === 'both');
+  const showEnviame = (resolvedServiceType === 'enviame' || resolvedServiceType === 'both');
+
+  const totalFulf = Number(record.total_fulfillment) || 0;
+  const abonoFulf = Number(record.abono_fulfillment) || 0;
+  const pagoFulf = record.pago_fulfillment || 'Por solicitar';
+  const isFulfPaid = ['Recibido', 'aprobado', 'Sin movimientos'].includes(pagoFulf);
+  const pendFulf = isFulfPaid ? 0 : Math.max(0, totalFulf - abonoFulf);
+
+  const totalEnv = Number(record.enviame) || 0;
+  const abonoEnv = Number(record.abono_enviame) || 0;
+  const pagoEnv = record.pago_enviame || 'Por solicitar';
+  const isEnvPaid = ['Recibido', 'aprobado', 'Sin movimientos'].includes(pagoEnv);
+  const pendEnv = isEnvPaid ? 0 : Math.max(0, totalEnv - abonoEnv);
+
+  const totalPeriodInvoiced = (showFulfillment ? totalFulf : 0) + (showEnviame ? totalEnv : 0);
+  const totalPeriodPending = (showFulfillment ? pendFulf : 0) + (showEnviame ? pendEnv : 0);
+
+  let totalMonto = 0;
+  if (['payment_overdue', 'payment_overdue_manual', 'suspension_warning'].includes(emailType)) {
+    totalMonto = totalPeriodPending;
+  } else if (emailType === 'service_paused') {
+    totalMonto = totalGlobalPendingDebt > 0 ? totalGlobalPendingDebt : totalPeriodPending;
+  } else if (emailType === 'payment_received') {
+    totalMonto = (showFulfillment ? (abonoFulf || totalFulf) : 0) + (showEnviame ? (abonoEnv || totalEnv) : 0);
+  } else if (emailType === 'payment_reminder') {
+    totalMonto = totalPeriodPending > 0 ? totalPeriodPending : totalPeriodInvoiced;
+  } else {
+    totalMonto = (totalPeriodPending > 0 && totalPeriodPending < totalPeriodInvoiced) ? totalPeriodPending : totalPeriodInvoiced;
+  }
+
+  let servicesHtml = '';
+  if (showFulfillment) {
+    const isInteractive = Boolean(
+      (record.fulfillment_link && (record.fulfillment_link.includes('.json') || record.fulfillment_link.includes('billing_snapshots'))) ||
+      (record.fulfillment_pdf_url && (record.fulfillment_pdf_url.includes('.json') || record.fulfillment_pdf_url.includes('billing_snapshots')))
+    );
+    const docLink = isInteractive
+      ? (record.fulfillment_link || record.fulfillment_pdf_url)
+      : (record.fulfillment_pdf_url || record.fulfillment_link);
+
+    let docBtn = '';
+    if (isInteractive) {
+      docBtn = `
+        <div style="font-size: 13px; color: #475569; line-height: 1.5; margin-bottom: 12px; text-align: center;">
+          Este periodo cuenta con <strong>Desglose Interactivo 360°</strong>: puedes revisar el cobro por cada pedido, despachos y recargos, explorar gráficos de costos y descargar el PDF resumen directamente en tu portal WMS Stocka.
+        </div>
+        <a href="https://wms.stocka.cl" target="_blank" style="display: inline-block; background-color: #5f06fa !important; color: #ffffff !important; padding: 10px 22px; font-size: 13px; font-weight: 700; border-radius: 6px; text-decoration: none; box-shadow: 0 2px 5px rgba(95, 6, 250, 0.25);">
+          Ver Desglose Interactivo en WMS
+        </a>
+      `;
+    } else if (docLink) {
+      docBtn = `<a href="${docLink}" target="_blank" style="display: inline-block; background-color: #ffffff !important; color: #2563eb !important; border: 1px solid #2563eb; padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 6px; text-decoration: none;">Descargar Desglose Fulfillment</a>`;
+    } else {
+      docBtn = '<span style="color:#ef4444; font-size:12px; font-weight:600;">Desglose PDF no adjuntado aún</span>';
+    }
+
+    servicesHtml += `
+      <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 15px;">
+        <div style="font-size: 15px; font-weight: 700; color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 15px;">Servicio Fulfillment (Almacenaje y Operación)</div>
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Monto Facturado:</strong></td>
+            <td style="padding: 6px 0; font-size: 14px; color: #1e293b; text-align: right; font-weight: 700;">${formatCLP(totalFulf)}</td>
+          </tr>
+          ${abonoFulf > 0 ? `
+          <tr>
+            <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Abono Registrado:</strong></td>
+            <td style="padding: 6px 0; font-size: 14px; color: #166534; text-align: right; font-weight: 600;">-${formatCLP(abonoFulf)}</td>
+          </tr>
+          ` : ''}
+          <tr>
+            <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Fecha Límite de Pago:</strong></td>
+            <td style="padding: 6px 0; font-size: 14px; color: #475569; text-align: right;">${formatDate(record.fecha_limite)}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Estado de Pago:</strong></td>
+            <td style="padding: 6px 0; font-size: 14px; color: #475569; text-align: right;"><span style="display: inline-block; padding: 3px 8px; font-size: 11px; font-weight: 600; border-radius: 4px; text-transform: uppercase; ${isFulfPaid ? 'background-color: #dcfce7; color: #166534;' : 'background-color: #fef3c7; color: #92400e;'}">${pagoFulf}</span></td>
+          </tr>
+          <tr style="border-top: 1px dashed #cbd5e1;">
+            <td style="padding: 8px 0 4px 0; font-size: 14px; color: ${isFulfPaid ? '#166534' : '#dc2626'}; font-weight: 700;"><strong>Saldo Pendiente:</strong></td>
+            <td style="padding: 8px 0 4px 0; font-size: 15px; color: ${isFulfPaid ? '#166534' : '#dc2626'}; text-align: right; font-weight: 800;">${isFulfPaid ? '$0 (Pagado)' : formatCLP(pendFulf)}</td>
+          </tr>
+        </table>
+        <div style="margin-top: 15px; text-align: center;">
+          ${docBtn}
+        </div>
+      </div>
+    `;
+  }
+
+  if (showEnviame) {
+    let enviameDocsHtml = '';
+    if (record.enviame_pdfs && Array.isArray(record.enviame_pdfs) && record.enviame_pdfs.length > 0) {
+      enviameDocsHtml = `
+        <div style="font-size: 13px; color: #475569; line-height: 1.5; margin-bottom: 12px; text-align: center;">
+          El desglose detallado de envíos y el reporte interactivo están disponibles para su revisión y descarga en el panel de facturación.
+        </div>
+        <a href="https://wms.stocka.cl" target="_blank" style="display: inline-block; background-color: #5B00E4 !important; color: #ffffff !important; padding: 10px 22px; font-size: 13px; font-weight: 700; border-radius: 6px; text-decoration: none; box-shadow: 0 2px 5px rgba(91, 0, 228, 0.2);">
+          Ingresar al WMS
+        </a>
+      `;
+    } else {
+      enviameDocsHtml = '<span style="color:#ef4444; font-size:12px; font-weight:600;">Desglose no adjuntado aún</span>';
+    }
+
+    servicesHtml += `
+      <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 15px;">
+        <div style="font-size: 15px; font-weight: 700; color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 15px;">Servicio Envíame (Courier y Despacho)</div>
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Monto Facturado:</strong></td>
+            <td style="padding: 6px 0; font-size: 14px; color: #1e293b; text-align: right; font-weight: 700;">${formatCLP(totalEnv)}</td>
+          </tr>
+          ${abonoEnv > 0 ? `
+          <tr>
+            <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Abono Registrado:</strong></td>
+            <td style="padding: 6px 0; font-size: 14px; color: #166534; text-align: right; font-weight: 600;">-${formatCLP(abonoEnv)}</td>
+          </tr>
+          ` : ''}
+          <tr>
+            <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Fecha Límite de Pago:</strong></td>
+            <td style="padding: 6px 0; font-size: 14px; color: #475569; text-align: right;">${formatDate(record.fecha_limite_enviame)} <span style="font-size: 11px; color: #ea580c; font-weight: bold; display: block;">(Plazo de 3 días fijado por Envíame)</span></td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Estado de Pago:</strong></td>
+            <td style="padding: 6px 0; font-size: 14px; color: #475569; text-align: right;"><span style="display: inline-block; padding: 3px 8px; font-size: 11px; font-weight: 600; border-radius: 4px; text-transform: uppercase; ${isEnvPaid ? 'background-color: #dcfce7; color: #166534;' : 'background-color: #fef3c7; color: #92400e;'}">${pagoEnv}</span></td>
+          </tr>
+          <tr style="border-top: 1px dashed #cbd5e1;">
+            <td style="padding: 8px 0 4px 0; font-size: 14px; color: ${isEnvPaid ? '#166534' : '#dc2626'}; font-weight: 700;"><strong>Saldo Pendiente:</strong></td>
+            <td style="padding: 8px 0 4px 0; font-size: 15px; color: ${isEnvPaid ? '#166534' : '#dc2626'}; text-align: right; font-weight: 800;">${isEnvPaid ? '$0 (Pagado)' : formatCLP(pendEnv)}</td>
+          </tr>
+        </table>
+        <div style="margin-top: 15px; text-align: center;">
+          ${enviameDocsHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  const appealDeadlineNote = showEnviame
+    ? `<div style="margin-top: 15px; padding: 12px; border: 1px solid #bfdbfe; background-color: #eff6ff; border-radius: 6px; font-size: 13px; color: #1e3a8a; line-height: 1.5;">
+        <strong>Plazo de Apelaciones:</strong><br>
+        Recuerda que para el servicio Envíame cuentas con un plazo de 5 días para realizar cualquier apelación. El plazo máximo vence el <strong>${addDays(record.fecha_limite_enviame, 2)}</strong>.
+       </div>`
+    : '';
+
+  const paymentDetailsHtml = `
+    <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin: 20px 0; font-family: sans-serif;">
+      <div style="font-size: 13px; font-weight: 700; color: #1e293b; margin-bottom: 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">
+        Datos para Transferencia Bancaria
+      </div>
+      <table style="width: 100%; font-size: 12px; border-collapse: collapse; line-height: 1.5;">
+        <tr>
+          <td style="color: #64748b; padding: 3px 0; width: 120px; font-weight: 500;">Razón Social:</td>
+          <td style="color: #1e293b; padding: 3px 0; font-weight: 600;">STOCKA SPA</td>
+        </tr>
+        <tr>
+          <td style="color: #64748b; padding: 3px 0; font-weight: 500;">RUT:</td>
+          <td style="color: #1e293b; padding: 3px 0; font-weight: 600;">77.524.557-3</td>
+        </tr>
+        <tr>
+          <td style="color: #64748b; padding: 3px 0; font-weight: 500;">Banco:</td>
+          <td style="color: #1e293b; padding: 3px 0; font-weight: 600;">SCOTIABANK (SUD AMERICANO)</td>
+        </tr>
+        <tr>
+          <td style="color: #64748b; padding: 3px 0; font-weight: 500;">Tipo de Cuenta:</td>
+          <td style="color: #1e293b; padding: 3px 0; font-weight: 600;">CTA CORRIENTE</td>
+        </tr>
+        <tr>
+          <td style="color: #64748b; padding: 3px 0; font-weight: 500;">N° de Cuenta:</td>
+          <td style="color: #1e293b; padding: 3px 0; font-weight: 600; font-family: monospace; font-size: 12.5px;">992369965</td>
+        </tr>
+        <tr>
+          <td style="color: #64748b; padding: 3px 0; font-weight: 500;">Email de Envío:</td>
+          <td style="color: #2563eb; padding: 3px 0; font-weight: 600;"><a href="mailto:finanzas@stocka.cl" style="color:#2563eb; text-decoration:none;">finanzas@stocka.cl</a></td>
+        </tr>
+      </table>
+    </div>
+  `;
+
+  let correctionNoticeHtml = '';
+  if (isCorrection) {
+    correctionNoticeHtml = `
+      <div style="background-color: #fef2f2; border: 1px solid #fca5a5; border-radius: 8px; padding: 15px; margin-bottom: 20px; color: #991b1b; font-size: 14px; line-height: 1.5;">
+        <div style="font-weight: 700; margin-bottom: 5px; font-size: 15px;">⚠️ CORRECCIÓN DE FACTURACIÓN</div>
+        Estimado equipo, le informamos que el correo enviado anteriormente para este periodo contenía errores en los montos indicados debido a un proceso de migración de nuestros sistemas. 
+        El presente correo contiene el desglose y la información <strong>correcta y definitiva</strong>. Lamentamos profundamente las molestias e inconvenientes que esto pueda ocasionarle.
+      </div>
+    `;
+  }
+
+  let emailSubject = '';
+  let headerGradient = '';
+  let emailTitle = '';
+  let emailBodyHtml = '';
+  let mainNoticeHtml = '';
+
+  const serviceLabel = resolvedServiceType === 'fulfillment'
+    ? 'Fulfillment'
+    : (resolvedServiceType === 'enviame' ? 'Envíame' : 'Fulfillment y Envíame');
+
+  if (emailType === 'payment_reminder') {
+    let deadlineDateStr = '';
+    if (resolvedServiceType === 'fulfillment') {
+      deadlineDateStr = formatDate(record.fecha_limite);
+    } else if (resolvedServiceType === 'enviame') {
+      deadlineDateStr = formatDate(record.fecha_limite_enviame);
+    } else {
+      const fulfDate = record.fecha_limite ? formatDate(record.fecha_limite) : '';
+      const envDate = record.fecha_limite_enviame ? formatDate(record.fecha_limite_enviame) : '';
+      if (fulfDate && envDate && fulfDate !== envDate) {
+        deadlineDateStr = `${fulfDate} (Fulfillment) / ${envDate} (Envíame)`;
+      } else {
+        deadlineDateStr = fulfDate || envDate || '-';
+      }
+    }
+
+    emailSubject = `${isCorrection ? '[CORRECCION] ' : ''}[Recordatorio] Desglose ${serviceLabel} próximo a vencer - ${commerceName}`;
+    headerGradient = 'linear-gradient(135deg, #0284c7, #0369a1)';
+    emailTitle = 'Recordatorio de Vencimiento de Pago';
+
+    emailBodyHtml = `
+      ${correctionNoticeHtml}
+      <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.6;">
+        Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+        Esperamos que se encuentren muy bien. Nos comunicamos para hacerles llegar este <strong>recordatorio de próximo vencimiento</strong> del desglose de sus servicios de <strong>${serviceLabel}</strong> correspondientes al periodo <strong>${periodName}</strong>, cuyo plazo de pago vence el próximo <strong>${deadlineDateStr}</strong>.
+      </div>
+
+      <div style="background-color: #f0f9ff; border: 1px solid #bae6fd; border-left: 4px solid #0284c7; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 14px; color: #0369a1; line-height: 1.5;">
+        🗓️ <strong>Fecha límite de pago:</strong> ${deadlineDateStr}<br>
+        <span style="font-size: 13px; color: #0284c7; margin-top: 5px; display: inline-block;">
+          Les enviamos este aviso con anticipación para facilitar la programación de sus transferencias y asegurar la total continuidad y fluidez de sus operaciones logísticas y despachos.
+        </span>
+      </div>
+
+      ${servicesHtml}
+
+      <div style="margin-top: 25px; padding: 15px; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 15px; font-weight: 700; color: #1e3a8a;">Total a Pagar:</span>
+        <span style="font-size: 20px; font-weight: 800; color: #1e3a8a;">${formatCLP(totalMonto)}</span>
+      </div>
+
+      ${appealDeadlineNote}
+
+      ${paymentDetailsHtml}
+
+      <div style="margin-top: 30px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; background-color: #f8fafc;">
+        <strong style="color: #1e293b; font-size: 15px; display: block; margin-bottom: 12px;">¿Cómo reportar tu pago una vez realizado?</strong>
+        <ul style="margin: 0; padding-left: 20px; font-size: 13.5px; color: #475569; line-height: 1.6;">
+          <li style="margin-bottom: 6px;"><strong>Opción 1 (Recomendada):</strong> Ingresa al portal <a href="https://wms.stocka.cl" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: none;">WMS Stocka</a>, navega a la sección <strong>Facturación</strong> y haz clic en el icono de adjunto (clip 📎) en el periodo correspondiente para subir tu comprobante de transferencia.</li>
+          <li style="margin-bottom: 6px;"><strong>Opción 2:</strong> Responde directamente a este correo adjuntando el comprobante emitido por tu banco.</li>
+        </ul>
+      </div>
+    `;
+
+    mainNoticeHtml = `
+      <div style="margin-top: 30px; padding: 15px; background-color: #f8fafc; border: 1px solid #e2e8f0; color: #475569; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+        <strong>¿Ya realizaste la transferencia o tienes alguna consulta?</strong><br>
+        Si ya realizaste el pago en las últimas horas, por favor desestima este mensaje; nuestro equipo validará y actualizará tu estado a la brevedad.<br><br>
+        Si tienes alguna consulta, observación sobre el desglose o requieres asistencia, quedamos atentos respondiendo directamente a este correo o escribiéndonos a <a href="mailto:finanzas@stocka.cl" style="color:#2563eb; font-weight:600; text-decoration:underline;">finanzas@stocka.cl</a>.
+      </div>
+    `;
+  } else if (emailType === 'payment_overdue_manual' || emailType === 'payment_overdue') {
+    emailSubject = `${isCorrection ? '[CORRECCION] ' : ''}[AVISO] Plazo de pago vencido (${serviceLabel}) - ${commerceName}`;
+    headerGradient = 'linear-gradient(135deg, #f97316, #ea580c)';
+    emailTitle = 'Plazo de Pago Vencido';
+
+    emailBodyHtml = `
+      ${correctionNoticeHtml}
+      <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+        Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+        Nos comunicamos para informarte que se ha <strong>excedido el plazo límite de pago</strong> para tus servicios pendientes del periodo <strong>${periodName}</strong>.
+      </div>
+
+      <div style="background-color: #fff7ed; border: 1px solid #ffedd5; border-radius: 8px; padding: 15px; margin-bottom: 20px; font-size: 14px; color: #c2410c; line-height: 1.5; font-weight: 600;">
+        ⚠️ Te invitamos a regularizar tu situación a la brevedad para evitar la interrupción o pausa temporal de tus operaciones y servicios de despacho.
+      </div>
+
+      ${servicesHtml}
+
+      <div style="margin-top: 25px; padding: 15px; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 15px; font-weight: 700; color: #1e3a8a;">Total Pendiente:</span>
+        <span style="font-size: 20px; font-weight: 800; color: #1e3a8a;">${formatCLP(totalMonto)}</span>
+      </div>
+
+      ${appealDeadlineNote}
+
+      ${paymentDetailsHtml}
+
+      <div style="margin-top: 30px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; background-color: #f8fafc;">
+        <strong style="color: #1e293b; font-size: 15px; display: block; margin-bottom: 12px;">¿Cómo puedes informar tu pago?</strong>
+        <ul style="margin: 0; padding-left: 20px; font-size: 13.5px; color: #475569; line-height: 1.6;">
+          <li style="margin-bottom: 6px;"><strong>Opción 1 (Recomendada):</strong> Sube tu comprobante directamente en el WMS Stocka ingresando a la sección <strong>Facturación</strong> y haciendo clic en el botón de adjunto (clip 📎) en el periodo correspondiente.</li>
+          <li style="margin-bottom: 6px;"><strong>Opción 2:</strong> Responde directamente a este correo adjuntando el comprobante de la transferencia realizada.</li>
+        </ul>
+      </div>
+    `;
+
+    mainNoticeHtml = `
+      <div style="margin-top: 30px; padding: 15px; background-color: #fff1f2; border: 1px solid #ffe4e6; color: #9f1239; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+        <strong>Nota sobre la continuidad de tu servicio:</strong><br>
+        Recordamos que mantener tus facturas al día es fundamental. En caso de no registrarse el pago oportuno, el servicio de preparación y despacho de tu comercio podría ser pausado temporalmente en los próximos días.
+      </div>
+    `;
+  } else if (emailType === 'suspension_warning') {
+    emailSubject = `${isCorrection ? '[CORRECCION] ' : ''}[ALERTA] Pausa de servicio por no pago - ${commerceName}`;
+    headerGradient = 'linear-gradient(135deg, #dc2626, #991b1b)';
+    emailTitle = 'Pausa Temporal de Servicio';
+
+    const otherPendingPeriods = pendingRecordsList.filter(p => p.recordId !== record.id);
+    const otherPendingDebt = otherPendingPeriods.reduce((acc, p) => acc + p.totalPending, 0);
+
+    let accumulatedDebtNotice = '';
+    if (otherPendingDebt > 0) {
+      const otherNames = otherPendingPeriods.map(p => p.periodName).join(', ');
+      accumulatedDebtNotice = `
+        <div style="margin-top: 18px; padding: 14px 16px; background-color: #fef2f2; border: 1px solid #fecaca; border-left: 4px solid #dc2626; border-radius: 8px; font-size: 13px; color: #991b1b; line-height: 1.5;">
+          <strong>⚠️ Deuda acumulada en otros periodos:</strong><br>
+          Tu cuenta registra además saldos pendientes en el/los periodo(s) <strong>${otherNames}</strong> por un subtotal de <strong>${formatCLP(otherPendingDebt)}</strong>.<br>
+          El saldo consolidado total adeudado a la fecha asciende a <strong>${formatCLP(totalMonto + otherPendingDebt)}</strong>.
+        </div>
+      `;
+    }
+
+    emailBodyHtml = `
+      ${correctionNoticeHtml}
+      <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+        Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+        Nos comunicamos para informarte que debido a un retraso crítico en el pago de los servicios pendientes de <strong>${periodName}</strong>, <strong>tu servicio de WMS y despachos quedará pausado desde este momento hasta que puedas regularizar</strong>.
+      </div>
+
+      <div style="background-color: #fef2f2; border: 1px solid #fee2e2; border-radius: 8px; padding: 15px; margin-bottom: 20px; font-size: 14px; color: #991b1b; line-height: 1.5; font-weight: 600; text-align: center; text-transform: uppercase;">
+        ⚠️ SERVICIO PAUSADO DESDE ESTE MOMENTO
+      </div>
+      
+      ${servicesHtml}
+      
+      <div style="margin-top: 25px; padding: 15px; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 15px; font-weight: 700; color: #1e3a8a;">Total Adeudado (${periodName}):</span>
+        <span style="font-size: 20px; font-weight: 800; color: #1e3a8a;">${formatCLP(totalMonto)}</span>
+      </div>
+
+      ${accumulatedDebtNotice}
+
+      ${appealDeadlineNote}
+
+      ${paymentDetailsHtml}
+    `;
+
+    mainNoticeHtml = `
+      <div style="margin-top: 30px; padding: 15px; background-color: #fffbeb; border: 1px solid #fef3c7; color: #78350f; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+        <strong>Contacto para Asistencia y Restablecimiento:</strong><br>
+        Para asistirte a la brevedad y proceder a restablecer tus servicios, por favor ponte en contacto de inmediato con nuestro equipo enviando tu comprobante de transferencia a <a href="mailto:finanzas@stocka.cl" style="color:#b45309; font-weight:600;">finanzas@stocka.cl</a>.
+      </div>
+    `;
+  } else if (emailType === 'service_paused') {
+    emailSubject = `${isCorrection ? '[CORRECCION] ' : ''}[CORTE DE SERVICIO] Cuenta suspendida por no pago - ${commerceName}`;
+    headerGradient = 'linear-gradient(135deg, #7f1d1d, #450a0a)';
+    emailTitle = 'Servicio Temporalmente Suspendido';
+
+    let pendingDebtContentHtml = '';
+    if (pendingRecordsList.length > 0) {
+      let rowsHtml = '';
+      pendingRecordsList.forEach(p => {
+        if (p.pendFulf > 0) {
+          rowsHtml += `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 8px; font-weight: 600; color: #1e293b;">${p.periodName}</td>
+              <td style="padding: 10px 8px; color: #475569;">Fulfillment</td>
+              <td style="padding: 10px 8px; text-align: right; color: #475569;">${formatCLP(p.totalFulf)}</td>
+              <td style="padding: 10px 8px; text-align: right; color: ${p.abonoFulf > 0 ? '#166534' : '#94a3b8'};">${p.abonoFulf > 0 ? '-' + formatCLP(p.abonoFulf) : '—'}</td>
+              <td style="padding: 10px 8px; text-align: right; font-weight: 700; color: #dc2626;">${formatCLP(p.pendFulf)}</td>
+              <td style="padding: 10px 8px; text-align: center;"><span style="display: inline-block; padding: 2px 7px; font-size: 11px; font-weight: 600; border-radius: 4px; background-color: #fee2e2; color: #991b1b; text-transform: uppercase;">${p.pagoFulf}</span></td>
+            </tr>
+          `;
+        }
+        if (p.pendEnv > 0) {
+          rowsHtml += `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 8px; font-weight: 600; color: #1e293b;">${p.periodName}</td>
+              <td style="padding: 10px 8px; color: #475569;">Envíame</td>
+              <td style="padding: 10px 8px; text-align: right; color: #475569;">${formatCLP(p.totalEnv)}</td>
+              <td style="padding: 10px 8px; text-align: right; color: ${p.abonoEnv > 0 ? '#166534' : '#94a3b8'};">${p.abonoEnv > 0 ? '-' + formatCLP(p.abonoEnv) : '—'}</td>
+              <td style="padding: 10px 8px; text-align: right; font-weight: 700; color: #dc2626;">${formatCLP(p.pendEnv)}</td>
+              <td style="padding: 10px 8px; text-align: center;"><span style="display: inline-block; padding: 2px 7px; font-size: 11px; font-weight: 600; border-radius: 4px; background-color: #fee2e2; color: #991b1b; text-transform: uppercase;">${p.pagoEnv}</span></td>
+            </tr>
+          `;
+        }
+      });
+
+      pendingDebtContentHtml = `
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+          <div style="font-size: 14.5px; font-weight: 700; color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 12px;">
+            Detalle de Servicios y Periodos Pendientes de Pago
+          </div>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <thead>
+              <tr style="background-color: #f1f5f9; color: #475569; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px;">
+                <th style="padding: 8px 6px; text-align: left;">Periodo</th>
+                <th style="padding: 8px 6px; text-align: left;">Servicio</th>
+                <th style="padding: 8px 6px; text-align: right;">Facturado</th>
+                <th style="padding: 8px 6px; text-align: right;">Abono</th>
+                <th style="padding: 8px 6px; text-align: right;">Saldo Pendiente</th>
+                <th style="padding: 8px 6px; text-align: center;">Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </div>
+
+        <div style="margin-top: 25px; padding: 18px 20px; background-color: #eff6ff; border: 2px solid #bfdbfe; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <span style="font-size: 15px; font-weight: 700; color: #1e3a8a; display: block;">Monto Total para Reactivación:</span>
+            <span style="font-size: 12px; color: #3b82f6;">Suma consolidada de los saldos pendientes a la fecha</span>
+          </div>
+          <span style="font-size: 24px; font-weight: 800; color: #1e3a8a;">${formatCLP(totalGlobalPendingDebt)}</span>
+        </div>
+      `;
+    } else {
+      pendingDebtContentHtml = `
+        <div style="margin-top: 20px; padding: 16px; background-color: #fff7ed; border: 1px solid #ffedd5; border-radius: 8px; color: #9a3412; font-size: 13.5px; line-height: 1.5;">
+          <strong>Aviso de Regularización:</strong><br>
+          Tu comercio se encuentra en estado de pausa preventiva. Si ya realizaste transferencias recientes o requieres consultar el detalle contable de tu cuenta para la reactivación, por favor contáctanos de inmediato a <a href="mailto:finanzas@stocka.cl" style="color: #c2410c; font-weight: 700;">finanzas@stocka.cl</a>.
+        </div>
+      `;
+    }
+
+    emailBodyHtml = `
+      ${correctionNoticeHtml}
+      <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+        Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+        Te informamos que debido al atraso continuo de pago de tus servicios pendientes, <strong>el servicio de tu comercio ha sido pausado temporalmente</strong>.
+      </div>
+
+      <div style="background-color: #7f1d1d; border-radius: 8px; padding: 18px; margin-bottom: 20px; font-size: 14.5px; color: #ffffff; line-height: 1.5; font-weight: 600; text-align: center;">
+        ⚠️ SERVICIO PAUSADO TEMPORALMENTE
+      </div>
+
+      <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-bottom: 20px;">
+        A partir de este momento, se ha restringido el acceso al WMS para:
+        <ul style="margin: 8px 0; padding-left: 20px;">
+          <li>Ingreso de stock y carga de plantillas.</li>
+          <li>Creación de pedidos y despachos de Courier.</li>
+          <li>Preparación y empaque de productos en bodega (Fulfillment).</li>
+        </ul>
+      </div>
+      
+      ${pendingDebtContentHtml}
+
+      ${paymentDetailsHtml}
+    `;
+
+    mainNoticeHtml = `
+      <div style="margin-top: 30px; padding: 15px; background-color: #fef2f2; border: 1px solid #fee2e2; color: #991b1b; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+        <strong>Cómo Reactivar tu Servicio:</strong><br>
+        Para restablecer las operaciones normales de tu comercio de forma inmediata, debes regularizar el pago pendiente y <strong>subir el comprobante al sistema WMS</strong>, o bien comunicarte directamente con nosotros a <a href="mailto:finanzas@stocka.cl" style="color:#991b1b; font-weight:600; text-decoration:underline;">finanzas@stocka.cl</a>.
+      </div>
+    `;
+  } else if (emailType === 'invoice_uploaded') {
+    emailSubject = `${isCorrection ? '[CORRECCION] ' : ''}[Factura Disponible] Factura de servicios cargada - ${commerceName}`;
+    headerGradient = 'linear-gradient(135deg, #10b981, #059669)';
+    emailTitle = 'Factura de Servicios Disponible';
+
+    let invoiceButtonsHtml = '';
+    if (record.factura_fulfillment_pdf_url) {
+      invoiceButtonsHtml += `<a href="${record.factura_fulfillment_pdf_url}" target="_blank" style="display: inline-block; background-color: #2563eb !important; color: #ffffff !important; padding: 10px 20px; font-size: 14px; font-weight: 600; border-radius: 8px; text-decoration: none; margin: 5px;">Descargar Factura Fulfillment</a>`;
+    }
+    if (record.factura_enviame_pdf_url) {
+      invoiceButtonsHtml += `<a href="${record.factura_enviame_pdf_url}" target="_blank" style="display: inline-block; background-color: #2563eb !important; color: #ffffff !important; padding: 10px 20px; font-size: 14px; font-weight: 600; border-radius: 8px; text-decoration: none; margin: 5px;">Descargar Factura Envíame</a>`;
+    }
+
+    emailBodyHtml = `
+      ${correctionNoticeHtml}
+      <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+        Le informamos que se ha cargado en la plataforma del WMS Stocka la factura correspondiente a sus servicios del periodo <strong>${periodName}</strong>.
+      </div>
+
+      <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin-bottom: 20px; font-size: 14.5px; color: #166534; line-height: 1.5; font-weight: 600; text-align: center;">
+        FACTURA DISPONIBLE EN EL PORTAL
+      </div>
+
+      ${invoiceButtonsHtml ? `
+        <div style="margin: 20px 0; text-align: center;">
+          ${invoiceButtonsHtml}
+        </div>
+      ` : ''}
+
+      ${servicesHtml}
+      
+      <div style="margin-top: 25px; padding: 15px; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 15px; font-weight: 700; color: #1e3a8a;">Total Período:</span>
+        <span style="font-size: 20px; font-weight: 800; color: #1e3a8a;">${formatCLP(totalMonto)}</span>
+      </div>
+
+      ${paymentDetailsHtml}
+    `;
+
+    mainNoticeHtml = `
+      <div style="margin-top: 30px; padding: 15px; background-color: #f8fafc; border: 1px solid #e2e8f0; color: #475569; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+        <strong>Acceso a Facturas Históricas:</strong><br>
+        Le recordamos que puede revisar e informar el pago de esta y otras facturas pasadas directamente desde el portal de facturación en su cuenta del WMS.
+      </div>
+    `;
+  } else if (emailType === 'service_restored') {
+    emailSubject = `${isCorrection ? '[CORRECCION] ' : ''}[SERVICIO RESTABLECIDO] Cuenta reactivada - ${commerceName}`;
+    headerGradient = 'linear-gradient(135deg, #16a34a, #15803d)';
+    emailTitle = 'Servicio Restablecido';
+
+    emailBodyHtml = `
+      ${correctionNoticeHtml}
+      <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+        Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+        Nos alegra informarte que tu cuenta ha sido regularizada y el servicio de tu comercio ha sido <strong>reactivado y restablecido con éxito</strong>.
+      </div>
+
+      <div style="background-color: #dcfce7; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin-bottom: 20px; font-size: 14.5px; color: #15803d; line-height: 1.5; font-weight: 600; text-align: center;">
+        SERVICIO RESTABLECIDO Y OPERATIVO
+      </div>
+
+      <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-bottom: 20px;">
+        A partir de este momento, se han habilitado nuevamente todas las funciones en el sistema WMS:
+        <ul style="margin: 8px 0; padding-left: 20px;">
+          <li>Ingreso de stock y carga de plantillas.</li>
+          <li>Creación de pedidos y despachos.</li>
+          <li>Preparación y despacho de Courier (Fulfillment y Envíame).</li>
+        </ul>
+        Agradecemos tu compromiso y pagos oportunos, los cuales nos ayudan a mantener una operación fluida y sin interrupciones.
+      </div>
+    `;
+
+    mainNoticeHtml = `
+      <div style="margin-top: 30px; padding: 15px; background-color: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+        <strong>Continuidad del Servicio:</strong><br>
+        Para cualquier consulta u observación adicional, recuerda que puedes de forma directa comunicarte con nosotros escribiendo a <a href="mailto:finanzas@stocka.cl" style="color:#1e3a8a; font-weight:600; text-decoration:underline;">finanzas@stocka.cl</a>.
+      </div>
+    `;
+  } else {
+    // billing_summary (default)
+    if (resolvedServiceType === 'fulfillment') {
+      emailSubject = `${isCorrection ? '[CORRECCION]' : '[Facturación]'} Desglose de servicios Fulfillment ${periodName} - ${commerceName}`;
+    } else if (resolvedServiceType === 'enviame') {
+      emailSubject = `${isCorrection ? '[CORRECCION]' : '[Facturación]'} Desglose de despachos Enviame ${periodName} - ${commerceName}`;
+    } else {
+      emailSubject = `${isCorrection ? '[CORRECCION]' : '[Facturación]'} Desglose de servicios Fulfillment y Envíame ${periodName} - ${commerceName}`;
+    }
+    const isInteractiveBilling = Boolean(
+      (record.fulfillment_link && (record.fulfillment_link.includes('.json') || record.fulfillment_link.includes('billing_snapshots'))) ||
+      (record.fulfillment_pdf_url && (record.fulfillment_pdf_url.includes('.json') || record.fulfillment_pdf_url.includes('billing_snapshots')))
+    );
+    headerGradient = isInteractiveBilling
+      ? 'linear-gradient(135deg, #5f06fa, #7c3aed)'
+      : 'linear-gradient(135deg, #2563eb, #1d4ed8)';
+    emailTitle = isInteractiveBilling ? 'Desglose de Facturación' : 'Resumen de Facturación';
+
+    emailBodyHtml = `
+      ${correctionNoticeHtml}
+      <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+        Le informamos que el desglose de servicios de facturación correspondiente a <strong>${periodName}</strong> ya se encuentra disponible para su revisión.
+      </div>
+      
+      ${servicesHtml}
+      
+      <div style="margin-top: 25px; padding: 15px; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 15px; font-weight: 700; color: #1e3a8a;">Total a Pagar:</span>
+        <span style="font-size: 20px; font-weight: 800; color: #1e3a8a;">${formatCLP(totalMonto)}</span>
+      </div>
+
+      ${appealDeadlineNote}
+
+      ${paymentDetailsHtml}
+    `;
+
+    mainNoticeHtml = `
+      <div style="margin-top: 30px; padding: 15px; background-color: #fffbeb; border: 1px solid #fef3c7; color: #78350f; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+        <strong>Información Importante:</strong><br>
+        Los pagos realizados dentro del plazo establecido son fundamentales para mantener la continuidad de sus servicios sin interrupciones.<br><br>
+        Si desea realizar alguna observación, apelación o adjuntar su comprobante de pago, le invitamos a hacerlo directamente desde el módulo de Facturación en el sistema WMS.
+      </div>
+    `;
+  }
+
+  let customMsgHtml = '';
+  if (customMessage && customMessage.trim()) {
+    const safeCustom = customMessage
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>');
+    customMsgHtml = `
+      <div style="margin: 20px 0; padding: 15px; background-color: #f1f5f9; border-left: 4px solid #94a3b8; font-size: 13.5px; color: #334155; line-height: 1.5; border-radius: 0 8px 8px 0;">
+        <strong>Nota de Finanzas:</strong><br>
+        ${safeCustom}
+      </div>
+    `;
+  }
+
+  const innerCardHtml = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; padding: 20px 14px; border-radius: 10px;">
+      <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03); overflow: hidden;">
+        <!-- HEADER -->
+        <div style="background: ${headerGradient}; padding: 26px 24px; text-align: center; color: #ffffff;">
+          <h1 style="margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -0.5px; color: #ffffff !important;">${emailTitle}</h1>
+          <p style="margin: 5px 0 0 0; font-size: 13.5px; opacity: 0.92; color: #ffffff !important;">${periodName} - ${commerceName}</p>
+        </div>
+        <!-- CONTENT -->
+        <div style="padding: 26px 24px;">
+          ${emailBodyHtml}
+          ${customMsgHtml}
+          <div style="text-align: center; margin: 25px 0;">
+            <a href="https://wms.stocka.cl/dashboard.html" target="_blank" style="display: block; background-color: #2563eb; color: #ffffff !important; padding: 12px 24px; font-size: 15px; font-weight: 600; border-radius: 8px; text-decoration: none; text-align: center; box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);">Acceder a WMS Stocka</a>
+          </div>
+          ${mainNoticeHtml}
+        </div>
+        <!-- FOOTER -->
+        <div style="background-color: #f1f5f9; padding: 22px 20px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; line-height: 1.6;">
+          <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" alt="Stocka Logo" style="height: 34px; margin-bottom: 10px; display: inline-block;"><br>
+          <strong style="color: #1e293b;">Stocka SpA</strong><br>
+          Logística y Fulfillment Ecommerce<br>
+          Campo de Deportes 405, Ñuñoa.<br>
+          <span style="display: block; margin-top: 8px; font-size: 11px; color: #94a3b8;">Contacto Finanzas: <a href="mailto:finanzas@stocka.cl" style="color: #2563eb; text-decoration: none; font-weight: 600;">finanzas@stocka.cl</a></span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  return {
+    emailType,
+    emailSubject,
+    emailTitle,
+    headerGradient,
+    senderName: 'Finanzas Stocka',
+    senderEmail: 'finanzas@stocka.cl',
+    recipients,
+    ccRecipients,
+    serviceLabel,
+    resolvedServiceType,
+    isCorrection,
+    innerCardHtml,
+    totalMontoFormatted: formatCLP(totalMonto)
+  };
+};
+
+window.selectBillingEmailTemplateFromPreview = function(emailType) {
+  const selectEl = document.getElementById('email-type-select');
+  if (selectEl && selectEl.value !== emailType) {
+    selectEl.value = emailType;
+  }
+  window.updateBillingEmailLivePreview(emailType);
+};
+
+window.updateBillingEmailLivePreview = function(overrideEmailType) {
+  const previewData = window.buildBillingEmailPreviewData(overrideEmailType);
+  const templateMeta = (window.BILLING_EMAIL_TEMPLATE_OPTIONS || []).find(t => t.id === previewData.emailType) || window.BILLING_EMAIL_TEMPLATE_OPTIONS[0];
+
+  // 1. Actualizar mini-resumen debajo del selector en el formulario
+  const miniSubjectEl = document.getElementById('billing-email-mini-subject');
+  if (miniSubjectEl) {
+    miniSubjectEl.textContent = previewData.emailSubject;
+  }
+  const miniDescEl = document.getElementById('billing-email-mini-desc');
+  if (miniDescEl && templateMeta) {
+    miniDescEl.innerHTML = `<i class="${templateMeta.icon}" style="color: ${templateMeta.color}; margin-right: 4px;"></i> ${templateMeta.description}`;
+  }
+
+  // 2. Actualizar panel lateral interactivo si está presente
+  const tabsContainer = document.getElementById('billing-email-preview-tabs');
+  if (tabsContainer) {
+    tabsContainer.innerHTML = (window.BILLING_EMAIL_TEMPLATE_OPTIONS || []).map(opt => {
+      const isActive = opt.id === previewData.emailType;
+      return `
+        <button type="button"
+          onclick="window.selectBillingEmailTemplateFromPreview('${opt.id}')"
+          style="display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.38rem 0.65rem; border-radius: 999px; font-size: 0.74rem; font-weight: ${isActive ? '700' : '600'}; cursor: pointer; transition: all 0.15s; border: 1px solid ${isActive ? opt.color : '#cbd5e1'}; background: ${isActive ? opt.bgLight : '#ffffff'}; color: ${isActive ? opt.color : '#475569'}; box-shadow: ${isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none'};">
+          <span style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; font-size: 0.65rem; font-weight: 800; background: ${isActive ? opt.color : '#e2e8f0'}; color: ${isActive ? '#ffffff' : '#475569'};">${opt.step}</span>
+          <i class="${opt.icon}" style="font-size: 0.85rem;"></i>
+          <span>${opt.shortLabel}</span>
+        </button>
+      `;
+    }).join('');
+  }
+
+  const metaBoxEl = document.getElementById('billing-email-preview-meta');
+  if (metaBoxEl) {
+    metaBoxEl.innerHTML = `
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.45rem; padding-bottom: 0.45rem; border-bottom: 1px dashed #e2e8f0;">
+        <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.76rem; color: #475569;">
+          <span style="font-weight: 700; color: #1e293b;">De:</span>
+          <span>${previewData.senderName} &lt;${previewData.senderEmail}&gt;</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.35rem;">
+          <span style="font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: ${templateMeta.bgLight}; color: ${templateMeta.color}; border: 1px solid ${templateMeta.borderColor};">
+            Opción ${templateMeta.step} de 7: ${templateMeta.shortLabel}
+          </span>
+          <span style="font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;">
+            Servicio: ${previewData.serviceLabel}
+          </span>
+          ${previewData.isCorrection ? `<span style="font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5;">CORRECCIÓN</span>` : ''}
+        </div>
+      </div>
+      <div style="font-size: 0.76rem; color: #475569; margin-bottom: ${previewData.ccRecipients && previewData.ccRecipients.length > 0 ? '0.2rem' : '0.3rem'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+        <strong style="color: #1e293b;">Para:</strong> ${previewData.recipients.join(', ')}
+      </div>
+      ${previewData.ccRecipients && previewData.ccRecipients.length > 0 ? `
+      <div style="font-size: 0.75rem; color: #0369a1; margin-bottom: 0.3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+        <strong style="color: #0284c7;">CC (Con Copia):</strong> ${previewData.ccRecipients.join(', ')}
+      </div>
+      ` : ''}
+      <div style="font-size: 0.82rem; color: #0f172a; font-weight: 700;">
+        <span style="color: #64748b; font-weight: 600;">Asunto:</span> ${previewData.emailSubject}
+      </div>
+    `;
+  }
+
+  const stageEl = document.getElementById('billing-email-preview-stage');
+  if (stageEl) {
+    stageEl.innerHTML = previewData.innerCardHtml;
+  }
+
+  if (typeof window.renderBillingCcCapsules === 'function') {
+    window.renderBillingCcCapsules();
+  }
+};
+
+window.toggleBillingEmailPreviewPanel = function(forceOpen) {
+  const modalContent = document.getElementById('send-billing-email-modal-content');
+  const previewCol = document.getElementById('billing-email-preview-column');
+  const btnToggleHeader = document.getElementById('btn-toggle-email-preview-header');
+  const btnToggleFooter = document.getElementById('btn-toggle-email-preview-footer');
+  if (!modalContent || !previewCol) return;
+
+  const isCurrentlyOpen = previewCol.style.display !== 'none';
+  const nextState = typeof forceOpen === 'boolean' ? forceOpen : !isCurrentlyOpen;
+
+  if (nextState) {
+    modalContent.style.maxWidth = '1180px';
+    modalContent.style.width = '96vw';
+    previewCol.style.display = 'flex';
+    if (btnToggleHeader) {
+      btnToggleHeader.innerHTML = `<i class="ri-eye-off-line"></i> Ocultar Vista Previa`;
+      btnToggleHeader.style.background = '#eff6ff';
+      btnToggleHeader.style.color = '#1d4ed8';
+      btnToggleHeader.style.borderColor = '#93c5fd';
+    }
+    if (btnToggleFooter) {
+      btnToggleFooter.innerHTML = `<i class="ri-eye-off-line"></i> Ocultar Previa`;
+    }
+    window.updateBillingEmailLivePreview();
+  } else {
+    modalContent.style.maxWidth = '520px';
+    modalContent.style.width = '100%';
+    previewCol.style.display = 'none';
+    if (btnToggleHeader) {
+      btnToggleHeader.innerHTML = `<i class="ri-eye-line"></i> Vista Previa de Correos (7)`;
+      btnToggleHeader.style.background = '#ffffff';
+      btnToggleHeader.style.color = '#2563eb';
+      btnToggleHeader.style.borderColor = '#bfdbfe';
+    }
+    if (btnToggleFooter) {
+      btnToggleFooter.innerHTML = `<i class="ri-eye-line"></i> Vista Previa (7 Opciones)`;
+    }
+  }
+};
+
+window.openBillingEmailGalleryModal = function() {
+  const existing = document.getElementById('modal-billing-email-gallery');
+  if (existing) existing.remove();
+
+  const state = window.getBillingEmailModalFormState();
+  const options = window.BILLING_EMAIL_TEMPLATE_OPTIONS || [];
+
+  const cardsHtml = options.map(opt => {
+    const preview = window.buildBillingEmailPreviewData(opt.id);
+    const isSelected = state.emailType === opt.id;
+    return `
+      <div style="background: #ffffff; border: 2px solid ${isSelected ? opt.color : '#e2e8f0'}; border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);">
+        <div style="padding: 0.85rem 1rem; background: ${opt.bgLight}; border-bottom: 1px solid ${opt.borderColor}; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0;">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: ${opt.color}; color: #ffffff; font-size: 0.75rem; font-weight: 800; flex-shrink: 0;">${opt.step}</span>
+            <div style="min-width: 0;">
+              <div style="font-size: 0.85rem; font-weight: 800; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${opt.fullLabel}</div>
+              <div style="font-size: 0.72rem; color: #475569;">${opt.description}</div>
+            </div>
+          </div>
+          <button type="button"
+            onclick="window.selectBillingEmailTemplateFromPreview('${opt.id}'); document.getElementById('modal-billing-email-gallery').remove(); window.toggleBillingEmailPreviewPanel(true);"
+            class="btn btn-sm"
+            style="flex-shrink: 0; background: ${isSelected ? opt.color : '#ffffff'}; color: ${isSelected ? '#ffffff' : opt.color}; border: 1px solid ${opt.color}; font-size: 0.74rem; font-weight: 700; padding: 0.35rem 0.7rem; border-radius: 6px; cursor: pointer;">
+            <i class="${isSelected ? 'ri-check-double-line' : 'ri-check-line'}"></i> ${isSelected ? 'Seleccionado' : 'Usar esta opción'}
+          </button>
+        </div>
+        <div style="padding: 0.6rem 1rem; background: #f8fafc; border-bottom: 1px solid #e2e8f0; font-size: 0.75rem; color: #334155;">
+          <div><strong>Asunto:</strong> ${preview.emailSubject}</div>
+        </div>
+        <div style="padding: 0.75rem; background: #f1f5f9; max-height: 520px; overflow-y: auto; flex: 1;">
+          ${preview.innerCardHtml}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const galleryModal = document.createElement('div');
+  galleryModal.id = 'modal-billing-email-gallery';
+  galleryModal.className = 'modal-overlay active';
+  galleryModal.style.zIndex = '10050';
+  galleryModal.innerHTML = `
+    <div class="modal-content" style="max-width: 1420px; width: 96vw; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding: 1rem 1.25rem;">
+        <div>
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 1.05rem;">
+            <i class="ri-layout-grid-line" style="color: var(--color-primary);"></i>
+            Catálogo Completo de Correos de Facturación (7 Plantillas) — ${state.commerceName}
+          </h3>
+          <p style="margin: 0.2rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">
+            Vista previa simultánea de las 7 opciones de notificación con los montos reales del comercio en <strong>${state.periodName}</strong>.
+          </p>
+        </div>
+        <button class="modal-close" onclick="document.getElementById('modal-billing-email-gallery').remove()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.25rem; overflow-y: auto; background: #f8fafc; display: grid; grid-template-columns: repeat(auto-fit, minmax(540px, 1fr)); gap: 1.25rem;">
+        ${cardsHtml}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(galleryModal);
+};
+
 window.openSendBillingEmailModal = async function(recordId, commerceName, periodId) {
   let modal = document.getElementById('modal-send-billing-email');
   if (modal) modal.remove();
@@ -86256,10 +88604,15 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
   modal.className = 'modal-overlay active';
   modal.style.zIndex = '9999'; // Ensure it opens on top of the other details modal (e.g. details with delay)
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 500px;">
-      <div class="modal-header">
-        <h3><i class="ri-mail-send-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Enviar Desglose por Email</h3>
-        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+    <div class="modal-content" id="send-billing-email-modal-content" style="max-width: 1180px; width: 96vw; transition: max-width 0.22s ease, width 0.22s ease;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;">
+        <h3 style="margin: 0; display: flex; align-items: center;"><i class="ri-mail-send-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Enviar Desglose por Email</h3>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <button type="button" id="btn-toggle-email-preview-header" onclick="window.toggleBillingEmailPreviewPanel()" style="display: none; align-items: center; gap: 0.35rem; padding: 0.32rem 0.65rem; font-size: 0.76rem; font-weight: 700; border-radius: 6px; border: 1px solid #93c5fd; background: #eff6ff; color: #1d4ed8; cursor: pointer;">
+            <i class="ri-eye-off-line"></i> Ocultar Vista Previa
+          </button>
+          <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+        </div>
       </div>
       <div class="modal-body" id="send-billing-email-body" style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
         <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
@@ -86270,23 +88623,118 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
   document.body.appendChild(modal);
   
   try {
-    // 1. Obtener los contactos activos de cobro de este comercio
-    const { data: contacts, error: contactsErr } = await supabase
-      .from('billing_contacts')
-      .select('*')
-      .eq('comercio', commerceName)
-      .eq('activo', true);
+    // 1. Obtener todos los contactos de cobro de este comercio, usuarios del portal, colaboradores y datos de onboarding
+    const [contactsRes, recRes, allRecsRes, profilesRes, addConfRes, onbRes] = await Promise.all([
+      supabase
+        .from('billing_contacts')
+        .select('*')
+        .ilike('comercio', commerceName),
+      supabase
+        .from('billing_records')
+        .select('*, billing_periods(name, period_month, period_year)')
+        .eq('id', recordId)
+        .single(),
+      supabase
+        .from('billing_records')
+        .select('*, billing_periods(name, period_month, period_year)')
+        .ilike('comercio', commerceName),
+      supabase
+        .from('profiles')
+        .select('email, full_name, comercio, role'),
+      supabase
+        .from('comercios_adicional_config')
+        .select('comercio, contacto, email_colaborador')
+        .ilike('comercio', commerceName)
+        .maybeSingle(),
+      supabase
+        .from('comercios_onboarding')
+        .select('nombre_fantasia, correo_empresa, representante_legal')
+        .ilike('nombre_fantasia', commerceName)
+        .maybeSingle()
+    ]);
       
-    if (contactsErr) throw contactsErr;
-    
-    // 2. Obtener el registro para saber qué servicios tienen datos
-    const { data: rec, error: recErr } = await supabase
-      .from('billing_records')
-      .select('total_fulfillment, enviame')
-      .eq('id', recordId)
-      .single();
-      
-    if (recErr) throw recErr;
+    if (contactsRes.error) throw contactsRes.error;
+    if (recRes.error) throw recRes.error;
+
+    const allContacts = contactsRes.data || [];
+    const contacts = allContacts.filter(c => c.activo !== false);
+    const rec = recRes.data;
+    const allCommerceRecords = (allRecsRes && Array.isArray(allRecsRes.data) && allRecsRes.data.length > 0)
+      ? allRecsRes.data
+      : [rec];
+
+    // Construir lista de sugerencias de contactos del comercio para copiar rápidamente en CC
+    const commerceCcSuggestions = [];
+    const seenCommerceEmails = new Set();
+    const stockaEmailsSet = new Set((window.STOCKA_CC_PRESETS || []).map(p => p.email.toLowerCase()));
+    const addCommerceSuggestion = (emailRaw, labelRaw, roleRaw) => {
+      const clean = String(emailRaw || '').trim().toLowerCase();
+      if (!clean || !clean.includes('@') || !clean.includes('.')) return;
+      if (stockaEmailsSet.has(clean) || seenCommerceEmails.has(clean)) return;
+      seenCommerceEmails.add(clean);
+      commerceCcSuggestions.push({
+        email: clean,
+        label: String(labelRaw || clean.split('@')[0]).trim(),
+        role: String(roleRaw || 'Contacto').trim()
+      });
+    };
+
+    // a) Contactos de facturación registrados (activos e inactivos)
+    allContacts.forEach(c => {
+      if (c && c.email) {
+        addCommerceSuggestion(c.email, c.nombre || 'Finanzas', c.rol || 'Facturación');
+      }
+    });
+
+    // b) Usuarios del portal WMS asignados a este comercio
+    const targetCommNorm = String(commerceName || '').trim().toLowerCase();
+    if (profilesRes && Array.isArray(profilesRes.data)) {
+      profilesRes.data.forEach(p => {
+        if (!p || !p.email || p.role === 'admin' || !p.comercio) return;
+        const assignedComs = String(p.comercio).split(',').map(s => s.trim().toLowerCase());
+        if (assignedComs.includes(targetCommNorm)) {
+          addCommerceSuggestion(p.email, p.full_name || 'Usuario WMS', 'Portal');
+        }
+      });
+    }
+
+    // c) Colaboradores y contacto adicional en comercios_adicional_config
+    if (addConfRes && addConfRes.data) {
+      const ac = addConfRes.data;
+      if (ac.email_colaborador) {
+        String(ac.email_colaborador).split(/[,;\s]+/).forEach(em => {
+          addCommerceSuggestion(em, 'Colaborador', 'Equipo');
+        });
+      }
+      if (ac.contacto && String(ac.contacto).includes('@')) {
+        String(ac.contacto).split(/[,;\s]+/).forEach(em => {
+          addCommerceSuggestion(em, 'Contacto', 'Comercio');
+        });
+      }
+    }
+
+    // d) Correo de empresa en comercios_onboarding
+    if (onbRes && onbRes.data && onbRes.data.correo_empresa) {
+      String(onbRes.data.correo_empresa).split(/[,;\s]+/).forEach(em => {
+        addCommerceSuggestion(em, onbRes.data.representante_legal || 'Empresa', 'Onboarding');
+      });
+    }
+
+    window._currentBillingEmailModalCtx = {
+      recordId,
+      commerceName,
+      periodId,
+      periodName: (rec && rec.billing_periods && rec.billing_periods.name) || 'Periodo Actual',
+      record: rec,
+      allCommerceRecords,
+      contacts: contacts || [],
+      commerceCcSuggestions
+    };
+
+    const btnHeaderPreview = document.getElementById('btn-toggle-email-preview-header');
+    if (btnHeaderPreview) {
+      btnHeaderPreview.style.display = 'inline-flex';
+    }
     
     const bodyEl = document.getElementById('send-billing-email-body');
     bodyEl.removeAttribute('style');
@@ -86302,7 +88750,7 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
     } else {
       contactsHtml = contacts.map(c => `
         <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--color-surface-hover); padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-bottom: 0.4rem; cursor: pointer;">
-          <input type="checkbox" name="email-recipient" value="${c.email}" checked style="width: 16px; height: 16px; margin: 0; accent-color: var(--color-primary);">
+          <input type="checkbox" name="email-recipient" value="${c.email}" checked onchange="window.updateBillingEmailLivePreview()" style="width: 16px; height: 16px; margin: 0; accent-color: var(--color-primary);">
           <div style="font-size: 0.8rem; line-height: 1.3;">
             <strong style="color: var(--color-text-main); display: block;">${c.nombre}</strong>
             <span style="color: var(--color-text-muted);">${c.email}</span>
@@ -86318,7 +88766,7 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
     
     if (hasFulf && hasEnv) {
       serviceSelectHtml = `
-        <select id="email-service-type" class="form-input" style="width: 100%;">
+        <select id="email-service-type" class="form-input" style="width: 100%;" onchange="window.updateBillingEmailLivePreview()">
           <option value="both" selected>Ambos Servicios (Fulfillment y Envíame)</option>
           <option value="fulfillment">Solo Fulfillment</option>
           <option value="enviame">Solo Envíame</option>
@@ -86326,80 +88774,151 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
       `;
     } else if (hasEnv) {
       serviceSelectHtml = `
-        <select id="email-service-type" class="form-input" style="width: 100%;">
+        <select id="email-service-type" class="form-input" style="width: 100%;" onchange="window.updateBillingEmailLivePreview()">
           <option value="enviame" selected>Solo Envíame</option>
           <option value="fulfillment">Solo Fulfillment</option>
+          <option value="both">Ambos Servicios (Fulfillment y Envíame)</option>
         </select>
       `;
     } else {
       serviceSelectHtml = `
-        <select id="email-service-type" class="form-input" style="width: 100%;">
+        <select id="email-service-type" class="form-input" style="width: 100%;" onchange="window.updateBillingEmailLivePreview()">
           <option value="fulfillment" selected>Solo Fulfillment</option>
           <option value="enviame">Solo Envíame</option>
+          <option value="both">Ambos Servicios (Fulfillment y Envíame)</option>
         </select>
       `;
     }
     
     bodyEl.innerHTML = `
-      <form id="form-send-billing-email" onsubmit="window.executeSendBillingEmail('${recordId}', '${periodId}', event)">
-        <div style="font-size: 0.85rem; background: rgba(37, 99, 235, 0.05); color: var(--color-primary); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid rgba(37, 99, 235, 0.15); margin-bottom: 1rem; line-height: 1.4;">
-          Se enviará un correo con formato profesional desde <strong>finanzas@stocka.cl</strong> incluyendo el detalle de montos, fechas de vencimiento y enlaces a los documentos PDF adjuntos.
-        </div>
-        
-        <div class="form-group" style="margin-bottom: 1rem;">
-          <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">1. Destinatarios del Correo</label>
-          <div style="max-height: 120px; overflow-y: auto; padding-right: 0.25rem; margin-bottom: 0.5rem;">
-            ${contactsHtml}
+      <div style="display: flex; gap: 1.25rem; align-items: stretch; flex-wrap: wrap;">
+        <!-- Columna Izquierda: Configuración del Envío -->
+        <form id="form-send-billing-email" onsubmit="window.executeSendBillingEmail('${recordId}', '${periodId}', event)" style="flex: 1 1 420px; min-width: 320px; margin: 0;">
+          <div style="font-size: 0.85rem; background: rgba(37, 99, 235, 0.05); color: var(--color-primary); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid rgba(37, 99, 235, 0.15); margin-bottom: 1rem; line-height: 1.4;">
+            Se enviará un correo con formato profesional desde <strong>finanzas@stocka.cl</strong> incluyendo el detalle de montos, fechas de vencimiento y enlaces a los documentos PDF adjuntos.
           </div>
-          <!-- Custom Email Input -->
-          <div style="display: flex; gap: 0.35rem; align-items: center;">
-            <i class="ri-mail-add-line" style="color: var(--color-text-muted); font-size: 1.15rem;" title="Agregar correo manual"></i>
-            <input type="email" id="email-recipient-custom" class="form-input" placeholder="Escribir correo adicional..." style="flex-grow: 1; font-size: 0.8rem; margin: 0; padding: 0.35rem 0.5rem; height: 32px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main);">
+          
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">1. Destinatarios del Correo</label>
+            <div style="max-height: 120px; overflow-y: auto; padding-right: 0.25rem; margin-bottom: 0.5rem;">
+              ${contactsHtml}
+            </div>
+            <!-- Custom Email Input (Para) -->
+            <div style="display: flex; gap: 0.35rem; align-items: center; margin-bottom: 0.4rem;">
+              <span style="font-size: 0.7rem; font-weight: 700; color: #475569; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 4px; padding: 0.2rem 0.45rem; min-width: 44px; text-align: center;" title="Destinatario principal adicional (Para)">Para +</span>
+              <input type="text" id="email-recipient-custom" class="form-input" placeholder="Escribir correo(s) adicional(es) separados por coma..." oninput="window.updateBillingEmailLivePreview()" style="flex-grow: 1; font-size: 0.8rem; margin: 0; padding: 0.35rem 0.5rem; height: 32px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main);">
+            </div>
+            <!-- CC Email Input (Con Copia) -->
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              <span style="font-size: 0.7rem; font-weight: 700; color: #0284c7; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 4px; padding: 0.2rem 0.45rem; min-width: 44px; text-align: center;" title="Destinatarios en copia (CC)">CC</span>
+              <input type="text" id="email-recipient-cc" class="form-input" placeholder="Agregar correo(s) en copia (CC) separados por coma..." oninput="window.updateBillingEmailLivePreview()" style="flex-grow: 1; font-size: 0.8rem; margin: 0; padding: 0.35rem 0.5rem; height: 32px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main);">
+            </div>
+            <!-- Cápsulas rápidas de Copia (CC) -->
+            <div id="billing-email-cc-capsules-container"></div>
+          </div>
+          
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">2. Tipo de Servicio a Informar</label>
+            ${serviceSelectHtml}
+          </div>
+          
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+              <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin: 0;">3. Tipo de Correo a Enviar</label>
+              <div style="display: flex; align-items: center; gap: 0.35rem;">
+                <button type="button" onclick="window.toggleBillingEmailPreviewPanel(true)" style="display: inline-flex; align-items: center; gap: 0.25rem; background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; border-radius: 6px; padding: 0.2rem 0.55rem; font-size: 0.73rem; font-weight: 700; cursor: pointer;" title="Ver vista previa interactiva de las 7 opciones de correo">
+                  <i class="ri-eye-line"></i> Ver Vista Previa (7)
+                </button>
+                <button type="button" onclick="window.openBillingEmailGalleryModal()" style="display: inline-flex; align-items: center; gap: 0.25rem; background: #f8fafc; color: #475569; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0.2rem 0.5rem; font-size: 0.72rem; font-weight: 600; cursor: pointer;" title="Comparar las 7 plantillas en pantalla completa">
+                  <i class="ri-layout-grid-line"></i> Catálogo
+                </button>
+              </div>
+            </div>
+            <select id="email-type-select" class="form-input" style="width: 100%;" onchange="window.updateBillingEmailLivePreview()">
+              <option value="billing_summary" selected>Desglose / Resumen de Facturación</option>
+              <option value="payment_reminder">Recordatorio de Vencimiento Próximo (Aviso preventivo amable)</option>
+              <option value="invoice_uploaded">Notificación de Factura Cargada</option>
+              <option value="payment_overdue_manual">Aviso de Plazo de Pago Vencido</option>
+              <option value="suspension_warning">Alerta de Corte de Servicio (Aviso de suspensión)</option>
+              <option value="service_paused">Notificación Formal de Servicio Pausado (Corte efectivo)</option>
+              <option value="service_restored">Confirmación de Re-activación del Servicio</option>
+            </select>
+
+            <!-- Mini-resumen en vivo del correo seleccionado -->
+            <div style="margin-top: 0.45rem; padding: 0.5rem 0.65rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.75rem; line-height: 1.35;">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                <span style="color: #64748b; font-weight: 600;">Asunto a enviar:</span>
+                <a href="javascript:void(0)" onclick="window.toggleBillingEmailPreviewPanel()" style="color: #2563eb; font-weight: 700; text-decoration: none; font-size: 0.72rem;">Previsualizar correo &rarr;</a>
+              </div>
+              <div id="billing-email-mini-subject" style="font-weight: 700; color: #0f172a; word-break: break-word;"></div>
+              <div id="billing-email-mini-desc" style="margin-top: 0.25rem; color: #475569; font-size: 0.71rem;"></div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; background: rgba(239, 68, 68, 0.05); border: 1px dashed rgba(239, 68, 68, 0.2); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm);">
+              <input type="checkbox" id="email-is-correction" onchange="window.updateBillingEmailLivePreview()" style="width: 16px; height: 16px; margin: 0; accent-color: #ef4444; cursor: pointer;">
+              <label for="email-is-correction" style="font-size: 0.8rem; font-weight: 600; cursor: pointer; color: #b91c1c; margin: 0; user-select: none;">
+                 Marcar como CORRECCIÓN (Asunto con [CORRECCION] y fe de erratas)
+              </label>
+            </div>
+          </div>
+          
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">4. Mensaje Personalizado Adicional (Opcional)</label>
+            <textarea id="email-custom-message" class="form-input" oninput="window.updateBillingEmailLivePreview()" placeholder="Ej: Estimado cliente, recordamos que este cobro incluye el descuento de la promoción..." style="width: 100%; height: 80px; font-size: 0.8rem; resize: vertical;"></textarea>
+          </div>
+          
+          <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; border-top: 1px solid var(--color-border); padding-top: 1rem; margin-top: 1rem;">
+            <button type="button" id="btn-toggle-email-preview-footer" class="btn btn-outline" onclick="window.toggleBillingEmailPreviewPanel()" style="color: #2563eb; border-color: #bfdbfe; background: #eff6ff; font-weight: 600;">
+              <i class="ri-eye-off-line"></i> Ocultar Previa
+            </button>
+            <div style="display: flex; gap: 0.5rem;">
+              <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-send-billing-email').remove()">Cancelar</button>
+              <button type="submit" class="btn btn-primary" id="btn-submit-send-email"><i class="ri-mail-send-line"></i> Enviar Correo</button>
+            </div>
+          </div>
+        </form>
+
+        <!-- Columna Derecha: Vista Previa Interactiva de las 7 Opciones de Correo (Visible por defecto) -->
+        <div id="billing-email-preview-column" style="display: flex; flex: 1.35 1 560px; min-width: 360px; flex-direction: column; border: 1px solid #cbd5e1; border-radius: 10px; background: #ffffff; overflow: hidden; max-height: 78vh;">
+          <div style="padding: 0.75rem 1rem; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.45rem;">
+              <i class="ri-mail-open-line" style="color: #2563eb; font-size: 1.1rem;"></i>
+              <div>
+                <div style="font-size: 0.84rem; font-weight: 800; color: #0f172a;">Vista Previa en Vivo del Correo Seleccionado</div>
+                <div style="font-size: 0.71rem; color: #64748b;">Cambia el selector o haz clic en cualquiera de las 7 opciones para ver su vista previa</div>
+              </div>
+            </div>
+            <button type="button" onclick="window.openBillingEmailGalleryModal()" style="display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.3rem 0.6rem; font-size: 0.73rem; font-weight: 700; color: #4f46e5; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 6px; cursor: pointer;">
+              <i class="ri-fullscreen-line"></i> Ver las 7 juntas
+            </button>
+          </div>
+
+          <!-- Selector rápido de las 7 plantillas -->
+          <div id="billing-email-preview-tabs" style="padding: 0.6rem 0.85rem; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; display: flex; flex-wrap: wrap; gap: 0.35rem;">
+          </div>
+
+          <!-- Metadatos del correo (De, Para, Asunto) -->
+          <div id="billing-email-preview-meta" style="padding: 0.65rem 1rem; background: #ffffff; border-bottom: 1px solid #e2e8f0;">
+          </div>
+
+          <!-- Lienzo HTML del correo -->
+          <div id="billing-email-preview-stage" style="padding: 0.85rem; background: #e2e8f0; overflow-y: auto; flex: 1;">
           </div>
         </div>
-        
-        <div class="form-group" style="margin-bottom: 1rem;">
-          <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">2. Tipo de Servicio a Informar</label>
-          ${serviceSelectHtml}
-        </div>
-        
-        <div class="form-group" style="margin-bottom: 1rem;">
-          <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">3. Tipo de Correo a Enviar</label>
-          <select id="email-type-select" class="form-input" style="width: 100%;">
-            <option value="billing_summary" selected>Desglose / Resumen de Facturación</option>
-            <option value="payment_reminder">Recordatorio de Vencimiento Próximo (Aviso preventivo amable)</option>
-            <option value="invoice_uploaded">Notificación de Factura Cargada</option>
-            <option value="payment_overdue_manual">Aviso de Plazo de Pago Vencido</option>
-            <option value="suspension_warning">Alerta de Corte de Servicio (Aviso de suspensión)</option>
-            <option value="service_paused">Notificación Formal de Servicio Pausado (Corte efectivo)</option>
-            <option value="service_restored">Confirmación de Re-activación del Servicio</option>
-          </select>
-          <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; background: rgba(239, 68, 68, 0.05); border: 1px dashed rgba(239, 68, 68, 0.2); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm);">
-            <input type="checkbox" id="email-is-correction" style="width: 16px; height: 16px; margin: 0; accent-color: #ef4444; cursor: pointer;">
-            <label for="email-is-correction" style="font-size: 0.8rem; font-weight: 600; cursor: pointer; color: #b91c1c; margin: 0; user-select: none;">
-               Marcar como CORRECCIÓN (Asunto con [CORRECCION] y fe de erratas)
-            </label>
-          </div>
-        </div>
-        
-        <div class="form-group" style="margin-bottom: 1.25rem;">
-          <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">4. Mensaje Personalizado Adicional (Opcional)</label>
-          <textarea id="email-custom-message" class="form-input" placeholder="Ej: Estimado cliente, recordamos que este cobro incluye el descuento de la promoción..." style="width: 100%; height: 80px; font-size: 0.8rem; resize: vertical;"></textarea>
-        </div>
-        
-        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 0.5rem; border-top: 1px solid var(--color-border); padding-top: 1rem; margin-top: 1rem;">
-          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-send-billing-email').remove()">Cancelar</button>
-          <button type="submit" class="btn btn-primary" id="btn-submit-send-email"><i class="ri-mail-send-line"></i> Enviar Correo</button>
-        </div>
-      </form>
-    `;
-  } catch (err) {
-    console.error("Error setting up send email modal:", err);
-    bodyEl.innerHTML = `
-      <div style="color: var(--color-danger); text-align: center;">
-        Error al preparar el envío: ${err.message}
       </div>
     `;
+
+    window.toggleBillingEmailPreviewPanel(true);
+  } catch (err) {
+    console.error("Error setting up send email modal:", err);
+    const bodyEl = document.getElementById('send-billing-email-body');
+    if (bodyEl) {
+      bodyEl.innerHTML = `
+        <div style="color: var(--color-danger); text-align: center;">
+          Error al preparar el envío: ${err.message}
+        </div>
+      `;
+    }
   }
 };
 
@@ -86409,17 +88928,37 @@ window.executeSendBillingEmail = async function(recordId, periodId, e) {
   const recipientCheckboxes = document.querySelectorAll('input[name="email-recipient"]:checked');
   const emails = Array.from(recipientCheckboxes).map(cb => cb.value);
   
-  const customEmail = document.getElementById('email-recipient-custom').value.trim();
-  if (customEmail) {
-    if (!customEmail.includes('@') || !customEmail.includes('.')) {
-      alert("Por favor, ingrese un correo manual válido.");
-      return;
+  const customEmailRaw = (document.getElementById('email-recipient-custom')?.value || '').trim();
+  if (customEmailRaw) {
+    const customList = customEmailRaw.split(/[,;\s]+/).map(em => em.trim()).filter(Boolean);
+    for (const em of customList) {
+      if (!em.includes('@') || !em.includes('.')) {
+        alert(`Por favor, ingrese un correo adicional válido en Para: "${em}"`);
+        return;
+      }
+      if (!emails.includes(em)) {
+        emails.push(em);
+      }
     }
-    emails.push(customEmail);
+  }
+
+  const ccEmailRaw = (document.getElementById('email-recipient-cc')?.value || '').trim();
+  const ccEmails = [];
+  if (ccEmailRaw) {
+    const ccList = ccEmailRaw.split(/[,;\s]+/).map(em => em.trim()).filter(Boolean);
+    for (const em of ccList) {
+      if (!em.includes('@') || !em.includes('.')) {
+        alert(`Por favor, ingrese un correo en copia (CC) válido: "${em}"`);
+        return;
+      }
+      if (!ccEmails.includes(em) && !emails.includes(em)) {
+        ccEmails.push(em);
+      }
+    }
   }
   
   if (emails.length === 0) {
-    alert("Debe seleccionar o escribir al menos un correo de contacto.");
+    alert("Debe seleccionar o escribir al menos un correo destinatario principal (Para).");
     return;
   }
   
@@ -86443,7 +88982,7 @@ window.executeSendBillingEmail = async function(recordId, periodId, e) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${session.access_token}`
       },
-      body: JSON.stringify({ recordId, serviceType, emails, customMessage, emailType, isCorrection })
+      body: JSON.stringify({ recordId, serviceType, emails, ccEmails, customMessage, emailType, isCorrection })
     });
     
     const result = await response.json();
@@ -90060,6 +92599,494 @@ window.viewDeclarationProducts = async function(id) {
   }
 };
 
+function getAdminVolumeAnimatedChartLoaderHtml() {
+  const barHeights = [34, 42, 38, 52, 64, 58, 72, 68, 82, 76, 88, 84, 92, 78, 85, 96];
+  const barsHtml = barHeights.map((h, idx) => {
+    const isContext = idx < 2 || idx === 13 || idx === 14;
+    const isLive = idx === barHeights.length - 1;
+    const cls = isLive ? 'vol-loader-bar bar-live' : (isContext ? 'vol-loader-bar bar-context' : 'vol-loader-bar');
+    const delay = (idx * 0.11).toFixed(2);
+    return `<div class="${cls}" style="height: ${h}%; animation-delay: ${delay}s;"></div>`;
+  }).join('');
+
+  return `
+    <div id="volume-chart-loader" class="vol-chart-loader-overlay">
+      <div class="vol-chart-loader-top">
+        <div class="vol-chart-loader-status">
+          <span class="vol-chart-loader-pulse-dot"></span>
+          <span>Procesando evolución volumétrica (m³) y líneas de tendencia...</span>
+        </div>
+        <div class="vol-chart-loader-tags">
+          <span class="vol-loader-tag tag-blue"><i class="ri-Funds-box-line"></i> Curva m³ en Movimiento</span>
+          <span class="vol-loader-tag tag-purple"><i class="ri-trending-up-line"></i> Línea de Tendencia</span>
+          <span class="vol-loader-tag tag-emerald"><i class="ri-calculator-line"></i> Promedio Cobro</span>
+        </div>
+      </div>
+
+      <div class="vol-chart-stage-body">
+        <div class="vol-chart-yaxis-skel">
+          <div class="vol-skel-bar" style="width: 48px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 42px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 48px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 40px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 46px; height: 10px;"></div>
+        </div>
+
+        <div class="vol-chart-plot-box">
+          <div class="vol-chart-grid-line"></div>
+          <div class="vol-chart-grid-line"></div>
+          <div class="vol-chart-grid-line"></div>
+          <div class="vol-chart-grid-line"></div>
+          <div class="vol-chart-grid-line"></div>
+
+          <div class="vol-loader-bars-layer">
+            ${barsHtml}
+          </div>
+
+          <svg class="vol-loader-svg" viewBox="0 0 800 220" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="volAdminLoaderAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#2563eb" stop-opacity="0.28"/>
+                <stop offset="65%" stop-color="#3b82f6" stop-opacity="0.08"/>
+                <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.0"/>
+              </linearGradient>
+              <linearGradient id="volAdminLoaderTrendGrad" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#8b5cf6"/>
+                <stop offset="50%" stop-color="#a855f7"/>
+                <stop offset="100%" stop-color="#ec4899"/>
+              </linearGradient>
+            </defs>
+
+            <line
+              class="vol-svg-trendline-avg"
+              x1="16" y1="118" x2="784" y2="112"
+              stroke="#10b981"
+              stroke-width="2"
+              stroke-opacity="0.75"
+            />
+
+            <path
+              class="vol-svg-trendline-primary"
+              d="M 18 168 Q 400 108 782 46"
+              fill="none"
+              stroke="url(#volAdminLoaderTrendGrad)"
+              stroke-width="3"
+              stroke-linecap="round"
+            />
+
+            <g class="vol-svg-curve-group">
+              <path
+                d="M 18 162 C 85 154, 120 124, 175 130 C 235 136, 275 94, 335 102 C 395 110, 435 68, 495 76 C 555 84, 600 48, 665 58 C 715 65, 748 36, 782 32 L 782 220 L 18 220 Z"
+                fill="url(#volAdminLoaderAreaGrad)"
+              />
+              <path
+                class="vol-svg-main-curve"
+                d="M 18 162 C 85 154, 120 124, 175 130 C 235 136, 275 94, 335 102 C 395 110, 435 68, 495 76 C 555 84, 600 48, 665 58 C 715 65, 748 36, 782 32"
+                fill="none"
+                stroke="#2563eb"
+                stroke-width="3.2"
+                stroke-linecap="round"
+              />
+              <circle cx="175" cy="130" r="4" fill="#2563eb" stroke="#ffffff" stroke-width="1.8"/>
+              <circle cx="335" cy="102" r="4" fill="#2563eb" stroke="#ffffff" stroke-width="1.8"/>
+              <circle cx="495" cy="76" r="4" fill="#2563eb" stroke="#ffffff" stroke-width="1.8"/>
+              <circle cx="665" cy="58" r="4" fill="#2563eb" stroke="#ffffff" stroke-width="1.8"/>
+              <circle cx="782" cy="32" r="6" fill="#f43f5e" stroke="#fda4af" stroke-width="2.5"/>
+            </g>
+          </svg>
+
+          <div class="vol-trend-floating-badge badge-purple">
+            <i class="ri-line-chart-line"></i> Tendencia Lineal m³
+          </div>
+          <div class="vol-trend-floating-badge badge-emerald">
+            <i class="ri-equalizer-line"></i> Base Cobro Ponderada
+          </div>
+
+          <div class="vol-loader-scanline"></div>
+        </div>
+
+        <div class="vol-chart-xaxis-skel">
+          <div class="vol-skel-bar" style="width: 38px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 38px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 38px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 38px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 38px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 38px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 38px; height: 10px;"></div>
+          <div class="vol-skel-bar skel-blue" style="width: 46px; height: 11px;"></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function getAdminVolumeTableSkeletonRowsHtml(colCount = 4, rowCount = 6) {
+  const dateWidths = ['118px', '110px', '124px', '114px', '120px', '112px'];
+  const commWidths = ['138px', '152px', '128px', '146px', '134px', '142px'];
+  const volWidths = ['96px', '104px', '92px', '100px', '94px', '98px'];
+  let rows = '';
+  for (let i = 0; i < rowCount; i++) {
+    const opacity = Math.max(0.28, 1 - i * 0.13).toFixed(2);
+    rows += `
+      <tr style="border-bottom: 1px solid var(--color-border); pointer-events: none; opacity: ${opacity};">
+        <td style="padding: 0.78rem 1.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <div class="vol-skel-bar" style="width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0;"></div>
+            <div class="vol-skel-bar" style="width: ${dateWidths[i % dateWidths.length]}; height: 15px;"></div>
+          </div>
+        </td>
+        <td style="padding: 0.78rem 1.5rem;">
+          <div class="vol-skel-bar" style="width: ${commWidths[i % commWidths.length]}; height: 20px; border-radius: 6px;"></div>
+        </td>
+        <td style="padding: 0.78rem 1.5rem; text-align: right;">
+          <div class="vol-skel-bar skel-blue" style="width: ${volWidths[i % volWidths.length]}; height: 17px; margin-left: auto;"></div>
+        </td>
+        ${colCount >= 4 ? `
+          <td style="padding: 0.78rem 1.5rem; text-align: center;">
+            <div class="vol-skel-bar" style="width: 112px; height: 14px; margin: 0 auto;"></div>
+          </td>
+        ` : ''}
+      </tr>
+    `;
+  }
+  return rows;
+}
+
+function getAdminVolumeMonthlyHistorySkeletonCardsHtml(count = 6) {
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    const op = Math.max(0.35, 1 - i * 0.1).toFixed(2);
+    html += `
+      <div class="vol-month-history-item vol-kpi-card-loading" style="pointer-events: none; opacity: ${op};">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem;">
+          <div class="vol-skel-bar" style="width: 72px; height: 13px;"></div>
+          <div class="vol-skel-bar skel-purple" style="width: 44px; height: 15px; border-radius: 99px;"></div>
+        </div>
+        <div class="vol-skel-bar skel-blue" style="width: 96px; height: 20px; margin: 3px 0;"></div>
+        <div class="vol-skel-bar" style="width: 118px; height: 11px;"></div>
+      </div>
+    `;
+  }
+  return html;
+}
+
+function getAdminVolumeMonthlyHistoryCardHtml() {
+  return `
+    <!-- Historical Monthly Averages Card (3M / 6M / 12M) -->
+    <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+      <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.85rem;">
+        <div>
+          <h4 style="margin: 0; font-size: 0.96rem; color: var(--color-text-main); font-weight: 700; display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-calendar-todo-line" style="color: var(--color-primary);"></i> Histórico Mensual y Promedio de Periodos Anteriores (3 · 6 · 12 Meses)
+          </h4>
+          <p style="margin: 0.2rem 0 0 0; font-size: 0.76rem; color: var(--color-text-muted);">Comparativa del volumen promedio mensual (m³), acumulado m³·día y variación intermensual · Haz clic en un mes para cargar su curva diaria</p>
+        </div>
+        <div style="display: inline-flex; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 9px; padding: 3px; gap: 2px;">
+          <button type="button" class="vol-horizon-btn" data-horizon="3">3 Meses</button>
+          <button type="button" class="vol-horizon-btn active" data-horizon="6">6 Meses</button>
+          <button type="button" class="vol-horizon-btn" data-horizon="12">12 Meses</button>
+        </div>
+      </div>
+
+      <div class="card-body" style="padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+          <div class="vol-horizon-card vol-kpi-card-loading" data-horizon-card="3">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+              <span style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-time-line" style="color: #3b82f6;"></i> Promedio 3 Meses (3M)
+              </span>
+              <span id="vol-hist-badge-3m">
+                <span class="vol-skel-bar skel-blue" style="display: inline-block; width: 52px; height: 16px; border-radius: 99px;"></span>
+              </span>
+            </div>
+            <div id="vol-hist-val-3m" style="font-size: 1.2rem; font-weight: 800; color: var(--color-primary);">
+              <div class="vol-skel-bar skel-blue" style="width: 112px; height: 22px; margin: 2px 0;"></div>
+            </div>
+            <div id="vol-hist-sub-3m" style="font-size: 0.71rem; color: var(--color-text-muted);">
+              <div class="vol-skel-bar" style="width: 155px; height: 11px; margin-top: 2px;"></div>
+            </div>
+          </div>
+
+          <div class="vol-horizon-card active vol-kpi-card-loading" data-horizon-card="6">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+              <span style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-bar-chart-box-line" style="color: #8b5cf6;"></i> Promedio 6 Meses (6M)
+              </span>
+              <span id="vol-hist-badge-6m">
+                <span class="vol-skel-bar skel-purple" style="display: inline-block; width: 52px; height: 16px; border-radius: 99px;"></span>
+              </span>
+            </div>
+            <div id="vol-hist-val-6m" style="font-size: 1.2rem; font-weight: 800; color: #8b5cf6;">
+              <div class="vol-skel-bar skel-purple" style="width: 112px; height: 22px; margin: 2px 0;"></div>
+            </div>
+            <div id="vol-hist-sub-6m" style="font-size: 0.71rem; color: var(--color-text-muted);">
+              <div class="vol-skel-bar" style="width: 155px; height: 11px; margin-top: 2px;"></div>
+            </div>
+          </div>
+
+          <div class="vol-horizon-card vol-kpi-card-loading" data-horizon-card="12">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+              <span style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-calendar-check-line" style="color: #10b981;"></i> Promedio 12 Meses (Anual)
+              </span>
+              <span id="vol-hist-badge-12m">
+                <span class="vol-skel-bar skel-emerald" style="display: inline-block; width: 52px; height: 16px; border-radius: 99px;"></span>
+              </span>
+            </div>
+            <div id="vol-hist-val-12m" style="font-size: 1.2rem; font-weight: 800; color: #10b981;">
+              <div class="vol-skel-bar skel-emerald" style="width: 112px; height: 22px; margin: 2px 0;"></div>
+            </div>
+            <div id="vol-hist-sub-12m" style="font-size: 0.71rem; color: var(--color-text-muted);">
+              <div class="vol-skel-bar" style="width: 155px; height: 11px; margin-top: 2px;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 1.25rem; align-items: stretch;">
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.9rem 1rem; display: flex; flex-direction: column; justify-content: space-between;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.65rem; flex-wrap: wrap;">
+              <span id="vol-monthly-chart-title" style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-line-chart-line" style="color: var(--color-primary);"></i> Evolución de Promedios Mensuales (Últimos 6 Meses)
+              </span>
+              <div style="display: flex; align-items: center; gap: 0.6rem; font-size: 0.68rem; color: var(--color-text-muted);">
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #3b82f6; display: inline-block;"></span> Prom. Mes</span>
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width: 10px; height: 2px; background: #10b981; display: inline-block;"></span> Prom. Horizonte</span>
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width: 10px; height: 2px; background: #a855f7; display: inline-block;"></span> Tendencia</span>
+              </div>
+            </div>
+            <div style="position: relative; height: 210px; width: 100%;">
+              <div id="volume-monthly-chart-loader" style="position: absolute; inset: 0; z-index: 4; background: var(--color-bg); display: flex; flex-direction: column; justify-content: flex-end; padding: 0.5rem 0.5rem 1.2rem; gap: 0.5rem;">
+                <div style="display: flex; align-items: flex-end; justify-content: space-around; height: 150px; gap: 10px; border-bottom: 1px solid var(--color-border); padding: 0 8px;">
+                  <div class="vol-loader-bar" style="height: 48%; animation-delay: 0.05s;"></div>
+                  <div class="vol-loader-bar" style="height: 62%; animation-delay: 0.18s;"></div>
+                  <div class="vol-loader-bar" style="height: 55%; animation-delay: 0.31s;"></div>
+                  <div class="vol-loader-bar" style="height: 74%; animation-delay: 0.44s;"></div>
+                  <div class="vol-loader-bar" style="height: 82%; animation-delay: 0.57s;"></div>
+                  <div class="vol-loader-bar bar-live" style="height: 90%; animation-delay: 0.70s;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-around;">
+                  <div class="vol-skel-bar" style="width: 36px; height: 9px;"></div>
+                  <div class="vol-skel-bar" style="width: 36px; height: 9px;"></div>
+                  <div class="vol-skel-bar" style="width: 36px; height: 9px;"></div>
+                  <div class="vol-skel-bar" style="width: 36px; height: 9px;"></div>
+                  <div class="vol-skel-bar" style="width: 36px; height: 9px;"></div>
+                  <div class="vol-skel-bar skel-blue" style="width: 36px; height: 9px;"></div>
+                </div>
+              </div>
+              <canvas id="volume-monthly-history-canvas"></canvas>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+              <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-stack-line" style="color: #8b5cf6;"></i> Desglose de Periodos Anteriores
+              </span>
+              <span style="font-size: 0.7rem; color: var(--color-text-muted);">Selecciona un mes para filtrar</span>
+            </div>
+            <div id="volume-monthly-periods-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 0.65rem; max-height: 215px; overflow-y: auto; padding-right: 2px;">
+              ${getAdminVolumeMonthlyHistorySkeletonCardsHtml(6)}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function getAdminVolumeProductLevelsTabHtml() {
+  return `
+    <!-- Product Volume KPIs Summary -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(225px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+      <div id="vol-prod-kpi-card-total" class="card vol-kpi-card-loading" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.72rem; font-weight: 700; color: var(--color-primary); text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-box-3-line"></i> Volumen Total Ocupado (Catálogo)
+        </div>
+        <div id="vol-prod-kpi-total-val" style="font-size: 1.3rem; font-weight: 800; color: var(--color-primary); margin-top: 0.3rem;">
+          <div class="vol-skel-bar skel-blue" style="width: 118px; height: 24px; margin: 2px 0;"></div>
+        </div>
+        <div id="vol-prod-kpi-total-sub" style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+          <div class="vol-skel-bar" style="width: 165px; height: 11px; margin-top: 4px;"></div>
+        </div>
+      </div>
+
+      <div id="vol-prod-kpi-card-skus" class="card vol-kpi-card-loading" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.72rem; font-weight: 700; color: #10b981; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-ruler-2-line"></i> Unidades y Cobertura de Medidas
+        </div>
+        <div id="vol-prod-kpi-skus-val" style="font-size: 1.3rem; font-weight: 800; color: #10b981; margin-top: 0.3rem;">
+          <div class="vol-skel-bar skel-emerald" style="width: 115px; height: 24px; margin: 2px 0;"></div>
+        </div>
+        <div id="vol-prod-kpi-skus-sub" style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+          <div class="vol-skel-bar" style="width: 160px; height: 11px; margin-top: 4px;"></div>
+        </div>
+      </div>
+
+      <div id="vol-prod-kpi-card-top" class="card vol-kpi-card-loading" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.72rem; font-weight: 700; color: #8b5cf6; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-vip-crown-2-line"></i> Mayor Aporte al Volumen (#1 SKU)
+        </div>
+        <div id="vol-prod-kpi-top-val" style="font-size: 1.15rem; font-weight: 800; color: #8b5cf6; margin-top: 0.3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          <div class="vol-skel-bar skel-purple" style="width: 140px; height: 24px; margin: 2px 0;"></div>
+        </div>
+        <div id="vol-prod-kpi-top-sub" style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+          <div class="vol-skel-bar" style="width: 155px; height: 11px; margin-top: 4px;"></div>
+        </div>
+      </div>
+
+      <div id="vol-prod-kpi-card-var" class="card vol-kpi-card-loading" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.72rem; font-weight: 700; color: #f59e0b; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-exchange-funds-line"></i> Variación Neta en Periodo
+        </div>
+        <div id="vol-prod-kpi-var-val" style="font-size: 1.3rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.3rem;">
+          <div class="vol-skel-bar" style="width: 120px; height: 24px; margin: 2px 0;"></div>
+        </div>
+        <div id="vol-prod-kpi-var-sub" style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+          <div class="vol-skel-bar" style="width: 165px; height: 11px; margin-top: 4px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Product Distribution Pareto Chart + Top Period Variations -->
+    <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm);">
+      <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <div style="width: 34px; height: 34px; border-radius: 9px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(16, 185, 129, 0.16)); border: 1px solid rgba(59, 130, 246, 0.25); display: flex; align-items: center; justify-content: center; color: var(--color-primary); font-size: 1.1rem;">
+            <i class="ri-pie-chart-2-line"></i>
+          </div>
+          <div>
+            <h4 style="margin: 0; font-size: 0.96rem; color: var(--color-text-main); font-weight: 700;">Concentración de Volumen (Pareto ABC) y Variaciones del Periodo</h4>
+            <p style="margin: 0.1rem 0 0 0; font-size: 0.74rem; color: var(--color-text-muted);">Top productos con mayor ocupación física en bodega y mayores fluctuaciones de volumen en el rango seleccionado</p>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.72rem; color: var(--color-text-muted);">
+          <span style="display: inline-flex; align-items: center; gap: 0.28rem;"><span style="width: 9px; height: 9px; border-radius: 2px; background: #2563eb; display: inline-block;"></span> Volumen SKU (m³)</span>
+          <span style="display: inline-flex; align-items: center; gap: 0.28rem;"><span style="width: 11px; height: 2.5px; background: #a855f7; display: inline-block;"></span> % Acumulado Pareto</span>
+          <span style="display: inline-flex; align-items: center; gap: 0.28rem;"><span style="width: 11px; height: 2px; background: #10b981; display: inline-block;"></span> Umbral 80% (Clase A)</span>
+        </div>
+      </div>
+      <div class="card-body" style="padding: 1.25rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 1.25rem; align-items: stretch;">
+        <!-- Left: Top 10 SKUs Volume + Pareto Curve -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.95rem 1.05rem; display: flex; flex-direction: column; justify-content: space-between;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; gap: 0.5rem;">
+            <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-bar-chart-horizontal-line" style="color: var(--color-primary);"></i> Top 10 Productos por Volumen Ocupado y Curva Pareto
+            </span>
+          </div>
+          <div style="position: relative; height: 245px; width: 100%;">
+            <div id="volume-product-chart-loader" style="position: absolute; inset: 0; z-index: 4; background: var(--color-bg); display: flex; flex-direction: column; justify-content: flex-end; padding: 0.6rem 0.6rem 1.3rem; gap: 0.5rem;">
+              <div style="display: flex; align-items: flex-end; justify-content: space-around; height: 175px; gap: 8px; border-bottom: 1px solid var(--color-border); padding: 0 8px;">
+                <div class="vol-loader-bar bar-live" style="height: 92%; animation-delay: 0.05s;"></div>
+                <div class="vol-loader-bar" style="height: 78%; animation-delay: 0.14s;"></div>
+                <div class="vol-loader-bar" style="height: 66%; animation-delay: 0.23s;"></div>
+                <div class="vol-loader-bar" style="height: 56%; animation-delay: 0.32s;"></div>
+                <div class="vol-loader-bar" style="height: 48%; animation-delay: 0.41s;"></div>
+                <div class="vol-loader-bar" style="height: 39%; animation-delay: 0.50s;"></div>
+                <div class="vol-loader-bar" style="height: 31%; animation-delay: 0.59s;"></div>
+                <div class="vol-loader-bar" style="height: 24%; animation-delay: 0.68s;"></div>
+              </div>
+              <div style="display: flex; justify-content: space-around;">
+                <div class="vol-skel-bar skel-blue" style="width: 38px; height: 9px;"></div>
+                <div class="vol-skel-bar" style="width: 38px; height: 9px;"></div>
+                <div class="vol-skel-bar" style="width: 38px; height: 9px;"></div>
+                <div class="vol-skel-bar" style="width: 38px; height: 9px;"></div>
+                <div class="vol-skel-bar" style="width: 38px; height: 9px;"></div>
+                <div class="vol-skel-bar" style="width: 38px; height: 9px;"></div>
+              </div>
+            </div>
+            <canvas id="volume-product-pareto-canvas"></canvas>
+          </div>
+        </div>
+
+        <!-- Right: Top Product Volume Variations in Period -->
+        <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+            <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-pulse-line" style="color: #8b5cf6;"></i> Mayores Variaciones por Producto en el Periodo
+            </span>
+            <span id="vol-prod-movers-period-label" style="font-size: 0.68rem; color: var(--color-text-muted);">Entradas vs. Salidas</span>
+          </div>
+          <div id="volume-product-movers-list" style="display: flex; flex-direction: column; gap: 0.55rem; max-height: 248px; overflow-y: auto; padding-right: 2px;">
+            <div class="vol-prod-mover-card"><div class="vol-skel-bar" style="width: 55%; height: 14px;"></div><div class="vol-skel-bar skel-blue" style="width: 28%; height: 18px;"></div></div>
+            <div class="vol-prod-mover-card"><div class="vol-skel-bar" style="width: 48%; height: 14px;"></div><div class="vol-skel-bar skel-emerald" style="width: 28%; height: 18px;"></div></div>
+            <div class="vol-prod-mover-card"><div class="vol-skel-bar" style="width: 60%; height: 14px;"></div><div class="vol-skel-bar skel-purple" style="width: 28%; height: 18px;"></div></div>
+            <div class="vol-prod-mover-card"><div class="vol-skel-bar" style="width: 52%; height: 14px;"></div><div class="vol-skel-bar" style="width: 28%; height: 18px;"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detailed Product Volume Breakdown Table Card -->
+    <div class="card" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm);">
+      <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.85rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div>
+            <h4 style="margin: 0; font-size: 0.96rem; color: var(--color-text-main); font-weight: 700;">Detalle de Niveles de Volumen por Producto (SKU)</h4>
+            <p style="margin: 0.12rem 0 0 0; font-size: 0.74rem; color: var(--color-text-muted);">Dimensiones unitarias, stock físico almacenado, volumen ocupado (m³), porcentaje de aporte y variaciones del periodo</p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
+            <select id="vol-prod-sort-select" class="form-input" style="height: 34px; font-size: 0.78rem; padding: 0 0.7rem; margin: 0; width: auto; min-width: 215px;">
+              <option value="vol_desc">Ordenar: Mayor Volumen Ocupado (m³)</option>
+              <option value="share_desc">Ordenar: Mayor % de Aporte</option>
+              <option value="qty_desc">Ordenar: Mayor Cantidad (Stock)</option>
+              <option value="unit_vol_desc">Ordenar: Mayor Volumen Unitario (m³/ud)</option>
+              <option value="var_desc">Ordenar: Mayor Variación en Periodo (|Δ m³|)</option>
+              <option value="name_asc">Ordenar: Nombre / SKU (A-Z)</option>
+            </select>
+            <button type="button" class="btn btn-outline" id="btn-export-vol-products-csv" style="height: 34px; padding: 0 0.8rem; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-download-2-line"></i> Exportar CSV
+            </button>
+          </div>
+        </div>
+
+        <!-- Search & Filter Pills Row -->
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="position: relative; flex: 1; min-width: 230px; max-width: 360px;">
+            <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
+            <input type="text" id="vol-prod-search-input" class="form-input" placeholder="Buscar por SKU, nombre o comercio..." style="width: 100%; margin: 0; height: 34px; padding-left: 2.15rem; font-size: 0.8rem;">
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <button type="button" class="vol-prod-filter-pill active" data-prod-filter="all">Todos</button>
+            <button type="button" class="vol-prod-filter-pill" data-prod-filter="instock"><i class="ri-checkbox-circle-line"></i> Con Stock (&gt; 0)</button>
+            <button type="button" class="vol-prod-filter-pill" data-prod-filter="pareto_a"><i class="ri-vip-crown-line"></i> Pareto Clase A (80%)</button>
+            <button type="button" class="vol-prod-filter-pill" data-prod-filter="changed"><i class="ri-exchange-line"></i> Con Variación Periodo</button>
+            <button type="button" class="vol-prod-filter-pill" data-prod-filter="missing_dims"><i class="ri-error-warning-line"></i> Sin Medidas</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card-body" style="padding: 0;">
+        <div class="table-responsive" style="overflow-x: auto;">
+          <table class="table" style="width: 100%; border-collapse: collapse; margin: 0; font-size: 0.84rem;">
+            <thead>
+              <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg); text-align: left;">
+                <th style="padding: 0.75rem 1.25rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase;">Producto / SKU</th>
+                <th style="padding: 0.75rem 1rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase;">Dimensiones (L×A×H) y Vol. Unit.</th>
+                <th style="padding: 0.75rem 1rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; text-align: right;">Cantidad (Stock)</th>
+                <th style="padding: 0.75rem 1rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; text-align: right;">Volumen Ocupado</th>
+                <th style="padding: 0.75rem 1.15rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; min-width: 170px;">% Aporte al Total</th>
+                <th style="padding: 0.75rem 1.25rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; text-align: right;">Variación en Periodo</th>
+              </tr>
+            </thead>
+            <tbody id="volume-products-tbody">
+              ${getAdminVolumeTableSkeletonRowsHtml(6, 6)}
+            </tbody>
+          </table>
+        </div>
+        <div style="padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--color-border); font-size: 0.84rem; flex-wrap: wrap; gap: 0.5rem;">
+          <span style="color: var(--color-text-muted);" id="vol-prod-page-info">
+            <span class="vol-skel-bar" style="display: inline-block; width: 150px; height: 14px; vertical-align: middle;"></span>
+          </span>
+          <div style="display: flex; gap: 0.5rem;">
+            <button type="button" class="btn btn-outline" id="btn-vol-prod-prev" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;" disabled>Anterior</button>
+            <button type="button" class="btn btn-outline" id="btn-vol-prod-next" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;" disabled>Siguiente</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 window.renderVolumenDiarioAdmin = async function() {
   const appContent = document.getElementById('app-content');
   if (!appContent) return;
@@ -90131,14 +93158,18 @@ window.renderVolumenDiarioAdmin = async function() {
             <input type="date" id="volume-end-date" class="form-input" style="width: 100%; margin: 0; height: 38px;">
           </div>
           
-          <div style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; height: 50px; justify-content: center;">
+          <div id="volume-card-current" class="vol-kpi-card-loading" style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; height: 50px; justify-content: center;">
             <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase; line-height: 1.2;">Volumen Actual</span>
-            <span id="volume-current-value" style="font-size: 1.05rem; font-weight: 700; color: var(--color-primary); margin-top: 0.15rem; line-height: 1.2;">-- m³</span>
+            <span id="volume-current-value" style="font-size: 1.05rem; font-weight: 700; color: var(--color-primary); margin-top: 0.15rem; line-height: 1.2;">
+              <span class="vol-skel-bar skel-blue" style="display: inline-block; width: 92px; height: 18px; border-radius: 5px; vertical-align: middle;"></span>
+            </span>
           </div>
 
-          <div style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; height: 50px; justify-content: center;">
+          <div id="volume-card-last" class="vol-kpi-card-loading" style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; height: 50px; justify-content: center;">
             <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase; line-height: 1.2;">Último Registro</span>
-            <span id="volume-last-value" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem; line-height: 1.2;">-- m³</span>
+            <span id="volume-last-value" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem; line-height: 1.2;">
+              <span class="vol-skel-bar" style="display: inline-block; width: 104px; height: 18px; border-radius: 5px; vertical-align: middle;"></span>
+            </span>
           </div>
 
           <div id="volume-manual-action" style="display: none;">
@@ -90150,65 +93181,172 @@ window.renderVolumenDiarioAdmin = async function() {
 
         <!-- Billing Summary Sub-Bar -->
         <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--color-border); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
-          <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+          <div id="volume-kpi-card-avg" class="vol-kpi-card-loading" style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
             <div style="font-size: 0.72rem; color: #10b981; font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
               <i class="ri-calculator-line"></i> Promedio Diario (Base Cobro)
             </div>
-            <div id="volume-period-avg" style="font-size: 1.15rem; font-weight: 800; color: #10b981; margin-top: 0.2rem;">-- m³</div>
-            <div style="font-size: 0.7rem; color: var(--color-text-muted);">Ponderado por días en bodega</div>
+            <div id="volume-period-avg" style="font-size: 1.15rem; font-weight: 800; color: #10b981; margin-top: 0.2rem;">
+              <div class="vol-skel-bar skel-emerald" style="width: 108px; height: 22px; margin: 2px 0;"></div>
+            </div>
+            <div id="volume-period-avg-sub" style="font-size: 0.7rem; color: var(--color-text-muted);">
+              <div class="vol-skel-bar skel-emerald" style="width: 138px; height: 11px; margin-top: 4px;"></div>
+            </div>
           </div>
 
-          <div style="background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.25); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+          <div id="volume-kpi-card-total" class="vol-kpi-card-loading" style="background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.25); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
             <div style="font-size: 0.72rem; color: #8b5cf6; font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
               <i class="ri-stack-line"></i> Total m³·día Acumulados
             </div>
-            <div id="volume-period-total-day" style="font-size: 1.15rem; font-weight: 800; color: #8b5cf6; margin-top: 0.2rem;">-- m³·día</div>
-            <div style="font-size: 0.7rem; color: var(--color-text-muted);">Sumatoria de ocupación diaria</div>
+            <div id="volume-period-total-day" style="font-size: 1.15rem; font-weight: 800; color: #8b5cf6; margin-top: 0.2rem;">
+              <div class="vol-skel-bar skel-purple" style="width: 116px; height: 22px; margin: 2px 0;"></div>
+            </div>
+            <div id="volume-period-total-sub" style="font-size: 0.7rem; color: var(--color-text-muted);">
+              <div class="vol-skel-bar skel-purple" style="width: 144px; height: 11px; margin-top: 4px;"></div>
+            </div>
           </div>
 
-          <div style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+          <div id="volume-kpi-card-days" class="vol-kpi-card-loading" style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
             <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
               <i class="ri-calendar-check-line"></i> Días del Periodo
             </div>
-            <div id="volume-period-days-info" style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.2rem;">-- días</div>
-            <div id="volume-period-coverage" style="font-size: 0.7rem; color: var(--color-text-muted);">-- registros válidos</div>
+            <div id="volume-period-days-info" style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.2rem;">
+              <div class="vol-skel-bar" style="width: 96px; height: 22px; margin: 2px 0;"></div>
+            </div>
+            <div id="volume-period-coverage" style="font-size: 0.7rem; color: var(--color-text-muted);">
+              <div class="vol-skel-bar" style="width: 132px; height: 11px; margin-top: 4px;"></div>
+            </div>
           </div>
 
-          <div style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+          <div id="volume-kpi-card-minmax" class="vol-kpi-card-loading" style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
             <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
               <i class="ri-pulse-line"></i> Rango Min / Max
             </div>
-            <div id="volume-period-minmax" style="font-size: 1rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.2rem;">-- / --</div>
-            <div style="font-size: 0.7rem; color: var(--color-text-muted);">Variación en el periodo</div>
+            <div id="volume-period-minmax" style="font-size: 1rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.2rem;">
+              <div class="vol-skel-bar" style="width: 126px; height: 22px; margin: 2px 0;"></div>
+            </div>
+            <div id="volume-period-minmax-sub" style="font-size: 0.7rem; color: var(--color-text-muted);">
+              <div class="vol-skel-bar" style="width: 120px; height: 11px; margin-top: 4px;"></div>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
+    <!-- Module Navigation Tabs -->
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem;">
+      <div class="vol-module-tabs" id="volume-module-tabs" style="margin-bottom: 0;">
+        <button type="button" class="vol-module-tab-btn active" data-vol-tab="daily">
+          <i class="ri-line-chart-line"></i> Evolución e Histórico Diario
+        </button>
+        <button type="button" class="vol-module-tab-btn" data-vol-tab="products">
+          <i class="ri-box-3-line"></i> Nivel de Volumen por Producto
+          <span class="vol-module-tab-badge" id="vol-tab-products-badge">-- SKUs</span>
+        </button>
+      </div>
+      <span style="font-size: 0.76rem; color: var(--color-text-muted);">
+        <i class="ri-information-line"></i> El filtro superior de Comercio y Fechas aplica a ambas pestañas
+      </span>
+    </div>
+
+    <!-- TAB 1: Daily Volume Evolution & History -->
+    <div id="volume-tab-panel-daily">
+
     <!-- Chart Card -->
-    <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
-      <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-        <div>
-          <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;">Evolución de Volumen (m³)</h4>
+    <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm);">
+      <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.85rem;">
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+          <div style="width: 34px; height: 34px; border-radius: 9px; background: linear-gradient(135deg, rgba(37, 99, 235, 0.16), rgba(168, 85, 247, 0.16)); border: 1px solid rgba(59, 130, 246, 0.25); display: flex; align-items: center; justify-content: center; color: var(--color-primary); font-size: 1.1rem;">
+            <i class="ri-line-chart-line"></i>
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <h4 style="margin: 0; font-size: 0.96rem; color: var(--color-text-main); font-weight: 700;">Evolución Diaria y Tendencia de Volumen (m³)</h4>
+              <span id="volume-chart-range-badge" style="font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.55rem; border-radius: 999px; background: rgba(37, 99, 235, 0.1); color: var(--color-primary);">Periodo Activo</span>
+              <span id="volume-chart-quick-spinner" style="display: none; align-items: center; gap: 0.3rem; font-size: 0.68rem; font-weight: 700; padding: 0.14rem 0.52rem; border-radius: 999px; background: rgba(99, 102, 241, 0.14); color: #6366f1;">
+                <i class="ri-loader-4-line spin" style="font-size: 0.8rem;"></i> Actualizando...
+              </span>
+            </div>
+            <p style="margin: 0.1rem 0 0 0; font-size: 0.74rem; color: var(--color-text-muted);">Curva de ocupación diaria, regresión lineal, umbral promedio de cobro y proyección a próximas semanas (ritmo 30d)</p>
+          </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem; flex-wrap: wrap;">
-          <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
-            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #2563eb; display: inline-block;"></span> Rango Filtrado
-          </span>
-          <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
-            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #cbd5e1; display: inline-block;"></span> Contexto Extra (Gris)
-          </span>
-          <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
-            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #f43f5e; display: inline-block;"></span> Volumen Actual (Tiempo Real)
-          </span>
+
+        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+          <!-- Visual Mode Switcher -->
+          <div class="vol-chart-mode-switch" id="volume-chart-mode-switch" title="Cambiar estilo visual del gráfico">
+            <button type="button" class="vol-chart-mode-btn active" data-chart-mode="combo">
+              <i class="ri-bar-chart-grouped-line"></i> Híbrido
+            </button>
+            <button type="button" class="vol-chart-mode-btn" data-chart-mode="area">
+              <i class="ri-pulse-line"></i> Área
+            </button>
+            <button type="button" class="vol-chart-mode-btn" data-chart-mode="bar">
+              <i class="ri-bar-chart-2-line"></i> Columnas
+            </button>
+          </div>
+
+          <!-- Analytical Layer Toggles -->
+          <div style="display: flex; align-items: center; gap: 0.38rem; flex-wrap: wrap;">
+            <button type="button" class="vol-chart-layer-pill active" data-layer="trend" title="Mostrar/ocultar línea de regresión lineal">
+              <span style="width: 10px; height: 2.5px; background: #a855f7; border-radius: 2px; display: inline-block;"></span> Tendencia
+            </button>
+            <button type="button" class="vol-chart-layer-pill active" data-layer="avg" title="Mostrar/ocultar línea de promedio diario (base cobro)">
+              <span style="width: 10px; height: 2.5px; background: #10b981; border-radius: 2px; display: inline-block;"></span> Promedio
+            </button>
+            <button type="button" class="vol-chart-layer-pill active" data-layer="extremes" title="Destacar puntos Peak y Mínimo del periodo">
+              <span style="width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; display: inline-block;"></span> Peak / Mín
+            </button>
+            <button type="button" class="vol-chart-layer-pill active" data-layer="context" title="Mostrar/ocultar días de contexto extra fuera del rango filtrado">
+              <span style="width: 7px; height: 7px; border-radius: 50%; background: #94a3b8; display: inline-block;"></span> Contexto ±
+            </button>
+            <div style="display: inline-flex; align-items: center; gap: 0.15rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 999px; padding: 1px 6px 1px 2px;">
+              <button type="button" class="vol-chart-layer-pill active" data-layer="forecast" style="border: none; padding: 0.24rem 0.5rem;" title="Mostrar/ocultar proyección para las próximas semanas según el ritmo de variación de los últimos 30 días">
+                <span style="width: 10px; height: 2.5px; background: #f97316; border-radius: 2px; display: inline-block;"></span> Proyección (30d)
+              </button>
+              <select id="volume-forecast-weeks-select" title="Semanas a proyectar hacia adelante" style="background: transparent; border: none; border-left: 1px solid var(--color-border); color: #f97316; font-size: 0.72rem; font-weight: 800; cursor: pointer; outline: none; padding: 0 2px 0 5px;">
+                <option value="2" selected>+2 Sem</option>
+                <option value="3">+3 Sem</option>
+                <option value="4">+4 Sem</option>
+                <option value="6">+6 Sem</option>
+              </select>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="card-body" style="padding: 1.25rem;">
-        <div style="position: relative; height: 320px; width: 100%;">
+      <div class="card-body" style="padding: 1rem 1.25rem 1.25rem 1.25rem;">
+        <!-- Live Analytical Insight Strip -->
+        <div id="volume-chart-insight-strip" class="vol-chart-insight-strip">
+          <div class="vol-chart-insight-chip">
+            <i class="ri-compass-3-line" style="color: #a855f7; font-size: 0.95rem;"></i>
+            <span>Ritmo Tendencia: <strong id="vol-insight-slope">--</strong></span>
+          </div>
+          <div class="vol-chart-insight-chip">
+            <i class="ri-arrow-up-circle-line" style="color: #f59e0b; font-size: 0.95rem;"></i>
+            <span>Peak Periodo: <strong id="vol-insight-peak">--</strong></span>
+          </div>
+          <div class="vol-chart-insight-chip">
+            <i class="ri-arrow-down-circle-line" style="color: #06b6d4; font-size: 0.95rem;"></i>
+            <span>Mínimo Periodo: <strong id="vol-insight-min">--</strong></span>
+          </div>
+          <div class="vol-chart-insight-chip">
+            <span style="display: inline-flex; align-items: center; gap: 0.3rem;">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #f43f5e; display: inline-block; box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.2);"></span>
+              <span>Tiempo Real vs Prom: <strong id="vol-insight-live-gap">--</strong></span>
+            </span>
+          </div>
+          <div class="vol-chart-insight-chip" style="border-color: rgba(249, 115, 22, 0.28); background: rgba(249, 115, 22, 0.05);">
+            <i class="ri-magic-line" style="color: #f97316; font-size: 0.95rem;"></i>
+            <span>Proyección <span id="vol-insight-forecast-horizon">+2 Sem</span> (Ritmo 30d): <strong id="vol-insight-forecast-val">--</strong></span>
+          </div>
+        </div>
+
+        <div style="position: relative; height: 360px; width: 100%;">
+          ${getAdminVolumeAnimatedChartLoaderHtml()}
           <canvas id="volume-chart-canvas"></canvas>
         </div>
       </div>
     </div>
+
+    ${getAdminVolumeMonthlyHistoryCardHtml()}
 
     <!-- Table Card -->
     <div class="card" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
@@ -90227,23 +93365,26 @@ window.renderVolumenDiarioAdmin = async function() {
               </tr>
             </thead>
             <tbody id="volume-history-tbody">
-              <tr>
-                <td colspan="4" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
-                  <i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
-                  Cargando historial de volumen...
-                </td>
-              </tr>
+              ${getAdminVolumeTableSkeletonRowsHtml(4, 6)}
             </tbody>
           </table>
         </div>
         <div id="volume-pagination" style="padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--color-border); font-size: 0.85rem;">
-          <span style="color: var(--color-text-muted);" id="volume-page-info">Mostrando registros</span>
+          <span style="color: var(--color-text-muted);" id="volume-page-info">
+            <span class="vol-skel-bar" style="display: inline-block; width: 150px; height: 14px; vertical-align: middle;"></span>
+          </span>
           <div style="display: flex; gap: 0.5rem;">
             <button class="btn btn-outline" id="btn-volume-prev" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;" disabled>Anterior</button>
             <button class="btn btn-outline" id="btn-volume-next" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;" disabled>Siguiente</button>
           </div>
         </div>
       </div>
+    </div>
+    </div>
+
+    <!-- TAB 2: Product Level Volume & Variations -->
+    <div id="volume-tab-panel-products" style="display: none;">
+      ${getAdminVolumeProductLevelsTabHtml()}
     </div>
 
     <!-- Export Modal for Billing Graphic (1:1 / 4:3 / 16:9) -->
@@ -90328,10 +93469,14 @@ window.renderVolumenDiarioAdmin = async function() {
   const lastValSpan = document.getElementById('volume-last-value');
   const actionDiv = document.getElementById('volume-manual-action');
   const periodAvgSpan = document.getElementById('volume-period-avg');
+  const periodAvgSub = document.getElementById('volume-period-avg-sub');
   const periodTotalDaySpan = document.getElementById('volume-period-total-day');
+  const periodTotalSub = document.getElementById('volume-period-total-sub');
   const periodDaysInfoSpan = document.getElementById('volume-period-days-info');
   const periodCoverageSpan = document.getElementById('volume-period-coverage');
   const periodMinMaxSpan = document.getElementById('volume-period-minmax');
+  const periodMinMaxSub = document.getElementById('volume-period-minmax-sub');
+  const chartLoaderEl = document.getElementById('volume-chart-loader');
   const tbody = document.getElementById('volume-history-tbody');
   const btnRefresh = document.getElementById('btn-refresh-volume');
   const btnForce = document.getElementById('btn-force-volume');
@@ -90348,6 +93493,43 @@ window.renderVolumenDiarioAdmin = async function() {
   const chkTrend = document.getElementById('export-chk-trend');
   const chkLabels = document.getElementById('export-chk-labels');
   const chkStats = document.getElementById('export-chk-stats');
+
+  function setAdminPeriodSectionsLoadingState(isLoading) {
+    const kpiIds = ['volume-kpi-card-avg', 'volume-kpi-card-total', 'volume-kpi-card-days', 'volume-kpi-card-minmax'];
+    kpiIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('vol-kpi-card-loading', isLoading);
+    });
+
+    if (isLoading) {
+      if (periodAvgSpan) periodAvgSpan.innerHTML = `<div class="vol-skel-bar skel-emerald" style="width: 108px; height: 22px; margin: 2px 0;"></div>`;
+      if (periodAvgSub) periodAvgSub.innerHTML = `<div class="vol-skel-bar skel-emerald" style="width: 138px; height: 11px; margin-top: 4px;"></div>`;
+      if (periodTotalDaySpan) periodTotalDaySpan.innerHTML = `<div class="vol-skel-bar skel-purple" style="width: 116px; height: 22px; margin: 2px 0;"></div>`;
+      if (periodTotalSub) periodTotalSub.innerHTML = `<div class="vol-skel-bar skel-purple" style="width: 144px; height: 11px; margin-top: 4px;"></div>`;
+      if (periodDaysInfoSpan) periodDaysInfoSpan.innerHTML = `<div class="vol-skel-bar" style="width: 96px; height: 22px; margin: 2px 0;"></div>`;
+      if (periodCoverageSpan) periodCoverageSpan.innerHTML = `<div class="vol-skel-bar" style="width: 132px; height: 11px; margin-top: 4px;"></div>`;
+      if (periodMinMaxSpan) periodMinMaxSpan.innerHTML = `<div class="vol-skel-bar" style="width: 126px; height: 22px; margin: 2px 0;"></div>`;
+      if (periodMinMaxSub) periodMinMaxSub.innerHTML = `<div class="vol-skel-bar" style="width: 120px; height: 11px; margin-top: 4px;"></div>`;
+      if (chartLoaderEl) {
+        chartLoaderEl.style.display = 'flex';
+        chartLoaderEl.style.opacity = '1';
+      }
+      if (tbody) tbody.innerHTML = getAdminVolumeTableSkeletonRowsHtml(4, 6);
+      if (pageInfo) pageInfo.innerHTML = `<span class="vol-skel-bar" style="display: inline-block; width: 150px; height: 14px; vertical-align: middle;"></span>`;
+    } else {
+      if (periodAvgSub) periodAvgSub.textContent = 'Ponderado por días en bodega';
+      if (periodTotalSub) periodTotalSub.textContent = 'Sumatoria de ocupación diaria';
+      if (periodMinMaxSub) periodMinMaxSub.textContent = 'Variación en el periodo';
+      if (chartLoaderEl) {
+        chartLoaderEl.style.opacity = '0';
+        setTimeout(() => {
+          if (chartLoaderEl && chartLoaderEl.style.opacity === '0') {
+            chartLoaderEl.style.display = 'none';
+          }
+        }, 280);
+      }
+    }
+  }
 
   let currentExportRatio = '1:1';
 
@@ -90408,23 +93590,62 @@ window.renderVolumenDiarioAdmin = async function() {
     }
   }
 
+  // Shared in-memory cache & deduplication for real-time volume per commerce
+  let cachedLiveVolumeMap = null;
+  let cachedLiveVolumeScopeKey = null;
+  let liveVolumePromise = null;
+
+  async function getLiveVolumeMap(forceRefresh = false) {
+    const scopeKey = selectedCommerce ? `single:${selectedCommerce}` : `multi:${activeComerces.join('|')}`;
+    if (!forceRefresh && cachedLiveVolumeMap && cachedLiveVolumeScopeKey === scopeKey) {
+      return cachedLiveVolumeMap;
+    }
+    if (!forceRefresh && liveVolumePromise && cachedLiveVolumeScopeKey === scopeKey) {
+      return liveVolumePromise;
+    }
+
+    cachedLiveVolumeScopeKey = scopeKey;
+    liveVolumePromise = (async () => {
+      const map = {};
+      try {
+        let rtQuery = supabase.from('v_comercios_volumen_actual').select('comercio, volumen_actual');
+        if (selectedCommerce) {
+          rtQuery = rtQuery.eq('comercio', selectedCommerce);
+        } else {
+          rtQuery = rtQuery.in('comercio', activeComerces);
+        }
+        const { data: rtData, error: rtErr } = await rtQuery;
+        if (rtErr) throw rtErr;
+        if (rtData) {
+          rtData.forEach(item => {
+            map[item.comercio] = parseFloat(item.volumen_actual || 0);
+          });
+        }
+        cachedLiveVolumeMap = map;
+      } catch (e) {
+        console.error('Error al obtener volumen en tiempo real:', e);
+      } finally {
+        liveVolumePromise = null;
+      }
+      return cachedLiveVolumeMap || map;
+    })();
+
+    return liveVolumePromise;
+  }
+
   // Load Current Volume in Real Time and Last Recorded Volume
-  async function updateVolumeStats() {
-    currentValSpan.textContent = '-- m³';
-    lastValSpan.textContent = '-- m³';
+  async function updateVolumeStats(forceRefresh = false) {
+    const currentCard = document.getElementById('volume-card-current');
+    const lastCard = document.getElementById('volume-card-last');
+    if (currentCard) currentCard.classList.add('vol-kpi-card-loading');
+    if (lastCard) lastCard.classList.add('vol-kpi-card-loading');
+    currentValSpan.innerHTML = `<span class="vol-skel-bar skel-blue" style="display: inline-block; width: 92px; height: 18px; border-radius: 5px; vertical-align: middle;"></span>`;
+    lastValSpan.innerHTML = `<span class="vol-skel-bar" style="display: inline-block; width: 104px; height: 18px; border-radius: 5px; vertical-align: middle;"></span>`;
     actionDiv.style.display = 'none';
 
     try {
-      let rtQuery = supabase.from('v_comercios_volumen_actual').select('volumen_actual');
-      if (selectedCommerce) {
-        rtQuery = rtQuery.eq('comercio', selectedCommerce);
-      } else {
-        rtQuery = rtQuery.in('comercio', activeComerces);
-      }
-      const { data: realTimeData, error: rtErr } = await rtQuery;
-
-      if (rtErr) throw rtErr;
-      const volReal = realTimeData ? realTimeData.reduce((sum, item) => sum + parseFloat(item.volumen_actual || 0), 0) : 0;
+      const liveMap = await getLiveVolumeMap(forceRefresh);
+      const volReal = Object.values(liveMap).reduce((sum, v) => sum + v, 0);
       currentValSpan.textContent = `${volReal.toFixed(5)} m³`;
 
       if (selectedCommerce) {
@@ -90451,6 +93672,11 @@ window.renderVolumenDiarioAdmin = async function() {
       }
     } catch (e) {
       console.error('Error al cargar estadísticas de volumen:', e);
+      currentValSpan.textContent = '-- m³';
+      lastValSpan.textContent = '-- m³';
+    } finally {
+      if (currentCard) currentCard.classList.remove('vol-kpi-card-loading');
+      if (lastCard) lastCard.classList.remove('vol-kpi-card-loading');
     }
   }
 
@@ -90491,26 +93717,123 @@ window.renderVolumenDiarioAdmin = async function() {
     periodMinMaxSpan.textContent = `${minVolume.toFixed(3)} m³ / ${maxVolume.toFixed(3)} m³`;
   }
 
-  // Update Chart
-  async function updateChart() {
-    let liveVolumeMap = {};
-    try {
-      let rtQuery = supabase.from('v_comercios_volumen_actual').select('comercio, volumen_actual');
-      if (selectedCommerce) {
-        rtQuery = rtQuery.eq('comercio', selectedCommerce);
-      } else {
-        rtQuery = rtQuery.in('comercio', activeComerces);
-      }
-      const { data: rtData, error: rtErr } = await rtQuery;
-      if (rtErr) throw rtErr;
-      if (rtData) {
-        rtData.forEach(item => {
-          liveVolumeMap[item.comercio] = parseFloat(item.volumen_actual || 0);
-        });
-      }
-    } catch (e) {
-      console.error('Error al obtener volumen en tiempo real para gráfico:', e);
+  // Interactive Chart Mode & Analytical Layers State
+  let chartVisualMode = 'combo'; // 'combo' | 'area' | 'bar'
+  let forecastWeeks = 2;
+  const chartLayers = {
+    trend: true,
+    avg: true,
+    extremes: true,
+    context: true,
+    forecast: true
+  };
+
+  let quickChartSpinnerTimer = null;
+  function triggerQuickChartUpdate() {
+    const quickSpinner = document.getElementById('volume-chart-quick-spinner');
+    const canvasWrap = document.getElementById('volume-chart-canvas-wrapper');
+    if (quickSpinner) {
+      quickSpinner.style.display = 'inline-flex';
     }
+    if (canvasWrap) {
+      canvasWrap.style.opacity = '0.84';
+      canvasWrap.style.transition = 'opacity 0.12s ease';
+    }
+    if (quickChartSpinnerTimer) clearTimeout(quickChartSpinnerTimer);
+    requestAnimationFrame(() => {
+      updateChart({ isQuickToggle: true }).finally(() => {
+        if (canvasWrap) canvasWrap.style.opacity = '1';
+        quickChartSpinnerTimer = setTimeout(() => {
+          if (quickSpinner) quickSpinner.style.display = 'none';
+        }, 160);
+      });
+    });
+  }
+
+  const forecastWeeksSelect = document.getElementById('volume-forecast-weeks-select');
+  if (forecastWeeksSelect) {
+    forecastWeeksSelect.addEventListener('change', (e) => {
+      forecastWeeks = Number(e.target.value) || 2;
+      if (!chartLayers.forecast) {
+        chartLayers.forecast = true;
+        const fPill = document.querySelector('.vol-chart-layer-pill[data-layer="forecast"]');
+        if (fPill) fPill.classList.add('active');
+      }
+      triggerQuickChartUpdate();
+    });
+  }
+
+  document.querySelectorAll('#volume-chart-mode-switch .vol-chart-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const nextMode = btn.getAttribute('data-chart-mode') || 'combo';
+      if (chartVisualMode === nextMode) return;
+      chartVisualMode = nextMode;
+      document.querySelectorAll('#volume-chart-mode-switch .vol-chart-mode-btn').forEach(b => {
+        b.classList.toggle('active', b === btn);
+      });
+      triggerQuickChartUpdate();
+    });
+  });
+
+  document.querySelectorAll('.vol-chart-layer-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      const layerKey = pill.getAttribute('data-layer');
+      if (layerKey && Object.prototype.hasOwnProperty.call(chartLayers, layerKey)) {
+        chartLayers[layerKey] = !chartLayers[layerKey];
+        pill.classList.toggle('active', chartLayers[layerKey]);
+        triggerQuickChartUpdate();
+      }
+    });
+  });
+
+  // Helper to draw a rounded pill with text on a 2D canvas
+  function drawCanvasCalloutPill(c2d, x, y, text, bgColor, borderColor, textColor) {
+    c2d.save();
+    c2d.font = '700 10.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const padX = 7;
+    const pillH = 20;
+    const textW = c2d.measureText(text).width;
+    const pillW = textW + padX * 2;
+    const rx = x - pillW / 2;
+    const ry = y - pillH / 2;
+    const r = 6;
+
+    c2d.shadowColor = 'rgba(15, 23, 42, 0.22)';
+    c2d.shadowBlur = 6;
+    c2d.shadowOffsetY = 2;
+
+    c2d.beginPath();
+    c2d.moveTo(rx + r, ry);
+    c2d.lineTo(rx + pillW - r, ry);
+    c2d.quadraticCurveTo(rx + pillW, ry, rx + pillW, ry + r);
+    c2d.lineTo(rx + pillW, ry + pillH - r);
+    c2d.quadraticCurveTo(rx + pillW, ry + pillH, rx + pillW - r, ry + pillH);
+    c2d.lineTo(rx + r, ry + pillH);
+    c2d.quadraticCurveTo(rx, ry + pillH, rx, ry + pillH - r);
+    c2d.lineTo(rx, ry + r);
+    c2d.quadraticCurveTo(rx, ry, rx + r, ry);
+    c2d.closePath();
+
+    c2d.fillStyle = bgColor;
+    c2d.fill();
+
+    c2d.shadowBlur = 0;
+    c2d.shadowOffsetY = 0;
+    c2d.strokeStyle = borderColor;
+    c2d.lineWidth = 1.2;
+    c2d.stroke();
+
+    c2d.fillStyle = textColor;
+    c2d.textAlign = 'center';
+    c2d.textBaseline = 'middle';
+    c2d.fillText(text, x, y + 0.5);
+    c2d.restore();
+  }
+
+  // Update Chart
+  async function updateChart(opts = {}) {
+    const isQuickToggle = Boolean(opts && opts.isQuickToggle);
+    const liveVolumeMap = await getLiveVolumeMap(false);
 
     const tzToday = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Santiago' }));
     const yy = tzToday.getFullYear();
@@ -90520,9 +93843,20 @@ window.renderVolumenDiarioAdmin = async function() {
 
     const isTodayInRange = (chileTodayStr >= startDate && chileTodayStr <= endDate);
 
+    // Context window boundaries based on [startDate, endDate]
+    const startDCtx = new Date(startDate + 'T00:00:00');
+    const endDCtx = new Date(endDate + 'T00:00:00');
+    const diffDaysCtx = Math.ceil(Math.abs(endDCtx - startDCtx) / (1000 * 60 * 60 * 24)) + 1;
+    const contextMinDate = addDays(startDate, -diffDaysCtx);
+    const contextMaxDate = addDays(endDate, diffDaysCtx);
+
     // Get unique list of dates (sorted ascending)
     const datesSet = new Set();
-    allHistories.forEach(item => datesSet.add(item.fecha));
+    allHistories.forEach(item => {
+      if (item.fecha < contextMinDate || item.fecha > contextMaxDate) return;
+      if (!chartLayers.context && (item.fecha < startDate || item.fecha > endDate)) return;
+      datesSet.add(item.fecha);
+    });
     const dates = Array.from(datesSet).sort();
 
     const chartDates = [...dates];
@@ -90536,6 +93870,14 @@ window.renderVolumenDiarioAdmin = async function() {
     });
     if (isTodayInRange) {
       labels.push('Actual');
+    }
+
+    // Update range badge
+    const rangeBadgeEl = document.getElementById('volume-chart-range-badge');
+    if (rangeBadgeEl && startDate && endDate) {
+      const sParts = startDate.split('-');
+      const eParts = endDate.split('-');
+      rangeBadgeEl.textContent = `${sParts[2]}/${sParts[1]}/${sParts[0]} – ${eParts[2]}/${eParts[1]}/${eParts[0]}`;
     }
 
     const ctx = document.getElementById('volume-chart-canvas');
@@ -90556,6 +93898,251 @@ window.renderVolumenDiarioAdmin = async function() {
     } else {
       comercios = [selectedCommerce];
     }
+    const comerciosSet = new Set(comercios);
+
+    // Build O(1) lookup maps in a single pass over allHistories
+    const historyByDateCommerce = {};
+    const historyTotalByDate = {};
+    allHistories.forEach(item => {
+      if (!comerciosSet.has(item.comercio)) return;
+      const v = parseFloat(item.volumen || 0);
+      if (!historyByDateCommerce[item.fecha]) {
+        historyByDateCommerce[item.fecha] = {};
+      }
+      historyByDateCommerce[item.fecha][item.comercio] = v;
+      historyTotalByDate[item.fecha] = (historyTotalByDate[item.fecha] || 0) + v;
+    });
+
+    // Compute aggregate daily totals for analytics (Trend, Average, Peak/Min)
+    const realChartCount = chartDates.length;
+    const dailyTotals = chartDates.map(d => {
+      if (d === 'Actual') {
+        if (selectedCommerce) return liveVolumeMap[selectedCommerce] || 0;
+        return Object.values(liveVolumeMap).reduce((sum, v) => sum + v, 0);
+      }
+      return historyTotalByDate[d] || 0;
+    });
+
+    // Identify indices inside the filtered range [startDate, endDate] (plus 'Actual')
+    const filteredChartIndices = [];
+    chartDates.forEach((d, idx) => {
+      if (d === 'Actual' || (d >= startDate && d <= endDate)) {
+        filteredChartIndices.push(idx);
+      }
+    });
+
+    // Compute Peak and Min inside the filtered range (excluding 'Actual' if historical days exist)
+    const historicalFilteredIndices = filteredChartIndices.filter(idx => chartDates[idx] !== 'Actual');
+    const indicesForExtremes = historicalFilteredIndices.length > 0 ? historicalFilteredIndices : filteredChartIndices;
+
+    let peakIdx = -1;
+    let minIdx = -1;
+    let peakVal = -Infinity;
+    let minVal = Infinity;
+
+    indicesForExtremes.forEach(idx => {
+      const v = dailyTotals[idx];
+      if (v > peakVal) {
+        peakVal = v;
+        peakIdx = idx;
+      }
+      if (v < minVal) {
+        minVal = v;
+        minIdx = idx;
+      }
+    });
+
+    // Compute Period Billing Average
+    const startD = new Date(startDate + 'T00:00:00');
+    const endD = new Date(endDate + 'T00:00:00');
+    const totalBillingDays = Math.max(1, Math.round((endD - startD) / (1000 * 60 * 60 * 24)) + 1);
+    const sumFilteredM3Day = historicalFilteredIndices.reduce((s, idx) => s + dailyTotals[idx], 0);
+    const periodAvgM3 = totalBillingDays > 0 ? (sumFilteredM3Day / totalBillingDays) : 0;
+
+    // Compute Linear Regression over filteredChartIndices
+    let regSlope = 0;
+    let regIntercept = 0;
+    const trendData = new Array(chartDates.length).fill(null);
+    if (filteredChartIndices.length >= 2) {
+      const nPts = filteredChartIndices.length;
+      let sX = 0, sY = 0, sXY = 0, sXX = 0;
+      filteredChartIndices.forEach((cIdx, localIdx) => {
+        const yVal = dailyTotals[cIdx];
+        sX += localIdx;
+        sY += yVal;
+        sXY += localIdx * yVal;
+        sXX += localIdx * localIdx;
+      });
+      const denom = (nPts * sXX - sX * sX);
+      regSlope = denom !== 0 ? (nPts * sXY - sX * sY) / denom : 0;
+      regIntercept = (sY - regSlope * sX) / nPts;
+
+      filteredChartIndices.forEach((cIdx, localIdx) => {
+        trendData[cIdx] = Number(Math.max(0, regSlope * localIdx + regIntercept).toFixed(5));
+      });
+    }
+
+    // Average line dataset values (spanning filtered period)
+    const avgLineData = chartDates.map((d, idx) => {
+      if (filteredChartIndices.includes(idx)) {
+        return Number(periodAvgM3.toFixed(5));
+      }
+      return null;
+    });
+
+    // Update Live Insight Strip
+    let totalLiveVolume = 0;
+    if (selectedCommerce) {
+      totalLiveVolume = liveVolumeMap[selectedCommerce] || 0;
+    } else {
+      totalLiveVolume = Object.values(liveVolumeMap).reduce((sum, v) => sum + v, 0);
+    }
+
+    // Compute 30-Day Variation Rhythm & Upcoming Weeks Projection
+    const lastRealIdx = realChartCount - 1;
+    const lastHistDate = dates.length > 0 ? dates[dates.length - 1] : endDate;
+    const anchorDateStr = isTodayInRange ? chileTodayStr : (lastHistDate || endDate);
+    const window30StartStr = addDays(anchorDateStr, -29);
+
+    const map30d = {};
+    allHistories.forEach(item => {
+      if (!comercios.includes(item.comercio)) return;
+      if (item.fecha >= window30StartStr && item.fecha <= anchorDateStr) {
+        map30d[item.fecha] = (map30d[item.fecha] || 0) + parseFloat(item.volumen || 0);
+      }
+    });
+    if (isTodayInRange && totalLiveVolume > 0) {
+      map30d[chileTodayStr] = totalLiveVolume;
+    }
+    const dates30d = Object.keys(map30d).sort();
+
+    let slope30d = 0;
+    let sigma30d = 0;
+    if (dates30d.length >= 2) {
+      const baseT30 = new Date(dates30d[0] + 'T00:00:00').getTime();
+      const pts30 = dates30d.map(dStr => ({
+        x: Math.round((new Date(dStr + 'T00:00:00').getTime() - baseT30) / 86400000),
+        y: map30d[dStr]
+      }));
+      const n30 = pts30.length;
+      let sX30 = 0, sY30 = 0, sXY30 = 0, sXX30 = 0;
+      pts30.forEach(p => {
+        sX30 += p.x;
+        sY30 += p.y;
+        sXY30 += p.x * p.y;
+        sXX30 += p.x * p.x;
+      });
+      const denom30 = (n30 * sXX30 - sX30 * sX30);
+      slope30d = denom30 !== 0 ? (n30 * sXY30 - sX30 * sY30) / denom30 : 0;
+      const intercept30 = (sY30 - slope30d * sX30) / n30;
+
+      let sumSqErr30 = 0;
+      pts30.forEach(p => {
+        const err = p.y - (slope30d * p.x + intercept30);
+        sumSqErr30 += err * err;
+      });
+      sigma30d = Math.sqrt(sumSqErr30 / Math.max(1, n30 - 2));
+    }
+
+    const anchorVal = lastRealIdx >= 0
+      ? (dailyTotals[lastRealIdx] || 0)
+      : (dates30d.length > 0 ? map30d[dates30d[dates30d.length - 1]] : totalLiveVolume);
+
+    const forecastHorizonDays = forecastWeeks * 7;
+    const endProjectedVal = Math.max(0, anchorVal + slope30d * forecastHorizonDays);
+    const projDiffM3 = endProjectedVal - anchorVal;
+    const projDiffPct = anchorVal > 0 ? (projDiffM3 / anchorVal) * 100 : 0;
+    const weeklyRhythmM3 = slope30d * 7;
+
+    // Extend chart arrays if forecast layer is active
+    const forecastMetaMap = {};
+    const forecastLineData = new Array(realChartCount).fill(null);
+    if (chartLayers.forecast && lastRealIdx >= 0) {
+      forecastLineData[lastRealIdx] = Number(anchorVal.toFixed(5));
+      const baseBand = Math.max(sigma30d * 0.75, anchorVal * 0.018);
+
+      for (let step = 1; step <= forecastHorizonDays; step++) {
+        const fDate = addDays(anchorDateStr, step);
+        const fParts = fDate.split('-');
+        const projVal = Math.max(0, anchorVal + slope30d * step);
+        const spread = baseBand * Math.sqrt(step / 7);
+        const upperVal = projVal + spread;
+        const lowerVal = Math.max(0, projVal - spread);
+        const fIdx = chartDates.length;
+
+        chartDates.push(fDate);
+        labels.push(`${fParts[2]}/${fParts[1]}`);
+        dailyTotals.push(null);
+        trendData.push(null);
+        avgLineData.push(null);
+        forecastLineData.push(Number(projVal.toFixed(5)));
+
+        forecastMetaMap[fIdx] = {
+          step,
+          weekNum: step % 7 === 0 ? (step / 7) : null,
+          date: fDate,
+          val: projVal,
+          upper: upperVal,
+          lower: lowerVal
+        };
+      }
+    }
+
+    const slopeEl = document.getElementById('vol-insight-slope');
+    const peakEl = document.getElementById('vol-insight-peak');
+    const minEl = document.getElementById('vol-insight-min');
+    const liveGapEl = document.getElementById('vol-insight-live-gap');
+    const forecastHorizEl = document.getElementById('vol-insight-forecast-horizon');
+    const forecastValEl = document.getElementById('vol-insight-forecast-val');
+
+    if (forecastHorizEl) {
+      forecastHorizEl.textContent = `+${forecastWeeks} Sem`;
+    }
+    if (forecastValEl) {
+      if (dates30d.length >= 2 || anchorVal > 0) {
+        const pSign = projDiffPct >= 0 ? '+' : '';
+        const wSign = weeklyRhythmM3 >= 0 ? '+' : '';
+        const pCol = projDiffM3 > 0.0005 ? '#f97316' : (projDiffM3 < -0.0005 ? '#06b6d4' : 'var(--color-text-main)');
+        forecastValEl.innerHTML = `<span style="color: ${pCol};">${endProjectedVal.toFixed(4)} m³ (${pSign}${projDiffPct.toFixed(1)}%)</span> <span style="font-weight: 500; color: var(--color-text-muted);">· ${wSign}${weeklyRhythmM3.toFixed(4)} m³/sem</span>`;
+      } else {
+        forecastValEl.textContent = 'Sin datos 30d';
+      }
+    }
+
+    if (slopeEl) {
+      if (filteredChartIndices.length >= 2) {
+        const sign = regSlope >= 0 ? '+' : '';
+        const slopeColor = regSlope > 0.0002 ? '#10b981' : (regSlope < -0.0002 ? '#ef4444' : 'var(--color-text-main)');
+        const slopeTag = regSlope > 0.0002 ? 'Alza' : (regSlope < -0.0002 ? 'Baja' : 'Estable');
+        slopeEl.innerHTML = `<span style="color: ${slopeColor};">${sign}${regSlope.toFixed(4)} m³/día (${slopeTag})</span>`;
+      } else {
+        slopeEl.textContent = 'Sin datos suf.';
+      }
+    }
+    if (peakEl) {
+      if (peakIdx !== -1 && isFinite(peakVal)) {
+        peakEl.innerHTML = `<span style="color: #f59e0b;">${peakVal.toFixed(4)} m³</span> <span style="font-weight: 500; color: var(--color-text-muted);">(${labels[peakIdx]})</span>`;
+      } else {
+        peakEl.textContent = '--';
+      }
+    }
+    if (minEl) {
+      if (minIdx !== -1 && isFinite(minVal)) {
+        minEl.innerHTML = `<span style="color: #06b6d4;">${minVal.toFixed(4)} m³</span> <span style="font-weight: 500; color: var(--color-text-muted);">(${labels[minIdx]})</span>`;
+      } else {
+        minEl.textContent = '--';
+      }
+    }
+    if (liveGapEl) {
+      if (periodAvgM3 > 0) {
+        const diffPct = ((totalLiveVolume - periodAvgM3) / periodAvgM3) * 100;
+        const sign = diffPct >= 0 ? '+' : '';
+        const col = diffPct >= 0 ? '#10b981' : '#f43f5e';
+        liveGapEl.innerHTML = `<span style="color: ${col};">${sign}${diffPct.toFixed(1)}% vs prom.</span>`;
+      } else {
+        liveGapEl.textContent = `${totalLiveVolume.toFixed(4)} m³`;
+      }
+    }
 
     const CHART_PALETTE = [
       '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#14b8a6', '#a855f7', '#6366f1'
@@ -90564,131 +94151,520 @@ window.renderVolumenDiarioAdmin = async function() {
       '#1d4ed8', '#047857', '#b45309', '#6d28d9', '#be185d', '#0e7490', '#c2410c', '#0f766e', '#7e22ce', '#4338ca'
     ];
 
-    const datasets = comercios.map((commerceName, idx) => {
-      const values = chartDates.map(d => {
-        if (d === 'Actual') {
-          return liveVolumeMap[commerceName] || 0;
-        }
-        const match = allHistories.find(item => item.comercio === commerceName && item.fecha === d);
-        return match ? parseFloat(match.volumen || 0) : 0;
-      });
-
-      if (isStackedBar) {
-        const bgColors = chartDates.map(d => {
-          const isExtra = (d < startDate || d > endDate);
-          return isExtra ? 'rgba(148, 163, 184, 0.25)' : CHART_PALETTE[idx % CHART_PALETTE.length];
-        });
-        const borderColors = chartDates.map(d => {
-          const isExtra = (d < startDate || d > endDate);
-          return isExtra ? 'rgba(148, 163, 184, 0.4)' : CHART_BORDER_PALETTE[idx % CHART_BORDER_PALETTE.length];
-        });
-
-        return {
-          type: 'bar',
-          label: commerceName,
-          data: values,
-          backgroundColor: bgColors,
-          borderColor: borderColors,
-          borderWidth: 1,
-          barPercentage: 0.45,
-          categoryPercentage: 0.8,
-          stack: 'volume_stack'
-        };
-      } else {
-        const pointBgColor = chartDates.map(d => {
-          if (d === 'Actual') return '#f43f5e';
-          const isExtra = (d < startDate || d > endDate);
-          return isExtra ? '#cbd5e1' : '#2563eb';
-        });
-        const pointBdColor = chartDates.map(d => {
-          if (d === 'Actual') return '#fda4af';
-          const isExtra = (d < startDate || d > endDate);
-          return isExtra ? '#cbd5e1' : '#3b82f6';
-        });
-        const pointRad = chartDates.map(d => d === 'Actual' ? 7 : 4);
-        const pointHoverRad = chartDates.map(d => d === 'Actual' ? 9 : 6);
-
-        return {
-          type: 'line',
-          label: commerceName,
-          data: values,
-          borderColor: '#2563eb',
-          borderWidth: 2.5,
-          tension: 0.35,
-          pointBackgroundColor: pointBgColor,
-          pointBorderColor: pointBdColor,
-          pointBorderWidth: 2,
-          pointRadius: pointRad,
-          pointHoverRadius: pointHoverRad,
-          segment: {
-            borderColor: ctx => {
-              const p0 = ctx.p0DataIndex;
-              const p1 = ctx.p1DataIndex;
-              const d0 = chartDates[p0];
-              const d1 = chartDates[p1];
-              const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
-              return isExtra ? 'rgba(148, 163, 184, 0.4)' : '#2563eb';
-            },
-            borderDash: ctx => {
-              const p0 = ctx.p0DataIndex;
-              const p1 = ctx.p1DataIndex;
-              const d0 = chartDates[p0];
-              const d1 = chartDates[p1];
-              const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
-              return isExtra ? [4, 4] : undefined;
-            }
-          }
-        };
-      }
-    });
+    const datasets = [];
 
     if (isStackedBar) {
-      const totalValues = chartDates.map((_, i) => {
-        return datasets.reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
-      });
+      if (chartVisualMode !== 'area') {
+        comercios.forEach((commerceName, idx) => {
+          const values = chartDates.map((d, dIdx) => {
+            if (dIdx >= realChartCount) return null;
+            if (d === 'Actual') return liveVolumeMap[commerceName] || 0;
+            const dateBucket = historyByDateCommerce[d];
+            return dateBucket ? (dateBucket[commerceName] || 0) : 0;
+          });
+
+          const baseColor = CHART_PALETTE[idx % CHART_PALETTE.length];
+          const bgColors = chartDates.map(d => {
+            if (d === 'Actual') return baseColor;
+            const isExtra = (d < startDate || d > endDate);
+            return isExtra ? 'rgba(148, 163, 184, 0.22)' : baseColor;
+          });
+          const borderColors = chartDates.map(d => {
+            if (d === 'Actual') return '#f43f5e';
+            const isExtra = (d < startDate || d > endDate);
+            return isExtra ? 'rgba(148, 163, 184, 0.38)' : CHART_BORDER_PALETTE[idx % CHART_BORDER_PALETTE.length];
+          });
+
+          datasets.push({
+            type: 'bar',
+            label: commerceName,
+            data: values,
+            backgroundColor: bgColors,
+            borderColor: borderColors,
+            borderWidth: 1,
+            borderRadius: 4,
+            barPercentage: 0.58,
+            categoryPercentage: 0.82,
+            stack: 'volume_stack',
+            order: 5
+          });
+        });
+      }
 
       datasets.push({
         type: 'line',
         label: 'Curva Total',
-        data: totalValues,
+        data: dailyTotals,
         borderColor: '#2563eb',
-        borderWidth: 2.2,
-        tension: 0.35,
-        fill: false,
-        pointBackgroundColor: chartDates.map(d => {
+        borderWidth: 2.8,
+        tension: 0.36,
+        fill: chartVisualMode === 'area',
+        backgroundColor: function(context) {
+          const chart = context.chart;
+          const { ctx: c2d, chartArea } = chart;
+          if (!chartArea) return 'rgba(37, 99, 235, 0.16)';
+          const grad = c2d.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+          grad.addColorStop(0, 'rgba(37, 99, 235, 0.34)');
+          grad.addColorStop(0.55, 'rgba(99, 102, 241, 0.12)');
+          grad.addColorStop(1, 'rgba(37, 99, 235, 0.0)');
+          return grad;
+        },
+        pointBackgroundColor: chartDates.map((d, idx) => {
           if (d === 'Actual') return '#f43f5e';
+          if (chartLayers.extremes && idx === peakIdx) return '#f59e0b';
+          if (chartLayers.extremes && idx === minIdx && minIdx !== peakIdx) return '#06b6d4';
           const isExtra = (d < startDate || d > endDate);
           return isExtra ? '#cbd5e1' : '#2563eb';
         }),
-        pointBorderColor: chartDates.map(d => {
-          if (d === 'Actual') return '#fda4af';
+        pointBorderColor: chartDates.map((d, idx) => {
+          if (d === 'Actual') return '#ffe4e6';
+          if (chartLayers.extremes && (idx === peakIdx || idx === minIdx)) return '#ffffff';
           const isExtra = (d < startDate || d > endDate);
-          return isExtra ? '#cbd5e1' : '#3b82f6';
+          return isExtra ? '#cbd5e1' : '#ffffff';
         }),
-        pointRadius: chartDates.map(d => d === 'Actual' ? 6 : 3.5),
-        pointHoverRadius: chartDates.map(d => d === 'Actual' ? 8 : 5.5),
+        pointBorderWidth: chartDates.map((d, idx) => {
+          if (d === 'Actual' || (chartLayers.extremes && (idx === peakIdx || idx === minIdx))) return 2.2;
+          return 1.5;
+        }),
+        pointRadius: chartDates.map((d, idx) => {
+          if (d === 'Actual') return 7;
+          if (chartLayers.extremes && (idx === peakIdx || idx === minIdx)) return 6;
+          const isExtra = (d < startDate || d > endDate);
+          return isExtra ? 2.5 : 3.8;
+        }),
+        pointHoverRadius: chartDates.map(d => d === 'Actual' ? 9.5 : 6.5),
         segment: {
-          borderColor: ctx => {
-            const p0 = ctx.p0DataIndex;
-            const p1 = ctx.p1DataIndex;
-            const d0 = chartDates[p0];
-            const d1 = chartDates[p1];
-            const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
-            return isExtra ? 'rgba(148, 163, 184, 0.4)' : '#2563eb';
+          borderColor: segCtx => {
+            const d0 = chartDates[segCtx.p0DataIndex];
+            const d1 = chartDates[segCtx.p1DataIndex];
+            const isExtra = (d0 !== 'Actual' && d1 !== 'Actual') && (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+            return isExtra ? 'rgba(148, 163, 184, 0.45)' : '#2563eb';
           },
-          borderDash: ctx => {
-            const p0 = ctx.p0DataIndex;
-            const p1 = ctx.p1DataIndex;
-            const d0 = chartDates[p0];
-            const d1 = chartDates[p1];
-            const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+          borderDash: segCtx => {
+            const d0 = chartDates[segCtx.p0DataIndex];
+            const d1 = chartDates[segCtx.p1DataIndex];
+            const isExtra = (d0 !== 'Actual' && d1 !== 'Actual') && (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
             return isExtra ? [4, 4] : undefined;
           }
-        }
+        },
+        order: 2
+      });
+    } else {
+      const commerceName = comercios[0] || 'Volumen';
+      const values = dailyTotals;
+
+      if (chartVisualMode === 'combo' || chartVisualMode === 'bar') {
+        const isBarPrimary = (chartVisualMode === 'bar');
+        datasets.push({
+          type: 'bar',
+          label: isBarPrimary ? commerceName : 'Barras Diarias',
+          data: values,
+          backgroundColor: function(context) {
+            const chart = context.chart;
+            const { ctx: c2d, chartArea } = chart;
+            const idx = context.dataIndex;
+            const d = chartDates[idx];
+            if (!chartArea) return 'rgba(59, 130, 246, 0.35)';
+
+            const grad = c2d.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+            if (d === 'Actual') {
+              grad.addColorStop(0, isBarPrimary ? 'rgba(244, 63, 94, 0.85)' : 'rgba(244, 63, 94, 0.50)');
+              grad.addColorStop(1, 'rgba(244, 63, 94, 0.08)');
+              return grad;
+            }
+            const isExtra = (d < startDate || d > endDate);
+            if (isExtra) {
+              return 'rgba(148, 163, 184, 0.16)';
+            }
+            if (chartLayers.extremes && idx === peakIdx) {
+              grad.addColorStop(0, isBarPrimary ? 'rgba(245, 158, 11, 0.82)' : 'rgba(245, 158, 11, 0.42)');
+              grad.addColorStop(1, 'rgba(245, 158, 11, 0.06)');
+              return grad;
+            }
+            grad.addColorStop(0, isBarPrimary ? 'rgba(37, 99, 235, 0.78)' : 'rgba(59, 130, 246, 0.30)');
+            grad.addColorStop(1, isBarPrimary ? 'rgba(99, 102, 241, 0.18)' : 'rgba(99, 102, 241, 0.04)');
+            return grad;
+          },
+          borderColor: chartDates.map((d, idx) => {
+            if (d === 'Actual') return 'rgba(244, 63, 94, 0.8)';
+            const isExtra = (d < startDate || d > endDate);
+            if (isExtra) return 'rgba(148, 163, 184, 0.28)';
+            if (chartLayers.extremes && idx === peakIdx) return 'rgba(245, 158, 11, 0.75)';
+            return isBarPrimary ? 'rgba(37, 99, 235, 0.85)' : 'rgba(59, 130, 246, 0.36)';
+          }),
+          borderWidth: 1,
+          borderRadius: 6,
+          borderSkipped: false,
+          barPercentage: isBarPrimary ? 0.66 : 0.56,
+          categoryPercentage: 0.84,
+          order: 4
+        });
+      }
+
+      if (chartVisualMode === 'combo' || chartVisualMode === 'area') {
+        datasets.push({
+          type: 'line',
+          label: commerceName,
+          data: values,
+          borderColor: '#2563eb',
+          borderWidth: 3,
+          tension: 0.36,
+          fill: true,
+          backgroundColor: function(context) {
+            const chart = context.chart;
+            const { ctx: c2d, chartArea } = chart;
+            if (!chartArea) return 'rgba(37, 99, 235, 0.18)';
+            const grad = c2d.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+            grad.addColorStop(0, chartVisualMode === 'area' ? 'rgba(37, 99, 235, 0.38)' : 'rgba(37, 99, 235, 0.24)');
+            grad.addColorStop(0.55, chartVisualMode === 'area' ? 'rgba(99, 102, 241, 0.15)' : 'rgba(99, 102, 241, 0.08)');
+            grad.addColorStop(1, 'rgba(37, 99, 235, 0.0)');
+            return grad;
+          },
+          pointBackgroundColor: chartDates.map((d, idx) => {
+            if (d === 'Actual') return '#f43f5e';
+            if (chartLayers.extremes && idx === peakIdx) return '#f59e0b';
+            if (chartLayers.extremes && idx === minIdx && minIdx !== peakIdx) return '#06b6d4';
+            const isExtra = (d < startDate || d > endDate);
+            return isExtra ? '#cbd5e1' : '#2563eb';
+          }),
+          pointBorderColor: chartDates.map((d, idx) => {
+            if (d === 'Actual') return '#ffe4e6';
+            if (chartLayers.extremes && (idx === peakIdx || idx === minIdx)) return '#ffffff';
+            const isExtra = (d < startDate || d > endDate);
+            return isExtra ? '#cbd5e1' : '#ffffff';
+          }),
+          pointBorderWidth: chartDates.map((d, idx) => {
+            if (d === 'Actual' || (chartLayers.extremes && (idx === peakIdx || idx === minIdx))) return 2.4;
+            return 1.8;
+          }),
+          pointRadius: chartDates.map((d, idx) => {
+            if (d === 'Actual') return 7.5;
+            if (chartLayers.extremes && (idx === peakIdx || idx === minIdx)) return 6.2;
+            const isExtra = (d < startDate || d > endDate);
+            return isExtra ? 2.5 : 3.8;
+          }),
+          pointHoverRadius: chartDates.map(d => d === 'Actual' ? 10 : 7),
+          segment: {
+            borderColor: segCtx => {
+              const d0 = chartDates[segCtx.p0DataIndex];
+              const d1 = chartDates[segCtx.p1DataIndex];
+              if (d1 === 'Actual') return '#f43f5e';
+              const isExtra = (d0 !== 'Actual' && d1 !== 'Actual') && (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+              return isExtra ? 'rgba(148, 163, 184, 0.42)' : '#2563eb';
+            },
+            borderDash: segCtx => {
+              const d0 = chartDates[segCtx.p0DataIndex];
+              const d1 = chartDates[segCtx.p1DataIndex];
+              const isExtra = (d0 !== 'Actual' && d1 !== 'Actual') && (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+              return isExtra ? [4, 4] : undefined;
+            }
+          },
+          order: 2
+        });
+      }
+    }
+
+    // Add Period Average Benchmark Line (Emerald)
+    if (chartLayers.avg && periodAvgM3 > 0) {
+      datasets.push({
+        type: 'line',
+        label: 'Promedio Cobro',
+        data: avgLineData,
+        borderColor: '#10b981',
+        borderWidth: 2,
+        borderDash: [6, 5],
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointBackgroundColor: '#10b981',
+        fill: false,
+        spanGaps: true,
+        order: 1
       });
     }
 
+    // Add Linear Regression Trendline (Purple)
+    if (chartLayers.trend && filteredChartIndices.length >= 2) {
+      const firstTIdx = filteredChartIndices[0];
+      const lastTIdx = filteredChartIndices[filteredChartIndices.length - 1];
+      datasets.push({
+        type: 'line',
+        label: 'Tendencia Lineal',
+        data: trendData,
+        borderColor: '#a855f7',
+        borderWidth: 2.4,
+        borderDash: [8, 4],
+        pointRadius: chartDates.map((_, idx) => (idx === firstTIdx || idx === lastTIdx) ? 4 : 0),
+        pointHoverRadius: 5,
+        pointBackgroundColor: '#a855f7',
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 1.5,
+        fill: false,
+        spanGaps: true,
+        order: 0
+      });
+    }
+
+    // Add Upcoming Weeks Projection Line based on 30-Day Variation Rhythm (Orange)
+    if (chartLayers.forecast && lastRealIdx >= 0 && chartDates.length > realChartCount) {
+      datasets.push({
+        type: 'line',
+        label: 'Proyección (Ritmo 30d)',
+        data: forecastLineData,
+        borderColor: '#f97316',
+        borderWidth: 2.6,
+        borderDash: [6, 4],
+        tension: 0.25,
+        pointRadius: chartDates.map((_, idx) => {
+          if (idx === lastRealIdx) return 4;
+          const fMeta = forecastMetaMap[idx];
+          if (fMeta && fMeta.weekNum) return 5.5;
+          return 0;
+        }),
+        pointHoverRadius: chartDates.map((_, idx) => idx >= lastRealIdx ? 6.5 : 0),
+        pointBackgroundColor: '#f97316',
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 1.8,
+        fill: false,
+        spanGaps: true,
+        order: 0
+      });
+    }
+
+    // Custom Canvas Plugin for Shaded Period Zone, Forecast Cone, Crosshair, and Peak/Min/Avg/Actual/Forecast Badges
+    const volumeRichAnalyticsPlugin = {
+      id: 'volumeRichAnalyticsPlugin',
+      beforeDatasetsDraw(chart) {
+        const { ctx: c2d, chartArea, scales } = chart;
+        if (!chartArea || !scales.x || !scales.y) return;
+
+        // 1. Draw subtle highlight zone & boundary lines when extra context is visible
+        if (chartLayers.context && filteredChartIndices.length > 0 && filteredChartIndices.length < realChartCount) {
+          const firstIdx = filteredChartIndices[0];
+          const lastIdx = filteredChartIndices[filteredChartIndices.length - 1];
+          const xStart = scales.x.getPixelForValue(firstIdx);
+          const xEnd = scales.x.getPixelForValue(lastIdx);
+
+          c2d.save();
+          const zoneGrad = c2d.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+          zoneGrad.addColorStop(0, 'rgba(37, 99, 235, 0.055)');
+          zoneGrad.addColorStop(1, 'rgba(37, 99, 235, 0.01)');
+          c2d.fillStyle = zoneGrad;
+          c2d.fillRect(xStart, chartArea.top, Math.max(0, xEnd - xStart), chartArea.bottom - chartArea.top);
+
+          c2d.strokeStyle = 'rgba(59, 130, 246, 0.32)';
+          c2d.lineWidth = 1;
+          c2d.setLineDash([4, 4]);
+          [xStart, xEnd].forEach(bx => {
+            c2d.beginPath();
+            c2d.moveTo(bx, chartArea.top);
+            c2d.lineTo(bx, chartArea.bottom);
+            c2d.stroke();
+          });
+          c2d.restore();
+        }
+
+        // 2. Draw Future Projection Zone & Confidence Cone (30-Day Rhythm)
+        if (chartLayers.forecast && lastRealIdx >= 0 && chartDates.length > realChartCount) {
+          const xAnchor = scales.x.getPixelForValue(lastRealIdx);
+          const xEndProj = scales.x.getPixelForValue(chartDates.length - 1);
+
+          c2d.save();
+          const fZoneGrad = c2d.createLinearGradient(xAnchor, chartArea.top, xEndProj, chartArea.bottom);
+          fZoneGrad.addColorStop(0, 'rgba(249, 115, 22, 0.065)');
+          fZoneGrad.addColorStop(1, 'rgba(249, 115, 22, 0.015)');
+          c2d.fillStyle = fZoneGrad;
+          c2d.fillRect(xAnchor, chartArea.top, Math.max(0, xEndProj - xAnchor), chartArea.bottom - chartArea.top);
+
+          c2d.strokeStyle = 'rgba(249, 115, 22, 0.52)';
+          c2d.lineWidth = 1.2;
+          c2d.setLineDash([4, 4]);
+          c2d.beginPath();
+          c2d.moveTo(xAnchor, chartArea.top);
+          c2d.lineTo(xAnchor, chartArea.bottom);
+          c2d.stroke();
+
+          const coneIndices = [lastRealIdx];
+          for (let i = realChartCount; i < chartDates.length; i++) coneIndices.push(i);
+
+          c2d.beginPath();
+          coneIndices.forEach((cIdx, k) => {
+            const px = scales.x.getPixelForValue(cIdx);
+            const uVal = cIdx === lastRealIdx ? anchorVal : (forecastMetaMap[cIdx]?.upper ?? anchorVal);
+            const py = scales.y.getPixelForValue(uVal);
+            if (k === 0) c2d.moveTo(px, py);
+            else c2d.lineTo(px, py);
+          });
+          for (let k = coneIndices.length - 1; k >= 0; k--) {
+            const cIdx = coneIndices[k];
+            const px = scales.x.getPixelForValue(cIdx);
+            const lVal = cIdx === lastRealIdx ? anchorVal : (forecastMetaMap[cIdx]?.lower ?? anchorVal);
+            const py = scales.y.getPixelForValue(lVal);
+            c2d.lineTo(px, py);
+          }
+          c2d.closePath();
+
+          const coneGrad = c2d.createLinearGradient(xAnchor, 0, xEndProj, 0);
+          coneGrad.addColorStop(0, 'rgba(249, 115, 22, 0.06)');
+          coneGrad.addColorStop(1, 'rgba(249, 115, 22, 0.20)');
+          c2d.fillStyle = coneGrad;
+          c2d.fill();
+
+          c2d.setLineDash([2, 3]);
+          c2d.strokeStyle = 'rgba(249, 115, 22, 0.28)';
+          c2d.lineWidth = 1;
+          c2d.stroke();
+          c2d.restore();
+        }
+      },
+      afterDatasetsDraw(chart) {
+        const { ctx: c2d, chartArea, scales, tooltip } = chart;
+        if (!chartArea || !scales.x || !scales.y) return;
+
+        // 1. Interactive Vertical Crosshair on Hover
+        if (tooltip && tooltip._active && tooltip._active.length > 0) {
+          const activePoint = tooltip._active[0];
+          const hx = activePoint.element.x;
+          if (hx >= chartArea.left && hx <= chartArea.right) {
+            c2d.save();
+            c2d.beginPath();
+            c2d.moveTo(hx, chartArea.top);
+            c2d.lineTo(hx, chartArea.bottom);
+            c2d.lineWidth = 1.2;
+            c2d.strokeStyle = 'rgba(99, 102, 241, 0.48)';
+            c2d.setLineDash([3, 3]);
+            c2d.stroke();
+            c2d.restore();
+          }
+        }
+
+        // 2. Average Reference Pill on right edge of filtered zone
+        if (chartLayers.avg && periodAvgM3 > 0 && filteredChartIndices.length > 0) {
+          const lastFIdx = filteredChartIndices[filteredChartIndices.length - 1];
+          const ax = Math.min(chartArea.right - 52, scales.x.getPixelForValue(lastFIdx) - 44);
+          const ay = scales.y.getPixelForValue(periodAvgM3);
+          if (ay >= chartArea.top + 10 && ay <= chartArea.bottom - 10) {
+            drawCanvasCalloutPill(
+              c2d,
+              Math.max(chartArea.left + 52, ax),
+              ay - 13,
+              `Prom: ${periodAvgM3.toFixed(3)} m³`,
+              'rgba(15, 23, 42, 0.86)',
+              'rgba(16, 185, 129, 0.75)',
+              '#34d399'
+            );
+          }
+        }
+
+        // 3. Peak and Min Floating Callout Pills
+        if (chartLayers.extremes) {
+          if (peakIdx !== -1 && isFinite(peakVal)) {
+            const px = scales.x.getPixelForValue(peakIdx);
+            const py = scales.y.getPixelForValue(peakVal);
+            const clampedX = Math.min(chartArea.right - 58, Math.max(chartArea.left + 58, px));
+            const pillY = Math.max(chartArea.top + 14, py - 18);
+            drawCanvasCalloutPill(
+              c2d,
+              clampedX,
+              pillY,
+              `▲ Peak: ${peakVal.toFixed(3)} m³`,
+              'rgba(15, 23, 42, 0.88)',
+              'rgba(245, 158, 11, 0.85)',
+              '#fbbf24'
+            );
+          }
+
+          if (minIdx !== -1 && minIdx !== peakIdx && isFinite(minVal) && Math.abs(peakVal - minVal) > 0.0001) {
+            const mx = scales.x.getPixelForValue(minIdx);
+            const my = scales.y.getPixelForValue(minVal);
+            const clampedX = Math.min(chartArea.right - 56, Math.max(chartArea.left + 56, mx));
+            const pillY = Math.min(chartArea.bottom - 14, my + 18);
+            drawCanvasCalloutPill(
+              c2d,
+              clampedX,
+              pillY,
+              `▼ Mín: ${minVal.toFixed(3)} m³`,
+              'rgba(15, 23, 42, 0.88)',
+              'rgba(6, 182, 212, 0.85)',
+              '#22d3ee'
+            );
+          }
+        }
+
+        // 4. Live 'Actual' Pulsing Halo Ring
+        const actualIdx = chartDates.indexOf('Actual');
+        if (actualIdx !== -1) {
+          const rx = scales.x.getPixelForValue(actualIdx);
+          const ry = scales.y.getPixelForValue(dailyTotals[actualIdx]);
+          c2d.save();
+          c2d.beginPath();
+          c2d.arc(rx, ry, 12, 0, Math.PI * 2);
+          c2d.fillStyle = 'rgba(244, 63, 94, 0.18)';
+          c2d.fill();
+          c2d.beginPath();
+          c2d.arc(rx, ry, 16, 0, Math.PI * 2);
+          c2d.strokeStyle = 'rgba(244, 63, 94, 0.35)';
+          c2d.lineWidth = 1.2;
+          c2d.stroke();
+          c2d.restore();
+        }
+
+        // 5. Projection Zone Header, Weekly Milestone Tags & Final Forecast Callout Pill
+        if (chartLayers.forecast && lastRealIdx >= 0 && chartDates.length > realChartCount) {
+          const xAnchor = scales.x.getPixelForValue(lastRealIdx);
+          const lastProjIdx = chartDates.length - 1;
+          const xEndProj = scales.x.getPixelForValue(lastProjIdx);
+
+          if (xEndProj - xAnchor > 48) {
+            c2d.save();
+            c2d.font = '800 9.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            c2d.fillStyle = '#f97316';
+            c2d.textAlign = 'left';
+            c2d.textBaseline = 'top';
+            c2d.fillText(`PROYECCIÓN +${forecastWeeks}S (30D) →`, xAnchor + 6, chartArea.top + 5);
+            c2d.restore();
+          }
+
+          c2d.save();
+          c2d.font = '700 9.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+          c2d.textAlign = 'center';
+          c2d.fillStyle = '#fb923c';
+          for (let i = realChartCount; i < lastProjIdx; i++) {
+            const fMeta = forecastMetaMap[i];
+            if (fMeta && fMeta.weekNum) {
+              const wx = scales.x.getPixelForValue(i);
+              const wy = scales.y.getPixelForValue(fMeta.val);
+              c2d.fillText(`+${fMeta.weekNum}S`, wx, Math.max(chartArea.top + 14, wy - 10));
+            }
+          }
+          c2d.restore();
+
+          const fy = scales.y.getPixelForValue(endProjectedVal);
+          const clampedFX = Math.min(chartArea.right - 74, Math.max(chartArea.left + 74, xEndProj));
+          const pillFY = slope30d >= 0
+            ? Math.max(chartArea.top + 14, fy - 18)
+            : Math.min(chartArea.bottom - 14, fy + 18);
+          const pSign = projDiffPct >= 0 ? '+' : '';
+          drawCanvasCalloutPill(
+            c2d,
+            clampedFX,
+            pillFY,
+            `🔮 +${forecastWeeks}S: ${endProjectedVal.toFixed(3)} m³ (${pSign}${projDiffPct.toFixed(1)}%)`,
+            'rgba(15, 23, 42, 0.90)',
+            'rgba(249, 115, 22, 0.90)',
+            '#fb923c'
+          );
+        }
+      }
+    };
+
+    const allPositiveTotals = dailyTotals.filter(v => v !== null && v > 0);
+    const maxForecastUpper = Object.values(forecastMetaMap).reduce((m, f) => Math.max(m, f.upper || 0), 0);
+    const maxDataY = (allPositiveTotals.length > 0 || maxForecastUpper > 0)
+      ? Math.max(...allPositiveTotals, periodAvgM3, maxForecastUpper)
+      : 1;
+
     volumeChartInstance = new Chart(ctx, {
+      plugins: [volumeRichAnalyticsPlugin],
       data: {
         labels: labels,
         datasets: datasets
@@ -90696,74 +94672,129 @@ window.renderVolumenDiarioAdmin = async function() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        animation: {
+          duration: isQuickToggle ? 180 : 650,
+          easing: 'easeOutQuart'
+        },
+        layout: {
+          padding: {
+            top: 24,
+            right: 12,
+            bottom: 4,
+            left: 4
+          }
+        },
         plugins: {
           legend: {
             display: isStackedBar,
             position: 'top',
             labels: {
               color: '#94a3b8',
+              usePointStyle: true,
+              pointStyle: 'circle',
               font: {
-                size: 11
+                size: 11,
+                weight: '600'
               },
-              boxWidth: 12
+              boxWidth: 8,
+              padding: 14
             }
           },
           tooltip: {
-            backgroundColor: 'rgba(15, 23, 42, 0.9)',
-            titleColor: '#fff',
-            bodyColor: '#fff',
-            borderColor: '#334155',
+            backgroundColor: 'rgba(15, 23, 42, 0.94)',
+            titleColor: '#f8fafc',
+            bodyColor: '#e2e8f0',
+            footerColor: '#94a3b8',
+            borderColor: 'rgba(99, 102, 241, 0.35)',
             borderWidth: 1,
-            padding: 10,
+            padding: 12,
+            cornerRadius: 10,
             callbacks: {
               title: function(context) {
                 const item = context[0];
+                if (item.dataIndex >= realChartCount) {
+                  const fMeta = forecastMetaMap[item.dataIndex];
+                  if (fMeta) {
+                    const parts = fMeta.date.split('-');
+                    const wkTag = fMeta.weekNum ? ` · Hito +${fMeta.weekNum} Sem.` : ` (+${fMeta.step}d)`;
+                    return `🔮 Proyección: ${parts[2]}/${parts[1]}/${parts[0]}${wkTag}`;
+                  }
+                }
                 if (item.label === 'Actual') {
-                  return `Hoy: ${dd}/${mm}/${yy} (Tiempo Real)`;
+                  return `🔴 Hoy ${dd}/${mm}/${yy} · Volumen en Tiempo Real`;
                 }
                 const foundDate = chartDates[item.dataIndex];
                 if (foundDate) {
                   const parts = foundDate.split('-');
-                  return `Fecha: ${parts[2]}/${parts[1]}/${parts[0]}`;
+                  const isExtra = (foundDate < startDate || foundDate > endDate);
+                  return `📅 Fecha: ${parts[2]}/${parts[1]}/${parts[0]}${isExtra ? ' (Contexto Extra)' : ''}`;
                 }
-                return `Fecha: ${item.label}`;
+                return `📅 Fecha: ${item.label}`;
               },
               label: function(context) {
+                const dsLabel = context.dataset.label || '';
+                if (dsLabel === 'Barras Diarias') {
+                  return null;
+                }
                 const dataIndex = context.dataIndex;
-                const chart = context.chart;
-                let dayTotal = 0;
-                chart.data.datasets.forEach(dataset => {
-                  if (dataset.type === 'bar') {
-                    dayTotal += parseFloat(dataset.data[dataIndex] || 0);
-                  }
-                });
-
                 const value = context.parsed.y;
-                const pct = dayTotal > 0 ? ((value / dayTotal) * 100).toFixed(1) : '0.0';
-                
-                if (context.dataset.label === 'Curva Total') {
+                if (value === null || value === undefined) return null;
+
+                if (dsLabel === 'Proyección (Ritmo 30d)') {
+                  if (dataIndex === lastRealIdx) return null;
+                  return ` Volumen Proyectado: ${value.toFixed(5)} m³`;
+                }
+                if (dsLabel === 'Promedio Cobro') {
+                  return ` Promedio Periodo: ${value.toFixed(5)} m³`;
+                }
+                if (dsLabel === 'Tendencia Lineal') {
+                  return ` Tendencia Periodo: ${value.toFixed(5)} m³`;
+                }
+                if (dsLabel === 'Curva Total') {
                   return ` Volumen Total: ${value.toFixed(5)} m³`;
                 }
 
                 if (isStackedBar) {
-                  return ` ${context.dataset.label}: ${value.toFixed(5)} m³ (${pct}%)`;
+                  const dayTotal = dailyTotals[dataIndex] || 0;
+                  const pct = dayTotal > 0 ? ((value / dayTotal) * 100).toFixed(1) : '0.0';
+                  return ` ${dsLabel}: ${value.toFixed(5)} m³ (${pct}%)`;
                 } else {
-                  return ` Volumen: ${value.toFixed(5)} m³`;
+                  return ` Volumen (${dsLabel}): ${value.toFixed(5)} m³`;
                 }
               },
-              footer: function(context) {
-                if (isStackedBar) {
-                  const dataIndex = context[0].dataIndex;
-                  const chart = context[0].chart;
-                  let dayTotal = 0;
-                  chart.data.datasets.forEach(dataset => {
-                    if (dataset.type === 'bar') {
-                      dayTotal += parseFloat(dataset.data[dataIndex] || 0);
-                    }
-                  });
-                  return `Total diario: ${dayTotal.toFixed(5)} m³`;
+              afterBody: function(context) {
+                const idx = context[0].dataIndex;
+                const lines = [];
+                if (idx >= realChartCount) {
+                  const fMeta = forecastMetaMap[idx];
+                  if (fMeta) {
+                    const deltaM3 = fMeta.val - anchorVal;
+                    const deltaPct = anchorVal > 0 ? (deltaM3 / anchorVal) * 100 : 0;
+                    const sign = deltaM3 >= 0 ? '+' : '';
+                    const wkSign = weeklyRhythmM3 >= 0 ? '+' : '';
+                    lines.push(`• Banda estimada: ${fMeta.lower.toFixed(4)} – ${fMeta.upper.toFixed(4)} m³`);
+                    lines.push(`• Δ vs nivel actual: ${sign}${deltaM3.toFixed(5)} m³ (${sign}${deltaPct.toFixed(1)}%)`);
+                    lines.push(`• Ritmo base (30d): ${wkSign}${weeklyRhythmM3.toFixed(4)} m³/sem (${dates30d.length}d medidos)`);
+                  }
+                  return lines;
                 }
-                return null;
+                const dayVal = dailyTotals[idx] || 0;
+                if (periodAvgM3 > 0) {
+                  const vsAvgPct = ((dayVal - periodAvgM3) / periodAvgM3) * 100;
+                  const sign = vsAvgPct >= 0 ? '+' : '';
+                  lines.push(`• vs Promedio Periodo: ${sign}${vsAvgPct.toFixed(1)}%`);
+                }
+                if (idx > 0 && dailyTotals[idx - 1] !== null) {
+                  const prevVal = dailyTotals[idx - 1] || 0;
+                  const delta = dayVal - prevVal;
+                  const sign = delta >= 0 ? '+' : '';
+                  lines.push(`• Δ vs día anterior: ${sign}${delta.toFixed(5)} m³`);
+                }
+                return lines;
               }
             }
           }
@@ -90776,16 +94807,21 @@ window.renderVolumenDiarioAdmin = async function() {
             },
             ticks: {
               color: '#94a3b8',
+              maxRotation: 0,
+              autoSkip: true,
+              maxTicksLimit: 15,
               font: {
-                size: 11
+                size: 11,
+                weight: '600'
               }
             }
           },
           y: {
             stacked: isStackedBar,
             min: 0,
+            suggestedMax: maxDataY * 1.14,
             grid: {
-              color: 'rgba(148, 163, 184, 0.08)',
+              color: 'rgba(148, 163, 184, 0.09)',
               drawBorder: false
             },
             ticks: {
@@ -90794,7 +94830,7 @@ window.renderVolumenDiarioAdmin = async function() {
                 size: 11
               },
               callback: function(value) {
-                return value.toFixed(3) + ' m³';
+                return Number(value).toFixed(3) + ' m³';
               }
             }
           }
@@ -91095,14 +95131,7 @@ window.renderVolumenDiarioAdmin = async function() {
 
   // Load Histories
   async function loadHistories() {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="4" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
-          <i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
-          Cargando historial de volumen...
-        </td>
-      </tr>
-    `;
+    setAdminPeriodSectionsLoadingState(true);
 
     try {
       const startD = new Date(startDate + 'T00:00:00');
@@ -91111,6 +95140,8 @@ window.renderVolumenDiarioAdmin = async function() {
 
       const expandedStart = addDays(startDate, -diffDays);
       const expandedEnd = addDays(endDate, diffDays);
+      const lookback30Start = addDays(endDate, -35);
+      const queryStart = expandedStart < lookback30Start ? expandedStart : lookback30Start;
 
       let query = supabase.from('comercios_volumen_diario').select('*');
 
@@ -91120,7 +95151,7 @@ window.renderVolumenDiarioAdmin = async function() {
         query = query.in('comercio', activeComerces);
       }
       
-      query = query.gte('fecha', expandedStart).lte('fecha', expandedEnd);
+      query = query.gte('fecha', queryStart).lte('fecha', expandedEnd);
 
       const { data, error } = await query.order('fecha', { ascending: true }); // Ascending for the chart
 
@@ -91141,6 +95172,8 @@ window.renderVolumenDiarioAdmin = async function() {
           </td>
         </tr>
       `;
+    } finally {
+      setAdminPeriodSectionsLoadingState(false);
     }
   }
 
@@ -91193,26 +95226,1289 @@ window.renderVolumenDiarioAdmin = async function() {
     pageInfo.textContent = `Mostrando ${startIdx + 1}-${endIdx} de ${totalItems} registros`;
   }
 
+  // Historical Monthly Benchmarks (3M / 6M / 12M)
+  let activeHorizonMonths = 6;
+  let monthlyBuckets12 = [];
+  let monthlyHistoryChartInstance = null;
+
+  function renderVariationBadgeHtml(pctValue, labelSuffix = '') {
+    if (pctValue === null || pctValue === undefined || !isFinite(pctValue)) {
+      return `<span style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); background: rgba(148, 163, 184, 0.14); padding: 0.15rem 0.45rem; border-radius: 99px;">—</span>`;
+    }
+    const absVal = Math.abs(pctValue).toFixed(1);
+    const suffix = labelSuffix ? ` ${labelSuffix}` : '';
+    if (pctValue > 0.05) {
+      return `<span style="font-size: 0.68rem; font-weight: 700; color: #10b981; background: rgba(16, 185, 129, 0.12); padding: 0.15rem 0.48rem; border-radius: 99px; display: inline-flex; align-items: center; gap: 2px;"><i class="ri-arrow-up-s-fill"></i>+${absVal}%${suffix}</span>`;
+    }
+    if (pctValue < -0.05) {
+      return `<span style="font-size: 0.68rem; font-weight: 700; color: #ef4444; background: rgba(239, 68, 68, 0.12); padding: 0.15rem 0.48rem; border-radius: 99px; display: inline-flex; align-items: center; gap: 2px;"><i class="ri-arrow-down-s-fill"></i>-${absVal}%${suffix}</span>`;
+    }
+    return `<span style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); background: rgba(148, 163, 184, 0.14); padding: 0.15rem 0.45rem; border-radius: 99px;">0.0%${suffix}</span>`;
+  }
+
+  function setMonthlyHistoryLoadingState(isLoading) {
+    document.querySelectorAll('[data-horizon-card]').forEach(card => {
+      card.classList.toggle('vol-kpi-card-loading', isLoading);
+    });
+    const mLoader = document.getElementById('volume-monthly-chart-loader');
+    const pGrid = document.getElementById('volume-monthly-periods-grid');
+
+    if (isLoading) {
+      ['3m', '6m', '12m'].forEach(k => {
+        const skelTone = k === '3m' ? 'skel-blue' : (k === '6m' ? 'skel-purple' : 'skel-emerald');
+        const bEl = document.getElementById(`vol-hist-badge-${k}`);
+        const vEl = document.getElementById(`vol-hist-val-${k}`);
+        const sEl = document.getElementById(`vol-hist-sub-${k}`);
+        if (bEl) bEl.innerHTML = `<span class="vol-skel-bar ${skelTone}" style="display: inline-block; width: 52px; height: 16px; border-radius: 99px;"></span>`;
+        if (vEl) vEl.innerHTML = `<div class="vol-skel-bar ${skelTone}" style="width: 112px; height: 22px; margin: 2px 0;"></div>`;
+        if (sEl) sEl.innerHTML = `<div class="vol-skel-bar" style="width: 155px; height: 11px; margin-top: 2px;"></div>`;
+      });
+      if (mLoader) {
+        mLoader.style.display = 'flex';
+        mLoader.style.opacity = '1';
+      }
+      if (pGrid) {
+        pGrid.innerHTML = getAdminVolumeMonthlyHistorySkeletonCardsHtml(activeHorizonMonths <= 3 ? 3 : 6);
+      }
+    } else if (mLoader) {
+      mLoader.style.opacity = '0';
+      setTimeout(() => {
+        if (mLoader && mLoader.style.opacity === '0') mLoader.style.display = 'none';
+      }, 260);
+    }
+  }
+
+  async function renderMonthlyHorizonView(horizonCount) {
+    activeHorizonMonths = Number(horizonCount) || 6;
+
+    document.querySelectorAll('.vol-horizon-btn').forEach(btn => {
+      btn.classList.toggle('active', Number(btn.dataset.horizon) === activeHorizonMonths);
+    });
+    document.querySelectorAll('[data-horizon-card]').forEach(card => {
+      card.classList.toggle('active', Number(card.getAttribute('data-horizon-card')) === activeHorizonMonths);
+    });
+
+    const chartTitleEl = document.getElementById('vol-monthly-chart-title');
+    if (chartTitleEl) {
+      chartTitleEl.innerHTML = `<i class="ri-line-chart-line" style="color: var(--color-primary);"></i> Evolución de Promedios Mensuales (Últimos ${activeHorizonMonths} Meses)`;
+    }
+
+    if (!monthlyBuckets12 || monthlyBuckets12.length === 0) return;
+
+    const latestMonth = monthlyBuckets12[monthlyBuckets12.length - 1];
+    const refCurrentAvg = latestMonth ? latestMonth.avgDailyM3 : 0;
+
+    function computeHorizonStats(n) {
+      const slice = monthlyBuckets12.slice(-n);
+      const activeSlice = slice.filter(m => m.recordedDays > 0);
+      const source = activeSlice.length > 0 ? activeSlice : slice;
+      const avgM3 = source.length > 0
+        ? source.reduce((s, m) => s + m.avgDailyM3, 0) / source.length
+        : 0;
+      const avgM3DayMonth = source.length > 0
+        ? source.reduce((s, m) => s + m.sumM3Day, 0) / source.length
+        : 0;
+      const pctVsCurr = avgM3 > 0 ? ((refCurrentAvg - avgM3) / avgM3) * 100 : null;
+      let peakMonth = source[0] || null;
+      let minVal = Infinity;
+      let maxVal = 0;
+      source.forEach(m => {
+        if (m.avgDailyM3 > (peakMonth ? peakMonth.avgDailyM3 : -1)) peakMonth = m;
+        if (m.avgDailyM3 < minVal) minVal = m.avgDailyM3;
+        if (m.avgDailyM3 > maxVal) maxVal = m.avgDailyM3;
+      });
+      if (!isFinite(minVal)) minVal = 0;
+      return { slice, activeCount: activeSlice.length, avgM3, avgM3DayMonth, pctVsCurr, peakMonth, minVal, maxVal };
+    }
+
+    const stats3 = computeHorizonStats(3);
+    const stats6 = computeHorizonStats(6);
+    const stats12 = computeHorizonStats(12);
+
+    const val3El = document.getElementById('vol-hist-val-3m');
+    const sub3El = document.getElementById('vol-hist-sub-3m');
+    const bdg3El = document.getElementById('vol-hist-badge-3m');
+    if (val3El) val3El.textContent = `${stats3.avgM3.toFixed(5)} m³`;
+    if (bdg3El) bdg3El.innerHTML = renderVariationBadgeHtml(stats3.pctVsCurr, 'vs hoy');
+    if (sub3El) {
+      const range3 = stats3.slice.length > 0 ? `${stats3.slice[0].labelShort} – ${stats3.slice[stats3.slice.length - 1].labelShort}` : '3M';
+      sub3El.innerHTML = `Acum. medio: <strong>${stats3.avgM3DayMonth.toFixed(2)} m³·día</strong> · ${range3}`;
+    }
+
+    const val6El = document.getElementById('vol-hist-val-6m');
+    const sub6El = document.getElementById('vol-hist-sub-6m');
+    const bdg6El = document.getElementById('vol-hist-badge-6m');
+    if (val6El) val6El.textContent = `${stats6.avgM3.toFixed(5)} m³`;
+    if (bdg6El) bdg6El.innerHTML = renderVariationBadgeHtml(stats6.pctVsCurr, 'vs hoy');
+    if (sub6El) {
+      const peakStr = stats6.peakMonth ? `${stats6.peakMonth.labelShort} (${stats6.peakMonth.avgDailyM3.toFixed(3)} m³)` : '--';
+      sub6El.innerHTML = `Peak 6M: <strong>${peakStr}</strong> · ${stats6.activeCount}/6 meses act.`;
+    }
+
+    const val12El = document.getElementById('vol-hist-val-12m');
+    const sub12El = document.getElementById('vol-hist-sub-12m');
+    const bdg12El = document.getElementById('vol-hist-badge-12m');
+    if (val12El) val12El.textContent = `${stats12.avgM3.toFixed(5)} m³`;
+    if (bdg12El) bdg12El.innerHTML = renderVariationBadgeHtml(stats12.pctVsCurr, 'vs hoy');
+    if (sub12El) {
+      sub12El.innerHTML = `Mín <strong>${stats12.minVal.toFixed(3)}</strong> / Máx <strong>${stats12.maxVal.toFixed(3)} m³</strong> · ${stats12.activeCount}/12 meses`;
+    }
+
+    const activeStats = activeHorizonMonths === 3 ? stats3 : (activeHorizonMonths === 12 ? stats12 : stats6);
+    const displayMonths = [...activeStats.slice].reverse();
+    const pGrid = document.getElementById('volume-monthly-periods-grid');
+    if (pGrid) {
+      const currentFilterMonthKey = startDate ? startDate.slice(0, 7) : '';
+      pGrid.innerHTML = displayMonths.map(m => {
+        const isSelected = m.key === currentFilterMonthKey && startDate === m.firstDate;
+        return `
+          <div class="vol-month-history-item ${isSelected ? 'is-selected-period' : ''}" data-month-first="${m.firstDate}" data-month-last="${m.lastDate}" title="Filtrar gráfico y tabla al mes de ${m.labelFull}">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.35rem;">
+              <span style="font-size: 0.76rem; font-weight: 700; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.28rem;">
+                ${m.labelFull}
+                ${m.isCurrent ? '<span style="font-size: 0.6rem; background: rgba(37, 99, 235, 0.14); color: var(--color-primary); padding: 1px 5px; border-radius: 99px; font-weight: 800;">Actual</span>' : ''}
+              </span>
+              ${renderVariationBadgeHtml(m.momPct)}
+            </div>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 0.35rem; margin-top: 2px;">
+              <span style="font-size: 1.02rem; font-weight: 800; color: var(--color-primary);">${m.avgDailyM3.toFixed(5)} m³</span>
+              <span style="font-size: 0.66rem; color: var(--color-text-muted);">prom./día</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.67rem; color: var(--color-text-muted); border-top: 1px dashed var(--color-border); padding-top: 4px; margin-top: 2px;">
+              <span>Acum: <strong>${m.sumM3Day.toFixed(2)} m³·d</strong></span>
+              <span>${m.recordedDays}/${m.effectiveDays}d</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      pGrid.querySelectorAll('.vol-month-history-item').forEach(cardEl => {
+        cardEl.addEventListener('click', () => {
+          const fDate = cardEl.getAttribute('data-month-first');
+          const lDate = cardEl.getAttribute('data-month-last');
+          if (fDate && lDate) {
+            startDate = fDate;
+            endDate = lDate;
+            if (startDateInput) startDateInput.value = startDate;
+            if (endDateInput) endDateInput.value = endDate;
+            loadHistories();
+            renderMonthlyHorizonView(activeHorizonMonths);
+          }
+        });
+      });
+    }
+
+    // Render Monthly History Chart
+    const mCanvas = document.getElementById('volume-monthly-history-canvas');
+    if (!mCanvas) return;
+    await loadChartJS();
+    if (monthlyHistoryChartInstance) {
+      monthlyHistoryChartInstance.destroy();
+    }
+
+    const chronological = activeStats.slice;
+    const mLabels = chronological.map(m => m.labelShort);
+    const mValues = chronological.map(m => Number(m.avgDailyM3.toFixed(5)));
+    const avgRefLine = chronological.map(() => Number(activeStats.avgM3.toFixed(5)));
+
+    const nPts = mValues.length;
+    let trendLineData = [...mValues];
+    if (nPts >= 2) {
+      let sX = 0, sY = 0, sXY = 0, sXX = 0;
+      mValues.forEach((v, i) => {
+        sX += i;
+        sY += v;
+        sXY += i * v;
+        sXX += i * i;
+      });
+      const denom = (nPts * sXX - sX * sX);
+      const slope = denom !== 0 ? (nPts * sXY - sX * sY) / denom : 0;
+      const intercept = (sY - slope * sX) / nPts;
+      trendLineData = mValues.map((_, i) => Number(Math.max(0, slope * i + intercept).toFixed(5)));
+    }
+
+    const currentFilterKey = startDate ? startDate.slice(0, 7) : '';
+    const peakKey = activeStats.peakMonth ? activeStats.peakMonth.key : '';
+    const maxMonthVal = mValues.length > 0 ? Math.max(...mValues, activeStats.avgM3) : 1;
+
+    const monthlyLabelsPlugin = {
+      id: 'monthlyLabelsPlugin',
+      afterDatasetsDraw(chart) {
+        const { ctx: c2d, chartArea } = chart;
+        if (!chartArea) return;
+        const barMeta = chart.getDatasetMeta(0);
+        if (!barMeta || !barMeta.data) return;
+
+        c2d.save();
+        c2d.font = '700 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        c2d.textAlign = 'center';
+        c2d.textBaseline = 'bottom';
+
+        barMeta.data.forEach((barEl, idx) => {
+          const val = mValues[idx];
+          if (!val || val <= 0) return;
+          const mObj = chronological[idx];
+          const isPeak = mObj && mObj.key === peakKey;
+          c2d.fillStyle = isPeak ? '#f59e0b' : '#64748b';
+          const textY = Math.max(chartArea.top + 11, barEl.y - 4);
+          c2d.fillText(`${val.toFixed(3)}`, barEl.x, textY);
+        });
+        c2d.restore();
+      }
+    };
+
+    monthlyHistoryChartInstance = new Chart(mCanvas, {
+      plugins: [monthlyLabelsPlugin],
+      data: {
+        labels: mLabels,
+        datasets: [
+          {
+            type: 'bar',
+            label: 'Promedio Mensual (m³)',
+            data: mValues,
+            backgroundColor: function(context) {
+              const chart = context.chart;
+              const { ctx: c2d, chartArea } = chart;
+              const m = chronological[context.dataIndex];
+              if (!chartArea || !m) return 'rgba(59, 130, 246, 0.65)';
+              const grad = c2d.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+              if (m.key === currentFilterKey && startDate === m.firstDate) {
+                grad.addColorStop(0, 'rgba(37, 99, 235, 0.92)');
+                grad.addColorStop(1, 'rgba(79, 70, 229, 0.32)');
+                return grad;
+              }
+              if (m.key === peakKey) {
+                grad.addColorStop(0, 'rgba(245, 158, 11, 0.85)');
+                grad.addColorStop(1, 'rgba(245, 158, 11, 0.20)');
+                return grad;
+              }
+              if (m.isCurrent) {
+                grad.addColorStop(0, 'rgba(59, 130, 246, 0.85)');
+                grad.addColorStop(1, 'rgba(59, 130, 246, 0.22)');
+                return grad;
+              }
+              grad.addColorStop(0, 'rgba(99, 102, 241, 0.68)');
+              grad.addColorStop(1, 'rgba(99, 102, 241, 0.14)');
+              return grad;
+            },
+            borderColor: chronological.map(m => {
+              if (m.key === peakKey) return '#f59e0b';
+              if (m.key === currentFilterKey && startDate === m.firstDate) return '#1d4ed8';
+              return '#3b82f6';
+            }),
+            borderWidth: 1.2,
+            borderRadius: 7,
+            borderSkipped: false,
+            barPercentage: 0.56,
+            order: 3
+          },
+          {
+            type: 'line',
+            label: `Promedio ${activeHorizonMonths}M`,
+            data: avgRefLine,
+            borderColor: '#10b981',
+            borderWidth: 2,
+            borderDash: [6, 5],
+            pointRadius: 0,
+            fill: false,
+            order: 2
+          },
+          {
+            type: 'line',
+            label: 'Tendencia Mensual',
+            data: trendLineData,
+            borderColor: '#a855f7',
+            borderWidth: 2.5,
+            tension: 0.3,
+            pointRadius: 3.5,
+            pointBackgroundColor: '#a855f7',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 1.5,
+            fill: true,
+            backgroundColor: function(context) {
+              const chart = context.chart;
+              const { ctx: c2d, chartArea } = chart;
+              if (!chartArea) return 'rgba(168, 85, 247, 0.08)';
+              const grad = c2d.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+              grad.addColorStop(0, 'rgba(168, 85, 247, 0.18)');
+              grad.addColorStop(1, 'rgba(168, 85, 247, 0.0)');
+              return grad;
+            },
+            order: 1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        layout: {
+          padding: { top: 18, right: 8, bottom: 2, left: 4 }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.94)',
+            titleColor: '#f8fafc',
+            bodyColor: '#e2e8f0',
+            borderColor: 'rgba(99, 102, 241, 0.35)',
+            borderWidth: 1,
+            padding: 10,
+            cornerRadius: 8,
+            callbacks: {
+              label: function(ctx) {
+                return ` ${ctx.dataset.label}: ${Number(ctx.parsed.y || 0).toFixed(5)} m³`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: '#94a3b8', font: { size: 10.5, weight: '600' } }
+          },
+          y: {
+            beginAtZero: true,
+            suggestedMax: maxMonthVal * 1.18,
+            grid: { color: 'rgba(148, 163, 184, 0.09)', drawBorder: false },
+            ticks: {
+              color: '#94a3b8',
+              font: { size: 10 },
+              callback: v => Number(v).toFixed(2) + ' m³'
+            }
+          }
+        }
+      }
+    });
+  }
+
+  async function loadMonthlyHistoryBenchmarks() {
+    setMonthlyHistoryLoadingState(true);
+    try {
+      const MONTH_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+      const MONTH_FULL = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+      const nowTz = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Santiago' }));
+      const currYear = nowTz.getFullYear();
+      const currMonth = nowTz.getMonth();
+      const currDay = nowTz.getDate();
+
+      const rawBuckets = [];
+      for (let offset = 12; offset >= 0; offset--) {
+        const dFirst = new Date(currYear, currMonth - offset, 1);
+        const dLast = new Date(dFirst.getFullYear(), dFirst.getMonth() + 1, 0);
+        const bYear = dFirst.getFullYear();
+        const bMonth = dFirst.getMonth();
+        const key = `${bYear}-${String(bMonth + 1).padStart(2, '0')}`;
+        const daysInMonth = dLast.getDate();
+        const isCurrent = (offset === 0);
+        const effectiveDays = isCurrent ? Math.max(1, Math.min(daysInMonth, currDay)) : daysInMonth;
+
+        rawBuckets.push({
+          key,
+          year: bYear,
+          monthIdx: bMonth,
+          labelShort: `${MONTH_SHORT[bMonth]} ${String(bYear).slice(-2)}`,
+          labelFull: `${MONTH_FULL[bMonth]} ${bYear}`,
+          firstDate: formatDate(dFirst),
+          lastDate: formatDate(dLast),
+          daysInMonth,
+          effectiveDays,
+          isCurrent,
+          dateMap: {}
+        });
+      }
+
+      const earliestDate = rawBuckets[0].firstDate;
+      const latestDate = rawBuckets[rawBuckets.length - 1].lastDate;
+
+      let allRows = [];
+      const pageSize = 1000;
+      for (let page = 0; page < 8; page++) {
+        let q = supabase.from('comercios_volumen_diario').select('comercio, fecha, volumen');
+        if (selectedCommerce) {
+          q = q.eq('comercio', selectedCommerce);
+        } else {
+          q = q.in('comercio', activeComerces);
+        }
+        q = q.gte('fecha', earliestDate).lte('fecha', latestDate).order('fecha', { ascending: true });
+        if (typeof q.range === 'function') {
+          q = q.range(page * pageSize, (page + 1) * pageSize - 1);
+        }
+        const { data: chunk, error: qErr } = await q;
+        if (qErr) throw qErr;
+        if (chunk && chunk.length > 0) {
+          allRows = allRows.concat(chunk);
+        }
+        if (!chunk || chunk.length < pageSize || typeof q.range !== 'function') break;
+      }
+
+      const bucketMap = {};
+      rawBuckets.forEach(b => { bucketMap[b.key] = b; });
+
+      allRows.forEach(row => {
+        if (!row.fecha) return;
+        const mKey = String(row.fecha).slice(0, 7);
+        const b = bucketMap[mKey];
+        if (b) {
+          b.dateMap[row.fecha] = (b.dateMap[row.fecha] || 0) + parseFloat(row.volumen || 0);
+        }
+      });
+
+      rawBuckets.forEach((b, idx) => {
+        const dailyVals = Object.values(b.dateMap);
+        b.recordedDays = dailyVals.length;
+        b.sumM3Day = dailyVals.reduce((s, v) => s + v, 0);
+        b.avgDailyM3 = b.recordedDays > 0 ? (b.sumM3Day / b.effectiveDays) : 0;
+        const prevB = idx > 0 ? rawBuckets[idx - 1] : null;
+        if (prevB && prevB.avgDailyM3 > 0 && b.recordedDays > 0) {
+          b.momPct = ((b.avgDailyM3 - prevB.avgDailyM3) / prevB.avgDailyM3) * 100;
+        } else {
+          b.momPct = null;
+        }
+      });
+
+      monthlyBuckets12 = rawBuckets.slice(1);
+      await renderMonthlyHorizonView(activeHorizonMonths);
+    } catch (err) {
+      console.error('Error al cargar histórico mensual (3/6/12M):', err);
+    } finally {
+      setMonthlyHistoryLoadingState(false);
+    }
+  }
+
+  // Horizon Switcher Listeners (3M / 6M / 12M)
+  document.querySelectorAll('.vol-horizon-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      renderMonthlyHorizonView(Number(btn.dataset.horizon));
+    });
+  });
+  document.querySelectorAll('[data-horizon-card]').forEach(card => {
+    card.addEventListener('click', () => {
+      renderMonthlyHorizonView(Number(card.getAttribute('data-horizon-card')));
+    });
+  });
+
+  // =========================================================================
+  // TAB 2: PRODUCT LEVEL VOLUME, DIMENSIONS, SHARE (%) & PERIOD VARIATIONS
+  // =========================================================================
+  let activeVolumeModuleTab = 'daily';
+  let allProductVolumeItems = [];
+  let filteredProductVolumeItems = [];
+  let prodVolCurrentPage = 1;
+  const prodVolItemsPerPage = 15;
+  let prodVolFilterMode = 'all';
+  let prodVolSortMode = 'vol_desc';
+  let prodVolSearchQuery = '';
+  let productParetoChartInstance = null;
+
+  const tabPanelDaily = document.getElementById('volume-tab-panel-daily');
+  const tabPanelProducts = document.getElementById('volume-tab-panel-products');
+  const tabProductsBadge = document.getElementById('vol-tab-products-badge');
+
+  document.querySelectorAll('#volume-module-tabs .vol-module-tab-btn').forEach(tabBtn => {
+    tabBtn.addEventListener('click', () => {
+      const targetTab = tabBtn.getAttribute('data-vol-tab') || 'daily';
+      activeVolumeModuleTab = targetTab;
+      document.querySelectorAll('#volume-module-tabs .vol-module-tab-btn').forEach(b => {
+        b.classList.toggle('active', b === tabBtn);
+      });
+      if (tabPanelDaily) tabPanelDaily.style.display = targetTab === 'daily' ? '' : 'none';
+      if (tabPanelProducts) tabPanelProducts.style.display = targetTab === 'products' ? '' : 'none';
+      if (targetTab === 'products') {
+        renderProductParetoChart();
+      } else {
+        updateChart();
+        renderMonthlyHorizonView(activeHorizonMonths);
+      }
+    });
+  });
+
+  function setProductVolumeLoadingState(isLoading) {
+    const cardIds = ['vol-prod-kpi-card-total', 'vol-prod-kpi-card-skus', 'vol-prod-kpi-card-top', 'vol-prod-kpi-card-var'];
+    cardIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('vol-kpi-card-loading', isLoading);
+    });
+    const pLoader = document.getElementById('volume-product-chart-loader');
+    const pTbody = document.getElementById('volume-products-tbody');
+
+    if (isLoading) {
+      if (pLoader) {
+        pLoader.style.display = 'flex';
+        pLoader.style.opacity = '1';
+      }
+      if (pTbody) {
+        pTbody.innerHTML = getAdminVolumeTableSkeletonRowsHtml(6, 6);
+      }
+    } else if (pLoader) {
+      pLoader.style.opacity = '0';
+      setTimeout(() => {
+        if (pLoader && mLoaderSafeCheck(pLoader)) pLoader.style.display = 'none';
+      }, 260);
+    }
+  }
+
+  function mLoaderSafeCheck(el) {
+    return el && el.style.opacity === '0';
+  }
+
+  async function renderProductParetoChart() {
+    const pCanvas = document.getElementById('volume-product-pareto-canvas');
+    if (!pCanvas) return;
+    await loadChartJS();
+    if (productParetoChartInstance) {
+      productParetoChartInstance.destroy();
+    }
+
+    const sortedByVol = [...allProductVolumeItems]
+      .filter(item => item.occupiedVolM3 > 0 || item.unitVolM3 > 0)
+      .sort((a, b) => b.occupiedVolM3 - a.occupiedVolM3);
+
+    const topItems = sortedByVol.slice(0, 10);
+    if (topItems.length === 0) return;
+
+    const totalVol = allProductVolumeItems.reduce((s, i) => s + i.occupiedVolM3, 0);
+    const pLabels = topItems.map(i => (i.sku || i.name || 'SKU').slice(0, 14));
+    const pVolumes = topItems.map(i => Number(i.occupiedVolM3.toFixed(5)));
+
+    let runningPct = 0;
+    const pCumPct = topItems.map(i => {
+      const pct = totalVol > 0 ? (i.occupiedVolM3 / totalVol) * 100 : 0;
+      runningPct = Math.min(100, runningPct + pct);
+      return Number(runningPct.toFixed(1));
+    });
+    const ref80Line = topItems.map(() => 80);
+
+    productParetoChartInstance = new Chart(pCanvas, {
+      data: {
+        labels: pLabels,
+        datasets: [
+          {
+            type: 'bar',
+            label: 'Volumen Ocupado (m³)',
+            data: pVolumes,
+            yAxisID: 'y',
+            backgroundColor: function(context) {
+              const chart = context.chart;
+              const { ctx: c2d, chartArea } = chart;
+              if (!chartArea) return 'rgba(37, 99, 235, 0.75)';
+              const grad = c2d.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+              if (context.dataIndex === 0) {
+                grad.addColorStop(0, 'rgba(245, 158, 11, 0.88)');
+                grad.addColorStop(1, 'rgba(245, 158, 11, 0.22)');
+                return grad;
+              }
+              grad.addColorStop(0, 'rgba(37, 99, 235, 0.85)');
+              grad.addColorStop(1, 'rgba(99, 102, 241, 0.20)');
+              return grad;
+            },
+            borderColor: topItems.map((_, idx) => idx === 0 ? '#f59e0b' : '#2563eb'),
+            borderWidth: 1.2,
+            borderRadius: 6,
+            borderSkipped: false,
+            barPercentage: 0.6,
+            order: 3
+          },
+          {
+            type: 'line',
+            label: '% Aporte Acumulado (Pareto)',
+            data: pCumPct,
+            yAxisID: 'y1',
+            borderColor: '#a855f7',
+            borderWidth: 2.5,
+            tension: 0.3,
+            pointRadius: 3.5,
+            pointBackgroundColor: '#a855f7',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 1.5,
+            fill: false,
+            order: 1
+          },
+          {
+            type: 'line',
+            label: 'Umbral Clase A (80%)',
+            data: ref80Line,
+            yAxisID: 'y1',
+            borderColor: '#10b981',
+            borderWidth: 1.8,
+            borderDash: [5, 5],
+            pointRadius: 0,
+            fill: false,
+            order: 2
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.94)',
+            titleColor: '#f8fafc',
+            bodyColor: '#e2e8f0',
+            borderColor: 'rgba(99, 102, 241, 0.35)',
+            borderWidth: 1,
+            padding: 10,
+            cornerRadius: 8,
+            callbacks: {
+              title: function(ctx) {
+                const idx = ctx[0].dataIndex;
+                const item = topItems[idx];
+                return item ? `${item.sku} · ${item.name}` : ctx[0].label;
+              },
+              label: function(ctx) {
+                if (ctx.dataset.yAxisID === 'y1') {
+                  return ` ${ctx.dataset.label}: ${Number(ctx.parsed.y || 0).toFixed(1)}%`;
+                }
+                const idx = ctx.dataIndex;
+                const item = topItems[idx];
+                const share = item ? item.sharePct.toFixed(1) : '0.0';
+                return ` Volumen: ${Number(ctx.parsed.y || 0).toFixed(5)} m³ (${share}% del total)`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: '#94a3b8', font: { size: 10, weight: '600' }, maxRotation: 22 }
+          },
+          y: {
+            beginAtZero: true,
+            position: 'left',
+            grid: { color: 'rgba(148, 163, 184, 0.09)', drawBorder: false },
+            ticks: {
+              color: '#94a3b8',
+              font: { size: 10 },
+              callback: v => Number(v).toFixed(3) + ' m³'
+            }
+          },
+          y1: {
+            beginAtZero: true,
+            max: 105,
+            position: 'right',
+            grid: { display: false },
+            ticks: {
+              color: '#a855f7',
+              font: { size: 10, weight: '600' },
+              callback: v => v <= 100 ? v + '%' : ''
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function renderProductMoversList() {
+    const moversContainer = document.getElementById('volume-product-movers-list');
+    const periodLbl = document.getElementById('vol-prod-movers-period-label');
+    if (periodLbl && startDate && endDate) {
+      const sP = startDate.split('-');
+      const eP = endDate.split('-');
+      periodLbl.textContent = `${sP[2]}/${sP[1]} – ${eP[2]}/${eP[1]}`;
+    }
+    if (!moversContainer) return;
+
+    const withMovements = [...allProductVolumeItems]
+      .filter(i => i.inQty > 0 || i.outQty > 0 || Math.abs(i.netDeltaVolM3) > 0)
+      .sort((a, b) => Math.abs(b.netDeltaVolM3) - Math.abs(a.netDeltaVolM3) || (b.inQty + b.outQty) - (a.inQty + a.outQty));
+
+    const displayList = withMovements.length > 0
+      ? withMovements.slice(0, 6)
+      : [...allProductVolumeItems].sort((a, b) => b.occupiedVolM3 - a.occupiedVolM3).slice(0, 5);
+
+    if (displayList.length === 0) {
+      moversContainer.innerHTML = `
+        <div style="padding: 2rem 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.8rem;">
+          No se encontraron productos ni variaciones para los filtros actuales.
+        </div>
+      `;
+      return;
+    }
+
+    moversContainer.innerHTML = displayList.map(item => {
+      const hasVar = (item.inQty > 0 || item.outQty > 0);
+      const sign = item.netDeltaVolM3 > 0 ? '+' : '';
+      const deltaColor = item.netDeltaVolM3 > 0.00001
+        ? '#10b981'
+        : (item.netDeltaVolM3 < -0.00001 ? '#ef4444' : 'var(--color-text-muted)');
+
+      return `
+        <div class="vol-prod-mover-card">
+          <div style="min-width: 0; flex: 1;">
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <span style="font-size: 0.72rem; font-weight: 800; color: var(--color-primary); background: rgba(37, 99, 235, 0.1); padding: 1px 6px; border-radius: 4px;">${item.sku || 'S/SKU'}</span>
+              <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.name || 'Producto'}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.65rem; font-size: 0.69rem; color: var(--color-text-muted); margin-top: 3px;">
+              <span>Stock: <strong>${item.qtyPhysical} uds</strong> (${item.occupiedVolM3.toFixed(4)} m³)</span>
+              ${hasVar
+                ? `<span><strong style="color: #10b981;">+${item.inQty} ent.</strong> / <strong style="color: #ef4444;">-${item.outQty} sal.</strong></span>`
+                : `<span>Aporte: <strong>${item.sharePct.toFixed(1)}%</strong></span>`
+              }
+            </div>
+          </div>
+          <div style="text-align: right; flex-shrink: 0;">
+            <div style="font-size: 0.82rem; font-weight: 800; color: ${deltaColor};">
+              ${hasVar ? `${sign}${item.netDeltaVolM3.toFixed(4)} m³` : `${item.occupiedVolM3.toFixed(4)} m³`}
+            </div>
+            <div style="font-size: 0.67rem; color: var(--color-text-muted);">
+              ${hasVar ? `Δ ${item.netDeltaQty >= 0 ? '+' : ''}${item.netDeltaQty} uds (${item.varPct >= 0 ? '+' : ''}${item.varPct.toFixed(1)}%)` : 'Sin mov. en rango'}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function applyProductVolumeFiltersAndRender() {
+    const q = (prodVolSearchQuery || '').trim().toLowerCase();
+
+    filteredProductVolumeItems = allProductVolumeItems.filter(item => {
+      if (q) {
+        const matchSku = (item.sku || '').toLowerCase().includes(q);
+        const matchName = (item.name || '').toLowerCase().includes(q);
+        const matchCom = (item.comercio || '').toLowerCase().includes(q);
+        if (!matchSku && !matchName && !matchCom) return false;
+      }
+      if (prodVolFilterMode === 'instock') return item.qtyPhysical > 0;
+      if (prodVolFilterMode === 'pareto_a') return item.paretoClass === 'A' && item.occupiedVolM3 > 0;
+      if (prodVolFilterMode === 'changed') return (item.inQty > 0 || item.outQty > 0);
+      if (prodVolFilterMode === 'missing_dims') return !item.hasDimensions && item.unitVolM3 <= 0;
+      return true;
+    });
+
+    filteredProductVolumeItems.sort((a, b) => {
+      if (prodVolSortMode === 'vol_desc') return b.occupiedVolM3 - a.occupiedVolM3 || b.qtyPhysical - a.qtyPhysical;
+      if (prodVolSortMode === 'share_desc') return b.sharePct - a.sharePct;
+      if (prodVolSortMode === 'qty_desc') return b.qtyPhysical - a.qtyPhysical || b.occupiedVolM3 - a.occupiedVolM3;
+      if (prodVolSortMode === 'unit_vol_desc') return b.unitVolM3 - a.unitVolM3;
+      if (prodVolSortMode === 'var_desc') return Math.abs(b.netDeltaVolM3) - Math.abs(a.netDeltaVolM3) || (b.inQty + b.outQty) - (a.inQty + a.outQty);
+      if (prodVolSortMode === 'name_asc') return (a.name || '').localeCompare(b.name || '');
+      return 0;
+    });
+
+    renderProductVolumeTable();
+  }
+
+  function renderProductVolumeTable() {
+    const pTbody = document.getElementById('volume-products-tbody');
+    const pPageInfo = document.getElementById('vol-prod-page-info');
+    const pBtnPrev = document.getElementById('btn-vol-prod-prev');
+    const pBtnNext = document.getElementById('btn-vol-prod-next');
+    if (!pTbody) return;
+
+    if (filteredProductVolumeItems.length === 0) {
+      pTbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="text-center" style="padding: 3rem 1.5rem; color: var(--color-text-muted);">
+            <i class="ri-box-3-line" style="font-size: 1.8rem; display: block; margin-bottom: 0.4rem;"></i>
+            No se encontraron productos para los criterios seleccionados
+          </td>
+        </tr>
+      `;
+      if (pBtnPrev) pBtnPrev.disabled = true;
+      if (pBtnNext) pBtnNext.disabled = true;
+      if (pPageInfo) pPageInfo.textContent = 'Mostrando 0 de 0 productos';
+      return;
+    }
+
+    const totalItems = filteredProductVolumeItems.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / prodVolItemsPerPage));
+    if (prodVolCurrentPage > totalPages) prodVolCurrentPage = totalPages;
+
+    const startIdx = (prodVolCurrentPage - 1) * prodVolItemsPerPage;
+    const endIdx = Math.min(startIdx + prodVolItemsPerPage, totalItems);
+    const pageItems = filteredProductVolumeItems.slice(startIdx, endIdx);
+
+    pTbody.innerHTML = pageItems.map(item => {
+      const dimsLabel = item.hasDimensions
+        ? `<span style="font-weight: 700; color: var(--color-text-main);">${item.largo} × ${item.ancho} × ${item.alto} cm</span>`
+        : (item.unitVolM3 > 0
+            ? `<span style="font-size: 0.74rem; color: #f59e0b; font-weight: 600;"><i class="ri-Tools-line"></i> Cubicaje directo</span>`
+            : `<span style="font-size: 0.73rem; color: #ef4444; background: rgba(239, 68, 68, 0.1); padding: 2px 6px; border-radius: 4px; font-weight: 700;"><i class="ri-error-warning-line"></i> Sin medidas</span>`);
+
+      const weightStr = item.peso > 0 ? ` · ${item.peso.toFixed(2)} kg` : '';
+      const unitVolStr = item.unitVolM3 > 0
+        ? `${item.unitVolM3.toFixed(5)} m³/ud (${Math.round(item.unitVolM3 * 1000000).toLocaleString('es-CL')} cm³)`
+        : '0.00000 m³/ud';
+
+      const abcClass = item.paretoClass === 'A' ? 'vol-abc-a' : (item.paretoClass === 'B' ? 'vol-abc-b' : 'vol-abc-c');
+      const barGrad = item.paretoClass === 'A'
+        ? 'linear-gradient(90deg, #2563eb, #6366f1)'
+        : (item.paretoClass === 'B' ? 'linear-gradient(90deg, #8b5cf6, #a855f7)' : 'linear-gradient(90deg, #64748b, #94a3b8)');
+      const barWidth = Math.min(100, Math.max(item.sharePct > 0 ? 3 : 0, item.sharePct));
+
+      const hasMovs = (item.inQty > 0 || item.outQty > 0);
+      const deltaSign = item.netDeltaVolM3 > 0 ? '+' : '';
+      const deltaColor = item.netDeltaVolM3 > 0.00001
+        ? '#10b981'
+        : (item.netDeltaVolM3 < -0.00001 ? '#ef4444' : 'var(--color-text-muted)');
+
+      return `
+        <tr style="border-bottom: 1px solid var(--color-border); transition: var(--transition-theme);">
+          <td style="padding: 0.75rem 1.25rem;">
+            <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+              <span style="font-size: 0.73rem; font-weight: 800; color: var(--color-primary); background: rgba(37, 99, 235, 0.1); padding: 2px 6px; border-radius: 4px; font-family: monospace;">${item.sku || 'S/SKU'}</span>
+              <span class="vol-abc-badge ${abcClass}" title="Clasificación Pareto por aporte de volumen">Clase ${item.paretoClass}</span>
+              ${item.is_pack ? '<span style="font-size: 0.65rem; background: rgba(168, 85, 247, 0.14); color: #a855f7; padding: 1px 5px; border-radius: 4px; font-weight: 700;">PACK</span>' : ''}
+            </div>
+            <div style="font-weight: 600; color: var(--color-text-main); margin-top: 0.22rem; line-height: 1.3;">${item.name || 'Producto sin nombre'}</div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.1rem;">${item.comercio || ''}</div>
+          </td>
+          <td style="padding: 0.75rem 1rem;">
+            <div>${dimsLabel}<span style="font-size: 0.72rem; color: var(--color-text-muted);">${weightStr}</span></div>
+            <div style="font-size: 0.71rem; color: var(--color-text-muted); margin-top: 0.18rem;">Vol. Unit: <strong>${unitVolStr}</strong></div>
+          </td>
+          <td style="padding: 0.75rem 1rem; text-align: right;">
+            <div style="font-size: 0.94rem; font-weight: 800; color: ${item.qtyPhysical > 0 ? 'var(--color-text-main)' : 'var(--color-text-muted)'};">
+              ${item.qtyPhysical.toLocaleString('es-CL')} uds
+            </div>
+            <div style="font-size: 0.69rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+              Disp: <strong style="color: #10b981;">${item.qtyAvailable}</strong> · Comp: <strong style="color: #f59e0b;">${item.qtyCommitted}</strong>
+            </div>
+          </td>
+          <td style="padding: 0.75rem 1rem; text-align: right;">
+            <div style="font-size: 0.95rem; font-weight: 800; color: var(--color-primary);">
+              ${item.occupiedVolM3.toFixed(5)} m³
+            </div>
+            <div style="font-size: 0.69rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+              ${(item.occupiedVolM3 * 1000).toFixed(2)} L · Disp: ${item.availableVolM3.toFixed(4)} m³
+            </div>
+          </td>
+          <td style="padding: 0.75rem 1.15rem;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; font-size: 0.78rem; margin-bottom: 0.25rem;">
+              <strong style="color: var(--color-text-main); font-weight: 800;">${item.sharePct.toFixed(2)}%</strong>
+              <span style="font-size: 0.67rem; color: var(--color-text-muted);">Acum: ${item.cumSharePct.toFixed(1)}%</span>
+            </div>
+            <div class="vol-prod-share-bar">
+              <div class="vol-prod-share-fill" style="width: ${barWidth}%; background: ${barGrad};"></div>
+            </div>
+          </td>
+          <td style="padding: 0.75rem 1.25rem; text-align: right;">
+            ${hasMovs
+              ? `
+                <div style="font-size: 0.85rem; font-weight: 800; color: ${deltaColor};">
+                  ${deltaSign}${item.netDeltaVolM3.toFixed(5)} m³
+                </div>
+                <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.12rem;">
+                  <span style="color: #10b981; font-weight: 700;">+${item.inQty}</span> / <span style="color: #ef4444; font-weight: 700;">-${item.outQty}</span> uds
+                  (${item.varPct >= 0 ? '+' : ''}${item.varPct.toFixed(1)}%)
+                </div>
+              `
+              : `
+                <div style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">0.00000 m³</div>
+                <div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.1rem;">Sin variación en periodo</div>
+              `
+            }
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    if (pBtnPrev) pBtnPrev.disabled = prodVolCurrentPage === 1;
+    if (pBtnNext) pBtnNext.disabled = prodVolCurrentPage >= totalPages;
+    if (pPageInfo) pPageInfo.textContent = `Mostrando ${startIdx + 1}-${endIdx} de ${totalItems} productos`;
+  }
+
+  async function loadProductVolumeLevels() {
+    setProductVolumeLoadingState(true);
+    try {
+      const targetComs = selectedCommerce ? [selectedCommerce] : activeComerces;
+      if (!targetComs || targetComs.length === 0) {
+        allProductVolumeItems = [];
+        applyProductVolumeFiltersAndRender();
+        return;
+      }
+
+      // 1. Fetch products with inventory
+      let rawProducts = [];
+      const pageSize = 1000;
+      for (let page = 0; page < 6; page++) {
+        let pq = supabase
+          .from('products')
+          .select('*, inventory(warehouse_id, quantity, committed_quantity, warehouses(name))');
+        if (targetComs.length === 1) {
+          pq = pq.eq('comercio', targetComs[0]);
+        } else {
+          pq = pq.in('comercio', targetComs);
+        }
+        pq = pq.order('name', { ascending: true });
+        if (typeof pq.range === 'function') {
+          pq = pq.range(page * pageSize, (page + 1) * pageSize - 1);
+        }
+        const { data: pChunk, error: pErr } = await pq;
+        if (pErr) throw pErr;
+        if (pChunk && pChunk.length > 0) {
+          rawProducts = rawProducts.concat(pChunk);
+        }
+        if (!pChunk || pChunk.length < pageSize || typeof pq.range !== 'function') break;
+      }
+
+      rawProducts = rawProducts.filter(p => p.status !== 'archived');
+
+      // 2. Fetch Period Outflows & Inflows
+      const inQtyById = {};
+      const inQtyBySku = {};
+      const outQtyById = {};
+      const outQtyBySku = {};
+
+      const rangeStartIso = `${startDate}T00:00:00`;
+      const rangeEndIso = `${endDate}T23:59:59`;
+
+      const [ordersRes, decsRes] = await Promise.all([
+        (async () => {
+          try {
+            let oq = supabase
+              .from('orders')
+              .select('id, comercio, status, estado_wms, created_at, order_items(product_id, sku, quantity)')
+              .gte('created_at', rangeStartIso)
+              .lte('created_at', rangeEndIso);
+            if (targetComs.length === 1) {
+              oq = oq.eq('comercio', targetComs[0]);
+            } else {
+              oq = oq.in('comercio', targetComs);
+            }
+            const { data } = await oq;
+            return data || [];
+          } catch (e) {
+            return [];
+          }
+        })(),
+        (async () => {
+          try {
+            let dq = supabase
+              .from('stock_declarations')
+              .select('id, comercio, status, created_at, products_list')
+              .gte('created_at', rangeStartIso)
+              .lte('created_at', rangeEndIso);
+            if (targetComs.length === 1) {
+              dq = dq.eq('comercio', targetComs[0]);
+            } else {
+              dq = dq.in('comercio', targetComs);
+            }
+            const { data } = await dq;
+            return data || [];
+          } catch (e) {
+            return [];
+          }
+        })()
+      ]);
+
+      (ordersRes || []).forEach(ord => {
+        const st = String(ord.status || '').toLowerCase();
+        const wmsSt = String(ord.estado_wms || '').toLowerCase();
+        if (st === 'cancelled' || st === 'cancelado' || wmsSt === 'cancelado') return;
+        (ord.order_items || []).forEach(oi => {
+          const qty = Number(oi.quantity) || 0;
+          if (qty <= 0) return;
+          if (oi.product_id) {
+            outQtyById[oi.product_id] = (outQtyById[oi.product_id] || 0) + qty;
+          } else if (oi.sku) {
+            const skuNorm = String(oi.sku).trim().toUpperCase();
+            outQtyBySku[skuNorm] = (outQtyBySku[skuNorm] || 0) + qty;
+          }
+        });
+      });
+
+      (decsRes || []).forEach(dec => {
+        const st = String(dec.status || '').toLowerCase();
+        if (st.includes('rechazad') || st.includes('cancelad')) return;
+        const pList = Array.isArray(dec.products_list) ? dec.products_list : [];
+        pList.forEach(item => {
+          const qty = Number(item.counted_qty ?? item.qty ?? item.quantity ?? 0) || 0;
+          if (qty <= 0) return;
+          if (item.sku) {
+            const skuNorm = String(item.sku).trim().toUpperCase();
+            inQtyBySku[skuNorm] = (inQtyBySku[skuNorm] || 0) + qty;
+          }
+        });
+      });
+
+      if (typeof window.isDemoMode === 'function' && window.isDemoMode() && typeof window.getMockTable === 'function') {
+        const mockMovs = window.getMockTable('movements') || [];
+        mockMovs.forEach(mv => {
+          const q = Number(mv.quantity) || 0;
+          if (mv.type === 'in') {
+            inQtyById[mv.product_id] = (inQtyById[mv.product_id] || 0) + q;
+          } else if (mv.type === 'out') {
+            outQtyById[mv.product_id] = (outQtyById[mv.product_id] || 0) + q;
+          }
+        });
+      }
+
+      // 3. Build enriched product items
+      const builtItems = rawProducts.map(p => {
+        const largo = parseFloat(p.largo ?? p.length ?? 0) || 0;
+        const ancho = parseFloat(p.ancho ?? p.width ?? 0) || 0;
+        const alto = parseFloat(p.alto ?? p.height ?? 0) || 0;
+        const peso = parseFloat(p.peso ?? p.weight ?? 0) || 0;
+        const hasDimensions = (largo > 0 && ancho > 0 && alto > 0);
+        const cubicFromDims = hasDimensions ? (largo * ancho * alto) / 1000000 : 0;
+        const rawVol = parseFloat(p.volumen || 0) || 0;
+        const unitVolM3 = rawVol > 0 ? rawVol : cubicFromDims;
+
+        const invs = Array.isArray(p.inventory) ? p.inventory : [];
+        const qtyPhysical = invs.reduce((s, i) => s + Math.max(0, Number(i.quantity) || 0), 0);
+        const qtyCommitted = invs.reduce((s, i) => s + Math.max(0, Number(i.committed_quantity) || 0), 0);
+        const qtyAvailable = Math.max(0, qtyPhysical - qtyCommitted);
+
+        const occupiedVolM3 = qtyPhysical * unitVolM3;
+        const availableVolM3 = qtyAvailable * unitVolM3;
+        const committedVolM3 = Math.min(qtyPhysical, qtyCommitted) * unitVolM3;
+
+        const skuNorm = String(p.sku || '').trim().toUpperCase();
+        const inQty = (inQtyById[p.id] || 0) + (skuNorm ? (inQtyBySku[skuNorm] || 0) : 0);
+        const outQty = (outQtyById[p.id] || 0) + (skuNorm ? (outQtyBySku[skuNorm] || 0) : 0);
+        const netDeltaQty = inQty - outQty;
+        const netDeltaVolM3 = netDeltaQty * unitVolM3;
+        const estStartQty = Math.max(0, qtyPhysical - netDeltaQty);
+        const varPct = estStartQty > 0
+          ? ((qtyPhysical - estStartQty) / estStartQty) * 100
+          : (qtyPhysical > 0 && netDeltaQty > 0 ? 100 : 0);
+
+        return {
+          id: p.id,
+          sku: p.sku || '',
+          name: p.name || '',
+          comercio: p.comercio || '',
+          is_pack: Boolean(p.is_pack),
+          largo,
+          ancho,
+          alto,
+          peso,
+          hasDimensions,
+          unitVolM3,
+          qtyPhysical,
+          qtyCommitted,
+          qtyAvailable,
+          occupiedVolM3,
+          availableVolM3,
+          committedVolM3,
+          inQty,
+          outQty,
+          netDeltaQty,
+          netDeltaVolM3,
+          varPct,
+          sharePct: 0,
+          cumSharePct: 0,
+          paretoClass: 'C'
+        };
+      });
+
+      const totalVolAll = builtItems.reduce((s, i) => s + i.occupiedVolM3, 0);
+      builtItems.sort((a, b) => b.occupiedVolM3 - a.occupiedVolM3 || b.qtyPhysical - a.qtyPhysical);
+
+      let runningShare = 0;
+      builtItems.forEach(item => {
+        const prevShare = runningShare;
+        item.sharePct = totalVolAll > 0 ? (item.occupiedVolM3 / totalVolAll) * 100 : 0;
+        runningShare = Math.min(100, runningShare + item.sharePct);
+        item.cumSharePct = runningShare;
+
+        if (item.occupiedVolM3 <= 0) {
+          item.paretoClass = 'C';
+        } else if (prevShare < 80) {
+          item.paretoClass = 'A';
+        } else if (prevShare < 95) {
+          item.paretoClass = 'B';
+        } else {
+          item.paretoClass = 'C';
+        }
+      });
+
+      allProductVolumeItems = builtItems;
+
+      if (tabProductsBadge) {
+        tabProductsBadge.textContent = `${allProductVolumeItems.length} SKUs`;
+      }
+
+      const totalAvailVol = allProductVolumeItems.reduce((s, i) => s + i.availableVolM3, 0);
+      const totalCommVol = allProductVolumeItems.reduce((s, i) => s + i.committedVolM3, 0);
+      const totalUnits = allProductVolumeItems.reduce((s, i) => s + i.qtyPhysical, 0);
+      const inStockSkus = allProductVolumeItems.filter(i => i.qtyPhysical > 0).length;
+      const measuredSkus = allProductVolumeItems.filter(i => i.hasDimensions || i.unitVolM3 > 0).length;
+      const measuredPct = allProductVolumeItems.length > 0 ? Math.round((measuredSkus / allProductVolumeItems.length) * 100) : 0;
+      const topItem = allProductVolumeItems[0] || null;
+      const netVarM3 = allProductVolumeItems.reduce((s, i) => s + i.netDeltaVolM3, 0);
+      const totalInUnits = allProductVolumeItems.reduce((s, i) => s + i.inQty, 0);
+      const totalOutUnits = allProductVolumeItems.reduce((s, i) => s + i.outQty, 0);
+
+      const kpiTotalVal = document.getElementById('vol-prod-kpi-total-val');
+      const kpiTotalSub = document.getElementById('vol-prod-kpi-total-sub');
+      if (kpiTotalVal) kpiTotalVal.textContent = `${totalVolAll.toFixed(5)} m³`;
+      if (kpiTotalSub) kpiTotalSub.innerHTML = `Disp: <strong>${totalAvailVol.toFixed(4)} m³</strong> · Comp: <strong>${totalCommVol.toFixed(4)} m³</strong>`;
+
+      const kpiSkusVal = document.getElementById('vol-prod-kpi-skus-val');
+      const kpiSkusSub = document.getElementById('vol-prod-kpi-skus-sub');
+      if (kpiSkusVal) kpiSkusVal.textContent = `${totalUnits.toLocaleString('es-CL')} uds (${inStockSkus} SKUs)`;
+      if (kpiSkusSub) kpiSkusSub.innerHTML = `Cubicados: <strong>${measuredSkus}/${allProductVolumeItems.length} SKUs (${measuredPct}%)</strong>`;
+
+      const kpiTopVal = document.getElementById('vol-prod-kpi-top-val');
+      const kpiTopSub = document.getElementById('vol-prod-kpi-top-sub');
+      if (kpiTopVal) {
+        kpiTopVal.textContent = topItem && topItem.occupiedVolM3 > 0 ? `${topItem.sku || topItem.name}` : 'Sin stock activo';
+        kpiTopVal.title = topItem ? `${topItem.sku} - ${topItem.name}` : '';
+      }
+      if (kpiTopSub) {
+        kpiTopSub.innerHTML = topItem && topItem.occupiedVolM3 > 0
+          ? `Ocupa <strong>${topItem.occupiedVolM3.toFixed(4)} m³</strong> (<strong>${topItem.sharePct.toFixed(1)}%</strong> del total)`
+          : '0.0000 m³ (0% del total)';
+      }
+
+      const kpiVarVal = document.getElementById('vol-prod-kpi-var-val');
+      const kpiVarSub = document.getElementById('vol-prod-kpi-var-sub');
+      if (kpiVarVal) {
+        const sign = netVarM3 > 0 ? '+' : '';
+        const col = netVarM3 > 0.00001 ? '#10b981' : (netVarM3 < -0.00001 ? '#ef4444' : 'var(--color-text-main)');
+        kpiVarVal.innerHTML = `<span style="color: ${col};">${sign}${netVarM3.toFixed(5)} m³</span>`;
+      }
+      if (kpiVarSub) {
+        kpiVarSub.innerHTML = `Entradas: <strong style="color: #10b981;">+${totalInUnits} uds</strong> · Salidas: <strong style="color: #ef4444;">-${totalOutUnits} uds</strong>`;
+      }
+
+      prodVolCurrentPage = 1;
+      applyProductVolumeFiltersAndRender();
+      renderProductMoversList();
+      await renderProductParetoChart();
+    } catch (err) {
+      console.error('Error al cargar niveles de volumen por producto:', err);
+    } finally {
+      setProductVolumeLoadingState(false);
+    }
+  }
+
+  // Product Volume Toolbar Listeners
+  const prodSearchInput = document.getElementById('vol-prod-search-input');
+  if (prodSearchInput) {
+    prodSearchInput.addEventListener('input', (e) => {
+      prodVolSearchQuery = e.target.value || '';
+      prodVolCurrentPage = 1;
+      applyProductVolumeFiltersAndRender();
+    });
+  }
+
+  const prodSortSelect = document.getElementById('vol-prod-sort-select');
+  if (prodSortSelect) {
+    prodSortSelect.addEventListener('change', (e) => {
+      prodVolSortMode = e.target.value || 'vol_desc';
+      prodVolCurrentPage = 1;
+      applyProductVolumeFiltersAndRender();
+    });
+  }
+
+  document.querySelectorAll('.vol-prod-filter-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      prodVolFilterMode = pill.getAttribute('data-prod-filter') || 'all';
+      document.querySelectorAll('.vol-prod-filter-pill').forEach(p => p.classList.toggle('active', p === pill));
+      prodVolCurrentPage = 1;
+      applyProductVolumeFiltersAndRender();
+    });
+  });
+
+  const btnProdPrev = document.getElementById('btn-vol-prod-prev');
+  const btnProdNext = document.getElementById('btn-vol-prod-next');
+  if (btnProdPrev) {
+    btnProdPrev.addEventListener('click', () => {
+      if (prodVolCurrentPage > 1) {
+        prodVolCurrentPage--;
+        renderProductVolumeTable();
+      }
+    });
+  }
+  if (btnProdNext) {
+    btnProdNext.addEventListener('click', () => {
+      if (prodVolCurrentPage * prodVolItemsPerPage < filteredProductVolumeItems.length) {
+        prodVolCurrentPage++;
+        renderProductVolumeTable();
+      }
+    });
+  }
+
+  const btnExportProdCsv = document.getElementById('btn-export-vol-products-csv');
+  if (btnExportProdCsv) {
+    btnExportProdCsv.addEventListener('click', () => {
+      if (!filteredProductVolumeItems || filteredProductVolumeItems.length === 0) {
+        showToastFeedback('No hay productos para exportar.', false);
+        return;
+      }
+      const headers = [
+        'SKU', 'Producto', 'Comercio', 'Clase Pareto',
+        'Largo (cm)', 'Ancho (cm)', 'Alto (cm)', 'Peso (kg)',
+        'Volumen Unitario (m3)', 'Stock Fisico', 'Stock Disponible', 'Stock Comprometido',
+        'Volumen Ocupado (m3)', 'Aporte Total (%)', 'Aporte Acumulado (%)',
+        'Entradas Periodo (uds)', 'Salidas Periodo (uds)', 'Variacion Volumen Periodo (m3)', 'Variacion (%)'
+      ];
+      const rows = filteredProductVolumeItems.map(i => [
+        `"${(i.sku || '').replace(/"/g, '""')}"`,
+        `"${(i.name || '').replace(/"/g, '""')}"`,
+        `"${(i.comercio || '').replace(/"/g, '""')}"`,
+        i.paretoClass,
+        i.largo,
+        i.ancho,
+        i.alto,
+        i.peso,
+        i.unitVolM3.toFixed(6),
+        i.qtyPhysical,
+        i.qtyAvailable,
+        i.qtyCommitted,
+        i.occupiedVolM3.toFixed(6),
+        i.sharePct.toFixed(2),
+        i.cumSharePct.toFixed(2),
+        i.inQty,
+        i.outQty,
+        i.netDeltaVolM3.toFixed(6),
+        i.varPct.toFixed(2)
+      ]);
+      const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `volumen_por_producto_${startDate}_${endDate}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToastFeedback('Reporte CSV de volumen por producto descargado.');
+    });
+  }
+
   // Event Listeners
   merchantSelect.addEventListener('change', (e) => {
     selectedCommerce = e.target.value;
     updateVolumeStats();
     loadHistories();
+    loadMonthlyHistoryBenchmarks();
+    loadProductVolumeLevels();
   });
 
   startDateInput.addEventListener('change', (e) => {
     startDate = e.target.value;
     loadHistories();
+    renderMonthlyHorizonView(activeHorizonMonths);
+    loadProductVolumeLevels();
   });
 
   endDateInput.addEventListener('change', (e) => {
     endDate = e.target.value;
     loadHistories();
+    renderMonthlyHorizonView(activeHorizonMonths);
+    loadProductVolumeLevels();
   });
 
   btnRefresh.addEventListener('click', () => {
-    updateVolumeStats();
+    updateVolumeStats(true);
     loadHistories();
+    loadMonthlyHistoryBenchmarks();
+    loadProductVolumeLevels();
   });
 
   btnPrev.addEventListener('click', () => {
@@ -91250,8 +96546,10 @@ window.renderVolumenDiarioAdmin = async function() {
       if (error) throw error;
 
       showToastFeedback('¡Volumen registrado con éxito!');
-      updateVolumeStats();
+      updateVolumeStats(true);
       loadHistories();
+      loadMonthlyHistoryBenchmarks();
+      loadProductVolumeLevels();
     } catch (e) {
       console.error('Error al forzar registro de volumen:', e);
       alert(`Error al registrar: ${e.message}`);
@@ -91359,8 +96657,12 @@ window.renderVolumenDiarioAdmin = async function() {
   }
 
   await loadComercios();
-  await updateVolumeStats();
-  await loadHistories();
+  await Promise.all([
+    updateVolumeStats(),
+    loadHistories(),
+    loadMonthlyHistoryBenchmarks(),
+    loadProductVolumeLevels()
+  ]);
 };
 
 function getDeclarationProducts(dec) {
@@ -113654,7 +118956,10 @@ window.openCreateOrderModal = async function() {
 
   // 1. Reset variables y formulario
   window.tempAdminNewOrderItems = [];
+  window.tempAdminNewOrderPacks = [];
   window.tempClientNewOrderItems = window.tempAdminNewOrderItems;
+  window.tempClientNewOrderPacks = window.tempAdminNewOrderPacks;
+  window.orderUseVolumetricWeightMode = false;
   window.adminCustomShippingState = {
     name: '',
     cost: '',
@@ -113752,7 +119057,10 @@ window.openCreateOrderModal = async function() {
     // Listener para cambios de comercio
     commerceSelect.onchange = function() {
       window.tempAdminNewOrderItems = [];
+      window.tempAdminNewOrderPacks = [];
       window.tempClientNewOrderItems = window.tempAdminNewOrderItems;
+      window.tempClientNewOrderPacks = window.tempAdminNewOrderPacks;
+      window.orderUseVolumetricWeightMode = false;
       window.renderAdminNewOrderItemsTable();
       window.loadAdminNewOrderProducts(this.value);
     };
@@ -113781,11 +119089,11 @@ window.loadAdminNewOrderProducts = async function(selectedCommerce) {
     if (typeof window.fetchAllSupabaseRows === 'function') {
       products = await window.fetchAllSupabaseRows(
         'products',
-        'id, name, sku, price, volumen, weight, status, image_url',
+        'id, name, sku, price, volumen, weight, status, image_url, is_pack',
         q => selectedCommerce ? q.eq('comercio', selectedCommerce).order('name') : q.order('name')
       );
     } else {
-      let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status, image_url').order('name');
+      let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status, image_url, is_pack').order('name');
       if (selectedCommerce) {
         query = query.eq('comercio', selectedCommerce);
       }
@@ -113798,6 +119106,8 @@ window.loadAdminNewOrderProducts = async function(selectedCommerce) {
       .filter(p => p.status !== 'archived')
       .map(p => ({
         ...p,
+        is_pack: Boolean(p.is_pack),
+        packItems: [],
         peso: p.weight
       }));
 
@@ -113878,6 +119188,132 @@ window.loadAdminNewOrderProducts = async function(selectedCommerce) {
         p.availableStock = s.physical - s.committed - s.reserved;
         p.stockByWarehouse = s.byWarehouse || {};
       });
+
+      // Cargar composición de productos Pack y calcular su stock armable desde sus productos físicos componentes
+      const packProducts = productsList.filter(p => p.is_pack);
+      if (packProducts.length > 0) {
+        const packIds = packProducts.map(p => p.id);
+        const packItemPromises = [];
+        for (let i = 0; i < packIds.length; i += batchSize) {
+          packItemPromises.push(
+            supabase
+              .from('product_pack_items')
+              .select('pack_product_id, member_product_id, quantity')
+              .in('pack_product_id', packIds.slice(i, i + batchSize))
+          );
+        }
+        const packItemResults = await Promise.all(packItemPromises);
+        const rawPackItems = [];
+        packItemResults.forEach(r => {
+          if (r.data) rawPackItems.push(...r.data);
+        });
+
+        const prodById = new Map(productsList.map(p => [p.id, p]));
+        const missingMemberIds = Array.from(new Set(
+          rawPackItems.map(pi => pi.member_product_id).filter(mid => mid && !prodById.has(mid))
+        ));
+
+        if (missingMemberIds.length > 0) {
+          const { data: extraMembers } = await supabase
+            .from('products')
+            .select('id, name, sku, price, volumen, weight, status, image_url, is_pack')
+            .in('id', missingMemberIds);
+          const { data: extraInv } = await supabase
+            .from('inventory')
+            .select('product_id, warehouse_id, quantity, committed_quantity, reserved_quantity')
+            .in('product_id', missingMemberIds);
+          const extraStockMap = {};
+          (extraInv || []).forEach(inv => {
+            const pid = inv.product_id;
+            const wid = inv.warehouse_id || 'unknown';
+            if (!extraStockMap[pid]) {
+              extraStockMap[pid] = { physical: 0, committed: 0, reserved: 0, byWarehouse: {} };
+            }
+            const q = inv.quantity || 0;
+            const c = inv.committed_quantity || 0;
+            const r = inv.reserved_quantity || 0;
+            extraStockMap[pid].physical += q;
+            extraStockMap[pid].committed += c;
+            extraStockMap[pid].reserved += r;
+            if (!extraStockMap[pid].byWarehouse[wid]) {
+              extraStockMap[pid].byWarehouse[wid] = { physical: 0, committed: 0, reserved: 0, available: 0 };
+            }
+            extraStockMap[pid].byWarehouse[wid].physical += q;
+            extraStockMap[pid].byWarehouse[wid].committed += c;
+            extraStockMap[pid].byWarehouse[wid].reserved += r;
+            extraStockMap[pid].byWarehouse[wid].available = extraStockMap[pid].byWarehouse[wid].physical - extraStockMap[pid].byWarehouse[wid].committed - extraStockMap[pid].byWarehouse[wid].reserved;
+          });
+          (extraMembers || []).forEach(em => {
+            const s = extraStockMap[em.id] || { physical: 0, committed: 0, reserved: 0, byWarehouse: {} };
+            em.physicalStock = s.physical;
+            em.committedStock = s.committed;
+            em.reservedStock = s.reserved;
+            em.availableStock = s.physical - s.committed - s.reserved;
+            em.stockByWarehouse = s.byWarehouse || {};
+            em.peso = em.weight;
+            prodById.set(em.id, em);
+          });
+        }
+
+        const packItemsByPackId = {};
+        rawPackItems.forEach(pi => {
+          if (!packItemsByPackId[pi.pack_product_id]) packItemsByPackId[pi.pack_product_id] = [];
+          const member = prodById.get(pi.member_product_id);
+          if (member) {
+            packItemsByPackId[pi.pack_product_id].push({
+              member_product_id: pi.member_product_id,
+              quantity: Math.max(1, parseInt(pi.quantity, 10) || 1),
+              memberProduct: member,
+              sku: member.sku || 'S/SKU',
+              name: member.name || 'Producto componente',
+              price: member.price || 0,
+              volumen: member.volumen || 0,
+              weight: member.weight || 0,
+              image_url: member.image_url || ''
+            });
+          }
+        });
+
+        window.currentPackSkusList = window.currentPackSkusList || [];
+        window.currentPackUnitsBySkuMap = window.currentPackUnitsBySkuMap || {};
+        const packSkuSet = new Set(window.currentPackSkusList.map(s => String(s || '').toLowerCase()));
+
+        packProducts.forEach(packProd => {
+          const pItems = packItemsByPackId[packProd.id] || [];
+          packProd.packItems = pItems;
+          const normSku = String(packProd.sku || '').trim().toLowerCase();
+          if (normSku) {
+            if (!packSkuSet.has(normSku)) {
+              window.currentPackSkusList.push(normSku);
+              packSkuSet.add(normSku);
+            }
+            window.currentPackUnitsBySkuMap[normSku] = pItems.reduce((sum, pm) => sum + pm.quantity, 0);
+          }
+
+          if (pItems.length > 0) {
+            packProd.physicalStock = Math.min(
+              ...pItems.map(pm => Math.floor(Math.max(0, pm.memberProduct.physicalStock || 0) / pm.quantity))
+            );
+            packProd.committedStock = Math.max(
+              ...pItems.map(pm => Math.ceil(Math.max(0, pm.memberProduct.committedStock || 0) / pm.quantity))
+            );
+            packProd.reservedStock = Math.max(
+              ...pItems.map(pm => Math.ceil(Math.max(0, pm.memberProduct.reservedStock || 0) / pm.quantity))
+            );
+            packProd.availableStock = Math.min(
+              ...pItems.map(pm => Math.floor((pm.memberProduct.availableStock || 0) / pm.quantity))
+            );
+            if (!packProd.volumen || Number(packProd.volumen) === 0) {
+              packProd.volumen = pItems.reduce((sum, pm) => sum + ((parseFloat(pm.memberProduct.volumen) || 0) * pm.quantity), 0);
+            }
+          } else {
+            packProd.physicalStock = 0;
+            packProd.committedStock = 0;
+            packProd.reservedStock = 0;
+            packProd.availableStock = 0;
+          }
+        });
+      }
     }
 
     window.tempAdminProductsList = productsList;
@@ -113900,7 +119336,10 @@ window.filterAdminNewOrderProducts = function() {
   const filtered = products.filter(p => {
     const sku = (p.sku || '').toLowerCase();
     const name = (p.name || '').toLowerCase();
-    return sku.includes(searchTerm) || name.includes(searchTerm);
+    const compMatch = p.is_pack && Array.isArray(p.packItems) && p.packItems.some(pm =>
+      (pm.sku || '').toLowerCase().includes(searchTerm) || (pm.name || '').toLowerCase().includes(searchTerm)
+    );
+    return sku.includes(searchTerm) || name.includes(searchTerm) || (p.is_pack && 'pack'.includes(searchTerm)) || compMatch;
   });
 
   if (filtered.length === 0) {
@@ -113914,15 +119353,29 @@ window.filterAdminNewOrderProducts = function() {
 
   let html = '';
   filtered.forEach(p => {
-    const displayVal = `${p.sku} - ${p.name} (${window.formatCLP(p.price || 0)})`;
+    const isPack = Boolean(p.is_pack);
+    const displayVal = `${isPack ? '[PACK] ' : ''}${p.sku} - ${p.name} (${window.formatCLP(p.price || 0)})`;
     const phys = p.physicalStock !== undefined ? p.physicalStock : 0;
     const comm = p.committedStock !== undefined ? p.committedStock : 0;
     const res = p.reservedStock !== undefined ? p.reservedStock : 0;
     const avail = p.availableStock !== undefined ? p.availableStock : 0;
     const isOutOfStock = avail <= 0;
+    const availLabel = isPack ? `Armables: ${avail} pack(s)` : `Disp: ${avail} und.`;
     const availBadge = isOutOfStock 
-      ? `<span style="background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;"><i class="ri-alert-line"></i> Disp: ${avail} und.</span>`
-      : `<span style="background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25); padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;"><i class="ri-checkbox-circle-line"></i> Disp: ${avail} und.</span>`;
+      ? `<span style="background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;"><i class="ri-alert-line"></i> ${availLabel}</span>`
+      : `<span style="background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25); padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;"><i class="ri-checkbox-circle-line"></i> ${availLabel}</span>`;
+
+    const packBadge = isPack
+      ? `<span style="background: rgba(124, 58, 237, 0.14); color: #7c3aed; border: 1px solid rgba(124, 58, 237, 0.3); padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 0.68rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-stack-line"></i> PACK</span>`
+      : '';
+
+    const packComponentsLine = isPack
+      ? (Array.isArray(p.packItems) && p.packItems.length > 0
+          ? `<div style="font-size: 0.72rem; color: #7c3aed; background: rgba(124, 58, 237, 0.06); border: 1px dashed rgba(124, 58, 237, 0.25); border-radius: 4px; padding: 3px 6px; margin-top: 2px;">
+               <i class="ri-git-branch-line"></i> <strong>Se desglosa en bodega:</strong> ${p.packItems.map(pm => `${escapeHtml(pm.sku)} (x${pm.quantity})`).join(' + ')}
+             </div>`
+          : `<div style="font-size: 0.72rem; color: #ef4444; margin-top: 2px;"><i class="ri-alert-line"></i> Pack sin componentes asociados</div>`)
+      : '';
 
     html += `
       <div class="order-product-option" data-id="${p.id}" data-display="${displayVal.replace(/"/g, '&quot;')}" style="padding: 0.55rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.25rem;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
@@ -113930,16 +119383,20 @@ window.filterAdminNewOrderProducts = function() {
           ${p.image_url ? `
             <img src="${escapeHtml(p.image_url)}" alt="" style="width: 36px; height: 36px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border); flex-shrink: 0;" onerror="this.style.display='none'">
           ` : `
-            <div style="width: 36px; height: 36px; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); flex-shrink: 0;"><i class="ri-image-line" style="font-size: 1.1rem;"></i></div>
+            <div style="width: 36px; height: 36px; border-radius: 4px; border: 1px solid var(--color-border); background: ${isPack ? 'rgba(124, 58, 237, 0.08)' : 'var(--color-bg)'}; display: flex; align-items: center; justify-content: center; color: ${isPack ? '#7c3aed' : 'var(--color-text-muted)'}; flex-shrink: 0;"><i class="${isPack ? 'ri-stack-line' : 'ri-image-line'}" style="font-size: 1.1rem;"></i></div>
           `}
           <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem;">
             <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem;">
-              <span style="font-weight: 700; color: var(--color-primary); font-size: 0.85rem;">${p.sku}</span>
+              <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                <span style="font-weight: 700; color: var(--color-primary); font-size: 0.85rem;">${p.sku}</span>
+                ${packBadge}
+              </div>
               <span style="color: var(--color-text-muted); font-weight: 600; font-size: 0.8rem;">${window.formatCLP(p.price || 0)}</span>
             </div>
             <div style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${p.name}">
               ${p.name}
             </div>
+            ${packComponentsLine}
           </div>
         </div>
         <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.35rem; font-size: 0.72rem; margin-top: 0.15rem; background: var(--color-surface-hover, rgba(0,0,0,0.02)); padding: 0.25rem 0.4rem; border-radius: 4px; border: 1px dashed var(--color-border);">
@@ -113979,6 +119436,70 @@ window.updateAdminProductStockAlert = function() {
   if (!product) {
     container.style.display = 'none';
     container.innerHTML = '';
+    return;
+  }
+
+  // Si es un producto PACK, mostrar vista previa del desglose automático y stock de cada componente
+  if (product.is_pack) {
+    const packItems = Array.isArray(product.packItems) ? product.packItems : [];
+    if (packItems.length === 0) {
+      container.style.display = 'block';
+      container.innerHTML = `
+        <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-sm); padding: 0.65rem 0.9rem; color: #ef4444; font-size: 0.8rem; font-weight: 600;">
+          <i class="ri-error-warning-line"></i> El pack <strong>${escapeHtml(product.sku)}</strong> no tiene productos componentes configurados.
+        </div>
+      `;
+      return;
+    }
+
+    let hasAnyDeficit = false;
+    const compRowsHtml = packItems.map(pm => {
+      const m = pm.memberProduct || {};
+      const addUnits = requestedQty * pm.quantity;
+      const existingCartItem = (window.tempAdminNewOrderItems || []).find(i => i.product_id === pm.member_product_id);
+      const inCartUnits = existingCartItem ? existingCartItem.quantity : 0;
+      const totalReqUnits = inCartUnits + addUnits;
+      const mAvail = m.availableStock !== undefined ? m.availableStock : 0;
+      const mPhys = m.physicalStock !== undefined ? m.physicalStock : 0;
+      const mRes = m.reservedStock !== undefined ? m.reservedStock : 0;
+      const mComm = m.committedStock !== undefined ? m.committedStock : 0;
+      const isCompDeficit = totalReqUnits > mAvail;
+      if (isCompDeficit) hasAnyDeficit = true;
+      const defUnits = Math.max(0, totalReqUnits - mAvail);
+
+      return `
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.45rem; padding: 0.35rem 0.55rem; border-radius: 4px; background: var(--color-surface); border: 1px solid ${isCompDeficit ? 'rgba(239, 68, 68, 0.35)' : 'rgba(124, 58, 237, 0.2)'}; font-size: 0.76rem;">
+          <div>
+            <strong style="color: var(--color-primary);">${escapeHtml(pm.sku)}</strong> — ${escapeHtml(pm.name)}
+            <span style="margin-left: 0.35rem; font-weight: 700; color: #7c3aed;">(+${addUnits} und. al desglosar)</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span style="color: var(--color-text-muted);">Fís: <strong>${mPhys}</strong> | Mesa: <strong>${mRes}</strong> | Comp: <strong>${mComm}</strong></span>
+            <span style="font-weight: 700; color: ${isCompDeficit ? '#ef4444' : '#10b981'};">
+              ${isCompDeficit ? `<i class="ri-alert-line"></i> Disp: ${mAvail} (Faltante: ${defUnits} und.)` : `<i class="ri-checkbox-circle-line"></i> Disp: ${mAvail} und.`}
+            </span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    container.style.display = 'block';
+    container.innerHTML = `
+      <div style="background: ${hasAnyDeficit ? 'rgba(239, 68, 68, 0.06)' : 'rgba(124, 58, 237, 0.07)'}; border: 1px solid ${hasAnyDeficit ? 'rgba(239, 68, 68, 0.35)' : 'rgba(124, 58, 237, 0.3)'}; border-radius: var(--radius-sm); padding: 0.7rem 0.9rem; display: flex; flex-direction: column; gap: 0.45rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+          <span style="font-weight: 700; color: ${hasAnyDeficit ? '#ef4444' : '#7c3aed'}; font-size: 0.82rem; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-stack-line" style="font-size: 1.05rem;"></i>
+            Pack <strong>${escapeHtml(product.sku)}</strong> (x${requestedQty}): se desglosará automáticamente para preparación en bodega
+          </span>
+          <span style="font-size: 0.73rem; font-weight: 700; padding: 2px 8px; border-radius: 12px; background: ${hasAnyDeficit ? '#ef4444' : '#7c3aed'}; color: #fff;">
+            ${hasAnyDeficit ? 'Con Quiebre en Componentes' : `Armables: ${product.availableStock || 0} pack(s)`}
+          </span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+          ${compRowsHtml}
+        </div>
+      </div>
+    `;
     return;
   }
 
@@ -114072,6 +119593,201 @@ window.addAdminNewOrderItem = function() {
   }
 
   window.tempAdminNewOrderItems = window.tempAdminNewOrderItems || [];
+  window.tempAdminNewOrderPacks = window.tempAdminNewOrderPacks || [];
+  const allowOutOfStock = document.getElementById('order-allow-out-of-stock')?.checked;
+
+  // Si el producto es un PACK, desglosar automáticamente en sus productos físicos componentes
+  if (product.is_pack) {
+    const packItems = Array.isArray(product.packItems) ? product.packItems : [];
+    if (packItems.length === 0) {
+      alert(`El pack ${product.sku} no tiene productos componentes configurados para su desglose.`);
+      return;
+    }
+
+    const deficitComps = [];
+    packItems.forEach(pm => {
+      const m = pm.memberProduct || {};
+      const addCompQty = qty * pm.quantity;
+      const existingComp = window.tempAdminNewOrderItems.find(i => i.product_id === pm.member_product_id);
+      const currentCompQty = existingComp ? existingComp.quantity : 0;
+      const totalCompReq = currentCompQty + addCompQty;
+      const mAvail = m.availableStock !== undefined ? m.availableStock : 0;
+      if (totalCompReq > mAvail) {
+        deficitComps.push({
+          sku: pm.sku,
+          name: pm.name,
+          avail: mAvail,
+          phys: m.physicalStock || 0,
+          res: m.reservedStock || 0,
+          comm: m.committedStock || 0,
+          totalReq: totalCompReq,
+          deficit: totalCompReq - mAvail
+        });
+      }
+    });
+
+    const proceedAddPack = () => {
+      const totalCompPriceSum = packItems.reduce((sum, pm) => sum + ((pm.memberProduct?.price || 0) * pm.quantity), 0);
+      const totalPackPhysicalUnits = packItems.reduce((sum, pm) => sum + pm.quantity, 0) || 1;
+      const fallbackUnitPriceFromPack = (totalCompPriceSum === 0 && (product.price || 0) > 0)
+        ? Math.round((product.price || 0) / totalPackPhysicalUnits)
+        : 0;
+      const totalCompVolSum = packItems.reduce((sum, pm) => sum + ((parseFloat(pm.memberProduct?.volumen) || 0) * pm.quantity), 0);
+      const fallbackUnitVolFromPack = (totalCompVolSum === 0 && (parseFloat(product.volumen) || 0) > 0)
+        ? (parseFloat(product.volumen) / totalPackPhysicalUnits)
+        : 0;
+
+      packItems.forEach(pm => {
+        const member = pm.memberProduct || {};
+        const addCompQty = qty * pm.quantity;
+        const mPhys = member.physicalStock !== undefined ? member.physicalStock : 0;
+        const mComm = member.committedStock !== undefined ? member.committedStock : 0;
+        const mRes = member.reservedStock !== undefined ? member.reservedStock : 0;
+        const mAvail = member.availableStock !== undefined ? member.availableStock : 0;
+        const compUnitPrice = (member.price && member.price > 0) ? member.price : fallbackUnitPriceFromPack;
+        const compUnitVol = (parseFloat(member.volumen) > 0) ? parseFloat(member.volumen) : fallbackUnitVolFromPack;
+
+        const existingIdx = window.tempAdminNewOrderItems.findIndex(i => i.product_id === pm.member_product_id);
+        if (existingIdx !== -1) {
+          const targetItem = window.tempAdminNewOrderItems[existingIdx];
+          targetItem.quantity += addCompQty;
+          targetItem.isOversold = targetItem.quantity > mAvail;
+          targetItem.deficit = Math.max(0, targetItem.quantity - mAvail);
+          targetItem.physicalStock = mPhys;
+          targetItem.committedStock = mComm;
+          targetItem.reservedStock = mRes;
+          targetItem.availableStock = mAvail;
+          targetItem.packSources = targetItem.packSources || [];
+          const existingSource = targetItem.packSources.find(ps => ps.pack_id === product.id);
+          if (existingSource) {
+            existingSource.pack_qty += qty;
+            existingSource.total_from_pack += addCompQty;
+          } else {
+            targetItem.packSources.push({
+              pack_id: product.id,
+              pack_sku: product.sku,
+              pack_name: product.name,
+              pack_qty: qty,
+              member_qty_per_pack: pm.quantity,
+              total_from_pack: addCompQty
+            });
+          }
+        } else {
+          window.tempAdminNewOrderItems.push({
+            product_id: pm.member_product_id,
+            sku: member.sku || pm.sku,
+            name: member.name || pm.name,
+            price: compUnitPrice,
+            image_url: member.image_url || '',
+            volumen: compUnitVol,
+            quantity: addCompQty,
+            isOversold: addCompQty > mAvail,
+            deficit: Math.max(0, addCompQty - mAvail),
+            physicalStock: mPhys,
+            committedStock: mComm,
+            reservedStock: mRes,
+            availableStock: mAvail,
+            packSources: [{
+              pack_id: product.id,
+              pack_sku: product.sku,
+              pack_name: product.name,
+              pack_qty: qty,
+              member_qty_per_pack: pm.quantity,
+              total_from_pack: addCompQty
+            }]
+          });
+        }
+      });
+
+      const existingPackEntry = window.tempAdminNewOrderPacks.find(pb => pb.pack_id === product.id);
+      if (existingPackEntry) {
+        existingPackEntry.quantity += qty;
+        existingPackEntry.components.forEach(c => {
+          c.total_quantity = c.quantity_per_pack * existingPackEntry.quantity;
+        });
+      } else {
+        window.tempAdminNewOrderPacks.push({
+          pack_id: product.id,
+          pack_sku: product.sku,
+          pack_name: product.name,
+          quantity: qty,
+          components: packItems.map(pm => ({
+            product_id: pm.member_product_id,
+            sku: pm.sku,
+            name: pm.name,
+            quantity_per_pack: pm.quantity,
+            total_quantity: pm.quantity * qty
+          }))
+        });
+      }
+
+      window.tempClientNewOrderItems = window.tempAdminNewOrderItems;
+      window.tempClientNewOrderPacks = window.tempAdminNewOrderPacks;
+
+      selectProd.value = '';
+      const searchInput = document.getElementById('order-product-search');
+      if (searchInput) searchInput.value = '';
+      const dropdownList = document.getElementById('order-product-dropdown-list');
+      if (dropdownList) dropdownList.style.display = 'none';
+      qtyInput.value = '1';
+
+      const stockAlertContainer = document.getElementById('order-selected-product-stock-alert');
+      if (stockAlertContainer) {
+        stockAlertContainer.style.display = 'none';
+        stockAlertContainer.innerHTML = '';
+      }
+
+      window.renderAdminNewOrderItemsTable();
+    };
+
+    if (deficitComps.length > 0 && !allowOutOfStock) {
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Stock Insuficiente en Componentes del Pack',
+          html: `
+            <div style="text-align: left; font-size: 0.88rem; display: flex; flex-direction: column; gap: 0.5rem;">
+              <p style="margin: 0;">El pack <strong>${escapeHtml(product.sku)}</strong> (x${qty}) tiene componentes físicos con stock disponible insuficiente:</p>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.6rem; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.35rem;">
+                ${deficitComps.map(dc => `
+                  <div style="border-bottom: 1px dashed #e2e8f0; padding-bottom: 0.25rem;">
+                    <div><strong>${escapeHtml(dc.sku)} — ${escapeHtml(dc.name)}</strong></div>
+                    <div style="color: #64748b;">Físico: ${dc.phys} | Mesa: ${dc.res} | Comp: ${dc.comm} | <strong style="color: #ef4444;">Disp: ${dc.avail}</strong></div>
+                    <div style="color: #d97706; font-weight: 700;">Solicitado total: ${dc.totalReq} und. (Faltante: ${dc.deficit} und.)</div>
+                  </div>
+                `).join('')}
+              </div>
+              <p style="margin: 0.35rem 0 0 0; color: #475569; font-size: 0.8rem;">¿Deseas desglosar y agregar este pack de todas formas bajo modalidad de <strong>sobreventa / quiebre</strong>?</p>
+            </div>
+          `,
+          showCancelButton: true,
+          confirmButtonText: '<i class="ri-check-line"></i> Sí, Forzar Desglose e Ingresar',
+          cancelButtonText: 'Cancelar',
+          confirmButtonColor: '#f59e0b',
+          cancelButtonColor: '#64748b'
+        }).then(resAction => {
+          if (resAction.isConfirmed) {
+            const allowCheckbox = document.getElementById('order-allow-out-of-stock');
+            if (allowCheckbox) allowCheckbox.checked = true;
+            proceedAddPack();
+          }
+        });
+        return;
+      } else {
+        const confirmForce = confirm(
+          `El pack ${product.sku} tiene componentes con stock insuficiente:\n` +
+          deficitComps.map(dc => `- ${dc.sku}: Disp ${dc.avail}, Solicitado ${dc.totalReq} (Faltante ${dc.deficit})`).join('\n') +
+          `\n\n¿Deseas forzar el desglose e ingreso bajo quiebre de stock?`
+        );
+        if (confirmForce) proceedAddPack();
+        return;
+      }
+    }
+
+    proceedAddPack();
+    return;
+  }
+
   const existingIdx = window.tempAdminNewOrderItems.findIndex(i => i.product_id === prodId);
   const currentQty = existingIdx !== -1 ? window.tempAdminNewOrderItems[existingIdx].quantity : 0;
   const totalRequested = qty + currentQty;
@@ -114082,7 +119798,6 @@ window.addAdminNewOrderItem = function() {
   const avail = product.availableStock !== undefined ? product.availableStock : 0;
 
   const isDeficit = totalRequested > avail;
-  const allowOutOfStock = document.getElementById('order-allow-out-of-stock')?.checked;
 
   const proceedAdd = () => {
     if (existingIdx !== -1) {
@@ -114176,11 +119891,106 @@ window.addAdminNewOrderItem = function() {
   proceedAdd();
 };
 
+window.removeAdminNewOrderPack = function(packId) {
+  window.tempAdminNewOrderPacks = (window.tempAdminNewOrderPacks || []).filter(pb => pb.pack_id !== packId);
+  window.tempClientNewOrderPacks = window.tempAdminNewOrderPacks;
+  const nextItems = [];
+  (window.tempAdminNewOrderItems || []).forEach(item => {
+    if (Array.isArray(item.packSources)) {
+      const srcIdx = item.packSources.findIndex(ps => ps.pack_id === packId);
+      if (srcIdx !== -1) {
+        const removedQty = item.packSources[srcIdx].total_from_pack || 0;
+        item.quantity -= removedQty;
+        item.packSources.splice(srcIdx, 1);
+      }
+    }
+    if (item.quantity > 0) {
+      const avail = item.availableStock !== undefined ? item.availableStock : 0;
+      item.isOversold = item.quantity > avail;
+      item.deficit = Math.max(0, item.quantity - avail);
+      nextItems.push(item);
+    }
+  });
+  window.tempAdminNewOrderItems = nextItems;
+  window.tempClientNewOrderItems = window.tempAdminNewOrderItems;
+  window.renderAdminNewOrderItemsTable();
+};
+window.removeClientNewOrderPack = window.removeAdminNewOrderPack;
+
 window.removeAdminNewOrderItem = function(index) {
   if (window.tempAdminNewOrderItems && window.tempAdminNewOrderItems[index]) {
+    const removedItem = window.tempAdminNewOrderItems[index];
     window.tempAdminNewOrderItems.splice(index, 1);
     window.tempClientNewOrderItems = window.tempAdminNewOrderItems;
+    if (Array.isArray(window.tempAdminNewOrderPacks) && window.tempAdminNewOrderPacks.length > 0 && removedItem) {
+      const remainingProductIds = new Set((window.tempAdminNewOrderItems || []).map(i => i.product_id));
+      window.tempAdminNewOrderPacks = window.tempAdminNewOrderPacks
+        .map(pb => ({
+          ...pb,
+          components: (pb.components || []).filter(c => remainingProductIds.has(c.product_id))
+        }))
+        .filter(pb => pb.components.length > 0);
+      window.tempClientNewOrderPacks = window.tempAdminNewOrderPacks;
+    }
     window.renderAdminNewOrderItemsTable();
+  }
+};
+
+window.updateOrderVolumetricWeightUI = function(totalVol) {
+  const vol = parseFloat(totalVol) || 0;
+  const volWeight = vol * 250;
+  const numericVolW = volWeight > 0 ? Math.max(0.01, parseFloat(volWeight.toFixed(2))) : 0;
+  const formattedVolW = numericVolW.toFixed(2);
+
+  const volDisplayEl = document.getElementById('order-volumetric-weight-display');
+  if (volDisplayEl) {
+    volDisplayEl.textContent = `${formattedVolW} Kg`;
+  }
+
+  const weightInput = document.getElementById('order-total-weight-input');
+  if (window.orderUseVolumetricWeightMode) {
+    if (numericVolW > 0) {
+      if (weightInput) weightInput.value = formattedVolW;
+    } else {
+      window.orderUseVolumetricWeightMode = false;
+      if (weightInput) weightInput.value = '';
+    }
+  }
+
+  const btnUseVol = document.getElementById('btn-use-volumetric-weight');
+  if (btnUseVol) {
+    if (window.orderUseVolumetricWeightMode && numericVolW > 0) {
+      btnUseVol.style.background = 'rgba(16, 185, 129, 0.14)';
+      btnUseVol.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+      btnUseVol.style.color = '#059669';
+      btnUseVol.innerHTML = `<i class="ri-checkbox-circle-line"></i> Peso Volumétrico Aplicado (<span id="btn-volumetric-weight-val">${formattedVolW}</span> Kg)`;
+    } else {
+      btnUseVol.style.background = 'rgba(124, 58, 237, 0.1)';
+      btnUseVol.style.borderColor = 'rgba(124, 58, 237, 0.3)';
+      btnUseVol.style.color = '#7c3aed';
+      btnUseVol.innerHTML = `<i class="ri-magic-line"></i> Usar Peso Volumétrico (<span id="btn-volumetric-weight-val">${formattedVolW}</span> Kg)`;
+    }
+  }
+};
+
+window.applyOrderVolumetricWeight = function() {
+  const volInput = document.getElementById('order-total-volume-estimated');
+  const totalVol = parseFloat(volInput?.value || '0') || 0;
+  const volWeight = totalVol * 250;
+  if (volWeight <= 0) {
+    alert('El peso volumétrico actual es 0.00 Kg. Agrega productos con volumen configurado en catálogo o ingresa un peso manualmente.');
+    return;
+  }
+  window.orderUseVolumetricWeightMode = true;
+  window.updateOrderVolumetricWeightUI(totalVol);
+};
+
+window.onManualOrderWeightInput = function() {
+  if (window.orderUseVolumetricWeightMode) {
+    window.orderUseVolumetricWeightMode = false;
+    const volInput = document.getElementById('order-total-volume-estimated');
+    const totalVol = parseFloat(volInput?.value || '0') || 0;
+    window.updateOrderVolumetricWeightUI(totalVol);
   }
 };
 
@@ -114189,6 +119999,46 @@ window.renderAdminNewOrderItemsTable = function() {
   const totalQtyEl = document.getElementById('client-new-order-total-qty');
   const totalValEl = document.getElementById('client-new-order-total-val');
   if (!tbody || !totalQtyEl || !totalValEl) return;
+
+  // Asegurar contenedor de aviso de desglose de packs encima de la tabla
+  let packBannerEl = document.getElementById('admin-order-packs-breakdown-banner');
+  const tableEl = tbody.closest('table');
+  if (!packBannerEl && tableEl && tableEl.parentElement) {
+    packBannerEl = document.createElement('div');
+    packBannerEl.id = 'admin-order-packs-breakdown-banner';
+    tableEl.parentElement.insertBefore(packBannerEl, tableEl);
+  }
+
+  const packsBreakdown = window.tempAdminNewOrderPacks || [];
+  if (packBannerEl) {
+    if (packsBreakdown.length > 0) {
+      packBannerEl.style.display = 'block';
+      packBannerEl.innerHTML = `
+        <div style="margin-bottom: 0.75rem; padding: 0.65rem 0.9rem; background: rgba(124, 58, 237, 0.08); border: 1px solid rgba(124, 58, 237, 0.28); border-radius: var(--radius-sm); font-size: 0.8rem; color: var(--color-text-main); display: flex; flex-direction: column; gap: 0.35rem;">
+          <div style="display: flex; align-items: center; gap: 0.45rem; color: #7c3aed; font-weight: 700;">
+            <i class="ri-stack-line" style="font-size: 1.05rem;"></i>
+            <span>Desglose Automático de Pack(s) para Preparación en Bodega</span>
+          </div>
+          ${packsBreakdown.map(pb => {
+            const compsText = (pb.components || []).map(c => `<strong>${escapeHtml(c.sku)}</strong> (x${c.total_quantity})`).join(', ');
+            return `
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; background: var(--color-surface); padding: 0.35rem 0.6rem; border-radius: 4px; border: 1px dashed rgba(124, 58, 237, 0.25);">
+                <div>
+                  El pack <strong style="color: #7c3aed;">${escapeHtml(pb.pack_sku)} — ${escapeHtml(pb.pack_name || '')}</strong> (x${pb.quantity}) fue desglosado para su preparación en bodega en: ${compsText}
+                </div>
+                <button type="button" onclick="window.removeAdminNewOrderPack('${pb.pack_id}')" class="btn btn-outline" style="padding: 0.15rem 0.45rem; font-size: 0.72rem; border-color: rgba(239, 68, 68, 0.4); color: #ef4444; cursor: pointer;" title="Quitar este pack y sus unidades desglosadas">
+                  <i class="ri-close-circle-line"></i> Quitar Pack
+                </button>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    } else {
+      packBannerEl.style.display = 'none';
+      packBannerEl.innerHTML = '';
+    }
+  }
 
   const items = window.tempAdminNewOrderItems || [];
   if (items.length === 0) {
@@ -114206,6 +120056,9 @@ window.renderAdminNewOrderItemsTable = function() {
     if (volInput) volInput.value = "0.00000";
     const volDisplay = document.getElementById('order-total-volume-display');
     if (volDisplay) volDisplay.textContent = "0.00000";
+    if (typeof window.updateOrderVolumetricWeightUI === 'function') {
+      window.updateOrderVolumetricWeightUI(0);
+    }
     if (typeof window.renderAdminOrderOperationalBreakdown === 'function') {
       window.renderAdminOrderOperationalBreakdown();
     }
@@ -114237,6 +120090,16 @@ window.renderAdminNewOrderItemsTable = function() {
       `;
     }
 
+    const packSourcesBadge = Array.isArray(item.packSources) && item.packSources.length > 0
+      ? `<div style="margin-top: 0.2rem; display: flex; flex-wrap: wrap; gap: 0.25rem;">
+           ${item.packSources.map(ps => `
+             <span style="background: rgba(124, 58, 237, 0.1); color: #7c3aed; border: 1px solid rgba(124, 58, 237, 0.25); font-size: 0.68rem; font-weight: 600; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;">
+               <i class="ri-stack-line"></i> Desglosado de Pack: <strong>${escapeHtml(ps.pack_sku)}</strong> (x${ps.total_from_pack} und.)
+             </span>
+           `).join('')}
+         </div>`
+      : '';
+
     html += `
       <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-surface);">
         <td style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
@@ -114247,6 +120110,7 @@ window.renderAdminNewOrderItemsTable = function() {
             ` : ''}
             <div>
               <div>${item.name}</div>
+              ${packSourcesBadge}
               ${oversoldBadge}
             </div>
           </div>
@@ -114269,6 +120133,9 @@ window.renderAdminNewOrderItemsTable = function() {
   if (volInput) volInput.value = totalVol.toFixed(5);
   const volDisplay = document.getElementById('order-total-volume-display');
   if (volDisplay) volDisplay.textContent = totalVol.toFixed(5);
+  if (typeof window.updateOrderVolumetricWeightUI === 'function') {
+    window.updateOrderVolumetricWeightUI(totalVol);
+  }
   if (typeof window.renderAdminOrderOperationalBreakdown === 'function') {
     window.renderAdminOrderOperationalBreakdown();
   }
@@ -114906,20 +120773,40 @@ window.populateAdminWizardSummary = function() {
 
   const tbody = document.getElementById('summary-items-tbody');
   const items = window.tempAdminNewOrderItems || [];
+  const packsBreakdown = window.tempAdminNewOrderPacks || [];
   let itemsHtml = '';
   
+  if (packsBreakdown.length > 0) {
+    itemsHtml += `
+      <tr>
+        <td colspan="3" style="padding: 0.55rem 0.65rem; background: rgba(124, 58, 237, 0.08); border-bottom: 1px solid rgba(124, 58, 237, 0.25); color: #6d28d9; font-size: 0.78rem;">
+          <div style="font-weight: 700; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.2rem;">
+            <i class="ri-stack-line"></i> Pack(s) desglosado(s) para su preparación en bodega:
+          </div>
+          ${packsBreakdown.map(pb => {
+            const compsText = (pb.components || []).map(c => `<strong>${escapeHtml(c.sku)}</strong> (x${c.total_quantity})`).join(', ');
+            return `<div>• El pack <strong>${escapeHtml(pb.pack_sku)}</strong> (x${pb.quantity}) fue desglosado en: ${compsText}</div>`;
+          }).join('')}
+        </td>
+      </tr>
+    `;
+  }
+
   let totalVolume = 0;
   let totalWeight = 0;
   
   items.forEach(item => {
     const prod = (window.tempAdminProductsList || []).find(p => p.id === item.product_id);
-    const volumeUnit = prod ? parseFloat(prod.volumen || '0') : 0;
+    const volumeUnit = prod ? parseFloat(prod.volumen || '0') : (parseFloat(item.volumen || '0') || 0);
     totalVolume += volumeUnit * item.quantity;
+    const packBadge = Array.isArray(item.packSources) && item.packSources.length > 0
+      ? `<div style="font-size: 0.7rem; color: #7c3aed; font-weight: 600; margin-top: 2px;"><i class="ri-stack-line"></i> Desglosado de Pack: ${item.packSources.map(ps => `${escapeHtml(ps.pack_sku)} (x${ps.total_from_pack})`).join(', ')}</div>`
+      : '';
     
     itemsHtml += `
       <tr style="border-bottom: 1px solid var(--color-border);">
         <td style="padding: 0.4rem 0.5rem; color: var(--color-text-muted); font-family: monospace;">${item.sku}</td>
-        <td style="padding: 0.4rem 0.5rem; font-weight: 500; color: var(--color-text-main);">${item.name}</td>
+        <td style="padding: 0.4rem 0.5rem; font-weight: 500; color: var(--color-text-main);">${item.name}${packBadge}</td>
         <td style="padding: 0.4rem 0.5rem; text-align: center; font-weight: bold; color: var(--color-primary);">${item.quantity}</td>
       </tr>
     `;
@@ -114933,8 +120820,9 @@ window.populateAdminWizardSummary = function() {
 
   const weightInput = document.getElementById('order-total-weight-input');
   totalWeight = parseFloat(weightInput?.value) || 0;
+  const volWeightSummary = Math.max(0, totalVolume * 250);
   
-  document.getElementById('summary-totals-weight-vol').textContent = `${totalWeight.toFixed(1)} Kg / ${totalVolume.toFixed(5)} m³`;
+  document.getElementById('summary-totals-weight-vol').textContent = `${totalWeight.toFixed(2)} Kg (Volumétrico: ${volWeightSummary.toFixed(2)} Kg) / ${totalVolume.toFixed(5)} m³`;
 
   document.getElementById('summary-shipping-net').textContent = window.formatCLP(displayNet);
   document.getElementById('summary-shipping-tax').textContent = window.formatCLP(displayTax);
@@ -116056,14 +121944,32 @@ setTimeout(() => {
             created_from: 'Pedido Manual · Panel Admin WMS'
           };
 
+      const packsBreakdown = Array.isArray(window.tempAdminNewOrderPacks) && window.tempAdminNewOrderPacks.length > 0
+        ? window.tempAdminNewOrderPacks.map(pb => ({
+            pack_id: pb.pack_id,
+            pack_sku: pb.pack_sku,
+            pack_name: pb.pack_name,
+            quantity: pb.quantity,
+            components: (pb.components || []).map(c => ({
+              product_id: c.product_id,
+              sku: c.sku,
+              name: c.name,
+              quantity_per_pack: c.quantity_per_pack,
+              total_quantity: c.total_quantity
+            }))
+          }))
+        : null;
+
       const rawShopifyData = orderNotes ? {
         note: orderNotes,
         notes: orderNotes,
         customer_note: orderNotes,
         manual_order: true,
+        ...(packsBreakdown ? { manual_packs_breakdown: packsBreakdown } : {}),
         ...creatorMetaManual
       } : {
         manual_order: true,
+        ...(packsBreakdown ? { manual_packs_breakdown: packsBreakdown } : {}),
         ...creatorMetaManual
       };
 
@@ -116304,13 +122210,29 @@ setTimeout(() => {
       // 4. Notificación por correo vía Brevo
       try {
         const BREVO_API_KEY = ['xkeysib', '27c9fbab0935cd3133d9f56db07a69afc87a4edfbc40165dca119dc156ae58e1', 'NIW2n77ElvT27lPo'].join('-');
-        const itemsHtml = items.map(item => `
+        const packsEmailHtml = (packsBreakdown && packsBreakdown.length > 0) ? `
+          <div style="margin-bottom: 16px; padding: 10px 12px; background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 6px; color: #5b21b6; font-size: 13px;">
+            <strong>📦 Desglose Automático de Pack(s) para Preparación en Bodega:</strong>
+            <ul style="margin: 6px 0 0 0; padding-left: 18px;">
+              ${packsBreakdown.map(pb => {
+                const comps = (pb.components || []).map(c => `${c.sku} (x${c.total_quantity || (c.quantity_per_pack * pb.quantity)})`).join(', ');
+                return `<li>El pack <strong>${pb.pack_sku} - ${pb.pack_name || ''}</strong> (x${pb.quantity}) fue desglosado en: ${comps}</li>`;
+              }).join('')}
+            </ul>
+          </div>
+        ` : '';
+        const itemsHtml = items.map(item => {
+          const packBadges = Array.isArray(item.packSources) && item.packSources.length > 0
+            ? `<div style="font-size: 11px; color: #6d28d9; margin-top: 2px;">📦 Desglosado de Pack: ${item.packSources.map(ps => `${ps.pack_sku} (x${ps.total_from_pack})`).join(', ')}</div>`
+            : '';
+          return `
           <tr style="border-bottom: 1px solid #edf2f7;">
             <td style="padding: 8px; color: #4a5568; font-family: monospace;">${item.sku}</td>
-            <td style="padding: 8px; color: #2d3748; font-weight: 500;">${item.name}</td>
+            <td style="padding: 8px; color: #2d3748; font-weight: 500;">${item.name}${packBadges}</td>
             <td style="padding: 8px; text-align: center; color: #1a202c; font-weight: bold;">${item.quantity}</td>
           </tr>
-        `).join('');
+        `;
+        }).join('');
 
         const htmlBody = `
           <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff; color: #1a202c;">
@@ -116330,6 +122252,7 @@ setTimeout(() => {
               ${orderNotes ? `<tr><td style="padding: 6px 0; font-weight: bold; color: #718096; vertical-align: top;">Notas / Comentarios:</td><td style="padding: 6px 0; color: #b45309; font-weight: 500; background: #fffbeb; border-radius: 4px; padding-left: 8px;">${orderNotes.replace(/\n/g, '<br>')}</td></tr>` : ''}
             </table>
             <h3 style="border-bottom: 2px solid #edf2f7; padding-bottom: 8px; margin-bottom: 12px; font-size: 16px; color: #2d3748;">Detalle de Productos</h3>
+            ${packsEmailHtml}
             <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
               <thead>
                 <tr style="background: #f7fafc; border-bottom: 1px solid #edf2f7;">
@@ -116369,7 +122292,9 @@ setTimeout(() => {
       const notesSumEl = document.getElementById('order-cust-notes-summary');
       if (notesSumEl) notesSumEl.value = '';
       window.tempAdminNewOrderItems = [];
+      window.tempAdminNewOrderPacks = [];
       window.tempClientNewOrderItems = [];
+      window.tempClientNewOrderPacks = [];
 
       // 6. Actualizar órdenes en memoria, ajustar filtro de fecha en Torre de Control si aplica y refrescar tabla in-place
       if (insertedOrder) {
@@ -116401,6 +122326,12 @@ setTimeout(() => {
               <div><strong>Estado Inicial:</strong> <span style="color: #7c3aed; font-weight: 700;">${insertedOrder.estado_wms || selectedEstadoWms}</span></div>
               <div><strong>Bodega de Pickeo:</strong> ${insertedOrder.sucursal_pickeo || 'No aplica para este estado'}</div>
               <div><strong>Bodega de Stock:</strong> <span style="color: #059669; font-weight: 700;">${resolvedWhNameForDisplay}</span></div>
+              ${(packsBreakdown && packsBreakdown.length > 0) ? `
+                <div style="margin-top: 0.25rem; padding-top: 0.35rem; border-top: 1px dashed #cbd5e1; color: #6d28d9;">
+                  <strong>📦 Pack(s) desglosado(s) para preparación en bodega:</strong>
+                  ${packsBreakdown.map(pb => `<div>• <strong>${escapeHtml(pb.pack_sku)}</strong> (x${pb.quantity}) → ${(pb.components || []).map(c => `${escapeHtml(c.sku)} x${c.total_quantity}`).join(', ')}</div>`).join('')}
+                </div>
+              ` : ''}
             </div>
           </div>
         `,
@@ -116479,7 +122410,7 @@ window.AUTOMATIONS_CATALOG = [
   },
   {
     id: 'auto-shopify-in-progress',
-    title: 'WMS → Shopify: Estado Intermedio En Preparación / Pickeado ("En curso")',
+    title: 'WMS → Shopify: Pedido En Preparación pasa a "En curso" (IN_PROGRESS)',
     category: 'wms_shopify',
     categoryLabel: 'WMS ↔ Shopify',
     badgeColor: '#2563eb',
@@ -116487,25 +122418,40 @@ window.AUTOMATIONS_CATALOG = [
     icon: 'ri-loader-4-line',
     mode: 'Trigger SQL + Edge Function Tiempo Real',
     status: 'active',
-    trigger: 'Un pedido de despacho regular cambia a `En preparación` o `Pickeado` en Stocka WMS.',
+    trigger: 'Un pedido cambia a `estado_wms = "En preparación"` en Stocka WMS.',
     condition: 'El comercio tiene `sync_tracking_enabled = true` y `sync_intermediate_statuses = true`.',
-    action: 'Encola `set_in_progress` y añade la etiqueta visual `Stocka: En Preparación` en el pedido dentro de Shopify.',
+    action: 'Encola `set_in_progress`, ejecuta la mutación nativa de Shopify `fulfillmentOrderReportProgress` ("En curso") y añade la etiqueta `Stocka: En Preparación`.',
     techSource: 'Trigger `trg_enqueue_shopify_fulfillment` + Edge Function `shopify-fulfillment-sync`'
   },
   {
     id: 'auto-shopify-create-fulfillment',
-    title: 'WMS → Shopify: Pedido Despachado o Retirado → Preparado (Fulfilled) + Tracking',
+    title: 'WMS → Shopify: Pedido Pickeado / Despachado → Preparado (Fulfilled) + Tracking',
     category: 'wms_shopify',
     categoryLabel: 'WMS ↔ Shopify',
     badgeColor: '#16a34a',
     badgeBg: 'rgba(22, 163, 74, 0.12)',
-    icon: 'ri-truck-line',
+    icon: 'ri-checkbox-circle-line',
     mode: 'Trigger SQL + Edge Function Tiempo Real',
     status: 'active',
-    trigger: 'El pedido cambia a `estado_wms = "Despachado"` en Stocka WMS (manualmente, masivamente o automáticamente al ser `Retirado` en Picker).',
+    trigger: 'Un pedido de Distribución cambia a `Pickeado` o `Despachado` (o un pedido de Retiro pasa a `Despachado`).',
     condition: 'El comercio tiene `sync_tracking_enabled = true` y permisos `write_merchant_managed_fulfillment_orders`.',
-    action: 'Encola `create_fulfillment`. Crea el Fulfillment en Shopify (`2024-04`), adjunta número de seguimiento, courier mapeado y link de seguimiento (o cierra sin tracking falso si es `RETIRO`), y envía la notificación nativa de Shopify al cliente final (`notify_customer = true` por defecto).',
+    action: 'Encola `create_fulfillment`. Marca el pedido como **Preparado** (`fulfilled`) en Shopify cuando se termina de pickear (sin enviar correo vacío si aún no tiene tracking definitivo) y adjunta/actualiza el tracking al despachar.',
     techSource: 'Trigger `trg_enqueue_shopify_fulfillment` + Edge Function `shopify-fulfillment-sync`'
+  },
+  {
+    id: 'auto-shopify-in-transit-delivered',
+    title: 'WMS → Shopify: Transporte En Tránsito y Entregado → Eventos Nativos de Envío en Shopify',
+    category: 'wms_shopify',
+    categoryLabel: 'WMS ↔ Shopify',
+    badgeColor: '#0284c7',
+    badgeBg: 'rgba(2, 132, 199, 0.12)',
+    icon: 'ri-truck-line',
+    mode: 'Triggers de Transporte + Reconciliación WMS',
+    status: 'active',
+    trigger: 'El estado de transporte del paquete cambia a `EN TRÁNSITO` (`in_transit` / `en ruta`) o `ENTREGADO` (`delivered` / `entregado`) en couriers o WMS.',
+    condition: 'El comercio tiene `sync_tracking_enabled = true`.',
+    action: 'Encola `set_in_transit` o `set_delivered` y publica el `FulfillmentEvent` oficial en Shopify (`status: "in_transit"` o `"delivered"`), actualizando el estado de entrega del pedido en Shopify a **En tránsito** o **Entregado**.',
+    techSource: 'Triggers `trg_shopify_shipment_status_*` + Edge Function `shopify-fulfillment-sync`'
   },
   {
     id: 'auto-shopify-update-tracking',
@@ -116653,6 +122599,12 @@ window.drawAutomationsAdminView = function() {
     }
     if (actionType === 'update_tracking') {
       return `<span style="background: rgba(217, 119, 6, 0.12); color: #d97706; padding: 3px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 700;"><i class="ri-refresh-line"></i> Actualizar Tracking</span>`;
+    }
+    if (actionType === 'set_in_transit') {
+      return `<span style="background: rgba(2, 132, 199, 0.12); color: #0284c7; padding: 3px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 700;"><i class="ri-truck-fill"></i> En Tránsito</span>`;
+    }
+    if (actionType === 'set_delivered') {
+      return `<span style="background: rgba(5, 150, 105, 0.14); color: #059669; padding: 3px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 700;"><i class="ri-checkbox-multiple-fill"></i> Entregado</span>`;
     }
     return `<span style="background: #f1f5f9; color: #475569; padding: 3px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 600;">${actionType || '-'}</span>`;
   };
@@ -117058,6 +123010,122 @@ window.reauthorizeMerchantShopifyOAuth = function(integrationId, copyOnly = fals
 };
 
 // ============================================================================
+// RECONCILIACIÓN AUTOMÁTICA EN SEGUNDO PLANO DE ESTADOS SHOPIFY (PICKEADO / TRANSPORTE)
+// ============================================================================
+window._reconciledShopifyLifecycleSet = window._reconciledShopifyLifecycleSet || new Set();
+
+window.reconcileShopifyTransportStatuses = async function(orders) {
+  if (!Array.isArray(orders) || orders.length === 0) return;
+  try {
+    const integMap = await window.ensureShopifyIntegrationsMapLoaded();
+    if (!integMap || Object.keys(integMap).length === 0) return;
+
+    const toEnqueue = [];
+    for (const order of orders) {
+      if (!order || !order.id) continue;
+      const isShopify = order.external_platform === 'Shopify' || order.origen === 'Shopify' || Boolean(order.raw_shopify_data);
+      if (!isShopify) continue;
+
+      const comercioKey = String(order.comercio || '').trim().toUpperCase();
+      const integ = integMap[comercioKey];
+      if (!integ || integ.is_active === false || integ.sync_tracking_enabled !== true) continue;
+      const scopes = Array.isArray(integ.granted_scopes) ? integ.granted_scopes : [];
+      if (!scopes.includes('write_fulfillments') || !scopes.includes('write_merchant_managed_fulfillment_orders')) continue;
+
+      const shopifyOrderId = String(order.external_order_id || (order.raw_shopify_data && order.raw_shopify_data.id) || '').trim();
+      if (!shopifyOrderId) continue;
+
+      const shState = window.resolveShopifyOrderStatus(order);
+      if (shState === 'cancelled') continue;
+
+      const isRetiro = (typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+        ? window.getOrderEffectiveCategoriaEntrega(order)
+        : order.categoria_entrega) === 'RETIRO';
+
+      let shipInfo = null;
+      if (!isRetiro && typeof window.getOrderShipmentGlobalStatus === 'function') {
+        shipInfo = window.getOrderShipmentGlobalStatus(order);
+      }
+      const shipLabel = shipInfo && shipInfo.label ? String(shipInfo.label).toUpperCase().trim() : '';
+
+      let desiredAction = null;
+      let desiredShopifyState = null;
+
+      if (!isRetiro && shipLabel === 'ENTREGADO' && shState !== 'delivered') {
+        desiredAction = 'set_delivered';
+        desiredShopifyState = 'delivered';
+      } else if (!isRetiro && shipLabel === 'EN TRÁNSITO' && !['in_transit', 'delivered'].includes(shState)) {
+        desiredAction = 'set_in_transit';
+        desiredShopifyState = 'in_transit';
+      } else if (!isRetiro && (order.estado_wms === 'Pickeado' || order.estado_wms === 'Despachado') && !['fulfilled', 'in_transit', 'delivered'].includes(shState)) {
+        desiredAction = 'create_fulfillment';
+        desiredShopifyState = 'fulfilled';
+      }
+
+      if (!desiredAction) continue;
+      const dedupKey = `${order.id}:${desiredAction}`;
+      if (window._reconciledShopifyLifecycleSet.has(dedupKey)) continue;
+      window._reconciledShopifyLifecycleSet.add(dedupKey);
+
+      const sTrack = (shipInfo && shipInfo.shipment && shipInfo.shipment.tracking && shipInfo.shipment.tracking !== 'N/A')
+        ? shipInfo.shipment.tracking
+        : (order.tracking_number || null);
+      const sUrl = (shipInfo && shipInfo.shipment && shipInfo.shipment.tracking_url && shipInfo.shipment.tracking_url !== 'N/A')
+        ? shipInfo.shipment.tracking_url
+        : (order.tracking_url || null);
+      const sCourier = (shipInfo && shipInfo.shipment && shipInfo.shipment.courier)
+        ? shipInfo.shipment.courier
+        : (order.courier || order.operador || null);
+
+      toEnqueue.push({
+        order_id: order.id,
+        comercio: order.comercio,
+        shopify_order_id: shopifyOrderId,
+        action_type: desiredAction,
+        tracking_number: sTrack,
+        tracking_url: sUrl,
+        courier: sCourier,
+        operador: order.operador || null,
+        status: 'pending',
+        _targetState: desiredShopifyState
+      });
+    }
+
+    if (toEnqueue.length === 0) return;
+
+    const batch = toEnqueue.slice(0, 20);
+    for (const item of batch) {
+      const targetState = item._targetState;
+      const payload = { ...item };
+      delete payload._targetState;
+
+      const { data: existing } = await supabase
+        .from('shopify_fulfillment_queue')
+        .select('id')
+        .eq('order_id', payload.order_id)
+        .eq('action_type', payload.action_type)
+        .in('status', ['pending', 'processing'])
+        .maybeSingle();
+
+      if (!existing) {
+        await supabase.from('shopify_fulfillment_queue').insert(payload);
+      }
+
+      const memOrd = (window.loadedOrders || []).find(o => String(o.id) === String(payload.order_id));
+      if (memOrd && targetState) {
+        memOrd.shopify_order_status = targetState;
+      }
+    }
+
+    if (typeof window.triggerShopifyFulfillmentSync === 'function') {
+      window.triggerShopifyFulfillmentSync({ limit: 25 });
+    }
+  } catch (err) {
+    console.warn('[Shopify Lifecycle Reconcile] Aviso:', err);
+  }
+};
+
+// ============================================================================
 // CONTROL DE ESTADOS DE SHOPIFY DESDE TORRE DE CONTROL (INDIVIDUAL Y MASIVO)
 // ============================================================================
 
@@ -117069,18 +123137,44 @@ window.getShopifyActionCatalog = function(order = null) {
   return [
     {
       action: 'create_fulfillment',
-      title: isRetiro ? 'Marcar como Preparado / Entregado (Retiro Completado)' : 'Marcar como Preparado / Despachado (Fulfill)',
+      title: isRetiro ? 'Marcar como Preparado / Entregado (Retiro Completado)' : 'Marcar como Preparado en Shopify (Fulfill)',
       shortTitle: 'Preparado (Fulfill)',
       icon: 'ri-checkbox-circle-line',
       color: '#10b981',
       validFrom: ['unfulfilled', 'in_progress', 'ready_for_pickup', 'on_hold', 'partial'],
       targetShopifyStatus: 'fulfilled',
-      suggestedWmsStatus: 'Despachado',
+      suggestedWmsStatus: 'Pickeado',
       needsTracking: !isRetiro,
       needsHoldReason: false,
       description: isRetiro
         ? 'Marca el pedido de retiro como Preparado (Fulfilled) en Shopify sin enviar número de seguimiento falso.'
-        : 'Crea el Fulfillment oficial en Shopify (si estaba En Espera, lo libera automáticamente) y envía el tracking y courier.'
+        : 'Crea el Fulfillment oficial en Shopify (estado "Preparado") cuando el pedido es Pickeado o Despachado.'
+    },
+    {
+      action: 'set_in_transit',
+      title: 'Marcar como En Tránsito en Shopify',
+      shortTitle: 'En Tránsito',
+      icon: 'ri-truck-fill',
+      color: '#0284c7',
+      validFrom: ['fulfilled', 'in_progress', 'unfulfilled'],
+      targetShopifyStatus: 'in_transit',
+      suggestedWmsStatus: 'Despachado',
+      needsTracking: false,
+      needsHoldReason: false,
+      description: 'Registra el evento oficial de envío "En tránsito" (FulfillmentEvent in_transit) en Shopify.'
+    },
+    {
+      action: 'set_delivered',
+      title: 'Marcar como Entregado en Shopify',
+      shortTitle: 'Entregado',
+      icon: 'ri-checkbox-multiple-fill',
+      color: '#059669',
+      validFrom: ['in_transit', 'fulfilled', 'in_progress'],
+      targetShopifyStatus: 'delivered',
+      suggestedWmsStatus: 'Despachado',
+      needsTracking: false,
+      needsHoldReason: false,
+      description: 'Registra el evento oficial de envío "Entregado" (FulfillmentEvent delivered) en Shopify.'
     },
     {
       action: 'set_in_progress',
@@ -117093,7 +123187,7 @@ window.getShopifyActionCatalog = function(order = null) {
       suggestedWmsStatus: 'En preparación',
       needsTracking: false,
       needsHoldReason: false,
-      description: 'Registra el estado En Curso y etiqueta el pedido en Shopify con "Stocka: En preparación".'
+      description: 'Registra el estado nativo "En curso" (IN_PROGRESS) y etiqueta el pedido en Shopify con "Stocka: En Preparación".'
     },
     {
       action: 'set_ready_for_pickup',
@@ -117140,7 +123234,7 @@ window.getShopifyActionCatalog = function(order = null) {
       shortTitle: 'Actualizar Tracking',
       icon: 'ri-truck-line',
       color: '#0d9488',
-      validFrom: ['fulfilled', 'partial'],
+      validFrom: ['fulfilled', 'in_transit', 'delivered', 'partial'],
       targetShopifyStatus: 'fulfilled',
       suggestedWmsStatus: 'Despachado',
       needsTracking: true,
@@ -117153,7 +123247,7 @@ window.getShopifyActionCatalog = function(order = null) {
       shortTitle: 'Cancelar Preparación',
       icon: 'ri-arrow-go-back-line',
       color: '#ef4444',
-      validFrom: ['fulfilled', 'partial'],
+      validFrom: ['fulfilled', 'in_transit', 'delivered', 'partial'],
       targetShopifyStatus: 'unfulfilled',
       suggestedWmsStatus: 'En procesamiento',
       needsTracking: false,
@@ -117222,7 +123316,7 @@ window.verifyLiveShopifyOrderStatus = async function(orderId, reopenModal = true
       if (data.shopify_fulfillment_id !== undefined) {
         ord.shopify_fulfillment_id = data.shopify_fulfillment_id;
       }
-      if (data.shopify_order_status === 'fulfilled') {
+      if (['fulfilled', 'in_transit', 'delivered'].includes(data.shopify_order_status)) {
         ord.shopify_fulfillment_status = 'synced';
       }
       delete ord._wmsTags;
@@ -117262,14 +123356,23 @@ window.openShopifyStatusControlModal = async function(orderId, opts = {}) {
     ? window.getOrderEffectiveCategoriaEntrega(order)
     : order.categoria_entrega) === 'RETIRO';
 
+  let shipGlobalLabel = '';
+  if (!isRetiro && typeof window.getOrderShipmentGlobalStatus === 'function') {
+    const sInfo = window.getOrderShipmentGlobalStatus(order);
+    if (sInfo && sInfo.label) shipGlobalLabel = String(sInfo.label).toUpperCase().trim();
+  }
+
   const catalog = window.getShopifyActionCatalog(order);
   const recommendedActions = catalog.filter(a => a.validFrom.includes(shState));
   const otherActions = catalog.filter(a => !a.validFrom.includes(shState));
 
-  // Seleccionar acción por defecto inteligente:
-  // Si el pedido ya está Despachado en WMS pero en Shopify no está fulfilled, sugerir create_fulfillment
+  // Seleccionar acción por defecto inteligente según el ciclo de vida WMS + Transporte:
   let defaultAction = recommendedActions[0]?.action || catalog[0].action;
-  if (order.estado_wms === 'Despachado' && shState !== 'fulfilled') {
+  if (!isRetiro && shipGlobalLabel === 'ENTREGADO' && shState !== 'delivered') {
+    defaultAction = 'set_delivered';
+  } else if (!isRetiro && shipGlobalLabel === 'EN TRÁNSITO' && !['in_transit', 'delivered'].includes(shState)) {
+    defaultAction = 'set_in_transit';
+  } else if ((order.estado_wms === 'Despachado' || (order.estado_wms === 'Pickeado' && !isRetiro)) && !['fulfilled', 'in_transit', 'delivered'].includes(shState)) {
     defaultAction = 'create_fulfillment';
   } else if (order.estado_wms === 'Pickeado' && isRetiro && shState !== 'ready_for_pickup') {
     defaultAction = 'set_ready_for_pickup';
@@ -117304,7 +123407,7 @@ window.openShopifyStatusControlModal = async function(orderId, opts = {}) {
     ? new Date(order.shopify_status_updated_at).toLocaleString('es-CL')
     : 'Sin verificación reciente';
 
-  const isDesfasado = order.estado_wms === 'Despachado' && shState !== 'fulfilled' && shState !== 'cancelled';
+  const isDesfasado = (order.estado_wms === 'Despachado' || (order.estado_wms === 'Pickeado' && !isRetiro)) && !['fulfilled', 'in_transit', 'delivered', 'cancelled'].includes(shState);
 
   const optionsHtml = `
     <optgroup label="Acciones recomendadas desde '${shMeta.label}'">
@@ -118063,6 +124166,18 @@ window.tryPackCuboidsIntoBox3D = function(unitItems, box) {
  */
 window.calculateOrderCartpaperBox = function(order) {
   if (!order) return null;
+  const itemsCount = (order.order_items || []).length;
+  if (order._wmsCartpaperBoxCalc && order._wmsCartpaperItemsCount === itemsCount) {
+    return order._wmsCartpaperBoxCalc;
+  }
+  const result = window._computeOrderCartpaperBoxInternal(order);
+  order._wmsCartpaperBoxCalc = result;
+  order._wmsCartpaperItemsCount = itemsCount;
+  return result;
+};
+
+window._computeOrderCartpaperBoxInternal = function(order) {
+  if (!order) return null;
 
   const activeOrderItems = (order.order_items || []).filter(oi => {
     if (typeof window.isOrderItemEliminated === 'function' && window.isOrderItemEliminated(order, oi)) return false;
@@ -118805,14 +124920,19 @@ window.saveOrderSkuDimensionsFromBoxModal = async function(orderId) {
 
       // Actualizar todos los pedidos cargados en memoria que contengan este producto
       (window.loadedOrders || []).forEach(o => {
+        let matched = false;
         (o.order_items || []).forEach(oi => {
           if ((oi.product_id === u.prodId || oi.products?.id === u.prodId) && oi.products) {
             oi.products.length = u.length;
             oi.products.width = u.width;
             oi.products.height = u.height;
             oi.products.volumen = u.volumen;
+            matched = true;
           }
         });
+        if (matched) {
+          delete o._wmsCartpaperBoxCalc;
+        }
       });
     }
 

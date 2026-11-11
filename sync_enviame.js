@@ -495,17 +495,17 @@ async function runSync(options = {}) {
     }
   }
 
-  // 1. RECUPERACIÓN DIRIGIDA: Envíos recientes en enviame_shipments sin tracking
-  console.log('\n--- 1. BUSCANDO ENVÍOS SIN TRACKING EN ENVIAME_SHIPMENTS ---');
+  // 1. RECUPERACIÓN DIRIGIDA: Envíos recientes en enviame_shipments sin tracking o pendientes de admisión en planta (sin deadline_at)
+  console.log('\n--- 1. BUSCANDO ENVÍOS PENDIENTES DE TRACKING O FECHA COMPROMISO EN ENVIAME_SHIPMENTS ---');
   const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
 
   const { data: pendingShipments, error: pendErr } = await supabase
     .from('enviame_shipments')
     .select('id, order_id, courier, tracking_number, status, seller_name, created_at')
-    .or('tracking_number.eq.No informado,tracking_number.is.null,status.eq.Creado')
+    .or('tracking_number.eq.No informado,tracking_number.is.null,status.eq.Creado,status.ilike.Listo para despacho%')
     .gte('created_at', fourteenDaysAgo)
     .order('created_at', { ascending: false })
-    .limit(150);
+    .limit(180);
 
   if (pendErr) {
     console.error('Error consultando envíos pendientes:', pendErr.message);

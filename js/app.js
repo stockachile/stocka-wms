@@ -202,12 +202,64 @@ window.renderCopyFieldBtn = function(value, label, tooltip, customStyle) {
   return `<button type="button" onclick="event.stopPropagation(); window.copyFieldFromData(this, '${window.escapeHtml(label || '')}')" data-copy-val="${cleanVal}" class="btn-copy-field" title="${tip}" style="${baseStyle}" onmouseover="this.style.color='var(--color-primary)'; this.style.background='rgba(59, 130, 246, 0.1)';" onmouseout="this.style.color='var(--color-text-muted)'; this.style.background='transparent';"><i class="ri-file-copy-line"></i></button>`;
 };
 
-// Helper global para resolver la URL pública de seguimiento del courier (limpiando dominios rotos como tracking.enviame.io o API interna)
+// Helper global para construir el enlace público del portal de seguimiento WMS-Sitio Web (seguimiento.html)
+window.getPublicWmsTrackingUrlForTarget = function(shipment, order, trackingNum) {
+  const originUrl = (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file:'))
+    ? window.location.origin
+    : 'https://wms.stocka.cl';
+  const linkedOrder = order || shipment?._linkedOrder || null;
+  const cleanTrk = (trackingNum && trackingNum !== 'N/A' && trackingNum !== 'No informado' && trackingNum !== '-') ? String(trackingNum).trim() : '';
+  const token = linkedOrder?.id
+    || cleanTrk
+    || (shipment?.tracking && shipment.tracking !== '-' && shipment.tracking !== 'N/A' ? String(shipment.tracking).trim() : '')
+    || (linkedOrder?.tracking_number && linkedOrder.tracking_number !== '-' && linkedOrder.tracking_number !== 'No informado' ? String(linkedOrder.tracking_number).trim() : '')
+    || shipment?.pedido_referencia
+    || shipment?.referencia
+    || linkedOrder?.external_order_number
+    || shipment?.id
+    || '';
+  if (!token) return `${originUrl}/seguimiento.html`;
+
+  const commerce = linkedOrder?.comercio
+    || shipment?.empresa_comercio_proveedor
+    || (typeof currentCompany === 'string' && currentCompany ? currentCompany.split(',')[0].trim() : '')
+    || '';
+
+  let portalUrl = `${originUrl}/seguimiento.html?t=${encodeURIComponent(String(token).trim())}`;
+  if (commerce) {
+    portalUrl += `&comercio=${encodeURIComponent(String(commerce).trim())}`;
+  }
+  return portalUrl;
+};
+
+// Helper global para resolver la URL pública de seguimiento del courier (limpiando dominios rotos como tracking.enviame.io, API interna o app.optiroute.cl)
 window.resolveCourierPublicTrackingUrl = function(rawUrl, trackingNum, courierName, shipment, order) {
   let url = (rawUrl && rawUrl !== 'N/A') ? String(rawUrl).trim() : '';
   const trk = (trackingNum && trackingNum !== 'N/A' && trackingNum !== 'No informado' && trackingNum !== '-') ? String(trackingNum).trim() : '';
   const cLower = String(courierName || shipment?.courier || order?.courier || order?.operador || '').toLowerCase().trim();
   const srcTable = String(shipment?.source_table || '').toLowerCase();
+
+  // 0. Pedidos vía Optiroute / Stocka X: Optiroute no ofrece un portal público de seguimiento,
+  // por lo que su tracking redirige directamente al Enlace Público de Seguimiento del WMS-Sitio Web
+  const isOptiroute = srcTable === 'optiroute_orders'
+    || cLower.includes('optiroute')
+    || cLower.includes('stocka x')
+    || (url && url.toLowerCase().includes('optiroute.cl'))
+    || Boolean(order?.raw_optiroute_data && !order?.raw_lightdata_data && !cLower.includes('alpha') && !cLower.includes('starken') && !cLower.includes('blue') && !cLower.includes('chilexpress'));
+
+  if (isOptiroute) {
+    if (shipment && typeof window.buildShipmentPublicTrackingUrl === 'function' && !shipment._resolvingPublicUrl) {
+      try {
+        shipment._resolvingPublicUrl = true;
+        const fullPortalUrl = window.buildShipmentPublicTrackingUrl(shipment);
+        delete shipment._resolvingPublicUrl;
+        if (fullPortalUrl) return fullPortalUrl;
+      } catch (e) {
+        delete shipment._resolvingPublicUrl;
+      }
+    }
+    return window.getPublicWmsTrackingUrlForTarget(shipment, order, trk);
+  }
 
   // 1. Recuperar URL desde LightData raw_data[31] si corresponde
   if (srcTable === 'lightdata_envios' || order?.raw_lightdata_data) {
@@ -243,9 +295,7 @@ window.resolveCourierPublicTrackingUrl = function(rawUrl, trackingNum, courierNa
 
   // 3. Fallback por courier o tabla de origen cuando no hay URL
   if (!url && trk) {
-    if (srcTable === 'optiroute_orders' || cLower.includes('optiroute') || cLower.includes('stocka x')) {
-      url = `https://app.optiroute.cl/service_requets/tracking/${encodeURIComponent(trk)}/`;
-    } else if (srcTable === 'lightdata_envios' || cLower.includes('alpha') || cLower.includes('lightdata')) {
+    if (srcTable === 'lightdata_envios' || cLower.includes('alpha') || cLower.includes('lightdata')) {
       url = `https://alphagroup.lightdata.com.ar/tracking.php?token=${encodeURIComponent(trk)}d54df4s8a88`;
     } else if (srcTable === 'starken_envios' || cLower.includes('starken')) {
       url = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(trk)}`;
@@ -259,6 +309,154 @@ window.resolveCourierPublicTrackingUrl = function(rawUrl, trackingNum, courierNa
   }
 
   return url || null;
+};
+
+// Helper global para extraer y evaluar la Fecha de Compromiso de Entrega informada por Envíame (deadline_at)
+window.getEnviameCommitmentInfo = function(shipmentOrList, order, isDeliveredOverride) {
+  const list = Array.isArray(shipmentOrList)
+    ? shipmentOrList
+    : (shipmentOrList ? [shipmentOrList] : []);
+
+  let targetShipment = null;
+  let rawDeadline = '';
+
+  for (const s of list) {
+    if (!s) continue;
+    const dl = s.raw_data?.deadline_at || s.raw_payload?.deadline_at || s.deadline_at || '';
+    const str = String(dl || '').trim();
+    if (str && !/^(no informad[oa]\.?|n\/a|null|undefined|-|sin informaci[oó]n)$/i.test(str)) {
+      targetShipment = s;
+      rawDeadline = str;
+      break;
+    }
+    if (!targetShipment && s.source_table === 'enviame_shipments') {
+      targetShipment = s;
+    }
+  }
+
+  const isEnviame = Boolean(
+    targetShipment?.source_table === 'enviame_shipments' ||
+    order?.enviame_delivery_id ||
+    list.some(s => s && s.source_table === 'enviame_shipments')
+  );
+
+  if (!rawDeadline) {
+    return {
+      hasDeadline: false,
+      isEnviame,
+      formattedDate: null,
+      state: 'pending',
+      stateLabel: 'Pendiente admisión courier',
+      shortLabel: 'Sin fecha compromiso',
+      badgeBg: '#f8fafc',
+      badgeColor: '#64748b',
+      badgeBorder: '#e2e8f0',
+      icon: 'ri-calendar-line',
+      tooltip: 'Envíame aún no informa fecha de compromiso de entrega para este envío'
+    };
+  }
+
+  // Parsear DD-MM-YYYY o YYYY-MM-DD
+  let day = null, month = null, year = null;
+  const dmyMatch = rawDeadline.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  const ymdMatch = rawDeadline.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (dmyMatch) {
+    day = parseInt(dmyMatch[1], 10);
+    month = parseInt(dmyMatch[2], 10);
+    year = parseInt(dmyMatch[3], 10);
+  } else if (ymdMatch) {
+    year = parseInt(ymdMatch[1], 10);
+    month = parseInt(ymdMatch[2], 10);
+    day = parseInt(ymdMatch[3], 10);
+  }
+
+  const formattedDate = (day && month && year)
+    ? `${String(day).padStart(2, '0')}-${String(month).padStart(2, '0')}-${year}`
+    : rawDeadline;
+
+  const sStatus = String(targetShipment?.status || targetShipment?.global_status || order?.enviame_status || order?.status || '').toLowerCase();
+  const isDelivered = typeof isDeliveredOverride === 'boolean'
+    ? isDeliveredOverride
+    : (sStatus.includes('entregad') || sStatus.includes('delivered') || String(targetShipment?.global_status || '').toUpperCase() === 'ENTREGADO');
+
+  let state = 'on_time';
+  let stateLabel = 'En plazo';
+  let shortLabel = `Compromiso: ${formattedDate}`;
+  let badgeBg = '#f0f9ff';
+  let badgeColor = '#0284c7';
+  let badgeBorder = '#bae6fd';
+  let icon = 'ri-calendar-check-line';
+  let tooltip = `Fecha de compromiso de entrega informada por Envíame: ${formattedDate}`;
+
+  if (isDelivered) {
+    state = 'delivered';
+    stateLabel = 'Cumplido / Entregado';
+    shortLabel = `Compromiso: ${formattedDate}`;
+    badgeBg = '#ecfdf5';
+    badgeColor = '#059669';
+    badgeBorder = '#a7f3d0';
+    icon = 'ri-calendar-check-fill';
+    tooltip = `Fecha de compromiso de entrega informada por Envíame: ${formattedDate} (Pedido entregado)`;
+  } else if (day && month && year) {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const deadlineStart = new Date(year, month - 1, day).getTime();
+    const diffDays = Math.round((deadlineStart - todayStart) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+      const overdueDays = Math.abs(diffDays);
+      state = 'overdue';
+      stateLabel = `Plazo vencido (${overdueDays}d)`;
+      shortLabel = `Compromiso: ${formattedDate} (Atrasado)`;
+      badgeBg = '#fef2f2';
+      badgeColor = '#dc2626';
+      badgeBorder = '#fecaca';
+      icon = 'ri-calendar-close-fill';
+      tooltip = `Fecha de compromiso de entrega informada por Envíame: ${formattedDate} (Plazo vencido hace ${overdueDays} ${overdueDays === 1 ? 'día' : 'días'})`;
+    } else if (diffDays === 0) {
+      state = 'today';
+      stateLabel = 'Compromiso Hoy';
+      shortLabel = `Compromiso: Hoy (${formattedDate})`;
+      badgeBg = '#fffbeb';
+      badgeColor = '#d97706';
+      badgeBorder = '#fde68a';
+      icon = 'ri-calendar-todo-fill';
+      tooltip = `Fecha de compromiso de entrega informada por Envíame: ${formattedDate} (Comprometido para entregar hoy)`;
+    } else if (diffDays === 1) {
+      state = 'on_time';
+      stateLabel = 'Mañana';
+      shortLabel = `Compromiso: ${formattedDate}`;
+      badgeBg = '#f0f9ff';
+      badgeColor = '#0284c7';
+      badgeBorder = '#bae6fd';
+      icon = 'ri-calendar-check-line';
+      tooltip = `Fecha de compromiso de entrega informada por Envíame: ${formattedDate} (Comprometido para mañana)`;
+    } else {
+      state = 'on_time';
+      stateLabel = `En plazo (${diffDays}d)`;
+      shortLabel = `Compromiso: ${formattedDate}`;
+      badgeBg = '#f0f9ff';
+      badgeColor = '#0284c7';
+      badgeBorder = '#bae6fd';
+      icon = 'ri-calendar-check-line';
+      tooltip = `Fecha de compromiso de entrega informada por Envíame: ${formattedDate} (En plazo, faltan ${diffDays} días)`;
+    }
+  }
+
+  return {
+    hasDeadline: true,
+    isEnviame: true,
+    formattedDate,
+    rawDeadline,
+    state,
+    stateLabel,
+    shortLabel,
+    badgeBg,
+    badgeColor,
+    badgeBorder,
+    icon,
+    tooltip
+  };
 };
 
 window.getOrderPublicTrackingPortalUrl = function(order) {
@@ -290,7 +488,9 @@ window.togglePublicTrackingLinkBox = function(orderId, btnEl) {
 window.renderOrderPublicTrackingSectionHtml = function(order, courierTrackingUrl, courierName) {
   if (!order || !order.id) return '';
   const portalUrl = window.getOrderPublicTrackingPortalUrl(order);
-  const validCourierUrl = (courierTrackingUrl && courierTrackingUrl !== 'N/A' && courierTrackingUrl.startsWith('http')) ? courierTrackingUrl : null;
+  const validCourierUrl = (courierTrackingUrl && courierTrackingUrl !== 'N/A' && courierTrackingUrl.startsWith('http') && !courierTrackingUrl.includes('/seguimiento.html'))
+    ? courierTrackingUrl
+    : null;
   const primaryCopyUrl = validCourierUrl || portalUrl;
   const escPortal = window.escapeHtmlAttr ? window.escapeHtmlAttr(portalUrl) : portalUrl;
   const escCourier = validCourierUrl ? (window.escapeHtmlAttr ? window.escapeHtmlAttr(validCourierUrl) : validCourierUrl) : '';
@@ -10834,9 +11034,12 @@ window.fetchPickerOperators = async function(ordersList) {
 // Modal de auditoría y trazabilidad histórica de Picker para el cliente
 window.openPickerOrderHistoryModal = async function(orderId) {
   const orders = window.clientLoadedOrders || window.loadedOrders || [];
-  const order = orders.find(o => o.id === orderId);
+  const modalOrder = window._currentModalOrder && (window._currentModalOrder.id === orderId || window._currentModalOrder.external_order_number === orderId)
+    ? window._currentModalOrder
+    : null;
+  const order = orders.find(o => o.id === orderId || o.external_order_number === orderId) || modalOrder;
   const orderNumber = order ? (order.external_order_number || order.id) : orderId;
-  const commerceName = order ? (order.comercio || 'Sin comercio') : '';
+  const commerceName = order ? (order.comercio || 'Sin comercio') : (window._currentModalShipment?.empresa_comercio_proveedor || '');
 
   const client = window.supabase ? window.supabase.createClient(
     'https://hpomymtecmxujbjxqawu.supabase.co',
@@ -11270,6 +11473,16 @@ window.getOrderPacksMap = function(order) {
       const sku = String(oi.products?.sku || oi.sku || '').trim().toLowerCase();
       if (sku && packSkus.has(sku)) {
         foundPacksMap.set(sku, (foundPacksMap.get(sku) || 0) + Number(oi.quantity || 1));
+      }
+    });
+  }
+
+  if (order.raw_shopify_data?.manual_packs_breakdown && Array.isArray(order.raw_shopify_data.manual_packs_breakdown)) {
+    order.raw_shopify_data.manual_packs_breakdown.forEach(pb => {
+      const sku = String(pb.pack_sku || '').trim().toLowerCase();
+      const qty = Number(pb.quantity || 1);
+      if (sku) {
+        foundPacksMap.set(sku, (foundPacksMap.get(sku) || 0) + qty);
       }
     });
   }
@@ -13426,11 +13639,24 @@ window.applyClientWmsFiltersAndRender = function() {
     });
 
     if (foundPacks.length > 0) {
+      const manualBreakdown = Array.isArray(order.raw_shopify_data?.manual_packs_breakdown)
+        ? order.raw_shopify_data.manual_packs_breakdown
+        : [];
+      let breakdownDetailsHtml = '';
+      if (manualBreakdown.length > 0) {
+        breakdownDetailsHtml = manualBreakdown.map(pb => {
+          const compsStr = Array.isArray(pb.components)
+            ? pb.components.map(c => `<strong>${escapeHtml(c.sku)}</strong> (x${c.total_quantity || (c.quantity_per_pack * (pb.quantity || 1))})`).join(', ')
+            : '';
+          return `<div style="margin-top: 0.2rem;">• El pack <strong>${escapeHtml(pb.pack_sku || '')}${pb.pack_name ? ' - ' + escapeHtml(pb.pack_name) : ''}</strong> (x${pb.quantity || 1}) fue desglosado para su preparación en bodega${compsStr ? ` en: ${compsStr}` : ''}.</div>`;
+        }).join('');
+      }
       originalPacksHtml = `
-        <div style="margin-top: 1rem; padding: 0.5rem 0.75rem; background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.2); border-radius: var(--radius-sm); font-size: 0.8rem; color: #7c3aed; display: flex; align-items: center; gap: 0.5rem;">
-          <i class="ri-stack-line" style="font-size: 1.1rem;"></i>
-          <div>
-            <strong>Contenía los packs:</strong> ${foundPacks.join(', ')}
+        <div style="margin-top: 1rem; padding: 0.6rem 0.85rem; background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.25); border-radius: var(--radius-sm); font-size: 0.8rem; color: #7c3aed; display: flex; align-items: flex-start; gap: 0.55rem;">
+          <i class="ri-stack-line" style="font-size: 1.15rem; margin-top: 1px;"></i>
+          <div style="flex: 1;">
+            <div><strong>Pack(s) desglosado(s) para preparación en bodega:</strong> ${foundPacks.join(', ')}</div>
+            ${breakdownDetailsHtml}
           </div>
         </div>
       `;
@@ -13620,6 +13846,20 @@ window.applyClientWmsFiltersAndRender = function() {
         platformBadge = `<span class="badge" style="background-color: #dcfce7; color: #166534; border: 1px solid #86efac; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Falabella</span>`;
       }
       
+      const orderCommitInfo = window.getEnviameCommitmentInfo
+        ? window.getEnviameCommitmentInfo(orderShipments, order, globStatus === 'ENTREGADO')
+        : null;
+      const orderCommitHtml = orderCommitInfo && orderCommitInfo.hasDeadline
+        ? `<div style="font-size: 0.76rem; display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.1rem;">
+            <strong style="color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.22rem;"><i class="ri-calendar-check-line" style="color: var(--color-primary);"></i> Compromiso Entrega (Envíame):</strong>
+            <span style="background-color: ${orderCommitInfo.badgeBg}; color: ${orderCommitInfo.badgeColor}; border: 1px solid ${orderCommitInfo.badgeBorder}; font-weight: 700; padding: 0.1rem 0.45rem; border-radius: 6px; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.22rem;" title="${orderCommitInfo.tooltip}">
+              <i class="${orderCommitInfo.icon}"></i> ${orderCommitInfo.formattedDate} · ${orderCommitInfo.stateLabel}
+            </span>
+          </div>`
+        : (orderCommitInfo && orderCommitInfo.isEnviame
+            ? `<div style="font-size: 0.74rem; color: var(--color-text-muted); margin-top: 0.05rem;"><i class="ri-calendar-line"></i> <strong>Compromiso Entrega (Envíame):</strong> <span style="font-style: italic;">Pendiente admisión en planta courier</span></div>`
+            : '');
+
       shipmentStatusHtml = `
         <div style="display: flex; flex-direction: column; gap: 0.25rem;">
           <div style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
@@ -13630,6 +13870,7 @@ window.applyClientWmsFiltersAndRender = function() {
             ${platformBadge}
             ${displayRawStatus && displayRawStatus !== '-' ? `<span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600; background: var(--color-surface); padding: 0.1rem 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">${displayRawStatus}</span>` : ''}
           </div>
+          ${orderCommitHtml}
           <div style="font-size: 0.75rem; color: var(--color-text-muted);">
             <strong>Sincronización:</strong> ${shipment.updated_at ? new Date(shipment.updated_at).toLocaleString() : '-'}
           </div>
@@ -13937,6 +14178,12 @@ window.applyClientWmsFiltersAndRender = function() {
       }
       const isShipActive = selectedTag === shipGlobStatus;
       shipmentBadgeHtml = `<span class="badge wms-order-tag-badge ${isShipActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${shipGlobStatus}', event)" style="background-color: ${shipBadgeBg}; color: ${shipBadgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isShipActive ? `outline: 2px solid ${shipBadgeColor}; box-shadow: 0 0 6px rgba(0,0,0,0.25);` : ''}" title="Despacho: ${shipGlobStatus} (Clic para filtrar)"><i class="${shipIcon}" style="color: ${shipBadgeColor};"></i> ${shipGlobStatus}</span>`;
+      const rowCommitInfo = window.getEnviameCommitmentInfo
+        ? window.getEnviameCommitmentInfo(orderShipments, order, shipGlobStatus === 'ENTREGADO')
+        : null;
+      if (rowCommitInfo && rowCommitInfo.hasDeadline) {
+        shipmentBadgeHtml += `<span class="badge wms-order-tag-badge" style="background-color: ${rowCommitInfo.badgeBg}; color: ${rowCommitInfo.badgeColor}; border: 1px solid ${rowCommitInfo.badgeBorder}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.42rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.2px;" title="${rowCommitInfo.tooltip}"><i class="${rowCommitInfo.icon}" style="color: ${rowCommitInfo.badgeColor};"></i> ${rowCommitInfo.shortLabel}</span>`;
+      }
     }
 
     // 4. Tag de Picker
@@ -18027,11 +18274,11 @@ async function renderIntegrations() {
         if (typeof window.fetchAllSupabaseRows === 'function') {
           products = await window.fetchAllSupabaseRows(
             'products',
-            'id, name, sku, price, volumen, weight, status, image_url',
+            'id, name, sku, price, volumen, weight, status, image_url, is_pack',
             q => selectedCommerce ? q.eq('comercio', selectedCommerce).order('name') : q.eq('comercio', 'no asignado').order('name')
           );
         } else {
-          let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status, image_url').order('name');
+          let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status, image_url, is_pack').order('name');
           if (selectedCommerce) {
             query = query.eq('comercio', selectedCommerce);
           } else {
@@ -18044,6 +18291,8 @@ async function renderIntegrations() {
           .filter(p => p.status !== 'archived')
           .map(p => ({
             ...p,
+            is_pack: Boolean(p.is_pack),
+            packItems: [],
             peso: p.weight
           }));
 
@@ -18074,6 +18323,93 @@ async function renderIntegrations() {
           productsList.forEach(p => {
             p.availableStock = Math.max(0, stockMap[p.id] || 0);
           });
+
+          // Cargar composición de productos Pack y calcular su stock armable desde sus componentes físicos
+          const packProducts = productsList.filter(p => p.is_pack);
+          if (packProducts.length > 0) {
+            const packIds = packProducts.map(p => p.id);
+            const packItemPromises = [];
+            for (let i = 0; i < packIds.length; i += batchSize) {
+              packItemPromises.push(
+                supabase
+                  .from('product_pack_items')
+                  .select('pack_product_id, member_product_id, quantity')
+                  .in('pack_product_id', packIds.slice(i, i + batchSize))
+              );
+            }
+            const packItemResults = await Promise.all(packItemPromises);
+            const rawPackItems = [];
+            packItemResults.forEach(r => {
+              if (r.data) rawPackItems.push(...r.data);
+            });
+
+            const prodById = new Map(productsList.map(p => [p.id, p]));
+            const missingMemberIds = Array.from(new Set(
+              rawPackItems.map(pi => pi.member_product_id).filter(mid => mid && !prodById.has(mid))
+            ));
+
+            if (missingMemberIds.length > 0) {
+              const { data: extraMembers } = await supabase
+                .from('products')
+                .select('id, name, sku, price, volumen, weight, status, image_url, is_pack')
+                .in('id', missingMemberIds);
+              const { data: extraInv } = await supabase
+                .from('inventory')
+                .select('product_id, quantity, committed_quantity')
+                .in('product_id', missingMemberIds);
+              const extraStockMap = {};
+              (extraInv || []).forEach(inv => {
+                const avail = (inv.quantity || 0) - (inv.committed_quantity || 0);
+                extraStockMap[inv.product_id] = (extraStockMap[inv.product_id] || 0) + avail;
+              });
+              (extraMembers || []).forEach(em => {
+                em.availableStock = Math.max(0, extraStockMap[em.id] || 0);
+                em.peso = em.weight;
+                prodById.set(em.id, em);
+              });
+            }
+
+            const packItemsByPackId = {};
+            rawPackItems.forEach(pi => {
+              if (!packItemsByPackId[pi.pack_product_id]) packItemsByPackId[pi.pack_product_id] = [];
+              const member = prodById.get(pi.member_product_id);
+              if (member) {
+                packItemsByPackId[pi.pack_product_id].push({
+                  member_product_id: pi.member_product_id,
+                  quantity: Math.max(1, parseInt(pi.quantity, 10) || 1),
+                  memberProduct: member,
+                  sku: member.sku || 'S/SKU',
+                  name: member.name || 'Producto componente',
+                  price: member.price || 0,
+                  volumen: member.volumen || 0,
+                  weight: member.weight || 0,
+                  image_url: member.image_url || ''
+                });
+              }
+            });
+
+            window.currentPackSkusList = window.currentPackSkusList || [];
+            const packSkuSet = new Set(window.currentPackSkusList.map(s => String(s || '').toLowerCase()));
+
+            packProducts.forEach(packProd => {
+              const pItems = packItemsByPackId[packProd.id] || [];
+              packProd.packItems = pItems;
+              if (packProd.sku && !packSkuSet.has(packProd.sku.toLowerCase())) {
+                window.currentPackSkusList.push(packProd.sku.toLowerCase());
+                packSkuSet.add(packProd.sku.toLowerCase());
+              }
+              if (pItems.length > 0) {
+                packProd.availableStock = Math.min(
+                  ...pItems.map(pm => Math.floor(Math.max(0, pm.memberProduct.availableStock || 0) / pm.quantity))
+                );
+                if (!packProd.volumen || Number(packProd.volumen) === 0) {
+                  packProd.volumen = pItems.reduce((sum, pm) => sum + ((parseFloat(pm.memberProduct.volumen) || 0) * pm.quantity), 0);
+                }
+              } else {
+                packProd.availableStock = 0;
+              }
+            });
+          }
         }
 
         window.tempClientProductsList = productsList;
@@ -18096,7 +18432,19 @@ async function renderIntegrations() {
       
       const product = (window.tempClientProductsList || []).find(p => p.id === prodId);
       if (product && product.availableStock !== undefined && product.availableStock <= 0) {
-        alert(`Este producto (${product.sku}) no cuenta con stock disponible en este momento y no se puede agregar.`);
+        if (product.is_pack) {
+          if (!product.packItems || product.packItems.length === 0) {
+            alert(`El pack (${product.sku}) no tiene productos componentes configurados y no se puede desglosar.`);
+          } else {
+            const zeroComps = product.packItems
+              .filter(pm => Math.floor(Math.max(0, pm.memberProduct?.availableStock || 0) / pm.quantity) <= 0)
+              .map(pm => `${pm.sku} (Req: ${pm.quantity}, Disp: ${pm.memberProduct?.availableStock || 0})`)
+              .join(', ');
+            alert(`El pack (${product.sku}) no cuenta con stock disponible suficiente en sus productos componentes para armarse (${zeroComps}).`);
+          }
+        } else {
+          alert(`Este producto (${product.sku}) no cuenta con stock disponible en este momento y no se puede agregar.`);
+        }
         return;
       }
 
@@ -18150,6 +18498,8 @@ async function renderIntegrations() {
 
       // Reset form and temporary items
       window.tempClientNewOrderItems = [];
+      window.tempClientNewOrderPacks = [];
+      window.orderUseVolumetricWeightMode = false;
       const form = document.getElementById('form-new-order');
       if (form) form.reset();
       const notesEl = document.getElementById('order-cust-notes');
@@ -18180,6 +18530,8 @@ async function renderIntegrations() {
         // Listener para cambios de comercio
         commerceSelect.onchange = function() {
           window.tempClientNewOrderItems = [];
+          window.tempClientNewOrderPacks = [];
+          window.orderUseVolumetricWeightMode = false;
           window.renderClientNewOrderItemsTable();
           window.loadNewOrderProducts(this.value);
         };
@@ -18855,14 +19207,32 @@ async function renderIntegrations() {
           created_by_role: 'client',
           created_from: 'Pedido Manual · Portal Cliente'
         };
+      const packsBreakdown = Array.isArray(window.tempClientNewOrderPacks) && window.tempClientNewOrderPacks.length > 0
+        ? window.tempClientNewOrderPacks.map(pb => ({
+            pack_id: pb.pack_id,
+            pack_sku: pb.pack_sku,
+            pack_name: pb.pack_name,
+            quantity: pb.quantity,
+            components: (pb.components || []).map(c => ({
+              product_id: c.product_id,
+              sku: c.sku,
+              name: c.name,
+              quantity_per_pack: c.quantity_per_pack,
+              total_quantity: c.total_quantity
+            }))
+          }))
+        : null;
+
       const rawShopifyData = orderNotes ? {
         note: orderNotes,
         notes: orderNotes,
         customer_note: orderNotes,
         manual_order: true,
+        ...(packsBreakdown ? { manual_packs_breakdown: packsBreakdown } : {}),
         ...clientCreatorMeta
       } : {
         manual_order: true,
+        ...(packsBreakdown ? { manual_packs_breakdown: packsBreakdown } : {}),
         ...clientCreatorMeta
       };
 
@@ -19002,6 +19372,7 @@ async function renderIntegrations() {
       const notesSumEl = document.getElementById('order-cust-notes-summary');
       if (notesSumEl) notesSumEl.value = '';
       window.tempClientNewOrderItems = [];
+      window.tempClientNewOrderPacks = [];
       renderOrders(); // Refrescar vista
     } catch (error) {
       console.error(error);
@@ -19018,13 +19389,33 @@ async function sendOrderNotificationEmail(order, items) {
     const subject = `🆕 Nuevo pedido manual registrado - ${order.external_order_number || 'Sin Nro'}`;
     const orderNotes = window.getOrderNoteText ? window.getOrderNoteText(order) : (order.raw_shopify_data?.note || '');
     
-    const itemsHtml = items.map(item => `
+    const packsBreakdown = Array.isArray(order.raw_shopify_data?.manual_packs_breakdown)
+      ? order.raw_shopify_data.manual_packs_breakdown
+      : [];
+    const packsEmailHtml = packsBreakdown.length > 0 ? `
+      <div style="margin-bottom: 16px; padding: 10px 12px; background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 6px; color: #5b21b6; font-size: 13px;">
+        <strong>📦 Desglose Automático de Pack(s) para Preparación en Bodega:</strong>
+        <ul style="margin: 6px 0 0 0; padding-left: 18px;">
+          ${packsBreakdown.map(pb => {
+            const comps = (pb.components || []).map(c => `${c.sku} (x${c.total_quantity || (c.quantity_per_pack * pb.quantity)})`).join(', ');
+            return `<li>El pack <strong>${pb.pack_sku} - ${pb.pack_name || ''}</strong> (x${pb.quantity}) fue desglosado en: ${comps}</li>`;
+          }).join('')}
+        </ul>
+      </div>
+    ` : '';
+
+    const itemsHtml = items.map(item => {
+      const packBadges = Array.isArray(item.packSources) && item.packSources.length > 0
+        ? `<div style="font-size: 11px; color: #6d28d9; margin-top: 2px;">📦 Desglosado de Pack: ${item.packSources.map(ps => `${ps.pack_sku} (x${ps.total_from_pack})`).join(', ')}</div>`
+        : '';
+      return `
       <tr style="border-bottom: 1px solid #edf2f7;">
         <td style="padding: 8px; color: #4a5568; font-family: monospace;">${item.sku}</td>
-        <td style="padding: 8px; color: #2d3748; font-weight: 500;">${item.name}</td>
+        <td style="padding: 8px; color: #2d3748; font-weight: 500;">${item.name}${packBadges}</td>
         <td style="padding: 8px; text-align: center; color: #1a202c; font-weight: bold;">${item.quantity}</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
 
     const htmlBody = `
       <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff; color: #1a202c;">
@@ -19076,6 +19467,7 @@ async function sendOrderNotificationEmail(order, items) {
         </table>
 
         <h3 style="border-bottom: 2px solid #edf2f7; padding-bottom: 8px; margin-bottom: 12px; font-size: 16px; color: #2d3748;">Detalle de Productos</h3>
+        ${packsEmailHtml}
         <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
           <thead>
             <tr style="background: #f7fafc; border-bottom: 1px solid #edf2f7;">
@@ -19344,28 +19736,40 @@ window.buildShipmentPublicTrackingUrl = function(shipment) {
     : 'https://wms.stocka.cl';
 
   const linkedOrder = shipment._linkedOrder || null;
-  const token = linkedOrder?.id || shipment.pedido_referencia || shipment.tracking || shipment.id || '';
+  const cleanTrk = (shipment.tracking && shipment.tracking !== '-' && shipment.tracking !== 'N/A') ? String(shipment.tracking).trim() : '';
+  const token = linkedOrder?.id || cleanTrk || shipment.pedido_referencia || shipment.id || '';
   if (!token) return '';
 
   const commerceName = shipment.empresa_comercio_proveedor || linkedOrder?.comercio || (typeof currentCompany === 'string' ? currentCompany.split(',')[0].trim() : '') || '';
   const courierInfo = formatShipmentCourierDisplay(shipment);
   const statusMeta = classifyShipmentStatus(shipment);
-  const resolvedCourierUrl = window.resolveCourierPublicTrackingUrl
+  const isOptiShip = String(shipment.source_table || '').toLowerCase() === 'optiroute_orders'
+    || String(shipment.courier || '').toLowerCase().includes('optiroute')
+    || String(shipment.courier || '').toLowerCase().includes('stocka x');
+  const resolvedCourierUrl = (!isOptiShip && window.resolveCourierPublicTrackingUrl)
     ? window.resolveCourierPublicTrackingUrl(shipment.tracking_url, shipment.tracking, shipment.courier, shipment, linkedOrder)
     : null;
 
   // Snapshot ligero codificado en base64 URL-safe para que seguimiento.html muestre siempre el estado en tiempo real
   const snapshotObj = {
     r: shipment.pedido_referencia || linkedOrder?.external_order_number || '',
-    k: shipment.tracking || linkedOrder?.tracking_number || '',
-    c: courierInfo.label || shipment.courier || '',
+    k: cleanTrk || linkedOrder?.tracking_number || '',
+    tk: cleanTrk || linkedOrder?.tracking_number || '',
+    c: commerceName,
+    cr: courierInfo.label || shipment.courier || '',
     s: statusMeta.displayStatus || shipment.status || '',
+    st: statusMeta.displayStatus || shipment.status || '',
     g: shipment.global_status || '',
+    gs: shipment.global_status || '',
     n: shipment.nombre_destinatario || linkedOrder?.customer_name || '',
     a: shipment.direccion_destino || linkedOrder?.shipping_address || '',
     m: shipment.comuna_destino || linkedOrder?.shipping_city || '',
+    ct: shipment.comuna_destino || linkedOrder?.shipping_city || '',
     f: shipment.created_at || linkedOrder?.created_at || '',
+    dt: shipment.created_at || linkedOrder?.created_at || '',
+    up: shipment.updated_at || '',
     u: resolvedCourierUrl || '',
+    tu: resolvedCourierUrl || '',
     o: commerceName
   };
 
@@ -19431,6 +19835,7 @@ window.openShipmentShareModal = function(shipmentId) {
   const resolvedCourierUrl = window.resolveCourierPublicTrackingUrl
     ? window.resolveCourierPublicTrackingUrl(shipment.tracking_url, shipment.tracking, shipment.courier, shipment, linkedOrder)
     : null;
+  const hasExternalCourierWeb = Boolean(resolvedCourierUrl && !resolvedCourierUrl.includes('/seguimiento.html'));
 
   const customerName = shipment.nombre_destinatario || linkedOrder?.customer_name || 'Cliente';
   const orderRef = shipment.pedido_referencia || linkedOrder?.external_order_number || shipment.tracking || 'tu pedido';
@@ -19443,7 +19848,7 @@ window.openShipmentShareModal = function(shipmentId) {
   const defaultMessage = `Hola ${customerName} 👋, te compartimos el enlace de seguimiento de tu pedido *${orderRef}* de *${commerceName}* (${courierInfo.label} - Estado: *${statusMeta.displayStatus}*):\n\n🔗 ${publicUrl}`;
 
   const escPublicUrl = window.escapeHtmlAttr ? window.escapeHtmlAttr(publicUrl) : publicUrl;
-  const escCourierUrl = resolvedCourierUrl ? (window.escapeHtmlAttr ? window.escapeHtmlAttr(resolvedCourierUrl) : resolvedCourierUrl) : '';
+  const escCourierUrl = hasExternalCourierWeb ? (window.escapeHtmlAttr ? window.escapeHtmlAttr(resolvedCourierUrl) : resolvedCourierUrl) : '';
   const escPhone = window.escapeHtmlAttr ? window.escapeHtmlAttr(rawPhone) : rawPhone;
   const escEmail = window.escapeHtmlAttr ? window.escapeHtmlAttr(rawEmail) : rawEmail;
 
@@ -19483,7 +19888,7 @@ window.openShipmentShareModal = function(shipmentId) {
             </div>
           </div>
           <input type="text" id="share-public-url-input" readonly value="${escPublicUrl}" onclick="this.select();" style="width: 100%; font-family: monospace; font-size: 0.76rem; padding: 0.5rem 0.65rem; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); outline: none;" />
-          ${resolvedCourierUrl ? `
+          ${hasExternalCourierWeb ? `
             <div style="margin-top: 0.6rem; padding-top: 0.55rem; border-top: 1px dashed var(--color-border); display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; font-size: 0.75rem;">
               <span style="color: var(--color-text-muted);"><i class="ri-truck-line" style="color: #059669;"></i> Tracking directo en <strong>${courierInfo.label}</strong> (${shipment.tracking || '-'}):</span>
               <a href="${escCourierUrl}" target="_blank" rel="noopener noreferrer" style="color: #059669; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 0.2rem;">
@@ -20155,6 +20560,16 @@ async function renderShipments() {
 
         const effComuna = s.comuna_destino || s._linkedOrder?.shipping_city || '-';
         const effPhone = s.telefono_destino || s._linkedOrder?.customer_phone || '-';
+        const shipCommitInfo = window.getEnviameCommitmentInfo
+          ? window.getEnviameCommitmentInfo(s, s._linkedOrder || null, statusMeta.tab === 'Entregado')
+          : null;
+        const shipCommitPillHtml = (shipCommitInfo && shipCommitInfo.hasDeadline)
+          ? `<div style="margin-top: 0.28rem;">
+              <span title="${shipCommitInfo.tooltip}" style="display: inline-flex; align-items: center; gap: 0.22rem; font-size: 0.68rem; font-weight: 700; padding: 0.12rem 0.48rem; border-radius: 6px; background: ${shipCommitInfo.badgeBg}; color: ${shipCommitInfo.badgeColor}; border: 1px solid ${shipCommitInfo.badgeBorder}; white-space: nowrap;">
+                <i class="${shipCommitInfo.icon}"></i> ${shipCommitInfo.shortLabel}
+              </span>
+            </div>`
+          : '';
 
         rowsHtml += `
           <tr class="clickable-row" data-id="${s.id}" style="transition: background-color 0.2s;">
@@ -20184,6 +20599,7 @@ async function renderShipments() {
               <span class="badge ${statusMeta.badgeClass}" style="padding: 0.35rem 0.75rem; border-radius: 99px; font-weight: 600;">
                 ${statusMeta.displayStatus}
               </span>
+              ${shipCommitPillHtml}
             </td>
             <td onclick="event.stopPropagation();">
               <div class="ship-public-actions">
@@ -20683,7 +21099,7 @@ async function renderShipments() {
         const filtered = data || [];
         await enrichShipmentsWithOrders(filtered, targetCompanyList);
 
-        const headers = ['Referencia Pedido', 'Origen Logistica', 'Courier', 'Tracking', 'Destinatario', 'Telefono', 'Direccion', 'Comuna', 'Estado', 'Enlace Seguimiento Publico', 'Fecha Creacion'];
+        const headers = ['Referencia Pedido', 'Origen Logistica', 'Courier', 'Tracking', 'Destinatario', 'Telefono', 'Direccion', 'Comuna', 'Estado', 'Fecha Compromiso Entrega', 'Enlace Seguimiento Publico', 'Fecha Creacion'];
         const rows = filtered.map(s => {
           const platformName = s.source_table === 'lightdata_envios' ? 'LightData' 
             : s.source_table === 'enviame_shipments' ? 'Enviame' 
@@ -20693,6 +21109,7 @@ async function renderShipments() {
           const statusMeta = classifyShipmentStatus(s);
           const courierInfo = formatShipmentCourierDisplay(s);
           const pubUrl = window.buildShipmentPublicTrackingUrl(s);
+          const commitInfo = window.getEnviameCommitmentInfo ? window.getEnviameCommitmentInfo(s, s._linkedOrder || null, statusMeta.tab === 'Entregado') : null;
 
           return [
             s.pedido_referencia || '',
@@ -20704,6 +21121,7 @@ async function renderShipments() {
             `${s.direccion_destino || ''} ${s.complemento_destino || ''}`.trim(),
             s.comuna_destino || s._linkedOrder?.shipping_city || '',
             statusMeta.displayStatus || s.status || '',
+            commitInfo?.hasDeadline ? commitInfo.formattedDate : '',
             pubUrl || '',
             dateStr
           ];
@@ -20771,78 +21189,405 @@ async function renderShipments() {
   }
 }
 
+window.copyShipmentSupportSummary = function(btnEl) {
+  const s = window._currentModalShipment;
+  if (!s) return;
+  const o = window._currentModalOrder || s._linkedOrder || null;
+  const statusMeta = classifyShipmentStatus(s);
+  const courierInfo = formatShipmentCourierDisplay(s);
+  const commitInfo = window.getEnviameCommitmentInfo
+    ? window.getEnviameCommitmentInfo(s, o, statusMeta.tab === 'Entregado')
+    : null;
+  const publicPortalUrl = window.buildShipmentPublicTrackingUrl
+    ? window.buildShipmentPublicTrackingUrl(s)
+    : '';
+  const ref = s.pedido_referencia || o?.external_order_number || s.tracking || 'Sin referencia';
+  const destName = s.nombre_destinatario || o?.customer_name || 'Cliente';
+  const comuna = s.comuna_destino || o?.shipping_city || '-';
+
+  const lines = [
+    `📦 *Resumen de Seguimiento - Pedido #${ref}*`,
+    `• *Destinatario:* ${destName} (${comuna})`,
+    `• *Estado actual:* ${statusMeta.displayStatus}`,
+    `• *Operador logístico:* ${courierInfo.label}`,
+    `• *Código de seguimiento:* ${s.tracking || 'En asignación'}`
+  ];
+  if (commitInfo && commitInfo.hasDeadline) {
+    lines.push(`• *Fecha compromiso de entrega:* ${commitInfo.formattedDate} (${commitInfo.stateLabel})`);
+  }
+  if (publicPortalUrl) {
+    lines.push(`🔗 *Seguimiento en vivo:* ${publicPortalUrl}`);
+  }
+
+  const text = lines.join('\n');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      if (btnEl) {
+        const orig = btnEl.innerHTML;
+        btnEl.innerHTML = `<i class="ri-check-double-line"></i> ¡Resumen Copiado!`;
+        setTimeout(() => { btnEl.innerHTML = orig; }, 2200);
+      }
+      if (window.showToast) window.showToast('Resumen para soporte copiado al portapapeles', 'success');
+    });
+  }
+};
+
 function showShipmentDetailsModal(shipment) {
   let modal = document.getElementById('modal-shipment-detail');
   if (modal) modal.remove();
 
+  window._currentModalShipment = shipment;
+  window._currentModalOrder = shipment._linkedOrder || null;
+
+  if (!document.getElementById('shipment-center-modal-styles')) {
+    const styleEl = document.createElement('style');
+    styleEl.id = 'shipment-center-modal-styles';
+    styleEl.textContent = `
+      #modal-shipment-detail.shipment-support-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.62);
+        backdrop-filter: blur(5px);
+        -webkit-backdrop-filter: blur(5px);
+        z-index: 1200;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.25rem;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.25s ease, visibility 0.25s ease;
+      }
+      #modal-shipment-detail.shipment-support-modal-overlay.active {
+        opacity: 1;
+        visibility: visible;
+      }
+      #modal-shipment-detail .shipment-support-modal-dialog {
+        width: 100%;
+        max-width: 1120px;
+        max-height: 92vh;
+        background: var(--color-bg);
+        border: 1px solid var(--color-border);
+        border-radius: 18px;
+        box-shadow: 0 25px 70px -15px rgba(15, 23, 42, 0.45);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        transform: scale(0.96) translateY(12px);
+        transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      #modal-shipment-detail.active .shipment-support-modal-dialog {
+        transform: scale(1) translateY(0);
+      }
+      .ssm-header {
+        padding: 1.15rem 1.5rem;
+        background: var(--color-surface);
+        border-bottom: 1px solid var(--color-border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+        flex-shrink: 0;
+      }
+      .ssm-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.35rem 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1.2rem;
+      }
+      .ssm-footer {
+        padding: 0.9rem 1.5rem;
+        background: var(--color-surface);
+        border-top: 1px solid var(--color-border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        flex-shrink: 0;
+      }
+      .ssm-card {
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: 14px;
+        padding: 1.1rem 1.25rem;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+      }
+      .ssm-card-title {
+        margin: 0 0 0.85rem 0;
+        padding-bottom: 0.55rem;
+        border-bottom: 1px solid var(--color-border);
+        font-size: 0.82rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--color-text-main);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+      }
+      .ssm-stepper-wrap {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 0.5rem;
+        padding: 0.35rem 0 0.2rem;
+      }
+      .ssm-stepper-line-bg {
+        position: absolute;
+        top: 22px;
+        left: 10%;
+        right: 10%;
+        height: 4px;
+        background: var(--color-border);
+        border-radius: 99px;
+        z-index: 1;
+      }
+      .ssm-stepper-line-fill {
+        position: absolute;
+        top: 22px;
+        left: 10%;
+        height: 4px;
+        background: linear-gradient(90deg, var(--color-primary), #10b981);
+        border-radius: 99px;
+        z-index: 2;
+        transition: width 0.45s ease;
+      }
+      .ssm-step {
+        position: relative;
+        z-index: 3;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 0.3rem;
+        padding: 0 0.25rem;
+      }
+      .ssm-step-circle {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        background: var(--color-surface);
+        border: 2.5px solid var(--color-border);
+        color: var(--color-text-muted);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+        font-weight: 700;
+        transition: all 0.25s ease;
+        box-shadow: 0 2px 5px rgba(15, 23, 42, 0.06);
+      }
+      .ssm-step.done .ssm-step-circle {
+        background: var(--color-primary);
+        border-color: var(--color-primary);
+        color: #ffffff;
+      }
+      .ssm-step.active .ssm-step-circle {
+        background: var(--color-surface);
+        border-color: var(--color-primary);
+        color: var(--color-primary);
+        transform: scale(1.1);
+        box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.16);
+      }
+      .ssm-step.delivered .ssm-step-circle {
+        background: #10b981;
+        border-color: #10b981;
+        color: #ffffff;
+        box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.16);
+      }
+      .ssm-step.warning .ssm-step-circle {
+        background: #fef2f2;
+        border-color: #ef4444;
+        color: #dc2626;
+        box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.15);
+      }
+      .ssm-step-title {
+        font-size: 0.76rem;
+        font-weight: 800;
+        color: var(--color-text-main);
+        line-height: 1.2;
+      }
+      .ssm-step-sub {
+        font-size: 0.68rem;
+        color: var(--color-text-muted);
+        line-height: 1.25;
+        max-width: 165px;
+      }
+      .ssm-step-time {
+        font-size: 0.65rem;
+        font-family: monospace;
+        font-weight: 600;
+        color: var(--color-primary);
+        background: rgba(99, 102, 241, 0.08);
+        padding: 0.1rem 0.4rem;
+        border-radius: 6px;
+        margin-top: 0.1rem;
+      }
+      .ssm-two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.15rem;
+        align-items: start;
+      }
+      .ssm-kpi-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+        gap: 0.6rem;
+        margin-bottom: 0.85rem;
+      }
+      .ssm-kpi-box {
+        background: var(--color-bg);
+        border: 1px solid var(--color-border);
+        border-radius: 10px;
+        padding: 0.55rem 0.7rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+      }
+      .ssm-kpi-label {
+        font-size: 0.66rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: var(--color-text-muted);
+      }
+      .ssm-kpi-val {
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: var(--color-text-main);
+        word-break: break-word;
+      }
+      .ssm-info-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+      }
+      .ssm-info-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.38rem 0;
+        border-bottom: 1px dashed var(--color-border);
+        font-size: 0.81rem;
+      }
+      .ssm-info-item:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+      }
+      .ssm-info-label {
+        color: var(--color-text-muted);
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        flex-shrink: 0;
+      }
+      .ssm-info-val {
+        color: var(--color-text-main);
+        font-weight: 600;
+        text-align: right;
+        word-break: break-word;
+      }
+      @media (max-width: 900px) {
+        .ssm-two-col {
+          grid-template-columns: 1fr;
+        }
+        .ssm-stepper-wrap {
+          grid-template-columns: 1fr;
+          gap: 0.65rem;
+        }
+        .ssm-stepper-line-bg, .ssm-stepper-line-fill {
+          display: none;
+        }
+        .ssm-step {
+          flex-direction: row;
+          text-align: left;
+          gap: 0.75rem;
+        }
+        .ssm-step-sub {
+          max-width: none;
+        }
+      }
+    `;
+    document.head.appendChild(styleEl);
+  }
+
   modal = document.createElement('div');
   modal.id = 'modal-shipment-detail';
-  modal.className = 'slide-over-overlay';
-  
+  modal.className = 'shipment-support-modal-overlay';
+
   setTimeout(() => {
     modal.classList.add('active');
   }, 10);
-  
-  const dateObj = shipment.created_at ? new Date(shipment.created_at) : null;
-  const dateStr = dateObj ? dateObj.toLocaleString('es-CL') : '-';
-  const updatedObj = shipment.updated_at ? new Date(shipment.updated_at) : null;
-  const updatedStr = updatedObj ? updatedObj.toLocaleString('es-CL') : '-';
 
-  const platformBadge = shipment.source_table === 'lightdata_envios' ? 'LightData' 
-    : shipment.source_table === 'enviame_shipments' ? 'Enviame' 
-    : shipment.source_table === 'bluex_envios' ? 'Blue Express' 
+  const dateObj = shipment.created_at ? new Date(shipment.created_at) : null;
+  const dateStr = dateObj ? dateObj.toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' }) : '-';
+  const updatedObj = shipment.updated_at ? new Date(shipment.updated_at) : null;
+  const updatedStr = updatedObj ? updatedObj.toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' }) : '-';
+
+  const platformBadge = shipment.source_table === 'lightdata_envios' ? 'LightData'
+    : shipment.source_table === 'enviame_shipments' ? 'Envíame'
+    : shipment.source_table === 'bluex_envios' ? 'Blue Express'
     : shipment.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
 
   const statusMeta = classifyShipmentStatus(shipment);
+  const courierInfo = formatShipmentCourierDisplay(shipment);
+  const linkedOrder = shipment._linkedOrder || null;
 
-  // Stepper timeline
-  let step1Class = 'completed';
-  let step2Class = '';
-  let step3Class = '';
-  let progressBarWidth = '0%';
-
-  if (statusMeta.tab === 'Entregado') {
-    step1Class = 'completed';
-    step2Class = 'completed';
-    step3Class = 'completed';
-    progressBarWidth = '100%';
-  } else if (statusMeta.tab === 'En tránsito') {
-    step1Class = 'completed';
-    step2Class = 'active';
-    progressBarWidth = '55%';
-  } else if (statusMeta.tab === 'Listo para despacho') {
-    step1Class = 'completed';
-    step2Class = 'active';
-    progressBarWidth = '35%';
-  } else if (statusMeta.tab === 'No retirado' || statusMeta.tab === 'Devolución') {
-    step1Class = 'completed';
-    step2Class = 'warning';
-    progressBarWidth = '50%';
-  } else {
-    step1Class = 'active';
-    progressBarWidth = '15%';
-  }
-
+  const isDelivered = statusMeta.tab === 'Entregado';
+  const isTransit = statusMeta.tab === 'En tránsito';
+  const isReady = statusMeta.tab === 'Listo para despacho';
   const isAlert = statusMeta.tab === 'No retirado';
   const isReturn = statusMeta.tab === 'Devolución';
 
-  const stepperHtml = `
-    <div class="timeline-stepper">
-      <div class="timeline-progress-bar" style="width: ${progressBarWidth};"></div>
-      <div class="timeline-step ${step1Class}">
-        <div class="timeline-bubble">1</div>
-        <div class="timeline-label">Preparación</div>
-      </div>
-      <div class="timeline-step ${step2Class}">
-        <div class="timeline-bubble">${isAlert ? '<i class="ri-error-warning-line"></i>' : (isReturn ? '<i class="ri-arrow-go-back-line"></i>' : '2')}</div>
-        <div class="timeline-label">${isAlert ? 'Incidencia' : (isReturn ? 'Devolución' : (statusMeta.tab === 'Listo para despacho' ? 'Listo / Retiro' : 'En Tránsito'))}</div>
-      </div>
-      <div class="timeline-step ${step3Class}">
-        <div class="timeline-bubble">3</div>
-        <div class="timeline-label">Entregado</div>
-      </div>
-    </div>
-  `;
+  const modalCommitInfo = window.getEnviameCommitmentInfo
+    ? window.getEnviameCommitmentInfo(shipment, linkedOrder, isDelivered)
+    : null;
+
+  // Cálculo de las 5 etapas de la línea de tiempo para Soporte Seller
+  // 1: Orden Recibida | 2: Picking y Empaque | 3: Guía y Despacho | 4: En Tránsito | 5: Entrega Final
+  let s1Class = 'done';
+  let s2Class = 'done';
+  let s3Class = 'done';
+  let s4Class = '';
+  let s5Class = '';
+  let lineFillPct = '40%';
+
+  if (isDelivered) {
+    s4Class = 'done';
+    s5Class = 'delivered';
+    lineFillPct = '80%';
+  } else if (isAlert || isReturn) {
+    s4Class = 'warning';
+    s5Class = 'warning';
+    lineFillPct = '65%';
+  } else if (isTransit) {
+    s4Class = 'active';
+    lineFillPct = '60%';
+  } else if (isReady) {
+    s3Class = 'active';
+    lineFillPct = '40%';
+  } else {
+    s2Class = 'active';
+    s3Class = '';
+    lineFillPct = '22%';
+  }
+
+  // Mensaje descriptivo extra del courier (ej. Envíame raw_data.status.info o Optiroute)
+  const rawData = shipment.raw_data || {};
+  const courierStatusInfo = rawData?.status?.info || rawData?.status_info || '';
+  const enviameIdentifier = rawData?.identifier || (shipment.source_table === 'enviame_shipments' ? shipment.source_id : null);
+  const enviameLabelPdf = rawData?.label?.PDF || rawData?.label_url || linkedOrder?.label_url || null;
+  const optiVehicle = rawData?.vehicle || rawData?.driver_name || '';
+  const optiPlan = rawData?.plan_name || rawData?.route_name || '';
+  const optiProofImg = rawData?.proof_image || (Array.isArray(rawData?.pictures) && rawData.pictures[0]) || null;
+  const optiReceiver = rawData?.reception_name || rawData?.receiver_name || '';
 
   // Enlaces de seguimiento: Portal Público (Cliente) y Enlace Directo Courier
   const publicPortalUrl = window.buildShipmentPublicTrackingUrl
@@ -20851,12 +21596,11 @@ function showShipmentDetailsModal(shipment) {
   const escPublicPortalUrl = window.escapeHtmlAttr ? window.escapeHtmlAttr(publicPortalUrl) : publicPortalUrl;
 
   const resolvedModalTrackUrl = window.resolveCourierPublicTrackingUrl
-    ? window.resolveCourierPublicTrackingUrl(shipment.tracking_url, shipment.tracking, shipment.courier, shipment, shipment._linkedOrder || null)
+    ? window.resolveCourierPublicTrackingUrl(shipment.tracking_url, shipment.tracking, shipment.courier, shipment, linkedOrder)
     : (shipment.tracking_url && shipment.tracking_url !== 'N/A' ? shipment.tracking_url : null);
-  const hasCourierTracking = Boolean(resolvedModalTrackUrl);
+  const hasExternalCourierWeb = Boolean(resolvedModalTrackUrl && !resolvedModalTrackUrl.includes('/seguimiento.html'));
 
-  const courierInfo = formatShipmentCourierDisplay(shipment);
-  const linkedOrder = shipment._linkedOrder || null;
+  const effDestinatario = shipment.nombre_destinatario || linkedOrder?.customer_name || '-';
   const effDireccion = shipment.direccion_destino || linkedOrder?.shipping_address || '-';
   const effComplemento = shipment.complemento_destino || linkedOrder?.shipping_complement || '-';
   const effComuna = shipment.comuna_destino || linkedOrder?.shipping_city || '-';
@@ -20864,196 +21608,437 @@ function showShipmentDetailsModal(shipment) {
   const effEmail = shipment.email_cliente_destino || linkedOrder?.customer_email || '-';
   const escShipId = window.escapeHtmlAttr ? window.escapeHtmlAttr(String(shipment.id)) : String(shipment.id);
 
-  const trackingBtnHtml = `
-    <div style="display: flex; align-items: center; gap: 0.5rem; margin-right: auto; flex-wrap: wrap;">
-      ${publicPortalUrl ? `
-        <a href="${escPublicPortalUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; padding: 0.5rem 0.9rem;">
-          <i class="ri-external-link-line"></i> Ver Seguimiento Público
-        </a>
-        <button type="button" class="btn btn-outline" onclick="window.openShipmentShareModal('${escShipId}')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; padding: 0.5rem 0.9rem; border-color: rgba(16, 185, 129, 0.4); color: #059669;">
-          <i class="ri-share-forward-line"></i> Compartir Link
-        </button>
-      ` : ''}
-      ${hasCourierTracking ? `
-        <a href="${resolvedModalTrackUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-complementary" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; padding: 0.5rem 0.9rem;">
-          <i class="ri-truck-line"></i> Web Courier
-        </a>
+  const fullAddressForCopy = [effDireccion !== '-' ? effDireccion : '', effComplemento !== '-' ? effComplemento : '', effComuna !== '-' ? effComuna : ''].filter(Boolean).join(', ');
+  const googleMapsUrl = fullAddressForCopy
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddressForCopy + ', Chile')}`
+    : null;
+
+  const cleanPhoneDigits = String(effTelefono || '').replace(/\D/g, '');
+  const waPhone = cleanPhoneDigits
+    ? (cleanPhoneDigits.startsWith('56') ? cleanPhoneDigits : (cleanPhoneDigits.length === 9 ? '56' + cleanPhoneDigits : cleanPhoneDigits))
+    : '';
+  const waCustomerText = encodeURIComponent(
+    `Hola ${effDestinatario !== '-' ? effDestinatario : ''}, te escribimos de ${shipment.empresa_comercio_proveedor || 'nuestra tienda'} respecto a tu pedido #${shipment.pedido_referencia || ''}.${publicPortalUrl ? ` Puedes revisar el seguimiento en vivo de tu despacho aquí: ${publicPortalUrl}` : ''}`
+  );
+  const waDirectCustomerUrl = waPhone ? `https://wa.me/${waPhone}?text=${waCustomerText}` : null;
+
+  const stepperHtml = `
+    <div class="ssm-card" style="padding: 1rem 1.25rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 0.45rem;">
+          <i class="ri-git-commit-line" style="color: var(--color-primary); font-size: 1.1rem;"></i>
+          <span style="font-size: 0.8rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-main);">
+            Línea de Tiempo y Trazabilidad del Envío
+          </span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          ${modalCommitInfo && modalCommitInfo.hasDeadline ? `
+            <span title="${modalCommitInfo.tooltip}" style="display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.22rem 0.65rem; border-radius: 99px; font-size: 0.74rem; font-weight: 800; background: ${modalCommitInfo.badgeBg}; color: ${modalCommitInfo.badgeColor}; border: 1px solid ${modalCommitInfo.badgeBorder};">
+              <i class="${modalCommitInfo.icon}"></i> Compromiso Envíame: ${modalCommitInfo.formattedDate} · ${modalCommitInfo.stateLabel}
+            </span>
+          ` : (modalCommitInfo && modalCommitInfo.isEnviame ? `
+            <span style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.72rem; font-weight: 600; background: var(--color-bg); color: var(--color-text-muted); border: 1px solid var(--color-border);">
+              <i class="ri-calendar-line"></i> Compromiso Envíame: Pendiente admisión en planta courier
+            </span>
+          ` : '')}
+          <span style="font-size: 0.72rem; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-refresh-line"></i> Act: <strong>${updatedStr}</strong>
+          </span>
+        </div>
+      </div>
+
+      <div class="ssm-stepper-wrap">
+        <div class="ssm-stepper-line-bg"></div>
+        <div class="ssm-stepper-line-fill" style="width: ${lineFillPct};"></div>
+
+        <!-- Paso 1 -->
+        <div class="ssm-step ${s1Class}" id="ssm-step-1">
+          <div class="ssm-step-circle"><i class="ri-shopping-bag-3-line"></i></div>
+          <div>
+            <div class="ssm-step-title">1. Orden Recibida</div>
+            <div class="ssm-step-sub" id="ssm-step-1-sub">Registrada en sistema</div>
+            <div class="ssm-step-time" id="ssm-step-1-time">${dateStr}</div>
+          </div>
+        </div>
+
+        <!-- Paso 2 -->
+        <div class="ssm-step ${s2Class}" id="ssm-step-2">
+          <div class="ssm-step-circle"><i class="ri-barcode-box-line"></i></div>
+          <div>
+            <div class="ssm-step-title">2. Picking y Empaque</div>
+            <div class="ssm-step-sub" id="ssm-step-2-sub">Preparación en bodega</div>
+            <div class="ssm-step-time" id="ssm-step-2-time">Verificado WMS</div>
+          </div>
+        </div>
+
+        <!-- Paso 3 -->
+        <div class="ssm-step ${s3Class}" id="ssm-step-3">
+          <div class="ssm-step-circle"><i class="ri-price-tag-3-line"></i></div>
+          <div>
+            <div class="ssm-step-title">3. Guía y Despacho</div>
+            <div class="ssm-step-sub">${courierInfo.label}${shipment.tracking ? ` · #${shipment.tracking}` : ''}</div>
+            <div class="ssm-step-time">${dateStr}</div>
+          </div>
+        </div>
+
+        <!-- Paso 4 -->
+        <div class="ssm-step ${s4Class}" id="ssm-step-4">
+          <div class="ssm-step-circle">
+            <i class="${isAlert ? 'ri-error-warning-line' : (isReturn ? 'ri-arrow-go-back-line' : 'ri-truck-line')}"></i>
+          </div>
+          <div>
+            <div class="ssm-step-title">${isAlert ? '4. Incidencia Ruta' : (isReturn ? '4. En Devolución' : '4. En Tránsito')}</div>
+            <div class="ssm-step-sub">${statusMeta.displayStatus}</div>
+            <div class="ssm-step-time">${updatedStr}</div>
+          </div>
+        </div>
+
+        <!-- Paso 5 -->
+        <div class="ssm-step ${s5Class}" id="ssm-step-5">
+          <div class="ssm-step-circle">
+            <i class="${isDelivered ? 'ri-checkbox-circle-fill' : 'ri-flag-2-line'}"></i>
+          </div>
+          <div>
+            <div class="ssm-step-title">5. Entrega Final</div>
+            <div class="ssm-step-sub">
+              ${isDelivered
+                ? (optiReceiver ? `Recibido por ${optiReceiver}` : 'Entregado en destino')
+                : (modalCommitInfo && modalCommitInfo.hasDeadline
+                    ? `Compromiso: ${modalCommitInfo.formattedDate}`
+                    : `Destino: ${effComuna}`)}
+            </div>
+            <div class="ssm-step-time">
+              ${isDelivered ? updatedStr : (modalCommitInfo && modalCommitInfo.hasDeadline ? modalCommitInfo.stateLabel : 'Pendiente')}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      ${(courierStatusInfo || optiPlan || optiVehicle || optiProofImg) ? `
+        <div style="margin-top: 0.85rem; padding: 0.6rem 0.85rem; border-radius: 10px; background: var(--color-bg); border: 1px solid var(--color-border); display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; font-size: 0.78rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);">
+            <i class="ri-information-fill" style="color: var(--color-primary); font-size: 1rem;"></i>
+            <span>
+              <strong>Detalle informado por el operador:</strong>
+              ${courierStatusInfo ? window.escapeHtml(courierStatusInfo) : ''}
+              ${optiPlan ? ` Ruta: <strong>${window.escapeHtml(optiPlan)}</strong>.` : ''}
+              ${optiVehicle ? ` Móvil/Conductor: <strong>${window.escapeHtml(optiVehicle)}</strong>.` : ''}
+            </span>
+          </div>
+          ${optiProofImg ? `
+            <a href="${window.escapeHtmlAttr ? window.escapeHtmlAttr(optiProofImg) : optiProofImg}" target="_blank" rel="noopener noreferrer" class="btn-ship-action primary" style="font-size: 0.74rem; padding: 0.3rem 0.65rem;">
+              <i class="ri-camera-lens-line"></i> Ver Foto Comprobante Entrega
+            </a>
+          ` : ''}
+        </div>
       ` : ''}
     </div>
   `;
 
   modal.innerHTML = `
-    <div class="slide-over-panel">
-      <div class="slide-over-header">
-        <div>
-          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
-            <i class="ri-truck-line" style="color: var(--color-primary);"></i>
-            Despacho ${window.escapeHtml ? window.escapeHtml(shipment.pedido_referencia || shipment.tracking || '') : (shipment.pedido_referencia || '')}
-          </h3>
-          <span style="font-size: 0.78rem; color: var(--color-text-muted);">Detalle logístico consolidado y enlace público para tu cliente</span>
-        </div>
-        <button class="slide-over-close" id="btn-close-shipment-modal">&times;</button>
-      </div>
-      
-      <div class="slide-over-body">
-        
-        <!-- Graphic Tracking Progress Timeline -->
-        ${stepperHtml}
-
-        <!-- Public Tracking Link Banner Card -->
-        ${publicPortalUrl ? `
-        <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.07) 0%, rgba(59, 130, 246, 0.05) 100%); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 12px; padding: 1rem 1.15rem; margin-bottom: 1.5rem; display: flex; flex-direction: column; gap: 0.65rem;">
-          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-              <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(99, 102, 241, 0.14); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0;">
-                <i class="ri-radar-line"></i>
-              </div>
-              <div>
-                <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main);">Enlace Público de Seguimiento (Vista Cliente)</div>
-                <div style="font-size: 0.74rem; color: var(--color-text-muted);">Comparte este link con tu comprador para que consulte el estado de su envío sin iniciar sesión</div>
-              </div>
+    <div class="shipment-support-modal-dialog">
+      <!-- HEADER EJECUTIVO -->
+      <div class="ssm-header">
+        <div style="display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap;">
+          <div style="width: 42px; height: 42px; border-radius: 12px; background: rgba(99, 102, 241, 0.12); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.35rem; flex-shrink: 0;">
+            <i class="ri-truck-line"></i>
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.35rem;">
+                Despacho #${window.escapeHtml ? window.escapeHtml(shipment.pedido_referencia || shipment.tracking || '') : (shipment.pedido_referencia || '')}
+              </h3>
+              ${shipment.pedido_referencia && window.renderCopyFieldBtn ? window.renderCopyFieldBtn(shipment.pedido_referencia, 'Referencia', 'Copiar número de pedido') : ''}
+              <span class="badge ${statusMeta.badgeClass}" style="padding: 0.25rem 0.7rem; border-radius: 99px; font-size: 0.75rem; font-weight: 800;">
+                ${statusMeta.displayStatus}
+              </span>
+              <span style="background: rgba(99, 102, 241, 0.1); color: var(--color-primary); border: 1px solid rgba(99, 102, 241, 0.25); padding: 0.18rem 0.55rem; border-radius: 99px; font-size: 0.72rem; font-weight: 700;">
+                <i class="ri-route-line"></i> ${courierInfo.label}
+              </span>
             </div>
-            <div class="ship-public-actions">
-              <a href="${escPublicPortalUrl}" target="_blank" rel="noopener noreferrer" class="btn-ship-action primary" title="Abrir portal de seguimiento en nueva pestaña">
-                <i class="ri-external-link-line"></i> Ver Portal
-              </a>
-              <button type="button" class="btn-ship-action" onclick="window.copyShipmentPublicTrackingLink('${escShipId}', this)" title="Copiar enlace público al portapapeles">
-                <i class="ri-file-copy-line"></i> Copiar Link
-              </button>
-              <button type="button" class="btn-ship-action whatsapp" onclick="window.openShipmentShareModal('${escShipId}')" title="Compartir por WhatsApp, Correo o previsualizar">
-                <i class="ri-whatsapp-line"></i> Compartir
-              </button>
+            <div style="font-size: 0.76rem; color: var(--color-text-muted); margin-top: 0.15rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+              <span>Centro de Control de Despacho y Soporte al Cliente</span>
+              ${shipment.tracking ? `<span>• Guía: <strong style="font-family: monospace; color: var(--color-text-main);">${shipment.tracking}</strong></span>` : ''}
+              ${effComuna && effComuna !== '-' ? `<span>• Destino: <strong style="color: var(--color-text-main);">${effComuna}</strong></span>` : ''}
             </div>
           </div>
-          <div style="display: flex; align-items: center; gap: 0.4rem;">
-            <input type="text" readonly value="${escPublicPortalUrl}" onclick="this.select();" style="flex: 1; font-family: monospace; font-size: 0.75rem; padding: 0.45rem 0.65rem; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); outline: none;" />
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <div id="shipment-modal-header-order-btn"></div>
+          <button type="button" class="btn-ship-action" onclick="window.copyShipmentSupportSummary(this)" title="Copiar resumen ejecutivo con estado, tracking, fecha de compromiso y link para pegar en WhatsApp o ticket de soporte">
+            <i class="ri-customer-service-2-line"></i> Copiar Resumen Soporte
+          </button>
+          <button class="slide-over-close" id="btn-close-shipment-modal" title="Cerrar (Esc)">&times;</button>
+        </div>
+      </div>
+
+      <!-- BODY CENTRAL -->
+      <div class="ssm-body">
+        
+        <!-- 1. LÍNEA DE TIEMPO DE 5 ETAPAS -->
+        ${stepperHtml}
+
+        <!-- 2. BARRA DE ENLACES Y HERRAMIENTAS DE SOPORTE -->
+        ${publicPortalUrl ? `
+        <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(16, 185, 129, 0.05) 100%); border: 1px solid rgba(99, 102, 241, 0.28); border-radius: 14px; padding: 0.85rem 1.15rem; display: flex; align-items: center; justify-content: space-between; gap: 0.85rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.65rem; min-width: 240px; flex: 1;">
+            <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(99, 102, 241, 0.16); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.15rem; flex-shrink: 0;">
+              <i class="ri-radar-line"></i>
+            </div>
+            <div style="flex: 1; min-width: 180px;">
+              <div style="font-size: 0.8rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                Enlace Público de Seguimiento (Portal Cliente)
+                <span style="font-size: 0.66rem; font-weight: 700; background: rgba(16, 185, 129, 0.14); color: #059669; padding: 0.08rem 0.4rem; border-radius: 99px;">Sin inicio de sesión</span>
+              </div>
+              <input type="text" readonly value="${escPublicPortalUrl}" onclick="this.select();" style="width: 100%; margin-top: 0.25rem; font-family: monospace; font-size: 0.74rem; padding: 0.35rem 0.6rem; border-radius: 7px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); outline: none;" />
+            </div>
+          </div>
+
+          <div class="ship-public-actions" style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <a href="${escPublicPortalUrl}" target="_blank" rel="noopener noreferrer" class="btn-ship-action primary" title="Abrir el portal público tal como lo ve tu comprador">
+              <i class="ri-external-link-line"></i> Ver Portal Público
+            </a>
+            <button type="button" class="btn-ship-action" onclick="window.copyShipmentPublicTrackingLink('${escShipId}', this)" title="Copiar link de seguimiento al portapapeles">
+              <i class="ri-file-copy-line"></i> Copiar Link
+            </button>
+            <button type="button" class="btn-ship-action whatsapp" onclick="window.openShipmentShareModal('${escShipId}')" title="Enviar por WhatsApp, correo o previsualizar">
+              <i class="ri-whatsapp-line"></i> Compartir a Cliente
+            </button>
+            ${hasExternalCourierWeb ? `
+              <a href="${resolvedModalTrackUrl}" target="_blank" rel="noopener noreferrer" class="btn-ship-action" title="Abrir página oficial del courier (${courierInfo.label})">
+                <i class="ri-truck-line"></i> Web ${courierInfo.label}
+              </a>
+            ` : ''}
+            ${enviameLabelPdf ? `
+              <a href="${window.escapeHtmlAttr ? window.escapeHtmlAttr(enviameLabelPdf) : enviameLabelPdf}" target="_blank" rel="noopener noreferrer" class="btn-ship-action" title="Ver o imprimir etiqueta PDF del envío">
+                <i class="ri-printer-line"></i> Etiqueta PDF
+              </a>
+            ` : '<span id="shipment-modal-dynamic-label-btn"></span>'}
           </div>
         </div>
         ` : ''}
 
-        <div class="shipment-detail-grid" style="display: flex; flex-direction: column; gap: 1.5rem;">
+        <!-- 3. GRILLA PRINCIPAL DE 2 COLUMNAS -->
+        <div class="ssm-two-col">
           
-          <!-- Left Column: Logistics Info and Destination Info -->
-          <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+          <!-- COLUMNA IZQUIERDA: LOGÍSTICA/PAQUETE + DESTINATARIO/CONTACTO -->
+          <div style="display: flex; flex-direction: column; gap: 1.15rem;">
             
-            <div class="shipment-detail-section">
-              <h4 class="shipment-detail-title"><i class="ri-route-line"></i> Información de Logística</h4>
-              <div class="detail-info-row">
-                <span class="detail-info-label">Integración Origen:</span>
-                <span class="detail-info-value"><span style="background: var(--color-primary); color: white; padding: 0.15rem 0.6rem; border-radius: 99px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em;">${platformBadge}</span></span>
-              </div>
-              <div class="detail-info-row">
-                <span class="detail-info-label">Courier de Envío:</span>
-                <span class="detail-info-value" style="font-weight:700;">${courierInfo.label}${courierInfo.sub ? ` <span style="font-weight: 500; color: var(--color-text-muted); font-size: 0.78rem;">(${courierInfo.sub})</span>` : ''}</span>
-              </div>
-              <div class="detail-info-row">
-                <span class="detail-info-label">Referencia Pedido:</span>
-                <span class="detail-info-value" style="font-weight:700; display: inline-flex; align-items: center; gap: 0.25rem;">
-                  ${shipment.pedido_referencia || 'Sin Referencia'}
-                  ${shipment.pedido_referencia && window.renderCopyFieldBtn ? window.renderCopyFieldBtn(shipment.pedido_referencia, 'Referencia', 'Copiar referencia') : ''}
+            <!-- TARJETA A: INFORMACIÓN LOGÍSTICA, TRACKING Y PAQUETE -->
+            <div class="ssm-card">
+              <h4 class="ssm-card-title">
+                <span style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-route-line" style="color: var(--color-primary); font-size: 1rem;"></i>
+                  Tracking, Courier y SLA del Envío
                 </span>
-              </div>
-              <div class="detail-info-row">
-                <span class="detail-info-label">Código de Tracking:</span>
-                <span class="detail-info-value" style="display: inline-flex; align-items: center; gap: 0.25rem;">
-                  ${shipment.tracking 
-                    ? ((resolvedModalTrackUrl
-                        ? `<a href="${resolvedModalTrackUrl}" target="_blank" rel="noopener noreferrer" style="font-weight:700; color:var(--color-accent); display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-links-line"></i> ${shipment.tracking}</a>`
-                        : `<span style="font-weight:700;">${shipment.tracking}</span>`) +
-                      (window.renderCopyFieldBtn ? window.renderCopyFieldBtn(shipment.tracking, 'Tracking', 'Copiar código de tracking') : ''))
-                    : '-'}
+                <span style="background: var(--color-primary); color: #fff; padding: 0.14rem 0.55rem; border-radius: 99px; font-size: 0.68rem; font-weight: 700;">
+                  ${platformBadge}
                 </span>
-              </div>
-              <div class="detail-info-row">
-                <span class="detail-info-label">Tipo de Servicio:</span>
-                <span class="detail-info-value">${shipment.servicio_tipo_envio || linkedOrder?.shipping_method || '-'}</span>
-              </div>
-              <div class="detail-info-row">
-                <span class="detail-info-label">Estado Actual:</span>
-                <span class="detail-info-value">
-                  <span class="badge ${statusMeta.badgeClass}" style="padding: 0.25rem 0.7rem; border-radius: 99px; font-size: 0.78rem; font-weight: 700;">
-                    ${statusMeta.displayStatus}
+              </h4>
+
+              <div class="ssm-kpi-row">
+                <div class="ssm-kpi-box">
+                  <span class="ssm-kpi-label">Operador Courier</span>
+                  <span class="ssm-kpi-val">${courierInfo.label}${courierInfo.sub ? ` <small style="font-weight:500; color:var(--color-text-muted);">(${courierInfo.sub})</small>` : ''}</span>
+                </div>
+                <div class="ssm-kpi-box">
+                  <span class="ssm-kpi-label">Código de Guía</span>
+                  <span class="ssm-kpi-val" style="font-family: monospace; display: inline-flex; align-items: center; gap: 0.25rem;">
+                    ${shipment.tracking
+                      ? ((resolvedModalTrackUrl
+                          ? `<a href="${resolvedModalTrackUrl}" target="_blank" rel="noopener noreferrer" style="color: var(--color-primary); text-decoration: underline;">${shipment.tracking}</a>`
+                          : shipment.tracking) +
+                        (window.renderCopyFieldBtn ? window.renderCopyFieldBtn(shipment.tracking, 'Tracking', 'Copiar código de tracking') : ''))
+                      : 'Sin guía'}
                   </span>
-                </span>
+                </div>
+                <div class="ssm-kpi-box">
+                  <span class="ssm-kpi-label">Tipo de Servicio</span>
+                  <span class="ssm-kpi-val" id="ssm-service-type">${shipment.servicio_tipo_envio || linkedOrder?.shipping_method || 'Normal / Estándar'}</span>
+                </div>
               </div>
-              <div class="detail-info-row">
-                <span class="detail-info-label">Ingresado al Sistema:</span>
-                <span class="detail-info-value" style="font-size:0.8rem;">${dateStr}</span>
-              </div>
-              <div class="detail-info-row">
-                <span class="detail-info-label">Última Actualización:</span>
-                <span class="detail-info-value" style="font-size:0.8rem;">${updatedStr}</span>
+
+              <div class="ssm-info-list">
+                <div class="ssm-info-item">
+                  <span class="ssm-info-label"><i class="ri-Focus-2-line"></i> Estado Actual Courier:</span>
+                  <span class="ssm-info-val">
+                    <span class="badge ${statusMeta.badgeClass}" style="padding: 0.2rem 0.65rem; border-radius: 99px; font-size: 0.74rem; font-weight: 700;">
+                      ${statusMeta.displayStatus}
+                    </span>
+                  </span>
+                </div>
+                ${modalCommitInfo && (modalCommitInfo.hasDeadline || modalCommitInfo.isEnviame) ? `
+                  <div class="ssm-info-item">
+                    <span class="ssm-info-label"><i class="ri-calendar-check-line"></i> Compromiso Entrega (Envíame):</span>
+                    <span class="ssm-info-val">
+                      ${modalCommitInfo.hasDeadline
+                        ? `<span title="${modalCommitInfo.tooltip}" style="display: inline-flex; align-items: center; gap: 0.28rem; padding: 0.18rem 0.6rem; border-radius: 99px; font-size: 0.74rem; font-weight: 800; background: ${modalCommitInfo.badgeBg}; color: ${modalCommitInfo.badgeColor}; border: 1px solid ${modalCommitInfo.badgeBorder};">
+                            <i class="${modalCommitInfo.icon}"></i> ${modalCommitInfo.formattedDate} · ${modalCommitInfo.stateLabel}
+                          </span>`
+                        : `<span style="font-size: 0.76rem; color: var(--color-text-muted); font-style: italic;">Pendiente admisión en planta courier</span>`}
+                    </span>
+                  </div>
+                ` : ''}
+                ${enviameIdentifier ? `
+                  <div class="ssm-info-item">
+                    <span class="ssm-info-label"><i class="ri-Price-tag-2-line"></i> ID Delivery Envíame:</span>
+                    <span class="ssm-info-val" style="font-family: monospace;">
+                      #${enviameIdentifier}
+                      ${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(String(enviameIdentifier), 'ID Envíame', 'Copiar ID Envíame') : ''}
+                    </span>
+                  </div>
+                ` : ''}
+                <div class="ssm-info-item">
+                  <span class="ssm-info-label"><i class="ri-calendar-event-line"></i> Emisión Guía / Ingreso:</span>
+                  <span class="ssm-info-val">${dateStr}</span>
+                </div>
+                <div class="ssm-info-item">
+                  <span class="ssm-info-label"><i class="ri-refresh-line"></i> Última Sincronización:</span>
+                  <span class="ssm-info-val">${updatedStr}</span>
+                </div>
+                <div class="ssm-info-item" id="ssm-package-specs-row" style="display: none;">
+                  <span class="ssm-info-label"><i class="ri-box-3-line"></i> Especificaciones Paquete:</span>
+                  <span class="ssm-info-val" id="ssm-package-specs-val">-</span>
+                </div>
               </div>
             </div>
 
-            <!-- Destination section -->
-            <div class="shipment-detail-section">
-              <h4 class="shipment-detail-title"><i class="ri-map-pin-2-line"></i> Información del Cliente / Entrega</h4>
-              <div class="detail-info-row">
-                <span class="detail-info-label">Destinatario:</span>
-                <span class="detail-info-value" style="font-weight:700;">${shipment.nombre_destinatario || linkedOrder?.customer_name || '-'}</span>
-              </div>
-              <div class="detail-info-row">
-                <span class="detail-info-label">Dirección de Despacho:</span>
-                <span class="detail-info-value">${effDireccion}</span>
-              </div>
-              <div class="detail-info-row">
-                <span class="detail-info-label">Depto / Ofic / Casa:</span>
-                <span class="detail-info-value">${effComplemento}</span>
-              </div>
-              <div class="detail-info-row">
-                <span class="detail-info-label">Comuna / Ciudad:</span>
-                <span class="detail-info-value" style="font-weight:700;">${effComuna}</span>
-              </div>
-              <div class="detail-info-row">
-                <span class="detail-info-label">Teléfono móvil:</span>
-                <span class="detail-info-value" style="display: inline-flex; align-items: center; gap: 0.35rem;">
-                  ${effTelefono}
-                  ${effTelefono && effTelefono !== '-' && window.renderCopyFieldBtn ? window.renderCopyFieldBtn(effTelefono, 'Teléfono', 'Copiar teléfono') : ''}
+            <!-- TARJETA B: DESTINATARIO, DIRECCIÓN Y CONTACTO DIRECTO -->
+            <div class="ssm-card">
+              <h4 class="ssm-card-title">
+                <span style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-user-location-line" style="color: var(--color-primary); font-size: 1rem;"></i>
+                  Destinatario y Contacto (Soporte)
                 </span>
-              </div>
-              <div class="detail-info-row">
-                <span class="detail-info-label">Correo electrónico:</span>
-                <span class="detail-info-value">${effEmail}</span>
+                <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
+                  ${googleMapsUrl ? `
+                    <a href="${googleMapsUrl}" target="_blank" rel="noopener noreferrer" class="btn-ship-action" style="padding: 0.2rem 0.5rem; font-size: 0.7rem;" title="Ver dirección de entrega en Google Maps">
+                      <i class="ri-map-pin-line"></i> Mapa
+                    </a>
+                  ` : ''}
+                  ${waDirectCustomerUrl ? `
+                    <a href="${waDirectCustomerUrl}" target="_blank" rel="noopener noreferrer" class="btn-ship-action whatsapp" style="padding: 0.2rem 0.55rem; font-size: 0.7rem;" title="Abrir chat de WhatsApp directo con el destinatario">
+                      <i class="ri-whatsapp-line"></i> Contactar Comprador
+                    </a>
+                  ` : ''}
+                </div>
+              </h4>
+
+              <div class="ssm-info-list">
+                <div class="ssm-info-item">
+                  <span class="ssm-info-label"><i class="ri-user-3-line"></i> Nombre Destinatario:</span>
+                  <span class="ssm-info-val" style="display: inline-flex; align-items: center; gap: 0.25rem;" id="ssm-dest-name">
+                    ${effDestinatario}
+                    ${effDestinatario !== '-' && window.renderCopyFieldBtn ? window.renderCopyFieldBtn(effDestinatario, 'Destinatario', 'Copiar nombre') : ''}
+                  </span>
+                </div>
+                <div class="ssm-info-item">
+                  <span class="ssm-info-label"><i class="ri-home-4-line"></i> Dirección de Entrega:</span>
+                  <span class="ssm-info-val" style="display: inline-flex; align-items: center; gap: 0.25rem;" id="ssm-dest-addr">
+                    ${effDireccion}${effComplemento && effComplemento !== '-' ? `, ${effComplemento}` : ''}
+                    ${fullAddressForCopy && window.renderCopyFieldBtn ? window.renderCopyFieldBtn(fullAddressForCopy, 'Dirección', 'Copiar dirección completa') : ''}
+                  </span>
+                </div>
+                <div class="ssm-info-item">
+                  <span class="ssm-info-label"><i class="ri-building-line"></i> Comuna / Ciudad:</span>
+                  <span class="ssm-info-val" style="font-weight: 800; color: var(--color-primary);" id="ssm-dest-city">${effComuna}</span>
+                </div>
+                <div class="ssm-info-item">
+                  <span class="ssm-info-label"><i class="ri-phone-line"></i> Teléfono Cliente:</span>
+                  <span class="ssm-info-val" style="display: inline-flex; align-items: center; gap: 0.3rem;" id="ssm-dest-phone">
+                    ${effTelefono}
+                    ${effTelefono !== '-' && window.renderCopyFieldBtn ? window.renderCopyFieldBtn(effTelefono, 'Teléfono', 'Copiar teléfono') : ''}
+                  </span>
+                </div>
+                <div class="ssm-info-item">
+                  <span class="ssm-info-label"><i class="ri-mail-line"></i> Correo Electrónico:</span>
+                  <span class="ssm-info-val" style="display: inline-flex; align-items: center; gap: 0.3rem;" id="ssm-dest-email">
+                    ${effEmail}
+                    ${effEmail !== '-' && window.renderCopyFieldBtn ? window.renderCopyFieldBtn(effEmail, 'Correo', 'Copiar correo') : ''}
+                  </span>
+                </div>
               </div>
             </div>
 
           </div>
 
-          <!-- Right Column: Associated WMS Order Items -->
-          <div style="display: flex; flex-direction: column; gap: 1.5rem;">
-            <div class="shipment-detail-section" style="height: 100%; display: flex; flex-direction: column;">
-              <h4 class="shipment-detail-title"><i class="ri-shopping-bag-3-line"></i> Productos en la Orden de Venta</h4>
-              <div id="order-details-loading" style="text-align: center; padding: 3rem 1rem; color: var(--color-text-muted); font-size:0.875rem; flex:1; display:flex; align-items:center; justify-content:center; flex-direction:column;">
-                <div style="margin-bottom:0.5rem; font-size:1.5rem;"><i class="ri-loop-right-line"></i></div>
-                Buscando orden de venta en WMS...
-              </div>
-              <div id="order-details-content" style="display: none; flex:1;">
-                <!-- Dynamically filled by fetchAndRenderAssociatedOrder -->
+          <!-- COLUMNA DERECHA: BODEGA / PICKING + CONTENIDO DEL PAQUETE -->
+          <div style="display: flex; flex-direction: column; gap: 1.15rem;">
+            
+            <!-- TARJETA C: PREPARACIÓN EN BODEGA Y TRAZABILIDAD DE PICKING -->
+            <div class="ssm-card" id="ssm-picking-card">
+              <h4 class="ssm-card-title">
+                <span style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-barcode-box-line" style="color: var(--color-primary); font-size: 1rem;"></i>
+                  Preparación en Bodega y Picking (WMS)
+                </span>
+                <span id="ssm-picking-header-action"></span>
+              </h4>
+              <div id="ssm-picking-body" style="font-size: 0.8rem; color: var(--color-text-muted); padding: 0.5rem 0;">
+                <i class="ri-loader-4-line ri-spin"></i> Consultando trazabilidad de bodega y escaneo de unidades...
               </div>
             </div>
+
+            <!-- TARJETA D: CONTENIDO DEL PAQUETE Y ORDEN DE VENTA -->
+            <div class="ssm-card" style="display: flex; flex-direction: column;">
+              <h4 class="ssm-card-title">
+                <span style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-shopping-bag-3-line" style="color: var(--color-primary); font-size: 1rem;"></i>
+                  Contenido del Paquete y Orden de Venta
+                </span>
+                <span id="ssm-order-units-badge"></span>
+              </h4>
+              <div id="order-details-loading" style="text-align: center; padding: 2rem 1rem; color: var(--color-text-muted); font-size: 0.84rem; display: flex; align-items: center; justify-content: center; flex-direction: column;">
+                <div style="margin-bottom: 0.4rem; font-size: 1.4rem;"><i class="ri-loader-4-line ri-spin"></i></div>
+                Sincronizando productos y datos de la orden WMS...
+              </div>
+              <div id="order-details-content" style="display: none;"></div>
+            </div>
+
           </div>
+
         </div>
 
       </div>
-      
-      <div class="slide-over-footer">
-        ${trackingBtnHtml}
-        <button class="btn btn-outline" id="btn-close-shipment-footer">Cerrar</button>
+
+      <!-- FOOTER LIMPIO -->
+      <div class="ssm-footer">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          ${publicPortalUrl ? `
+            <a href="${escPublicPortalUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; padding: 0.5rem 0.95rem;">
+              <i class="ri-external-link-line"></i> Abrir Seguimiento Público
+            </a>
+            <button type="button" class="btn btn-outline" onclick="window.openShipmentShareModal('${escShipId}')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; padding: 0.5rem 0.95rem; border-color: rgba(16, 185, 129, 0.4); color: #059669;">
+              <i class="ri-share-forward-line"></i> Compartir Link al Comprador
+            </button>
+          ` : ''}
+          ${hasExternalCourierWeb ? `
+            <a href="${resolvedModalTrackUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-complementary" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; padding: 0.5rem 0.95rem;">
+              <i class="ri-truck-line"></i> Rastreo Web Courier
+            </a>
+          ` : ''}
+        </div>
+        <button class="btn btn-outline" id="btn-close-shipment-footer" style="padding: 0.5rem 1.2rem; font-weight: 700;">Cerrar</button>
       </div>
     </div>
   `;
 
   document.body.appendChild(modal);
 
-  // Close handlers
+  const onEscKey = (e) => {
+    if (e.key === 'Escape') closeModal();
+  };
+
   const closeModal = () => {
+    document.removeEventListener('keydown', onEscKey);
     modal.classList.remove('active');
     setTimeout(() => {
       modal.remove();
-    }, 400);
+    }, 280);
   };
 
+  document.addEventListener('keydown', onEscKey);
   document.getElementById('btn-close-shipment-modal').addEventListener('click', closeModal);
   document.getElementById('btn-close-shipment-footer').addEventListener('click', closeModal);
 
@@ -21063,135 +22048,514 @@ function showShipmentDetailsModal(shipment) {
     }
   });
 
-  // Load WMS orders mapping asynchronously
+  // Load WMS order + Picker trace asynchronously
   fetchAndRenderAssociatedOrder(shipment.pedido_referencia, shipment);
 }
 
 async function fetchAndRenderAssociatedOrder(pedidoRef, shipment) {
   const loadingEl = document.getElementById('order-details-loading');
   const contentEl = document.getElementById('order-details-content');
+  const pickingBodyEl = document.getElementById('ssm-picking-body');
+  const pickingHeaderActionEl = document.getElementById('ssm-picking-header-action');
   if (!loadingEl || !contentEl) return;
-  
-  const linkedOrderId = shipment?._linkedOrder?.id || null;
 
-  if (!pedidoRef && !linkedOrderId) {
+  const linkedOrderId = shipment?._linkedOrder?.id || null;
+  const cleanTrack = (shipment?.tracking && shipment.tracking !== '-' && shipment.tracking !== 'N/A')
+    ? String(shipment.tracking).trim()
+    : '';
+
+  if (!pedidoRef && !linkedOrderId && !cleanTrack) {
     loadingEl.innerHTML = `
-      <span style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"><i class="ri-search-line"></i></span>
-      No existe una referencia de pedido válida vinculada a este despacho.
+      <span style="font-size: 1.4rem; display: block; margin-bottom: 0.4rem;"><i class="ri-search-line"></i></span>
+      No existe una referencia de pedido vinculada a este despacho.
     `;
+    if (pickingBodyEl) {
+      pickingBodyEl.innerHTML = `<span style="color: var(--color-text-muted); font-style: italic;">Sin referencia de orden para consultar historial de picking.</span>`;
+    }
     return;
   }
 
+  const orderSelectCols = `
+    id,
+    status,
+    estado_wms,
+    created_at,
+    external_order_number,
+    external_platform,
+    origen,
+    item,
+    cantidad,
+    sku,
+    comercio,
+    total_value,
+    customer_name,
+    customer_email,
+    customer_phone,
+    shipping_address,
+    shipping_city,
+    shipping_complement,
+    shipping_method,
+    payment_status,
+    tracking_number,
+    tracking_url,
+    courier,
+    categoria_entrega,
+    label_url,
+    raw_shopify_data,
+    raw_woocommerce_data,
+    raw_jumpseller_data,
+    agenda,
+    operador,
+    fecha_procesamiento,
+    sucursal_pickeo,
+    stock_descontado,
+    stock_descontado_at,
+    order_items (
+      quantity,
+      product_id,
+      warehouse_id,
+      tag,
+      is_gift,
+      campaign_id,
+      is_picking_request,
+      warehouses (name),
+      products (id, sku, name, price, weight, volumen, image_url, options, is_virtual)
+    )
+  `;
+
   try {
-    let query = supabase
-      .from('orders')
-      .select(`
-        id,
-        external_order_number,
-        status,
-        estado_wms,
-        created_at,
-        total_value,
-        order_items (
-          quantity,
-          products (sku, name)
-        )
-      `);
+    let orders = [];
 
     if (linkedOrderId) {
-      query = query.eq('id', linkedOrderId);
-    } else {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(orderSelectCols)
+        .eq('id', linkedOrderId);
+      if (error) throw error;
+      orders = data || [];
+    }
+
+    if ((!orders || orders.length === 0) && pedidoRef) {
       const cleanRef = String(pedidoRef).trim();
       const bareRef = cleanRef.replace(/^#/, '');
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanRef);
+      let query = supabase.from('orders').select(orderSelectCols);
       if (isUuid) {
         query = query.or(`external_order_number.eq."${cleanRef}",id.eq."${cleanRef}"`);
       } else {
-        query = query.in('external_order_number', [cleanRef, bareRef, `#${bareRef}`]);
+        const candidates = window.normalizeOrderKeys
+          ? window.normalizeOrderKeys(cleanRef)
+          : [cleanRef, bareRef, `#${bareRef}`];
+        query = query.in('external_order_number', candidates);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      orders = data || [];
+    }
+
+    if ((!orders || orders.length === 0) && cleanTrack) {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(orderSelectCols)
+        .eq('tracking_number', cleanTrack);
+      if (!error && data && data.length > 0) {
+        orders = data;
       }
     }
 
-    const { data: orders, error } = await query;
+    const order = (orders && orders.length > 0) ? orders[0] : null;
+    window._currentModalOrder = order;
 
-    if (error) throw error;
+    // 1. Consultar siempre el sistema Picker (incluso si el envío no tiene orden previa en public.orders)
+    let pickerStatus = order ? 'Completado / Despachado' : 'Sin registro en Picker';
+    let pickerBranch = order?.sucursal_pickeo || 'Bodega Central';
+    let pickerTimeStr = order?.fecha_procesamiento || '-';
+    let pickerTotu = null;
+    let pickerObs = null;
+    let pickerItemsSummary = null;
+    let hasPickerRecord = false;
 
-    if (!orders || orders.length === 0) {
-      loadingEl.innerHTML = `
-        <span style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"><i class="ri-search-line"></i></span>
-        Este despacho no está asociado a una Orden de Venta local de WMS STOCKA.
-        <br><br>
-        <span style="font-size: 0.75rem; display: block; font-weight: normal; color: var(--color-text-muted); line-height: 1.4;">
-          El envío fue consolidado directamente desde las plataformas logísticas externas (LightData, Enviame o Optiroute). Aun así, su enlace público de seguimiento está activo.
-        </span>
+    const pickerRefKey = order?.external_order_number || pedidoRef || order?.id || '';
+    if (pickingHeaderActionEl && pickerRefKey) {
+      const safeModalTarget = (order?.id || pickerRefKey).replace(/'/g, "\\'");
+      pickingHeaderActionEl.innerHTML = `
+        <button type="button" class="btn-ship-action" style="padding: 0.2rem 0.55rem; font-size: 0.7rem;" onclick="window.openPickerOrderHistoryModal('${safeModalTarget}')" title="Ver bitácora completa de escaneos en el sistema Picker">
+          <i class="ri-history-line"></i> Historial Picker
+        </button>
       `;
+    }
+
+    try {
+      const pickerClient = window.supabase ? window.supabase.createClient(
+        'https://hpomymtecmxujbjxqawu.supabase.co',
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ'
+      ) : null;
+
+      if (pickerClient && window.normalizeOrderKeys && pickerRefKey) {
+        const searchKeysSet = new Set(window.normalizeOrderKeys(pickerRefKey));
+        if (pedidoRef) {
+          window.normalizeOrderKeys(pedidoRef).forEach(k => searchKeysSet.add(k));
+        }
+        if (order?.id) {
+          window.normalizeOrderKeys(order.id).forEach(k => searchKeysSet.add(k));
+        }
+        const searchKeys = Array.from(searchKeysSet);
+
+        const [{ data: activeRows }, { data: logRows }] = await Promise.all([
+          pickerClient.from('active_orders').select('*').in('order_number', searchKeys).limit(1),
+          pickerClient.from('history_logs').select('*').in('pedido', searchKeys).order('created_at', { ascending: false }).limit(1)
+        ]);
+
+        if (logRows && logRows.length > 0) {
+          hasPickerRecord = true;
+          const lg = logRows[0];
+          pickerStatus = lg.estado || 'Completado';
+          pickerBranch = lg.sucursal || pickerBranch;
+          pickerObs = lg.comentarios || null;
+          pickerItemsSummary = lg.items_summary || null;
+          if (lg.created_at) {
+            pickerTimeStr = new Date(lg.created_at).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
+          } else if (lg.fecha) {
+            pickerTimeStr = `${lg.fecha} ${lg.hora || ''}`.trim();
+          }
+        } else if (activeRows && activeRows.length > 0) {
+          hasPickerRecord = true;
+          const act = activeRows[0];
+          pickerStatus = act.sheet_status || 'En preparación';
+          pickerBranch = act.sucursal || pickerBranch;
+          pickerTotu = act.totu || null;
+          pickerObs = act.observation || null;
+          if (act.created_at) {
+            pickerTimeStr = new Date(act.created_at).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
+          }
+        }
+      }
+    } catch (pickErr) {
+      console.warn('Aviso consultando detalle de Picker en modal de despacho:', pickErr);
+    }
+
+    const summaryPillsHtml = pickerItemsSummary && pickerItemsSummary !== '-'
+      ? `<div style="margin-top: 0.55rem; padding-top: 0.5rem; border-top: 1px dashed var(--color-border);">
+          <span style="display: block; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 0.35rem;">
+            <i class="ri-qr-scan-2-line" style="color: #10b981;"></i> Escaneo de Control de Calidad (Picker):
+          </span>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.3rem;">
+            ${pickerItemsSummary.split(',').map(p => p.trim()).filter(Boolean).map(p => `
+              <span style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.28); border-radius: 6px; padding: 0.12rem 0.45rem; font-size: 0.7rem; font-family: monospace; font-weight: 700;">
+                ✓ ${window.escapeHtml ? window.escapeHtml(p) : p}
+              </span>
+            `).join('')}
+          </div>
+        </div>`
+      : '';
+
+    // Caso A: El despacho no tiene orden en public.orders (creado directo en Envíame/LightData/Optiroute)
+    if (!order) {
+      const extPlat = shipment.source_table === 'enviame_shipments'
+        ? 'Envíame'
+        : (shipment.source_table === 'lightdata_envios' ? 'LightData' : 'Optiroute');
+
+      if (pickingBodyEl) {
+        if (hasPickerRecord) {
+          pickingBodyEl.innerHTML = `
+            <div class="ssm-kpi-row" style="margin-bottom: 0.65rem;">
+              <div class="ssm-kpi-box">
+                <span class="ssm-kpi-label">Origen Despacho</span>
+                <span class="ssm-kpi-val">${extPlat}</span>
+              </div>
+              <div class="ssm-kpi-box">
+                <span class="ssm-kpi-label">Estado Picker</span>
+                <span class="ssm-kpi-val" style="color: var(--color-primary);">${window.escapeHtml ? window.escapeHtml(pickerStatus) : pickerStatus}</span>
+              </div>
+              <div class="ssm-kpi-box">
+                <span class="ssm-kpi-label">Sucursal Preparación</span>
+                <span class="ssm-kpi-val">${window.escapeHtml ? window.escapeHtml(pickerBranch) : pickerBranch}</span>
+              </div>
+            </div>
+            <div class="ssm-info-list">
+              <div class="ssm-info-item">
+                <span class="ssm-info-label"><i class="ri-time-line"></i> Fecha/Hora Escaneo Picker:</span>
+                <span class="ssm-info-val">${pickerTimeStr}</span>
+              </div>
+              ${pickerTotu ? `
+                <div class="ssm-info-item">
+                  <span class="ssm-info-label"><i class="ri-inbox-archive-line"></i> Cesta / Tote de Armado:</span>
+                  <span class="ssm-info-val" style="font-family: monospace;">#${pickerTotu}</span>
+                </div>
+              ` : ''}
+              ${pickerObs ? `
+                <div class="ssm-info-item">
+                  <span class="ssm-info-label"><i class="ri-chat-check-line"></i> Observación de Bodega:</span>
+                  <span class="ssm-info-val">${window.escapeHtml ? window.escapeHtml(pickerObs) : pickerObs}</span>
+                </div>
+              ` : ''}
+            </div>
+            ${summaryPillsHtml}
+          `;
+        } else {
+          pickingBodyEl.innerHTML = `
+            <div class="ssm-kpi-row" style="margin-bottom: 0.55rem;">
+              <div class="ssm-kpi-box">
+                <span class="ssm-kpi-label">Modalidad de Emisión</span>
+                <span class="ssm-kpi-val">Directo ${extPlat}</span>
+              </div>
+              <div class="ssm-kpi-box">
+                <span class="ssm-kpi-label">Referencia Guía</span>
+                <span class="ssm-kpi-val" style="font-family: monospace;">${window.escapeHtml ? window.escapeHtml(pedidoRef || '-') : (pedidoRef || '-')}</span>
+              </div>
+              <div class="ssm-kpi-box">
+                <span class="ssm-kpi-label">Trazabilidad</span>
+                <span class="ssm-kpi-val" style="color: #10b981;">Activa en Courier</span>
+              </div>
+            </div>
+            <div style="font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.45;">
+              Envío generado directamente en ${extPlat}. Puedes consultar la bitácora del escáner con el botón <strong>Historial Picker</strong>.
+            </div>
+          `;
+        }
+      }
+
+      if (pickerItemsSummary && pickerItemsSummary !== '-') {
+        const parsedPickerItems = pickerItemsSummary.split(',').map(p => p.trim()).filter(Boolean);
+        contentEl.innerHTML = `
+          <div style="margin-bottom: 0.65rem; font-size: 0.76rem; color: var(--color-text-muted);">
+            Unidades registradas durante el escaneo en bodega (Picker) para la orden <strong>#${window.escapeHtml ? window.escapeHtml(pedidoRef) : pedidoRef}</strong>:
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+            ${parsedPickerItems.map(line => `
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.75rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; font-size: 0.8rem; font-weight: 700;">
+                <span style="font-family: monospace; color: var(--color-text-main);"><i class="ri-checkbox-circle-fill" style="color: #10b981;"></i> ${window.escapeHtml ? window.escapeHtml(line) : line}</span>
+                <span style="font-size: 0.7rem; color: #059669; background: rgba(16, 185, 129, 0.12); padding: 0.1rem 0.45rem; border-radius: 99px;">Verificado</span>
+              </div>
+            `).join('')}
+          </div>
+        `;
+        loadingEl.style.display = 'none';
+        contentEl.style.display = 'block';
+      } else {
+        loadingEl.innerHTML = `
+          <span style="font-size: 1.35rem; display: block; margin-bottom: 0.35rem; color: var(--color-primary);"><i class="ri-truck-line"></i></span>
+          Despacho emitido directamente vía <strong>${extPlat}</strong> (Ref: <strong>${window.escapeHtml ? window.escapeHtml(pedidoRef || '-') : (pedidoRef || '-')}</strong>) sin desglose de SKU previo en el módulo de Pedidos WMS.
+        `;
+      }
       return;
     }
 
-    const order = orders[0];
-    const items = order.order_items || [];
-    
-    let itemsHtml = '';
-    if (items.length === 0) {
-      itemsHtml = '<p style="color: var(--color-text-muted); font-size: 0.85rem; padding:1rem; text-align:center;">No hay productos registrados en este pedido.</p>';
-    } else {
-      itemsHtml = `
-        <div style="max-height: 260px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
-          <table class="data-table" style="width: 100%; font-size: 0.8rem; margin:0;">
+    // Caso B: Orden encontrada en public.orders
+    let items = Array.isArray(order.order_items) ? [...order.order_items] : [];
+    if (items.length === 0 && (order.item || order.sku)) {
+      items = [{
+        quantity: Number(order.cantidad) || 1,
+        tag: '',
+        is_gift: false,
+        products: {
+          sku: order.sku || '-',
+          name: order.item || 'Producto del pedido',
+          weight: 0,
+          volumen: 0
+        }
+      }];
+    }
+    const totalUnits = items.reduce((acc, it) => acc + (Number(it.quantity) || 0), 0);
+
+    // Actualizar botón rápido en el header para abrir la Página 360° del Pedido
+    const headerOrderBtnWrap = document.getElementById('shipment-modal-header-order-btn');
+    if (headerOrderBtnWrap) {
+      headerOrderBtnWrap.innerHTML = `
+        <button type="button" class="btn-ship-action primary" onclick="window.openOrderInNewTab('${order.id}', false)" title="Abrir ficha completa 360° de este pedido en nueva pestaña">
+          <i class="ri-file-list-3-line"></i> Ficha 360° Pedido
+        </button>
+      `;
+    }
+
+    // Botón de descarga de etiqueta si el pedido tiene etiqueta disponible y no se mostró antes
+    const dynLabelWrap = document.getElementById('shipment-modal-dynamic-label-btn');
+    if (dynLabelWrap && (order.label_url || order.tracking_number)) {
+      if (order.label_url) {
+        dynLabelWrap.innerHTML = `
+          <a href="${window.escapeHtmlAttr ? window.escapeHtmlAttr(order.label_url) : order.label_url}" target="_blank" rel="noopener noreferrer" class="btn-ship-action" title="Ver etiqueta de despacho">
+            <i class="ri-printer-line"></i> Ver Etiqueta
+          </a>
+        `;
+      } else {
+        dynLabelWrap.innerHTML = `
+          <button type="button" class="btn-ship-action" onclick="window.downloadOrderLabel('${order.id}', '${order.external_order_number || order.id}', this)" title="Descargar etiqueta PDF del envío">
+            <i class="ri-download-2-line"></i> Etiqueta PDF
+          </button>
+        `;
+      }
+    }
+
+    // Actualizar Paso 1 de la línea de tiempo con la fecha exacta de la orden de venta
+    const orderCreatedStr = order.created_at
+      ? new Date(order.created_at).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })
+      : null;
+    const step1SubEl = document.getElementById('ssm-step-1-sub');
+    const step1TimeEl = document.getElementById('ssm-step-1-time');
+    if (step1SubEl) {
+      step1SubEl.textContent = `Origen: ${order.origen || order.external_platform || 'WMS'}`;
+    }
+    if (step1TimeEl && orderCreatedStr) {
+      step1TimeEl.textContent = orderCreatedStr;
+    }
+
+    // Calcular peso total y volumen estimado del paquete a partir de los productos
+    let totalWeightKg = 0;
+    let totalVol = 0;
+    items.forEach(it => {
+      const q = Number(it.quantity) || 1;
+      const w = Number(it.products?.weight) || 0;
+      const vol = Number(it.products?.volumen) || 0;
+      totalWeightKg += w * q;
+      totalVol += vol * q;
+    });
+    const specsRowEl = document.getElementById('ssm-package-specs-row');
+    const specsValEl = document.getElementById('ssm-package-specs-val');
+    if (specsRowEl && specsValEl) {
+      const specsParts = [`${totalUnits} ${totalUnits === 1 ? 'unidad' : 'unidades'} (${items.length} SKU)`];
+      if (totalWeightKg > 0) specsParts.push(`${totalWeightKg.toFixed(2)} kg`);
+      if (totalVol > 0) specsParts.push(`Vol: ${totalVol.toFixed(2)}`);
+      specsValEl.textContent = specsParts.join(' · ');
+      specsRowEl.style.display = 'flex';
+    }
+
+    // Completar datos de contacto si en el despacho venían vacíos
+    const destPhoneEl = document.getElementById('ssm-dest-phone');
+    if (destPhoneEl && (!shipment.telefono_destino || shipment.telefono_destino === '-') && order.customer_phone) {
+      destPhoneEl.innerHTML = `${window.escapeHtml(order.customer_phone)} ${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.customer_phone, 'Teléfono', 'Copiar teléfono') : ''}`;
+    }
+    const destEmailEl = document.getElementById('ssm-dest-email');
+    if (destEmailEl && (!shipment.email_cliente_destino || shipment.email_cliente_destino === '-') && order.customer_email) {
+      destEmailEl.innerHTML = `${window.escapeHtml(order.customer_email)} ${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.customer_email, 'Correo', 'Copiar correo') : ''}`;
+    }
+
+    // Badge de unidades en el título de la tarjeta de productos
+    const unitsBadgeEl = document.getElementById('ssm-order-units-badge');
+    if (unitsBadgeEl) {
+      unitsBadgeEl.innerHTML = `
+        <span style="background: rgba(99, 102, 241, 0.12); color: var(--color-primary); padding: 0.14rem 0.55rem; border-radius: 99px; font-size: 0.7rem; font-weight: 800;">
+          ${totalUnits} ${totalUnits === 1 ? 'unidad' : 'unidades'} · ${window.formatCLP(order.total_value || 0)}
+        </span>
+      `;
+    }
+
+    // Renderizar Tarjeta D: Contenido del Paquete y Orden de Venta
+    const orderNote = window.getOrderNoteText ? window.getOrderNoteText(order) : '';
+    const wmsState = order.estado_wms || order.status || '-';
+    const platformName = order.origen || order.external_platform || 'WMS';
+
+    const itemsHtml = items.length === 0
+      ? '<p style="color: var(--color-text-muted); font-size: 0.82rem; padding: 0.85rem; text-align: center; margin: 0;">No hay productos desglosados en esta orden.</p>'
+      : `
+        <div style="max-height: 230px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 10px;">
+          <table class="data-table" style="width: 100%; font-size: 0.78rem; margin: 0;">
             <thead>
               <tr style="background-color: var(--color-bg);">
-                <th style="padding: 0.55rem 0.75rem; font-size:0.7rem;">SKU / Producto</th>
-                <th style="padding: 0.55rem 0.75rem; text-align: center; width:65px; font-size:0.7rem;">Cant</th>
+                <th style="padding: 0.5rem 0.75rem; font-size: 0.68rem;">SKU / Artículo del Paquete</th>
+                <th style="padding: 0.5rem 0.65rem; text-align: center; width: 65px; font-size: 0.68rem;">Cant</th>
               </tr>
             </thead>
             <tbody>
-              ${items.map(item => `
-                <tr>
-                  <td style="padding: 0.55rem 0.75rem;">
-                    <span style="font-weight: 700; display: block; color: var(--color-dark); font-family: monospace;">${item.products ? item.products.sku : '-'}</span>
-                    <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.products ? item.products.name : 'Producto'}</span>
-                  </td>
-                  <td style="padding: 0.55rem 0.75rem; text-align: center; font-weight: 700; color: var(--color-accent); font-size:0.875rem;">${item.quantity}</td>
-                </tr>
-              `).join('')}
+              ${items.map(item => {
+                const sku = item.products?.sku || '-';
+                const name = item.products?.name || 'Producto';
+                const tag = item.tag || (item.is_gift || item.campaign_id ? 'Campaña' : '');
+                return `
+                  <tr>
+                    <td style="padding: 0.5rem 0.75rem;">
+                      <div style="display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;">
+                        <span style="font-weight: 800; color: var(--color-text-main); font-family: monospace;">${window.escapeHtml ? window.escapeHtml(sku) : sku}</span>
+                        ${sku !== '-' && window.renderCopyFieldBtn ? window.renderCopyFieldBtn(sku, 'SKU', 'Copiar SKU') : ''}
+                        ${tag ? `<span style="background: rgba(99, 102, 241, 0.12); color: var(--color-primary); font-size: 0.64rem; font-weight: 700; padding: 0.05rem 0.35rem; border-radius: 4px;">${window.escapeHtml ? window.escapeHtml(tag) : tag}</span>` : ''}
+                      </div>
+                      <span style="font-size: 0.74rem; color: var(--color-text-muted); display: block; margin-top: 0.1rem;">${window.escapeHtml ? window.escapeHtml(name) : name}</span>
+                    </td>
+                    <td style="padding: 0.5rem 0.65rem; text-align: center; font-weight: 800; color: var(--color-primary); font-size: 0.86rem;">x${item.quantity}</td>
+                  </tr>
+                `;
+              }).join('')}
             </tbody>
           </table>
         </div>
       `;
-    }
-
-    const orderDateStr = order.created_at ? new Date(order.created_at).toLocaleDateString('es-CL') : '-';
-    const wmsState = order.estado_wms || order.status || '-';
 
     contentEl.innerHTML = `
-      <div style="background-color: var(--color-bg); padding: 1rem 1.25rem; border-radius: var(--radius-md); border:1px solid var(--color-border); margin: 1rem 1.25rem; font-size: 0.825rem;">
-        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
-          <span style="color: var(--color-text-muted); font-weight:500;">ID / N° Pedido WMS:</span>
-          <span style="font-weight:700; color: var(--color-dark); font-family: monospace;">${order.external_order_number || order.id.split('-')[0]}</span>
+      <div class="ssm-kpi-row" style="margin-bottom: 0.75rem;">
+        <div class="ssm-kpi-box">
+          <span class="ssm-kpi-label">N° Orden WMS</span>
+          <span class="ssm-kpi-val" style="font-family: monospace;">${order.external_order_number || order.id.split('-')[0]}</span>
         </div>
-        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
-          <span style="color: var(--color-text-muted); font-weight:500;">Fecha de Creación:</span>
-          <span style="font-weight:600;">${orderDateStr}</span>
+        <div class="ssm-kpi-box">
+          <span class="ssm-kpi-label">Canal de Venta</span>
+          <span class="ssm-kpi-val">${window.escapeHtml ? window.escapeHtml(platformName) : platformName}</span>
         </div>
-        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
-          <span style="color: var(--color-text-muted); font-weight:500;">Valor Declarado:</span>
-          <span style="font-weight:700; color: var(--color-text-main);">${window.formatCLP(order.total_value || 0)}</span>
-        </div>
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span style="color: var(--color-text-muted); font-weight:500;">Estado en Bodega:</span>
-          <span style="background-color: #d1fae5; color: #065f46; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.72rem; font-weight:700; text-transform:capitalize;">
-            ${wmsState}
-          </span>
+        <div class="ssm-kpi-box">
+          <span class="ssm-kpi-label">Valor Declarado</span>
+          <span class="ssm-kpi-val">${window.formatCLP(order.total_value || 0)}</span>
         </div>
       </div>
-      
-      <div style="padding: 0 1.25rem 1.25rem;">
-        <h5 style="font-size: 0.75rem; font-weight: 700; margin-bottom: 0.5rem; text-transform: uppercase; color: var(--color-text-muted); letter-spacing:0.02em;">Artículos Solicitados (${items.reduce((acc, it) => acc + (Number(it.quantity) || 0), 0)} uds)</h5>
-        ${itemsHtml}
-      </div>
+      ${orderNote ? `
+        <div style="margin-bottom: 0.75rem; padding: 0.5rem 0.7rem; border-radius: 8px; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.28); border-left: 3px solid #f59e0b; font-size: 0.76rem; color: var(--color-text-main);">
+          <strong style="color: #d97706;"><i class="ri-sticky-note-line"></i> Nota del Pedido:</strong> ${window.escapeHtml ? window.escapeHtml(orderNote) : orderNote}
+        </div>
+      ` : ''}
+      ${itemsHtml}
     `;
 
     loadingEl.style.display = 'none';
     contentEl.style.display = 'block';
+
+    // Actualizar Paso 2 del Stepper con los datos reales de Picking
+    const step2SubEl = document.getElementById('ssm-step-2-sub');
+    const step2TimeEl = document.getElementById('ssm-step-2-time');
+    if (step2SubEl) step2SubEl.textContent = `${pickerBranch} · ${pickerStatus}`;
+    if (step2TimeEl && pickerTimeStr && pickerTimeStr !== '-') step2TimeEl.textContent = pickerTimeStr;
+
+    if (pickingBodyEl) {
+      pickingBodyEl.innerHTML = `
+        <div class="ssm-kpi-row" style="margin-bottom: 0.65rem;">
+          <div class="ssm-kpi-box">
+            <span class="ssm-kpi-label">Estado Bodega WMS</span>
+            <span class="ssm-kpi-val">
+              <span style="background: #d1fae5; color: #065f46; padding: 0.14rem 0.5rem; border-radius: 99px; font-size: 0.72rem; font-weight: 800;">
+                ${window.escapeHtml ? window.escapeHtml(wmsState) : wmsState}
+              </span>
+            </span>
+          </div>
+          <div class="ssm-kpi-box">
+            <span class="ssm-kpi-label">Estado Picker</span>
+            <span class="ssm-kpi-val" style="color: var(--color-primary);">${window.escapeHtml ? window.escapeHtml(pickerStatus) : pickerStatus}</span>
+          </div>
+          <div class="ssm-kpi-box">
+            <span class="ssm-kpi-label">Sucursal Preparación</span>
+            <span class="ssm-kpi-val">${window.escapeHtml ? window.escapeHtml(pickerBranch) : pickerBranch}</span>
+          </div>
+        </div>
+        <div class="ssm-info-list">
+          <div class="ssm-info-item">
+            <span class="ssm-info-label"><i class="ri-calendar-todo-line"></i> Agenda / Procesamiento:</span>
+            <span class="ssm-info-val">${order.agenda || 'General'} · ${order.fecha_procesamiento || orderCreatedStr || '-'}</span>
+          </div>
+          <div class="ssm-info-item">
+            <span class="ssm-info-label"><i class="ri-time-line"></i> Fecha/Hora Escaneo Picker:</span>
+            <span class="ssm-info-val">${pickerTimeStr}</span>
+          </div>
+          ${pickerTotu ? `
+            <div class="ssm-info-item">
+              <span class="ssm-info-label"><i class="ri-inbox-archive-line"></i> Cesta / Tote de Armado:</span>
+              <span class="ssm-info-val" style="font-family: monospace;">#${pickerTotu}</span>
+            </div>
+          ` : ''}
+          ${pickerObs ? `
+            <div class="ssm-info-item">
+              <span class="ssm-info-label"><i class="ri-chat-check-line"></i> Observación de Bodega:</span>
+              <span class="ssm-info-val">${window.escapeHtml ? window.escapeHtml(pickerObs) : pickerObs}</span>
+            </div>
+          ` : ''}
+        </div>
+        ${summaryPillsHtml}
+      `;
+    }
 
   } catch (err) {
     console.error('Error fetching associated order details:', err);
@@ -21199,6 +22563,9 @@ async function fetchAndRenderAssociatedOrder(pedidoRef, shipment) {
       <span style="color: red; font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"><i class="ri-error-warning-line"></i></span>
       Error al cargar los detalles del pedido asociado en la base de datos.
     `;
+    if (pickingBodyEl) {
+      pickingBodyEl.innerHTML = `<span style="color: var(--color-text-muted); font-size: 0.8rem;">No fue posible cargar la información de preparación en este momento.</span>`;
+    }
   }
 }
 
@@ -44034,7 +45401,10 @@ window.filterClientNewOrderProducts = function() {
   const filtered = products.filter(p => {
     const sku = (p.sku || '').toLowerCase();
     const name = (p.name || '').toLowerCase();
-    return sku.includes(searchTerm) || name.includes(searchTerm);
+    const compMatch = p.is_pack && Array.isArray(p.packItems) && p.packItems.some(pm =>
+      (pm.sku || '').toLowerCase().includes(searchTerm) || (pm.name || '').toLowerCase().includes(searchTerm)
+    );
+    return sku.includes(searchTerm) || name.includes(searchTerm) || (p.is_pack && 'pack'.includes(searchTerm)) || compMatch;
   });
 
   if (filtered.length === 0) {
@@ -44048,22 +45418,41 @@ window.filterClientNewOrderProducts = function() {
 
   let html = '';
   filtered.forEach(p => {
-    const displayVal = `${p.sku} - ${p.name} (${window.formatCLP(p.price || 0)})`;
+    const isPack = Boolean(p.is_pack);
+    const displayVal = `${isPack ? '[PACK] ' : ''}${p.sku} - ${p.name} (${window.formatCLP(p.price || 0)})`;
     const stockQty = p.availableStock !== undefined ? p.availableStock : 0;
     const isOutOfStock = stockQty <= 0;
     const stockColor = isOutOfStock ? 'var(--color-danger, #ef4444)' : 'var(--color-success, #10b981)';
-    const stockText = isOutOfStock ? 'Sin stock' : `Stock: ${stockQty} und.`;
+    const stockText = isPack
+      ? (isOutOfStock ? 'Sin stock p/armar' : `Armables: ${stockQty} pack(s)`)
+      : (isOutOfStock ? 'Sin stock' : `Stock: ${stockQty} und.`);
+
+    const packBadge = isPack
+      ? `<span style="background: rgba(124, 58, 237, 0.14); color: #7c3aed; border: 1px solid rgba(124, 58, 237, 0.3); font-size: 0.66rem; font-weight: 700; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-stack-line"></i> PACK</span>`
+      : '';
+
+    const packComponentsLine = isPack
+      ? (Array.isArray(p.packItems) && p.packItems.length > 0
+          ? `<div style="font-size: 0.72rem; color: #7c3aed; background: rgba(124, 58, 237, 0.06); border: 1px dashed rgba(124, 58, 237, 0.25); border-radius: 4px; padding: 2px 6px; margin-top: 2px;">
+               <i class="ri-git-branch-line"></i> <strong>Se desglosa en bodega:</strong> ${p.packItems.map(pm => `${escapeHtml(pm.sku)} (x${pm.quantity})`).join(' + ')}
+             </div>`
+          : `<div style="font-size: 0.72rem; color: #ef4444; margin-top: 2px;"><i class="ri-alert-line"></i> Pack sin componentes asociados</div>`)
+      : '';
 
     html += `
-      <div class="order-product-option" data-id="${p.id}" data-display="${displayVal}" style="padding: 0.5rem 0.75rem; cursor: ${isOutOfStock ? 'not-allowed' : 'pointer'}; opacity: ${isOutOfStock ? '0.6' : '1'}; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; align-items: center; gap: 0.65rem;" onmouseover="if(!${isOutOfStock}) this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+      <div class="order-product-option" data-id="${p.id}" data-display="${displayVal.replace(/"/g, '&quot;')}" style="padding: 0.5rem 0.75rem; cursor: ${isOutOfStock ? 'not-allowed' : 'pointer'}; opacity: ${isOutOfStock ? '0.6' : '1'}; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; align-items: center; gap: 0.65rem;" onmouseover="if(!${isOutOfStock}) this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
         ${p.image_url ? `
           <img src="${escapeHtml(p.image_url)}" alt="" style="width: 36px; height: 36px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border); flex-shrink: 0;" onerror="this.style.display='none'">
         ` : `
-          <div style="width: 36px; height: 36px; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); flex-shrink: 0;"><i class="ri-image-line" style="font-size: 1.1rem;"></i></div>
+          <div style="width: 36px; height: 36px; border-radius: 4px; border: 1px solid var(--color-border); background: ${isPack ? 'rgba(124, 58, 237, 0.08)' : 'var(--color-bg)'}; display: flex; align-items: center; justify-content: center; color: ${isPack ? '#7c3aed' : 'var(--color-text-muted)'}; flex-shrink: 0;"><i class="${isPack ? 'ri-stack-line' : 'ri-image-line'}" style="font-size: 1.1rem;"></i></div>
         `}
         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem;">
-          <span style="font-weight: 600; color: var(--color-primary);">${p.sku}</span>
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <span style="font-weight: 600; color: var(--color-primary);">${p.sku}</span>
+            ${packBadge}
+          </div>
           <span style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${p.name}</span>
+          ${packComponentsLine}
           <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem;">
             <span style="color: var(--color-text-muted); font-weight: 500;">${window.formatCLP(p.price || 0)}</span>
             <span style="color: ${stockColor}; font-weight: 600;">${stockText}</span>
@@ -44100,6 +45489,125 @@ window.addClientNewOrderItem = function() {
   }
 
   window.tempClientNewOrderItems = window.tempClientNewOrderItems || [];
+  window.tempClientNewOrderPacks = window.tempClientNewOrderPacks || [];
+
+  // Si el producto seleccionado es un PACK, desglosar automáticamente en sus productos físicos componentes
+  if (product.is_pack) {
+    const packItems = Array.isArray(product.packItems) ? product.packItems : [];
+    if (packItems.length === 0) {
+      alert(`El pack ${product.sku} no tiene productos componentes configurados para su desglose.`);
+      return;
+    }
+
+    // Validar que haya stock disponible suficiente en cada componente físico considerando lo ya agregado al pedido
+    for (const pm of packItems) {
+      const addCompQty = qty * pm.quantity;
+      const existingComp = window.tempClientNewOrderItems.find(i => i.product_id === pm.member_product_id);
+      const currentCompQty = existingComp ? existingComp.quantity : 0;
+      const totalCompRequested = currentCompQty + addCompQty;
+      const memberAvail = pm.memberProduct?.availableStock !== undefined ? pm.memberProduct.availableStock : 0;
+
+      if (totalCompRequested > memberAvail) {
+        alert(
+          `No hay stock suficiente para desglosar el pack ${product.sku} (x${qty}).\n\n` +
+          `Componente con stock insuficiente:\n` +
+          `• ${pm.sku} - ${pm.name}\n` +
+          `  Stock disponible: ${memberAvail} und.\n` +
+          `  Requerido en total en el pedido: ${totalCompRequested} und.`
+        );
+        return;
+      }
+    }
+
+    const totalCompPriceSum = packItems.reduce((sum, pm) => sum + ((pm.memberProduct?.price || 0) * pm.quantity), 0);
+    const totalPackPhysicalUnits = packItems.reduce((sum, pm) => sum + pm.quantity, 0) || 1;
+    const fallbackUnitPriceFromPack = (totalCompPriceSum === 0 && (product.price || 0) > 0)
+      ? Math.round((product.price || 0) / totalPackPhysicalUnits)
+      : 0;
+    const totalCompVolSum = packItems.reduce((sum, pm) => sum + ((parseFloat(pm.memberProduct?.volumen) || 0) * pm.quantity), 0);
+    const fallbackUnitVolFromPack = (totalCompVolSum === 0 && (parseFloat(product.volumen) || 0) > 0)
+      ? (parseFloat(product.volumen) / totalPackPhysicalUnits)
+      : 0;
+
+    packItems.forEach(pm => {
+      const member = pm.memberProduct;
+      const addCompQty = qty * pm.quantity;
+      const existingIdx = window.tempClientNewOrderItems.findIndex(i => i.product_id === pm.member_product_id);
+      const compUnitPrice = (member.price && member.price > 0) ? member.price : fallbackUnitPriceFromPack;
+      const compUnitVol = (parseFloat(member.volumen) > 0) ? parseFloat(member.volumen) : fallbackUnitVolFromPack;
+
+      if (existingIdx !== -1) {
+        const targetItem = window.tempClientNewOrderItems[existingIdx];
+        targetItem.quantity += addCompQty;
+        targetItem.packSources = targetItem.packSources || [];
+        const existingSource = targetItem.packSources.find(ps => ps.pack_id === product.id);
+        if (existingSource) {
+          existingSource.pack_qty += qty;
+          existingSource.total_from_pack += addCompQty;
+        } else {
+          targetItem.packSources.push({
+            pack_id: product.id,
+            pack_sku: product.sku,
+            pack_name: product.name,
+            pack_qty: qty,
+            member_qty_per_pack: pm.quantity,
+            total_from_pack: addCompQty
+          });
+        }
+      } else {
+        window.tempClientNewOrderItems.push({
+          product_id: pm.member_product_id,
+          sku: member.sku,
+          name: member.name,
+          price: compUnitPrice,
+          image_url: member.image_url || '',
+          volumen: compUnitVol,
+          quantity: addCompQty,
+          packSources: [{
+            pack_id: product.id,
+            pack_sku: product.sku,
+            pack_name: product.name,
+            pack_qty: qty,
+            member_qty_per_pack: pm.quantity,
+            total_from_pack: addCompQty
+          }]
+        });
+      }
+    });
+
+    const existingPackEntry = window.tempClientNewOrderPacks.find(pb => pb.pack_id === product.id);
+    if (existingPackEntry) {
+      existingPackEntry.quantity += qty;
+      existingPackEntry.components.forEach(c => {
+        c.total_quantity = c.quantity_per_pack * existingPackEntry.quantity;
+      });
+    } else {
+      window.tempClientNewOrderPacks.push({
+        pack_id: product.id,
+        pack_sku: product.sku,
+        pack_name: product.name,
+        quantity: qty,
+        components: packItems.map(pm => ({
+          product_id: pm.member_product_id,
+          sku: pm.sku,
+          name: pm.name,
+          quantity_per_pack: pm.quantity,
+          total_quantity: pm.quantity * qty
+        }))
+      });
+    }
+
+    selectProd.value = '';
+    const searchInput = document.getElementById('order-product-search');
+    if (searchInput) searchInput.value = '';
+    const dropdownList = document.getElementById('order-product-dropdown-list');
+    if (dropdownList) dropdownList.style.display = 'none';
+    qtyInput.value = '1';
+
+    window.renderClientNewOrderItemsTable();
+    return;
+  }
+
   const existingIdx = window.tempClientNewOrderItems.findIndex(i => i.product_id === prodId);
   const currentQty = existingIdx !== -1 ? window.tempClientNewOrderItems[existingIdx].quantity : 0;
   const totalRequested = qty + currentQty;
@@ -44135,10 +45643,98 @@ window.addClientNewOrderItem = function() {
   window.renderClientNewOrderItemsTable();
 };
 
+window.removeClientNewOrderPack = function(packId) {
+  window.tempClientNewOrderPacks = (window.tempClientNewOrderPacks || []).filter(pb => pb.pack_id !== packId);
+  const nextItems = [];
+  (window.tempClientNewOrderItems || []).forEach(item => {
+    if (Array.isArray(item.packSources)) {
+      const srcIdx = item.packSources.findIndex(ps => ps.pack_id === packId);
+      if (srcIdx !== -1) {
+        const removedQty = item.packSources[srcIdx].total_from_pack || 0;
+        item.quantity -= removedQty;
+        item.packSources.splice(srcIdx, 1);
+      }
+    }
+    if (item.quantity > 0) {
+      nextItems.push(item);
+    }
+  });
+  window.tempClientNewOrderItems = nextItems;
+  window.renderClientNewOrderItemsTable();
+};
+
 window.removeClientNewOrderItem = function(index) {
   if (window.tempClientNewOrderItems && window.tempClientNewOrderItems[index]) {
+    const removedItem = window.tempClientNewOrderItems[index];
     window.tempClientNewOrderItems.splice(index, 1);
+    if (Array.isArray(window.tempClientNewOrderPacks) && window.tempClientNewOrderPacks.length > 0 && removedItem) {
+      const remainingProductIds = new Set((window.tempClientNewOrderItems || []).map(i => i.product_id));
+      window.tempClientNewOrderPacks = window.tempClientNewOrderPacks
+        .map(pb => ({
+          ...pb,
+          components: (pb.components || []).filter(c => remainingProductIds.has(c.product_id))
+        }))
+        .filter(pb => pb.components.length > 0);
+    }
     window.renderClientNewOrderItemsTable();
+  }
+};
+
+window.updateOrderVolumetricWeightUI = function(totalVol) {
+  const vol = parseFloat(totalVol) || 0;
+  const volWeight = vol * 250;
+  const numericVolW = volWeight > 0 ? Math.max(0.01, parseFloat(volWeight.toFixed(2))) : 0;
+  const formattedVolW = numericVolW.toFixed(2);
+
+  const volDisplayEl = document.getElementById('order-volumetric-weight-display');
+  if (volDisplayEl) {
+    volDisplayEl.textContent = `${formattedVolW} Kg`;
+  }
+
+  const weightInput = document.getElementById('order-total-weight-input');
+  if (window.orderUseVolumetricWeightMode) {
+    if (numericVolW > 0) {
+      if (weightInput) weightInput.value = formattedVolW;
+    } else {
+      window.orderUseVolumetricWeightMode = false;
+      if (weightInput) weightInput.value = '';
+    }
+  }
+
+  const btnUseVol = document.getElementById('btn-use-volumetric-weight');
+  if (btnUseVol) {
+    if (window.orderUseVolumetricWeightMode && numericVolW > 0) {
+      btnUseVol.style.background = 'rgba(16, 185, 129, 0.14)';
+      btnUseVol.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+      btnUseVol.style.color = '#059669';
+      btnUseVol.innerHTML = `<i class="ri-checkbox-circle-line"></i> Peso Volumétrico Aplicado (<span id="btn-volumetric-weight-val">${formattedVolW}</span> Kg)`;
+    } else {
+      btnUseVol.style.background = 'rgba(124, 58, 237, 0.1)';
+      btnUseVol.style.borderColor = 'rgba(124, 58, 237, 0.3)';
+      btnUseVol.style.color = '#7c3aed';
+      btnUseVol.innerHTML = `<i class="ri-magic-line"></i> Usar Peso Volumétrico (<span id="btn-volumetric-weight-val">${formattedVolW}</span> Kg)`;
+    }
+  }
+};
+
+window.applyOrderVolumetricWeight = function() {
+  const volInput = document.getElementById('order-total-volume-estimated');
+  const totalVol = parseFloat(volInput?.value || '0') || 0;
+  const volWeight = totalVol * 250;
+  if (volWeight <= 0) {
+    alert('El peso volumétrico actual es 0.00 Kg. Agrega productos con volumen configurado en catálogo o ingresa un peso manualmente.');
+    return;
+  }
+  window.orderUseVolumetricWeightMode = true;
+  window.updateOrderVolumetricWeightUI(totalVol);
+};
+
+window.onManualOrderWeightInput = function() {
+  if (window.orderUseVolumetricWeightMode) {
+    window.orderUseVolumetricWeightMode = false;
+    const volInput = document.getElementById('order-total-volume-estimated');
+    const totalVol = parseFloat(volInput?.value || '0') || 0;
+    window.updateOrderVolumetricWeightUI(totalVol);
   }
 };
 
@@ -44147,6 +45743,46 @@ window.renderClientNewOrderItemsTable = function() {
   const totalQtyEl = document.getElementById('client-new-order-total-qty');
   const totalValEl = document.getElementById('client-new-order-total-val');
   if (!tbody || !totalQtyEl || !totalValEl) return;
+
+  // Asegurar contenedor de aviso de desglose de packs encima de la tabla
+  let packBannerEl = document.getElementById('client-order-packs-breakdown-banner');
+  const tableEl = tbody.closest('table');
+  if (!packBannerEl && tableEl && tableEl.parentElement) {
+    packBannerEl = document.createElement('div');
+    packBannerEl.id = 'client-order-packs-breakdown-banner';
+    tableEl.parentElement.insertBefore(packBannerEl, tableEl);
+  }
+
+  const packsBreakdown = window.tempClientNewOrderPacks || [];
+  if (packBannerEl) {
+    if (packsBreakdown.length > 0) {
+      packBannerEl.style.display = 'block';
+      packBannerEl.innerHTML = `
+        <div style="margin-bottom: 0.75rem; padding: 0.65rem 0.9rem; background: rgba(124, 58, 237, 0.08); border: 1px solid rgba(124, 58, 237, 0.28); border-radius: var(--radius-sm); font-size: 0.8rem; color: var(--color-text-main); display: flex; flex-direction: column; gap: 0.35rem;">
+          <div style="display: flex; align-items: center; gap: 0.45rem; color: #7c3aed; font-weight: 700;">
+            <i class="ri-stack-line" style="font-size: 1.05rem;"></i>
+            <span>Desglose Automático de Pack(s) para Preparación en Bodega</span>
+          </div>
+          ${packsBreakdown.map(pb => {
+            const compsText = (pb.components || []).map(c => `<strong>${escapeHtml(c.sku)}</strong> (x${c.total_quantity})`).join(', ');
+            return `
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; background: var(--color-surface); padding: 0.35rem 0.6rem; border-radius: 4px; border: 1px dashed rgba(124, 58, 237, 0.25);">
+                <div>
+                  El pack <strong style="color: #7c3aed;">${escapeHtml(pb.pack_sku)} — ${escapeHtml(pb.pack_name || '')}</strong> (x${pb.quantity}) fue desglosado para su preparación en bodega en: ${compsText}
+                </div>
+                <button type="button" onclick="window.removeClientNewOrderPack('${pb.pack_id}')" class="btn btn-outline" style="padding: 0.15rem 0.45rem; font-size: 0.72rem; border-color: rgba(239, 68, 68, 0.4); color: #ef4444; cursor: pointer;" title="Quitar este pack y sus unidades desglosadas">
+                  <i class="ri-close-circle-line"></i> Quitar Pack
+                </button>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    } else {
+      packBannerEl.style.display = 'none';
+      packBannerEl.innerHTML = '';
+    }
+  }
 
   const items = window.tempClientNewOrderItems || [];
   if (items.length === 0) {
@@ -44165,6 +45801,9 @@ window.renderClientNewOrderItemsTable = function() {
     if (volInput) volInput.value = "0.00000";
     const volDisplay = document.getElementById('order-total-volume-display');
     if (volDisplay) volDisplay.textContent = "0.00000";
+    if (typeof window.updateOrderVolumetricWeightUI === 'function') {
+      window.updateOrderVolumetricWeightUI(0);
+    }
     return;
   }
 
@@ -44179,6 +45818,16 @@ window.renderClientNewOrderItemsTable = function() {
     totalVal += subtotal;
     totalVol += item.quantity * (item.volumen || 0);
 
+    const packSourcesBadge = Array.isArray(item.packSources) && item.packSources.length > 0
+      ? `<div style="margin-top: 0.2rem; display: flex; flex-wrap: wrap; gap: 0.25rem;">
+           ${item.packSources.map(ps => `
+             <span style="background: rgba(124, 58, 237, 0.1); color: #7c3aed; border: 1px solid rgba(124, 58, 237, 0.25); font-size: 0.68rem; font-weight: 600; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;">
+               <i class="ri-stack-line"></i> Desglosado de Pack: <strong>${escapeHtml(ps.pack_sku)}</strong> (x${ps.total_from_pack} und.)
+             </span>
+           `).join('')}
+         </div>`
+      : '';
+
     html += `
       <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-surface);">
         <td style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
@@ -44187,7 +45836,10 @@ window.renderClientNewOrderItemsTable = function() {
             ${item.image_url ? `
               <img src="${escapeHtml(item.image_url)}" alt="" style="width: 34px; height: 34px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border); flex-shrink: 0;" onerror="this.style.display='none'">
             ` : ''}
-            <div>${item.name}</div>
+            <div>
+              <div>${item.name}</div>
+              ${packSourcesBadge}
+            </div>
           </div>
         </td>
         <td style="padding: 0.5rem 0.75rem; text-align: center; font-weight: 600; color: var(--color-text-main);">${item.quantity}</td>
@@ -44209,6 +45861,9 @@ window.renderClientNewOrderItemsTable = function() {
   if (volInput) volInput.value = totalVol.toFixed(5);
   const volDisplay = document.getElementById('order-total-volume-display');
   if (volDisplay) volDisplay.textContent = totalVol.toFixed(5);
+  if (typeof window.updateOrderVolumetricWeightUI === 'function') {
+    window.updateOrderVolumetricWeightUI(totalVol);
+  }
 };
 
 window.exportDeclarationToPDF = async function(id) {
@@ -44889,49 +46544,513 @@ function loadChartJS() {
   });
 }
 
+function getVolumeAnimatedChartLoaderHtml() {
+  const barHeights = [34, 42, 38, 52, 64, 58, 72, 68, 82, 76, 88, 84, 92, 78, 85, 96];
+  const barsHtml = barHeights.map((h, idx) => {
+    const isContext = idx < 2 || idx === 13 || idx === 14;
+    const isLive = idx === barHeights.length - 1;
+    const cls = isLive ? 'vol-loader-bar bar-live' : (isContext ? 'vol-loader-bar bar-context' : 'vol-loader-bar');
+    const delay = (idx * 0.11).toFixed(2);
+    return `<div class="${cls}" style="height: ${h}%; animation-delay: ${delay}s;"></div>`;
+  }).join('');
+
+  return `
+    <div id="volume-chart-loader" class="vol-chart-loader-overlay">
+      <div class="vol-chart-loader-top">
+        <div class="vol-chart-loader-status">
+          <span class="vol-chart-loader-pulse-dot"></span>
+          <span>Procesando evolución volumétrica (m³) y líneas de tendencia...</span>
+        </div>
+        <div class="vol-chart-loader-tags">
+          <span class="vol-loader-tag tag-blue"><i class="ri-Funds-box-line"></i> Curva m³ en Movimiento</span>
+          <span class="vol-loader-tag tag-purple"><i class="ri-trending-up-line"></i> Línea de Tendencia</span>
+          <span class="vol-loader-tag tag-emerald"><i class="ri-calculator-line"></i> Promedio Cobro</span>
+        </div>
+      </div>
+
+      <div class="vol-chart-stage-body">
+        <!-- Y-Axis Skeleton Ticks -->
+        <div class="vol-chart-yaxis-skel">
+          <div class="vol-skel-bar" style="width: 48px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 42px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 48px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 40px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 46px; height: 10px;"></div>
+        </div>
+
+        <!-- Coordinate Plot Box -->
+        <div class="vol-chart-plot-box">
+          <div class="vol-chart-grid-line"></div>
+          <div class="vol-chart-grid-line"></div>
+          <div class="vol-chart-grid-line"></div>
+          <div class="vol-chart-grid-line"></div>
+          <div class="vol-chart-grid-line"></div>
+
+          <!-- Animated Bars in Wave Motion -->
+          <div class="vol-loader-bars-layer">
+            ${barsHtml}
+          </div>
+
+          <!-- Animated SVG Moving Curve & Trendlines -->
+          <svg class="vol-loader-svg" viewBox="0 0 800 220" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="volLoaderAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#2563eb" stop-opacity="0.28"/>
+                <stop offset="65%" stop-color="#3b82f6" stop-opacity="0.08"/>
+                <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.0"/>
+              </linearGradient>
+              <linearGradient id="volLoaderTrendGrad" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#8b5cf6"/>
+                <stop offset="50%" stop-color="#a855f7"/>
+                <stop offset="100%" stop-color="#ec4899"/>
+              </linearGradient>
+            </defs>
+
+            <!-- Weighted Average Reference Trendline (Emerald) -->
+            <line
+              class="vol-svg-trendline-avg"
+              x1="16" y1="118" x2="784" y2="112"
+              stroke="#10b981"
+              stroke-width="2"
+              stroke-opacity="0.75"
+            />
+
+            <!-- Linear Regression Trendline (Purple) -->
+            <path
+              class="vol-svg-trendline-primary"
+              d="M 18 168 Q 400 108 782 46"
+              fill="none"
+              stroke="url(#volLoaderTrendGrad)"
+              stroke-width="3"
+              stroke-linecap="round"
+            />
+
+            <!-- Moving Volume Curve + Gradient Area -->
+            <g class="vol-svg-curve-group">
+              <path
+                d="M 18 162 C 85 154, 120 124, 175 130 C 235 136, 275 94, 335 102 C 395 110, 435 68, 495 76 C 555 84, 600 48, 665 58 C 715 65, 748 36, 782 32 L 782 220 L 18 220 Z"
+                fill="url(#volLoaderAreaGrad)"
+              />
+              <path
+                class="vol-svg-main-curve"
+                d="M 18 162 C 85 154, 120 124, 175 130 C 235 136, 275 94, 335 102 C 395 110, 435 68, 495 76 C 555 84, 600 48, 665 58 C 715 65, 748 36, 782 32"
+                fill="none"
+                stroke="#2563eb"
+                stroke-width="3.2"
+                stroke-linecap="round"
+              />
+              <!-- Data points along the moving curve -->
+              <circle cx="175" cy="130" r="4" fill="#2563eb" stroke="#ffffff" stroke-width="1.8"/>
+              <circle cx="335" cy="102" r="4" fill="#2563eb" stroke="#ffffff" stroke-width="1.8"/>
+              <circle cx="495" cy="76" r="4" fill="#2563eb" stroke="#ffffff" stroke-width="1.8"/>
+              <circle cx="665" cy="58" r="4" fill="#2563eb" stroke="#ffffff" stroke-width="1.8"/>
+              <!-- Live Real-Time Volume Point -->
+              <circle cx="782" cy="32" r="6" fill="#f43f5e" stroke="#fda4af" stroke-width="2.5"/>
+            </g>
+          </svg>
+
+          <!-- Floating Trend Callout Badges -->
+          <div class="vol-trend-floating-badge badge-purple">
+            <i class="ri-line-chart-line"></i> Tendencia Lineal m³
+          </div>
+          <div class="vol-trend-floating-badge badge-emerald">
+            <i class="ri-equalizer-line"></i> Base Cobro Ponderada
+          </div>
+
+          <!-- Sweeping Telemetry Scanline -->
+          <div class="vol-loader-scanline"></div>
+        </div>
+
+        <!-- X-Axis Skeleton Ticks -->
+        <div class="vol-chart-xaxis-skel">
+          <div class="vol-skel-bar" style="width: 38px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 38px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 38px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 38px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 38px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 38px; height: 10px;"></div>
+          <div class="vol-skel-bar" style="width: 38px; height: 10px;"></div>
+          <div class="vol-skel-bar skel-blue" style="width: 46px; height: 11px;"></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function getVolumeTableSkeletonRowsHtml(colCount = 3, rowCount = 6) {
+  const dateWidths = ['118px', '110px', '124px', '114px', '120px', '112px'];
+  const commWidths = ['138px', '152px', '128px', '146px', '134px', '142px'];
+  const volWidths = ['96px', '104px', '92px', '100px', '94px', '98px'];
+  let rows = '';
+  for (let i = 0; i < rowCount; i++) {
+    const opacity = Math.max(0.28, 1 - i * 0.13).toFixed(2);
+    rows += `
+      <tr style="border-bottom: 1px solid var(--color-border); pointer-events: none; opacity: ${opacity};">
+        <td style="padding: 0.78rem 1.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <div class="vol-skel-bar" style="width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0;"></div>
+            <div class="vol-skel-bar" style="width: ${dateWidths[i % dateWidths.length]}; height: 15px;"></div>
+          </div>
+        </td>
+        <td style="padding: 0.78rem 1.5rem;">
+          <div class="vol-skel-bar" style="width: ${commWidths[i % commWidths.length]}; height: 20px; border-radius: 6px;"></div>
+        </td>
+        <td style="padding: 0.78rem 1.5rem; text-align: right;">
+          <div class="vol-skel-bar skel-blue" style="width: ${volWidths[i % volWidths.length]}; height: 17px; margin-left: auto;"></div>
+        </td>
+        ${colCount >= 4 ? `
+          <td style="padding: 0.78rem 1.5rem; text-align: center;">
+            <div class="vol-skel-bar" style="width: 112px; height: 14px; margin: 0 auto;"></div>
+          </td>
+        ` : ''}
+      </tr>
+    `;
+  }
+  return rows;
+}
+
+function getVolumeMonthlyHistorySkeletonCardsHtml(count = 6) {
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    const op = Math.max(0.35, 1 - i * 0.1).toFixed(2);
+    html += `
+      <div class="vol-month-history-item vol-kpi-card-loading" style="pointer-events: none; opacity: ${op};">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem;">
+          <div class="vol-skel-bar" style="width: 72px; height: 13px;"></div>
+          <div class="vol-skel-bar skel-purple" style="width: 44px; height: 15px; border-radius: 99px;"></div>
+        </div>
+        <div class="vol-skel-bar skel-blue" style="width: 96px; height: 20px; margin: 3px 0;"></div>
+        <div class="vol-skel-bar" style="width: 118px; height: 11px;"></div>
+      </div>
+    `;
+  }
+  return html;
+}
+
+function getVolumeMonthlyHistoryCardHtml() {
+  return `
+    <!-- Historical Monthly Averages Card (3M / 6M / 12M) -->
+    <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+      <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.85rem;">
+        <div>
+          <h4 style="margin: 0; font-size: 0.96rem; color: var(--color-text-main); font-weight: 700; display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-calendar-todo-line" style="color: var(--color-primary);"></i> Histórico Mensual y Promedio de Periodos Anteriores (3 · 6 · 12 Meses)
+          </h4>
+          <p style="margin: 0.2rem 0 0 0; font-size: 0.76rem; color: var(--color-text-muted);">Comparativa del volumen promedio mensual (m³), acumulado m³·día y variación intermensual · Haz clic en un mes para cargar su curva diaria</p>
+        </div>
+        <div style="display: inline-flex; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 9px; padding: 3px; gap: 2px;">
+          <button type="button" class="vol-horizon-btn" data-horizon="3">3 Meses</button>
+          <button type="button" class="vol-horizon-btn active" data-horizon="6">6 Meses</button>
+          <button type="button" class="vol-horizon-btn" data-horizon="12">12 Meses</button>
+        </div>
+      </div>
+
+      <div class="card-body" style="padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
+        <!-- 3 Horizon Summary KPI Cards (3M / 6M / 12M) -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+          <div class="vol-horizon-card vol-kpi-card-loading" data-horizon-card="3">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+              <span style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-time-line" style="color: #3b82f6;"></i> Promedio 3 Meses (3M)
+              </span>
+              <span id="vol-hist-badge-3m">
+                <span class="vol-skel-bar skel-blue" style="display: inline-block; width: 52px; height: 16px; border-radius: 99px;"></span>
+              </span>
+            </div>
+            <div id="vol-hist-val-3m" style="font-size: 1.2rem; font-weight: 800; color: var(--color-primary);">
+              <div class="vol-skel-bar skel-blue" style="width: 112px; height: 22px; margin: 2px 0;"></div>
+            </div>
+            <div id="vol-hist-sub-3m" style="font-size: 0.71rem; color: var(--color-text-muted);">
+              <div class="vol-skel-bar" style="width: 155px; height: 11px; margin-top: 2px;"></div>
+            </div>
+          </div>
+
+          <div class="vol-horizon-card active vol-kpi-card-loading" data-horizon-card="6">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+              <span style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-bar-chart-box-line" style="color: #8b5cf6;"></i> Promedio 6 Meses (6M)
+              </span>
+              <span id="vol-hist-badge-6m">
+                <span class="vol-skel-bar skel-purple" style="display: inline-block; width: 52px; height: 16px; border-radius: 99px;"></span>
+              </span>
+            </div>
+            <div id="vol-hist-val-6m" style="font-size: 1.2rem; font-weight: 800; color: #8b5cf6;">
+              <div class="vol-skel-bar skel-purple" style="width: 112px; height: 22px; margin: 2px 0;"></div>
+            </div>
+            <div id="vol-hist-sub-6m" style="font-size: 0.71rem; color: var(--color-text-muted);">
+              <div class="vol-skel-bar" style="width: 155px; height: 11px; margin-top: 2px;"></div>
+            </div>
+          </div>
+
+          <div class="vol-horizon-card vol-kpi-card-loading" data-horizon-card="12">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+              <span style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-calendar-check-line" style="color: #10b981;"></i> Promedio 12 Meses (Anual)
+              </span>
+              <span id="vol-hist-badge-12m">
+                <span class="vol-skel-bar skel-emerald" style="display: inline-block; width: 52px; height: 16px; border-radius: 99px;"></span>
+              </span>
+            </div>
+            <div id="vol-hist-val-12m" style="font-size: 1.2rem; font-weight: 800; color: #10b981;">
+              <div class="vol-skel-bar skel-emerald" style="width: 112px; height: 22px; margin: 2px 0;"></div>
+            </div>
+            <div id="vol-hist-sub-12m" style="font-size: 0.71rem; color: var(--color-text-muted);">
+              <div class="vol-skel-bar" style="width: 155px; height: 11px; margin-top: 2px;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Monthly Chart + Monthly Cards Grid -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 1.25rem; align-items: stretch;">
+          <!-- Left: Monthly Average Bar + Trend Chart -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.9rem 1rem; display: flex; flex-direction: column; justify-content: space-between;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.65rem; flex-wrap: wrap;">
+              <span id="vol-monthly-chart-title" style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-line-chart-line" style="color: var(--color-primary);"></i> Evolución de Promedios Mensuales (Últimos 6 Meses)
+              </span>
+              <div style="display: flex; align-items: center; gap: 0.6rem; font-size: 0.68rem; color: var(--color-text-muted);">
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #3b82f6; display: inline-block;"></span> Prom. Mes</span>
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width: 10px; height: 2px; background: #10b981; display: inline-block;"></span> Prom. Horizonte</span>
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width: 10px; height: 2px; background: #a855f7; display: inline-block;"></span> Tendencia</span>
+              </div>
+            </div>
+            <div style="position: relative; height: 210px; width: 100%;">
+              <div id="volume-monthly-chart-loader" style="position: absolute; inset: 0; z-index: 4; background: var(--color-bg); display: flex; flex-direction: column; justify-content: flex-end; padding: 0.5rem 0.5rem 1.2rem; gap: 0.5rem;">
+                <div style="display: flex; align-items: flex-end; justify-content: space-around; height: 150px; gap: 10px; border-bottom: 1px solid var(--color-border); padding: 0 8px;">
+                  <div class="vol-loader-bar" style="height: 48%; animation-delay: 0.05s;"></div>
+                  <div class="vol-loader-bar" style="height: 62%; animation-delay: 0.18s;"></div>
+                  <div class="vol-loader-bar" style="height: 55%; animation-delay: 0.31s;"></div>
+                  <div class="vol-loader-bar" style="height: 74%; animation-delay: 0.44s;"></div>
+                  <div class="vol-loader-bar" style="height: 82%; animation-delay: 0.57s;"></div>
+                  <div class="vol-loader-bar bar-live" style="height: 90%; animation-delay: 0.70s;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-around;">
+                  <div class="vol-skel-bar" style="width: 36px; height: 9px;"></div>
+                  <div class="vol-skel-bar" style="width: 36px; height: 9px;"></div>
+                  <div class="vol-skel-bar" style="width: 36px; height: 9px;"></div>
+                  <div class="vol-skel-bar" style="width: 36px; height: 9px;"></div>
+                  <div class="vol-skel-bar" style="width: 36px; height: 9px;"></div>
+                  <div class="vol-skel-bar skel-blue" style="width: 36px; height: 9px;"></div>
+                </div>
+              </div>
+              <canvas id="volume-monthly-history-canvas"></canvas>
+            </div>
+          </div>
+
+          <!-- Right: Monthly Breakdown Cards Grid -->
+          <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+              <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-stack-line" style="color: #8b5cf6;"></i> Desglose de Periodos Anteriores
+              </span>
+              <span style="font-size: 0.7rem; color: var(--color-text-muted);">Selecciona un mes para filtrar</span>
+            </div>
+            <div id="volume-monthly-periods-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 0.65rem; max-height: 215px; overflow-y: auto; padding-right: 2px;">
+              ${getVolumeMonthlyHistorySkeletonCardsHtml(6)}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function getVolumeProductLevelsTabHtml() {
+  return `
+    <!-- Product Volume KPIs Summary -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(225px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+      <div id="vol-prod-kpi-card-total" class="card vol-kpi-card-loading" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.72rem; font-weight: 700; color: var(--color-primary); text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-box-3-line"></i> Volumen Total Ocupado (Catálogo)
+        </div>
+        <div id="vol-prod-kpi-total-val" style="font-size: 1.3rem; font-weight: 800; color: var(--color-primary); margin-top: 0.3rem;">
+          <div class="vol-skel-bar skel-blue" style="width: 118px; height: 24px; margin: 2px 0;"></div>
+        </div>
+        <div id="vol-prod-kpi-total-sub" style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+          <div class="vol-skel-bar" style="width: 165px; height: 11px; margin-top: 4px;"></div>
+        </div>
+      </div>
+
+      <div id="vol-prod-kpi-card-skus" class="card vol-kpi-card-loading" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.72rem; font-weight: 700; color: #10b981; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-ruler-2-line"></i> Unidades y Cobertura de Medidas
+        </div>
+        <div id="vol-prod-kpi-skus-val" style="font-size: 1.3rem; font-weight: 800; color: #10b981; margin-top: 0.3rem;">
+          <div class="vol-skel-bar skel-emerald" style="width: 115px; height: 24px; margin: 2px 0;"></div>
+        </div>
+        <div id="vol-prod-kpi-skus-sub" style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+          <div class="vol-skel-bar" style="width: 160px; height: 11px; margin-top: 4px;"></div>
+        </div>
+      </div>
+
+      <div id="vol-prod-kpi-card-top" class="card vol-kpi-card-loading" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.72rem; font-weight: 700; color: #8b5cf6; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-vip-crown-2-line"></i> Mayor Aporte al Volumen (#1 SKU)
+        </div>
+        <div id="vol-prod-kpi-top-val" style="font-size: 1.15rem; font-weight: 800; color: #8b5cf6; margin-top: 0.3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          <div class="vol-skel-bar skel-purple" style="width: 140px; height: 24px; margin: 2px 0;"></div>
+        </div>
+        <div id="vol-prod-kpi-top-sub" style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+          <div class="vol-skel-bar" style="width: 155px; height: 11px; margin-top: 4px;"></div>
+        </div>
+      </div>
+
+      <div id="vol-prod-kpi-card-var" class="card vol-kpi-card-loading" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.72rem; font-weight: 700; color: #f59e0b; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-exchange-funds-line"></i> Variación Neta en Periodo
+        </div>
+        <div id="vol-prod-kpi-var-val" style="font-size: 1.3rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.3rem;">
+          <div class="vol-skel-bar" style="width: 120px; height: 24px; margin: 2px 0;"></div>
+        </div>
+        <div id="vol-prod-kpi-var-sub" style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+          <div class="vol-skel-bar" style="width: 165px; height: 11px; margin-top: 4px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Product Distribution Pareto Chart + Top Period Variations -->
+    <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm);">
+      <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <div style="width: 34px; height: 34px; border-radius: 9px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(16, 185, 129, 0.16)); border: 1px solid rgba(59, 130, 246, 0.25); display: flex; align-items: center; justify-content: center; color: var(--color-primary); font-size: 1.1rem;">
+            <i class="ri-pie-chart-2-line"></i>
+          </div>
+          <div>
+            <h4 style="margin: 0; font-size: 0.96rem; color: var(--color-text-main); font-weight: 700;">Concentración de Volumen (Pareto ABC) y Variaciones del Periodo</h4>
+            <p style="margin: 0.1rem 0 0 0; font-size: 0.74rem; color: var(--color-text-muted);">Top productos con mayor ocupación física en bodega y mayores fluctuaciones de volumen en el rango seleccionado</p>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.72rem; color: var(--color-text-muted);">
+          <span style="display: inline-flex; align-items: center; gap: 0.28rem;"><span style="width: 9px; height: 9px; border-radius: 2px; background: #2563eb; display: inline-block;"></span> Volumen SKU (m³)</span>
+          <span style="display: inline-flex; align-items: center; gap: 0.28rem;"><span style="width: 11px; height: 2.5px; background: #a855f7; display: inline-block;"></span> % Acumulado Pareto</span>
+          <span style="display: inline-flex; align-items: center; gap: 0.28rem;"><span style="width: 11px; height: 2px; background: #10b981; display: inline-block;"></span> Umbral 80% (Clase A)</span>
+        </div>
+      </div>
+      <div class="card-body" style="padding: 1.25rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 1.25rem; align-items: stretch;">
+        <!-- Left: Top 10 SKUs Volume + Pareto Curve -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.95rem 1.05rem; display: flex; flex-direction: column; justify-content: space-between;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; gap: 0.5rem;">
+            <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-bar-chart-horizontal-line" style="color: var(--color-primary);"></i> Top 10 Productos por Volumen Ocupado y Curva Pareto
+            </span>
+          </div>
+          <div style="position: relative; height: 245px; width: 100%;">
+            <div id="volume-product-chart-loader" style="position: absolute; inset: 0; z-index: 4; background: var(--color-bg); display: flex; flex-direction: column; justify-content: flex-end; padding: 0.6rem 0.6rem 1.3rem; gap: 0.5rem;">
+              <div style="display: flex; align-items: flex-end; justify-content: space-around; height: 175px; gap: 8px; border-bottom: 1px solid var(--color-border); padding: 0 8px;">
+                <div class="vol-loader-bar bar-live" style="height: 92%; animation-delay: 0.05s;"></div>
+                <div class="vol-loader-bar" style="height: 78%; animation-delay: 0.14s;"></div>
+                <div class="vol-loader-bar" style="height: 66%; animation-delay: 0.23s;"></div>
+                <div class="vol-loader-bar" style="height: 56%; animation-delay: 0.32s;"></div>
+                <div class="vol-loader-bar" style="height: 48%; animation-delay: 0.41s;"></div>
+                <div class="vol-loader-bar" style="height: 39%; animation-delay: 0.50s;"></div>
+                <div class="vol-loader-bar" style="height: 31%; animation-delay: 0.59s;"></div>
+                <div class="vol-loader-bar" style="height: 24%; animation-delay: 0.68s;"></div>
+              </div>
+              <div style="display: flex; justify-content: space-around;">
+                <div class="vol-skel-bar skel-blue" style="width: 38px; height: 9px;"></div>
+                <div class="vol-skel-bar" style="width: 38px; height: 9px;"></div>
+                <div class="vol-skel-bar" style="width: 38px; height: 9px;"></div>
+                <div class="vol-skel-bar" style="width: 38px; height: 9px;"></div>
+                <div class="vol-skel-bar" style="width: 38px; height: 9px;"></div>
+                <div class="vol-skel-bar" style="width: 38px; height: 9px;"></div>
+              </div>
+            </div>
+            <canvas id="volume-product-pareto-canvas"></canvas>
+          </div>
+        </div>
+
+        <!-- Right: Top Product Volume Variations in Period -->
+        <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+            <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-pulse-line" style="color: #8b5cf6;"></i> Mayores Variaciones por Producto en el Periodo
+            </span>
+            <span id="vol-prod-movers-period-label" style="font-size: 0.68rem; color: var(--color-text-muted);">Entradas vs. Salidas</span>
+          </div>
+          <div id="volume-product-movers-list" style="display: flex; flex-direction: column; gap: 0.55rem; max-height: 248px; overflow-y: auto; padding-right: 2px;">
+            <div class="vol-prod-mover-card"><div class="vol-skel-bar" style="width: 55%; height: 14px;"></div><div class="vol-skel-bar skel-blue" style="width: 28%; height: 18px;"></div></div>
+            <div class="vol-prod-mover-card"><div class="vol-skel-bar" style="width: 48%; height: 14px;"></div><div class="vol-skel-bar skel-emerald" style="width: 28%; height: 18px;"></div></div>
+            <div class="vol-prod-mover-card"><div class="vol-skel-bar" style="width: 60%; height: 14px;"></div><div class="vol-skel-bar skel-purple" style="width: 28%; height: 18px;"></div></div>
+            <div class="vol-prod-mover-card"><div class="vol-skel-bar" style="width: 52%; height: 14px;"></div><div class="vol-skel-bar" style="width: 28%; height: 18px;"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detailed Product Volume Breakdown Table Card -->
+    <div class="card" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm);">
+      <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.85rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div>
+            <h4 style="margin: 0; font-size: 0.96rem; color: var(--color-text-main); font-weight: 700;">Detalle de Niveles de Volumen por Producto (SKU)</h4>
+            <p style="margin: 0.12rem 0 0 0; font-size: 0.74rem; color: var(--color-text-muted);">Dimensiones unitarias, stock físico almacenado, volumen ocupado (m³), porcentaje de aporte y variaciones del periodo</p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
+            <select id="vol-prod-sort-select" class="form-input" style="height: 34px; font-size: 0.78rem; padding: 0 0.7rem; margin: 0; width: auto; min-width: 215px;">
+              <option value="vol_desc">Ordenar: Mayor Volumen Ocupado (m³)</option>
+              <option value="share_desc">Ordenar: Mayor % de Aporte</option>
+              <option value="qty_desc">Ordenar: Mayor Cantidad (Stock)</option>
+              <option value="unit_vol_desc">Ordenar: Mayor Volumen Unitario (m³/ud)</option>
+              <option value="var_desc">Ordenar: Mayor Variación en Periodo (|Δ m³|)</option>
+              <option value="name_asc">Ordenar: Nombre / SKU (A-Z)</option>
+            </select>
+            <button type="button" class="btn btn-outline" id="btn-export-vol-products-csv" style="height: 34px; padding: 0 0.8rem; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-download-2-line"></i> Exportar CSV
+            </button>
+          </div>
+        </div>
+
+        <!-- Search & Filter Pills Row -->
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="position: relative; flex: 1; min-width: 230px; max-width: 360px;">
+            <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
+            <input type="text" id="vol-prod-search-input" class="form-input" placeholder="Buscar por SKU, nombre o comercio..." style="width: 100%; margin: 0; height: 34px; padding-left: 2.15rem; font-size: 0.8rem;">
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <button type="button" class="vol-prod-filter-pill active" data-prod-filter="all">Todos</button>
+            <button type="button" class="vol-prod-filter-pill" data-prod-filter="instock"><i class="ri-checkbox-circle-line"></i> Con Stock (&gt; 0)</button>
+            <button type="button" class="vol-prod-filter-pill" data-prod-filter="pareto_a"><i class="ri-vip-crown-line"></i> Pareto Clase A (80%)</button>
+            <button type="button" class="vol-prod-filter-pill" data-prod-filter="changed"><i class="ri-exchange-line"></i> Con Variación Periodo</button>
+            <button type="button" class="vol-prod-filter-pill" data-prod-filter="missing_dims"><i class="ri-error-warning-line"></i> Sin Medidas</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card-body" style="padding: 0;">
+        <div class="table-responsive" style="overflow-x: auto;">
+          <table class="table" style="width: 100%; border-collapse: collapse; margin: 0; font-size: 0.84rem;">
+            <thead>
+              <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg); text-align: left;">
+                <th style="padding: 0.75rem 1.25rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase;">Producto / SKU</th>
+                <th style="padding: 0.75rem 1rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase;">Dimensiones (L×A×H) y Vol. Unit.</th>
+                <th style="padding: 0.75rem 1rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; text-align: right;">Cantidad (Stock)</th>
+                <th style="padding: 0.75rem 1rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; text-align: right;">Volumen Ocupado</th>
+                <th style="padding: 0.75rem 1.15rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; min-width: 170px;">% Aporte al Total</th>
+                <th style="padding: 0.75rem 1.25rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; text-align: right;">Variación en Periodo</th>
+              </tr>
+            </thead>
+            <tbody id="volume-products-tbody">
+              ${getVolumeTableSkeletonRowsHtml(6, 6)}
+            </tbody>
+          </table>
+        </div>
+        <div style="padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--color-border); font-size: 0.84rem; flex-wrap: wrap; gap: 0.5rem;">
+          <span style="color: var(--color-text-muted);" id="vol-prod-page-info">
+            <span class="vol-skel-bar" style="display: inline-block; width: 150px; height: 14px; vertical-align: middle;"></span>
+          </span>
+          <div style="display: flex; gap: 0.5rem;">
+            <button type="button" class="btn btn-outline" id="btn-vol-prod-prev" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;" disabled>Anterior</button>
+            <button type="button" class="btn btn-outline" id="btn-vol-prod-next" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;" disabled>Siguiente</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 window.renderVolumenDiario = async function() {
   const appContent = document.getElementById('app-content');
   if (!appContent) return;
-
-  let clientComerces = [];
-  if (currentCompany) {
-    const list = currentCompany.split(',').map(c => c.trim()).filter(Boolean);
-    if (list.some(c => c.toLowerCase() === 'all')) {
-      try {
-        const { data } = await supabase.from('v_comercios_config').select('nombre, sigla');
-        clientComerces = data ? data.map(c => c.nombre) : [];
-      } catch (e) {
-        console.error(e);
-      }
-    } else {
-      clientComerces = list;
-    }
-  }
-
-  let activeComerces = [];
-  try {
-    const { data: activeConfigs } = await supabase
-      .from('comercios_adicional_config')
-      .select('comercio')
-      .eq('inventario_seguimiento', true);
-    
-    const activeSet = new Set(activeConfigs ? activeConfigs.map(c => c.comercio.toLowerCase()) : []);
-    activeComerces = clientComerces.filter(c => activeSet.has(c.toLowerCase()));
-  } catch (e) {
-    console.error('Error filtrando comercios por seguimiento:', e);
-    activeComerces = clientComerces;
-  }
-
-  if (activeComerces.length === 0) {
-    appContent.innerHTML = `
-      <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
-        <i class="ri-information-line" style="font-size: 3rem; display: block; margin-bottom: 1rem;"></i>
-        <h4>Seguimiento de stock inactivo</h4>
-        <p>No tienes comercios asociados con el seguimiento de stock activo. Esta sección está disponible únicamente para comercios con control de inventario.</p>
-      </div>
-    `;
-    return;
-  }
 
   // Default date range (current month)
   const tzDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Santiago' }));
@@ -44958,7 +47077,8 @@ window.renderVolumenDiario = async function() {
 
   let startDate = formatDate(firstDay);
   let endDate = formatDate(lastDay);
-  let selectedCommerce = activeComerces.length === 1 ? activeComerces[0] : '';
+  let activeComerces = [];
+  let selectedCommerce = '';
   let currentPage = 1;
   const itemsPerPage = 15;
   let allHistories = [];
@@ -44982,11 +47102,10 @@ window.renderVolumenDiario = async function() {
     <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
       <div class="card-body" style="padding: 1.25rem 1.5rem;">
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1.25rem; align-items: end;">
-          <div class="form-group" style="margin: 0; ${activeComerces.length <= 1 ? 'display: none;' : ''}">
+          <div id="volume-merchant-group" class="form-group" style="margin: 0; display: none;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Comercio</label>
             <select id="volume-merchant-select" class="form-input" style="width: 100%; margin: 0; height: 38px;">
               <option value="">-- Todos los comercios --</option>
-              ${activeComerces.map(c => `<option value="${c}">${c}</option>`).join('')}
             </select>
           </div>
 
@@ -45000,78 +47119,189 @@ window.renderVolumenDiario = async function() {
             <input type="date" id="volume-end-date" class="form-input" style="width: 100%; margin: 0; height: 38px;">
           </div>
           
-          <div style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; height: 50px; justify-content: center;">
+          <div id="volume-card-current" class="vol-kpi-card-loading" style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; height: 50px; justify-content: center;">
             <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase; line-height: 1.2;">Volumen Actual</span>
-            <span id="volume-current-value" style="font-size: 1.05rem; font-weight: 700; color: var(--color-primary); margin-top: 0.15rem; line-height: 1.2;">-- m³</span>
+            <span id="volume-current-value" style="font-size: 1.05rem; font-weight: 700; color: var(--color-primary); margin-top: 0.15rem; line-height: 1.2;">
+              <span class="vol-skel-bar skel-blue" style="display: inline-block; width: 92px; height: 18px; border-radius: 5px; vertical-align: middle;"></span>
+            </span>
           </div>
 
-          <div style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; height: 50px; justify-content: center;">
+          <div id="volume-card-trend" class="vol-kpi-card-loading" style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; height: 50px; justify-content: center;">
             <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase; line-height: 1.2;">Tendencia Periodo</span>
-            <span id="volume-trend-value" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem; line-height: 1.2; display: flex; align-items: center;">--</span>
+            <span id="volume-trend-value" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem; line-height: 1.2; display: flex; align-items: center;">
+              <span class="vol-skel-bar skel-purple" style="display: inline-block; width: 78px; height: 18px; border-radius: 5px;"></span>
+            </span>
           </div>
         </div>
 
         <!-- Billing Summary Sub-Bar -->
         <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--color-border); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
-          <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+          <div id="volume-kpi-card-avg" class="vol-kpi-card-loading" style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
             <div style="font-size: 0.72rem; color: #10b981; font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
               <i class="ri-calculator-line"></i> Promedio Diario (Base Cobro)
             </div>
-            <div id="volume-period-avg" style="font-size: 1.15rem; font-weight: 800; color: #10b981; margin-top: 0.2rem;">-- m³</div>
-            <div style="font-size: 0.7rem; color: var(--color-text-muted);">Ponderado por días en bodega</div>
+            <div id="volume-period-avg" style="font-size: 1.15rem; font-weight: 800; color: #10b981; margin-top: 0.2rem;">
+              <div class="vol-skel-bar skel-emerald" style="width: 108px; height: 22px; margin: 2px 0;"></div>
+            </div>
+            <div id="volume-period-avg-sub" style="font-size: 0.7rem; color: var(--color-text-muted);">
+              <div class="vol-skel-bar skel-emerald" style="width: 138px; height: 11px; margin-top: 4px;"></div>
+            </div>
           </div>
 
-          <div style="background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.25); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+          <div id="volume-kpi-card-total" class="vol-kpi-card-loading" style="background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.25); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
             <div style="font-size: 0.72rem; color: #8b5cf6; font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
               <i class="ri-stack-line"></i> Total m³·día Acumulados
             </div>
-            <div id="volume-period-total-day" style="font-size: 1.15rem; font-weight: 800; color: #8b5cf6; margin-top: 0.2rem;">-- m³·día</div>
-            <div style="font-size: 0.7rem; color: var(--color-text-muted);">Sumatoria de ocupación diaria</div>
+            <div id="volume-period-total-day" style="font-size: 1.15rem; font-weight: 800; color: #8b5cf6; margin-top: 0.2rem;">
+              <div class="vol-skel-bar skel-purple" style="width: 116px; height: 22px; margin: 2px 0;"></div>
+            </div>
+            <div id="volume-period-total-sub" style="font-size: 0.7rem; color: var(--color-text-muted);">
+              <div class="vol-skel-bar skel-purple" style="width: 144px; height: 11px; margin-top: 4px;"></div>
+            </div>
           </div>
 
-          <div style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+          <div id="volume-kpi-card-days" class="vol-kpi-card-loading" style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
             <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
               <i class="ri-calendar-check-line"></i> Días del Periodo
             </div>
-            <div id="volume-period-days-info" style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.2rem;">-- días</div>
-            <div id="volume-period-coverage" style="font-size: 0.7rem; color: var(--color-text-muted);">-- registros válidos</div>
+            <div id="volume-period-days-info" style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.2rem;">
+              <div class="vol-skel-bar" style="width: 96px; height: 22px; margin: 2px 0;"></div>
+            </div>
+            <div id="volume-period-coverage" style="font-size: 0.7rem; color: var(--color-text-muted);">
+              <div class="vol-skel-bar" style="width: 132px; height: 11px; margin-top: 4px;"></div>
+            </div>
           </div>
 
-          <div style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+          <div id="volume-kpi-card-minmax" class="vol-kpi-card-loading" style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
             <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
               <i class="ri-pulse-line"></i> Rango Min / Max
             </div>
-            <div id="volume-period-minmax" style="font-size: 1rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.2rem;">-- / --</div>
-            <div style="font-size: 0.7rem; color: var(--color-text-muted);">Variación en el periodo</div>
+            <div id="volume-period-minmax" style="font-size: 1rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.2rem;">
+              <div class="vol-skel-bar" style="width: 126px; height: 22px; margin: 2px 0;"></div>
+            </div>
+            <div id="volume-period-minmax-sub" style="font-size: 0.7rem; color: var(--color-text-muted);">
+              <div class="vol-skel-bar" style="width: 120px; height: 11px; margin-top: 4px;"></div>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
+    <!-- Module Navigation Tabs -->
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem;">
+      <div class="vol-module-tabs" id="volume-module-tabs" style="margin-bottom: 0;">
+        <button type="button" class="vol-module-tab-btn active" data-vol-tab="daily">
+          <i class="ri-line-chart-line"></i> Evolución e Histórico Diario
+        </button>
+        <button type="button" class="vol-module-tab-btn" data-vol-tab="products">
+          <i class="ri-box-3-line"></i> Nivel de Volumen por Producto
+          <span class="vol-module-tab-badge" id="vol-tab-products-badge">-- SKUs</span>
+        </button>
+      </div>
+      <span style="font-size: 0.76rem; color: var(--color-text-muted);">
+        <i class="ri-information-line"></i> El filtro superior de Comercio y Fechas aplica a ambas pestañas
+      </span>
+    </div>
+
+    <!-- TAB 1: Daily Volume Evolution & History -->
+    <div id="volume-tab-panel-daily">
+
     <!-- Chart Card -->
-    <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
-      <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-        <div>
-          <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;">Evolución de Volumen (m³)</h4>
+    <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm);">
+      <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.85rem;">
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+          <div style="width: 34px; height: 34px; border-radius: 9px; background: linear-gradient(135deg, rgba(37, 99, 235, 0.16), rgba(168, 85, 247, 0.16)); border: 1px solid rgba(59, 130, 246, 0.25); display: flex; align-items: center; justify-content: center; color: var(--color-primary); font-size: 1.1rem;">
+            <i class="ri-line-chart-line"></i>
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <h4 style="margin: 0; font-size: 0.96rem; color: var(--color-text-main); font-weight: 700;">Evolución Diaria y Tendencia de Volumen (m³)</h4>
+              <span id="volume-chart-range-badge" style="font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.55rem; border-radius: 999px; background: rgba(37, 99, 235, 0.1); color: var(--color-primary);">Periodo Activo</span>
+              <span id="volume-chart-quick-spinner" style="display: none; align-items: center; gap: 0.3rem; font-size: 0.68rem; font-weight: 700; padding: 0.14rem 0.52rem; border-radius: 999px; background: rgba(99, 102, 241, 0.14); color: #6366f1;">
+                <i class="ri-loader-4-line spin" style="font-size: 0.8rem;"></i> Actualizando...
+              </span>
+            </div>
+            <p style="margin: 0.1rem 0 0 0; font-size: 0.74rem; color: var(--color-text-muted);">Curva de ocupación diaria, regresión lineal, umbral promedio de cobro y proyección a próximas semanas (ritmo 30d)</p>
+          </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem; flex-wrap: wrap;">
-          <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
-            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #2563eb; display: inline-block;"></span> Rango Filtrado
-          </span>
-          <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
-            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #cbd5e1; display: inline-block;"></span> Contexto Extra (Gris)
-          </span>
-          <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
-            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #f43f5e; display: inline-block;"></span> Volumen Actual (Tiempo Real)
-          </span>
+
+        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+          <!-- Visual Mode Switcher -->
+          <div class="vol-chart-mode-switch" id="volume-chart-mode-switch" title="Cambiar estilo visual del gráfico">
+            <button type="button" class="vol-chart-mode-btn active" data-chart-mode="combo">
+              <i class="ri-bar-chart-grouped-line"></i> Híbrido
+            </button>
+            <button type="button" class="vol-chart-mode-btn" data-chart-mode="area">
+              <i class="ri-pulse-line"></i> Área
+            </button>
+            <button type="button" class="vol-chart-mode-btn" data-chart-mode="bar">
+              <i class="ri-bar-chart-2-line"></i> Columnas
+            </button>
+          </div>
+
+          <!-- Analytical Layer Toggles -->
+          <div style="display: flex; align-items: center; gap: 0.38rem; flex-wrap: wrap;">
+            <button type="button" class="vol-chart-layer-pill active" data-layer="trend" title="Mostrar/ocultar línea de regresión lineal">
+              <span style="width: 10px; height: 2.5px; background: #a855f7; border-radius: 2px; display: inline-block;"></span> Tendencia
+            </button>
+            <button type="button" class="vol-chart-layer-pill active" data-layer="avg" title="Mostrar/ocultar línea de promedio diario (base cobro)">
+              <span style="width: 10px; height: 2.5px; background: #10b981; border-radius: 2px; display: inline-block;"></span> Promedio
+            </button>
+            <button type="button" class="vol-chart-layer-pill active" data-layer="extremes" title="Destacar puntos Peak y Mínimo del periodo">
+              <span style="width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; display: inline-block;"></span> Peak / Mín
+            </button>
+            <button type="button" class="vol-chart-layer-pill active" data-layer="context" title="Mostrar/ocultar días de contexto extra fuera del rango filtrado">
+              <span style="width: 7px; height: 7px; border-radius: 50%; background: #94a3b8; display: inline-block;"></span> Contexto ±
+            </button>
+            <div style="display: inline-flex; align-items: center; gap: 0.15rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 999px; padding: 1px 6px 1px 2px;">
+              <button type="button" class="vol-chart-layer-pill active" data-layer="forecast" style="border: none; padding: 0.24rem 0.5rem;" title="Mostrar/ocultar proyección para las próximas semanas según el ritmo de variación de los últimos 30 días">
+                <span style="width: 10px; height: 2.5px; background: #f97316; border-radius: 2px; display: inline-block;"></span> Proyección (30d)
+              </button>
+              <select id="volume-forecast-weeks-select" title="Semanas a proyectar hacia adelante" style="background: transparent; border: none; border-left: 1px solid var(--color-border); color: #f97316; font-size: 0.72rem; font-weight: 800; cursor: pointer; outline: none; padding: 0 2px 0 5px;">
+                <option value="2" selected>+2 Sem</option>
+                <option value="3">+3 Sem</option>
+                <option value="4">+4 Sem</option>
+                <option value="6">+6 Sem</option>
+              </select>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="card-body" style="padding: 1.25rem;">
-        <div style="position: relative; height: 320px; width: 100%;">
+      <div class="card-body" style="padding: 1rem 1.25rem 1.25rem 1.25rem;">
+        <!-- Live Analytical Insight Strip -->
+        <div id="volume-chart-insight-strip" class="vol-chart-insight-strip">
+          <div class="vol-chart-insight-chip">
+            <i class="ri-compass-3-line" style="color: #a855f7; font-size: 0.95rem;"></i>
+            <span>Ritmo Tendencia: <strong id="vol-insight-slope">--</strong></span>
+          </div>
+          <div class="vol-chart-insight-chip">
+            <i class="ri-arrow-up-circle-line" style="color: #f59e0b; font-size: 0.95rem;"></i>
+            <span>Peak Periodo: <strong id="vol-insight-peak">--</strong></span>
+          </div>
+          <div class="vol-chart-insight-chip">
+            <i class="ri-arrow-down-circle-line" style="color: #06b6d4; font-size: 0.95rem;"></i>
+            <span>Mínimo Periodo: <strong id="vol-insight-min">--</strong></span>
+          </div>
+          <div class="vol-chart-insight-chip">
+            <span style="display: inline-flex; align-items: center; gap: 0.3rem;">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #f43f5e; display: inline-block; box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.2);"></span>
+              <span>Tiempo Real vs Prom: <strong id="vol-insight-live-gap">--</strong></span>
+            </span>
+          </div>
+          <div class="vol-chart-insight-chip" style="border-color: rgba(249, 115, 22, 0.28); background: rgba(249, 115, 22, 0.05);">
+            <i class="ri-magic-line" style="color: #f97316; font-size: 0.95rem;"></i>
+            <span>Proyección <span id="vol-insight-forecast-horizon">+2 Sem</span> (Ritmo 30d): <strong id="vol-insight-forecast-val">--</strong></span>
+          </div>
+        </div>
+
+        <div style="position: relative; height: 360px; width: 100%;">
+          ${getVolumeAnimatedChartLoaderHtml()}
           <canvas id="volume-chart-canvas"></canvas>
         </div>
       </div>
     </div>
+
+    ${getVolumeMonthlyHistoryCardHtml()}
 
     <!-- Table Card -->
     <div class="card" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
@@ -45089,23 +47319,26 @@ window.renderVolumenDiario = async function() {
               </tr>
             </thead>
             <tbody id="volume-history-tbody">
-              <tr>
-                <td colspan="3" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
-                  <i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
-                  Cargando historial de volumen...
-                </td>
-              </tr>
+              ${getVolumeTableSkeletonRowsHtml(3, 6)}
             </tbody>
           </table>
         </div>
         <div id="volume-pagination" style="padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--color-border); font-size: 0.85rem;">
-          <span style="color: var(--color-text-muted);" id="volume-page-info">Mostrando registros</span>
+          <span style="color: var(--color-text-muted);" id="volume-page-info">
+            <span class="vol-skel-bar" style="display: inline-block; width: 150px; height: 14px; vertical-align: middle;"></span>
+          </span>
           <div style="display: flex; gap: 0.5rem;">
             <button class="btn btn-outline" id="btn-volume-prev" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;" disabled>Anterior</button>
             <button class="btn btn-outline" id="btn-volume-next" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;" disabled>Siguiente</button>
           </div>
         </div>
       </div>
+    </div>
+    </div>
+
+    <!-- TAB 2: Product Level Volume & Variations -->
+    <div id="volume-tab-panel-products" style="display: none;">
+      ${getVolumeProductLevelsTabHtml()}
     </div>
 
     <!-- Export Modal for Billing Graphic (1:1 / 4:3 / 16:9) -->
@@ -45183,16 +47416,21 @@ window.renderVolumenDiario = async function() {
   document.getElementById('volume-end-date').value = endDate;
 
   // DOM Elements
+  const merchantGroup = document.getElementById('volume-merchant-group');
   const merchantSelect = document.getElementById('volume-merchant-select');
   const startDateInput = document.getElementById('volume-start-date');
   const endDateInput = document.getElementById('volume-end-date');
   const currentValSpan = document.getElementById('volume-current-value');
   const trendValSpan = document.getElementById('volume-trend-value');
   const periodAvgSpan = document.getElementById('volume-period-avg');
+  const periodAvgSub = document.getElementById('volume-period-avg-sub');
   const periodTotalDaySpan = document.getElementById('volume-period-total-day');
+  const periodTotalSub = document.getElementById('volume-period-total-sub');
   const periodDaysInfoSpan = document.getElementById('volume-period-days-info');
   const periodCoverageSpan = document.getElementById('volume-period-coverage');
   const periodMinMaxSpan = document.getElementById('volume-period-minmax');
+  const periodMinMaxSub = document.getElementById('volume-period-minmax-sub');
+  const chartLoaderEl = document.getElementById('volume-chart-loader');
   const tbody = document.getElementById('volume-history-tbody');
   const btnRefresh = document.getElementById('btn-refresh-volume');
   const btnPrev = document.getElementById('btn-volume-prev');
@@ -45208,6 +47446,46 @@ window.renderVolumenDiario = async function() {
   const chkTrend = document.getElementById('export-chk-trend');
   const chkLabels = document.getElementById('export-chk-labels');
   const chkStats = document.getElementById('export-chk-stats');
+
+  function setPeriodSectionsLoadingState(isLoading) {
+    const kpiIds = ['volume-card-trend', 'volume-kpi-card-avg', 'volume-kpi-card-total', 'volume-kpi-card-days', 'volume-kpi-card-minmax'];
+    kpiIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('vol-kpi-card-loading', isLoading);
+    });
+
+    if (isLoading) {
+      if (trendValSpan) {
+        trendValSpan.innerHTML = `<span class="vol-skel-bar skel-purple" style="display: inline-block; width: 78px; height: 18px; border-radius: 5px;"></span>`;
+      }
+      if (periodAvgSpan) periodAvgSpan.innerHTML = `<div class="vol-skel-bar skel-emerald" style="width: 108px; height: 22px; margin: 2px 0;"></div>`;
+      if (periodAvgSub) periodAvgSub.innerHTML = `<div class="vol-skel-bar skel-emerald" style="width: 138px; height: 11px; margin-top: 4px;"></div>`;
+      if (periodTotalDaySpan) periodTotalDaySpan.innerHTML = `<div class="vol-skel-bar skel-purple" style="width: 116px; height: 22px; margin: 2px 0;"></div>`;
+      if (periodTotalSub) periodTotalSub.innerHTML = `<div class="vol-skel-bar skel-purple" style="width: 144px; height: 11px; margin-top: 4px;"></div>`;
+      if (periodDaysInfoSpan) periodDaysInfoSpan.innerHTML = `<div class="vol-skel-bar" style="width: 96px; height: 22px; margin: 2px 0;"></div>`;
+      if (periodCoverageSpan) periodCoverageSpan.innerHTML = `<div class="vol-skel-bar" style="width: 132px; height: 11px; margin-top: 4px;"></div>`;
+      if (periodMinMaxSpan) periodMinMaxSpan.innerHTML = `<div class="vol-skel-bar" style="width: 126px; height: 22px; margin: 2px 0;"></div>`;
+      if (periodMinMaxSub) periodMinMaxSub.innerHTML = `<div class="vol-skel-bar" style="width: 120px; height: 11px; margin-top: 4px;"></div>`;
+      if (chartLoaderEl) {
+        chartLoaderEl.style.display = 'flex';
+        chartLoaderEl.style.opacity = '1';
+      }
+      if (tbody) tbody.innerHTML = getVolumeTableSkeletonRowsHtml(3, 6);
+      if (pageInfo) pageInfo.innerHTML = `<span class="vol-skel-bar" style="display: inline-block; width: 150px; height: 14px; vertical-align: middle;"></span>`;
+    } else {
+      if (periodAvgSub) periodAvgSub.textContent = 'Ponderado por días en bodega';
+      if (periodTotalSub) periodTotalSub.textContent = 'Sumatoria de ocupación diaria';
+      if (periodMinMaxSub) periodMinMaxSub.textContent = 'Variación en el periodo';
+      if (chartLoaderEl) {
+        chartLoaderEl.style.opacity = '0';
+        setTimeout(() => {
+          if (chartLoaderEl && chartLoaderEl.style.opacity === '0') {
+            chartLoaderEl.style.display = 'none';
+          }
+        }, 280);
+      }
+    }
+  }
 
   let currentExportRatio = '1:1';
 
@@ -45240,24 +47518,62 @@ window.renderVolumenDiario = async function() {
     }, 3200);
   }
 
+  // Shared Live Volume Cache (eliminates redundant network calls on chart mode/layer toggles)
+  let cachedLiveVolumeMap = null;
+  let cachedLiveVolumeKey = '';
+  let liveVolumePromise = null;
+
+  async function getLiveVolumeMap(forceRefresh = false) {
+    const cacheKey = selectedCommerce || '__ALL__';
+    if (!forceRefresh && cachedLiveVolumeMap && cachedLiveVolumeKey === cacheKey) {
+      return cachedLiveVolumeMap;
+    }
+    if (!forceRefresh && liveVolumePromise && cachedLiveVolumeKey === cacheKey) {
+      return liveVolumePromise;
+    }
+    cachedLiveVolumeKey = cacheKey;
+    liveVolumePromise = (async () => {
+      const map = {};
+      try {
+        let rtQuery = supabase.from('v_comercios_volumen_actual').select('comercio, volumen_actual');
+        if (selectedCommerce) {
+          rtQuery = rtQuery.eq('comercio', selectedCommerce);
+        } else {
+          rtQuery = rtQuery.in('comercio', activeComerces);
+        }
+        const { data: rtData, error: rtErr } = await rtQuery;
+        if (rtErr) throw rtErr;
+        if (rtData) {
+          rtData.forEach(item => {
+            map[item.comercio] = parseFloat(item.volumen_actual || 0);
+          });
+        }
+        cachedLiveVolumeMap = map;
+      } catch (e) {
+        console.error('Error al obtener volumen en tiempo real:', e);
+      } finally {
+        liveVolumePromise = null;
+      }
+      return cachedLiveVolumeMap || map;
+    })();
+    return liveVolumePromise;
+  }
+
   // Load Current Volume in Real Time
   async function updateVolumeStats() {
-    currentValSpan.textContent = '-- m³';
+    const currentCard = document.getElementById('volume-card-current');
+    if (currentCard) currentCard.classList.add('vol-kpi-card-loading');
+    currentValSpan.innerHTML = `<span class="vol-skel-bar skel-blue" style="display: inline-block; width: 92px; height: 18px; border-radius: 5px; vertical-align: middle;"></span>`;
 
     try {
-      let rtQuery = supabase.from('v_comercios_volumen_actual').select('volumen_actual');
-      if (selectedCommerce) {
-        rtQuery = rtQuery.eq('comercio', selectedCommerce);
-      } else {
-        rtQuery = rtQuery.in('comercio', activeComerces);
-      }
-      const { data: realTimeData, error: rtErr } = await rtQuery;
-
-      if (rtErr) throw rtErr;
-      const volReal = realTimeData ? realTimeData.reduce((sum, item) => sum + parseFloat(item.volumen_actual || 0), 0) : 0;
+      const liveMap = await getLiveVolumeMap(true);
+      const volReal = Object.values(liveMap).reduce((sum, val) => sum + (parseFloat(val) || 0), 0);
       currentValSpan.textContent = `${volReal.toFixed(5)} m³`;
     } catch (e) {
       console.error('Error al cargar estadísticas de volumen:', e);
+      currentValSpan.textContent = '-- m³';
+    } finally {
+      if (currentCard) currentCard.classList.remove('vol-kpi-card-loading');
     }
   }
 
@@ -45334,26 +47650,118 @@ window.renderVolumenDiario = async function() {
     }
   }
 
+  // Interactive Chart Mode & Analytical Layers State
+  let chartVisualMode = 'combo'; // 'combo' | 'area' | 'bar'
+  let forecastWeeks = 2;
+  const chartLayers = {
+    trend: true,
+    avg: true,
+    extremes: true,
+    context: true,
+    forecast: true
+  };
+
+  const quickSpinnerEl = document.getElementById('volume-chart-quick-spinner');
+  let quickToggleTimer = null;
+
+  function triggerQuickChartUpdate() {
+    if (quickSpinnerEl) quickSpinnerEl.style.display = 'inline-flex';
+    if (quickToggleTimer) cancelAnimationFrame(quickToggleTimer);
+    quickToggleTimer = requestAnimationFrame(async () => {
+      try {
+        await updateChart({ isQuickToggle: true });
+      } finally {
+        setTimeout(() => {
+          if (quickSpinnerEl) quickSpinnerEl.style.display = 'none';
+        }, 160);
+      }
+    });
+  }
+
+  const forecastWeeksSelect = document.getElementById('volume-forecast-weeks-select');
+  if (forecastWeeksSelect) {
+    forecastWeeksSelect.addEventListener('change', (e) => {
+      forecastWeeks = Number(e.target.value) || 2;
+      if (!chartLayers.forecast) {
+        chartLayers.forecast = true;
+        const fPill = document.querySelector('.vol-chart-layer-pill[data-layer="forecast"]');
+        if (fPill) fPill.classList.add('active');
+      }
+      triggerQuickChartUpdate();
+    });
+  }
+
+  document.querySelectorAll('#volume-chart-mode-switch .vol-chart-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const nextMode = btn.getAttribute('data-chart-mode') || 'combo';
+      if (chartVisualMode === nextMode) return;
+      chartVisualMode = nextMode;
+      document.querySelectorAll('#volume-chart-mode-switch .vol-chart-mode-btn').forEach(b => {
+        b.classList.toggle('active', b === btn);
+      });
+      triggerQuickChartUpdate();
+    });
+  });
+
+  document.querySelectorAll('.vol-chart-layer-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      const layerKey = pill.getAttribute('data-layer');
+      if (layerKey && Object.prototype.hasOwnProperty.call(chartLayers, layerKey)) {
+        chartLayers[layerKey] = !chartLayers[layerKey];
+        pill.classList.toggle('active', chartLayers[layerKey]);
+        triggerQuickChartUpdate();
+      }
+    });
+  });
+
+  // Helper to draw a rounded pill with text on a 2D canvas
+  function drawCanvasCalloutPill(c2d, x, y, text, bgColor, borderColor, textColor) {
+    c2d.save();
+    c2d.font = '700 10.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const padX = 7;
+    const pillH = 20;
+    const textW = c2d.measureText(text).width;
+    const pillW = textW + padX * 2;
+    const rx = x - pillW / 2;
+    const ry = y - pillH / 2;
+    const r = 6;
+
+    c2d.shadowColor = 'rgba(15, 23, 42, 0.22)';
+    c2d.shadowBlur = 6;
+    c2d.shadowOffsetY = 2;
+
+    c2d.beginPath();
+    c2d.moveTo(rx + r, ry);
+    c2d.lineTo(rx + pillW - r, ry);
+    c2d.quadraticCurveTo(rx + pillW, ry, rx + pillW, ry + r);
+    c2d.lineTo(rx + pillW, ry + pillH - r);
+    c2d.quadraticCurveTo(rx + pillW, ry + pillH, rx + pillW - r, ry + pillH);
+    c2d.lineTo(rx + r, ry + pillH);
+    c2d.quadraticCurveTo(rx, ry + pillH, rx, ry + pillH - r);
+    c2d.lineTo(rx, ry + r);
+    c2d.quadraticCurveTo(rx, ry, rx + r, ry);
+    c2d.closePath();
+
+    c2d.fillStyle = bgColor;
+    c2d.fill();
+
+    c2d.shadowBlur = 0;
+    c2d.shadowOffsetY = 0;
+    c2d.strokeStyle = borderColor;
+    c2d.lineWidth = 1.2;
+    c2d.stroke();
+
+    c2d.fillStyle = textColor;
+    c2d.textAlign = 'center';
+    c2d.textBaseline = 'middle';
+    c2d.fillText(text, x, y + 0.5);
+    c2d.restore();
+  }
+
   // Update Chart
-  async function updateChart() {
-    let liveVolumeMap = {};
-    try {
-      let rtQuery = supabase.from('v_comercios_volumen_actual').select('comercio, volumen_actual');
-      if (selectedCommerce) {
-        rtQuery = rtQuery.eq('comercio', selectedCommerce);
-      } else {
-        rtQuery = rtQuery.in('comercio', activeComerces);
-      }
-      const { data: rtData, error: rtErr } = await rtQuery;
-      if (rtErr) throw rtErr;
-      if (rtData) {
-        rtData.forEach(item => {
-          liveVolumeMap[item.comercio] = parseFloat(item.volumen_actual || 0);
-        });
-      }
-    } catch (e) {
-      console.error('Error al obtener volumen en tiempo real para gráfico:', e);
-    }
+  async function updateChart(opts = {}) {
+    const isQuickToggle = Boolean(opts.isQuickToggle);
+    const liveVolumeMap = await getLiveVolumeMap(Boolean(opts.forceLiveRefresh));
 
     const tzToday = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Santiago' }));
     const yy = tzToday.getFullYear();
@@ -45363,9 +47771,38 @@ window.renderVolumenDiario = async function() {
 
     const isTodayInRange = (chileTodayStr >= startDate && chileTodayStr <= endDate);
 
-    // Get unique list of dates (sorted ascending)
+    // Context window boundaries based on [startDate, endDate]
+    const startDCtx = new Date(startDate + 'T00:00:00');
+    const endDCtx = new Date(endDate + 'T00:00:00');
+    const diffDaysCtx = Math.ceil(Math.abs(endDCtx - startDCtx) / (1000 * 60 * 60 * 24)) + 1;
+    const contextMinDate = addDays(startDate, -diffDaysCtx);
+    const contextMaxDate = addDays(endDate, diffDaysCtx);
+
+    const isStackedBar = !selectedCommerce;
+    const comercios = isStackedBar ? [...activeComerces].sort() : [selectedCommerce];
+    const commerceSet = new Set(comercios);
+
+    // Build O(1) lookup maps in a single pass over allHistories
+    const historyByDateCommerce = {};
+    const historyTotalByDate = {};
     const datesSet = new Set();
-    allHistories.forEach(item => datesSet.add(item.fecha));
+
+    for (let i = 0; i < allHistories.length; i++) {
+      const item = allHistories[i];
+      if (!commerceSet.has(item.comercio)) continue;
+      const f = item.fecha;
+      const v = parseFloat(item.volumen || 0);
+      if (!historyByDateCommerce[f]) historyByDateCommerce[f] = {};
+      historyByDateCommerce[f][item.comercio] = (historyByDateCommerce[f][item.comercio] || 0) + v;
+      historyTotalByDate[f] = (historyTotalByDate[f] || 0) + v;
+
+      if (f >= contextMinDate && f <= contextMaxDate) {
+        if (chartLayers.context || (f >= startDate && f <= endDate)) {
+          datesSet.add(f);
+        }
+      }
+    }
+
     const dates = Array.from(datesSet).sort();
 
     const chartDates = [...dates];
@@ -45381,23 +47818,249 @@ window.renderVolumenDiario = async function() {
       labels.push('Actual');
     }
 
+    // Update range badge
+    const rangeBadgeEl = document.getElementById('volume-chart-range-badge');
+    if (rangeBadgeEl && startDate && endDate) {
+      const sParts = startDate.split('-');
+      const eParts = endDate.split('-');
+      rangeBadgeEl.textContent = `${sParts[2]}/${sParts[1]}/${sParts[0]} – ${eParts[2]}/${eParts[1]}/${eParts[0]}`;
+    }
+
     const ctx = document.getElementById('volume-chart-canvas');
     if (!ctx) return;
 
-    await loadChartJS();
+    if (typeof Chart === 'undefined') {
+      await loadChartJS();
+    }
 
     if (volumeChartInstance) {
       volumeChartInstance.destroy();
     }
 
-    const isStackedBar = !selectedCommerce;
-
-    // Get list of comercios to show
-    let comercios = [];
-    if (isStackedBar) {
-      comercios = [...activeComerces].sort();
+    let totalLiveVolume = 0;
+    if (selectedCommerce) {
+      totalLiveVolume = liveVolumeMap[selectedCommerce] || 0;
     } else {
-      comercios = [selectedCommerce];
+      totalLiveVolume = Object.values(liveVolumeMap).reduce((sum, v) => sum + v, 0);
+    }
+
+    // Compute aggregate daily totals in O(D)
+    const realChartCount = chartDates.length;
+    const dailyTotals = chartDates.map(d => {
+      if (d === 'Actual') return totalLiveVolume;
+      return historyTotalByDate[d] || 0;
+    });
+
+    // Identify indices inside the filtered range [startDate, endDate] (plus 'Actual')
+    const filteredChartIndices = [];
+    chartDates.forEach((d, idx) => {
+      if (d === 'Actual' || (d >= startDate && d <= endDate)) {
+        filteredChartIndices.push(idx);
+      }
+    });
+
+    // Compute Peak and Min inside the filtered range (excluding 'Actual' if historical days exist)
+    const historicalFilteredIndices = filteredChartIndices.filter(idx => chartDates[idx] !== 'Actual');
+    const indicesForExtremes = historicalFilteredIndices.length > 0 ? historicalFilteredIndices : filteredChartIndices;
+
+    let peakIdx = -1;
+    let minIdx = -1;
+    let peakVal = -Infinity;
+    let minVal = Infinity;
+
+    indicesForExtremes.forEach(idx => {
+      const v = dailyTotals[idx];
+      if (v > peakVal) {
+        peakVal = v;
+        peakIdx = idx;
+      }
+      if (v < minVal) {
+        minVal = v;
+        minIdx = idx;
+      }
+    });
+
+    // Compute Period Billing Average
+    const startD = new Date(startDate + 'T00:00:00');
+    const endD = new Date(endDate + 'T00:00:00');
+    const totalBillingDays = Math.max(1, Math.round((endD - startD) / (1000 * 60 * 60 * 24)) + 1);
+    const sumFilteredM3Day = historicalFilteredIndices.reduce((s, idx) => s + dailyTotals[idx], 0);
+    const periodAvgM3 = totalBillingDays > 0 ? (sumFilteredM3Day / totalBillingDays) : 0;
+
+    // Compute Linear Regression over filteredChartIndices
+    let regSlope = 0;
+    let regIntercept = 0;
+    const trendData = new Array(chartDates.length).fill(null);
+    if (filteredChartIndices.length >= 2) {
+      const nPts = filteredChartIndices.length;
+      let sX = 0, sY = 0, sXY = 0, sXX = 0;
+      filteredChartIndices.forEach((cIdx, localIdx) => {
+        const yVal = dailyTotals[cIdx];
+        sX += localIdx;
+        sY += yVal;
+        sXY += localIdx * yVal;
+        sXX += localIdx * localIdx;
+      });
+      const denom = (nPts * sXX - sX * sX);
+      regSlope = denom !== 0 ? (nPts * sXY - sX * sY) / denom : 0;
+      regIntercept = (sY - regSlope * sX) / nPts;
+
+      filteredChartIndices.forEach((cIdx, localIdx) => {
+        trendData[cIdx] = Number(Math.max(0, regSlope * localIdx + regIntercept).toFixed(5));
+      });
+    }
+
+    // Average line dataset values (spanning filtered period)
+    const avgLineData = chartDates.map((d, idx) => {
+      if (filteredChartIndices.includes(idx)) {
+        return Number(periodAvgM3.toFixed(5));
+      }
+      return null;
+    });
+
+    // Compute 30-Day Variation Rhythm & Upcoming Weeks Projection
+    const lastRealIdx = realChartCount - 1;
+    const lastHistDate = dates.length > 0 ? dates[dates.length - 1] : endDate;
+    const anchorDateStr = isTodayInRange ? chileTodayStr : (lastHistDate || endDate);
+    const window30StartStr = addDays(anchorDateStr, -29);
+
+    const map30d = {};
+    Object.keys(historyTotalByDate).forEach(f => {
+      if (f >= window30StartStr && f <= anchorDateStr) {
+        map30d[f] = historyTotalByDate[f];
+      }
+    });
+    if (isTodayInRange && totalLiveVolume > 0) {
+      map30d[chileTodayStr] = totalLiveVolume;
+    }
+    const dates30d = Object.keys(map30d).sort();
+
+    let slope30d = 0;
+    let sigma30d = 0;
+    if (dates30d.length >= 2) {
+      const baseT30 = new Date(dates30d[0] + 'T00:00:00').getTime();
+      const pts30 = dates30d.map(dStr => ({
+        x: Math.round((new Date(dStr + 'T00:00:00').getTime() - baseT30) / 86400000),
+        y: map30d[dStr]
+      }));
+      const n30 = pts30.length;
+      let sX30 = 0, sY30 = 0, sXY30 = 0, sXX30 = 0;
+      pts30.forEach(p => {
+        sX30 += p.x;
+        sY30 += p.y;
+        sXY30 += p.x * p.y;
+        sXX30 += p.x * p.x;
+      });
+      const denom30 = (n30 * sXX30 - sX30 * sX30);
+      slope30d = denom30 !== 0 ? (n30 * sXY30 - sX30 * sY30) / denom30 : 0;
+      const intercept30 = (sY30 - slope30d * sX30) / n30;
+
+      let sumSqErr30 = 0;
+      pts30.forEach(p => {
+        const err = p.y - (slope30d * p.x + intercept30);
+        sumSqErr30 += err * err;
+      });
+      sigma30d = Math.sqrt(sumSqErr30 / Math.max(1, n30 - 2));
+    }
+
+    const anchorVal = lastRealIdx >= 0
+      ? (dailyTotals[lastRealIdx] || 0)
+      : (dates30d.length > 0 ? map30d[dates30d[dates30d.length - 1]] : totalLiveVolume);
+
+    const forecastHorizonDays = forecastWeeks * 7;
+    const endProjectedVal = Math.max(0, anchorVal + slope30d * forecastHorizonDays);
+    const projDiffM3 = endProjectedVal - anchorVal;
+    const projDiffPct = anchorVal > 0 ? (projDiffM3 / anchorVal) * 100 : 0;
+    const weeklyRhythmM3 = slope30d * 7;
+
+    // Extend chart arrays if forecast layer is active
+    const forecastMetaMap = {};
+    const forecastLineData = new Array(realChartCount).fill(null);
+    if (chartLayers.forecast && lastRealIdx >= 0) {
+      forecastLineData[lastRealIdx] = Number(anchorVal.toFixed(5));
+      const baseBand = Math.max(sigma30d * 0.75, anchorVal * 0.018);
+
+      for (let step = 1; step <= forecastHorizonDays; step++) {
+        const fDate = addDays(anchorDateStr, step);
+        const fParts = fDate.split('-');
+        const projVal = Math.max(0, anchorVal + slope30d * step);
+        const spread = baseBand * Math.sqrt(step / 7);
+        const upperVal = projVal + spread;
+        const lowerVal = Math.max(0, projVal - spread);
+        const fIdx = chartDates.length;
+
+        chartDates.push(fDate);
+        labels.push(`${fParts[2]}/${fParts[1]}`);
+        dailyTotals.push(null);
+        trendData.push(null);
+        avgLineData.push(null);
+        forecastLineData.push(Number(projVal.toFixed(5)));
+
+        forecastMetaMap[fIdx] = {
+          step,
+          weekNum: step % 7 === 0 ? (step / 7) : null,
+          date: fDate,
+          val: projVal,
+          upper: upperVal,
+          lower: lowerVal
+        };
+      }
+    }
+
+    const slopeEl = document.getElementById('vol-insight-slope');
+    const peakEl = document.getElementById('vol-insight-peak');
+    const minEl = document.getElementById('vol-insight-min');
+    const liveGapEl = document.getElementById('vol-insight-live-gap');
+    const forecastHorizEl = document.getElementById('vol-insight-forecast-horizon');
+    const forecastValEl = document.getElementById('vol-insight-forecast-val');
+
+    if (forecastHorizEl) {
+      forecastHorizEl.textContent = `+${forecastWeeks} Sem`;
+    }
+    if (forecastValEl) {
+      if (dates30d.length >= 2 || anchorVal > 0) {
+        const pSign = projDiffPct >= 0 ? '+' : '';
+        const wSign = weeklyRhythmM3 >= 0 ? '+' : '';
+        const pCol = projDiffM3 > 0.0005 ? '#f97316' : (projDiffM3 < -0.0005 ? '#06b6d4' : 'var(--color-text-main)');
+        forecastValEl.innerHTML = `<span style="color: ${pCol};">${endProjectedVal.toFixed(4)} m³ (${pSign}${projDiffPct.toFixed(1)}%)</span> <span style="font-weight: 500; color: var(--color-text-muted);">· ${wSign}${weeklyRhythmM3.toFixed(4)} m³/sem</span>`;
+      } else {
+        forecastValEl.textContent = 'Sin datos 30d';
+      }
+    }
+
+    if (slopeEl) {
+      if (filteredChartIndices.length >= 2) {
+        const sign = regSlope >= 0 ? '+' : '';
+        const slopeColor = regSlope > 0.0002 ? '#10b981' : (regSlope < -0.0002 ? '#ef4444' : 'var(--color-text-main)');
+        const slopeTag = regSlope > 0.0002 ? 'Alza' : (regSlope < -0.0002 ? 'Baja' : 'Estable');
+        slopeEl.innerHTML = `<span style="color: ${slopeColor};">${sign}${regSlope.toFixed(4)} m³/día (${slopeTag})</span>`;
+      } else {
+        slopeEl.textContent = 'Sin datos suf.';
+      }
+    }
+    if (peakEl) {
+      if (peakIdx !== -1 && isFinite(peakVal)) {
+        peakEl.innerHTML = `<span style="color: #f59e0b;">${peakVal.toFixed(4)} m³</span> <span style="font-weight: 500; color: var(--color-text-muted);">(${labels[peakIdx]})</span>`;
+      } else {
+        peakEl.textContent = '--';
+      }
+    }
+    if (minEl) {
+      if (minIdx !== -1 && isFinite(minVal)) {
+        minEl.innerHTML = `<span style="color: #06b6d4;">${minVal.toFixed(4)} m³</span> <span style="font-weight: 500; color: var(--color-text-muted);">(${labels[minIdx]})</span>`;
+      } else {
+        minEl.textContent = '--';
+      }
+    }
+    if (liveGapEl) {
+      if (periodAvgM3 > 0) {
+        const diffPct = ((totalLiveVolume - periodAvgM3) / periodAvgM3) * 100;
+        const sign = diffPct >= 0 ? '+' : '';
+        const col = diffPct >= 0 ? '#10b981' : '#f43f5e';
+        liveGapEl.innerHTML = `<span style="color: ${col};">${sign}${diffPct.toFixed(1)}% vs prom.</span>`;
+      } else {
+        liveGapEl.textContent = `${totalLiveVolume.toFixed(4)} m³`;
+      }
     }
 
     const CHART_PALETTE = [
@@ -45407,145 +48070,533 @@ window.renderVolumenDiario = async function() {
       '#1d4ed8', '#047857', '#b45309', '#6d28d9', '#be185d', '#0e7490', '#c2410c', '#0f766e', '#7e22ce', '#4338ca'
     ];
 
-    const datasets = comercios.map((commerceName, idx) => {
-      const values = chartDates.map(d => {
-        if (d === 'Actual') {
-          return liveVolumeMap[commerceName] || 0;
-        }
-        const match = allHistories.find(item => item.comercio === commerceName && item.fecha === d);
-        return match ? parseFloat(match.volumen || 0) : 0;
-      });
+    const datasets = [];
 
-      if (isStackedBar) {
-        const bgColors = chartDates.map(d => {
-          const isExtra = (d < startDate || d > endDate);
-          return isExtra ? 'rgba(148, 163, 184, 0.25)' : CHART_PALETTE[idx % CHART_PALETTE.length];
-        });
-        const borderColors = chartDates.map(d => {
-          const isExtra = (d < startDate || d > endDate);
-          return isExtra ? 'rgba(148, 163, 184, 0.4)' : CHART_BORDER_PALETTE[idx % CHART_BORDER_PALETTE.length];
-        });
+    if (isStackedBar) {
+      // Multi-commerce stacked bars (shown in 'combo' and 'bar' modes)
+      if (chartVisualMode !== 'area') {
+        comercios.forEach((commerceName, idx) => {
+          const values = chartDates.map((d, dIdx) => {
+            if (dIdx >= realChartCount) return null;
+            if (d === 'Actual') return liveVolumeMap[commerceName] || 0;
+            return (historyByDateCommerce[d] && historyByDateCommerce[d][commerceName]) || 0;
+          });
 
-        return {
-          type: 'bar',
-          label: commerceName,
-          data: values,
-          backgroundColor: bgColors,
-          borderColor: borderColors,
-          borderWidth: 1,
-          barPercentage: 0.45,
-          categoryPercentage: 0.8,
-          stack: 'volume_stack'
-        };
-      } else {
-        const pointBgColor = chartDates.map(d => {
+          const baseColor = CHART_PALETTE[idx % CHART_PALETTE.length];
+          const bgColors = chartDates.map(d => {
+            if (d === 'Actual') return baseColor;
+            const isExtra = (d < startDate || d > endDate);
+            return isExtra ? 'rgba(148, 163, 184, 0.22)' : baseColor;
+          });
+          const borderColors = chartDates.map(d => {
+            if (d === 'Actual') return '#f43f5e';
+            const isExtra = (d < startDate || d > endDate);
+            return isExtra ? 'rgba(148, 163, 184, 0.38)' : CHART_BORDER_PALETTE[idx % CHART_BORDER_PALETTE.length];
+          });
+
+          datasets.push({
+            type: 'bar',
+            label: commerceName,
+            data: values,
+            backgroundColor: bgColors,
+            borderColor: borderColors,
+            borderWidth: 1,
+            borderRadius: 4,
+            barPercentage: 0.58,
+            categoryPercentage: 0.82,
+            stack: 'volume_stack',
+            order: 5
+          });
+        });
+      }
+
+      // Total Curve on top of stacked bars (or main area in 'area' mode)
+      datasets.push({
+        type: 'line',
+        label: 'Curva Total',
+        data: dailyTotals,
+        borderColor: '#2563eb',
+        borderWidth: 2.8,
+        tension: 0.36,
+        fill: chartVisualMode === 'area',
+        backgroundColor: function(context) {
+          const chart = context.chart;
+          const { ctx: c2d, chartArea } = chart;
+          if (!chartArea) return 'rgba(37, 99, 235, 0.16)';
+          const grad = c2d.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+          grad.addColorStop(0, 'rgba(37, 99, 235, 0.34)');
+          grad.addColorStop(0.55, 'rgba(99, 102, 241, 0.12)');
+          grad.addColorStop(1, 'rgba(37, 99, 235, 0.0)');
+          return grad;
+        },
+        pointBackgroundColor: chartDates.map((d, idx) => {
           if (d === 'Actual') return '#f43f5e';
+          if (chartLayers.extremes && idx === peakIdx) return '#f59e0b';
+          if (chartLayers.extremes && idx === minIdx && minIdx !== peakIdx) return '#06b6d4';
           const isExtra = (d < startDate || d > endDate);
           return isExtra ? '#cbd5e1' : '#2563eb';
-        });
-        const pointBdColor = chartDates.map(d => {
-          if (d === 'Actual') return '#fda4af';
+        }),
+        pointBorderColor: chartDates.map((d, idx) => {
+          if (d === 'Actual') return '#ffe4e6';
+          if (chartLayers.extremes && (idx === peakIdx || idx === minIdx)) return '#ffffff';
           const isExtra = (d < startDate || d > endDate);
-          return isExtra ? '#cbd5e1' : '#3b82f6';
-        });
-        const pointRad = chartDates.map(d => d === 'Actual' ? 7 : 4);
-        const pointHoverRad = chartDates.map(d => d === 'Actual' ? 9 : 6);
+          return isExtra ? '#cbd5e1' : '#ffffff';
+        }),
+        pointBorderWidth: chartDates.map((d, idx) => {
+          if (d === 'Actual' || (chartLayers.extremes && (idx === peakIdx || idx === minIdx))) return 2.2;
+          return 1.5;
+        }),
+        pointRadius: chartDates.map((d, idx) => {
+          if (d === 'Actual') return 7;
+          if (chartLayers.extremes && (idx === peakIdx || idx === minIdx)) return 6;
+          const isExtra = (d < startDate || d > endDate);
+          return isExtra ? 2.5 : 3.8;
+        }),
+        pointHoverRadius: chartDates.map(d => d === 'Actual' ? 9.5 : 6.5),
+        segment: {
+          borderColor: segCtx => {
+            const d0 = chartDates[segCtx.p0DataIndex];
+            const d1 = chartDates[segCtx.p1DataIndex];
+            const isExtra = (d0 !== 'Actual' && d1 !== 'Actual') && (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+            return isExtra ? 'rgba(148, 163, 184, 0.45)' : '#2563eb';
+          },
+          borderDash: segCtx => {
+            const d0 = chartDates[segCtx.p0DataIndex];
+            const d1 = chartDates[segCtx.p1DataIndex];
+            const isExtra = (d0 !== 'Actual' && d1 !== 'Actual') && (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+            return isExtra ? [4, 4] : undefined;
+          }
+        },
+        order: 2
+      });
+    } else {
+      // Single commerce view: Hybrid (Bars + Area Curve), Area only, or Columns only
+      const commerceName = comercios[0] || 'Volumen';
+      const values = dailyTotals;
 
-        return {
+      if (chartVisualMode === 'combo' || chartVisualMode === 'bar') {
+        const isBarPrimary = (chartVisualMode === 'bar');
+        datasets.push({
+          type: 'bar',
+          label: isBarPrimary ? commerceName : 'Barras Diarias',
+          data: values,
+          backgroundColor: function(context) {
+            const chart = context.chart;
+            const { ctx: c2d, chartArea } = chart;
+            const idx = context.dataIndex;
+            const d = chartDates[idx];
+            if (!chartArea) return 'rgba(59, 130, 246, 0.35)';
+
+            const grad = c2d.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+            if (d === 'Actual') {
+              grad.addColorStop(0, isBarPrimary ? 'rgba(244, 63, 94, 0.85)' : 'rgba(244, 63, 94, 0.50)');
+              grad.addColorStop(1, 'rgba(244, 63, 94, 0.08)');
+              return grad;
+            }
+            const isExtra = (d < startDate || d > endDate);
+            if (isExtra) {
+              return 'rgba(148, 163, 184, 0.16)';
+            }
+            if (chartLayers.extremes && idx === peakIdx) {
+              grad.addColorStop(0, isBarPrimary ? 'rgba(245, 158, 11, 0.82)' : 'rgba(245, 158, 11, 0.42)');
+              grad.addColorStop(1, 'rgba(245, 158, 11, 0.06)');
+              return grad;
+            }
+            grad.addColorStop(0, isBarPrimary ? 'rgba(37, 99, 235, 0.78)' : 'rgba(59, 130, 246, 0.30)');
+            grad.addColorStop(1, isBarPrimary ? 'rgba(99, 102, 241, 0.18)' : 'rgba(99, 102, 241, 0.04)');
+            return grad;
+          },
+          borderColor: chartDates.map((d, idx) => {
+            if (d === 'Actual') return 'rgba(244, 63, 94, 0.8)';
+            const isExtra = (d < startDate || d > endDate);
+            if (isExtra) return 'rgba(148, 163, 184, 0.28)';
+            if (chartLayers.extremes && idx === peakIdx) return 'rgba(245, 158, 11, 0.75)';
+            return isBarPrimary ? 'rgba(37, 99, 235, 0.85)' : 'rgba(59, 130, 246, 0.36)';
+          }),
+          borderWidth: 1,
+          borderRadius: 6,
+          borderSkipped: false,
+          barPercentage: isBarPrimary ? 0.66 : 0.56,
+          categoryPercentage: 0.84,
+          order: 4
+        });
+      }
+
+      if (chartVisualMode === 'combo' || chartVisualMode === 'area') {
+        datasets.push({
           type: 'line',
           label: commerceName,
           data: values,
           borderColor: '#2563eb',
-          borderWidth: 2.5,
-          tension: 0.35,
-          pointBackgroundColor: pointBgColor,
-          pointBorderColor: pointBdColor,
-          pointBorderWidth: 2,
-          pointRadius: pointRad,
-          pointHoverRadius: pointHoverRad,
+          borderWidth: 3,
+          tension: 0.36,
+          fill: true,
+          backgroundColor: function(context) {
+            const chart = context.chart;
+            const { ctx: c2d, chartArea } = chart;
+            if (!chartArea) return 'rgba(37, 99, 235, 0.18)';
+            const grad = c2d.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+            grad.addColorStop(0, chartVisualMode === 'area' ? 'rgba(37, 99, 235, 0.38)' : 'rgba(37, 99, 235, 0.24)');
+            grad.addColorStop(0.55, chartVisualMode === 'area' ? 'rgba(99, 102, 241, 0.15)' : 'rgba(99, 102, 241, 0.08)');
+            grad.addColorStop(1, 'rgba(37, 99, 235, 0.0)');
+            return grad;
+          },
+          pointBackgroundColor: chartDates.map((d, idx) => {
+            if (d === 'Actual') return '#f43f5e';
+            if (chartLayers.extremes && idx === peakIdx) return '#f59e0b';
+            if (chartLayers.extremes && idx === minIdx && minIdx !== peakIdx) return '#06b6d4';
+            const isExtra = (d < startDate || d > endDate);
+            return isExtra ? '#cbd5e1' : '#2563eb';
+          }),
+          pointBorderColor: chartDates.map((d, idx) => {
+            if (d === 'Actual') return '#ffe4e6';
+            if (chartLayers.extremes && (idx === peakIdx || idx === minIdx)) return '#ffffff';
+            const isExtra = (d < startDate || d > endDate);
+            return isExtra ? '#cbd5e1' : '#ffffff';
+          }),
+          pointBorderWidth: chartDates.map((d, idx) => {
+            if (d === 'Actual' || (chartLayers.extremes && (idx === peakIdx || idx === minIdx))) return 2.4;
+            return 1.8;
+          }),
+          pointRadius: chartDates.map((d, idx) => {
+            if (d === 'Actual') return 7.5;
+            if (chartLayers.extremes && (idx === peakIdx || idx === minIdx)) return 6.2;
+            const isExtra = (d < startDate || d > endDate);
+            return isExtra ? 2.5 : 3.8;
+          }),
+          pointHoverRadius: chartDates.map(d => d === 'Actual' ? 10 : 7),
           segment: {
-            borderColor: ctx => {
-              const p0 = ctx.p0DataIndex;
-              const p1 = ctx.p1DataIndex;
-              const d0 = chartDates[p0];
-              const d1 = chartDates[p1];
-              const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
-              return isExtra ? 'rgba(148, 163, 184, 0.4)' : '#2563eb';
+            borderColor: segCtx => {
+              const d0 = chartDates[segCtx.p0DataIndex];
+              const d1 = chartDates[segCtx.p1DataIndex];
+              if (d1 === 'Actual') return '#f43f5e';
+              const isExtra = (d0 !== 'Actual' && d1 !== 'Actual') && (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+              return isExtra ? 'rgba(148, 163, 184, 0.42)' : '#2563eb';
             },
-            borderDash: ctx => {
-              const p0 = ctx.p0DataIndex;
-              const p1 = ctx.p1DataIndex;
-              const d0 = chartDates[p0];
-              const d1 = chartDates[p1];
-              const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+            borderDash: segCtx => {
+              const d0 = chartDates[segCtx.p0DataIndex];
+              const d1 = chartDates[segCtx.p1DataIndex];
+              const isExtra = (d0 !== 'Actual' && d1 !== 'Actual') && (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
               return isExtra ? [4, 4] : undefined;
             }
-          }
-        };
+          },
+          order: 2
+        });
       }
-    });
+    }
 
-    if (isStackedBar) {
-      const totalValues = chartDates.map((_, i) => {
-        return datasets.reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
-      });
-
+    // Add Period Average Benchmark Line (Emerald)
+    if (chartLayers.avg && periodAvgM3 > 0) {
       datasets.push({
         type: 'line',
-        label: 'Curva Total',
-        data: totalValues,
-        borderColor: '#2563eb',
-        borderWidth: 2.2,
-        tension: 0.35,
+        label: 'Promedio Cobro',
+        data: avgLineData,
+        borderColor: '#10b981',
+        borderWidth: 2,
+        borderDash: [6, 5],
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointBackgroundColor: '#10b981',
         fill: false,
-        pointBackgroundColor: chartDates.map(d => {
-          if (d === 'Actual') return '#f43f5e';
-          const isExtra = (d < startDate || d > endDate);
-          return isExtra ? '#cbd5e1' : '#2563eb';
-        }),
-        pointBorderColor: chartDates.map(d => {
-          if (d === 'Actual') return '#fda4af';
-          const isExtra = (d < startDate || d > endDate);
-          return isExtra ? '#cbd5e1' : '#3b82f6';
-        }),
-        pointRadius: chartDates.map(d => d === 'Actual' ? 6 : 3.5),
-        pointHoverRadius: chartDates.map(d => d === 'Actual' ? 8 : 5.5),
-        segment: {
-          borderColor: ctx => {
-            const p0 = ctx.p0DataIndex;
-            const p1 = ctx.p1DataIndex;
-            const d0 = chartDates[p0];
-            const d1 = chartDates[p1];
-            const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
-            return isExtra ? 'rgba(148, 163, 184, 0.4)' : '#2563eb';
-          },
-          borderDash: ctx => {
-            const p0 = ctx.p0DataIndex;
-            const p1 = ctx.p1DataIndex;
-            const d0 = chartDates[p0];
-            const d1 = chartDates[p1];
-            const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
-            return isExtra ? [4, 4] : undefined;
-          }
-        }
+        spanGaps: true,
+        order: 1
       });
     }
 
-    const filteredDates = dates.filter(d => d >= startDate && d <= endDate);
-    const filteredValues = filteredDates.map(d => {
-      const matches = allHistories.filter(item => item.fecha === d);
-      return matches.reduce((sum, item) => sum + parseFloat(item.volumen || 0), 0);
-    });
-
-    let totalLiveVolume = 0;
-    if (selectedCommerce) {
-      totalLiveVolume = liveVolumeMap[selectedCommerce] || 0;
-    } else {
-      totalLiveVolume = Object.values(liveVolumeMap).reduce((sum, v) => sum + v, 0);
+    // Add Linear Regression Trendline (Purple)
+    if (chartLayers.trend && filteredChartIndices.length >= 2) {
+      const firstTIdx = filteredChartIndices[0];
+      const lastTIdx = filteredChartIndices[filteredChartIndices.length - 1];
+      datasets.push({
+        type: 'line',
+        label: 'Tendencia Lineal',
+        data: trendData,
+        borderColor: '#a855f7',
+        borderWidth: 2.4,
+        borderDash: [8, 4],
+        pointRadius: chartDates.map((_, idx) => (idx === firstTIdx || idx === lastTIdx) ? 4 : 0),
+        pointHoverRadius: 5,
+        pointBackgroundColor: '#a855f7',
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 1.5,
+        fill: false,
+        spanGaps: true,
+        order: 0
+      });
     }
+
+    // Add Upcoming Weeks Projection Line based on 30-Day Variation Rhythm (Orange)
+    if (chartLayers.forecast && lastRealIdx >= 0 && chartDates.length > realChartCount) {
+      datasets.push({
+        type: 'line',
+        label: 'Proyección (Ritmo 30d)',
+        data: forecastLineData,
+        borderColor: '#f97316',
+        borderWidth: 2.6,
+        borderDash: [6, 4],
+        tension: 0.25,
+        pointRadius: chartDates.map((_, idx) => {
+          if (idx === lastRealIdx) return 4;
+          const fMeta = forecastMetaMap[idx];
+          if (fMeta && fMeta.weekNum) return 5.5;
+          return 0;
+        }),
+        pointHoverRadius: chartDates.map((_, idx) => idx >= lastRealIdx ? 6.5 : 0),
+        pointBackgroundColor: '#f97316',
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 1.8,
+        fill: false,
+        spanGaps: true,
+        order: 0
+      });
+    }
+
+    // Custom Canvas Plugin for Shaded Period Zone, Forecast Cone, Crosshair, and Peak/Min/Avg/Actual/Forecast Badges
+    const volumeRichAnalyticsPlugin = {
+      id: 'volumeRichAnalyticsPlugin',
+      beforeDatasetsDraw(chart) {
+        const { ctx: c2d, chartArea, scales } = chart;
+        if (!chartArea || !scales.x || !scales.y) return;
+
+        // 1. Draw subtle highlight zone & boundary lines when extra context is visible
+        if (chartLayers.context && filteredChartIndices.length > 0 && filteredChartIndices.length < realChartCount) {
+          const firstIdx = filteredChartIndices[0];
+          const lastIdx = filteredChartIndices[filteredChartIndices.length - 1];
+          const xStart = scales.x.getPixelForValue(firstIdx);
+          const xEnd = scales.x.getPixelForValue(lastIdx);
+
+          c2d.save();
+          const zoneGrad = c2d.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+          zoneGrad.addColorStop(0, 'rgba(37, 99, 235, 0.055)');
+          zoneGrad.addColorStop(1, 'rgba(37, 99, 235, 0.01)');
+          c2d.fillStyle = zoneGrad;
+          c2d.fillRect(xStart, chartArea.top, Math.max(0, xEnd - xStart), chartArea.bottom - chartArea.top);
+
+          c2d.strokeStyle = 'rgba(59, 130, 246, 0.32)';
+          c2d.lineWidth = 1;
+          c2d.setLineDash([4, 4]);
+          [xStart, xEnd].forEach(bx => {
+            c2d.beginPath();
+            c2d.moveTo(bx, chartArea.top);
+            c2d.lineTo(bx, chartArea.bottom);
+            c2d.stroke();
+          });
+          c2d.restore();
+        }
+
+        // 2. Draw Future Projection Zone & Confidence Cone (30-Day Rhythm)
+        if (chartLayers.forecast && lastRealIdx >= 0 && chartDates.length > realChartCount) {
+          const xAnchor = scales.x.getPixelForValue(lastRealIdx);
+          const xEndProj = scales.x.getPixelForValue(chartDates.length - 1);
+
+          c2d.save();
+          // Shaded background for future forecast region
+          const fZoneGrad = c2d.createLinearGradient(xAnchor, chartArea.top, xEndProj, chartArea.bottom);
+          fZoneGrad.addColorStop(0, 'rgba(249, 115, 22, 0.065)');
+          fZoneGrad.addColorStop(1, 'rgba(249, 115, 22, 0.015)');
+          c2d.fillStyle = fZoneGrad;
+          c2d.fillRect(xAnchor, chartArea.top, Math.max(0, xEndProj - xAnchor), chartArea.bottom - chartArea.top);
+
+          // Vertical divider line at projection start
+          c2d.strokeStyle = 'rgba(249, 115, 22, 0.52)';
+          c2d.lineWidth = 1.2;
+          c2d.setLineDash([4, 4]);
+          c2d.beginPath();
+          c2d.moveTo(xAnchor, chartArea.top);
+          c2d.lineTo(xAnchor, chartArea.bottom);
+          c2d.stroke();
+
+          // Confidence Fan Cone around projection
+          const coneIndices = [lastRealIdx];
+          for (let i = realChartCount; i < chartDates.length; i++) coneIndices.push(i);
+
+          c2d.beginPath();
+          coneIndices.forEach((cIdx, k) => {
+            const px = scales.x.getPixelForValue(cIdx);
+            const uVal = cIdx === lastRealIdx ? anchorVal : (forecastMetaMap[cIdx]?.upper ?? anchorVal);
+            const py = scales.y.getPixelForValue(uVal);
+            if (k === 0) c2d.moveTo(px, py);
+            else c2d.lineTo(px, py);
+          });
+          for (let k = coneIndices.length - 1; k >= 0; k--) {
+            const cIdx = coneIndices[k];
+            const px = scales.x.getPixelForValue(cIdx);
+            const lVal = cIdx === lastRealIdx ? anchorVal : (forecastMetaMap[cIdx]?.lower ?? anchorVal);
+            const py = scales.y.getPixelForValue(lVal);
+            c2d.lineTo(px, py);
+          }
+          c2d.closePath();
+
+          const coneGrad = c2d.createLinearGradient(xAnchor, 0, xEndProj, 0);
+          coneGrad.addColorStop(0, 'rgba(249, 115, 22, 0.06)');
+          coneGrad.addColorStop(1, 'rgba(249, 115, 22, 0.20)');
+          c2d.fillStyle = coneGrad;
+          c2d.fill();
+
+          c2d.setLineDash([2, 3]);
+          c2d.strokeStyle = 'rgba(249, 115, 22, 0.28)';
+          c2d.lineWidth = 1;
+          c2d.stroke();
+          c2d.restore();
+        }
+      },
+      afterDatasetsDraw(chart) {
+        const { ctx: c2d, chartArea, scales, tooltip } = chart;
+        if (!chartArea || !scales.x || !scales.y) return;
+
+        // 1. Interactive Vertical Crosshair on Hover
+        if (tooltip && tooltip._active && tooltip._active.length > 0) {
+          const activePoint = tooltip._active[0];
+          const hx = activePoint.element.x;
+          if (hx >= chartArea.left && hx <= chartArea.right) {
+            c2d.save();
+            c2d.beginPath();
+            c2d.moveTo(hx, chartArea.top);
+            c2d.lineTo(hx, chartArea.bottom);
+            c2d.lineWidth = 1.2;
+            c2d.strokeStyle = 'rgba(99, 102, 241, 0.48)';
+            c2d.setLineDash([3, 3]);
+            c2d.stroke();
+            c2d.restore();
+          }
+        }
+
+        // 2. Average Reference Pill on right edge of filtered zone
+        if (chartLayers.avg && periodAvgM3 > 0 && filteredChartIndices.length > 0) {
+          const lastFIdx = filteredChartIndices[filteredChartIndices.length - 1];
+          const ax = Math.min(chartArea.right - 52, scales.x.getPixelForValue(lastFIdx) - 44);
+          const ay = scales.y.getPixelForValue(periodAvgM3);
+          if (ay >= chartArea.top + 10 && ay <= chartArea.bottom - 10) {
+            drawCanvasCalloutPill(
+              c2d,
+              Math.max(chartArea.left + 52, ax),
+              ay - 13,
+              `Prom: ${periodAvgM3.toFixed(3)} m³`,
+              'rgba(15, 23, 42, 0.86)',
+              'rgba(16, 185, 129, 0.75)',
+              '#34d399'
+            );
+          }
+        }
+
+        // 3. Peak and Min Floating Callout Pills
+        if (chartLayers.extremes) {
+          if (peakIdx !== -1 && isFinite(peakVal)) {
+            const px = scales.x.getPixelForValue(peakIdx);
+            const py = scales.y.getPixelForValue(peakVal);
+            const clampedX = Math.min(chartArea.right - 58, Math.max(chartArea.left + 58, px));
+            const pillY = Math.max(chartArea.top + 14, py - 18);
+            drawCanvasCalloutPill(
+              c2d,
+              clampedX,
+              pillY,
+              `▲ Peak: ${peakVal.toFixed(3)} m³`,
+              'rgba(15, 23, 42, 0.88)',
+              'rgba(245, 158, 11, 0.85)',
+              '#fbbf24'
+            );
+          }
+
+          if (minIdx !== -1 && minIdx !== peakIdx && isFinite(minVal) && Math.abs(peakVal - minVal) > 0.0001) {
+            const mx = scales.x.getPixelForValue(minIdx);
+            const my = scales.y.getPixelForValue(minVal);
+            const clampedX = Math.min(chartArea.right - 56, Math.max(chartArea.left + 56, mx));
+            const pillY = Math.min(chartArea.bottom - 14, my + 18);
+            drawCanvasCalloutPill(
+              c2d,
+              clampedX,
+              pillY,
+              `▼ Mín: ${minVal.toFixed(3)} m³`,
+              'rgba(15, 23, 42, 0.88)',
+              'rgba(6, 182, 212, 0.85)',
+              '#22d3ee'
+            );
+          }
+        }
+
+        // 4. Live 'Actual' Pulsing Halo Ring
+        const actualIdx = chartDates.indexOf('Actual');
+        if (actualIdx !== -1) {
+          const rx = scales.x.getPixelForValue(actualIdx);
+          const ry = scales.y.getPixelForValue(dailyTotals[actualIdx]);
+          c2d.save();
+          c2d.beginPath();
+          c2d.arc(rx, ry, 12, 0, Math.PI * 2);
+          c2d.fillStyle = 'rgba(244, 63, 94, 0.18)';
+          c2d.fill();
+          c2d.beginPath();
+          c2d.arc(rx, ry, 16, 0, Math.PI * 2);
+          c2d.strokeStyle = 'rgba(244, 63, 94, 0.35)';
+          c2d.lineWidth = 1.2;
+          c2d.stroke();
+          c2d.restore();
+        }
+
+        // 5. Projection Zone Header, Weekly Milestone Tags & Final Forecast Callout Pill
+        if (chartLayers.forecast && lastRealIdx >= 0 && chartDates.length > realChartCount) {
+          const xAnchor = scales.x.getPixelForValue(lastRealIdx);
+          const lastProjIdx = chartDates.length - 1;
+          const xEndProj = scales.x.getPixelForValue(lastProjIdx);
+
+          if (xEndProj - xAnchor > 48) {
+            c2d.save();
+            c2d.font = '800 9.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            c2d.fillStyle = '#f97316';
+            c2d.textAlign = 'left';
+            c2d.textBaseline = 'top';
+            c2d.fillText(`PROYECCIÓN +${forecastWeeks}S (30D) →`, xAnchor + 6, chartArea.top + 5);
+            c2d.restore();
+          }
+
+          // Intermediate weekly milestone labels (+1S, +2S...)
+          c2d.save();
+          c2d.font = '700 9.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+          c2d.textAlign = 'center';
+          c2d.fillStyle = '#fb923c';
+          for (let i = realChartCount; i < lastProjIdx; i++) {
+            const fMeta = forecastMetaMap[i];
+            if (fMeta && fMeta.weekNum) {
+              const wx = scales.x.getPixelForValue(i);
+              const wy = scales.y.getPixelForValue(fMeta.val);
+              c2d.fillText(`+${fMeta.weekNum}S`, wx, Math.max(chartArea.top + 14, wy - 10));
+            }
+          }
+          c2d.restore();
+
+          // Final Forecast Callout Badge
+          const fy = scales.y.getPixelForValue(endProjectedVal);
+          const clampedFX = Math.min(chartArea.right - 74, Math.max(chartArea.left + 74, xEndProj));
+          const pillFY = slope30d >= 0
+            ? Math.max(chartArea.top + 14, fy - 18)
+            : Math.min(chartArea.bottom - 14, fy + 18);
+          const pSign = projDiffPct >= 0 ? '+' : '';
+          drawCanvasCalloutPill(
+            c2d,
+            clampedFX,
+            pillFY,
+            `🔮 +${forecastWeeks}S: ${endProjectedVal.toFixed(3)} m³ (${pSign}${projDiffPct.toFixed(1)}%)`,
+            'rgba(15, 23, 42, 0.90)',
+            'rgba(249, 115, 22, 0.90)',
+            '#fb923c'
+          );
+        }
+      }
+    };
+
+    const filteredDates = dates.filter(d => d >= startDate && d <= endDate);
+    const filteredValues = filteredDates.map(d => historyTotalByDate[d] || 0);
+
     updateTrendIndicator(filteredDates, filteredValues, totalLiveVolume, isTodayInRange);
 
+    // Suggest Y axis headroom so floating callout badges and forecast cone never clip
+    const allPositiveTotals = dailyTotals.filter(v => v !== null && v > 0);
+    const maxForecastUpper = Object.values(forecastMetaMap).reduce((m, f) => Math.max(m, f.upper || 0), 0);
+    const maxDataY = (allPositiveTotals.length > 0 || maxForecastUpper > 0)
+      ? Math.max(...allPositiveTotals, periodAvgM3, maxForecastUpper)
+      : 1;
+
     volumeChartInstance = new Chart(ctx, {
+      plugins: [volumeRichAnalyticsPlugin],
       data: {
         labels: labels,
         datasets: datasets
@@ -45553,74 +48604,130 @@ window.renderVolumenDiario = async function() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        animation: {
+          duration: isQuickToggle ? 180 : 650,
+          easing: 'easeOutQuart'
+        },
+        layout: {
+          padding: {
+            top: 24,
+            right: 12,
+            bottom: 4,
+            left: 4
+          }
+        },
         plugins: {
           legend: {
             display: isStackedBar,
             position: 'top',
             labels: {
               color: '#94a3b8',
+              usePointStyle: true,
+              pointStyle: 'circle',
               font: {
-                size: 11
+                size: 11,
+                weight: '600'
               },
-              boxWidth: 12
+              boxWidth: 8,
+              padding: 14
             }
           },
           tooltip: {
-            backgroundColor: 'rgba(15, 23, 42, 0.9)',
-            titleColor: '#fff',
-            bodyColor: '#fff',
-            borderColor: '#334155',
+            backgroundColor: 'rgba(15, 23, 42, 0.94)',
+            titleColor: '#f8fafc',
+            bodyColor: '#e2e8f0',
+            footerColor: '#94a3b8',
+            borderColor: 'rgba(99, 102, 241, 0.35)',
             borderWidth: 1,
-            padding: 10,
+            padding: 12,
+            cornerRadius: 10,
             callbacks: {
               title: function(context) {
                 const item = context[0];
+                if (item.dataIndex >= realChartCount) {
+                  const fMeta = forecastMetaMap[item.dataIndex];
+                  if (fMeta) {
+                    const parts = fMeta.date.split('-');
+                    const wkTag = fMeta.weekNum ? ` · Hito +${fMeta.weekNum} Sem.` : ` (+${fMeta.step}d)`;
+                    return `🔮 Proyección: ${parts[2]}/${parts[1]}/${parts[0]}${wkTag}`;
+                  }
+                }
                 if (item.label === 'Actual') {
-                  return `Hoy: ${dd}/${mm}/${yy} (Tiempo Real)`;
+                  return `🔴 Hoy ${dd}/${mm}/${yy} · Volumen en Tiempo Real`;
                 }
                 const foundDate = chartDates[item.dataIndex];
                 if (foundDate) {
                   const parts = foundDate.split('-');
-                  return `Fecha: ${parts[2]}/${parts[1]}/${parts[0]}`;
+                  const isExtra = (foundDate < startDate || foundDate > endDate);
+                  return `📅 Fecha: ${parts[2]}/${parts[1]}/${parts[0]}${isExtra ? ' (Contexto Extra)' : ''}`;
                 }
-                return `Fecha: ${item.label}`;
+                return `📅 Fecha: ${item.label}`;
               },
               label: function(context) {
+                const dsLabel = context.dataset.label || '';
+                if (dsLabel === 'Barras Diarias') {
+                  // Avoid duplicate line in combo mode since the main curve already displays the commerce volume
+                  return null;
+                }
                 const dataIndex = context.dataIndex;
-                const chart = context.chart;
-                let dayTotal = 0;
-                chart.data.datasets.forEach(dataset => {
-                  if (dataset.type === 'bar') {
-                    dayTotal += parseFloat(dataset.data[dataIndex] || 0);
-                  }
-                });
-
                 const value = context.parsed.y;
-                const pct = dayTotal > 0 ? ((value / dayTotal) * 100).toFixed(1) : '0.0';
-                
-                if (context.dataset.label === 'Curva Total') {
+                if (value === null || value === undefined) return null;
+
+                if (dsLabel === 'Proyección (Ritmo 30d)') {
+                  if (dataIndex === lastRealIdx) return null;
+                  return ` Volumen Proyectado: ${value.toFixed(5)} m³`;
+                }
+                if (dsLabel === 'Promedio Cobro') {
+                  return ` Promedio Periodo: ${value.toFixed(5)} m³`;
+                }
+                if (dsLabel === 'Tendencia Lineal') {
+                  return ` Tendencia Periodo: ${value.toFixed(5)} m³`;
+                }
+                if (dsLabel === 'Curva Total') {
                   return ` Volumen Total: ${value.toFixed(5)} m³`;
                 }
 
                 if (isStackedBar) {
-                  return ` ${context.dataset.label}: ${value.toFixed(5)} m³ (${pct}%)`;
+                  const dayTotal = dailyTotals[dataIndex] || 0;
+                  const pct = dayTotal > 0 ? ((value / dayTotal) * 100).toFixed(1) : '0.0';
+                  return ` ${dsLabel}: ${value.toFixed(5)} m³ (${pct}%)`;
                 } else {
-                  return ` Volumen: ${value.toFixed(5)} m³`;
+                  return ` Volumen (${dsLabel}): ${value.toFixed(5)} m³`;
                 }
               },
-              footer: function(context) {
-                if (isStackedBar) {
-                  const dataIndex = context[0].dataIndex;
-                  const chart = context[0].chart;
-                  let dayTotal = 0;
-                  chart.data.datasets.forEach(dataset => {
-                    if (dataset.type === 'bar') {
-                      dayTotal += parseFloat(dataset.data[dataIndex] || 0);
-                    }
-                  });
-                  return `Total diario: ${dayTotal.toFixed(5)} m³`;
+              afterBody: function(context) {
+                const idx = context[0].dataIndex;
+                const lines = [];
+                if (idx >= realChartCount) {
+                  const fMeta = forecastMetaMap[idx];
+                  if (fMeta) {
+                    const deltaM3 = fMeta.val - anchorVal;
+                    const deltaPct = anchorVal > 0 ? (deltaM3 / anchorVal) * 100 : 0;
+                    const sign = deltaM3 >= 0 ? '+' : '';
+                    const wkSign = weeklyRhythmM3 >= 0 ? '+' : '';
+                    lines.push(`• Banda estimada: ${fMeta.lower.toFixed(4)} – ${fMeta.upper.toFixed(4)} m³`);
+                    lines.push(`• Δ vs nivel actual: ${sign}${deltaM3.toFixed(5)} m³ (${sign}${deltaPct.toFixed(1)}%)`);
+                    lines.push(`• Ritmo base (30d): ${wkSign}${weeklyRhythmM3.toFixed(4)} m³/sem (${dates30d.length}d medidos)`);
+                  }
+                  return lines;
                 }
-                return null;
+                const dayVal = dailyTotals[idx] || 0;
+                if (periodAvgM3 > 0) {
+                  const vsAvgPct = ((dayVal - periodAvgM3) / periodAvgM3) * 100;
+                  const sign = vsAvgPct >= 0 ? '+' : '';
+                  lines.push(`• vs Promedio Periodo: ${sign}${vsAvgPct.toFixed(1)}%`);
+                }
+                if (idx > 0 && dailyTotals[idx - 1] !== null) {
+                  const prevVal = dailyTotals[idx - 1] || 0;
+                  const delta = dayVal - prevVal;
+                  const sign = delta >= 0 ? '+' : '';
+                  lines.push(`• Δ vs día anterior: ${sign}${delta.toFixed(5)} m³`);
+                }
+                return lines;
               }
             }
           }
@@ -45633,16 +48740,21 @@ window.renderVolumenDiario = async function() {
             },
             ticks: {
               color: '#94a3b8',
+              maxRotation: 0,
+              autoSkip: true,
+              maxTicksLimit: 15,
               font: {
-                size: 11
+                size: 11,
+                weight: '600'
               }
             }
           },
           y: {
             stacked: isStackedBar,
             min: 0,
+            suggestedMax: maxDataY * 1.14,
             grid: {
-              color: 'rgba(148, 163, 184, 0.08)',
+              color: 'rgba(148, 163, 184, 0.09)',
               drawBorder: false
             },
             ticks: {
@@ -45651,7 +48763,7 @@ window.renderVolumenDiario = async function() {
                 size: 11
               },
               callback: function(value) {
-                return value.toFixed(3) + ' m³';
+                return Number(value).toFixed(3) + ' m³';
               }
             }
           }
@@ -45931,14 +49043,7 @@ window.renderVolumenDiario = async function() {
 
   // Load Histories
   async function loadHistories() {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="3" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
-          <i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
-          Cargando historial de volumen...
-        </td>
-      </tr>
-    `;
+    setPeriodSectionsLoadingState(true);
 
     try {
       const startD = new Date(startDate + 'T00:00:00');
@@ -45947,6 +49052,8 @@ window.renderVolumenDiario = async function() {
 
       const expandedStart = addDays(startDate, -diffDays);
       const expandedEnd = addDays(endDate, diffDays);
+      const lookback30Start = addDays(endDate, -35);
+      const queryStart = expandedStart < lookback30Start ? expandedStart : lookback30Start;
 
       let query = supabase.from('comercios_volumen_diario').select('*');
 
@@ -45956,7 +49063,7 @@ window.renderVolumenDiario = async function() {
         query = query.in('comercio', activeComerces);
       }
       
-      query = query.gte('fecha', expandedStart).lte('fecha', expandedEnd);
+      query = query.gte('fecha', queryStart).lte('fecha', expandedEnd);
 
       const { data, error } = await query.order('fecha', { ascending: true });
 
@@ -45977,6 +49084,8 @@ window.renderVolumenDiario = async function() {
           </td>
         </tr>
       `;
+    } finally {
+      setPeriodSectionsLoadingState(false);
     }
   }
 
@@ -46025,28 +49134,1295 @@ window.renderVolumenDiario = async function() {
     pageInfo.textContent = `Mostrando ${startIdx + 1}-${endIdx} de ${totalItems} registros`;
   }
 
+  // Historical Monthly Benchmarks (3M / 6M / 12M)
+  let activeHorizonMonths = 6;
+  let monthlyBuckets12 = [];
+  let monthlyHistoryChartInstance = null;
+
+  function renderVariationBadgeHtml(pctValue, labelSuffix = '') {
+    if (pctValue === null || pctValue === undefined || !isFinite(pctValue)) {
+      return `<span style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); background: rgba(148, 163, 184, 0.14); padding: 0.15rem 0.45rem; border-radius: 99px;">—</span>`;
+    }
+    const absVal = Math.abs(pctValue).toFixed(1);
+    const suffix = labelSuffix ? ` ${labelSuffix}` : '';
+    if (pctValue > 0.05) {
+      return `<span style="font-size: 0.68rem; font-weight: 700; color: #10b981; background: rgba(16, 185, 129, 0.12); padding: 0.15rem 0.48rem; border-radius: 99px; display: inline-flex; align-items: center; gap: 2px;"><i class="ri-arrow-up-s-fill"></i>+${absVal}%${suffix}</span>`;
+    }
+    if (pctValue < -0.05) {
+      return `<span style="font-size: 0.68rem; font-weight: 700; color: #ef4444; background: rgba(239, 68, 68, 0.12); padding: 0.15rem 0.48rem; border-radius: 99px; display: inline-flex; align-items: center; gap: 2px;"><i class="ri-arrow-down-s-fill"></i>-${absVal}%${suffix}</span>`;
+    }
+    return `<span style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); background: rgba(148, 163, 184, 0.14); padding: 0.15rem 0.45rem; border-radius: 99px;">0.0%${suffix}</span>`;
+  }
+
+  function setMonthlyHistoryLoadingState(isLoading) {
+    document.querySelectorAll('[data-horizon-card]').forEach(card => {
+      card.classList.toggle('vol-kpi-card-loading', isLoading);
+    });
+    const mLoader = document.getElementById('volume-monthly-chart-loader');
+    const pGrid = document.getElementById('volume-monthly-periods-grid');
+
+    if (isLoading) {
+      ['3m', '6m', '12m'].forEach(k => {
+        const skelTone = k === '3m' ? 'skel-blue' : (k === '6m' ? 'skel-purple' : 'skel-emerald');
+        const bEl = document.getElementById(`vol-hist-badge-${k}`);
+        const vEl = document.getElementById(`vol-hist-val-${k}`);
+        const sEl = document.getElementById(`vol-hist-sub-${k}`);
+        if (bEl) bEl.innerHTML = `<span class="vol-skel-bar ${skelTone}" style="display: inline-block; width: 52px; height: 16px; border-radius: 99px;"></span>`;
+        if (vEl) vEl.innerHTML = `<div class="vol-skel-bar ${skelTone}" style="width: 112px; height: 22px; margin: 2px 0;"></div>`;
+        if (sEl) sEl.innerHTML = `<div class="vol-skel-bar" style="width: 155px; height: 11px; margin-top: 2px;"></div>`;
+      });
+      if (mLoader) {
+        mLoader.style.display = 'flex';
+        mLoader.style.opacity = '1';
+      }
+      if (pGrid) {
+        pGrid.innerHTML = getVolumeMonthlyHistorySkeletonCardsHtml(activeHorizonMonths <= 3 ? 3 : 6);
+      }
+    } else if (mLoader) {
+      mLoader.style.opacity = '0';
+      setTimeout(() => {
+        if (mLoader && mLoader.style.opacity === '0') mLoader.style.display = 'none';
+      }, 260);
+    }
+  }
+
+  async function renderMonthlyHorizonView(horizonCount) {
+    activeHorizonMonths = Number(horizonCount) || 6;
+
+    document.querySelectorAll('.vol-horizon-btn').forEach(btn => {
+      btn.classList.toggle('active', Number(btn.dataset.horizon) === activeHorizonMonths);
+    });
+    document.querySelectorAll('[data-horizon-card]').forEach(card => {
+      card.classList.toggle('active', Number(card.getAttribute('data-horizon-card')) === activeHorizonMonths);
+    });
+
+    const chartTitleEl = document.getElementById('vol-monthly-chart-title');
+    if (chartTitleEl) {
+      chartTitleEl.innerHTML = `<i class="ri-line-chart-line" style="color: var(--color-primary);"></i> Evolución de Promedios Mensuales (Últimos ${activeHorizonMonths} Meses)`;
+    }
+
+    if (!monthlyBuckets12 || monthlyBuckets12.length === 0) return;
+
+    const latestMonth = monthlyBuckets12[monthlyBuckets12.length - 1];
+    const refCurrentAvg = latestMonth ? latestMonth.avgDailyM3 : 0;
+
+    // Helper to compute stats for a N-month horizon
+    function computeHorizonStats(n) {
+      const slice = monthlyBuckets12.slice(-n);
+      const activeSlice = slice.filter(m => m.recordedDays > 0);
+      const source = activeSlice.length > 0 ? activeSlice : slice;
+      const avgM3 = source.length > 0
+        ? source.reduce((s, m) => s + m.avgDailyM3, 0) / source.length
+        : 0;
+      const avgM3DayMonth = source.length > 0
+        ? source.reduce((s, m) => s + m.sumM3Day, 0) / source.length
+        : 0;
+      const pctVsCurr = avgM3 > 0 ? ((refCurrentAvg - avgM3) / avgM3) * 100 : null;
+      let peakMonth = source[0] || null;
+      let minVal = Infinity;
+      let maxVal = 0;
+      source.forEach(m => {
+        if (m.avgDailyM3 > (peakMonth ? peakMonth.avgDailyM3 : -1)) peakMonth = m;
+        if (m.avgDailyM3 < minVal) minVal = m.avgDailyM3;
+        if (m.avgDailyM3 > maxVal) maxVal = m.avgDailyM3;
+      });
+      if (!isFinite(minVal)) minVal = 0;
+      return { slice, activeCount: activeSlice.length, avgM3, avgM3DayMonth, pctVsCurr, peakMonth, minVal, maxVal };
+    }
+
+    const stats3 = computeHorizonStats(3);
+    const stats6 = computeHorizonStats(6);
+    const stats12 = computeHorizonStats(12);
+
+    const val3El = document.getElementById('vol-hist-val-3m');
+    const sub3El = document.getElementById('vol-hist-sub-3m');
+    const bdg3El = document.getElementById('vol-hist-badge-3m');
+    if (val3El) val3El.textContent = `${stats3.avgM3.toFixed(5)} m³`;
+    if (bdg3El) bdg3El.innerHTML = renderVariationBadgeHtml(stats3.pctVsCurr, 'vs hoy');
+    if (sub3El) {
+      const range3 = stats3.slice.length > 0 ? `${stats3.slice[0].labelShort} – ${stats3.slice[stats3.slice.length - 1].labelShort}` : '3M';
+      sub3El.innerHTML = `Acum. medio: <strong>${stats3.avgM3DayMonth.toFixed(2)} m³·día</strong> · ${range3}`;
+    }
+
+    const val6El = document.getElementById('vol-hist-val-6m');
+    const sub6El = document.getElementById('vol-hist-sub-6m');
+    const bdg6El = document.getElementById('vol-hist-badge-6m');
+    if (val6El) val6El.textContent = `${stats6.avgM3.toFixed(5)} m³`;
+    if (bdg6El) bdg6El.innerHTML = renderVariationBadgeHtml(stats6.pctVsCurr, 'vs hoy');
+    if (sub6El) {
+      const peakStr = stats6.peakMonth ? `${stats6.peakMonth.labelShort} (${stats6.peakMonth.avgDailyM3.toFixed(3)} m³)` : '--';
+      sub6El.innerHTML = `Peak 6M: <strong>${peakStr}</strong> · ${stats6.activeCount}/6 meses act.`;
+    }
+
+    const val12El = document.getElementById('vol-hist-val-12m');
+    const sub12El = document.getElementById('vol-hist-sub-12m');
+    const bdg12El = document.getElementById('vol-hist-badge-12m');
+    if (val12El) val12El.textContent = `${stats12.avgM3.toFixed(5)} m³`;
+    if (bdg12El) bdg12El.innerHTML = renderVariationBadgeHtml(stats12.pctVsCurr, 'vs hoy');
+    if (sub12El) {
+      sub12El.innerHTML = `Mín <strong>${stats12.minVal.toFixed(3)}</strong> / Máx <strong>${stats12.maxVal.toFixed(3)} m³</strong> · ${stats12.activeCount}/12 meses`;
+    }
+
+    const activeStats = activeHorizonMonths === 3 ? stats3 : (activeHorizonMonths === 12 ? stats12 : stats6);
+    const displayMonths = [...activeStats.slice].reverse();
+    const pGrid = document.getElementById('volume-monthly-periods-grid');
+    if (pGrid) {
+      const currentFilterMonthKey = startDate ? startDate.slice(0, 7) : '';
+      pGrid.innerHTML = displayMonths.map(m => {
+        const isSelected = m.key === currentFilterMonthKey && startDate === m.firstDate;
+        return `
+          <div class="vol-month-history-item ${isSelected ? 'is-selected-period' : ''}" data-month-first="${m.firstDate}" data-month-last="${m.lastDate}" title="Filtrar gráfico y tabla al mes de ${m.labelFull}">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.35rem;">
+              <span style="font-size: 0.76rem; font-weight: 700; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.28rem;">
+                ${m.labelFull}
+                ${m.isCurrent ? '<span style="font-size: 0.6rem; background: rgba(37, 99, 235, 0.14); color: var(--color-primary); padding: 1px 5px; border-radius: 99px; font-weight: 800;">Actual</span>' : ''}
+              </span>
+              ${renderVariationBadgeHtml(m.momPct)}
+            </div>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 0.35rem; margin-top: 2px;">
+              <span style="font-size: 1.02rem; font-weight: 800; color: var(--color-primary);">${m.avgDailyM3.toFixed(5)} m³</span>
+              <span style="font-size: 0.66rem; color: var(--color-text-muted);">prom./día</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.67rem; color: var(--color-text-muted); border-top: 1px dashed var(--color-border); padding-top: 4px; margin-top: 2px;">
+              <span>Acum: <strong>${m.sumM3Day.toFixed(2)} m³·d</strong></span>
+              <span>${m.recordedDays}/${m.effectiveDays}d</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      pGrid.querySelectorAll('.vol-month-history-item').forEach(cardEl => {
+        cardEl.addEventListener('click', () => {
+          const fDate = cardEl.getAttribute('data-month-first');
+          const lDate = cardEl.getAttribute('data-month-last');
+          if (fDate && lDate) {
+            startDate = fDate;
+            endDate = lDate;
+            if (startDateInput) startDateInput.value = startDate;
+            if (endDateInput) endDateInput.value = endDate;
+            loadHistories();
+            renderMonthlyHorizonView(activeHorizonMonths);
+          }
+        });
+      });
+    }
+
+    // Render Monthly History Chart
+    const mCanvas = document.getElementById('volume-monthly-history-canvas');
+    if (!mCanvas) return;
+    await loadChartJS();
+    if (monthlyHistoryChartInstance) {
+      monthlyHistoryChartInstance.destroy();
+    }
+
+    const chronological = activeStats.slice;
+    const mLabels = chronological.map(m => m.labelShort);
+    const mValues = chronological.map(m => Number(m.avgDailyM3.toFixed(5)));
+    const avgRefLine = chronological.map(() => Number(activeStats.avgM3.toFixed(5)));
+
+    // Linear regression trendline across the horizon months
+    const nPts = mValues.length;
+    let trendLineData = [...mValues];
+    if (nPts >= 2) {
+      let sX = 0, sY = 0, sXY = 0, sXX = 0;
+      mValues.forEach((v, i) => {
+        sX += i;
+        sY += v;
+        sXY += i * v;
+        sXX += i * i;
+      });
+      const denom = (nPts * sXX - sX * sX);
+      const slope = denom !== 0 ? (nPts * sXY - sX * sY) / denom : 0;
+      const intercept = (sY - slope * sX) / nPts;
+      trendLineData = mValues.map((_, i) => Number(Math.max(0, slope * i + intercept).toFixed(5)));
+    }
+
+    const currentFilterKey = startDate ? startDate.slice(0, 7) : '';
+    const peakKey = activeStats.peakMonth ? activeStats.peakMonth.key : '';
+    const maxMonthVal = mValues.length > 0 ? Math.max(...mValues, activeStats.avgM3) : 1;
+
+    const monthlyLabelsPlugin = {
+      id: 'monthlyLabelsPlugin',
+      afterDatasetsDraw(chart) {
+        const { ctx: c2d, chartArea } = chart;
+        if (!chartArea) return;
+        const barMeta = chart.getDatasetMeta(0);
+        if (!barMeta || !barMeta.data) return;
+
+        c2d.save();
+        c2d.font = '700 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        c2d.textAlign = 'center';
+        c2d.textBaseline = 'bottom';
+
+        barMeta.data.forEach((barEl, idx) => {
+          const val = mValues[idx];
+          if (!val || val <= 0) return;
+          const mObj = chronological[idx];
+          const isPeak = mObj && mObj.key === peakKey;
+          c2d.fillStyle = isPeak ? '#f59e0b' : '#64748b';
+          const textY = Math.max(chartArea.top + 11, barEl.y - 4);
+          c2d.fillText(`${val.toFixed(3)}`, barEl.x, textY);
+        });
+        c2d.restore();
+      }
+    };
+
+    monthlyHistoryChartInstance = new Chart(mCanvas, {
+      plugins: [monthlyLabelsPlugin],
+      data: {
+        labels: mLabels,
+        datasets: [
+          {
+            type: 'bar',
+            label: 'Promedio Mensual (m³)',
+            data: mValues,
+            backgroundColor: function(context) {
+              const chart = context.chart;
+              const { ctx: c2d, chartArea } = chart;
+              const m = chronological[context.dataIndex];
+              if (!chartArea || !m) return 'rgba(59, 130, 246, 0.65)';
+              const grad = c2d.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+              if (m.key === currentFilterKey && startDate === m.firstDate) {
+                grad.addColorStop(0, 'rgba(37, 99, 235, 0.92)');
+                grad.addColorStop(1, 'rgba(79, 70, 229, 0.32)');
+                return grad;
+              }
+              if (m.key === peakKey) {
+                grad.addColorStop(0, 'rgba(245, 158, 11, 0.85)');
+                grad.addColorStop(1, 'rgba(245, 158, 11, 0.20)');
+                return grad;
+              }
+              if (m.isCurrent) {
+                grad.addColorStop(0, 'rgba(59, 130, 246, 0.85)');
+                grad.addColorStop(1, 'rgba(59, 130, 246, 0.22)');
+                return grad;
+              }
+              grad.addColorStop(0, 'rgba(99, 102, 241, 0.68)');
+              grad.addColorStop(1, 'rgba(99, 102, 241, 0.14)');
+              return grad;
+            },
+            borderColor: chronological.map(m => {
+              if (m.key === peakKey) return '#f59e0b';
+              if (m.key === currentFilterKey && startDate === m.firstDate) return '#1d4ed8';
+              return '#3b82f6';
+            }),
+            borderWidth: 1.2,
+            borderRadius: 7,
+            borderSkipped: false,
+            barPercentage: 0.56,
+            order: 3
+          },
+          {
+            type: 'line',
+            label: `Promedio ${activeHorizonMonths}M`,
+            data: avgRefLine,
+            borderColor: '#10b981',
+            borderWidth: 2,
+            borderDash: [6, 5],
+            pointRadius: 0,
+            fill: false,
+            order: 2
+          },
+          {
+            type: 'line',
+            label: 'Tendencia Mensual',
+            data: trendLineData,
+            borderColor: '#a855f7',
+            borderWidth: 2.5,
+            tension: 0.3,
+            pointRadius: 3.5,
+            pointBackgroundColor: '#a855f7',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 1.5,
+            fill: true,
+            backgroundColor: function(context) {
+              const chart = context.chart;
+              const { ctx: c2d, chartArea } = chart;
+              if (!chartArea) return 'rgba(168, 85, 247, 0.08)';
+              const grad = c2d.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+              grad.addColorStop(0, 'rgba(168, 85, 247, 0.18)');
+              grad.addColorStop(1, 'rgba(168, 85, 247, 0.0)');
+              return grad;
+            },
+            order: 1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        layout: {
+          padding: { top: 18, right: 8, bottom: 2, left: 4 }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.94)',
+            titleColor: '#f8fafc',
+            bodyColor: '#e2e8f0',
+            borderColor: 'rgba(99, 102, 241, 0.35)',
+            borderWidth: 1,
+            padding: 10,
+            cornerRadius: 8,
+            callbacks: {
+              label: function(ctx) {
+                return ` ${ctx.dataset.label}: ${Number(ctx.parsed.y || 0).toFixed(5)} m³`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: '#94a3b8', font: { size: 10.5, weight: '600' } }
+          },
+          y: {
+            beginAtZero: true,
+            suggestedMax: maxMonthVal * 1.18,
+            grid: { color: 'rgba(148, 163, 184, 0.09)', drawBorder: false },
+            ticks: {
+              color: '#94a3b8',
+              font: { size: 10 },
+              callback: v => Number(v).toFixed(2) + ' m³'
+            }
+          }
+        }
+      }
+    });
+  }
+
+  async function loadMonthlyHistoryBenchmarks() {
+    setMonthlyHistoryLoadingState(true);
+    try {
+      const MONTH_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+      const MONTH_FULL = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+      const nowTz = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Santiago' }));
+      const currYear = nowTz.getFullYear();
+      const currMonth = nowTz.getMonth();
+      const currDay = nowTz.getDate();
+
+      // Build 13 calendar month buckets (12 months for 12M + 1 prior month for MoM%)
+      const rawBuckets = [];
+      for (let offset = 12; offset >= 0; offset--) {
+        const dFirst = new Date(currYear, currMonth - offset, 1);
+        const dLast = new Date(dFirst.getFullYear(), dFirst.getMonth() + 1, 0);
+        const bYear = dFirst.getFullYear();
+        const bMonth = dFirst.getMonth();
+        const key = `${bYear}-${String(bMonth + 1).padStart(2, '0')}`;
+        const daysInMonth = dLast.getDate();
+        const isCurrent = (offset === 0);
+        const effectiveDays = isCurrent ? Math.max(1, Math.min(daysInMonth, currDay)) : daysInMonth;
+
+        rawBuckets.push({
+          key,
+          year: bYear,
+          monthIdx: bMonth,
+          labelShort: `${MONTH_SHORT[bMonth]} ${String(bYear).slice(-2)}`,
+          labelFull: `${MONTH_FULL[bMonth]} ${bYear}`,
+          firstDate: formatDate(dFirst),
+          lastDate: formatDate(dLast),
+          daysInMonth,
+          effectiveDays,
+          isCurrent,
+          dateMap: {}
+        });
+      }
+
+      const earliestDate = rawBuckets[0].firstDate;
+      const latestDate = rawBuckets[rawBuckets.length - 1].lastDate;
+
+      // Fetch 13 months of volume rows (with pagination if >1000 rows)
+      let allRows = [];
+      const pageSize = 1000;
+      for (let page = 0; page < 8; page++) {
+        let q = supabase.from('comercios_volumen_diario').select('comercio, fecha, volumen');
+        if (selectedCommerce) {
+          q = q.eq('comercio', selectedCommerce);
+        } else {
+          q = q.in('comercio', activeComerces);
+        }
+        q = q.gte('fecha', earliestDate).lte('fecha', latestDate).order('fecha', { ascending: true });
+        if (typeof q.range === 'function') {
+          q = q.range(page * pageSize, (page + 1) * pageSize - 1);
+        }
+        const { data: chunk, error: qErr } = await q;
+        if (qErr) throw qErr;
+        if (chunk && chunk.length > 0) {
+          allRows = allRows.concat(chunk);
+        }
+        if (!chunk || chunk.length < pageSize || typeof q.range !== 'function') break;
+      }
+
+      const bucketMap = {};
+      rawBuckets.forEach(b => { bucketMap[b.key] = b; });
+
+      allRows.forEach(row => {
+        if (!row.fecha) return;
+        const mKey = String(row.fecha).slice(0, 7);
+        const b = bucketMap[mKey];
+        if (b) {
+          b.dateMap[row.fecha] = (b.dateMap[row.fecha] || 0) + parseFloat(row.volumen || 0);
+        }
+      });
+
+      rawBuckets.forEach((b, idx) => {
+        const dailyVals = Object.values(b.dateMap);
+        b.recordedDays = dailyVals.length;
+        b.sumM3Day = dailyVals.reduce((s, v) => s + v, 0);
+        b.avgDailyM3 = b.recordedDays > 0 ? (b.sumM3Day / b.effectiveDays) : 0;
+        const prevB = idx > 0 ? rawBuckets[idx - 1] : null;
+        if (prevB && prevB.avgDailyM3 > 0 && b.recordedDays > 0) {
+          b.momPct = ((b.avgDailyM3 - prevB.avgDailyM3) / prevB.avgDailyM3) * 100;
+        } else {
+          b.momPct = null;
+        }
+      });
+
+      // Keep the latest 12 months
+      monthlyBuckets12 = rawBuckets.slice(1);
+      await renderMonthlyHorizonView(activeHorizonMonths);
+    } catch (err) {
+      console.error('Error al cargar histórico mensual (3/6/12M):', err);
+    } finally {
+      setMonthlyHistoryLoadingState(false);
+    }
+  }
+
+  // Horizon Switcher Listeners (3M / 6M / 12M)
+  document.querySelectorAll('.vol-horizon-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      renderMonthlyHorizonView(Number(btn.dataset.horizon));
+    });
+  });
+  document.querySelectorAll('[data-horizon-card]').forEach(card => {
+    card.addEventListener('click', () => {
+      renderMonthlyHorizonView(Number(card.getAttribute('data-horizon-card')));
+    });
+  });
+
+  // =========================================================================
+  // TAB 2: PRODUCT LEVEL VOLUME, DIMENSIONS, SHARE (%) & PERIOD VARIATIONS
+  // =========================================================================
+  let activeVolumeModuleTab = 'daily';
+  let allProductVolumeItems = [];
+  let filteredProductVolumeItems = [];
+  let prodVolCurrentPage = 1;
+  const prodVolItemsPerPage = 15;
+  let prodVolFilterMode = 'all';
+  let prodVolSortMode = 'vol_desc';
+  let prodVolSearchQuery = '';
+  let productParetoChartInstance = null;
+
+  const tabPanelDaily = document.getElementById('volume-tab-panel-daily');
+  const tabPanelProducts = document.getElementById('volume-tab-panel-products');
+  const tabProductsBadge = document.getElementById('vol-tab-products-badge');
+
+  document.querySelectorAll('#volume-module-tabs .vol-module-tab-btn').forEach(tabBtn => {
+    tabBtn.addEventListener('click', () => {
+      const targetTab = tabBtn.getAttribute('data-vol-tab') || 'daily';
+      activeVolumeModuleTab = targetTab;
+      document.querySelectorAll('#volume-module-tabs .vol-module-tab-btn').forEach(b => {
+        b.classList.toggle('active', b === tabBtn);
+      });
+      if (tabPanelDaily) tabPanelDaily.style.display = targetTab === 'daily' ? '' : 'none';
+      if (tabPanelProducts) tabPanelProducts.style.display = targetTab === 'products' ? '' : 'none';
+      if (targetTab === 'products') {
+        renderProductParetoChart();
+      } else {
+        updateChart();
+        renderMonthlyHorizonView(activeHorizonMonths);
+      }
+    });
+  });
+
+  function setProductVolumeLoadingState(isLoading) {
+    const cardIds = ['vol-prod-kpi-card-total', 'vol-prod-kpi-card-skus', 'vol-prod-kpi-card-top', 'vol-prod-kpi-card-var'];
+    cardIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('vol-kpi-card-loading', isLoading);
+    });
+    const pLoader = document.getElementById('volume-product-chart-loader');
+    const pTbody = document.getElementById('volume-products-tbody');
+
+    if (isLoading) {
+      if (pLoader) {
+        pLoader.style.display = 'flex';
+        pLoader.style.opacity = '1';
+      }
+      if (pTbody) {
+        pTbody.innerHTML = getVolumeTableSkeletonRowsHtml(6, 6);
+      }
+    } else if (pLoader) {
+      pLoader.style.opacity = '0';
+      setTimeout(() => {
+        if (pLoader && pLoader.style.opacity === '0') pLoader.style.display = 'none';
+      }, 260);
+    }
+  }
+
+  async function renderProductParetoChart() {
+    const pCanvas = document.getElementById('volume-product-pareto-canvas');
+    if (!pCanvas) return;
+    await loadChartJS();
+    if (productParetoChartInstance) {
+      productParetoChartInstance.destroy();
+    }
+
+    const sortedByVol = [...allProductVolumeItems]
+      .filter(item => item.occupiedVolM3 > 0 || item.unitVolM3 > 0)
+      .sort((a, b) => b.occupiedVolM3 - a.occupiedVolM3);
+
+    const topItems = sortedByVol.slice(0, 10);
+    if (topItems.length === 0) return;
+
+    const totalVol = allProductVolumeItems.reduce((s, i) => s + i.occupiedVolM3, 0);
+    const pLabels = topItems.map(i => (i.sku || i.name || 'SKU').slice(0, 14));
+    const pVolumes = topItems.map(i => Number(i.occupiedVolM3.toFixed(5)));
+
+    let runningPct = 0;
+    const pCumPct = topItems.map(i => {
+      const pct = totalVol > 0 ? (i.occupiedVolM3 / totalVol) * 100 : 0;
+      runningPct = Math.min(100, runningPct + pct);
+      return Number(runningPct.toFixed(1));
+    });
+    const ref80Line = topItems.map(() => 80);
+
+    productParetoChartInstance = new Chart(pCanvas, {
+      data: {
+        labels: pLabels,
+        datasets: [
+          {
+            type: 'bar',
+            label: 'Volumen Ocupado (m³)',
+            data: pVolumes,
+            yAxisID: 'y',
+            backgroundColor: function(context) {
+              const chart = context.chart;
+              const { ctx: c2d, chartArea } = chart;
+              if (!chartArea) return 'rgba(37, 99, 235, 0.75)';
+              const grad = c2d.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+              if (context.dataIndex === 0) {
+                grad.addColorStop(0, 'rgba(245, 158, 11, 0.88)');
+                grad.addColorStop(1, 'rgba(245, 158, 11, 0.22)');
+                return grad;
+              }
+              grad.addColorStop(0, 'rgba(37, 99, 235, 0.85)');
+              grad.addColorStop(1, 'rgba(99, 102, 241, 0.20)');
+              return grad;
+            },
+            borderColor: topItems.map((_, idx) => idx === 0 ? '#f59e0b' : '#2563eb'),
+            borderWidth: 1.2,
+            borderRadius: 6,
+            borderSkipped: false,
+            barPercentage: 0.6,
+            order: 3
+          },
+          {
+            type: 'line',
+            label: '% Aporte Acumulado (Pareto)',
+            data: pCumPct,
+            yAxisID: 'y1',
+            borderColor: '#a855f7',
+            borderWidth: 2.5,
+            tension: 0.3,
+            pointRadius: 3.5,
+            pointBackgroundColor: '#a855f7',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 1.5,
+            fill: false,
+            order: 1
+          },
+          {
+            type: 'line',
+            label: 'Umbral Clase A (80%)',
+            data: ref80Line,
+            yAxisID: 'y1',
+            borderColor: '#10b981',
+            borderWidth: 1.8,
+            borderDash: [5, 5],
+            pointRadius: 0,
+            fill: false,
+            order: 2
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.94)',
+            titleColor: '#f8fafc',
+            bodyColor: '#e2e8f0',
+            borderColor: 'rgba(99, 102, 241, 0.35)',
+            borderWidth: 1,
+            padding: 10,
+            cornerRadius: 8,
+            callbacks: {
+              title: function(ctx) {
+                const idx = ctx[0].dataIndex;
+                const item = topItems[idx];
+                return item ? `${item.sku} · ${item.name}` : ctx[0].label;
+              },
+              label: function(ctx) {
+                if (ctx.dataset.yAxisID === 'y1') {
+                  return ` ${ctx.dataset.label}: ${Number(ctx.parsed.y || 0).toFixed(1)}%`;
+                }
+                const idx = ctx.dataIndex;
+                const item = topItems[idx];
+                const share = item ? item.sharePct.toFixed(1) : '0.0';
+                return ` Volumen: ${Number(ctx.parsed.y || 0).toFixed(5)} m³ (${share}% del total)`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: '#94a3b8', font: { size: 10, weight: '600' }, maxRotation: 22 }
+          },
+          y: {
+            beginAtZero: true,
+            position: 'left',
+            grid: { color: 'rgba(148, 163, 184, 0.09)', drawBorder: false },
+            ticks: {
+              color: '#94a3b8',
+              font: { size: 10 },
+              callback: v => Number(v).toFixed(3) + ' m³'
+            }
+          },
+          y1: {
+            beginAtZero: true,
+            max: 105,
+            position: 'right',
+            grid: { display: false },
+            ticks: {
+              color: '#a855f7',
+              font: { size: 10, weight: '600' },
+              callback: v => v <= 100 ? v + '%' : ''
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function renderProductMoversList() {
+    const moversContainer = document.getElementById('volume-product-movers-list');
+    const periodLbl = document.getElementById('vol-prod-movers-period-label');
+    if (periodLbl && startDate && endDate) {
+      const sP = startDate.split('-');
+      const eP = endDate.split('-');
+      periodLbl.textContent = `${sP[2]}/${sP[1]} – ${eP[2]}/${eP[1]}`;
+    }
+    if (!moversContainer) return;
+
+    const withMovements = [...allProductVolumeItems]
+      .filter(i => i.inQty > 0 || i.outQty > 0 || Math.abs(i.netDeltaVolM3) > 0)
+      .sort((a, b) => Math.abs(b.netDeltaVolM3) - Math.abs(a.netDeltaVolM3) || (b.inQty + b.outQty) - (a.inQty + a.outQty));
+
+    const displayList = withMovements.length > 0
+      ? withMovements.slice(0, 6)
+      : [...allProductVolumeItems].sort((a, b) => b.occupiedVolM3 - a.occupiedVolM3).slice(0, 5);
+
+    if (displayList.length === 0) {
+      moversContainer.innerHTML = `
+        <div style="padding: 2rem 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.8rem;">
+          No se encontraron productos ni variaciones para los filtros actuales.
+        </div>
+      `;
+      return;
+    }
+
+    moversContainer.innerHTML = displayList.map(item => {
+      const hasVar = (item.inQty > 0 || item.outQty > 0);
+      const sign = item.netDeltaVolM3 > 0 ? '+' : '';
+      const deltaColor = item.netDeltaVolM3 > 0.00001
+        ? '#10b981'
+        : (item.netDeltaVolM3 < -0.00001 ? '#ef4444' : 'var(--color-text-muted)');
+
+      return `
+        <div class="vol-prod-mover-card">
+          <div style="min-width: 0; flex: 1;">
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <span style="font-size: 0.72rem; font-weight: 800; color: var(--color-primary); background: rgba(37, 99, 235, 0.1); padding: 1px 6px; border-radius: 4px;">${item.sku || 'S/SKU'}</span>
+              <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.name || 'Producto'}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.65rem; font-size: 0.69rem; color: var(--color-text-muted); margin-top: 3px;">
+              <span>Stock: <strong>${item.qtyPhysical} uds</strong> (${item.occupiedVolM3.toFixed(4)} m³)</span>
+              ${hasVar
+                ? `<span><strong style="color: #10b981;">+${item.inQty} ent.</strong> / <strong style="color: #ef4444;">-${item.outQty} sal.</strong></span>`
+                : `<span>Aporte: <strong>${item.sharePct.toFixed(1)}%</strong></span>`
+              }
+            </div>
+          </div>
+          <div style="text-align: right; flex-shrink: 0;">
+            <div style="font-size: 0.82rem; font-weight: 800; color: ${deltaColor};">
+              ${hasVar ? `${sign}${item.netDeltaVolM3.toFixed(4)} m³` : `${item.occupiedVolM3.toFixed(4)} m³`}
+            </div>
+            <div style="font-size: 0.67rem; color: var(--color-text-muted);">
+              ${hasVar ? `Δ ${item.netDeltaQty >= 0 ? '+' : ''}${item.netDeltaQty} uds (${item.varPct >= 0 ? '+' : ''}${item.varPct.toFixed(1)}%)` : 'Sin mov. en rango'}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function applyProductVolumeFiltersAndRender() {
+    const q = (prodVolSearchQuery || '').trim().toLowerCase();
+
+    filteredProductVolumeItems = allProductVolumeItems.filter(item => {
+      if (q) {
+        const matchSku = (item.sku || '').toLowerCase().includes(q);
+        const matchName = (item.name || '').toLowerCase().includes(q);
+        const matchCom = (item.comercio || '').toLowerCase().includes(q);
+        if (!matchSku && !matchName && !matchCom) return false;
+      }
+      if (prodVolFilterMode === 'instock') return item.qtyPhysical > 0;
+      if (prodVolFilterMode === 'pareto_a') return item.paretoClass === 'A' && item.occupiedVolM3 > 0;
+      if (prodVolFilterMode === 'changed') return (item.inQty > 0 || item.outQty > 0);
+      if (prodVolFilterMode === 'missing_dims') return !item.hasDimensions && item.unitVolM3 <= 0;
+      return true;
+    });
+
+    filteredProductVolumeItems.sort((a, b) => {
+      if (prodVolSortMode === 'vol_desc') return b.occupiedVolM3 - a.occupiedVolM3 || b.qtyPhysical - a.qtyPhysical;
+      if (prodVolSortMode === 'share_desc') return b.sharePct - a.sharePct;
+      if (prodVolSortMode === 'qty_desc') return b.qtyPhysical - a.qtyPhysical || b.occupiedVolM3 - a.occupiedVolM3;
+      if (prodVolSortMode === 'unit_vol_desc') return b.unitVolM3 - a.unitVolM3;
+      if (prodVolSortMode === 'var_desc') return Math.abs(b.netDeltaVolM3) - Math.abs(a.netDeltaVolM3) || (b.inQty + b.outQty) - (a.inQty + a.outQty);
+      if (prodVolSortMode === 'name_asc') return (a.name || '').localeCompare(b.name || '');
+      return 0;
+    });
+
+    renderProductVolumeTable();
+  }
+
+  function renderProductVolumeTable() {
+    const pTbody = document.getElementById('volume-products-tbody');
+    const pPageInfo = document.getElementById('vol-prod-page-info');
+    const pBtnPrev = document.getElementById('btn-vol-prod-prev');
+    const pBtnNext = document.getElementById('btn-vol-prod-next');
+    if (!pTbody) return;
+
+    if (filteredProductVolumeItems.length === 0) {
+      pTbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="text-center" style="padding: 3rem 1.5rem; color: var(--color-text-muted);">
+            <i class="ri-box-3-line" style="font-size: 1.8rem; display: block; margin-bottom: 0.4rem;"></i>
+            No se encontraron productos para los criterios seleccionados
+          </td>
+        </tr>
+      `;
+      if (pBtnPrev) pBtnPrev.disabled = true;
+      if (pBtnNext) pBtnNext.disabled = true;
+      if (pPageInfo) pPageInfo.textContent = 'Mostrando 0 de 0 productos';
+      return;
+    }
+
+    const totalItems = filteredProductVolumeItems.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / prodVolItemsPerPage));
+    if (prodVolCurrentPage > totalPages) prodVolCurrentPage = totalPages;
+
+    const startIdx = (prodVolCurrentPage - 1) * prodVolItemsPerPage;
+    const endIdx = Math.min(startIdx + prodVolItemsPerPage, totalItems);
+    const pageItems = filteredProductVolumeItems.slice(startIdx, endIdx);
+
+    pTbody.innerHTML = pageItems.map(item => {
+      const dimsLabel = item.hasDimensions
+        ? `<span style="font-weight: 700; color: var(--color-text-main);">${item.largo} × ${item.ancho} × ${item.alto} cm</span>`
+        : (item.unitVolM3 > 0
+            ? `<span style="font-size: 0.74rem; color: #f59e0b; font-weight: 600;"><i class="ri-Tools-line"></i> Cubicaje directo</span>`
+            : `<span style="font-size: 0.73rem; color: #ef4444; background: rgba(239, 68, 68, 0.1); padding: 2px 6px; border-radius: 4px; font-weight: 700;"><i class="ri-error-warning-line"></i> Sin medidas</span>`);
+
+      const weightStr = item.peso > 0 ? ` · ${item.peso.toFixed(2)} kg` : '';
+      const unitVolStr = item.unitVolM3 > 0
+        ? `${item.unitVolM3.toFixed(5)} m³/ud (${Math.round(item.unitVolM3 * 1000000).toLocaleString('es-CL')} cm³)`
+        : '0.00000 m³/ud';
+
+      const abcClass = item.paretoClass === 'A' ? 'vol-abc-a' : (item.paretoClass === 'B' ? 'vol-abc-b' : 'vol-abc-c');
+      const barGrad = item.paretoClass === 'A'
+        ? 'linear-gradient(90deg, #2563eb, #6366f1)'
+        : (item.paretoClass === 'B' ? 'linear-gradient(90deg, #8b5cf6, #a855f7)' : 'linear-gradient(90deg, #64748b, #94a3b8)');
+      const barWidth = Math.min(100, Math.max(item.sharePct > 0 ? 3 : 0, item.sharePct));
+
+      const hasMovs = (item.inQty > 0 || item.outQty > 0);
+      const deltaSign = item.netDeltaVolM3 > 0 ? '+' : '';
+      const deltaColor = item.netDeltaVolM3 > 0.00001
+        ? '#10b981'
+        : (item.netDeltaVolM3 < -0.00001 ? '#ef4444' : 'var(--color-text-muted)');
+
+      return `
+        <tr style="border-bottom: 1px solid var(--color-border); transition: var(--transition-theme);">
+          <td style="padding: 0.75rem 1.25rem;">
+            <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+              <span style="font-size: 0.73rem; font-weight: 800; color: var(--color-primary); background: rgba(37, 99, 235, 0.1); padding: 2px 6px; border-radius: 4px; font-family: monospace;">${item.sku || 'S/SKU'}</span>
+              <span class="vol-abc-badge ${abcClass}" title="Clasificación Pareto por aporte de volumen">Clase ${item.paretoClass}</span>
+              ${item.is_pack ? '<span style="font-size: 0.65rem; background: rgba(168, 85, 247, 0.14); color: #a855f7; padding: 1px 5px; border-radius: 4px; font-weight: 700;">PACK</span>' : ''}
+            </div>
+            <div style="font-weight: 600; color: var(--color-text-main); margin-top: 0.22rem; line-height: 1.3;">${item.name || 'Producto sin nombre'}</div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.1rem;">${item.comercio || ''}</div>
+          </td>
+          <td style="padding: 0.75rem 1rem;">
+            <div>${dimsLabel}<span style="font-size: 0.72rem; color: var(--color-text-muted);">${weightStr}</span></div>
+            <div style="font-size: 0.71rem; color: var(--color-text-muted); margin-top: 0.18rem;">Vol. Unit: <strong>${unitVolStr}</strong></div>
+          </td>
+          <td style="padding: 0.75rem 1rem; text-align: right;">
+            <div style="font-size: 0.94rem; font-weight: 800; color: ${item.qtyPhysical > 0 ? 'var(--color-text-main)' : 'var(--color-text-muted)'};">
+              ${item.qtyPhysical.toLocaleString('es-CL')} uds
+            </div>
+            <div style="font-size: 0.69rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+              Disp: <strong style="color: #10b981;">${item.qtyAvailable}</strong> · Comp: <strong style="color: #f59e0b;">${item.qtyCommitted}</strong>
+            </div>
+          </td>
+          <td style="padding: 0.75rem 1rem; text-align: right;">
+            <div style="font-size: 0.95rem; font-weight: 800; color: var(--color-primary);">
+              ${item.occupiedVolM3.toFixed(5)} m³
+            </div>
+            <div style="font-size: 0.69rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+              ${(item.occupiedVolM3 * 1000).toFixed(2)} L · Disp: ${item.availableVolM3.toFixed(4)} m³
+            </div>
+          </td>
+          <td style="padding: 0.75rem 1.15rem;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; font-size: 0.78rem; margin-bottom: 0.25rem;">
+              <strong style="color: var(--color-text-main); font-weight: 800;">${item.sharePct.toFixed(2)}%</strong>
+              <span style="font-size: 0.67rem; color: var(--color-text-muted);">Acum: ${item.cumSharePct.toFixed(1)}%</span>
+            </div>
+            <div class="vol-prod-share-bar">
+              <div class="vol-prod-share-fill" style="width: ${barWidth}%; background: ${barGrad};"></div>
+            </div>
+          </td>
+          <td style="padding: 0.75rem 1.25rem; text-align: right;">
+            ${hasMovs
+              ? `
+                <div style="font-size: 0.85rem; font-weight: 800; color: ${deltaColor};">
+                  ${deltaSign}${item.netDeltaVolM3.toFixed(5)} m³
+                </div>
+                <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.12rem;">
+                  <span style="color: #10b981; font-weight: 700;">+${item.inQty}</span> / <span style="color: #ef4444; font-weight: 700;">-${item.outQty}</span> uds
+                  (${item.varPct >= 0 ? '+' : ''}${item.varPct.toFixed(1)}%)
+                </div>
+              `
+              : `
+                <div style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">0.00000 m³</div>
+                <div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.1rem;">Sin variación en periodo</div>
+              `
+            }
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    if (pBtnPrev) pBtnPrev.disabled = prodVolCurrentPage === 1;
+    if (pBtnNext) pBtnNext.disabled = prodVolCurrentPage >= totalPages;
+    if (pPageInfo) pPageInfo.textContent = `Mostrando ${startIdx + 1}-${endIdx} de ${totalItems} productos`;
+  }
+
+  async function loadProductVolumeLevels() {
+    setProductVolumeLoadingState(true);
+    try {
+      const targetComs = selectedCommerce ? [selectedCommerce] : activeComerces;
+      if (!targetComs || targetComs.length === 0) {
+        allProductVolumeItems = [];
+        applyProductVolumeFiltersAndRender();
+        return;
+      }
+
+      // 1. Fetch products with inventory
+      let rawProducts = [];
+      const pageSize = 1000;
+      for (let page = 0; page < 6; page++) {
+        let pq = supabase
+          .from('products')
+          .select('*, inventory(warehouse_id, quantity, committed_quantity, warehouses(name))');
+        if (targetComs.length === 1) {
+          pq = pq.eq('comercio', targetComs[0]);
+        } else {
+          pq = pq.in('comercio', targetComs);
+        }
+        pq = pq.order('name', { ascending: true });
+        if (typeof pq.range === 'function') {
+          pq = pq.range(page * pageSize, (page + 1) * pageSize - 1);
+        }
+        const { data: pChunk, error: pErr } = await pq;
+        if (pErr) throw pErr;
+        if (pChunk && pChunk.length > 0) {
+          rawProducts = rawProducts.concat(pChunk);
+        }
+        if (!pChunk || pChunk.length < pageSize || typeof pq.range !== 'function') break;
+      }
+
+      rawProducts = rawProducts.filter(p => p.status !== 'archived');
+
+      // 2. Fetch Period Outflows (Orders in [startDate, endDate]) & Inflows (Stock Declarations in [startDate, endDate])
+      const inQtyById = {};
+      const inQtyBySku = {};
+      const outQtyById = {};
+      const outQtyBySku = {};
+
+      const rangeStartIso = `${startDate}T00:00:00`;
+      const rangeEndIso = `${endDate}T23:59:59`;
+
+      const [ordersRes, decsRes] = await Promise.all([
+        (async () => {
+          try {
+            let oq = supabase
+              .from('orders')
+              .select('id, comercio, status, estado_wms, created_at, order_items(product_id, sku, quantity)')
+              .gte('created_at', rangeStartIso)
+              .lte('created_at', rangeEndIso);
+            if (targetComs.length === 1) {
+              oq = oq.eq('comercio', targetComs[0]);
+            } else {
+              oq = oq.in('comercio', targetComs);
+            }
+            const { data } = await oq;
+            return data || [];
+          } catch (e) {
+            return [];
+          }
+        })(),
+        (async () => {
+          try {
+            let dq = supabase
+              .from('stock_declarations')
+              .select('id, comercio, status, created_at, products_list')
+              .gte('created_at', rangeStartIso)
+              .lte('created_at', rangeEndIso);
+            if (targetComs.length === 1) {
+              dq = dq.eq('comercio', targetComs[0]);
+            } else {
+              dq = dq.in('comercio', targetComs);
+            }
+            const { data } = await dq;
+            return data || [];
+          } catch (e) {
+            return [];
+          }
+        })()
+      ]);
+
+      (ordersRes || []).forEach(ord => {
+        const st = String(ord.status || '').toLowerCase();
+        const wmsSt = String(ord.estado_wms || '').toLowerCase();
+        if (st === 'cancelled' || st === 'cancelado' || wmsSt === 'cancelado') return;
+        (ord.order_items || []).forEach(oi => {
+          const qty = Number(oi.quantity) || 0;
+          if (qty <= 0) return;
+          if (oi.product_id) {
+            outQtyById[oi.product_id] = (outQtyById[oi.product_id] || 0) + qty;
+          } else if (oi.sku) {
+            const skuNorm = String(oi.sku).trim().toUpperCase();
+            outQtyBySku[skuNorm] = (outQtyBySku[skuNorm] || 0) + qty;
+          }
+        });
+      });
+
+      (decsRes || []).forEach(dec => {
+        const st = String(dec.status || '').toLowerCase();
+        if (st.includes('rechazad') || st.includes('cancelad')) return;
+        const pList = Array.isArray(dec.products_list) ? dec.products_list : [];
+        pList.forEach(item => {
+          const qty = Number(item.counted_qty ?? item.qty ?? item.quantity ?? 0) || 0;
+          if (qty <= 0) return;
+          if (item.sku) {
+            const skuNorm = String(item.sku).trim().toUpperCase();
+            inQtyBySku[skuNorm] = (inQtyBySku[skuNorm] || 0) + qty;
+          }
+        });
+      });
+
+      // Also include demo movements if in demo mode
+      if (typeof window.isDemoMode === 'function' && window.isDemoMode() && typeof window.getMockTable === 'function') {
+        const mockMovs = window.getMockTable('movements') || [];
+        mockMovs.forEach(mv => {
+          const q = Number(mv.quantity) || 0;
+          if (mv.type === 'in') {
+            inQtyById[mv.product_id] = (inQtyById[mv.product_id] || 0) + q;
+          } else if (mv.type === 'out') {
+            outQtyById[mv.product_id] = (outQtyById[mv.product_id] || 0) + q;
+          }
+        });
+      }
+
+      // 3. Build enriched product items
+      const builtItems = rawProducts.map(p => {
+        const largo = parseFloat(p.largo ?? p.length ?? 0) || 0;
+        const ancho = parseFloat(p.ancho ?? p.width ?? 0) || 0;
+        const alto = parseFloat(p.alto ?? p.height ?? 0) || 0;
+        const peso = parseFloat(p.peso ?? p.weight ?? 0) || 0;
+        const hasDimensions = (largo > 0 && ancho > 0 && alto > 0);
+        const cubicFromDims = hasDimensions ? (largo * ancho * alto) / 1000000 : 0;
+        const rawVol = parseFloat(p.volumen || 0) || 0;
+        const unitVolM3 = rawVol > 0 ? rawVol : cubicFromDims;
+
+        const invs = Array.isArray(p.inventory) ? p.inventory : [];
+        const qtyPhysical = invs.reduce((s, i) => s + Math.max(0, Number(i.quantity) || 0), 0);
+        const qtyCommitted = invs.reduce((s, i) => s + Math.max(0, Number(i.committed_quantity) || 0), 0);
+        const qtyAvailable = Math.max(0, qtyPhysical - qtyCommitted);
+
+        const occupiedVolM3 = qtyPhysical * unitVolM3;
+        const availableVolM3 = qtyAvailable * unitVolM3;
+        const committedVolM3 = Math.min(qtyPhysical, qtyCommitted) * unitVolM3;
+
+        const skuNorm = String(p.sku || '').trim().toUpperCase();
+        const inQty = (inQtyById[p.id] || 0) + (skuNorm ? (inQtyBySku[skuNorm] || 0) : 0);
+        const outQty = (outQtyById[p.id] || 0) + (skuNorm ? (outQtyBySku[skuNorm] || 0) : 0);
+        const netDeltaQty = inQty - outQty;
+        const netDeltaVolM3 = netDeltaQty * unitVolM3;
+        const estStartQty = Math.max(0, qtyPhysical - netDeltaQty);
+        const varPct = estStartQty > 0
+          ? ((qtyPhysical - estStartQty) / estStartQty) * 100
+          : (qtyPhysical > 0 && netDeltaQty > 0 ? 100 : 0);
+
+        return {
+          id: p.id,
+          sku: p.sku || '',
+          name: p.name || '',
+          comercio: p.comercio || '',
+          is_pack: Boolean(p.is_pack),
+          largo,
+          ancho,
+          alto,
+          peso,
+          hasDimensions,
+          unitVolM3,
+          qtyPhysical,
+          qtyCommitted,
+          qtyAvailable,
+          occupiedVolM3,
+          availableVolM3,
+          committedVolM3,
+          inQty,
+          outQty,
+          netDeltaQty,
+          netDeltaVolM3,
+          varPct,
+          sharePct: 0,
+          cumSharePct: 0,
+          paretoClass: 'C'
+        };
+      });
+
+      const totalVolAll = builtItems.reduce((s, i) => s + i.occupiedVolM3, 0);
+      builtItems.sort((a, b) => b.occupiedVolM3 - a.occupiedVolM3 || b.qtyPhysical - a.qtyPhysical);
+
+      let runningShare = 0;
+      builtItems.forEach(item => {
+        const prevShare = runningShare;
+        item.sharePct = totalVolAll > 0 ? (item.occupiedVolM3 / totalVolAll) * 100 : 0;
+        runningShare = Math.min(100, runningShare + item.sharePct);
+        item.cumSharePct = runningShare;
+
+        if (item.occupiedVolM3 <= 0) {
+          item.paretoClass = 'C';
+        } else if (prevShare < 80) {
+          item.paretoClass = 'A';
+        } else if (prevShare < 95) {
+          item.paretoClass = 'B';
+        } else {
+          item.paretoClass = 'C';
+        }
+      });
+
+      allProductVolumeItems = builtItems;
+
+      // Update Tab Badge
+      if (tabProductsBadge) {
+        tabProductsBadge.textContent = `${allProductVolumeItems.length} SKUs`;
+      }
+
+      // Update Product Volume KPIs
+      const totalAvailVol = allProductVolumeItems.reduce((s, i) => s + i.availableVolM3, 0);
+      const totalCommVol = allProductVolumeItems.reduce((s, i) => s + i.committedVolM3, 0);
+      const totalUnits = allProductVolumeItems.reduce((s, i) => s + i.qtyPhysical, 0);
+      const inStockSkus = allProductVolumeItems.filter(i => i.qtyPhysical > 0).length;
+      const measuredSkus = allProductVolumeItems.filter(i => i.hasDimensions || i.unitVolM3 > 0).length;
+      const measuredPct = allProductVolumeItems.length > 0 ? Math.round((measuredSkus / allProductVolumeItems.length) * 100) : 0;
+      const topItem = allProductVolumeItems[0] || null;
+      const netVarM3 = allProductVolumeItems.reduce((s, i) => s + i.netDeltaVolM3, 0);
+      const totalInUnits = allProductVolumeItems.reduce((s, i) => s + i.inQty, 0);
+      const totalOutUnits = allProductVolumeItems.reduce((s, i) => s + i.outQty, 0);
+
+      const kpiTotalVal = document.getElementById('vol-prod-kpi-total-val');
+      const kpiTotalSub = document.getElementById('vol-prod-kpi-total-sub');
+      if (kpiTotalVal) kpiTotalVal.textContent = `${totalVolAll.toFixed(5)} m³`;
+      if (kpiTotalSub) kpiTotalSub.innerHTML = `Disp: <strong>${totalAvailVol.toFixed(4)} m³</strong> · Comp: <strong>${totalCommVol.toFixed(4)} m³</strong>`;
+
+      const kpiSkusVal = document.getElementById('vol-prod-kpi-skus-val');
+      const kpiSkusSub = document.getElementById('vol-prod-kpi-skus-sub');
+      if (kpiSkusVal) kpiSkusVal.textContent = `${totalUnits.toLocaleString('es-CL')} uds (${inStockSkus} SKUs)`;
+      if (kpiSkusSub) kpiSkusSub.innerHTML = `Cubicados: <strong>${measuredSkus}/${allProductVolumeItems.length} SKUs (${measuredPct}%)</strong>`;
+
+      const kpiTopVal = document.getElementById('vol-prod-kpi-top-val');
+      const kpiTopSub = document.getElementById('vol-prod-kpi-top-sub');
+      if (kpiTopVal) {
+        kpiTopVal.textContent = topItem && topItem.occupiedVolM3 > 0 ? `${topItem.sku || topItem.name}` : 'Sin stock activo';
+        kpiTopVal.title = topItem ? `${topItem.sku} - ${topItem.name}` : '';
+      }
+      if (kpiTopSub) {
+        kpiTopSub.innerHTML = topItem && topItem.occupiedVolM3 > 0
+          ? `Ocupa <strong>${topItem.occupiedVolM3.toFixed(4)} m³</strong> (<strong>${topItem.sharePct.toFixed(1)}%</strong> del total)`
+          : '0.0000 m³ (0% del total)';
+      }
+
+      const kpiVarVal = document.getElementById('vol-prod-kpi-var-val');
+      const kpiVarSub = document.getElementById('vol-prod-kpi-var-sub');
+      if (kpiVarVal) {
+        const sign = netVarM3 > 0 ? '+' : '';
+        const col = netVarM3 > 0.00001 ? '#10b981' : (netVarM3 < -0.00001 ? '#ef4444' : 'var(--color-text-main)');
+        kpiVarVal.innerHTML = `<span style="color: ${col};">${sign}${netVarM3.toFixed(5)} m³</span>`;
+      }
+      if (kpiVarSub) {
+        kpiVarSub.innerHTML = `Entradas: <strong style="color: #10b981;">+${totalInUnits} uds</strong> · Salidas: <strong style="color: #ef4444;">-${totalOutUnits} uds</strong>`;
+      }
+
+      prodVolCurrentPage = 1;
+      applyProductVolumeFiltersAndRender();
+      renderProductMoversList();
+      await renderProductParetoChart();
+    } catch (err) {
+      console.error('Error al cargar niveles de volumen por producto:', err);
+    } finally {
+      setProductVolumeLoadingState(false);
+    }
+  }
+
+  // Product Volume Toolbar Listeners
+  const prodSearchInput = document.getElementById('vol-prod-search-input');
+  if (prodSearchInput) {
+    prodSearchInput.addEventListener('input', (e) => {
+      prodVolSearchQuery = e.target.value || '';
+      prodVolCurrentPage = 1;
+      applyProductVolumeFiltersAndRender();
+    });
+  }
+
+  const prodSortSelect = document.getElementById('vol-prod-sort-select');
+  if (prodSortSelect) {
+    prodSortSelect.addEventListener('change', (e) => {
+      prodVolSortMode = e.target.value || 'vol_desc';
+      prodVolCurrentPage = 1;
+      applyProductVolumeFiltersAndRender();
+    });
+  }
+
+  document.querySelectorAll('.vol-prod-filter-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      prodVolFilterMode = pill.getAttribute('data-prod-filter') || 'all';
+      document.querySelectorAll('.vol-prod-filter-pill').forEach(p => p.classList.toggle('active', p === pill));
+      prodVolCurrentPage = 1;
+      applyProductVolumeFiltersAndRender();
+    });
+  });
+
+  const btnProdPrev = document.getElementById('btn-vol-prod-prev');
+  const btnProdNext = document.getElementById('btn-vol-prod-next');
+  if (btnProdPrev) {
+    btnProdPrev.addEventListener('click', () => {
+      if (prodVolCurrentPage > 1) {
+        prodVolCurrentPage--;
+        renderProductVolumeTable();
+      }
+    });
+  }
+  if (btnProdNext) {
+    btnProdNext.addEventListener('click', () => {
+      if (prodVolCurrentPage * prodVolItemsPerPage < filteredProductVolumeItems.length) {
+        prodVolCurrentPage++;
+        renderProductVolumeTable();
+      }
+    });
+  }
+
+  const btnExportProdCsv = document.getElementById('btn-export-vol-products-csv');
+  if (btnExportProdCsv) {
+    btnExportProdCsv.addEventListener('click', () => {
+      if (!filteredProductVolumeItems || filteredProductVolumeItems.length === 0) {
+        showToastFeedback('No hay productos para exportar.', false);
+        return;
+      }
+      const headers = [
+        'SKU', 'Producto', 'Comercio', 'Clase Pareto',
+        'Largo (cm)', 'Ancho (cm)', 'Alto (cm)', 'Peso (kg)',
+        'Volumen Unitario (m3)', 'Stock Fisico', 'Stock Disponible', 'Stock Comprometido',
+        'Volumen Ocupado (m3)', 'Aporte Total (%)', 'Aporte Acumulado (%)',
+        'Entradas Periodo (uds)', 'Salidas Periodo (uds)', 'Variacion Volumen Periodo (m3)', 'Variacion (%)'
+      ];
+      const rows = filteredProductVolumeItems.map(i => [
+        `"${(i.sku || '').replace(/"/g, '""')}"`,
+        `"${(i.name || '').replace(/"/g, '""')}"`,
+        `"${(i.comercio || '').replace(/"/g, '""')}"`,
+        i.paretoClass,
+        i.largo,
+        i.ancho,
+        i.alto,
+        i.peso,
+        i.unitVolM3.toFixed(6),
+        i.qtyPhysical,
+        i.qtyAvailable,
+        i.qtyCommitted,
+        i.occupiedVolM3.toFixed(6),
+        i.sharePct.toFixed(2),
+        i.cumSharePct.toFixed(2),
+        i.inQty,
+        i.outQty,
+        i.netDeltaVolM3.toFixed(6),
+        i.varPct.toFixed(2)
+      ]);
+      const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `volumen_por_producto_${startDate}_${endDate}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToastFeedback('Reporte CSV de volumen por producto descargado.');
+    });
+  }
+
   // Event Listeners
   if (merchantSelect) {
     merchantSelect.addEventListener('change', (e) => {
       selectedCommerce = e.target.value;
       updateVolumeStats();
       loadHistories();
+      loadMonthlyHistoryBenchmarks();
+      loadProductVolumeLevels();
     });
   }
 
   startDateInput.addEventListener('change', (e) => {
     startDate = e.target.value;
     loadHistories();
+    renderMonthlyHorizonView(activeHorizonMonths);
+    loadProductVolumeLevels();
   });
 
   endDateInput.addEventListener('change', (e) => {
     endDate = e.target.value;
     loadHistories();
+    renderMonthlyHorizonView(activeHorizonMonths);
+    loadProductVolumeLevels();
   });
 
   btnRefresh.addEventListener('click', () => {
     updateVolumeStats();
     loadHistories();
+    loadMonthlyHistoryBenchmarks();
+    loadProductVolumeLevels();
   });
 
   btnPrev.addEventListener('click', () => {
@@ -46159,8 +50535,62 @@ window.renderVolumenDiario = async function() {
     });
   }
 
-  await updateVolumeStats();
-  await loadHistories();
+  let clientComerces = [];
+  if (currentCompany) {
+    const list = currentCompany.split(',').map(c => c.trim()).filter(Boolean);
+    if (list.some(c => c.toLowerCase() === 'all')) {
+      try {
+        const { data } = await supabase.from('v_comercios_config').select('nombre, sigla');
+        clientComerces = data ? data.map(c => c.nombre) : [];
+      } catch (e) {
+        console.error(e);
+      }
+    } else {
+      clientComerces = list;
+    }
+  }
+
+  try {
+    const { data: activeConfigs } = await supabase
+      .from('comercios_adicional_config')
+      .select('comercio')
+      .eq('inventario_seguimiento', true);
+
+    const activeSet = new Set(activeConfigs ? activeConfigs.map(c => c.comercio.toLowerCase()) : []);
+    activeComerces = clientComerces.filter(c => activeSet.has(c.toLowerCase()));
+  } catch (e) {
+    console.error('Error filtrando comercios por seguimiento:', e);
+    activeComerces = clientComerces;
+  }
+
+  if (activeComerces.length === 0) {
+    appContent.innerHTML = `
+      <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+        <i class="ri-information-line" style="font-size: 3rem; display: block; margin-bottom: 1rem;"></i>
+        <h4>Seguimiento de stock inactivo</h4>
+        <p>No tienes comercios asociados con el seguimiento de stock activo. Esta sección está disponible únicamente para comercios con control de inventario.</p>
+      </div>
+    `;
+    return;
+  }
+
+  selectedCommerce = activeComerces.length === 1 ? activeComerces[0] : '';
+  if (merchantGroup && merchantSelect) {
+    if (activeComerces.length > 1) {
+      merchantGroup.style.display = '';
+      merchantSelect.innerHTML = '<option value="">-- Todos los comercios --</option>' +
+        activeComerces.map(c => `<option value="${c}">${c}</option>`).join('');
+    } else {
+      merchantGroup.style.display = 'none';
+    }
+  }
+
+  await Promise.all([
+    updateVolumeStats(),
+    loadHistories(),
+    loadMonthlyHistoryBenchmarks(),
+    loadProductVolumeLevels()
+  ]);
 };
 
 window.openNewsImageLightbox = window.openNewsImageLightbox || function(src) {
@@ -52452,20 +56882,40 @@ window.populateWizardSummary = function() {
   // Populate items table
   const tbody = document.getElementById('summary-items-tbody');
   const items = window.tempClientNewOrderItems || [];
+  const packsBreakdown = window.tempClientNewOrderPacks || [];
   let itemsHtml = '';
   
+  if (packsBreakdown.length > 0) {
+    itemsHtml += `
+      <tr>
+        <td colspan="3" style="padding: 0.55rem 0.65rem; background: rgba(124, 58, 237, 0.08); border-bottom: 1px solid rgba(124, 58, 237, 0.25); color: #6d28d9; font-size: 0.78rem;">
+          <div style="font-weight: 700; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.2rem;">
+            <i class="ri-stack-line"></i> Pack(s) desglosado(s) para su preparación en bodega:
+          </div>
+          ${packsBreakdown.map(pb => {
+            const compsText = (pb.components || []).map(c => `<strong>${escapeHtml(c.sku)}</strong> (x${c.total_quantity})`).join(', ');
+            return `<div>• El pack <strong>${escapeHtml(pb.pack_sku)}</strong> (x${pb.quantity}) fue desglosado en: ${compsText}</div>`;
+          }).join('')}
+        </td>
+      </tr>
+    `;
+  }
+
   let totalVolume = 0;
   let totalWeight = 0;
   
   items.forEach(item => {
     const prod = (window.tempClientProductsList || []).find(p => p.id === item.product_id);
-    const volumeUnit = prod ? parseFloat(prod.volumen || '0') : 0;
+    const volumeUnit = prod ? parseFloat(prod.volumen || '0') : (parseFloat(item.volumen || '0') || 0);
     totalVolume += volumeUnit * item.quantity;
+    const packBadge = Array.isArray(item.packSources) && item.packSources.length > 0
+      ? `<div style="font-size: 0.7rem; color: #7c3aed; font-weight: 600; margin-top: 2px;"><i class="ri-stack-line"></i> Desglosado de Pack: ${item.packSources.map(ps => `${escapeHtml(ps.pack_sku)} (x${ps.total_from_pack})`).join(', ')}</div>`
+      : '';
     
     itemsHtml += `
       <tr style="border-bottom: 1px solid var(--color-border);">
         <td style="padding: 0.4rem 0.5rem; color: var(--color-text-muted); font-family: monospace;">${item.sku}</td>
-        <td style="padding: 0.4rem 0.5rem; font-weight: 500; color: var(--color-text-main);">${item.name}</td>
+        <td style="padding: 0.4rem 0.5rem; font-weight: 500; color: var(--color-text-main);">${item.name}${packBadge}</td>
         <td style="padding: 0.4rem 0.5rem; text-align: center; font-weight: bold; color: var(--color-primary);">${item.quantity}</td>
       </tr>
     `;
@@ -52480,8 +56930,9 @@ window.populateWizardSummary = function() {
   // Total weight and volume
   const weightInput = document.getElementById('order-total-weight-input');
   totalWeight = parseFloat(weightInput?.value) || 0;
+  const volWeightSummary = Math.max(0, totalVolume * 250);
   
-  document.getElementById('summary-totals-weight-vol').textContent = `${totalWeight.toFixed(1)} Kg / ${totalVolume.toFixed(5)} m³`;
+  document.getElementById('summary-totals-weight-vol').textContent = `${totalWeight.toFixed(2)} Kg (Volumétrico: ${volWeightSummary.toFixed(2)} Kg) / ${totalVolume.toFixed(5)} m³`;
 
   // Shipping costs
   document.getElementById('summary-shipping-net').textContent = window.formatCLP(displayNet);

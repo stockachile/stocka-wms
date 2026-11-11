@@ -46,6 +46,10 @@ window.getOrderDisplayFolio = getOrderDisplayFolio;
  */
 export function getNormalizedOrderEmail(order) {
   if (!order) return '';
+  const emailSrc = String(order.customer_email || '');
+  if (order._wmsNormEmail !== undefined && order._wmsNormEmailSrc === emailSrc) {
+    return order._wmsNormEmail;
+  }
   const shopifyData = order.raw_shopify_data || {};
   const jumpsellerData = order.raw_jumpseller_data || {};
   const wooData = order.raw_woocommerce_data || {};
@@ -59,6 +63,7 @@ export function getNormalizedOrderEmail(order) {
     wooData.billing?.email
   ];
 
+  let resolved = '';
   for (const c of candidates) {
     if (!c) continue;
     const clean = String(c).trim().toLowerCase();
@@ -72,10 +77,13 @@ export function getNormalizedOrderEmail(order) {
       !clean.includes('no-reply') &&
       !clean.includes('noreply')
     ) {
-      return clean;
+      resolved = clean;
+      break;
     }
   }
-  return '';
+  order._wmsNormEmailSrc = emailSrc;
+  order._wmsNormEmail = resolved;
+  return resolved;
 }
 window.getNormalizedOrderEmail = getNormalizedOrderEmail;
 
@@ -105,6 +113,10 @@ window.getOrderDisplayAddress = getOrderDisplayAddress;
  */
 export function getNormalizedOrderAddressKey(order) {
   if (!order) return '';
+  const addrSrcKey = `${order.shipping_address || ''}|${order.shipping_city || ''}`;
+  if (order._wmsNormAddrKey !== undefined && order._wmsNormAddrSrc === addrSrcKey) {
+    return order._wmsNormAddrKey;
+  }
   const shopifyShip = order.raw_shopify_data?.shipping_address || {};
   const rawAddr = String(
     order.shipping_address ||
@@ -112,7 +124,11 @@ export function getNormalizedOrderAddressKey(order) {
     ''
   ).trim();
 
-  if (!rawAddr || rawAddr.length < 4) return '';
+  if (!rawAddr || rawAddr.length < 4) {
+    order._wmsNormAddrSrc = addrSrcKey;
+    order._wmsNormAddrKey = '';
+    return '';
+  }
 
   const lowerRaw = rawAddr.toLowerCase();
   if (
@@ -124,6 +140,8 @@ export function getNormalizedOrderAddressKey(order) {
     lowerRaw === 'retiro en bodega' ||
     lowerRaw === 'venta presencial'
   ) {
+    order._wmsNormAddrSrc = addrSrcKey;
+    order._wmsNormAddrKey = '';
     return '';
   }
 
@@ -159,8 +177,10 @@ export function getNormalizedOrderAddressKey(order) {
     normAddr = normAddr.slice(0, normAddr.length - normCity.length).trim();
   }
 
-  if (normAddr.length < 4) return '';
-  return `${normAddr}|${normCity}`;
+  const finalKey = normAddr.length < 4 ? '' : `${normAddr}|${normCity}`;
+  order._wmsNormAddrSrc = addrSrcKey;
+  order._wmsNormAddrKey = finalKey;
+  return finalKey;
 }
 window.getNormalizedOrderAddressKey = getNormalizedOrderAddressKey;
 
@@ -414,12 +434,18 @@ export function detectConsolidatableOrders(ordersList = null) {
   if (!ordersList || ordersList === window.loadedOrders) {
     window._consolidatedCandidateGroups = candidateGroups;
     window._consolidatedCandidateByOrderId = byOrderId;
+    window._consolidatedCandidatesComputedForRef = sourceOrders;
+    window._consolidatedCandidatesComputedCount = sourceOrders.length;
     autoHealConsolidatedOrdersPickingRequests(sourceOrders);
   }
 
   return { groups: candidateGroups, byOrderId };
 }
 window.detectConsolidatableOrders = detectConsolidatableOrders;
+window.invalidateConsolidationCandidatesCache = function() {
+  window._consolidatedCandidatesComputedForRef = null;
+  window._consolidatedCandidatesComputedCount = -1;
+};
 
 const _healedConsolidationOrderIds = new Set();
 
@@ -519,8 +545,13 @@ function finalizeCluster(groupKey, clusterOrders, candidateGroups, byOrderId) {
 export function getConsolidationCandidateGroup(orderOrId) {
   const orderId = typeof orderOrId === 'object' ? orderOrId?.id : orderOrId;
   if (!orderId) return null;
-  if (!window._consolidatedCandidateByOrderId || window._consolidatedCandidateByOrderId.size === 0) {
-    detectConsolidatableOrders(window.loadedOrders || []);
+  const currentOrders = window.loadedOrders || [];
+  if (
+    !window._consolidatedCandidateByOrderId ||
+    window._consolidatedCandidatesComputedForRef !== currentOrders ||
+    window._consolidatedCandidatesComputedCount !== currentOrders.length
+  ) {
+    detectConsolidatableOrders(currentOrders);
   }
   return window._consolidatedCandidateByOrderId.get(String(orderId)) || null;
 }
@@ -621,8 +652,17 @@ window.getConsolidationBadgeHtml = getConsolidationBadgeHtml;
  * Renderiza el Banner Superior de Alertas de Consolidación (<24h) en Torre de Control
  */
 export function renderConsolidationBannerHtml(filteredOrders = null) {
-  // Detectar sobre el universo cargado para no perder el par hermano aunque esté en otra pestaña
-  const { groups } = detectConsolidatableOrders(window.loadedOrders || []);
+  // Detectar sobre el universo cargado (usando caché si ya fue calculado para el set actual)
+  const currentOrders = window.loadedOrders || [];
+  let groups = window._consolidatedCandidateGroups;
+  if (
+    !groups ||
+    window._consolidatedCandidatesComputedForRef !== currentOrders ||
+    window._consolidatedCandidatesComputedCount !== currentOrders.length
+  ) {
+    const res = detectConsolidatableOrders(currentOrders);
+    groups = res.groups;
+  }
   if (!groups || groups.length === 0) return '';
 
   // Filtrar grupos que tengan al menos un pedido dentro de los pedidos filtrados actuales (o mostrar todos si está en En procesamiento / Todos)
@@ -1297,6 +1337,52 @@ async function syncConsolidationDirectlyToPicker(order, request) {
 }
 
 /**
+ * Registra una entrada en `order_audit_logs` y refresca la línea de tiempo de auditoría si está visible en pantalla.
+ */
+export async function logOrderAudit(orderId, action, detailsOrComment = null) {
+  if (!orderId || !action) return;
+  try {
+    let userId = window.currentAdminUser?.id || window.currentSession?.user?.id || null;
+    let userEmail = window.currentAdminUser?.email || window.currentSession?.user?.email || null;
+
+    if (!userEmail && supabase?.auth?.getSession) {
+      const { data } = await supabase.auth.getSession();
+      userId = data?.session?.user?.id || userId;
+      userEmail = data?.session?.user?.email || userEmail;
+    }
+    userEmail = userEmail || 'admin@stocka.cl';
+
+    let detailsObj = {};
+    if (detailsOrComment && typeof detailsOrComment === 'object' && !Array.isArray(detailsOrComment)) {
+      detailsObj = detailsOrComment;
+    } else if (Array.isArray(detailsOrComment)) {
+      detailsObj = { changes: detailsOrComment };
+    } else if (typeof detailsOrComment === 'string' && detailsOrComment.trim()) {
+      detailsObj = { changes: [detailsOrComment.trim()] };
+    }
+
+    const { error } = await supabase.from('order_audit_logs').insert({
+      order_id: orderId,
+      user_id: userId,
+      user_email: userEmail,
+      action,
+      details: detailsObj
+    });
+
+    if (error) {
+      console.warn('[ConsolidateOrders] Aviso insertando en order_audit_logs:', error);
+    }
+
+    if (typeof window.loadOrderAuditLogs === 'function') {
+      window.loadOrderAuditLogs(orderId);
+    }
+  } catch (err) {
+    console.warn('[ConsolidateOrders] Aviso registrando auditoría de pedido:', err);
+  }
+}
+window.logOrderAudit = logOrderAudit;
+
+/**
  * Ejecuta la consolidación en Supabase, actualiza `window.loadedOrders`,
  * inyecta la Solicitud Especial de Picking en cada pedido por separado y registra auditoría.
  */
@@ -1311,7 +1397,17 @@ async function executeOrderConsolidation(group, selectedPrimaryId) {
   const secondaryIds = secondaryOrders.map(o => o.id);
   const secondaryFolios = secondaryOrders.map(o => getOrderDisplayFolio(o));
   const nowIso = new Date().toISOString();
-  const adminEmail = window.currentAdminUser?.email || 'Administrador';
+
+  let adminEmail = window.currentAdminUser?.email || window.currentSession?.user?.email || null;
+  let adminUserId = window.currentAdminUser?.id || window.currentSession?.user?.id || null;
+  try {
+    if (supabase?.auth?.getSession) {
+      const { data } = await supabase.auth.getSession();
+      adminEmail = data?.session?.user?.email || adminEmail;
+      adminUserId = data?.session?.user?.id || adminUserId;
+    }
+  } catch (_) {}
+  adminEmail = adminEmail || 'admin@stocka.cl';
 
   Swal.fire({
     title: 'Consolidando Pedidos...',
@@ -1392,19 +1488,59 @@ async function executeOrderConsolidation(group, selectedPrimaryId) {
     }
 
     // 4. Registrar en historial de auditoría (`order_audit_logs`)
-    if (typeof window.logOrderAudit === 'function') {
-      await window.logOrderAudit(
-        primaryOrder.id,
-        'CONSOLIDACIÓN DE PEDIDO (PRINCIPAL)',
-        `Pedido designado como Principal (Ancla de Envío). Consolidado junto a ${secondaryFolios.join(', ')}. Facturación: 1 envío + ${orders.length} preparaciones.`
-      );
-      for (const secOrder of secondaryOrders) {
-        await window.logOrderAudit(
-          secOrder.id,
-          'CONSOLIDACIÓN DE PEDIDO (SECUNDARIO)',
-          `Pedido consolidado dentro del Pedido Principal ${primaryFolio}. Se genera Solicitud Especial de Picking y flete $0 en facturación.`
-        );
+    const actionLabelPrefix = group.isAlreadyConsolidated ? 'Consolidado de Envío Actualizado' : 'Consolidado de Envío Confirmado';
+    const inheritedSummary = [
+      primaryOrder.sucursal_pickeo ? `Sucursal: ${primaryOrder.sucursal_pickeo}` : null,
+      primaryOrder.agenda ? `Agenda: ${primaryOrder.agenda}` : null,
+      primaryOrder.operador ? `Operador: ${primaryOrder.operador}` : null,
+      primaryOrder.tracking_number ? `Tracking: ${primaryOrder.tracking_number}` : null
+    ].filter(Boolean);
+
+    const auditRows = [
+      {
+        order_id: primaryOrder.id,
+        user_id: adminUserId,
+        user_email: adminEmail,
+        action: `${actionLabelPrefix} (Pedido Principal)`,
+        details: {
+          changes: [
+            `Designado como Pedido Principal (Ancla de Envío) del grupo consolidado.`,
+            `Unificado en 1 solo paquete físico junto con: ${secondaryFolios.join(', ')}.`,
+            `Facturación: 1 envío + ${orders.length} preparaciones individuales (Pick & Pack).`,
+            `Solicitud Especial de Picking enviada automáticamente a Picker.`
+          ],
+          comment: `Consolidación <24h para ${group.customerName || primaryOrder.customer_name || 'Cliente'} (${group.displayAddress || getOrderDisplayAddress(primaryOrder)})`
+        }
+      },
+      ...secondaryOrders.map(secOrder => {
+        const secFolio = getOrderDisplayFolio(secOrder);
+        return {
+          order_id: secOrder.id,
+          user_id: adminUserId,
+          user_email: adminEmail,
+          action: `${actionLabelPrefix} (Pedido Secundario)`,
+          details: {
+            changes: [
+              `Pedido (${secFolio}) consolidado dentro del envío del Pedido Principal ${primaryFolio}.`,
+              inheritedSummary.length > 0
+                ? `Hereda datos logísticos del Pedido Principal (${inheritedSummary.join(' · ')}).`
+                : `Empaque físico unificado usando la guía de despacho de ${primaryFolio}.`,
+              `Facturación: Flete $0 + 1 preparación individual (Pick & Pack).`,
+              `Solicitud Especial de Picking enviada automáticamente a Picker.`
+            ],
+            comment: `Unificado en el paquete del Pedido Principal ${primaryFolio} por coincidencia <24h (${group.customerEmail || getNormalizedOrderEmail(secOrder) || '-'})`
+          }
+        };
+      })
+    ];
+
+    try {
+      const { error: auditErr } = await supabase.from('order_audit_logs').insert(auditRows);
+      if (auditErr) {
+        console.warn('[ConsolidateOrders] Aviso insertando auditoría de consolidado:', auditErr);
       }
+    } catch (audEx) {
+      console.warn('[ConsolidateOrders] Excepción registrando auditoría de consolidado:', audEx);
     }
 
     // 5. Re-detectar y refrescar vistas activas
@@ -1417,6 +1553,11 @@ async function executeOrderConsolidation(group, selectedPrimaryId) {
     }
     if (window._currentFullPageOrderId && typeof window.openOrderFullPage === 'function') {
       window.openOrderFullPage(window._currentFullPageOrderId);
+    }
+    if (typeof window.loadOrderAuditLogs === 'function') {
+      orders.forEach(o => {
+        if (o && o.id) window.loadOrderAuditLogs(o.id);
+      });
     }
 
     Swal.fire({
@@ -1493,6 +1634,19 @@ export async function undoOrderConsolidation(orderId) {
   });
 
   try {
+    let adminEmail = window.currentAdminUser?.email || window.currentSession?.user?.email || null;
+    let adminUserId = window.currentAdminUser?.id || window.currentSession?.user?.id || null;
+    try {
+      if (supabase?.auth?.getSession) {
+        const { data } = await supabase.auth.getSession();
+        adminEmail = data?.session?.user?.email || adminEmail;
+        adminUserId = data?.session?.user?.id || adminUserId;
+      }
+    } catch (_) {}
+    adminEmail = adminEmail || 'admin@stocka.cl';
+
+    const resetFolios = ordersToReset.map(o => getOrderDisplayFolio(o)).join(', ');
+
     for (const ord of ordersToReset) {
       const cleanRaw = {
         ...(ord.raw_shopify_data && typeof ord.raw_shopify_data === 'object' ? ord.raw_shopify_data : {})
@@ -1520,6 +1674,25 @@ export async function undoOrderConsolidation(orderId) {
       await removeConsolidationPickingRequestItem(ord.id);
     }
 
+    try {
+      const undoAuditRows = ordersToReset.map(ord => ({
+        order_id: ord.id,
+        user_id: adminUserId,
+        user_email: adminEmail,
+        action: 'Consolidado de Envío Desvinculado',
+        details: {
+          changes: [
+            `Se deshizo la consolidación del grupo de pedidos (${resetFolios}).`,
+            `El pedido vuelve a gestionarse como envío y facturación independiente.`,
+            `Se retiró la instrucción automática de consolidado en Picker.`
+          ]
+        }
+      }));
+      await supabase.from('order_audit_logs').insert(undoAuditRows);
+    } catch (audErr) {
+      console.warn('[ConsolidateOrders] Aviso insertando auditoría al deshacer consolidado:', audErr);
+    }
+
     detectConsolidatableOrders(window.loadedOrders || []);
     if (typeof window.applyWmsFiltersAndRender === 'function') {
       window.applyWmsFiltersAndRender();
@@ -1529,6 +1702,11 @@ export async function undoOrderConsolidation(orderId) {
     }
     if (window._currentFullPageOrderId && typeof window.openOrderFullPage === 'function') {
       window.openOrderFullPage(window._currentFullPageOrderId);
+    }
+    if (typeof window.loadOrderAuditLogs === 'function') {
+      ordersToReset.forEach(o => {
+        if (o && o.id) window.loadOrderAuditLogs(o.id);
+      });
     }
 
     Swal.fire({

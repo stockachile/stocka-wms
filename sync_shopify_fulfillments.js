@@ -250,7 +250,7 @@ async function processQueue() {
         await executeCreateFulfillment(item, integration);
       } else if (item.action_type === 'update_tracking') {
         await executeUpdateTracking(item, integration);
-      } else if (['set_on_hold', 'release_hold', 'cancel_fulfillment', 'revert_in_progress'].includes(item.action_type)) {
+      } else if (['set_in_transit', 'set_delivered', 'set_on_hold', 'release_hold', 'cancel_fulfillment', 'revert_in_progress'].includes(item.action_type)) {
         await fetch(`${SUPABASE_URL}/functions/v1/shopify-fulfillment-sync`, {
           method: 'POST',
           headers: {
@@ -500,7 +500,13 @@ async function executeCreateFulfillment(item, integration) {
   const shopifyOrderId = item.shopify_order_id;
 
   const cleanTrack = (item.tracking_number || '').trim();
-  const hasRealTracking = cleanTrack !== '' && cleanTrack.toUpperCase() !== 'N/A' && cleanTrack.toUpperCase() !== 'NO INFORMADO';
+  const isTempAlpha = /^46\d{6,}$/.test(cleanTrack);
+  const hasRealTracking = cleanTrack !== '' && cleanTrack.toUpperCase() !== 'N/A' && cleanTrack.toUpperCase() !== 'S/N' && cleanTrack.toUpperCase() !== 'NO INFORMADO' && !isTempAlpha;
+  const cLower = `${item.courier || ''} ${item.operador || ''}`.toLowerCase();
+  const isOptiroute = cLower.includes('optiroute') || cLower.includes('stocka x') || (item.tracking_url && String(item.tracking_url).toLowerCase().includes('optiroute.cl'));
+  if (isOptiroute && (item.order_id || hasRealTracking)) {
+    item.tracking_url = `https://wms.stocka.cl/seguimiento.html?t=${encodeURIComponent(item.order_id || cleanTrack)}`;
+  }
   const hasTrackUrl = Boolean(item.tracking_url && item.tracking_url.startsWith('http'));
 
   const foUrl = `https://${shop}/admin/api/2024-04/orders/${shopifyOrderId}/fulfillment_orders.json`;
@@ -635,7 +641,19 @@ async function executeCreateFulfillment(item, integration) {
   }
 
   const lineItemsByFulfillmentOrder = openFulfillmentOrders.map(fo => ({ fulfillment_order_id: fo.id }));
-  const notifyCustomer = integration.notify_customer_on_fulfillment !== false;
+  let notifyCustomer = integration.notify_customer_on_fulfillment !== false;
+  if (!hasRealTracking && !hasTrackUrl) {
+    try {
+      const { data: ordState } = await supabase
+        .from('orders')
+        .select('status')
+        .eq('id', item.order_id)
+        .maybeSingle();
+      if (String(ordState?.status || '').toLowerCase() === 'pickeado') {
+        notifyCustomer = false;
+      }
+    } catch (_) {}
+  }
 
   const fulfillmentObj = {
     line_items_by_fulfillment_order: lineItemsByFulfillmentOrder,
@@ -719,6 +737,12 @@ async function executeUpdateTracking(item, integration) {
 
   const companyName = mapCourierToShopify(item.courier, item.operador);
   const notifyCustomer = integration.notify_customer_on_fulfillment !== false;
+
+  const cLowerUpd = `${item.courier || ''} ${item.operador || ''}`.toLowerCase();
+  const isOptirouteUpd = cLowerUpd.includes('optiroute') || cLowerUpd.includes('stocka x') || (item.tracking_url && String(item.tracking_url).toLowerCase().includes('optiroute.cl'));
+  if (isOptirouteUpd && (item.order_id || item.tracking_number)) {
+    item.tracking_url = `https://wms.stocka.cl/seguimiento.html?t=${encodeURIComponent(item.order_id || item.tracking_number)}`;
+  }
 
   const trackingInfo = { number: item.tracking_number || 'N/A', company: companyName };
   if (item.tracking_url && item.tracking_url.startsWith('http')) {

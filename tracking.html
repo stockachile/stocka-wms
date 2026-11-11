@@ -1889,9 +1889,9 @@
         const isPrepOrHigher = step2Active || step2Done || Boolean(trackingCode);
         const shouldShowCourier = isPrepOrHigher && hasAssignedCourier;
 
-        // Courier URL resolution & sanitization (avoid private Envíame JSON API endpoints; prefer official courier URLs)
+        // Courier URL resolution & sanitization (avoid private Envíame JSON API endpoints and optiroute.cl; prefer official courier URLs)
         let courierUrl = shouldShowCourier ? order.tracking_url : null;
-        if (courierUrl && (courierUrl.includes('tracking.enviame.io') || courierUrl.includes('api.enviame.io/api/') || courierUrl === 'N/A')) {
+        if (courierUrl && (courierUrl.includes('tracking.enviame.io') || courierUrl.includes('api.enviame.io/api/') || courierUrl.includes('optiroute.cl') || courierUrl.includes('seguimiento.html') || courierUrl === 'N/A')) {
           courierUrl = null;
         }
 

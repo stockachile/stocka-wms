@@ -26,6 +26,7 @@ function getPickingSupabase() {
 
 // Caché en memoria de solicitudes indexadas por order_id
 window.pickingRequestsCache = window.pickingRequestsCache || new Map();
+window._loadedPickingRequestOrderIds = window._loadedPickingRequestOrderIds || new Set();
 window.currentPickingRequestState = null;
 
 /**
@@ -77,16 +78,24 @@ window.canCreatePickingRequest = function(order) {
 /**
  * Carga solicitudes de picking activas en lote para las órdenes mostradas
  */
-window.loadBatchPickingRequests = async function(orderIds) {
+window.loadBatchPickingRequests = async function(orderIds, force = false) {
   if (!Array.isArray(orderIds) || orderIds.length === 0) return;
   const supa = getPickingSupabase();
   if (!supa) return;
+
+  window._loadedPickingRequestOrderIds = window._loadedPickingRequestOrderIds || new Set();
+  const idsToFetch = force
+    ? orderIds.filter(Boolean)
+    : orderIds.filter(id => id && !window._loadedPickingRequestOrderIds.has(String(id)));
+
+  if (idsToFetch.length === 0) return;
+  idsToFetch.forEach(id => window._loadedPickingRequestOrderIds.add(String(id)));
 
   try {
     const { data, error } = await supa
       .from('order_picking_requests')
       .select('*')
-      .in('order_id', orderIds);
+      .in('order_id', idsToFetch);
 
     if (error) {
       // Si la tabla no ha sido creada aún en Supabase, no interrumpir la navegación

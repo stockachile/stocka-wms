@@ -2915,8 +2915,9 @@
         saveIndicator.innerHTML = `<i class="ri-check-double-line"></i> <span>Todos los cambios guardados (${updates.length} actualizados)</span>`;
       }
 
-      // Sincronizar en Torre de Control en caliente
-      if (typeof window.applyWmsFiltersAndRender === 'function') {
+      // Sincronizar en Torre de Control en caliente solo si la vista Torre de Control está visible
+      const towerViewEl = document.getElementById('subview-control-tower');
+      if (typeof window.applyWmsFiltersAndRender === 'function' && (!towerViewEl || towerViewEl.style.display !== 'none')) {
         window.applyWmsFiltersAndRender();
       }
       const badgeEl = document.getElementById('agendas-tab-count');

@@ -97,6 +97,8 @@ CHECK (action_type IN (
     'update_tracking',
     'set_in_progress',
     'set_ready_for_pickup',
+    'set_in_transit',
+    'set_delivered',
     'set_on_hold',
     'release_hold',
     'cancel_fulfillment',
@@ -114,6 +116,10 @@ DECLARE
     v_has_tracking BOOLEAN;
     v_is_dispatched BOOLEAN;
     v_was_dispatched BOOLEAN;
+    v_is_delivered BOOLEAN;
+    v_was_delivered BOOLEAN;
+    v_is_in_transit BOOLEAN;
+    v_was_in_transit BOOLEAN;
     v_tracking_changed BOOLEAN;
     v_is_preparing BOOLEAN;
     v_is_picked BOOLEAN;
@@ -129,6 +135,8 @@ BEGIN
     IF TG_OP = 'UPDATE' THEN
         IF (OLD.estado_wms IS NOT DISTINCT FROM NEW.estado_wms)
            AND (OLD.status IS NOT DISTINCT FROM NEW.status)
+           AND (OLD.lightdata_status IS NOT DISTINCT FROM NEW.lightdata_status)
+           AND (OLD.estado_ruta_optiroute IS NOT DISTINCT FROM NEW.estado_ruta_optiroute)
            AND (OLD.tracking_number IS NOT DISTINCT FROM NEW.tracking_number)
            AND (OLD.tracking_url IS NOT DISTINCT FROM NEW.tracking_url)
            AND (OLD.courier IS NOT DISTINCT FROM NEW.courier) THEN
@@ -143,7 +151,7 @@ BEGIN
     FROM public.merchant_integrations
     WHERE platform = 'Shopify'
       AND is_active = true
-      AND comercio = NEW.comercio
+      AND UPPER(TRIM(comercio)) = UPPER(TRIM(NEW.comercio))
     LIMIT 1;
 
     -- Si no existe integración activa o tiene la sincronización inversa apagada, salir sin hacer nada
@@ -163,36 +171,114 @@ BEGIN
     END IF;
 
     -- Analizar condiciones de estado, retiro y tracking
-    v_is_dispatched := (LOWER(COALESCE(NEW.estado_wms, '')) = 'despachado') OR (LOWER(COALESCE(NEW.status, '')) = 'despachado');
-    v_was_dispatched := CASE WHEN TG_OP = 'UPDATE' THEN
-        (LOWER(COALESCE(OLD.estado_wms, '')) = 'despachado') OR (LOWER(COALESCE(OLD.status, '')) = 'despachado')
+    v_is_pickup := (UPPER(TRIM(COALESCE(NEW.categoria_entrega, ''))) = 'RETIRO')
+                   OR (UPPER(TRIM(COALESCE(NEW.agenda, ''))) = 'RETIRO')
+                   OR (UPPER(TRIM(COALESCE(NEW.operador, ''))) LIKE 'SUCURSAL%')
+                   OR (LOWER(COALESCE(NEW.shipping_method, '')) LIKE '%retiro%');
+
+    v_is_delivered := (LOWER(TRIM(COALESCE(NEW.status, ''))) IN ('entregado', 'delivered'))
+                      OR (LOWER(TRIM(COALESCE(NEW.estado_wms, ''))) = 'entregado')
+                      OR (LOWER(COALESCE(NEW.lightdata_status, '')) LIKE '%entregad%')
+                      OR (LOWER(COALESCE(NEW.lightdata_status, '')) LIKE '%delivered%')
+                      OR (LOWER(COALESCE(NEW.estado_ruta_optiroute, '')) LIKE '%entregad%')
+                      OR (LOWER(COALESCE(NEW.estado_ruta_optiroute, '')) LIKE '%deliver%');
+    v_was_delivered := CASE WHEN TG_OP = 'UPDATE' THEN
+        (LOWER(TRIM(COALESCE(OLD.status, ''))) IN ('entregado', 'delivered'))
+        OR (LOWER(TRIM(COALESCE(OLD.estado_wms, ''))) = 'entregado')
+        OR (LOWER(COALESCE(OLD.lightdata_status, '')) LIKE '%entregad%')
+        OR (LOWER(COALESCE(OLD.lightdata_status, '')) LIKE '%delivered%')
+        OR (LOWER(COALESCE(OLD.estado_ruta_optiroute, '')) LIKE '%entregad%')
+        OR (LOWER(COALESCE(OLD.estado_ruta_optiroute, '')) LIKE '%deliver%')
     ELSE false END;
+
+    v_is_in_transit := (LOWER(TRIM(COALESCE(NEW.status, ''))) IN ('en tránsito', 'en transito', 'in_transit', 'en reparto'))
+                       OR (LOWER(COALESCE(NEW.lightdata_status, '')) ~ '(camino|planta|recepcionado|clasificado|reparto|tránsito|transito|ruta)')
+                       OR (LOWER(COALESCE(NEW.estado_ruta_optiroute, '')) ~ '(route|ruta|camino|onroute|ongoing|arrived)');
+    v_was_in_transit := CASE WHEN TG_OP = 'UPDATE' THEN
+        (LOWER(TRIM(COALESCE(OLD.status, ''))) IN ('en tránsito', 'en transito', 'in_transit', 'en reparto'))
+        OR (LOWER(COALESCE(OLD.lightdata_status, '')) ~ '(camino|planta|recepcionado|clasificado|reparto|tránsito|transito|ruta)')
+        OR (LOWER(COALESCE(OLD.estado_ruta_optiroute, '')) ~ '(route|ruta|camino|onroute|ongoing|arrived)')
+    ELSE false END;
+
+    v_is_dispatched := (LOWER(COALESCE(NEW.estado_wms, '')) = 'despachado') OR (LOWER(COALESCE(NEW.status, '')) IN ('despachado', 'retirado'));
+    v_was_dispatched := CASE WHEN TG_OP = 'UPDATE' THEN
+        (LOWER(COALESCE(OLD.estado_wms, '')) = 'despachado') OR (LOWER(COALESCE(OLD.status, '')) IN ('despachado', 'retirado'))
+    ELSE false END;
+
     v_has_tracking := (NEW.tracking_number IS NOT NULL AND TRIM(NEW.tracking_number) != '');
     v_tracking_changed := CASE WHEN TG_OP = 'UPDATE' THEN
         (OLD.tracking_number IS DISTINCT FROM NEW.tracking_number)
         OR (OLD.tracking_url IS DISTINCT FROM NEW.tracking_url)
         OR (OLD.courier IS DISTINCT FROM NEW.courier)
     ELSE v_has_tracking END;
-    v_is_preparing := (LOWER(COALESCE(NEW.estado_wms, '')) IN ('en preparación', 'pickeado'));
+
+    v_is_preparing := (LOWER(TRIM(COALESCE(NEW.estado_wms, ''))) = 'en preparación');
     v_is_picked := (LOWER(TRIM(COALESCE(NEW.estado_wms, ''))) = 'pickeado') OR (LOWER(TRIM(COALESCE(NEW.status, ''))) = 'listo para retiro');
     v_was_picked := CASE WHEN TG_OP = 'UPDATE' THEN
         (LOWER(TRIM(COALESCE(OLD.estado_wms, ''))) = 'pickeado') OR (LOWER(TRIM(COALESCE(OLD.status, ''))) = 'listo para retiro')
     ELSE false END;
-    v_is_pickup := (UPPER(TRIM(COALESCE(NEW.categoria_entrega, ''))) = 'RETIRO')
-                   OR (UPPER(TRIM(COALESCE(NEW.agenda, ''))) = 'RETIRO')
-                   OR (LOWER(COALESCE(NEW.shipping_method, '')) LIKE '%retiro%');
 
     -- =========================================================================
-    -- CASO A: Pedido Despachado (o actualización de tracking de pedido despachado)
+    -- CASO 0: Pedido con transporte ENTREGADO -> "Entregado" (set_delivered) en Shopify
     -- =========================================================================
-    IF v_is_dispatched AND (NOT v_was_dispatched OR v_tracking_changed) THEN
+    IF v_is_delivered AND NOT v_was_delivered AND NOT v_is_pickup THEN
+        SELECT id INTO v_existing_queue_id
+        FROM public.shopify_fulfillment_queue
+        WHERE order_id = NEW.id
+          AND action_type = 'set_delivered'
+          AND status IN ('pending', 'processing', 'completed', 'needs_reauth')
+        LIMIT 1;
+
+        IF v_existing_queue_id IS NULL THEN
+            INSERT INTO public.shopify_fulfillment_queue (
+                order_id, merchant_id, comercio, shopify_order_id,
+                tracking_number, tracking_url, courier, operador,
+                shopify_fulfillment_id, action_type, status
+            ) VALUES (
+                NEW.id, v_integration.merchant_id, NEW.comercio, v_shopify_order_id,
+                NEW.tracking_number, NEW.tracking_url, NEW.courier, NEW.operador,
+                NEW.shopify_fulfillment_id, 'set_delivered', 'pending'
+            );
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    -- =========================================================================
+    -- CASO 0.5: Pedido con transporte EN TRÁNSITO -> "En tránsito" (set_in_transit) en Shopify
+    -- =========================================================================
+    IF v_is_in_transit AND NOT v_was_in_transit AND NOT v_is_pickup AND NOT v_is_delivered THEN
+        SELECT id INTO v_existing_queue_id
+        FROM public.shopify_fulfillment_queue
+        WHERE order_id = NEW.id
+          AND action_type = 'set_in_transit'
+          AND status IN ('pending', 'processing', 'completed', 'needs_reauth')
+        LIMIT 1;
+
+        IF v_existing_queue_id IS NULL THEN
+            INSERT INTO public.shopify_fulfillment_queue (
+                order_id, merchant_id, comercio, shopify_order_id,
+                tracking_number, tracking_url, courier, operador,
+                shopify_fulfillment_id, action_type, status
+            ) VALUES (
+                NEW.id, v_integration.merchant_id, NEW.comercio, v_shopify_order_id,
+                NEW.tracking_number, NEW.tracking_url, NEW.courier, NEW.operador,
+                NEW.shopify_fulfillment_id, 'set_in_transit', 'pending'
+            );
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    -- =========================================================================
+    -- CASO A: Pedido Despachado (o actualización de tracking en pedido Pickeado/Despachado)
+    -- =========================================================================
+    IF (v_is_dispatched AND (NOT v_was_dispatched OR v_tracking_changed))
+       OR (v_is_picked AND NOT v_is_pickup AND v_tracking_changed AND NEW.shopify_fulfillment_id IS NOT NULL) THEN
         IF NEW.shopify_fulfillment_id IS NOT NULL AND TRIM(NEW.shopify_fulfillment_id) != '' THEN
             v_action := 'update_tracking';
         ELSE
             v_action := 'create_fulfillment';
         END IF;
 
-        -- Verificar si ya hay una solicitud para este pedido y acción en estado 'pending' o 'needs_reauth'
         SELECT id INTO v_existing_queue_id
         FROM public.shopify_fulfillment_queue
         WHERE order_id = NEW.id
@@ -213,29 +299,13 @@ BEGIN
             WHERE id = v_existing_queue_id;
         ELSE
             INSERT INTO public.shopify_fulfillment_queue (
-                order_id,
-                merchant_id,
-                comercio,
-                shopify_order_id,
-                tracking_number,
-                tracking_url,
-                courier,
-                operador,
-                shopify_fulfillment_id,
-                action_type,
-                status
+                order_id, merchant_id, comercio, shopify_order_id,
+                tracking_number, tracking_url, courier, operador,
+                shopify_fulfillment_id, action_type, status
             ) VALUES (
-                NEW.id,
-                v_integration.merchant_id,
-                NEW.comercio,
-                v_shopify_order_id,
-                NEW.tracking_number,
-                NEW.tracking_url,
-                NEW.courier,
-                NEW.operador,
-                NEW.shopify_fulfillment_id,
-                v_action,
-                'pending'
+                NEW.id, v_integration.merchant_id, NEW.comercio, v_shopify_order_id,
+                NEW.tracking_number, NEW.tracking_url, NEW.courier, NEW.operador,
+                NEW.shopify_fulfillment_id, v_action, 'pending'
             );
         END IF;
 
@@ -243,7 +313,37 @@ BEGIN
     END IF;
 
     -- =========================================================================
-    -- CASO B: Pedido de RETIRO completado en Picker ('Pickeado' -> "Listo para retirar" en Shopify)
+    -- CASO B1: Pedido de DISTRIBUCIÓN completado en Picker ('Pickeado' -> "Preparado" / create_fulfillment en Shopify)
+    -- =========================================================================
+    IF v_is_picked
+       AND (NOT v_is_pickup)
+       AND (NOT v_was_picked)
+       AND (NEW.shopify_fulfillment_id IS NULL OR TRIM(NEW.shopify_fulfillment_id) = '') THEN
+
+        SELECT id INTO v_existing_queue_id
+        FROM public.shopify_fulfillment_queue
+        WHERE order_id = NEW.id
+          AND action_type = 'create_fulfillment'
+          AND status IN ('pending', 'processing', 'completed', 'needs_reauth')
+        LIMIT 1;
+
+        IF v_existing_queue_id IS NULL THEN
+            INSERT INTO public.shopify_fulfillment_queue (
+                order_id, merchant_id, comercio, shopify_order_id,
+                tracking_number, tracking_url, courier, operador,
+                action_type, status
+            ) VALUES (
+                NEW.id, v_integration.merchant_id, NEW.comercio, v_shopify_order_id,
+                NEW.tracking_number, NEW.tracking_url, NEW.courier, NEW.operador,
+                'create_fulfillment', 'pending'
+            );
+        END IF;
+
+        RETURN NEW;
+    END IF;
+
+    -- =========================================================================
+    -- CASO B2: Pedido de RETIRO completado en Picker ('Pickeado' -> "Listo para retirar" en Shopify)
     -- =========================================================================
     IF v_is_picked
        AND v_is_pickup
@@ -259,19 +359,11 @@ BEGIN
 
         IF v_existing_queue_id IS NULL THEN
             INSERT INTO public.shopify_fulfillment_queue (
-                order_id,
-                merchant_id,
-                comercio,
-                shopify_order_id,
-                action_type,
-                status
+                order_id, merchant_id, comercio, shopify_order_id,
+                action_type, status
             ) VALUES (
-                NEW.id,
-                v_integration.merchant_id,
-                NEW.comercio,
-                v_shopify_order_id,
-                'set_ready_for_pickup',
-                'pending'
+                NEW.id, v_integration.merchant_id, NEW.comercio, v_shopify_order_id,
+                'set_ready_for_pickup', 'pending'
             );
         END IF;
 
@@ -279,7 +371,7 @@ BEGIN
     END IF;
 
     -- =========================================================================
-    -- CASO C: Pedido en Preparación / Pickeado (Marcar "En curso")
+    -- CASO C: Pedido en Preparación (Marcar "En curso" / set_in_progress en Shopify)
     -- =========================================================================
     IF v_is_preparing 
        AND (COALESCE(v_integration.sync_intermediate_statuses, true) = true)
@@ -295,19 +387,11 @@ BEGIN
 
         IF v_existing_queue_id IS NULL THEN
             INSERT INTO public.shopify_fulfillment_queue (
-                order_id,
-                merchant_id,
-                comercio,
-                shopify_order_id,
-                action_type,
-                status
+                order_id, merchant_id, comercio, shopify_order_id,
+                action_type, status
             ) VALUES (
-                NEW.id,
-                v_integration.merchant_id,
-                NEW.comercio,
-                v_shopify_order_id,
-                'set_in_progress',
-                'pending'
+                NEW.id, v_integration.merchant_id, NEW.comercio, v_shopify_order_id,
+                'set_in_progress', 'pending'
             );
         END IF;
 
@@ -325,10 +409,166 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- Enlazar el trigger a la tabla orders
 DROP TRIGGER IF EXISTS trg_enqueue_shopify_fulfillment ON public.orders;
 CREATE TRIGGER trg_enqueue_shopify_fulfillment
-AFTER INSERT OR UPDATE OF status, estado_wms, tracking_number, tracking_url, courier
+AFTER INSERT OR UPDATE OF status, estado_wms, lightdata_status, estado_ruta_optiroute, tracking_number, tracking_url, courier
 ON public.orders
 FOR EACH ROW
 EXECUTE FUNCTION public.enqueue_shopify_fulfillment_trigger_func();
+
+-- 5B. Trigger No-Bloqueante en tablas de transporte (enviame_shipments, lightdata_envios, bluex_envios, starken_envios, optiroute_orders)
+-- para detectar cuando un paquete pasa a EN TRÁNSITO o ENTREGADO y encolar automáticamente set_in_transit / set_delivered hacia Shopify
+CREATE OR REPLACE FUNCTION public.enqueue_shopify_shipment_status_trigger_func()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_new_json JSONB;
+    v_raw_status TEXT;
+    v_old_status TEXT;
+    v_target_action TEXT;
+    v_tracking TEXT;
+    v_order_uuid UUID;
+    v_order RECORD;
+    v_integration RECORD;
+    v_shopify_order_id TEXT;
+    v_existing_queue_id UUID;
+BEGIN
+    v_raw_status := LOWER(TRIM(COALESCE(NEW.status, '')));
+    IF v_raw_status = '' THEN
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'UPDATE' THEN
+        v_old_status := LOWER(TRIM(COALESCE(OLD.status, '')));
+        IF v_old_status = v_raw_status THEN
+            RETURN NEW;
+        END IF;
+    END IF;
+
+    -- Clasificar estado de transporte en Entregado o En Tránsito
+    IF v_raw_status ~ '(entregad|delivered)' AND v_raw_status !~ '(no entregad|fallid|rechazad)' THEN
+        v_target_action := 'set_delivered';
+    ELSIF v_raw_status ~ '(tránsito|transito|reparto|camino|ruta|planta|admitid|transit|delivery|onroute|ongoing|arrived|recepcionado|clasificado|redestin|disponible para retiro)'
+      AND v_raw_status !~ '(cread|listo para despacho|impres|eliminad|cancelad|rechazado por courier|skipped|reviewing|scheduled|a retirar|no retirado)' THEN
+        v_target_action := 'set_in_transit';
+    ELSE
+        RETURN NEW;
+    END IF;
+
+    v_new_json := to_jsonb(NEW);
+    v_tracking := TRIM(COALESCE(v_new_json->>'tracking_number', v_new_json->>'tracking', ''));
+
+    -- Buscar el pedido de Shopify correspondiente
+    IF (v_new_json->>'order_id') IS NOT NULL AND (v_new_json->>'order_id') != '' THEN
+        BEGIN
+            v_order_uuid := (v_new_json->>'order_id')::UUID;
+            SELECT id, comercio, external_platform, raw_shopify_data, tracking_number, tracking_url, courier, operador, shopify_fulfillment_id, shopify_order_status, categoria_entrega, agenda
+            INTO v_order
+            FROM public.orders
+            WHERE id = v_order_uuid
+            LIMIT 1;
+        EXCEPTION WHEN OTHERS THEN
+            v_order := NULL;
+        END;
+    END IF;
+
+    IF v_order.id IS NULL AND v_tracking != '' AND UPPER(v_tracking) NOT IN ('N/A', 'NO INFORMADO', '-') THEN
+        SELECT id, comercio, external_platform, raw_shopify_data, tracking_number, tracking_url, courier, operador, shopify_fulfillment_id, shopify_order_status, categoria_entrega, agenda
+        INTO v_order
+        FROM public.orders
+        WHERE tracking_number = v_tracking
+          AND UPPER(COALESCE(external_platform, '')) = 'SHOPIFY'
+        ORDER BY created_at DESC
+        LIMIT 1;
+    END IF;
+
+    IF v_order.id IS NULL OR UPPER(COALESCE(v_order.external_platform, '')) != 'SHOPIFY' THEN
+        RETURN NEW;
+    END IF;
+
+    -- Omitir pedidos de retiro en tienda
+    IF UPPER(TRIM(COALESCE(v_order.categoria_entrega, ''))) = 'RETIRO' OR UPPER(TRIM(COALESCE(v_order.agenda, ''))) = 'RETIRO' THEN
+        RETURN NEW;
+    END IF;
+
+    -- Si ya está en delivered en Shopify, no retroceder a in_transit
+    IF v_order.shopify_order_status = 'delivered' THEN
+        RETURN NEW;
+    END IF;
+    IF v_target_action = 'set_in_transit' AND v_order.shopify_order_status = 'in_transit' THEN
+        RETURN NEW;
+    END IF;
+
+    -- Verificar integración activa con bidirección habilitada
+    SELECT id, merchant_id, sync_tracking_enabled
+    INTO v_integration
+    FROM public.merchant_integrations
+    WHERE platform = 'Shopify'
+      AND is_active = true
+      AND UPPER(TRIM(comercio)) = UPPER(TRIM(v_order.comercio))
+    LIMIT 1;
+
+    IF v_integration.id IS NULL OR COALESCE(v_integration.sync_tracking_enabled, false) = false THEN
+        RETURN NEW;
+    END IF;
+
+    v_shopify_order_id := v_order.raw_shopify_data->>'id';
+    IF v_shopify_order_id IS NULL OR v_shopify_order_id = '' THEN
+        RETURN NEW;
+    END IF;
+
+    SELECT id INTO v_existing_queue_id
+    FROM public.shopify_fulfillment_queue
+    WHERE order_id = v_order.id
+      AND action_type = v_target_action
+      AND status IN ('pending', 'processing', 'completed', 'needs_reauth')
+    LIMIT 1;
+
+    IF v_existing_queue_id IS NULL THEN
+        INSERT INTO public.shopify_fulfillment_queue (
+            order_id, merchant_id, comercio, shopify_order_id,
+            tracking_number, tracking_url, courier, operador,
+            shopify_fulfillment_id, action_type, status
+        ) VALUES (
+            v_order.id, v_integration.merchant_id, v_order.comercio, v_shopify_order_id,
+            COALESCE(v_order.tracking_number, v_tracking),
+            COALESCE(v_order.tracking_url, v_new_json->>'tracking_url'),
+            COALESCE(v_order.courier, v_new_json->>'courier'),
+            v_order.operador,
+            v_order.shopify_fulfillment_id,
+            v_target_action,
+            'pending'
+        );
+    END IF;
+
+    RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'Aviso en enqueue_shopify_shipment_status_trigger_func: %', SQLERRM;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_shopify_shipment_status_enviame ON public.enviame_shipments;
+CREATE TRIGGER trg_shopify_shipment_status_enviame
+AFTER INSERT OR UPDATE OF status ON public.enviame_shipments
+FOR EACH ROW EXECUTE FUNCTION public.enqueue_shopify_shipment_status_trigger_func();
+
+DROP TRIGGER IF EXISTS trg_shopify_shipment_status_lightdata ON public.lightdata_envios;
+CREATE TRIGGER trg_shopify_shipment_status_lightdata
+AFTER INSERT OR UPDATE OF status ON public.lightdata_envios
+FOR EACH ROW EXECUTE FUNCTION public.enqueue_shopify_shipment_status_trigger_func();
+
+DROP TRIGGER IF EXISTS trg_shopify_shipment_status_bluex ON public.bluex_envios;
+CREATE TRIGGER trg_shopify_shipment_status_bluex
+AFTER INSERT OR UPDATE OF status ON public.bluex_envios
+FOR EACH ROW EXECUTE FUNCTION public.enqueue_shopify_shipment_status_trigger_func();
+
+DROP TRIGGER IF EXISTS trg_shopify_shipment_status_starken ON public.starken_envios;
+CREATE TRIGGER trg_shopify_shipment_status_starken
+AFTER INSERT OR UPDATE OF status ON public.starken_envios
+FOR EACH ROW EXECUTE FUNCTION public.enqueue_shopify_shipment_status_trigger_func();
+
+DROP TRIGGER IF EXISTS trg_shopify_shipment_status_optiroute ON public.optiroute_orders;
+CREATE TRIGGER trg_shopify_shipment_status_optiroute
+AFTER INSERT OR UPDATE OF status ON public.optiroute_orders
+FOR EACH ROW EXECUTE FUNCTION public.enqueue_shopify_shipment_status_trigger_func();
 
 
 -- 6. Backfill inicial de shopify_order_status para pedidos de Shopify existentes

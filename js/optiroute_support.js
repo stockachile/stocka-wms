@@ -1611,7 +1611,7 @@ export async function renderOptirouteSupport() {
 
         const optiUuid = detailedOrder.uuid || (detailedOrder.tracking && detailedOrder.tracking.includes('-') ? detailedOrder.tracking : null) || null;
         const optiTracking = (detailedOrder.tracking || '').trim() || optiUuid || String(detailedOrder.id);
-        const optiTrackingUrl = (detailedOrder.tracking_url || '').trim() || (optiUuid ? `https://app.optiroute.cl/service_requets/tracking/${optiUuid}/` : null);
+        const optiTrackingUrl = `https://wms.stocka.cl/seguimiento.html?t=${encodeURIComponent(optiTracking)}&comercio=${encodeURIComponent(commerceName || 'STOCKA')}`;
 
         payloads.push({
           id: String(detailedOrder.id),

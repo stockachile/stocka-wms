@@ -2085,11 +2085,27 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
   if (effectiveTrackingUrl === 'N/A' || (!effectiveTrackingUrl.startsWith('http://') && !effectiveTrackingUrl.startsWith('https://'))) {
     effectiveTrackingUrl = '';
   }
-  if (!effectiveTrackingUrl && effectiveTracking) {
+  const isOptirouteShipment = primaryShipment?.source_table === 'optiroute_orders'
+    || String(effectiveCourier || '').toLowerCase().includes('optiroute')
+    || String(effectiveCourier || '').toLowerCase().includes('stocka x')
+    || effectiveTrackingUrl.toLowerCase().includes('optiroute.cl');
+  if (isOptirouteShipment) {
+    if (window.getPublicWmsTrackingUrlForTarget) {
+      effectiveTrackingUrl = window.getPublicWmsTrackingUrlForTarget(primaryShipment, orderData, effectiveTracking);
+    } else {
+      const originUrl = (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file:'))
+        ? window.location.origin
+        : 'https://wms.stocka.cl';
+      const token = orderData.id || effectiveTracking || orderData.numero_orden || '';
+      const params = new URLSearchParams();
+      if (token) params.set('t', token);
+      if (orderData.comercio) params.set('comercio', orderData.comercio);
+      if (orderData.comuna) params.set('d', orderData.comuna);
+      effectiveTrackingUrl = `${originUrl}/seguimiento.html?${params.toString()}`;
+    }
+  } else if (!effectiveTrackingUrl && effectiveTracking) {
     if (isAlphaOrder) {
       effectiveTrackingUrl = `https://alphagroup.lightdata.com.ar/tracking.php?token=${encodeURIComponent(effectiveTracking)}d54df4s8a88`;
-    } else if (primaryShipment?.source_table === 'optiroute_orders') {
-      effectiveTrackingUrl = `https://app.optiroute.cl/service_requets/tracking/${encodeURIComponent(effectiveTracking)}/`;
     } else if (effectiveCourier === 'Blue Express' || primaryShipment?.source_table === 'bluex_envios') {
       effectiveTrackingUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(effectiveTracking)}`;
     } else if (effectiveCourier === 'Starken' || primaryShipment?.source_table === 'starken_envios') {
@@ -3183,6 +3199,39 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
               ` : ''}
             </div>
 
+            ${(() => {
+              const foundPacksMap = typeof window.getOrderPacksMap === 'function' ? window.getOrderPacksMap(orderData) : new Map();
+              const manualBreakdown = Array.isArray(orderData.raw_shopify_data?.manual_packs_breakdown)
+                ? orderData.raw_shopify_data.manual_packs_breakdown
+                : [];
+              if ((!foundPacksMap || foundPacksMap.size === 0) && manualBreakdown.length === 0) return '';
+              const foundPacks = [];
+              if (foundPacksMap && foundPacksMap.size > 0) {
+                foundPacksMap.forEach((qty, sku) => {
+                  foundPacks.push(`<strong>${escapeHtmlSafe(String(sku).toUpperCase())}</strong> (x${qty})`);
+                });
+              } else {
+                manualBreakdown.forEach(pb => {
+                  foundPacks.push(`<strong>${escapeHtmlSafe(String(pb.pack_sku || '').toUpperCase())}</strong> (x${pb.quantity || 1})`);
+                });
+              }
+              const breakdownDetailsHtml = manualBreakdown.map(pb => {
+                const compsStr = Array.isArray(pb.components)
+                  ? pb.components.map(c => `<strong>${escapeHtmlSafe(c.sku)}</strong> (x${c.total_quantity || (c.quantity_per_pack * (pb.quantity || 1))})`).join(', ')
+                  : '';
+                return `<div style="margin-top: 0.2rem;">• El pack <strong>${escapeHtmlSafe(pb.pack_sku || '')}${pb.pack_name ? ' - ' + escapeHtmlSafe(pb.pack_name) : ''}</strong> (x${pb.quantity || 1}) fue desglosado para su preparación en bodega${compsStr ? ` en: ${compsStr}` : ''}.</div>`;
+              }).join('');
+              return `
+                <div style="margin-bottom: 0.85rem; padding: 0.65rem 0.9rem; background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.25); border-radius: 8px; font-size: 0.8rem; color: #7c3aed; display: flex; align-items: flex-start; gap: 0.55rem;">
+                  <i class="ri-stack-line" style="font-size: 1.15rem; margin-top: 1px;"></i>
+                  <div style="flex: 1;">
+                    <div><strong>Pack(s) desglosado(s) para preparación en bodega:</strong> ${foundPacks.join(', ')}</div>
+                    ${breakdownDetailsHtml}
+                  </div>
+                </div>
+              `;
+            })()}
+
             <div style="overflow-x: auto;">
               <table style="width: 100%; border-collapse: collapse; font-size: 0.84rem;">
                 <thead>
@@ -3485,6 +3534,30 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                     ${escapeHtmlSafe(trackingInfo.sourceTable)} · ${trackingInfo.updatedAt ? escapeHtmlSafe(new Date(trackingInfo.updatedAt).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })) : '-'}
                   </span>
                 </div>
+                ${(() => {
+                  const sopCommitInfo = window.getEnviameCommitmentInfo
+                    ? window.getEnviameCommitmentInfo(trackingInfo.allShipments || trackingInfo.shipment, orderData, trackingInfo.isDelivered)
+                    : null;
+                  if (sopCommitInfo && sopCommitInfo.hasDeadline) {
+                    return `<div class="sop-mini-stat" style="background: var(--color-surface);">
+                      <span class="sop-mini-stat-label">Compromiso Entrega (Envíame)</span>
+                      <span class="sop-mini-stat-val">
+                        <span style="display: inline-flex; align-items: center; gap: 0.25rem; background-color: ${sopCommitInfo.badgeBg}; color: ${sopCommitInfo.badgeColor}; border: 1px solid ${sopCommitInfo.badgeBorder}; padding: 0.14rem 0.5rem; border-radius: 99px; font-size: 0.72rem; font-weight: 800;" title="${escapeHtmlSafe(sopCommitInfo.tooltip)}">
+                          <i class="${sopCommitInfo.icon}"></i> ${escapeHtmlSafe(sopCommitInfo.formattedDate)} · ${escapeHtmlSafe(sopCommitInfo.stateLabel)}
+                        </span>
+                      </span>
+                    </div>`;
+                  }
+                  if (sopCommitInfo && sopCommitInfo.isEnviame) {
+                    return `<div class="sop-mini-stat" style="background: var(--color-surface);">
+                      <span class="sop-mini-stat-label">Compromiso Entrega (Envíame)</span>
+                      <span class="sop-mini-stat-val" style="font-size: 0.74rem; color: var(--color-text-muted); font-style: italic;">
+                        <i class="ri-calendar-line"></i> Pendiente admisión en planta courier
+                      </span>
+                    </div>`;
+                  }
+                  return '';
+                })()}
               </div>
               ${window.renderOrderPublicTrackingSectionHtml ? window.renderOrderPublicTrackingSectionHtml(orderData, effectiveTrackingUrl, effectiveCourier) : ''}
             </div>

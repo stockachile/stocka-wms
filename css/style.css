@@ -2090,6 +2090,717 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 6px;
 }
 
+/* ==========================================================================
+   Daily Volume Loading Screen: Moving Chart, Trendlines & Section Skeletons
+   ========================================================================== */
+@keyframes volBarWave {
+  0%, 100% {
+    transform: scaleY(0.45);
+    opacity: 0.42;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 0.88;
+  }
+}
+
+@keyframes volCurveFloat {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes volTrendDashFlow {
+  0% {
+    stroke-dashoffset: 64;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes volCurveStrokePulse {
+  0% {
+    stroke-dashoffset: 900;
+  }
+  50% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -900;
+  }
+}
+
+@keyframes volScanSweep {
+  0% {
+    left: 6%;
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    left: 94%;
+    opacity: 0;
+  }
+}
+
+@keyframes volBadgeFloat {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes volLiveNodePing {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.85;
+  }
+  75%, 100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.vol-skel-bar {
+  background: linear-gradient(90deg, rgba(148, 163, 184, 0.14) 25%, rgba(148, 163, 184, 0.28) 50%, rgba(148, 163, 184, 0.14) 75%);
+  background-size: 200% 100%;
+  animation: shipSkelShimmer 1.4s infinite linear;
+  border-radius: 6px;
+}
+
+.vol-skel-bar.skel-blue {
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.14) 25%, rgba(59, 130, 246, 0.30) 50%, rgba(37, 99, 235, 0.14) 75%);
+  background-size: 200% 100%;
+}
+
+.vol-skel-bar.skel-emerald {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.15) 25%, rgba(16, 185, 129, 0.32) 50%, rgba(16, 185, 129, 0.15) 75%);
+  background-size: 200% 100%;
+}
+
+.vol-skel-bar.skel-purple {
+  background: linear-gradient(90deg, rgba(139, 92, 246, 0.15) 25%, rgba(168, 85, 247, 0.32) 50%, rgba(139, 92, 246, 0.15) 75%);
+  background-size: 200% 100%;
+}
+
+.vol-kpi-card-loading {
+  position: relative;
+  overflow: hidden;
+}
+
+.vol-kpi-card-loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.12) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shipSkelShimmer 1.8s infinite linear;
+  pointer-events: none;
+}
+
+.vol-chart-loader-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 0.35rem 0.25rem 0.15rem;
+  border-radius: var(--radius-sm);
+  transition: opacity 0.28s ease;
+  user-select: none;
+  overflow: hidden;
+}
+
+.vol-chart-loader-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0 0.35rem 0.5rem;
+}
+
+.vol-chart-loader-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--color-text-main);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  padding: 0.32rem 0.75rem;
+  border-radius: 999px;
+}
+
+.vol-chart-loader-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.vol-chart-loader-tags {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.vol-loader-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  font-size: 0.69rem;
+  font-weight: 700;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.vol-loader-tag.tag-blue {
+  background: rgba(37, 99, 235, 0.09);
+  color: #2563eb;
+  border-color: rgba(37, 99, 235, 0.22);
+}
+
+.vol-loader-tag.tag-purple {
+  background: rgba(168, 85, 247, 0.1);
+  color: #9333ea;
+  border-color: rgba(168, 85, 247, 0.25);
+}
+
+.vol-loader-tag.tag-emerald {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+[data-theme="dark"] .vol-loader-tag.tag-blue {
+  color: #60a5fa;
+}
+[data-theme="dark"] .vol-loader-tag.tag-purple {
+  color: #c084fc;
+}
+[data-theme="dark"] .vol-loader-tag.tag-emerald {
+  color: #34d399;
+}
+
+.vol-chart-stage-body {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  gap: 0.65rem;
+  min-height: 220px;
+}
+
+.vol-chart-yaxis-skel {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 0.25rem 0 1.5rem;
+  width: 54px;
+  flex-shrink: 0;
+}
+
+.vol-chart-plot-box {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-left: 1.5px solid var(--color-border);
+  border-bottom: 1.5px solid var(--color-border);
+  margin-bottom: 1.45rem;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.02) 0%, rgba(139, 92, 246, 0.03) 100%);
+}
+
+.vol-chart-grid-line {
+  width: 100%;
+  height: 1px;
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.vol-loader-bars-layer {
+  position: absolute;
+  inset: 12px 14px 0 14px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 6px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.vol-loader-bar {
+  flex: 1;
+  max-width: 26px;
+  border-radius: 5px 5px 0 0;
+  transform-origin: bottom center;
+  animation: volBarWave 2.1s ease-in-out infinite;
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.34) 0%, rgba(37, 99, 235, 0.08) 100%);
+  border-top: 2px solid rgba(59, 130, 246, 0.55);
+}
+
+.vol-loader-bar.bar-context {
+  background: linear-gradient(180deg, rgba(148, 163, 184, 0.26) 0%, rgba(148, 163, 184, 0.06) 100%);
+  border-top-color: rgba(148, 163, 184, 0.45);
+}
+
+.vol-loader-bar.bar-live {
+  background: linear-gradient(180deg, rgba(244, 63, 94, 0.45) 0%, rgba(244, 63, 94, 0.1) 100%);
+  border-top-color: #f43f5e;
+}
+
+.vol-loader-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.vol-svg-curve-group {
+  animation: volCurveFloat 3.2s ease-in-out infinite;
+}
+
+.vol-svg-main-curve {
+  stroke-dasharray: 900;
+  animation: volCurveStrokePulse 4.2s ease-in-out infinite;
+}
+
+.vol-svg-trendline-primary {
+  stroke-dasharray: 10 6;
+  animation: volTrendDashFlow 1.6s linear infinite;
+}
+
+.vol-svg-trendline-avg {
+  stroke-dasharray: 6 6;
+  animation: volTrendDashFlow 2.2s linear reverse infinite;
+}
+
+.vol-trend-floating-badge {
+  position: absolute;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.58rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+  animation: volBadgeFloat 2.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.vol-trend-floating-badge.badge-purple {
+  top: 18%;
+  right: 14%;
+  background: rgba(168, 85, 247, 0.15);
+  color: #9333ea;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+}
+
+.vol-trend-floating-badge.badge-emerald {
+  bottom: 28%;
+  left: 18%;
+  background: rgba(16, 185, 129, 0.14);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  animation-delay: 0.9s;
+}
+
+[data-theme="dark"] .vol-trend-floating-badge.badge-purple {
+  background: rgba(168, 85, 247, 0.22);
+  color: #e9d5ff;
+}
+
+[data-theme="dark"] .vol-trend-floating-badge.badge-emerald {
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+}
+
+.vol-loader-scanline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0) 0%, rgba(59, 130, 246, 0.85) 50%, rgba(168, 85, 247, 0.85) 100%);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.55);
+  z-index: 3;
+  animation: volScanSweep 3.1s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.vol-chart-xaxis-skel {
+  position: absolute;
+  left: 64px;
+  right: 8px;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Historical Monthly Volume Averages (3M / 6M / 12M) */
+.vol-horizon-card {
+  background: var(--color-bg);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.9rem 1.05rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.vol-horizon-card:hover {
+  border-color: rgba(37, 99, 235, 0.45);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.vol-horizon-card.active {
+  background: rgba(37, 99, 235, 0.06);
+  border-color: var(--color-primary);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.12);
+}
+
+.vol-horizon-btn {
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 0.35rem 0.78rem;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.vol-horizon-btn.active {
+  background: var(--color-primary);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.28);
+}
+
+.vol-month-history-item {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.72rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.vol-month-history-item:hover {
+  border-color: var(--color-primary);
+  background: var(--color-surface);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.vol-month-history-item.is-selected-period {
+  border-color: var(--color-primary);
+  background: rgba(37, 99, 235, 0.06);
+}
+
+/* Enhanced Volume Main Chart Controls & Insight Bar */
+.vol-chart-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.vol-chart-mode-btn {
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.28rem 0.62rem;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  transition: all 0.16s ease;
+}
+
+.vol-chart-mode-btn:hover {
+  color: var(--color-text-main);
+}
+
+.vol-chart-mode-btn.active {
+  background: var(--color-primary);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+}
+
+.vol-chart-layer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.26rem 0.62rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.16s ease;
+}
+
+.vol-chart-layer-pill:hover {
+  border-color: rgba(59, 130, 246, 0.45);
+  color: var(--color-text-main);
+}
+
+.vol-chart-layer-pill.active {
+  color: var(--color-text-main);
+  background: var(--color-surface);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+}
+
+.vol-chart-layer-pill.active[data-layer="trend"] {
+  border-color: rgba(168, 85, 247, 0.45);
+  background: rgba(168, 85, 247, 0.08);
+  color: #9333ea;
+}
+
+[data-theme="dark"] .vol-chart-layer-pill.active[data-layer="trend"] {
+  color: #c084fc;
+}
+
+.vol-chart-layer-pill.active[data-layer="avg"] {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: rgba(16, 185, 129, 0.08);
+  color: #059669;
+}
+
+[data-theme="dark"] .vol-chart-layer-pill.active[data-layer="avg"] {
+  color: #34d399;
+}
+
+.vol-chart-layer-pill.active[data-layer="extremes"] {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.08);
+  color: #d97706;
+}
+
+[data-theme="dark"] .vol-chart-layer-pill.active[data-layer="extremes"] {
+  color: #fbbf24;
+}
+
+.vol-chart-layer-pill.active[data-layer="context"] {
+  border-color: rgba(100, 116, 139, 0.45);
+  background: rgba(100, 116, 139, 0.10);
+  color: var(--color-text-main);
+}
+
+.vol-chart-insight-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.65rem 1rem;
+  margin-bottom: 0.85rem;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.05) 0%, rgba(168, 85, 247, 0.05) 50%, rgba(16, 185, 129, 0.05) 100%);
+  border: 1px solid var(--color-border);
+  font-size: 0.75rem;
+}
+
+.vol-chart-insight-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  color: var(--color-text-muted);
+}
+
+.vol-chart-insight-chip strong {
+  color: var(--color-text-main);
+  font-weight: 700;
+}
+
+/* Volume Module Top Tabs & Product Level Volume Tab */
+.vol-module-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+  padding: 0.32rem;
+  margin-bottom: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  flex-wrap: wrap;
+}
+
+.vol-module-tab-btn {
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+  padding: 0.52rem 1.05rem;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.48rem;
+  transition: all 0.18s ease;
+}
+
+.vol-module-tab-btn:hover {
+  color: var(--color-text-main);
+  background: var(--color-bg);
+}
+
+.vol-module-tab-btn.active {
+  background: var(--color-primary);
+  color: #ffffff;
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.26);
+}
+
+.vol-module-tab-badge {
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18);
+  color: inherit;
+}
+
+.vol-module-tab-btn.active .vol-module-tab-badge {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+.vol-prod-filter-pill {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 0.32rem 0.72rem;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: all 0.16s ease;
+}
+
+.vol-prod-filter-pill:hover {
+  border-color: var(--color-primary);
+  color: var(--color-text-main);
+}
+
+.vol-prod-filter-pill.active {
+  background: rgba(37, 99, 235, 0.10);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.vol-prod-share-bar {
+  width: 100%;
+  height: 7px;
+  background: rgba(148, 163, 184, 0.16);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.vol-prod-share-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.35s ease;
+}
+
+.vol-prod-mover-card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  transition: all 0.18s ease;
+}
+
+.vol-prod-mover-card:hover {
+  border-color: rgba(59, 130, 246, 0.45);
+  background: var(--color-surface);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.vol-abc-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.64rem;
+  font-weight: 800;
+  padding: 0.1rem 0.42rem;
+  border-radius: 5px;
+  letter-spacing: 0.03em;
+}
+
+.vol-abc-a {
+  background: rgba(37, 99, 235, 0.14);
+  color: #2563eb;
+  border: 1px solid rgba(37, 99, 235, 0.3);
+}
+
+.vol-abc-b {
+  background: rgba(168, 85, 247, 0.14);
+  color: #9333ea;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.vol-abc-c {
+  background: rgba(148, 163, 184, 0.16);
+  color: var(--color-text-muted);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+
+
 /* Timeline/Stepper Component */
 .timeline-stepper {
   display: flex;
