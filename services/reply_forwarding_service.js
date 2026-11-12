@@ -7,9 +7,8 @@
  *    (Contacto, Teléfono, Pedido, Comercio, Dirección, Mensaje enviado, Usuario emisor y Grupo destino).
  * 2. Escucha los mensajes entrantes en Baileys y detecta si provienen de un contacto al que
  *    se le escribió desde Stox.
- * 3. Acumula las respuestas entrantes en una ventana de 30 minutos (para evitar spam cuando
- *    el cliente escribe palabra por palabra) y envía un único resumen consolidado al grupo
- *    de WhatsApp configurado (por defecto NOTIFICACIONES STOX).
+ * 3. Reenvía automáticamente la respuesta recibida al grupo de WhatsApp configurado
+ *    (por defecto NOTIFICACIONES STOX), incluyendo los datos del contacto, pedido y el mensaje original.
  * 4. Registra la trazabilidad en archivo persistente (sobrevive reinicios en Render) y en
  *    order_audit_logs de Supabase cuando hay un pedido asociado.
  */
@@ -128,21 +127,19 @@ function extractIncomingMessageContent(msg) {
 
   if (m.imageMessage) {
     const cap = m.imageMessage.caption ? m.imageMessage.caption.trim() : '';
-    return cap ? `📷 [Imagen]: ${cap}` : '📷 [Imagen adjunta enviada por el contacto]';
+    return cap ? `[Imagen]: ${cap}` : '[Imagen adjunta]';
   }
   if (m.videoMessage) {
     const cap = m.videoMessage.caption ? m.videoMessage.caption.trim() : '';
-    return cap ? `🎥 [Video]: ${cap}` : '🎥 [Video adjunto enviado por el contacto]';
+    return cap ? `[Video]: ${cap}` : '[Video adjunto]';
   }
   if (m.audioMessage) {
-    return m.audioMessage.ptt
-      ? '🎤 [Nota de voz enviada por el contacto]'
-      : '🎵 [Audio enviado por el contacto]';
+    return m.audioMessage.ptt ? '[Nota de voz]' : '[Audio]';
   }
   if (m.documentMessage) {
     const fileName = m.documentMessage.fileName || 'documento';
     const cap = m.documentMessage.caption ? ` - ${m.documentMessage.caption.trim()}` : '';
-    return `📄 [Documento: ${fileName}]${cap}`;
+    return `[Documento: ${fileName}]${cap}`;
   }
   if (m.locationMessage || m.liveLocationMessage) {
     const loc = m.locationMessage || m.liveLocationMessage;
@@ -150,7 +147,7 @@ function extractIncomingMessageContent(msg) {
     const lng = loc.degreesLongitude;
     const name = loc.name || loc.address || '';
     const mapsUrl = (lat && lng) ? `https://maps.google.com/?q=${lat},${lng}` : '';
-    return `📍 [Ubicación compartida${name ? `: ${name}` : ''}] ${mapsUrl}`.trim();
+    return `[Ubicación${name ? `: ${name}` : ''}] ${mapsUrl}`.trim();
   }
   if (m.buttonsResponseMessage?.selectedDisplayText) {
     return m.buttonsResponseMessage.selectedDisplayText.trim();
@@ -162,10 +159,10 @@ function extractIncomingMessageContent(msg) {
     return m.templateButtonReplyMessage.selectedDisplayText.trim();
   }
   if (m.contactMessage || m.contactsArrayMessage) {
-    return '👤 [Tarjeta de contacto compartida]';
+    return '[Contacto compartido]';
   }
   if (m.stickerMessage) {
-    return '🏷️ [Sticker]';
+    return '[Sticker]';
   }
 
   return '';
@@ -367,7 +364,7 @@ function findActiveTrackedContact(fromJid, altJids = [], stanzaId = null) {
 
 /**
  * Procesa un mensaje entrante en Baileys y, si proviene de un contacto contactado
- * desde Stox, lo acumula en una ventana de 30 minutos para enviar un único resumen al grupo.
+ * desde Stox, lo reenvía al grupo de WhatsApp con todos los datos del contacto y pedido.
  */
 async function handleIncomingTrackedReply(sock, msg, formatJid, resolveTargetWaGroup) {
   if (!sock || !msg || !msg.message || msg.key?.fromMe) return false;
@@ -553,58 +550,25 @@ async function flushPendingRepliesForContact(contactKeyOrPhone, sock, formatJid,
     .join(' ');
 
   const pushName = entry.pushName || pending[pending.length - 1]?.pushName || '';
-  const contactLabel = entry.contactName && entry.contactName !== 'Contacto'
-    ? (pushName && pushName.toLowerCase() !== entry.contactName.toLowerCase()
-        ? `${entry.contactName} (~${pushName})`
-        : entry.contactName)
+  const contactLabel = entry.contactName && entry.contactName !== 'Contacto' && entry.contactName !== 'Cliente'
+    ? entry.contactName
     : (pushName || `+${entry.phone}`);
-
-  const locationLine = [entry.shippingAddress, entry.shippingCity].filter(Boolean).join(', ');
-  const originalExcerpt = String(entry.sentMessage || '').length > 280
-    ? String(entry.sentMessage).slice(0, 280) + '...'
-    : String(entry.sentMessage || '');
-
-  const sentAtFormatted = entry.sentAt
-    ? new Date(entry.sentAt).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
-    : '';
-
-  const firstTimeStr = entry.firstPendingAt
-    ? new Date(entry.firstPendingAt).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' })
-    : '';
-  const lastTimeStr = pending[pending.length - 1]?.receivedAt
-    ? new Date(pending[pending.length - 1].receivedAt).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' })
-    : '';
-  const nowFormatted = new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' });
 
   const targetGroupRaw = typeof resolveTargetWaGroup === 'function'
     ? resolveTargetWaGroup(entry.targetGroup)
     : (entry.targetGroup || NOTIFICACIONES_STOX_GROUP);
   const groupJid = typeof formatJid === 'function' ? formatJid(targetGroupRaw) : targetGroupRaw;
 
+  const headerRef = entry.orderNumber
+    ? `Pedido #${entry.orderNumber}${entry.comercio ? ` (${entry.comercio})` : ''}`
+    : (entry.comercio || 'Contacto');
+
   const forwardLines = [
-    `🤖 *Stox | RESPUESTA RECIBIDA EN TORRE DE CONTROL*`,
-    pending.length > 1
-      ? `💬 *RESUMEN DE RESPUESTAS (${pending.length} mensajes consolidados)*`
-      : `💬 *NUEVA RESPUESTA DE CONTACTO*`,
-    `━━━━━━━━━━━━━━━━━━━━`,
-    `👤 *Contacto:* ${contactLabel}`,
-    `📞 *Teléfono:* +${entry.phone} (https://wa.me/${entry.phone})`,
-    entry.orderNumber
-      ? `📦 *Pedido:* #${entry.orderNumber}${entry.comercio ? ` (${entry.comercio})` : ''}`
-      : (entry.comercio ? `🏪 *Comercio:* ${entry.comercio}` : null),
-    locationLine ? `📍 *Destino:* ${locationLine}` : null,
-    `━━━━━━━━━━━━━━━━━━━━`,
-    `📩 *Respuesta consolidada:*`,
-    `${summarizedText}`,
-    `━━━━━━━━━━━━━━━━━━━━`,
-    `📤 *En respuesta al mensaje de Stox:*`,
-    `_"${originalExcerpt}"_`,
-    `👤 *Enviado por:* ${entry.sentBy || 'Torre de Control'}${sentAtFormatted ? ` (${sentAtFormatted})` : ''}`,
-    `━━━━━━━━━━━━━━━━━━━━`,
-    pending.length > 1 && firstTimeStr && lastTimeStr
-      ? `🕒 _Recibido entre ${firstTimeStr} y ${lastTimeStr} hrs · Enviado al grupo: ${nowFormatted}_`
-      : `🕒 _Recibido: ${nowFormatted}_`
-  ].filter(Boolean);
+    `💬 *Respuesta · ${headerRef}*`,
+    `👤 ${contactLabel} · +${entry.phone}`,
+    ``,
+    `${summarizedText}`
+  ];
 
   const forwardMessage = forwardLines.join('\n');
 

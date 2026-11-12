@@ -248,7 +248,7 @@ function requireAuth(req, res, next) {
 // 1. Estado de conexión
 app.get('/status', requireAuth, (req, res) => {
   res.json({
-    version: '1.5.0-stox-reply-batch-30m',
+    version: '1.5.1-stox-clean-format',
     status: connectionStatus,
     targetGroup: resolveTargetWaGroup(),
     user: botUser,
@@ -422,7 +422,7 @@ app.post('/send-tracked-message', requireAuth, async (req, res) => {
   const {
     to,
     message,
-    withPrefix = true,
+    withPrefix = false,
     contactName = '',
     orderId = null,
     orderNumber = '',

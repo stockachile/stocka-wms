@@ -48129,8 +48129,8 @@ window.applyStoxControlTowerTemplate = function(templateType) {
   if (!msgEl) return;
 
   const fullName = (nameEl?.value || '').trim();
-  const firstName = fullName ? fullName.split(' ')[0] : 'Hola';
-  const greeting = fullName ? `Hola *${firstName}* 👋` : `¡Hola! 👋`;
+  const firstName = fullName ? fullName.split(' ')[0] : '';
+  const greeting = firstName ? `Hola ${firstName}` : `Hola`;
   const orderNum = (orderNumEl?.value || '').trim();
   const comercio = (comercioEl?.value || '').trim() || 'nuestra tienda';
   const addr = (addressEl?.value || '').trim();
@@ -48139,16 +48139,16 @@ window.applyStoxControlTowerTemplate = function(templateType) {
   let text = '';
   switch (templateType) {
     case 'direccion':
-      text = `${greeting}, te escribimos del equipo logístico por ${orderRef}.\n\nNecesitamos confirmar o complementar tu dirección de entrega${addr ? ` (*${addr}*)` : ''} para despachar tu compra sin inconvenientes.\n\n¿Nos confirmas los datos correctos respondiendo a este mensaje por favor? ¡Muchas gracias!`;
+      text = `${greeting}, te escribimos por el despacho de ${orderRef}. Necesitamos confirmar o complementar tu dirección de entrega${addr ? ` (*${addr}*)` : ''}. ¿Nos confirmas los datos correctos por este medio? Gracias.`;
       break;
     case 'retiro':
-      text = `${greeting}, te informamos que ${orderRef} ya se encuentra preparado y *listo para retiro en bodega* 📦.\n\nPuedes responder a este mensaje para coordinar tu retiro o si tienes cualquier consulta.`;
+      text = `${greeting}, te informamos que ${orderRef} ya está preparado y listo para retiro en bodega. Puedes responder a este mensaje para coordinar.`;
       break;
     case 'entrega':
-      text = `${greeting}, te contactamos por el despacho de ${orderRef}${addr ? ` con destino a *${addr}*` : ''} 🚚.\n\n¿Se encontrará alguien disponible para recibir el pedido? Quedamos atentos a tu respuesta por este medio.`;
+      text = `${greeting}, te contactamos por la entrega de ${orderRef}${addr ? ` en *${addr}*` : ''}. ¿Habrá alguien disponible para recibir el pedido? Quedamos atentos.`;
       break;
     case 'incidencia':
-      text = `${greeting}, te escribimos respecto a ${orderRef}.\n\nNecesitamos coordinar un detalle importante antes de despachar tu compra. ¿Nos puedes responder por este medio cuando tengas un momento por favor?`;
+      text = `${greeting}, te escribimos por ${orderRef} para coordinar un detalle antes del despacho. ¿Nos puedes responder por este medio cuando puedas? Gracias.`;
       break;
     case 'clear':
       text = '';
@@ -48608,7 +48608,7 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
     const payload = {
       to: formValues.phone,
       message: formValues.message,
-      withPrefix: true,
+      withPrefix: false,
       trackReply: true,
       contactName: formValues.contactName,
       orderId: formValues.orderId,
