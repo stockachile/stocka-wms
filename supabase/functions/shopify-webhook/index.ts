@@ -359,13 +359,15 @@ async function handleOrderCreate(merchantId, comercio, order) {
     }
   }
 
-  // Verificamos que no exista
+  // Verificamos que no exista (por ID interno de Shopify o por número con/sin prefijo)
+  const shopifyOrderIdStr = (order.id || "").toString();
   const { data: existing } = await supabase
     .from("orders")
     .select("id")
     .eq("comercio", comercio)
     .in("external_platform", ["Shopify", "Punto de Venta"])
-    .in("external_order_number", [order.name, finalOrderNumber])
+    .or(`raw_shopify_data->>id.eq.${shopifyOrderIdStr},external_order_number.eq.${order.name},external_order_number.eq.${finalOrderNumber}`)
+    .limit(1)
     .maybeSingle();
 
   if (existing) {
@@ -540,12 +542,15 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
   console.log(`[Shopify Webhook] Buscando pedido para actualizar con Ref: ${finalOrderNumber}`);
 
   // Buscamos el estado actual del pedido en WMS
+  const shopifyOrderIdStr = (order.id || "").toString();
   const { data: existingOrder, error: findErr } = await supabase
     .from("orders")
-    .select("id, status, estado_wms, raw_shopify_data, shopify_order_status, shopify_fulfillment_id, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, categoria_entrega, origen, external_platform, agenda, operador, courier")
+    .select("id, external_order_number, status, estado_wms, raw_shopify_data, shopify_order_status, shopify_fulfillment_id, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, categoria_entrega, origen, external_platform, agenda, operador, courier")
     .eq("comercio", comercio)
     .in("external_platform", ["Shopify", "Punto de Venta"])
-    .in("external_order_number", [order.name, finalOrderNumber])
+    .or(`raw_shopify_data->>id.eq.${shopifyOrderIdStr},external_order_number.eq.${order.name},external_order_number.eq.${finalOrderNumber}`)
+    .order("created_at", { ascending: true })
+    .limit(1)
     .maybeSingle();
 
   if (findErr || !existingOrder) {
@@ -560,7 +565,10 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
   const derivedShopify = deriveShopifyOrderStatusFromPayload(order, (existingOrder as any).shopify_order_status);
 
   // Preparamos datos a actualizar protegiendo modificaciones manuales del WMS
+  const currentExtNum = ((existingOrder as any).external_order_number || "").toString().trim();
+  const rawOrderName = (order.name || "").toString().trim();
   const updatedData: Record<string, any> = {
+    ...(currentExtNum === rawOrderName && finalOrderNumber && finalOrderNumber !== rawOrderName ? { external_order_number: finalOrderNumber } : {}),
     payment_status: order.financial_status,
     shipping_method: order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : null,
     shopify_order_status: derivedShopify.status,

@@ -540,14 +540,40 @@ async function syncShopifyOrders(integration: any): Promise<number> {
   let count = 0;
 
   let warehouseId: string | null = null;
+  let siglaComercio = "";
+  let prefijoOrigen = "";
+  let agregarPrefijo = false;
+
   if (integration.comercio) {
-    const { data: comercioCfg } = await supabase
-      .from("comercios_adicional_config")
-      .select("default_warehouse_id")
-      .eq("comercio", integration.comercio)
-      .maybeSingle();
-    if (comercioCfg && comercioCfg.default_warehouse_id) {
-      warehouseId = comercioCfg.default_warehouse_id;
+    try {
+      const { data: configData } = await supabase
+        .from("v_comercios_config")
+        .select("sigla")
+        .eq("nombre", integration.comercio)
+        .maybeSingle();
+
+      if (configData && configData.sigla) {
+        siglaComercio = configData.sigla.trim().toUpperCase();
+      }
+
+      const { data: comercioCfg } = await supabase
+        .from("comercios_adicional_config")
+        .select("default_warehouse_id, pedido_trae_sigla, plat_siglas_config")
+        .eq("comercio", integration.comercio)
+        .maybeSingle();
+
+      if (comercioCfg) {
+        if (comercioCfg.default_warehouse_id) {
+          warehouseId = comercioCfg.default_warehouse_id;
+        }
+        const platConfig = (comercioCfg.plat_siglas_config || {})["Shopify"];
+        if (platConfig) {
+          agregarPrefijo = platConfig.agregar_prefijo !== false;
+          prefijoOrigen = (platConfig.prefijo_origen || "").trim().toUpperCase();
+        }
+      }
+    } catch (cfgErr) {
+      console.warn("⚠️ Error consultando configuración de sigla/bodega en syncShopifyOrders:", cfgErr);
     }
   }
   if (!warehouseId && integration.merchant_id) {
@@ -601,6 +627,21 @@ async function syncShopifyOrders(integration: any): Promise<number> {
     const orders = data.orders || [];
 
     for (const order of orders) {
+      let orderNumber = (order.name || "").toString().trim();
+
+      // 1. Quitar prefijo de origen si coincide
+      if (prefijoOrigen && orderNumber.toUpperCase().startsWith(prefijoOrigen)) {
+        orderNumber = orderNumber.substring(prefijoOrigen.length).trim();
+      }
+
+      // 2. Aplicar prefijo del WMS si corresponde
+      let finalOrderNumber = orderNumber;
+      if (agregarPrefijo && siglaComercio) {
+        if (!orderNumber.toUpperCase().startsWith(siglaComercio)) {
+          finalOrderNumber = `${siglaComercio}${orderNumber}`;
+        }
+      }
+
       const isFulfilledInShopify = order.fulfillment_status === "fulfilled" || (order.fulfillments && order.fulfillments.length > 0);
       const isCancelledInShopify = !!order.cancelled_at;
       const orderDate = new Date(order.created_at);
@@ -612,7 +653,7 @@ async function syncShopifyOrders(integration: any): Promise<number> {
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
         comercio: integration.comercio,
-        external_order_number: order.name,
+        external_order_number: finalOrderNumber,
         external_platform: "Shopify",
         payment_status: order.financial_status,
         total_value: order.current_total_price,
@@ -633,10 +674,12 @@ async function syncShopifyOrders(integration: any): Promise<number> {
       const shopifyOrderIdStr = (order.id || "").toString();
       const { data: existingOrder } = await supabase
         .from("orders")
-        .select("id, status, estado_wms, raw_shopify_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement")
+        .select("id, external_order_number, status, estado_wms, raw_shopify_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement")
         .eq("comercio", integration.comercio)
-        .eq("external_platform", "Shopify")
-        .or(`raw_shopify_data->>id.eq.${shopifyOrderIdStr},external_order_number.eq.${order.name}`)
+        .in("external_platform", ["Shopify", "Punto de Venta"])
+        .or(`raw_shopify_data->>id.eq.${shopifyOrderIdStr},external_order_number.eq.${order.name},external_order_number.eq.${finalOrderNumber}`)
+        .order("created_at", { ascending: true })
+        .limit(1)
         .maybeSingle();
 
       let orderId: string;
@@ -646,6 +689,13 @@ async function syncShopifyOrders(integration: any): Promise<number> {
         const isWmsShippingEdited = (existingOrder as any).wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
         
         const orderDataToUpdate = { ...orderDataToSave };
+
+        // Preservar external_order_number existente si ya tiene prefijo o sufijo (ej. split -1),
+        // actualizándolo a finalOrderNumber únicamente si había quedado sin prefijo (igual a order.name / orderNumber).
+        const currentExtNum = ((existingOrder as any).external_order_number || "").toString().trim();
+        if (currentExtNum && currentExtNum !== (order.name || "").toString().trim() && currentExtNum !== orderNumber) {
+          delete (orderDataToUpdate as any).external_order_number;
+        }
 
         // Preservar estado operativo del WMS: NUNCA sobrescribir status ni estado_wms
         // a menos que en Shopify el pedido haya sido cancelado

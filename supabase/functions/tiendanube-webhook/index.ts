@@ -259,33 +259,62 @@ serve(async (req) => {
 // FUNCIONES DE MANEJO DE ORDENES
 // ==========================================
 
-async function handleOrderCreate(merchantId: string, comercio: string, order: any) {
-  // Obtener prefijo de sigla del comercio
-  let prefix = "";
-  try {
-    const { data: configData } = await supabase
-      .from("v_comercios_config")
-      .select("sigla")
-      .eq("nombre", comercio)
-      .maybeSingle();
+async function resolveTiendanubeOrderNumber(comercio: string, rawOrderNumber: string): Promise<{ orderNumber: string; finalOrderNumber: string }> {
+  let orderNumber = (rawOrderNumber || "").toString().trim();
+  let siglaComercio = "";
+  let prefijoOrigen = "";
+  let agregarPrefijo = true;
 
-    const { data: adicionalConfig } = await supabase
-      .from("comercios_adicional_config")
-      .select("pedido_trae_sigla")
-      .eq("comercio", comercio)
-      .maybeSingle();
+  if (comercio) {
+    try {
+      const { data: configData } = await supabase
+        .from("v_comercios_config")
+        .select("sigla")
+        .eq("nombre", comercio)
+        .maybeSingle();
 
-    const traeSigla = adicionalConfig ? adicionalConfig.pedido_trae_sigla : false;
-    if (configData && configData.sigla && !traeSigla) {
-      prefix = configData.sigla.trim().toUpperCase();
+      if (configData && configData.sigla) {
+        siglaComercio = configData.sigla.trim().toUpperCase();
+      }
+
+      const { data: adicionalConfig } = await supabase
+        .from("comercios_adicional_config")
+        .select("pedido_trae_sigla, plat_siglas_config")
+        .eq("comercio", comercio)
+        .maybeSingle();
+
+      if (adicionalConfig) {
+        const platConfig = (adicionalConfig.plat_siglas_config || {})["Tiendanube"];
+        if (platConfig) {
+          agregarPrefijo = platConfig.agregar_prefijo !== false;
+          prefijoOrigen = (platConfig.prefijo_origen || "").trim().toUpperCase();
+        } else {
+          agregarPrefijo = !adicionalConfig.pedido_trae_sigla;
+        }
+      }
+    } catch (err: any) {
+      console.error("⚠️ Error consultando sigla de comercio en Tiendanube:", err.message);
     }
-  } catch (err: any) {
-    console.error("⚠️ Error consultando sigla de comercio:", err.message);
   }
 
+  if (prefijoOrigen && orderNumber.toUpperCase().startsWith(prefijoOrigen)) {
+    orderNumber = orderNumber.substring(prefijoOrigen.length).trim();
+  }
+
+  let finalOrderNumber = orderNumber;
+  if (agregarPrefijo && siglaComercio) {
+    if (!orderNumber.toUpperCase().startsWith(siglaComercio)) {
+      finalOrderNumber = `${siglaComercio}${orderNumber}`;
+    }
+  }
+
+  return { orderNumber, finalOrderNumber };
+}
+
+async function handleOrderCreate(merchantId: string, comercio: string, order: any) {
   const orderId = order.id.toString();
-  const orderNumber = order.number ? order.number.toString() : orderId;
-  const finalOrderNumber = prefix ? `${prefix}${orderNumber}` : orderNumber;
+  const rawOrderNumber = order.number ? order.number.toString() : orderId;
+  const { orderNumber, finalOrderNumber } = await resolveTiendanubeOrderNumber(comercio, rawOrderNumber);
 
   // Verificamos que no exista
   const { data: existing } = await supabase
@@ -461,39 +490,17 @@ async function handleOrderCreate(merchantId: string, comercio: string, order: an
 }
 
 async function handleOrderUpdate(merchantId: string, comercio: string, order: any) {
-  // Obtener prefijo de sigla del comercio
-  let prefix = "";
-  try {
-    const { data: configData } = await supabase
-      .from("v_comercios_config")
-      .select("sigla")
-      .eq("nombre", comercio)
-      .maybeSingle();
-
-    const { data: adicionalConfig } = await supabase
-      .from("comercios_adicional_config")
-      .select("pedido_trae_sigla")
-      .eq("comercio", comercio)
-      .maybeSingle();
-
-    const traeSigla = adicionalConfig ? adicionalConfig.pedido_trae_sigla : false;
-    if (configData && configData.sigla && !traeSigla) {
-      prefix = configData.sigla.trim().toUpperCase();
-    }
-  } catch (err: any) {
-    console.error("⚠️ Error consultando sigla de comercio:", err.message);
-  }
-
   const orderId = order.id.toString();
-  const orderNumber = order.number ? order.number.toString() : orderId;
-  const finalOrderNumber = prefix ? `${prefix}${orderNumber}` : orderNumber;
+  const rawOrderNumber = order.number ? order.number.toString() : orderId;
+  const { orderNumber, finalOrderNumber } = await resolveTiendanubeOrderNumber(comercio, rawOrderNumber);
 
   // Buscamos el estado actual del pedido en WMS
   const { data: existingOrder, error: findErr } = await supabase
     .from("orders")
     .select("id, status, estado_wms, raw_tiendanube_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement")
     .eq("merchant_id", merchantId)
-    .eq("external_order_number", finalOrderNumber)
+    .in("external_order_number", [orderNumber, finalOrderNumber])
+    .limit(1)
     .maybeSingle();
 
   if (findErr || !existingOrder) {

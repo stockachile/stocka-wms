@@ -356,13 +356,16 @@ async function syncOrders(integration) {
         }
       }
 
-      // Intentar buscar si el pedido ya existe en nuestra BD
+      // Intentar buscar si el pedido ya existe en nuestra BD (por ID interno de Shopify o por número con/sin prefijo)
+      const shopifyOrderIdStr = (order.id || '').toString();
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id, comercio, status, estado_wms, raw_shopify_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
+        .select('id, comercio, external_order_number, status, estado_wms, raw_shopify_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
         .eq('comercio', integration.comercio)
-        .eq('external_order_number', finalOrderNumber)
-        .eq('external_platform', 'Shopify')
+        .in('external_platform', ['Shopify', 'Punto de Venta'])
+        .or(`raw_shopify_data->>id.eq.${shopifyOrderIdStr},external_order_number.eq.${order.name},external_order_number.eq.${finalOrderNumber}`)
+        .order('created_at', { ascending: true })
+        .limit(1)
         .maybeSingle();
 
       const orderDataToSave = {
@@ -410,6 +413,13 @@ async function syncOrders(integration) {
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
         const orderDataToUpdate = { ...orderDataToSave };
+
+        // Preservar external_order_number existente si ya tiene prefijo o sufijo (ej. split -1),
+        // actualizándolo a finalOrderNumber únicamente si había quedado sin prefijo (igual a order.name / orderNumber).
+        const currentExtNum = (existingOrder.external_order_number || '').toString().trim();
+        if (currentExtNum && currentExtNum !== (order.name || '').toString().trim() && currentExtNum !== orderNumber) {
+          delete orderDataToUpdate.external_order_number;
+        }
 
         // Preservar siempre stock_descontado en pedidos existentes
         delete orderDataToUpdate.stock_descontado;
