@@ -126,7 +126,9 @@ function formatWeight(val) {
 }
 
 function addBusinessDays(startDateStr, days) {
+  if (!startDateStr) return '';
   const date = new Date(startDateStr + 'T12:00:00');
+  if (isNaN(date.getTime())) return '';
   let added = 0;
   while (added < days) {
     date.setDate(date.getDate() + 1);
@@ -137,6 +139,7 @@ function addBusinessDays(startDateStr, days) {
   }
   return date.toISOString().split('T')[0];
 }
+window.addBusinessDays = addBusinessDays;
 
 // Buscar claves ignorando mayúsculas y caracteres especiales
 function getRowValue(row, possibleKeys) {
@@ -235,7 +238,7 @@ window.openEnviameImporterModal = async function(periodId, periodName) {
       <div id="importer-form-section" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
         <div>
           <label style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.25rem;">FECHA DE EMISIÓN PDF</label>
-          <input type="date" id="importer-fecha-emision" class="form-input" value="${todayStr}" onchange="document.getElementById('importer-fecha-limite').value = addBusinessDays(this.value, 3)" style="width: 100%; box-sizing: border-box;">
+          <input type="date" id="importer-fecha-emision" class="form-input" value="${todayStr}" onchange="if (this.value && window.addBusinessDays) { const nextDate = window.addBusinessDays(this.value, 3); if (nextDate) document.getElementById('importer-fecha-limite').value = nextDate; }" style="width: 100%; box-sizing: border-box;">
         </div>
         <div>
           <label style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.25rem;">FECHA LÍMITE DE PAGO</label>

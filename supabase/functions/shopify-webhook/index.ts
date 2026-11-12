@@ -51,17 +51,50 @@ serve(async (req) => {
       return new Response("Missing Shopify headers", { status: 400 });
     }
 
-    // 2. Obtener merchant_id desde la URL (query parameter opcional)
+    // 2. Obtener merchant_id y comercio desde la URL (query parameters opcionales)
     const url = new URL(req.url);
     const merchantId = url.searchParams.get("merchant_id") || "";
+    const comercioParam = (url.searchParams.get("comercio") || "").trim();
 
-    // 3. Obtener la integración buscando por dominio de la tienda (shop_url) o por merchant_id
+    // 3. Obtener la integración buscando estrictamente por dominio de la tienda (shop_url)
     let integration: any = null;
-    if (shopDomain) {
+    const cleanShopDomain = shopDomain.trim().toLowerCase();
+
+    if (cleanShopDomain) {
+      let lastDbErr: any = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const { data, error } = await supabase
+          .from("merchant_integrations")
+          .select("*")
+          .ilike("shop_url", cleanShopDomain)
+          .eq("platform", "Shopify")
+          .eq("is_active", true)
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        if (!error) {
+          if (data && data.length > 0) {
+            integration = data[0];
+          }
+          lastDbErr = null;
+          break;
+        }
+        lastDbErr = error;
+        console.warn(`[Shopify Webhook] Intento ${attempt}/3 falló buscando shop_url=${cleanShopDomain}:`, error.message);
+        if (attempt < 3) {
+          await new Promise((r) => setTimeout(r, 400 * attempt));
+        }
+      }
+
+      if (lastDbErr && !integration) {
+        console.error(`[Shopify Webhook] Error de BD al resolver tienda ${cleanShopDomain}, retornando 500 para reintento de Shopify.`);
+        return new Response("Database error resolving integration", { status: 500 });
+      }
+    } else if (comercioParam) {
       const { data } = await supabase
         .from("merchant_integrations")
         .select("*")
-        .eq("shop_url", shopDomain)
+        .ilike("comercio", comercioParam)
         .eq("platform", "Shopify")
         .eq("is_active", true)
         .order("created_at", { ascending: false })
@@ -69,9 +102,8 @@ serve(async (req) => {
       if (data && data.length > 0) {
         integration = data[0];
       }
-    }
-
-    if (!integration && merchantId) {
+    } else if (merchantId) {
+      // Solo usar fallback por merchant_id cuando NO viene x-shopify-shop-domain y el merchant tiene una única tienda activa
       const { data } = await supabase
         .from("merchant_integrations")
         .select("*")
@@ -79,9 +111,11 @@ serve(async (req) => {
         .eq("platform", "Shopify")
         .eq("is_active", true)
         .order("created_at", { ascending: false })
-        .limit(1);
-      if (data && data.length > 0) {
+        .limit(2);
+      if (data && data.length === 1) {
         integration = data[0];
+      } else if (data && data.length > 1) {
+        console.error(`[Shopify Webhook] Ambigüedad: merchant_id ${merchantId} tiene múltiples tiendas Shopify activas y no se recibió x-shopify-shop-domain.`);
       }
     }
 

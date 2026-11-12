@@ -32488,7 +32488,7 @@ window.renderDeclarations = async function() {
           <div style="display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 0.65rem 1.5rem; border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); background: var(--color-bg);">
             <div style="position: relative; flex: 1; min-width: 240px; max-width: 440px;">
               <i class="ri-search-line" style="position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.95rem;"></i>
-              <input type="text" id="client-dec-search-input" class="form-input" placeholder="Buscar por #ING, título, comercio, SKU, bodega o notas..." oninput="window.filterClientDeclarationsView()" style="padding: 0.45rem 0.85rem 0.45rem 2.35rem; font-size: 0.84rem; width: 100%; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border);">
+              <input type="text" id="client-dec-search-input" class="form-input" placeholder="Buscar por #ING, título, comercio, SKU, nombre de producto, bodega..." oninput="window.filterClientDeclarationsView()" style="padding: 0.45rem 0.85rem 0.45rem 2.35rem; font-size: 0.84rem; width: 100%; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border);">
             </div>
             <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
               ${commerces.length > 1 ? `
@@ -34366,12 +34366,72 @@ window.renderClientScheduledIntakesCalendar = function() {
   `;
 };
 
+window.normalizeClientDecSearchText = function(val) {
+  return String(val ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+};
+
+window.getClientDecSearchableProducts = function(dec) {
+  if (!dec) return [];
+  if (Array.isArray(dec.products_list) && dec.products_list.length > 0) {
+    return dec.products_list;
+  }
+  if (typeof dec.products_list === 'string' && dec.products_list.trim().startsWith('[')) {
+    try {
+      const parsed = JSON.parse(dec.products_list);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        dec.products_list = parsed;
+        return parsed;
+      }
+    } catch (_) {}
+  }
+  if (Array.isArray(dec._cachedExtractedProducts)) {
+    return dec._cachedExtractedProducts;
+  }
+  if (typeof getDeclarationProducts === 'function') {
+    try {
+      const extracted = getDeclarationProducts(dec);
+      dec._cachedExtractedProducts = Array.isArray(extracted) ? extracted : [];
+      return dec._cachedExtractedProducts;
+    } catch (_) {}
+  }
+  dec._cachedExtractedProducts = [];
+  return [];
+};
+
+window.findMatchingProductsInClientDeclaration = function(dec, rawQuery) {
+  const normQuery = window.normalizeClientDecSearchText(rawQuery);
+  if (!normQuery) return [];
+  const tokens = normQuery.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return [];
+
+  const products = window.getClientDecSearchableProducts(dec);
+  if (!Array.isArray(products) || products.length === 0) return [];
+
+  return products.filter(p => {
+    if (!p) return false;
+    const skuStr = String(p.sku ?? p.SKU ?? '');
+    const nameStr = String(p.name ?? p.nombre ?? p.product_name ?? p.title ?? '');
+    const barcodeStr = String(p.barcode ?? p.barcode_wms ?? '');
+    const aliasStr = String(p.alias ?? '');
+    const variantStr = `${p.color ?? ''} ${p.talla ?? ''} ${p.variable_1 ?? ''} ${p.variable_2 ?? ''}`;
+    const combinedNorm = window.normalizeClientDecSearchText(`${skuStr} ${nameStr} ${barcodeStr} ${aliasStr} ${variantStr}`);
+    if (!combinedNorm) return false;
+    return tokens.every(tok => combinedNorm.includes(tok));
+  });
+};
+
 window.filterClientDeclarationsView = function() {
   const allDeclarations = window.clientDeclarationsCache || [];
   const searchInput = document.getElementById('client-dec-search-input');
   const commerceSelect = document.getElementById('client-dec-commerce-filter');
 
-  const queryText = (searchInput ? searchInput.value : '').trim().toLowerCase();
+  const rawQuery = searchInput ? searchInput.value.trim() : '';
+  const normQuery = window.normalizeClientDecSearchText(rawQuery);
+  const queryTokens = normQuery ? normQuery.split(/\s+/).filter(Boolean) : [];
   const selectedCommerce = commerceSelect ? commerceSelect.value : 'ALL';
 
   // 1. Filtrar primero por Comercio y Búsqueda para calcular los contadores en vivo por etapa
@@ -34379,18 +34439,22 @@ window.filterClientDeclarationsView = function() {
     if (selectedCommerce && selectedCommerce !== 'ALL' && dec.comercio !== selectedCommerce) {
       return false;
     }
-    if (queryText) {
-      const codeStr = `#ing-${(dec.id || '').substring(0, 8).toLowerCase()}`;
-      const titleStr = (dec.title || '').toLowerCase();
-      const comStr = (dec.comercio || '').toLowerCase();
-      const whStr = (dec.warehouses?.name || '').toLowerCase();
-      const methodStr = (dec.delivery_method || '').toLowerCase();
-      const notesStr = ((dec.notes || '') + ' ' + (dec.admin_notes || '')).toLowerCase();
-      const skusStr = Array.isArray(dec.products_list)
-        ? dec.products_list.map(p => `${p.sku || ''} ${p.name || ''}`).join(' ').toLowerCase()
-        : '';
-      const haystack = `${codeStr} ${titleStr} ${comStr} ${whStr} ${methodStr} ${notesStr} ${skusStr}`;
-      if (!haystack.includes(queryText)) return false;
+    if (normQuery) {
+      const idStr = String(dec.id || '');
+      const codeStr = `#ing-${idStr.substring(0, 8)}`;
+      const titleStr = String(dec.title || '');
+      const comStr = String(dec.comercio || '');
+      const whStr = String(dec.warehouses?.name || '');
+      const methodStr = String(dec.delivery_method || '');
+      const notesStr = `${dec.notes || ''} ${dec.admin_notes || ''}`;
+      const metaHaystack = window.normalizeClientDecSearchText(
+        `${idStr} ${codeStr} ${titleStr} ${comStr} ${whStr} ${methodStr} ${notesStr}`
+      );
+      const matchesMeta = metaHaystack.includes(normQuery) || (queryTokens.length > 1 && queryTokens.every(t => metaHaystack.includes(t)));
+      if (!matchesMeta) {
+        const matchedProducts = window.findMatchingProductsInClientDeclaration(dec, rawQuery);
+        if (matchedProducts.length === 0) return false;
+      }
     }
     return true;
   });
@@ -34445,7 +34509,7 @@ window.filterClientDeclarationsView = function() {
     resultsCountEl.textContent = `${finalFiltered.length} ${finalFiltered.length === 1 ? 'ingreso' : 'ingresos'}`;
   }
 
-  renderClientDeclarationsList(finalFiltered);
+  renderClientDeclarationsList(finalFiltered, rawQuery, baseFiltered.length);
 
   // Si el calendario está abierto, actualizarlo también
   const calSection = document.getElementById('client-dec-scheduled-calendar-section');
@@ -34454,19 +34518,27 @@ window.filterClientDeclarationsView = function() {
   }
 };
 
-function renderClientDeclarationsList(filteredDeclarations) {
+function renderClientDeclarationsList(filteredDeclarations, activeSearchQuery = '', totalMatchingAllTabs = 0) {
   const listTableBody = document.getElementById('declarations-table-body');
   const cardsContainer = document.getElementById('client-declarations-cards-container');
   if (!listTableBody && !cardsContainer) return;
 
   if (!filteredDeclarations || filteredDeclarations.length === 0) {
+    const otherTabsHintHtml = totalMatchingAllTabs > 0
+      ? `<div style="margin-top: 0.75rem;">
+           <button type="button" onclick="window.switchClientDeclarationTab('all')" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); background: rgba(37, 99, 235, 0.06); font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; padding: 0.4rem 0.9rem; border-radius: 8px; cursor: pointer;">
+             <i class="ri-search-eye-line"></i> Se encontraron ${totalMatchingAllTabs} ${totalMatchingAllTabs === 1 ? 'ingreso' : 'ingresos'} en otras etapas · Ver todos (${totalMatchingAllTabs})
+           </button>
+         </div>`
+      : '';
     const emptyMsg = `<div class="text-center" style="padding: 2.25rem 1rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: 10px;">
       <i class="ri-inbox-line" style="font-size: 1.8rem; display: block; margin-bottom: 0.4rem; opacity: 0.5;"></i>
       No se encontraron declaraciones de ingreso en esta vista.
+      ${otherTabsHintHtml}
     </div>`;
     if (cardsContainer) cardsContainer.innerHTML = emptyMsg;
     if (listTableBody) {
-      listTableBody.innerHTML = `<tr><td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron declaraciones de ingreso en esta vista.</td></tr>`;
+      listTableBody.innerHTML = `<tr><td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron declaraciones de ingreso en esta vista.${otherTabsHintHtml}</td></tr>`;
     }
     return;
   }
@@ -34585,6 +34657,27 @@ function renderClientDeclarationsList(filteredDeclarations) {
           <i class="ri-map-pin-time-line"></i> Bodega por asignar
          </span>`;
 
+    let matchedProductsBadgeHtml = '';
+    if (activeSearchQuery) {
+      const matchedProds = window.findMatchingProductsInClientDeclaration(dec, activeSearchQuery);
+      if (matchedProds.length > 0) {
+        const esc = window.escapeHtml || (s => String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])));
+        const previewItems = matchedProds.slice(0, 2).map(p => {
+          const pSku = esc(p.sku ?? p.SKU ?? 'S/SKU');
+          const pName = esc(p.name ?? p.nombre ?? p.product_name ?? '');
+          const pQty = parseInt(p.qty, 10) || 0;
+          return `<strong style="font-family: monospace;">${pSku}</strong>${pName ? ` · ${pName}` : ''}${pQty > 0 ? ` (${pQty} uds)` : ''}`;
+        }).join(' | ');
+        const extraCount = matchedProds.length > 2 ? ` +${matchedProds.length - 2} más` : '';
+        matchedProductsBadgeHtml = `
+          <button type="button" onclick="window.viewDeclarationProducts('${dec.id}')" style="margin-top: 2px; background: rgba(37, 99, 235, 0.08); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.25); border-radius: 6px; padding: 2px 8px; font-size: 0.72rem; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; text-align: left; max-width: 100%;" title="Haz clic para ver los productos de este ingreso">
+            <i class="ri-box-3-line" style="flex-shrink: 0;"></i>
+            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Producto coincidente: ${previewItems}${extraCount}</span>
+          </button>
+        `;
+      }
+    }
+
     // 1. HTML para Propuesta B: Vista de Filas-Tarjeta en 2 Niveles (Default)
     cardsHtml += `
       <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 0.9rem 1.1rem; transition: border-color 0.15s, box-shadow 0.15s; box-shadow: 0 1px 4px rgba(0,0,0,0.03);" onmouseover="this.style.borderColor='rgba(37, 99, 235, 0.35)'" onmouseout="this.style.borderColor='var(--color-border)'">
@@ -34617,6 +34710,7 @@ function renderClientDeclarationsList(filteredDeclarations) {
                 <span>(${createdDateStr})</span>
               </span>
             </div>
+            ${matchedProductsBadgeHtml ? `<div>${matchedProductsBadgeHtml}</div>` : ''}
           </div>
 
           <!-- Botones de Acción Directa -->
@@ -34731,6 +34825,7 @@ function renderClientDeclarationsList(filteredDeclarations) {
           <div style="margin-top: 4px;">
             ${warehouseBadgeHtml}
           </div>
+          ${matchedProductsBadgeHtml ? `<div style="margin-top: 4px;">${matchedProductsBadgeHtml}</div>` : ''}
         </td>
         <td style="padding: 0.55rem 0.75rem; vertical-align: top; font-size: 0.82rem;">
           <div style="font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 4px;">

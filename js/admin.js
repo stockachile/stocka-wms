@@ -52750,6 +52750,102 @@ window.setAdminDeclarationLayoutMode = function(mode) {
   window.filterAndRenderDeclarationsAdminTable();
 };
 
+window.normalizeDeclarationSearchText = function(val) {
+  return String(val ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+};
+
+window.getDeclarationSearchableProducts = function(dec) {
+  if (!dec) return [];
+  if (Array.isArray(dec.products_list) && dec.products_list.length > 0) {
+    return dec.products_list;
+  }
+  if (typeof dec.products_list === 'string' && dec.products_list.trim().startsWith('[')) {
+    try {
+      const parsed = JSON.parse(dec.products_list);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        dec.products_list = parsed;
+        return parsed;
+      }
+    } catch (_) {}
+  }
+  if (Array.isArray(dec._cachedExtractedProducts)) {
+    return dec._cachedExtractedProducts;
+  }
+  if (typeof getDeclarationProducts === 'function') {
+    try {
+      const extracted = getDeclarationProducts(dec);
+      dec._cachedExtractedProducts = Array.isArray(extracted) ? extracted : [];
+      return dec._cachedExtractedProducts;
+    } catch (_) {}
+  }
+  dec._cachedExtractedProducts = [];
+  return [];
+};
+
+window.findMatchingProductsInDeclaration = function(dec, rawQuery) {
+  const normQuery = window.normalizeDeclarationSearchText(rawQuery);
+  if (!normQuery) return [];
+  const tokens = normQuery.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return [];
+
+  const products = window.getDeclarationSearchableProducts(dec);
+  if (!Array.isArray(products) || products.length === 0) return [];
+
+  return products.filter(p => {
+    if (!p) return false;
+    const skuStr = String(p.sku ?? p.SKU ?? '');
+    const nameStr = String(p.name ?? p.nombre ?? p.product_name ?? p.title ?? '');
+    const barcodeStr = String(p.barcode ?? p.barcode_wms ?? '');
+    const aliasStr = String(p.alias ?? '');
+    const variantStr = `${p.color ?? ''} ${p.talla ?? ''} ${p.variable_1 ?? ''} ${p.variable_2 ?? ''}`;
+    const combinedNorm = window.normalizeDeclarationSearchText(`${skuStr} ${nameStr} ${barcodeStr} ${aliasStr} ${variantStr}`);
+    if (!combinedNorm) return false;
+    return tokens.every(tok => combinedNorm.includes(tok));
+  });
+};
+
+window.doesDeclarationMatchSearchQuery = function(dec, rawQuery) {
+  const normQuery = window.normalizeDeclarationSearchText(rawQuery);
+  if (!normQuery) return true;
+  const tokens = normQuery.split(/\s+/).filter(Boolean);
+
+  const id = String(dec.id || '');
+  const shortCode = `#ing-${id.substring(0, 8)}`;
+  const rawHex = id.substring(0, 8);
+  const hashHex = '#' + rawHex;
+  const title = String(dec.title || '');
+  const com = String(dec.comercio || '');
+  const company = String(dec.profiles?.company_name || '');
+  const user = String(dec.profiles?.full_name || dec.profiles?.email || '');
+  const carrier = String(dec.carrier_info || '');
+  const method = String(dec.delivery_method || '');
+  const notes = String(dec.notes || '');
+  const adminNotes = String(dec.admin_notes || '');
+  const billingNotes = String(dec.billing_notes || '');
+  const warehouse = String(dec.warehouses?.name || '');
+
+  const firstH = Array.isArray(dec.history) && dec.history.length > 0 ? dec.history[0] : null;
+  const creatorStr = `${dec.created_by_name || ''} ${dec.created_by_email || ''} ${firstH?.created_by || ''} ${firstH?.author || ''} ${firstH?.user_name || ''}`;
+  const isAdminCreated = dec.created_by_role === 'admin' || firstH?.created_by_role === 'admin' || firstH?.type === 'created_by_admin';
+
+  const metaHaystack = window.normalizeDeclarationSearchText(
+    `${id} ${shortCode} ${rawHex} ${hashHex} ${title} ${com} ${company} ${user} ${creatorStr} ${carrier} ${method} ${notes} ${adminNotes} ${billingNotes} ${warehouse}`
+  );
+
+  if (metaHaystack.includes(normQuery) || (tokens.length > 1 && tokens.every(t => metaHaystack.includes(t)))) {
+    return true;
+  }
+  if (normQuery.includes('paralelo') && dec.parallel_count) return true;
+  if (normQuery === 'admin' && isAdminCreated) return true;
+
+  const matchedProducts = window.findMatchingProductsInDeclaration(dec, rawQuery);
+  return matchedProducts.length > 0;
+};
+
 function buildDeclarationViewData(dec) {
   const isSelected = window.selectedDeclarationIds && window.selectedDeclarationIds.has(dec.id);
   const isPrinted = dec.is_printed === true ||
@@ -52926,6 +53022,27 @@ function buildDeclarationViewData(dec) {
     </div>
   `;
 
+  let matchedProductsBadgeHtml = '';
+  if (window.adminDeclarationSearchTerm && window.adminDeclarationSearchTerm.trim()) {
+    const matchedProds = window.findMatchingProductsInDeclaration(dec, window.adminDeclarationSearchTerm);
+    if (matchedProds.length > 0) {
+      const esc = window.escapeHtml || (s => String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])));
+      const previewItems = matchedProds.slice(0, 2).map(p => {
+        const pSku = esc(p.sku ?? p.SKU ?? 'S/SKU');
+        const pName = esc(p.name ?? p.nombre ?? p.product_name ?? '');
+        const pQty = parseInt(p.qty, 10) || 0;
+        return `<strong style="font-family: monospace;">${pSku}</strong>${pName ? ` · ${pName}` : ''}${pQty > 0 ? ` (${pQty} uds)` : ''}`;
+      }).join(' | ');
+      const extraCount = matchedProds.length > 2 ? ` +${matchedProds.length - 2} más` : '';
+      matchedProductsBadgeHtml = `
+        <button type="button" onclick="window.viewDeclarationProducts('${dec.id}')" style="margin-top: 0.3rem; background: rgba(37, 99, 235, 0.08); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.25); border-radius: 6px; padding: 2px 8px; font-size: 0.72rem; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; text-align: left; max-width: 100%;" title="Haz clic para ver los productos de este ingreso">
+          <i class="ri-box-3-line" style="flex-shrink: 0;"></i>
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Producto coincidente: ${previewItems}${extraCount}</span>
+        </button>
+      `;
+    }
+  }
+
   return {
     isSelected,
     isPrinted,
@@ -52948,7 +53065,8 @@ function buildDeclarationViewData(dec) {
     creatorEmail,
     dateFormatted,
     warehouseButtonHtml,
-    actionMenuHtml
+    actionMenuHtml,
+    matchedProductsBadgeHtml
   };
 }
 
@@ -53002,6 +53120,7 @@ function buildDeclarationRowHtml(dec) {
             ` : ''}
           </div>
         ` : ''}
+        ${v.matchedProductsBadgeHtml || ''}
       </td>
 
       <!-- Col 2: Llegada, Envío & Sucursal -->
@@ -53119,6 +53238,7 @@ function buildDeclarationCardHtml(dec) {
               <i class="ri-refresh-line" style="animation: spin 3s linear infinite;"></i> Conteo en Paralelo
             </span>
           ` : ''}
+          ${v.matchedProductsBadgeHtml || ''}
         </div>
 
         <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
@@ -54236,8 +54356,8 @@ window.filterAndRenderDeclarationsAdminTable = function() {
   const currentTab = (window.adminDeclarationTab === 'active' || !window.adminDeclarationTab) ? 'pending' : window.adminDeclarationTab;
   window.adminDeclarationTab = currentTab;
 
-  // Filtrado base para contadores de pestañas (respeta filtros de comercio, facturación e impresión)
-  const baseDeclarationsForTabs = declarations.filter(dec => {
+  // Filtrado base por comercio, facturación e impresión (para el calendario)
+  const declarationsForCalendar = declarations.filter(dec => {
     if (window.adminDeclarationMerchantFilter && window.adminDeclarationMerchantFilter !== 'all') {
       if ((dec.comercio || '').trim().toLowerCase() !== window.adminDeclarationMerchantFilter.trim().toLowerCase()) return false;
     }
@@ -54252,6 +54372,22 @@ window.filterAndRenderDeclarationsAdminTable = function() {
                         localStorage.getItem(`wms_dec_printed_${dec.id}`) === 'true';
       if (window.adminDeclarationPrintedFilter === 'printed' && !isPrinted) return false;
       if (window.adminDeclarationPrintedFilter === 'unprinted' && isPrinted) return false;
+    }
+    return true;
+  });
+
+  // Filtrado base para contadores de pestañas (incluye término de búsqueda por SKU / nombre de producto y filtro de fecha)
+  const baseDeclarationsForTabs = declarationsForCalendar.filter(dec => {
+    if (window.adminDeclarationCalendarDateFilter) {
+      const calInfo = window.resolveDeclarationCalendarInfo(dec);
+      if (calInfo.dateStr !== window.adminDeclarationCalendarDateFilter) {
+        return false;
+      }
+    }
+    if (window.adminDeclarationSearchTerm && window.adminDeclarationSearchTerm.trim()) {
+      if (!window.doesDeclarationMatchSearchQuery(dec, window.adminDeclarationSearchTerm)) {
+        return false;
+      }
     }
     return true;
   });
@@ -54320,8 +54456,8 @@ window.filterAndRenderDeclarationsAdminTable = function() {
     }).join('');
   }
 
-  // Filtrar declaraciones finales
-  const filteredDeclarations = declarations.filter(dec => {
+  // Filtrar declaraciones finales según la pestaña activa
+  const filteredDeclarations = baseDeclarationsForTabs.filter(dec => {
     const isCompleted = ['Recibido Conforme', 'Recibido con Incidencias'].includes(dec.status);
 
     if (currentTab === 'pending') {
@@ -54334,87 +54470,6 @@ window.filterAndRenderDeclarationsAdminTable = function() {
       // Mostrar todos
     } else {
       if (dec.status !== currentTab) return false;
-    }
-
-    const isPrinted = dec.is_printed === true ||
-                      dec.is_printed === 'true' ||
-                      (dec.admin_notes && dec.admin_notes.includes('[IMPRESO]')) ||
-                      localStorage.getItem(`wms_dec_printed_${dec.id}`) === 'true';
-
-    if (window.adminDeclarationPrintedFilter && window.adminDeclarationPrintedFilter !== 'all') {
-      if (window.adminDeclarationPrintedFilter === 'printed' && !isPrinted) return false;
-      if (window.adminDeclarationPrintedFilter === 'unprinted' && isPrinted) return false;
-    }
-
-    if (window.adminDeclarationMerchantFilter && window.adminDeclarationMerchantFilter !== 'all') {
-      if ((dec.comercio || '').trim().toLowerCase() !== window.adminDeclarationMerchantFilter.trim().toLowerCase()) {
-        return false;
-      }
-    }
-
-    if (window.adminDeclarationBillingFilter && window.adminDeclarationBillingFilter !== 'all') {
-      const bStatus = dec.billing_status || 'Pendiente';
-      if (bStatus !== window.adminDeclarationBillingFilter) {
-        return false;
-      }
-    }
-
-    if (window.adminDeclarationCalendarDateFilter) {
-      const calInfo = window.resolveDeclarationCalendarInfo(dec);
-      if (calInfo.dateStr !== window.adminDeclarationCalendarDateFilter) {
-        return false;
-      }
-    }
-
-    if (window.adminDeclarationSearchTerm && window.adminDeclarationSearchTerm.trim()) {
-      const q = window.adminDeclarationSearchTerm.trim().toLowerCase();
-      const id = (dec.id || '').toLowerCase();
-      const shortCode = (`#ing-${id.substring(0, 8)}`).toLowerCase();
-      const rawHex = id.substring(0, 8).toLowerCase();
-      const hashHex = ('#' + rawHex).toLowerCase();
-      const title = (dec.title || '').toLowerCase();
-      const com = (dec.comercio || '').toLowerCase();
-      const company = (dec.profiles?.company_name || '').toLowerCase();
-      const user = (dec.profiles?.full_name || dec.profiles?.email || '').toLowerCase();
-      const carrier = (dec.carrier_info || '').toLowerCase();
-      const method = (dec.delivery_method || '').toLowerCase();
-      const notes = (dec.notes || '').toLowerCase();
-      const adminNotes = (dec.admin_notes || '').toLowerCase();
-      const billingNotes = (dec.billing_notes || '').toLowerCase();
-      const warehouse = (dec.warehouses?.name || '').toLowerCase();
-      
-      let productsMatch = false;
-      if (Array.isArray(dec.products_list)) {
-        productsMatch = dec.products_list.some(p => 
-          (p.sku && p.sku.toLowerCase().includes(q)) || 
-          (p.name && p.name.toLowerCase().includes(q))
-        );
-      }
-
-      const firstH = Array.isArray(dec.history) && dec.history.length > 0 ? dec.history[0] : null;
-      const creatorStr = ((dec.created_by_name || '') + ' ' + (dec.created_by_email || '') + ' ' + (firstH?.created_by || '') + ' ' + (firstH?.author || '') + ' ' + (firstH?.user_name || '')).toLowerCase();
-      const isAdminCreated = dec.created_by_role === 'admin' || firstH?.created_by_role === 'admin' || firstH?.type === 'created_by_admin';
-
-      const matches = id.includes(q) ||
-        shortCode.includes(q) ||
-        rawHex.includes(q) ||
-        hashHex.includes(q) ||
-        title.includes(q) ||
-        com.includes(q) ||
-        company.includes(q) ||
-        user.includes(q) ||
-        creatorStr.includes(q) ||
-        carrier.includes(q) ||
-        method.includes(q) ||
-        notes.includes(q) ||
-        adminNotes.includes(q) ||
-        billingNotes.includes(q) ||
-        warehouse.includes(q) ||
-        productsMatch ||
-        (q.includes('paralelo') && dec.parallel_count) ||
-        (q === 'admin' && isAdminCreated);
-
-      if (!matches) return false;
     }
 
     return true;
@@ -54442,6 +54497,14 @@ window.filterAndRenderDeclarationsAdminTable = function() {
     }
   }
 
+  const otherTabsHintHtml = (filteredDeclarations.length === 0 && baseDeclarationsForTabs.length > 0)
+    ? `<div style="margin-top: 0.75rem;">
+         <button type="button" onclick="window.setAdminDeclarationTab('all')" class="btn btn-outline btn-sm" style="border-color: var(--color-primary); color: var(--color-primary); background: rgba(37, 99, 235, 0.06); font-weight: 700; display: inline-flex; align-items: center; gap: 6px; padding: 0.4rem 0.9rem; border-radius: 8px; cursor: pointer;">
+           <i class="ri-search-eye-line"></i> Se encontraron ${baseDeclarationsForTabs.length} ${baseDeclarationsForTabs.length === 1 ? 'ingreso' : 'ingresos'} en otras etapas · Ver todos (${baseDeclarationsForTabs.length})
+         </button>
+       </div>`
+    : '';
+
   // Renderizar según modo activo (limpiando el contenedor inactivo para evitar IDs duplicados)
   if (layoutMode === 'cards' && cardsContainer) {
     if (tableWrapper) tableWrapper.style.display = 'none';
@@ -54452,7 +54515,8 @@ window.filterAndRenderDeclarationsAdminTable = function() {
       cardsContainer.innerHTML = `
         <div style="background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: 12px; padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
           <i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>
-          No se encontraron declaraciones de ingresos que coincidan con los filtros aplicados.
+          No se encontraron declaraciones de ingresos en esta pestaña que coincidan con los filtros aplicados.
+          ${otherTabsHintHtml}
         </div>
       `;
     } else {
@@ -54474,7 +54538,7 @@ window.filterAndRenderDeclarationsAdminTable = function() {
       cardsContainer.innerHTML = '';
     }
     if (filteredDeclarations.length === 0) {
-      tbody.innerHTML = getEmptyDeclarationMessage(currentTab);
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);"><i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>No se encontraron declaraciones de ingresos en esta pestaña que coincidan con los filtros aplicados.${otherTabsHintHtml}</td></tr>`;
     } else {
       tbody.innerHTML = filteredDeclarations.map(dec => buildDeclarationRowHtml(dec)).join('');
     }
@@ -54515,7 +54579,7 @@ window.filterAndRenderDeclarationsAdminTable = function() {
 
   // Renderizar / sincronizar el Calendario de Ingresos de Stock Programados en la vista de Ingresos de Stock
   if (typeof window.renderInboundStockCalendarWidget === 'function') {
-    window.renderInboundStockCalendarWidget('declarations', 'admin-dec-inbound-calendar-container', baseDeclarationsForTabs);
+    window.renderInboundStockCalendarWidget('declarations', 'admin-dec-inbound-calendar-container', declarationsForCalendar);
   }
 
   // Resolver CLP de manera asíncrona
@@ -54644,7 +54708,7 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
                 type="text" 
                 id="admin-dec-search-input" 
                 class="form-input" 
-                placeholder="Buscar por #ING, título, comercio, SKU, notas..." 
+                placeholder="Buscar por #ING, título, comercio, SKU, nombre de producto, notas..." 
                 value="${window.adminDeclarationSearchTerm || ''}"
                 style="padding-left: 2.35rem; padding-right: 2rem; height: 36px; font-size: 0.83rem; width: 100%; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border);"
               >

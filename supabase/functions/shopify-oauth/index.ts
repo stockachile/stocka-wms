@@ -87,7 +87,7 @@ serve(async (req) => {
       const accessToken = await getValidShopifyToken(integration);
       integration.access_token = accessToken;
 
-      await registerShopifyWebhooks(integration.shop_url, integration.access_token, integration.merchant_id);
+      await registerShopifyWebhooks(integration.shop_url, integration.access_token, integration.merchant_id, integration.comercio);
       const syncedProductsCount = await syncShopifyProducts(integration);
       const syncedOrdersCount = await syncShopifyOrders(integration);
 
@@ -241,7 +241,7 @@ serve(async (req) => {
         return new Response("Database error saving integration", { status: 500 });
       }
 
-      await registerShopifyWebhooks(shop, accessToken, merchantId);
+      await registerShopifyWebhooks(shop, accessToken, merchantId, resolvedComercio);
 
       // EJECUTAR SINCRONIZACION INICIAL DE PRODUCTOS Y PEDIDOS EN BACKGROUND (SIN BLOQUEAR EL REDIRECT 302)
       const integrationObj = {
@@ -889,7 +889,7 @@ async function verifyShopifyHmac(searchParams: URLSearchParams, secret: string):
   return hashHex === hmacParam;
 }
 
-async function registerShopifyWebhooks(shop: string, accessToken: string, merchantId: string) {
+async function registerShopifyWebhooks(shop: string, accessToken: string, merchantId: string, comercio?: string) {
   const webhookTopics = [
     "orders/create", 
     "orders/updated", 
@@ -898,7 +898,8 @@ async function registerShopifyWebhooks(shop: string, accessToken: string, mercha
     "products/update",
     "products/delete"
   ];
-  const webhookTargetUrl = `https://${new URL(supabaseUrl).hostname}/functions/v1/shopify-webhook?merchant_id=${merchantId}`;
+  const comercioQuery = comercio ? `&comercio=${encodeURIComponent(comercio.trim())}` : "";
+  const webhookTargetUrl = `https://${new URL(supabaseUrl).hostname}/functions/v1/shopify-webhook?merchant_id=${merchantId}${comercioQuery}`;
 
   await Promise.all(
     webhookTopics.map(async (topic) => {
