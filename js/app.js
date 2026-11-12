@@ -10893,28 +10893,122 @@ window.pickerOperatorsMap = window.pickerOperatorsMap || {};
 window.pickerStatusMap = window.pickerStatusMap || {};
 
 // Helper para normalizar identificadores de pedidos al buscar en mapas de Picker
-window.normalizeOrderKeys = function(rawKey) {
+window.normalizeOrderKeys = function(rawKey, comercio = '') {
   if (!rawKey) return [];
   const str = String(rawKey).trim();
   if (!str) return [];
-  const clean = str.replace(/^#/, '');
+  const clean = str.replace(/^#/, '').trim();
   const withHash = '#' + clean;
   const keys = new Set([str, clean, withHash, str.toUpperCase(), clean.toUpperCase(), withHash.toUpperCase()]);
+
+  const cleanUpper = clean.toUpperCase();
+  const digitsOnly = cleanUpper.replace(/\D/g, '');
+  const comNorm = String(comercio || '').trim().toUpperCase();
+
+  const prefixSepMatch = cleanUpper.match(/^([A-Z]{2,8})[#\-_\s]+(\d+.*)$/);
+  const prefixDirectMatch = !prefixSepMatch ? cleanUpper.match(/^([A-Z]{2,6})(\d{3,})$/) : null;
+  if (prefixSepMatch) {
+    const pfx = prefixSepMatch[1];
+    const numPart = prefixSepMatch[2].replace(/^#/, '').trim();
+    keys.add(`${pfx}${numPart}`);
+    keys.add(`${pfx}#${numPart}`);
+    keys.add(`#${pfx}${numPart}`);
+    keys.add(`${pfx}-${numPart}`);
+    keys.add(`SIGLA::${pfx}::${numPart}`);
+    if (numPart.length >= 6) {
+      keys.add(numPart);
+      keys.add(`#${numPart}`);
+    }
+  } else if (prefixDirectMatch) {
+    const pfx = prefixDirectMatch[1];
+    const numPart = prefixDirectMatch[2];
+    keys.add(`${pfx}#${numPart}`);
+    keys.add(`#${pfx}${numPart}`);
+    keys.add(`${pfx}-${numPart}`);
+    keys.add(`SIGLA::${pfx}::${numPart}`);
+    if (numPart.length >= 6) {
+      keys.add(numPart);
+      keys.add(`#${numPart}`);
+    }
+  }
+
+  if (comNorm) {
+    keys.add(`COMERCIO::${comNorm}::${cleanUpper}`);
+    if (digitsOnly) keys.add(`COMERCIO::${comNorm}::${digitsOnly}`);
+    const alphaOnly = comNorm.replace(/[^A-Z0-9]/g, '');
+    const sigla = alphaOnly.length >= 3 ? alphaOnly.slice(0, 3) : '';
+    if (sigla && digitsOnly) {
+      keys.add(`SIGLA::${sigla}::${digitsOnly}`);
+      keys.add(`${sigla}${digitsOnly}`);
+      keys.add(`${sigla}#${digitsOnly}`);
+      keys.add(`#${sigla}${digitsOnly}`);
+      keys.add(`${sigla}-${digitsOnly}`);
+    }
+  }
+
   return Array.from(keys);
 };
 
 // Helper para obtener el estado del Picker asignado a un pedido
 window.getPickerStatusForOrder = function(order) {
   if (!order) return null;
-  const candidates = [
-    ...(order.external_order_number ? window.normalizeOrderKeys(order.external_order_number) : []),
-    ...(order.id ? window.normalizeOrderKeys(order.id) : [])
-  ];
+  const comNorm = String(order.comercio || '').trim().toUpperCase();
+  const extRaw = String(order.external_order_number || '').trim();
+  const candidates = [];
+  if (order.id) candidates.push(`ORDER_ID::${order.id}`);
+  if (comNorm && extRaw) {
+    const extCleanUpper = extRaw.replace(/^#/, '').trim().toUpperCase();
+    const digits = extCleanUpper.replace(/\D/g, '');
+    candidates.push(`COMERCIO::${comNorm}::${extCleanUpper}`);
+    if (digits) candidates.push(`COMERCIO::${comNorm}::${digits}`);
+  }
+  if (extRaw) {
+    window.normalizeOrderKeys(extRaw, comNorm).forEach(k => candidates.push(k));
+    const digits = extRaw.replace(/\D/g, '');
+    if (digits && digits.length >= 3) {
+      candidates.push(`#${digits}`, digits);
+    }
+  }
+  if (order.id) {
+    window.normalizeOrderKeys(order.id).forEach(k => candidates.push(k));
+  }
 
   for (const k of candidates) {
-    if (window.pickerStatusMap[k]) {
-      return window.pickerStatusMap[k];
+    const st = window.pickerStatusMap[k];
+    if (st) {
+      const isInternalKey = String(k).startsWith('COMERCIO::') || String(k).startsWith('SIGLA::') || String(k).startsWith('ORDER_ID::');
+      const isShortGenericKey = !isInternalKey && /^#?\d{1,5}$/.test(String(k));
+      if (isShortGenericKey && comNorm && st.comercio && String(st.comercio).trim().toUpperCase() !== comNorm) {
+        continue;
+      }
+      return st;
     }
+  }
+  if (order.picker_status && String(order.picker_status).trim()) {
+    const rawSt = String(order.picker_status).trim();
+    const isComp = ['COMPLETADO', 'COMPLETADO-ASISTIDO', 'LISTO PARA RETIRO', 'RETIRADO'].includes(rawSt.toUpperCase());
+    return {
+      status: rawSt,
+      operator: order.picker_operator || null,
+      sucursal: order.sucursal_pickeo || null,
+      comercio: comNorm || null,
+      isActive: order.estado_wms === 'En preparación' && !isComp,
+      isCompleted: isComp,
+      source: 'orders_column',
+      updatedAt: order.picker_last_synced_at || null
+    };
+  }
+  if (order.estado_wms === 'Pickeado' || (order.estado_wms === 'Despachado' && order.picker_operator)) {
+    return {
+      status: 'Completado',
+      operator: order.picker_operator || window.pickerOperatorsMap[order.external_order_number || order.id] || null,
+      sucursal: order.sucursal_pickeo || null,
+      comercio: comNorm || null,
+      isActive: false,
+      isCompleted: true,
+      source: 'wms_pickeado_state',
+      updatedAt: order.picker_last_synced_at || order.stock_descontado_at || null
+    };
   }
   return null;
 };
@@ -10932,15 +11026,16 @@ window.fetchPickerOperators = async function(ordersList) {
     const allQueryKeysSet = new Set();
     ordersList.forEach(o => {
       if (o.external_order_number) {
-        window.normalizeOrderKeys(o.external_order_number).forEach(k => allQueryKeysSet.add(k));
-      }
-      if (o.id) {
+        window.normalizeOrderKeys(o.external_order_number, o.comercio).forEach(k => {
+          if (!String(k).startsWith('COMERCIO::')) allQueryKeysSet.add(k);
+        });
+      } else if (o.id) {
         window.normalizeOrderKeys(o.id).forEach(k => allQueryKeysSet.add(k));
       }
     });
 
     const allKeys = Array.from(allQueryKeysSet);
-    const chunkSize = 200;
+    const chunkSize = 80;
     const chunkPromises = [];
 
     for (let i = 0; i < allKeys.length; i += chunkSize) {
@@ -10950,34 +11045,71 @@ window.fetchPickerOperators = async function(ordersList) {
         Promise.all([
           client
             .from('active_orders')
-            .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu')
+            .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu, comercio')
             .in('order_number', chunk),
           client
             .from('history_logs')
             .select('pedido, picker, estado, comentarios, sucursal, fecha, hora, created_at, items_summary')
             .in('pedido', chunk)
-            .order('created_at', { ascending: false })
-        ]).then(([activeRes, histRes]) => {
+            .order('created_at', { ascending: false }),
+          client
+            .from('sucursal_pickups')
+            .select('pedido, comercio, estado_pedido, sucursal, created_at, updated_at')
+            .in('pedido', chunk)
+        ]).then(([activeRes, histRes, pickupRes]) => {
           const { data: activeRows, error: activeErr } = activeRes;
           if (!activeErr && activeRows) {
             activeRows.forEach(row => {
               const num = row.order_number;
               if (!num) return;
+              const comNorm = String(row.comercio || '').trim().toUpperCase();
               const statusObj = {
                 status: row.sheet_status || 'EN PREPARACIÓN',
                 operator: row.operator || null,
                 observation: row.observation || null,
                 sucursal: row.sucursal || null,
                 totu: row.totu || null,
+                comercio: comNorm || null,
                 isActive: true,
                 isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(row.sheet_status),
                 source: 'active_orders',
                 updatedAt: row.created_at || null
               };
 
-              window.normalizeOrderKeys(num).forEach(k => {
+              window.normalizeOrderKeys(num, comNorm).forEach(k => {
                 window.pickerStatusMap[k] = statusObj;
                 if (row.operator) window.pickerOperatorsMap[k] = row.operator;
+              });
+            });
+          }
+
+          const { data: pickupRows, error: pickupErr } = pickupRes || {};
+          if (!pickupErr && Array.isArray(pickupRows)) {
+            pickupRows.forEach(pRow => {
+              const ped = pRow?.pedido;
+              if (!ped) return;
+              const st = String(pRow.estado_pedido || '').trim().toUpperCase();
+              if (st === 'CANCELADO') return;
+              const isRet = st === 'ENTREGADO' || st === 'RETIRADO';
+              const isReady = st === 'LISTO PARA RETIRO' || st === 'PREPARADO' || st === 'COMPLETADO';
+              const mappedStatus = isRet ? 'Retirado' : (isReady ? 'Listo para retiro' : 'EN PREPARACIÓN');
+              const comNorm = String(pRow.comercio || '').trim().toUpperCase();
+              const statusObj = {
+                status: mappedStatus,
+                operator: isRet ? 'Punto de Retiro' : 'Sucursal Ñuñoa',
+                observation: null,
+                sucursal: pRow.sucursal || 'Sucursal Ñuñoa',
+                comercio: comNorm || null,
+                isActive: !isRet && !isReady,
+                isCompleted: isRet || isReady,
+                source: 'sucursal_pickups',
+                updatedAt: pRow.updated_at || pRow.created_at || null
+              };
+              window.normalizeOrderKeys(ped, comNorm).forEach(k => {
+                const existing = window.pickerStatusMap[k];
+                if (!existing || isRet || ((isRet || isReady) && !existing.isCompleted)) {
+                  window.pickerStatusMap[k] = statusObj;
+                }
               });
             });
           }
@@ -11010,9 +11142,18 @@ window.fetchPickerOperators = async function(ordersList) {
                   source: 'history_logs',
                   updatedAt: row.created_at || `${row.fecha} ${row.hora}`
                 };
+                const histTime = row.created_at ? new Date(row.created_at).getTime() : 0;
 
                 window.normalizeOrderKeys(ped).forEach(k => {
-                  if (!window.pickerStatusMap[k] || isComp) {
+                  const existing = window.pickerStatusMap[k];
+                  if (!existing) {
+                    window.pickerStatusMap[k] = statusObj;
+                  } else if (existing.isActive) {
+                    const actTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+                    if (isComp && (!actTime || !histTime || histTime >= actTime - 60000)) {
+                      window.pickerStatusMap[k] = { ...statusObj, comercio: existing.comercio || null };
+                    }
+                  } else if (isComp || !existing.isCompleted) {
                     window.pickerStatusMap[k] = statusObj;
                   }
                 });

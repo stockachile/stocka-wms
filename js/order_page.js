@@ -1556,7 +1556,13 @@ function attachMultiCriteriaOrderSearch({ dropdownId, inputId, resultsId, isAdmi
 // 2. HELPERS PARA TRAZABILIDAD PICKER Y STEPPER DE ETAPAS DEL PEDIDO
 // ============================================================================
 function buildPickerQueryKeys(orderData) {
+  if (typeof window.getPickerOrderCandidateKeys === 'function' && orderData) {
+    return window.getPickerOrderCandidateKeys(orderData, { includeInternal: false, includeUuid: true });
+  }
   const keys = new Set();
+  const comNorm = String(orderData?.comercio || '').trim().toUpperCase();
+  const alphaOnly = comNorm.replace(/[^A-Z0-9]/g, '');
+  const sigla = alphaOnly.length >= 3 ? alphaOnly.slice(0, 3) : '';
   const addVariants = (raw) => {
     if (!raw) return;
     const str = String(raw).trim();
@@ -1568,6 +1574,17 @@ function buildPickerQueryKeys(orderData) {
     keys.add(str.toUpperCase());
     keys.add(noHash.toUpperCase());
     keys.add(('#' + noHash).toUpperCase());
+    const digits = noHash.replace(/\D/g, '');
+    if (digits && digits.length >= 3) {
+      keys.add(digits);
+      keys.add('#' + digits);
+      if (sigla) {
+        keys.add(`${sigla}${digits}`);
+        keys.add(`${sigla}#${digits}`);
+        keys.add(`#${sigla}${digits}`);
+        keys.add(`${sigla}-${digits}`);
+      }
+    }
     // Si tiene prefijo compuesto como SFP#3850, añadir también #3850 y 3850
     const hashParts = noHash.split('#');
     if (hashParts.length > 1) {
@@ -2591,13 +2608,80 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
         const pKeys = buildPickerQueryKeys(orderData);
         if (pKeys.length === 0) return;
         try {
-          const [
+          let [
             { data: activeRows },
             { data: histRows }
           ] = await Promise.all([
             pickerClient.from('active_orders').select('*').in('order_number', pKeys),
             pickerClient.from('history_logs').select('*').in('pedido', pKeys).order('created_at', { ascending: false })
           ]);
+
+          const digitsOnly = String(orderData.external_order_number || '').replace(/\D/g, '');
+          const ordComUpper = String(orderData.comercio || '').trim().toUpperCase();
+
+          if (activeRows && activeRows.length > 0 && ordComUpper) {
+            const byCom = activeRows.filter(r => !r.comercio || String(r.comercio).trim().toUpperCase() === ordComUpper);
+            if (byCom.length > 0 || activeRows.every(r => r.comercio && String(r.comercio).trim().toUpperCase() !== ordComUpper)) {
+              activeRows = byCom;
+            }
+          }
+          if ((!activeRows || activeRows.length === 0) && ordComUpper && digitsOnly.length >= 3) {
+            const { data: fbAct } = await pickerClient
+              .from('active_orders')
+              .select('*')
+              .ilike('comercio', orderData.comercio.trim())
+              .ilike('order_number', `%${digitsOnly}%`);
+            if (fbAct && fbAct.length > 0) {
+              activeRows = fbAct.filter(r => String(r.order_number || '').replace(/\D/g, '') === digitsOnly);
+            }
+          }
+
+          if ((!histRows || histRows.length === 0) && digitsOnly.length >= 3) {
+            const { data: fbHist } = await pickerClient
+              .from('history_logs')
+              .select('*')
+              .ilike('pedido', `%${digitsOnly}%`)
+              .order('created_at', { ascending: false })
+              .limit(25);
+            if (fbHist && fbHist.length > 0) {
+              const ordSigla = ordComUpper && window.resolveCommercePickerSigla ? window.resolveCommercePickerSigla(ordComUpper) : '';
+              histRows = fbHist.filter(r => {
+                const pClean = String(r.pedido || '').trim().replace(/^#/, '').trim().toUpperCase();
+                if (pClean.replace(/\D/g, '') !== digitsOnly) return false;
+                const pfxMatch = pClean.match(/^([A-Z]{2,8})[#\-_\s]*(\d+.*)$/);
+                if (pfxMatch && ordComUpper) {
+                  const pfx = pfxMatch[1];
+                  if (pfx !== ordSigla && !ordComUpper.startsWith(pfx)) return false;
+                }
+                return true;
+              });
+            }
+          }
+
+          if (histRows && histRows.length > 0 && digitsOnly.length <= 5) {
+            const orderSkus = new Set();
+            if (orderData.sku) {
+              String(orderData.sku).split(/[,;|/]/).forEach(part => {
+                const c = part.trim().replace(/\s*\(x\d+\)\s*$/i, '').trim().toUpperCase();
+                if (c) orderSkus.add(c);
+              });
+            }
+            if (Array.isArray(orderData.order_items)) {
+              orderData.order_items.forEach(oi => {
+                const s = String(oi?.products?.sku || oi?.sku || '').trim().toUpperCase();
+                if (s) orderSkus.add(s);
+              });
+            }
+            if (orderSkus.size > 0) {
+              const skuMatched = histRows.filter(l => {
+                const sum = String(l.items_summary || '').trim();
+                if (!sum || sum === '-') return false;
+                const logSkus = sum.split(',').map(s => s.trim().replace(/\s*\(\d+\/\d+\)\s*$/, '').trim().toUpperCase());
+                return logSkus.some(sk => orderSkus.has(sk));
+              });
+              if (skuMatched.length > 0) histRows = skuMatched;
+            }
+          }
 
           if (activeRows && activeRows.length > 0) {
             const firstAct = activeRows[0];
@@ -2622,12 +2706,30 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
             pickerData.operator = pickerData.operator || firstLog.picker || null;
             pickerData.sucursal = pickerData.sucursal || firstLog.sucursal || null;
             pickerData.observation = pickerData.observation || firstLog.comentarios || null;
+          } else if (!pickerData.hasActive && (orderData.estado_wms === 'Pickeado' || orderData.picker_status)) {
+            pickerData.status = orderData.picker_status || 'Completado';
+            pickerData.isCompleted = true;
+            pickerData.operator = orderData.picker_operator || window.pickerOperatorsMap?.[orderData.external_order_number || orderData.id] || null;
+            pickerData.sucursal = orderData.sucursal_pickeo || null;
           }
 
           if (!window.pickerOperatorsMap) window.pickerOperatorsMap = {};
           if (!window.pickerStatusMap) window.pickerStatusMap = {};
           if (pickerData.operator) {
             pKeys.forEach(k => { window.pickerOperatorsMap[k] = pickerData.operator; });
+          }
+          if (pickerData.status && typeof window.registerOrderInPickerStatusMap === 'function') {
+            window.registerOrderInPickerStatusMap(orderData, {
+              status: pickerData.status,
+              operator: pickerData.operator,
+              sucursal: pickerData.sucursal,
+              observation: pickerData.observation,
+              totu: pickerData.totu,
+              comercio: orderData.comercio || null,
+              isActive: pickerData.hasActive && !pickerData.isCompleted,
+              isCompleted: pickerData.isCompleted,
+              source: histRows?.length ? 'history_logs' : (pickerData.hasActive ? 'active_orders' : 'wms_pickeado_state')
+            });
           }
         } catch (e) {
           console.warn('[SingleOrderPage] Aviso consultando Picker en directo:', e);

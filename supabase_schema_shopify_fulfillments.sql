@@ -205,11 +205,16 @@ BEGIN
         (LOWER(COALESCE(OLD.estado_wms, '')) = 'despachado') OR (LOWER(COALESCE(OLD.status, '')) IN ('despachado', 'retirado'))
     ELSE false END;
 
-    v_has_tracking := (NEW.tracking_number IS NOT NULL AND TRIM(NEW.tracking_number) != '');
+    v_has_tracking := (
+        NEW.tracking_number IS NOT NULL
+        AND TRIM(NEW.tracking_number) != ''
+        AND UPPER(TRIM(NEW.tracking_number)) NOT IN ('N/A', 'S/N', 'NO INFORMADO', 'NOINFORMADO', 'NULL', '-')
+        AND TRIM(NEW.tracking_number) != TRIM(COALESCE(NEW.external_order_number, ''))
+        AND TRIM(NEW.tracking_number) !~ '^46[0-9]{6,}$'
+    );
+    -- Solo considerar cambio de tracking cuando cambia el número de seguimiento real (no por oscilaciones de URL o nombre de courier entre crons)
     v_tracking_changed := CASE WHEN TG_OP = 'UPDATE' THEN
-        (OLD.tracking_number IS DISTINCT FROM NEW.tracking_number)
-        OR (OLD.tracking_url IS DISTINCT FROM NEW.tracking_url)
-        OR (OLD.courier IS DISTINCT FROM NEW.courier)
+        v_has_tracking AND (COALESCE(TRIM(OLD.tracking_number), '') IS DISTINCT FROM COALESCE(TRIM(NEW.tracking_number), ''))
     ELSE v_has_tracking END;
 
     v_is_preparing := (LOWER(TRIM(COALESCE(NEW.estado_wms, ''))) = 'en preparación');
@@ -269,14 +274,31 @@ BEGIN
     END IF;
 
     -- =========================================================================
-    -- CASO A: Pedido Despachado (o actualización de tracking en pedido Pickeado/Despachado)
+    -- CASO A: Pedido Despachado (o actualización de tracking real en pedido Pickeado/Despachado)
     -- =========================================================================
-    IF (v_is_dispatched AND (NOT v_was_dispatched OR v_tracking_changed))
+    IF (v_is_dispatched AND (NOT v_was_dispatched OR (v_tracking_changed AND NOT v_is_delivered AND COALESCE(NEW.shopify_order_status, '') != 'delivered')))
        OR (v_is_picked AND NOT v_is_pickup AND v_tracking_changed AND NEW.shopify_fulfillment_id IS NOT NULL) THEN
         IF NEW.shopify_fulfillment_id IS NOT NULL AND TRIM(NEW.shopify_fulfillment_id) != '' THEN
             v_action := 'update_tracking';
         ELSE
             v_action := 'create_fulfillment';
+        END IF;
+
+        -- Si es update_tracking, verificar que no hayamos enviado ya exactamente este mismo tracking_number a Shopify antes
+        IF v_action = 'update_tracking' THEN
+            IF NOT v_has_tracking THEN
+                RETURN NEW;
+            END IF;
+            IF EXISTS (
+                SELECT 1
+                FROM public.shopify_fulfillment_queue
+                WHERE order_id = NEW.id
+                  AND action_type IN ('create_fulfillment', 'update_tracking')
+                  AND status = 'completed'
+                  AND TRIM(COALESCE(tracking_number, '')) = TRIM(COALESCE(NEW.tracking_number, ''))
+            ) THEN
+                RETURN NEW;
+            END IF;
         END IF;
 
         SELECT id INTO v_existing_queue_id
@@ -591,3 +613,343 @@ SET shopify_order_status = CASE
 END
 WHERE (UPPER(COALESCE(o.external_platform, '')) = 'SHOPIFY' OR o.raw_shopify_data IS NOT NULL)
   AND (o.shopify_order_status IS NULL OR o.shopify_order_status = 'unfulfilled');
+
+-- Backfill de pedidos históricos ya preparados cuyo transporte ya figura como Entregado,
+-- marcándolos como 'delivered' en BD para evitar disparos retroactivos de correos o eventos.
+UPDATE public.orders o
+SET shopify_order_status = 'delivered'
+WHERE (UPPER(COALESCE(o.external_platform, '')) = 'SHOPIFY' OR o.raw_shopify_data IS NOT NULL)
+  AND o.shopify_order_status = 'fulfilled'
+  AND (
+    LOWER(COALESCE(o.lightdata_status, '')) LIKE '%entregad%'
+    OR LOWER(COALESCE(o.lightdata_status, '')) LIKE '%delivered%'
+    OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%entregad%'
+    OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%delivered%'
+    OR LOWER(COALESCE(o.estado_ruta_optiroute, '')) LIKE '%entregad%'
+    OR LOWER(COALESCE(o.estado_ruta_optiroute, '')) LIKE '%deliver%'
+  );
+
+
+-- 7. Blindar sync_unified_status_to_orders_func y sync_enviame_shipment_to_orders_func
+-- para evitar que sobreescriban tracking_number con la referencia del pedido (en Lightdata)
+-- o con guías temporales 460/Recíbelo cuando el pedido ya tiene su tracking definitivo (Alpha/Starken/Bluex).
+CREATE OR REPLACE FUNCTION public.sync_unified_status_to_orders_func()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_order_uuid UUID;
+  v_current_wms_status TEXT;
+  v_current_track TEXT;
+  v_current_url TEXT;
+  v_target_operador TEXT;
+  v_courier_upper TEXT;
+  v_effective_tracking TEXT;
+BEGIN
+  IF NEW.pedido_referencia IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  v_courier_upper := UPPER(TRIM(COALESCE(NEW.courier, '')));
+  -- Ignorar RECIBELO / WELIVERY para no pisar trackings reales de Alpha / Starken / Bluexpress
+  IF v_courier_upper LIKE '%RECIBELO%' OR v_courier_upper LIKE '%RECÍBELO%'
+     OR v_courier_upper LIKE '%WELIVERY%' OR v_courier_upper LIKE '%WOODELIVERY%'
+     OR v_courier_upper LIKE '%WODELY%' THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.pedido_referencia ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+    SELECT id, status, tracking_number, tracking_url INTO v_order_uuid, v_current_wms_status, v_current_track, v_current_url
+    FROM public.orders WHERE id = NEW.pedido_referencia::uuid;
+  ELSE
+    SELECT id, status, tracking_number, tracking_url INTO v_order_uuid, v_current_wms_status, v_current_track, v_current_url
+    FROM public.orders WHERE external_order_number = NEW.pedido_referencia;
+  END IF;
+
+  IF v_order_uuid IS NOT NULL THEN
+    IF v_courier_upper LIKE '%STARKEN%' THEN
+      v_target_operador := 'STARKEN';
+    ELSIF v_courier_upper LIKE '%BLUE%' THEN
+      v_target_operador := 'BLUEXPRESS';
+    ELSIF v_courier_upper LIKE '%CHILEXPRESS%' THEN
+      v_target_operador := 'CHILEXPRESS';
+    ELSIF v_courier_upper LIKE '%ENVIAME%' THEN
+      v_target_operador := 'ENVIAME';
+    ELSIF v_courier_upper LIKE '%ALPHA%' OR v_courier_upper LIKE '%LIGHTDATA%' OR v_courier_upper LIKE '%CARRIER EXTERNO%' THEN
+      v_target_operador := 'ALPHA';
+    ELSIF v_courier_upper LIKE '%FALABELLA%' THEN
+      v_target_operador := 'FALABELLA';
+    ELSIF v_courier_upper LIKE '%MERCADO%' THEN
+      v_target_operador := 'MERCADOLIBRE';
+    ELSE
+      v_target_operador := v_courier_upper;
+    END IF;
+
+    -- En lightdata_envios, NEW.tracking es la referencia del pedido (ej. GLS28406) y NEW.source_id es el DID real (ej. 820637)
+    IF NEW.source_table = 'lightdata_envios' THEN
+      v_effective_tracking := COALESCE(NULLIF(TRIM(NEW.source_id), ''), NEW.tracking);
+    ELSE
+      v_effective_tracking := NEW.tracking;
+    END IF;
+
+    IF NEW.global_status = 'DESPACHADO' OR (v_current_track IS NULL OR TRIM(v_current_track) = '') THEN
+      UPDATE public.orders
+      SET
+        tracking_number = COALESCE(NULLIF(TRIM(v_effective_tracking), ''), tracking_number),
+        tracking_url = CASE
+          WHEN TRIM(COALESCE(v_current_track, '')) = TRIM(COALESCE(v_effective_tracking, ''))
+               AND v_current_url IS NOT NULL AND TRIM(v_current_url) LIKE 'http%'
+          THEN v_current_url
+          ELSE COALESCE(NULLIF(TRIM(NEW.tracking_url), ''), tracking_url)
+        END,
+        courier = COALESCE(NULLIF(TRIM(NEW.courier), ''), courier),
+        operador = COALESCE(NULLIF(TRIM(v_target_operador), ''), operador)
+      WHERE id = v_order_uuid
+        AND (
+          COALESCE(tracking_number, '') IS DISTINCT FROM COALESCE(NULLIF(TRIM(v_effective_tracking), ''), tracking_number, '')
+          OR (v_current_url IS NULL AND NEW.tracking_url IS NOT NULL)
+        );
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+CREATE OR REPLACE FUNCTION public.sync_enviame_shipment_to_orders_func()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_enviame_id TEXT;
+  v_comercio_name TEXT;
+  v_sigla TEXT;
+  v_clean_ref TEXT;
+
+  v_order_uuid UUID;
+  v_current_tracking TEXT;
+  v_current_url TEXT;
+  v_current_courier TEXT;
+  v_current_operador TEXT;
+  v_target_operador TEXT;
+  v_courier_upper TEXT;
+  v_clean_tracking TEXT;
+BEGIN
+  IF NEW.order_id IS NULL AND NEW.id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  v_courier_upper := UPPER(TRIM(COALESCE(NEW.courier, '')));
+  -- Ignorar completamente envíos de RECIBELO y WELIVERY para no pisar el tracking real de Alpha / Lightdata
+  IF v_courier_upper LIKE '%RECIBELO%' OR v_courier_upper LIKE '%RECÍBELO%'
+     OR v_courier_upper LIKE '%WELIVERY%' OR v_courier_upper LIKE '%WOODELIVERY%'
+     OR v_courier_upper LIKE '%WODELY%' THEN
+    RETURN NEW;
+  END IF;
+
+  v_clean_tracking := NULLIF(TRIM(NEW.tracking_number), '');
+  IF v_clean_tracking IS NOT NULL THEN
+    IF UPPER(v_clean_tracking) IN ('NO INFORMADO', 'NOINFORMADO', 'NULL', 'UNDEFINED', 'N/A', '-', 'SIN INFORMACION', 'SIN INFORMACIÓN')
+       OR v_clean_tracking ~ '^46[0-9]{6,}$' THEN
+      v_clean_tracking := NULL;
+    END IF;
+  END IF;
+
+  IF NEW.raw_payload IS NOT NULL THEN
+    IF NEW.raw_payload->'company'->>'id' IS NOT NULL THEN
+      v_enviame_id := TRIM(NEW.raw_payload->'company'->>'id');
+    ELSIF NEW.raw_payload->>'seller_id' IS NOT NULL THEN
+      v_enviame_id := TRIM(NEW.raw_payload->>'seller_id');
+    ELSIF NEW.raw_payload->'links' IS NOT NULL THEN
+      SELECT substring((elem->>'href') from '/companies/([0-9]+)/') INTO v_enviame_id
+      FROM jsonb_array_elements(NEW.raw_payload->'links') AS elem
+      WHERE elem->>'href' ~ '/companies/[0-9]+/'
+      LIMIT 1;
+    END IF;
+  END IF;
+
+  IF v_enviame_id IS NULL AND NEW.seller_name IS NOT NULL THEN
+    IF NEW.seller_name ~* '^ID\s*:?\s*[0-9]+$' THEN
+      v_enviame_id := trim(regexp_replace(NEW.seller_name, '^ID\s*:?\s*', '', 'i'));
+    END IF;
+  END IF;
+
+  IF v_enviame_id IS NOT NULL THEN
+    SELECT comercio INTO v_comercio_name
+    FROM public.comercios_adicional_config
+    WHERE v_enviame_id = ANY(string_to_array(regexp_replace(enviame_id, '\s+', '', 'g'), ','))
+    LIMIT 1;
+  END IF;
+
+  IF v_comercio_name IS NULL THEN
+    DECLARE
+      v_candidate_seller TEXT := NULL;
+    BEGIN
+      IF NEW.raw_payload IS NOT NULL AND NEW.raw_payload->'company'->>'name' IS NOT NULL THEN
+        v_candidate_seller := TRIM(NEW.raw_payload->'company'->>'name');
+      ELSIF NEW.seller_name IS NOT NULL AND NOT (NEW.seller_name ~* '^ID\s*:?\s*[0-9]+$') THEN
+        v_candidate_seller := TRIM(NEW.seller_name);
+      END IF;
+
+      IF v_candidate_seller IS NOT NULL THEN
+        SELECT comercio INTO v_comercio_name
+        FROM public.comercios_adicional_config
+        WHERE LOWER(trim(comercio)) = LOWER(v_candidate_seller)
+           OR LOWER(v_candidate_seller) LIKE ('%' || LOWER(trim(comercio)) || '%')
+        LIMIT 1;
+      END IF;
+    END;
+  END IF;
+
+  IF v_comercio_name IS NOT NULL THEN
+    SELECT sigla INTO v_sigla
+    FROM public.v_comercios_config
+    WHERE LOWER(trim(nombre)) = LOWER(trim(v_comercio_name))
+    LIMIT 1;
+  END IF;
+
+  IF v_comercio_name IS NULL AND NEW.order_id IS NOT NULL THEN
+    DECLARE
+      v_prefix TEXT := UPPER(substring(regexp_replace(trim(NEW.order_id), '^[^A-Za-z0-9]+', '', 'i') from 1 for 3));
+    BEGIN
+      IF length(v_prefix) = 3 THEN
+        SELECT nombre, sigla INTO v_comercio_name, v_sigla
+        FROM public.v_comercios_config
+        WHERE UPPER(sigla) = v_prefix
+        LIMIT 1;
+      END IF;
+    END;
+  END IF;
+
+  IF NEW.order_id IS NOT NULL AND NEW.order_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+    SELECT id, tracking_number, tracking_url, courier, operador
+    INTO v_order_uuid, v_current_tracking, v_current_url, v_current_courier, v_current_operador
+    FROM public.orders
+    WHERE id = NEW.order_id::uuid
+    LIMIT 1;
+  END IF;
+
+  IF v_order_uuid IS NULL AND v_comercio_name IS NOT NULL AND NEW.order_id IS NOT NULL THEN
+    v_clean_ref := regexp_replace(TRIM(NEW.order_id), '^#+', '');
+    IF v_sigla IS NOT NULL THEN
+      v_clean_ref := regexp_replace(v_clean_ref, '^' || v_sigla || '[#\-_]?', '', 'i');
+    END IF;
+    v_clean_ref := regexp_replace(v_clean_ref, '^[A-Za-z]{2,5}', '');
+
+    SELECT o.id, o.tracking_number, o.tracking_url, o.courier, o.operador
+    INTO v_order_uuid, v_current_tracking, v_current_url, v_current_courier, v_current_operador
+    FROM public.orders o
+    LEFT JOIN public.profiles p ON p.id = o.merchant_id
+    WHERE (
+          LOWER(trim(o.comercio)) = LOWER(trim(v_comercio_name))
+       OR LOWER(trim(v_comercio_name)) = ANY(string_to_array(regexp_replace(LOWER(p.comercio), '\s*,\s*', ',', 'g'), ','))
+    )
+    AND (
+          o.external_order_number = NEW.order_id
+       OR o.external_order_number = v_clean_ref
+       OR o.external_order_number = ('#' || v_clean_ref)
+       OR (v_sigla IS NOT NULL AND o.external_order_number = (v_sigla || '#' || v_clean_ref))
+       OR (v_sigla IS NOT NULL AND o.external_order_number = (v_sigla || v_clean_ref))
+    )
+    AND COALESCE(o.external_platform, '') NOT IN ('MercadoLibre', 'Falabella', 'Paris', 'Ripley', 'Walmart')
+    ORDER BY o.created_at DESC
+    LIMIT 1;
+  END IF;
+
+  IF v_order_uuid IS NULL AND v_comercio_name IS NOT NULL AND NEW.id IS NOT NULL THEN
+    SELECT o.id, o.tracking_number, o.tracking_url, o.courier, o.operador
+    INTO v_order_uuid, v_current_tracking, v_current_url, v_current_courier, v_current_operador
+    FROM public.orders o
+    LEFT JOIN public.profiles p ON p.id = o.merchant_id
+    WHERE (
+          LOWER(trim(o.comercio)) = LOWER(trim(v_comercio_name))
+       OR LOWER(trim(v_comercio_name)) = ANY(string_to_array(regexp_replace(LOWER(p.comercio), '\s*,\s*', ',', 'g'), ','))
+    )
+    AND o.enviame_delivery_id = NEW.id
+    LIMIT 1;
+  END IF;
+
+  IF v_order_uuid IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF v_courier_upper LIKE '%STARKEN%' THEN
+    v_target_operador := 'STARKEN';
+  ELSIF v_courier_upper LIKE '%BLUE%' THEN
+    v_target_operador := 'BLUEXPRESS';
+  ELSIF v_courier_upper LIKE '%CHILEXPRESS%' THEN
+    v_target_operador := 'CHILEXPRESS';
+  ELSIF v_courier_upper LIKE '%ALPHA%' OR v_courier_upper LIKE '%LIGHTDATA%' THEN
+    v_target_operador := 'ALPHA';
+  ELSIF v_courier_upper LIKE '%FALABELLA%' THEN
+    v_target_operador := 'FALABELLA';
+  ELSIF v_courier_upper LIKE '%MERCADO%' THEN
+    v_target_operador := 'MERCADOLIBRE';
+  ELSIF v_courier_upper LIKE '%PARIS%' THEN
+    v_target_operador := 'PARIS';
+  ELSIF v_courier_upper LIKE '%RIPLEY%' THEN
+    v_target_operador := 'RIPLEY';
+  ELSIF v_courier_upper LIKE '%WALMART%' THEN
+    v_target_operador := 'WALMART';
+  ELSIF v_courier_upper <> '' THEN
+    v_target_operador := v_courier_upper;
+  ELSE
+    v_target_operador := 'STOCKA';
+  END IF;
+
+  UPDATE public.orders
+  SET
+    tracking_number = COALESCE(
+      v_clean_tracking,
+      CASE
+        WHEN UPPER(TRIM(COALESCE(v_current_tracking, ''))) IN ('NO INFORMADO', 'NOINFORMADO', 'NULL', 'UNDEFINED', 'N/A', '-') THEN NULL
+        ELSE tracking_number
+      END
+    ),
+    -- Si el tracking_number no cambió y ya existe un tracking_url válido (ej. link oficial de Starken), no pisarlo con el link de Envíame
+    tracking_url = CASE
+      WHEN TRIM(COALESCE(v_current_tracking, '')) = TRIM(COALESCE(v_clean_tracking, ''))
+           AND v_current_url IS NOT NULL AND TRIM(v_current_url) LIKE 'http%'
+      THEN v_current_url
+      ELSE COALESCE(NULLIF(TRIM(NEW.tracking_url), ''), tracking_url)
+    END,
+    label_url = COALESCE(NULLIF(TRIM(NEW.label_url), ''), label_url),
+    courier = COALESCE(NULLIF(TRIM(NEW.courier), ''), courier),
+    operador = COALESCE(v_target_operador, operador),
+    enviame_delivery_id = COALESCE(NEW.id, enviame_delivery_id),
+    enviame_status = COALESCE(NEW.status, enviame_status)
+  WHERE id = v_order_uuid;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+
+-- 8. Función y tarea programada (pg_cron) para verificación nocturna a las 21:00 hrs Chile (00:00 UTC)
+-- Envía informe ejecutivo a contacto@stocka.cl verificando que no existan envíos duplicados de tracking.
+CREATE OR REPLACE FUNCTION public.send_shopify_daily_verification_report()
+RETURNS void AS $$
+BEGIN
+  PERFORM net.http_post(
+    url := 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-fulfillment-sync',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTgzMTE4NSwiZXhwIjoyMDk1NDA3MTg1fQ.YX4okf4XNkkVQaU0XbbRtm4SNRTqvwEVNd7ubc4PGe8'
+    ),
+    body := jsonb_build_object(
+      'mode', 'daily_verification_report',
+      'recipient_email', 'contacto@stocka.cl',
+      'send_email', true
+    )
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'shopify-sync-verification-21h') THEN
+    PERFORM cron.unschedule('shopify-sync-verification-21h');
+  END IF;
+  PERFORM cron.schedule(
+    'shopify-sync-verification-21h',
+    '0 0 * * *',
+    'SELECT public.send_shopify_daily_verification_report()'
+  );
+END $$;

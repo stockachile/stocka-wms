@@ -713,21 +713,20 @@ async function executeUpdateTracking(item, integration) {
   const token = integration.access_token;
   let fulfillmentId = item.shopify_fulfillment_id;
 
-  if (!fulfillmentId) {
-    const { data: ordData } = await supabase
-      .from('orders')
-      .select('shopify_fulfillment_id, tracking_number, tracking_url, courier, operador')
-      .eq('id', item.order_id)
-      .maybeSingle();
-    if (ordData?.shopify_fulfillment_id) {
-      fulfillmentId = ordData.shopify_fulfillment_id;
-    }
-    if (ordData) {
-      if (!item.tracking_number && ordData.tracking_number) item.tracking_number = ordData.tracking_number;
-      if (!item.tracking_url && ordData.tracking_url) item.tracking_url = ordData.tracking_url;
-      if (!item.courier && ordData.courier) item.courier = ordData.courier;
-      if (!item.operador && ordData.operador) item.operador = ordData.operador;
-    }
+  const { data: ordData } = await supabase
+    .from('orders')
+    .select('shopify_fulfillment_id, external_order_number, tracking_number, tracking_url, courier, operador')
+    .eq('id', item.order_id)
+    .maybeSingle();
+  if (!fulfillmentId && ordData?.shopify_fulfillment_id) {
+    fulfillmentId = ordData.shopify_fulfillment_id;
+  }
+  if (ordData) {
+    if (!item.tracking_number && ordData.tracking_number) item.tracking_number = ordData.tracking_number;
+    if (!item.tracking_url && ordData.tracking_url) item.tracking_url = ordData.tracking_url;
+    if (!item.courier && ordData.courier) item.courier = ordData.courier;
+    if (!item.operador && ordData.operador) item.operador = ordData.operador;
+    item._external_order_number = ordData.external_order_number;
   }
 
   if (!fulfillmentId) {
@@ -735,8 +734,44 @@ async function executeUpdateTracking(item, integration) {
     return;
   }
 
+  const cleanTrack = String(item.tracking_number || '').trim();
+  const isTempAlpha = /^46\d{6,}$/.test(cleanTrack);
+  const isOrderRef = Boolean(item._external_order_number && cleanTrack === String(item._external_order_number).trim());
+  if (!cleanTrack || ['N/A', 'S/N', 'NO INFORMADO', 'NOINFORMADO', 'NULL', '-'].includes(cleanTrack.toUpperCase()) || isTempAlpha || isOrderRef) {
+    await supabase.from('shopify_fulfillment_queue').update({
+      status: 'completed',
+      shopify_fulfillment_id: fulfillmentId,
+      last_error: 'Omitido: tracking temporal o inválido para update_tracking',
+      processed_at: new Date().toISOString()
+    }).eq('id', item.id);
+    return;
+  }
+
+  if (item.notify_customer !== true) {
+    const { data: prevSent } = await supabase
+      .from('shopify_fulfillment_queue')
+      .select('id')
+      .eq('order_id', item.order_id)
+      .in('action_type', ['create_fulfillment', 'update_tracking'])
+      .eq('status', 'completed')
+      .eq('tracking_number', cleanTrack)
+      .neq('id', item.id)
+      .limit(1);
+
+    if (prevSent && prevSent.length > 0) {
+      console.log(`⏭️ [UpdateTracking] Tracking ${cleanTrack} ya había sido enviado a Shopify para orden ${item.shopify_order_id}. Omitiendo re-envío.`);
+      await supabase.from('shopify_fulfillment_queue').update({
+        status: 'completed',
+        shopify_fulfillment_id: fulfillmentId,
+        last_error: null,
+        processed_at: new Date().toISOString()
+      }).eq('id', item.id);
+      return;
+    }
+  }
+
   const companyName = mapCourierToShopify(item.courier, item.operador);
-  const notifyCustomer = integration.notify_customer_on_fulfillment !== false;
+  const notifyCustomer = item.notify_customer === true;
 
   const cLowerUpd = `${item.courier || ''} ${item.operador || ''}`.toLowerCase();
   const isOptirouteUpd = cLowerUpd.includes('optiroute') || cLowerUpd.includes('stocka x') || (item.tracking_url && String(item.tracking_url).toLowerCase().includes('optiroute.cl'));

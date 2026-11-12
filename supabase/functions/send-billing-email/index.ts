@@ -147,15 +147,27 @@ serve(async (req) => {
     let record = null;
     const targetCommerce = payloadCommerceName || comercio;
 
+    if (recordId) {
+      const { data } = await supabaseClient
+        .from('billing_records')
+        .select('*, billing_periods(name, period_month, period_year)')
+        .eq('id', recordId)
+        .maybeSingle();
+      record = data;
+    }
+
     let commerceRecords: any[] = [];
     let pendingRecordsList: any[] = [];
     let totalGlobalPendingDebt = 0;
 
-    // Obtener los posibles nombres asociados por si hay agrupaciones de facturación
-    const commQueryName = targetCommerce;
+    // Obtener los posibles nombres asociados por si hay agrupaciones de facturación (incluyendo record.comercio cuando solo se envió recordId)
+    const commQueryName = targetCommerce || record?.comercio;
     const relatedNames = new Set<string>();
+    if (targetCommerce) relatedNames.add(String(targetCommerce).toLowerCase().trim());
+    if (record?.comercio) relatedNames.add(String(record.comercio).toLowerCase().trim());
+
     if (commQueryName) {
-      relatedNames.add(commQueryName.toLowerCase().trim());
+      relatedNames.add(String(commQueryName).toLowerCase().trim());
       try {
         const { data: mappings } = await supabaseClient
           .from('billing_mappings')
@@ -170,15 +182,6 @@ serve(async (req) => {
       } catch (e) {
         console.warn('[send-billing-email] Error consultando billing_mappings:', e);
       }
-    }
-
-    if (recordId) {
-      const { data } = await supabaseClient
-        .from('billing_records')
-        .select('*, billing_periods(name, period_month, period_year)')
-        .eq('id', recordId)
-        .maybeSingle();
-      record = data;
     }
 
     // Cargar historial de cobros para este comercio para calcular la deuda acumulada real

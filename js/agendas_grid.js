@@ -2828,9 +2828,9 @@
         if (updatesMap.has(idKey)) {
           Object.assign(o, updatesMap.get(idKey));
           delete o._wmsTags;
-          // Propagar al picker si está en preparación (solo si cambiaron campos relevantes para picker)
+          // Propagar al picker si está en preparación (incluyendo cuando se pasa a 'En preparación' desde la grilla)
           const updatedFields = Object.keys(updatesMap.get(idKey) || {});
-          const hasPickerField = updatedFields.some(f => ['operador', 'agenda', 'comuna', 'shipping_city', 'sucursal_pickeo'].includes(f));
+          const hasPickerField = updatedFields.some(f => ['estado_wms', 'operador', 'agenda', 'comuna', 'shipping_city', 'sucursal_pickeo'].includes(f));
           if (hasPickerField && o.estado_wms === 'En preparación' && typeof window.propagateOrderUpdateToPicker === 'function') {
             window.propagateOrderUpdateToPicker(o, { itemsChanged: false }).catch(err => console.warn('Picker prop error:', err));
           }

@@ -42783,41 +42783,44 @@ window.analyzeLeadWithAgent = async function(lead, options = {}) {
 
     let llmData = null;
     let llmProviderLabel = '';
+    let llmError = '';
 
-    // 7a. Intentar primero vía Supabase Edge Function (lead-ai-agent)
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token || '';
-      const edgeRes = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/lead-ai-agent', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          lead: leadPayload,
-          quoteSummary: quoteSummaryPayload,
-          meetingInfo: meetingPayload,
-          clientQuestion,
-          extraContext,
-          strategy,
-          provider: aiConfig.provider || 'auto',
-          apiKey: aiConfig.apiKey || ''
-        })
-      });
+    // 7a. Intentar primero vía Supabase Edge Function (solo si no hay API Key local directa o estamos en producción)
+    if (!aiConfig.apiKey && options.tryEdgeSecrets) {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token || '';
+        const edgeRes = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/lead-ai-agent', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
+            lead: leadPayload,
+            quoteSummary: quoteSummaryPayload,
+            meetingInfo: meetingPayload,
+            clientQuestion,
+            extraContext,
+            strategy,
+            provider: aiConfig.provider || 'auto',
+            apiKey: aiConfig.apiKey || ''
+          })
+        });
 
-      if (edgeRes.ok) {
-        const edgeJson = await edgeRes.json();
-        if (edgeJson?.success && edgeJson?.data) {
-          llmData = edgeJson.data;
-          llmProviderLabel = edgeJson.provider === 'openai' ? 'OpenAI GPT-4o' : 'Google Gemini 2.5 Flash';
+        if (edgeRes.ok) {
+          const edgeJson = await edgeRes.json();
+          if (edgeJson?.success && edgeJson?.data) {
+            llmData = edgeJson.data;
+            llmProviderLabel = edgeJson.provider === 'openai' ? 'OpenAI GPT-4o' : 'Google Gemini 2.5 Flash';
+          }
         }
+      } catch (edgeErr) {
+        console.warn('[LeadAgent] Edge function lead-ai-agent no disponible aún:', edgeErr.message);
       }
-    } catch (edgeErr) {
-      console.warn('[LeadAgent] Edge function lead-ai-agent no disponible aún, probando llamada directa si hay API Key:', edgeErr.message);
     }
 
-    // 7b. Respaldo directo con API Key configurada en el navegador si la Edge Function aún no fue desplegada
+    // 7b. Llamada directa con API Key configurada en el navegador (con autodescubrimiento de modelo Gemini para evitar 404 NotFound)
     if (!llmData && aiConfig.apiKey) {
       try {
         const cleanKey = aiConfig.apiKey.trim();
@@ -42838,22 +42841,73 @@ Enfoque elegido: ${strategy}
 Responde SOLO un JSON válido con las claves:
 { "priorityLabel": "...", "aiInsight": "...", "meetingSummary": { "executiveSummary": "...", "agreements": ["..."], "nextSteps": "..." }, "subject": "...", "customBoxTitle": "...", "customHtml": "...", "whatsappProposals": { "consultivo": "...", "cotizacion": "...", "corto": "..." } }`;
 
+        const parseCleanJsonFromLlm = (rawStr) => {
+          if (!rawStr) return null;
+          let cleaned = String(rawStr).trim();
+          cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+          const firstBrace = cleaned.indexOf('{');
+          const lastBrace = cleaned.lastIndexOf('}');
+          if (firstBrace >= 0 && lastBrace > firstBrace) {
+            cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+          }
+          return JSON.parse(cleaned);
+        };
+
         if (!isOpenAi) {
-          const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(cleanKey)}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              systemInstruction: { parts: [{ text: sysPrompt }] },
-              contents: [{ role: 'user', parts: [{ text: usrPrompt }] }],
-              generationConfig: { temperature: 0.45, responseMimeType: 'application/json' }
-            })
-          });
-          if (gRes.ok) {
-            const gJson = await gRes.json();
-            const txt = gJson?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            if (txt) {
-              llmData = JSON.parse(txt);
-              llmProviderLabel = 'Google Gemini 2.5 Flash';
+          // Autodescubrir el modelo Flash disponible en el proyecto de Google AI Studio del usuario para evitar 404 NotFound
+          let targetModel = sessionStorage.getItem('stocka_verified_gemini_model') || '';
+          if (!targetModel) {
+            try {
+              const modelsRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`);
+              if (modelsRes.ok) {
+                const modelsJson = await modelsRes.json();
+                const available = (modelsJson.models || [])
+                  .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+                  .map(m => String(m.name || '').replace(/^models\//, ''));
+                const preferredOrder = [
+                  'gemini-2.5-flash',
+                  'gemini-2.0-flash',
+                  'gemini-2.5-flash-preview-05-20',
+                  'gemini-2.5-flash-preview-04-17',
+                  'gemini-1.5-flash-latest',
+                  'gemini-1.5-flash'
+                ];
+                targetModel = preferredOrder.find(p => available.includes(p)) || available.find(a => a.includes('flash')) || available[0] || 'gemini-2.0-flash';
+                sessionStorage.setItem('stocka_verified_gemini_model', targetModel);
+              } else {
+                const errBody = await modelsRes.text();
+                llmError = `Google API (${modelsRes.status}): Verifica tu API Key de Gemini`;
+                console.warn('[LeadAgent] Error listando modelos Gemini:', errBody);
+              }
+            } catch (listErr) {
+              targetModel = 'gemini-2.0-flash';
+            }
+          }
+
+          if (targetModel && !llmError) {
+            const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${encodeURIComponent(cleanKey)}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                systemInstruction: { parts: [{ text: sysPrompt }] },
+                contents: [{ role: 'user', parts: [{ text: usrPrompt }] }],
+                generationConfig: { temperature: 0.45, responseMimeType: 'application/json' }
+              })
+            });
+            if (gRes.ok) {
+              const gJson = await gRes.json();
+              const parts = gJson?.candidates?.[0]?.content?.parts || [];
+              const answerPart = parts.filter(p => !p.thought && p.text).pop() || parts[parts.length - 1];
+              const txt = answerPart?.text || '';
+              if (txt) {
+                llmData = parseCleanJsonFromLlm(txt);
+                llmProviderLabel = `Google Gemini (${targetModel})`;
+              }
+            } else {
+              sessionStorage.removeItem('stocka_verified_gemini_model');
+              const errTxt = await gRes.text();
+              llmError = `Gemini HTTP ${gRes.status}`;
+              console.warn('[LeadAgent] Respuesta no OK de Gemini:', gRes.status, errTxt);
             }
           }
         } else {
@@ -42871,12 +42925,15 @@ Responde SOLO un JSON válido con las claves:
             const oJson = await oRes.json();
             const txt = oJson?.choices?.[0]?.message?.content || '';
             if (txt) {
-              llmData = JSON.parse(txt);
+              llmData = parseCleanJsonFromLlm(txt);
               llmProviderLabel = 'OpenAI GPT-4o';
             }
+          } else {
+            llmError = `OpenAI HTTP ${oRes.status}`;
           }
         }
       } catch (directErr) {
+        llmError = directErr.message || 'Error procesando respuesta IA';
         console.warn('[LeadAgent] Aviso en llamada directa LLM (usando Motor Experto):', directErr.message);
       }
     }
@@ -43097,7 +43154,7 @@ window.openLeadAgentModal = async function(encodedEmail = '', initialStrategy = 
           <div>
             <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               <h3 style="margin: 0; font-size: 1.12rem; font-weight: 800; color: white;">Agente Comercial IA • Central de Leads</h3>
-              <span id="agent-active-engine-badge" style="background: rgba(16, 185, 129, 0.25); color: #6ee7b7; border: 1px solid rgba(110, 231, 183, 0.4); font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 20px;">Copiloto 360° Activo</span>
+              <span id="agent-active-engine-badge" title="Haz clic aquí o en 'Motor IA' para configurar tu API Key de Google Gemini" style="background: rgba(16, 185, 129, 0.25); color: #6ee7b7; border: 1px solid rgba(110, 231, 183, 0.4); font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 20px; cursor: pointer;">Copiloto 360° Activo</span>
             </div>
             <p style="margin: 2px 0 0 0; font-size: 0.76rem; color: rgba(255,255,255,0.82);">
               Analiza cada prospecto, sus simulaciones de cotización y las consultas del formulario para redactar una propuesta de acercamiento lista para enviar
@@ -43194,12 +43251,18 @@ window.openLeadAgentModal = async function(encodedEmail = '', initialStrategy = 
   if (cfgProviderEl) cfgProviderEl.value = currentAiCfg.provider || 'gemini';
   if (cfgApiKeyEl) cfgApiKeyEl.value = currentAiCfg.apiKey || '';
 
-  document.getElementById('btn-toggle-agent-ai-settings')?.addEventListener('click', () => {
+  const toggleAiDrawer = () => {
     const drawer = document.getElementById('agent-ai-settings-drawer');
     if (drawer) {
-      drawer.style.display = drawer.style.display === 'none' ? 'block' : 'none';
+      const willOpen = drawer.style.display === 'none';
+      drawer.style.display = willOpen ? 'block' : 'none';
+      if (willOpen) {
+        setTimeout(() => document.getElementById('agent-cfg-apikey')?.focus(), 50);
+      }
     }
-  });
+  };
+  document.getElementById('btn-toggle-agent-ai-settings')?.addEventListener('click', toggleAiDrawer);
+  document.getElementById('agent-active-engine-badge')?.addEventListener('click', toggleAiDrawer);
 
   document.getElementById('btn-save-agent-ai-cfg')?.addEventListener('click', () => {
     const newCfg = {
@@ -43207,6 +43270,7 @@ window.openLeadAgentModal = async function(encodedEmail = '', initialStrategy = 
       provider: document.getElementById('agent-cfg-provider')?.value || 'gemini',
       apiKey: (document.getElementById('agent-cfg-apikey')?.value || '').trim()
     };
+    sessionStorage.removeItem('stocka_verified_gemini_model');
     if (typeof window.saveLeadAiConfig === 'function') {
       window.saveLeadAiConfig(newCfg);
     }
