@@ -126,9 +126,12 @@ async function connectToWhatsApp() {
       console.log('======================================================\n');
 
       // Sincronizar al arrancar los mensajes enviados desde Torre de Control registrados en Supabase
+      // y reanudar o despachar lotes de respuestas pendientes (ventana de 30 min)
       try {
-        const { syncRecentAuditLogsToTrackedState } = getReplyForwardingService();
-        syncRecentAuditLogsToTrackedState(sock).catch(() => {});
+        const { syncRecentAuditLogsToTrackedState, processPendingReplyBatches } = getReplyForwardingService();
+        syncRecentAuditLogsToTrackedState(sock)
+          .then(() => processPendingReplyBatches(sock, formatJid, resolveTargetWaGroup))
+          .catch(() => {});
       } catch (_) {}
     }
   });
@@ -245,7 +248,7 @@ function requireAuth(req, res, next) {
 // 1. Estado de conexión
 app.get('/status', requireAuth, (req, res) => {
   res.json({
-    version: '1.4.0-stox-reply-forwarder',
+    version: '1.5.0-stox-reply-batch-30m',
     status: connectionStatus,
     targetGroup: resolveTargetWaGroup(),
     user: botUser,
@@ -512,6 +515,25 @@ app.delete('/tracked-messages/:phone', requireAuth, (req, res) => {
     res.json({ success: true, deactivated });
   } catch (err) {
     res.status(500).json({ error: 'Error desactivando seguimiento: ' + err.message });
+  }
+});
+
+// 4.0.4 Enviar / Forzar Resumen Inmediato de Respuestas Acumuladas (sin esperar los 30 minutos)
+app.post('/tracked-messages/flush', requireAuth, async (req, res) => {
+  if (connectionStatus !== 'CONNECTED' || !sock) {
+    return res.status(503).json({ error: 'WhatsApp no está conectado actualmente.' });
+  }
+  try {
+    const { phone } = req.body || {};
+    const { flushPendingRepliesForContact, processPendingReplyBatches } = getReplyForwardingService();
+    if (phone) {
+      const result = await flushPendingRepliesForContact(phone, sock, formatJid, resolveTargetWaGroup, { force: true });
+      return res.json({ success: true, mode: 'single', phone, ...result });
+    }
+    const result = await processPendingReplyBatches(sock, formatJid, resolveTargetWaGroup, { forceAll: true });
+    res.json({ success: true, mode: 'all', ...result });
+  } catch (err) {
+    res.status(500).json({ error: 'Error enviando resumen de respuestas acumuladas: ' + err.message });
   }
 });
 
@@ -962,6 +984,14 @@ app.listen(PORT, () => {
         await processDueWorkspaceReminders(sock, formatJid, { isNonWorking: nonWorking.isNonWorking });
       } catch (err) {
         console.error('[WorkspaceReminders Worker Error]:', err.message);
+      }
+
+      // A.3 Procesar lotes pendientes de respuestas de clientes (ventana de consolidación de 30 min)
+      try {
+        const { processPendingReplyBatches } = getReplyForwardingService();
+        await processPendingReplyBatches(sock, formatJid, resolveTargetWaGroup);
+      } catch (err) {
+        console.error('[ReplyBatch Worker Error]:', err.message);
       }
 
       if (!nonWorking.isNonWorking) {

@@ -40416,9 +40416,33 @@ window.parseLeadSimulationData = function(notesText) {
   // Servicios
   const servicios = map['servicios'] || null;
 
-  // Same Day y Regiones
+  // Same Day y Regiones (ej. "90% (18 pedidos)" o "2 pedidos (vía couriers)")
   const sameDay = map['same day rm'] || null;
   const regiones = map['envíos a regiones'] || map['envios a regiones'] || null;
+
+  const extractOrdersCount = (rawStr, totalOrdersFallback = 0) => {
+    if (typeof rawStr === 'number') return rawStr;
+    if (!rawStr) return 0;
+    const s = String(rawStr);
+    // 1. Buscar explícitamente número junto a "pedido(s)" o "envío(s)" (ej. "90% (18 pedidos)" -> 18)
+    const explicitPedidos = s.match(/(\d+)\s*(?:pedidos?|env[ií]os?|despachos?)/i);
+    if (explicitPedidos) return parseInt(explicitPedidos[1], 10);
+    // 2. Si viene número entre paréntesis (ej. "90% (18)")
+    const parenNum = s.match(/\((\d+)\)/);
+    if (parenNum) return parseInt(parenNum[1], 10);
+    // 3. Si es solo un porcentaje (ej. "90%") y conocemos los pedidos mensuales
+    const pctMatch = s.match(/(\d+(?:[.,]\d+)?)\s*%/);
+    if (pctMatch && totalOrdersFallback > 0) {
+      const pct = parseFloat(pctMatch[1].replace(',', '.'));
+      return Math.round((pct / 100) * totalOrdersFallback);
+    }
+    // 4. Número directo
+    const firstNum = s.match(/(\d+)/);
+    return firstNum ? parseInt(firstNum[1], 10) : 0;
+  };
+
+  const sameDayNum = extractOrdersCount(sameDay, ordersNum || 0);
+  const regionesNum = extractOrdersCount(regiones, ordersNum || 0);
 
   // Vitrina y POS
   const vitrinaStr = map['vitrina / showroom'] || '';
@@ -40438,7 +40462,9 @@ window.parseLeadSimulationData = function(notesText) {
     costLabel: rawCost || (netNum ? `$${netNum.toLocaleString('es-CL')} + IVA` : null),
     canales,
     sameDay,
+    sameDayNum,
     regiones,
+    regionesNum,
     vitrina,
     pos,
     servicios,
@@ -40446,6 +40472,23 @@ window.parseLeadSimulationData = function(notesText) {
     clientComments,
     rawNotes: notesText
   };
+};
+
+window.parseShipmentCountFromStr = function(val, totalOrdersFallback = 0) {
+  if (typeof val === 'number') return val;
+  if (!val) return 0;
+  const s = String(val);
+  const explicitPedidos = s.match(/(\d+)\s*(?:pedidos?|env[ií]os?|despachos?)/i);
+  if (explicitPedidos) return parseInt(explicitPedidos[1], 10);
+  const parenNum = s.match(/\((\d+)\)/);
+  if (parenNum) return parseInt(parenNum[1], 10);
+  const pctMatch = s.match(/(\d+(?:[.,]\d+)?)\s*%/);
+  if (pctMatch && totalOrdersFallback > 0) {
+    const pct = parseFloat(pctMatch[1].replace(',', '.'));
+    return Math.round((pct / 100) * totalOrdersFallback);
+  }
+  const m = s.match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : 0;
 };
 
 window.buildQuoteCardHtml = function(q, idx, lead) {
@@ -40461,7 +40504,7 @@ window.buildQuoteCardHtml = function(q, idx, lead) {
   const ordersLabel = orders > 0 ? `${orders} ped/mes` : (sim?.ordersLabel || 'A definir');
   const volLabel = vol > 0 ? `${vol} m³` : (sim?.volLabel || 'A definir');
   const netLabel = net > 0 ? `$${Math.round(net).toLocaleString('es-CL')}` : (sim?.costLabel ? sim.costLabel.split('(')[0].trim() : 'A calcular');
-  const ufLabel = sim?.ufStr || (net > 0 ? `~ ${(net / 38500).toFixed(2)} UF` : '');
+  const ufLabel = sim?.ufStr || (net > 0 ? `~ ${(net / 40867).toFixed(2)} UF` : '');
 
   // Canales
   const rawChannels = (sim?.canales && sim.canales.length > 0) ? sim.canales : (q.quote_data?.channels ? (Array.isArray(q.quote_data.channels) ? q.quote_data.channels : [q.quote_data.channels]) : []);
@@ -40491,7 +40534,7 @@ window.buildQuoteCardHtml = function(q, idx, lead) {
   const webIg = sim?.webIg || q.website || lead?.website || '';
   let webIgHtml = '';
   if (webIg && webIg.toLowerCase() !== 'no indicado') {
-    const parts = webIg.split(/[\/,|]/).map(p => p.trim()).filter(Boolean);
+    const parts = webIg.split(/\s*[|,]\s*|\s+\/\s+/).map(p => p.trim()).filter(Boolean);
     const linkItems = parts.map(part => {
       if (part.startsWith('@')) {
         const handle = part.replace(/^@/, '');
@@ -40521,6 +40564,8 @@ window.buildQuoteCardHtml = function(q, idx, lead) {
   // Despachos
   const sameDay = sim?.sameDay;
   const regiones = sim?.regiones;
+  const sameDayCountForModal = q.quote_data?.shipping?.shipmentsSameDay ?? sim?.sameDayNum ?? window.parseShipmentCountFromStr(sameDay, orders);
+  const regionesCountForModal = q.quote_data?.shipping?.shipmentsCourier ?? sim?.regionesNum ?? window.parseShipmentCountFromStr(regiones, orders);
   let shippingHtml = '';
   if (sameDay || regiones) {
     shippingHtml = `
@@ -40568,7 +40613,7 @@ window.buildQuoteCardHtml = function(q, idx, lead) {
             <button type="button" class="btn btn-outline btn-sm" onclick="if(document.getElementById('modal-lead-detail')) document.getElementById('modal-lead-detail').remove(); window.openLeadAgentModal('${encodeURIComponent(lead.email)}')" style="padding: 0.22rem 0.55rem; font-size: 0.72rem; font-weight: 700; color: #5e17eb; border-color: rgba(94, 23, 235, 0.35); background: rgba(94, 23, 235, 0.06); display: inline-flex; align-items: center; gap: 0.25rem;">
               <i class="ri-sparkling-2-fill"></i> Propuesta Agente IA
             </button>
-            <button type="button" class="btn btn-outline btn-sm" onclick="if(document.getElementById('modal-lead-detail')) document.getElementById('modal-lead-detail').remove(); window.openSendLeadInfoModal({ emailMode: 'quote', email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name || '')}', commerceName: '${encodeURIComponent(lead.company || '')}', quoteParams: { monthlyOrders: ${Number(orders) || 150}, storageVolumeM3: ${Number(vol) || 3}, shipmentsSameDay: ${parseInt(String(sameDay || '0').replace(/\D/g, ''), 10) || 0}, shipmentsCourier: ${parseInt(String(regiones || '0').replace(/\D/g, ''), 10) || 0}, hasVitrinaService: ${Boolean(vitrina)}, hasPosService: ${Boolean(pos)} } })" style="padding: 0.22rem 0.55rem; font-size: 0.72rem; font-weight: 700; color: #059669; border-color: rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.06); display: inline-flex; align-items: center; gap: 0.25rem;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="if(document.getElementById('modal-lead-detail')) document.getElementById('modal-lead-detail').remove(); window.openSendLeadInfoModal({ emailMode: 'quote', email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name || '')}', commerceName: '${encodeURIComponent(lead.company || '')}', quoteParams: { monthlyOrders: ${Number(orders) || 150}, storageVolumeM3: ${Number(vol) || 3}, shipmentsSameDay: ${Number(sameDayCountForModal) || 0}, shipmentsCourier: ${Number(regionesCountForModal) || 0}, hasVitrinaService: ${Boolean(vitrina)}, hasPosService: ${Boolean(pos)} } })" style="padding: 0.22rem 0.55rem; font-size: 0.72rem; font-weight: 700; color: #059669; border-color: rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.06); display: inline-flex; align-items: center; gap: 0.25rem;">
               <i class="ri-mail-check-line"></i> Enviar Cotización por Correo
             </button>
           ` : ''}
@@ -42121,13 +42166,6 @@ window.analyzeLeadWithAgent = async function(lead, options = {}) {
   const hasMeeting = Boolean(latestMeeting);
   const isMeetingCompleted = Boolean(latestMeeting?.meeting_status === 'completed' || geminiMeetNotes.length > 0);
 
-  const parseNumFromStr = (val) => {
-    if (typeof val === 'number') return val;
-    if (!val) return 0;
-    const m = String(val).match(/(\d+)/);
-    return m ? parseInt(m[1], 10) : 0;
-  };
-
   const orders = Number(
     options.overrideQuoteParams?.monthlyOrders ??
     latestMeeting?.agreed_monthly_orders ??
@@ -42147,13 +42185,15 @@ window.analyzeLeadWithAgent = async function(lead, options = {}) {
   const sameDayCount = Number(
     options.overrideQuoteParams?.shipmentsSameDay ??
     qData?.shipping?.shipmentsSameDay ??
-    parseNumFromStr(sim?.sameDay) ??
+    sim?.sameDayNum ??
+    window.parseShipmentCountFromStr(sim?.sameDay, orders) ??
     0
   );
   const courierCount = Number(
     options.overrideQuoteParams?.shipmentsCourier ??
     qData?.shipping?.shipmentsCourier ??
-    parseNumFromStr(sim?.regiones) ??
+    sim?.regionesNum ??
+    window.parseShipmentCountFromStr(sim?.regiones, orders) ??
     0
   );
   const hasPos = Boolean(
@@ -42202,16 +42242,33 @@ window.analyzeLeadWithAgent = async function(lead, options = {}) {
     }
   }
 
-  const netMonthlyCLP = Number(
-    (hasQuoteSimulation && calculatedQuote?.totals?.netMonthly) ||
+  const hasVolumeOverride = Boolean(
+    options.overrideQuoteParams?.monthlyOrders !== undefined ||
+    options.overrideQuoteParams?.storageVolumeM3 !== undefined ||
+    (latestMeeting?.agreed_monthly_orders && Number(latestMeeting.agreed_monthly_orders) !== Number(latestQuote?.monthly_orders || sim?.ordersNum || 0)) ||
+    (latestMeeting?.agreed_volume_m3 && Number(latestMeeting.agreed_volume_m3) !== Number(latestQuote?.estimated_volume || sim?.volNum || 0))
+  );
+  const storedSimNetCLP = Number(
     latestQuote?.estimated_monthly_net ||
     qData?.totals?.netMonthly ||
     sim?.netNum ||
     0
   );
+  const netMonthlyCLP = Number(
+    (!hasVolumeOverride && storedSimNetCLP > 0)
+      ? storedSimNetCLP
+      : ((hasQuoteSimulation && calculatedQuote?.totals?.netMonthly) || storedSimNetCLP || 0)
+  );
   const ufValue = Number(calculatedQuote?.ufValue || pricingConfig?.uf_value || 40867);
-  const netMonthlyUF = netMonthlyCLP > 0 ? (netMonthlyCLP / ufValue) : 0;
-  const avgOrderCostCLP = Number(calculatedQuote?.totals?.costPerOrderNet || (orders > 0 && netMonthlyCLP > 0 ? Math.round(netMonthlyCLP / orders) : 0));
+  const parsedUfFromSim = sim?.ufStr ? parseFloat(String(sim.ufStr).replace(',', '.')) : 0;
+  const netMonthlyUF = (!hasVolumeOverride && parsedUfFromSim > 0)
+    ? parsedUfFromSim
+    : (netMonthlyCLP > 0 ? (netMonthlyCLP / ufValue) : 0);
+  const avgOrderCostCLP = Number(
+    (orders > 0 && netMonthlyCLP > 0)
+      ? Math.round(netMonthlyCLP / orders)
+      : (calculatedQuote?.totals?.costPerOrderNet || 0)
+  );
 
   // Extraer canales de venta
   const rawChannels = (sim?.canales && sim.canales.length > 0)
@@ -48163,6 +48220,45 @@ window.switchStoxControlTowerTab = function(tab) {
   }
 };
 
+window.flushStoxTrackedContactNow = async function(phone, btn) {
+  const waUrl = (window.WHATSAPP_API_URL || 'https://stocka-whatsapp-bot.onrender.com').replace(/\/+$/, '');
+  const waKey = window.WHATSAPP_API_KEY || 'stocka_wa_internal_secret_2026';
+  const origHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Enviando...';
+  }
+  try {
+    const resp = await fetch(`${waUrl}/tracked-messages/flush`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': waKey
+      },
+      body: JSON.stringify({ phone })
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok && data.flushed) {
+      if (typeof window.showToast === 'function') {
+        window.showToast(`Resumen consolidado (${data.messagesCount || 1} msg) enviado al grupo.`, 'success');
+      }
+      window.loadStoxTrackedContactsList();
+    } else {
+      alert(data.reason || data.error || 'No había mensajes pendientes por enviar.');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+      }
+    }
+  } catch (err) {
+    alert('Error al enviar resumen ahora: ' + err.message);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+  }
+};
+
 window.loadStoxTrackedContactsList = async function() {
   const container = document.getElementById('stox-ct-tracked-list-container');
   if (!container) return;
@@ -48204,7 +48300,7 @@ window.loadStoxTrackedContactsList = async function() {
   if (activeContacts.length === 0) {
     container.innerHTML = `
       <div style="padding: 1.5rem; text-align: center; background: var(--color-bg, #f8fafc); border: 1px dashed var(--color-border, #cbd5e1); border-radius: 10px; color: var(--color-text-muted); font-size: 0.82rem;">
-        No hay contactos en seguimiento activo todavía. Cuando envíes un mensaje desde esta ventana, Stox quedará atento a la respuesta del contacto y la reenviará automáticamente al grupo de WhatsApp.
+        No hay contactos en seguimiento activo todavía. Cuando envíes un mensaje desde esta ventana, Stox quedará atento a las respuestas del contacto, las acumulará por 30 minutos y enviará un resumen consolidado al grupo de WhatsApp.
       </div>
     `;
     return;
@@ -48214,29 +48310,44 @@ window.loadStoxTrackedContactsList = async function() {
     <div style="display: flex; flex-direction: column; gap: 0.55rem; max-height: 360px; overflow-y: auto; padding-right: 4px;">
       ${activeContacts.map(c => {
         const sentTime = c.sentAt ? new Date(c.sentAt).toLocaleString('es-CL') : '-';
-        const hasReplies = (c.repliesCount || 0) > 0 || !!c.lastReplyText;
+        const pendingCount = Array.isArray(c.pendingReplies) ? c.pendingReplies.length : 0;
+        const flushTimeStr = c.pendingFlushAt
+          ? new Date(c.pendingFlushAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+          : '';
+        const hasReplies = (c.repliesCount || 0) > 0 || !!c.lastReplyText || pendingCount > 0;
+        const statusBadgeBg = pendingCount > 0 ? '#fef3c7' : (hasReplies ? '#d1fae5' : '#e0e7ff');
+        const statusBadgeColor = pendingCount > 0 ? '#92400e' : (hasReplies ? '#065f46' : '#3730a3');
+        const statusBadgeText = pendingCount > 0
+          ? `⏳ Acumulando ${pendingCount} msg · resumen a las ${flushTimeStr} hrs`
+          : (hasReplies ? `💬 ${c.repliesCount || 1} resumen(es) enviado(s)` : '⏳ Esperando respuesta');
+
         return `
-          <div style="background: var(--color-bg, #f8fafc); border: 1px solid ${hasReplies ? '#10b981' : 'var(--color-border, #cbd5e1)'}; border-left: 4px solid ${hasReplies ? '#10b981' : '#6366f1'}; border-radius: 8px; padding: 0.65rem 0.8rem; font-size: 0.8rem;">
+          <div style="background: var(--color-bg, #f8fafc); border: 1px solid ${pendingCount > 0 ? '#f59e0b' : (hasReplies ? '#10b981' : 'var(--color-border, #cbd5e1)')}; border-left: 4px solid ${pendingCount > 0 ? '#f59e0b' : (hasReplies ? '#10b981' : '#6366f1')}; border-radius: 8px; padding: 0.65rem 0.8rem; font-size: 0.8rem;">
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
               <div>
                 <strong style="color: var(--color-text-main); font-size: 0.86rem;">${window.escapeHtml ? window.escapeHtml(c.contactName || 'Contacto') : (c.contactName || 'Contacto')}</strong>
                 <span style="color: var(--color-text-muted); font-family: monospace; margin-left: 0.35rem;">+${c.phone}</span>
                 ${c.orderNumber ? `<span style="background: rgba(99, 102, 241, 0.1); color: #4f46e5; padding: 0.08rem 0.4rem; border-radius: 4px; font-weight: 700; font-size: 0.72rem; margin-left: 0.35rem;">#${window.escapeHtml ? window.escapeHtml(c.orderNumber) : c.orderNumber}${c.comercio ? ` · ${window.escapeHtml ? window.escapeHtml(c.comercio) : c.comercio}` : ''}</span>` : ''}
               </div>
-              <span style="font-size: 0.7rem; font-weight: 700; padding: 0.12rem 0.45rem; border-radius: 99px; background: ${hasReplies ? '#d1fae5' : '#e0e7ff'}; color: ${hasReplies ? '#065f46' : '#3730a3'};">
-                ${hasReplies ? `💬 ${c.repliesCount || 1} respuesta(s) reenviada(s)` : '⏳ Esperando respuesta'}
+              <span style="font-size: 0.7rem; font-weight: 700; padding: 0.12rem 0.45rem; border-radius: 99px; background: ${statusBadgeBg}; color: ${statusBadgeColor};">
+                ${statusBadgeText}
               </span>
             </div>
             <div style="margin-top: 0.35rem; color: var(--color-text-muted); font-size: 0.76rem;">
               <strong>Enviado (${sentTime}):</strong> <em>"${window.escapeHtml ? window.escapeHtml(String(c.sentMessage || '').slice(0, 140)) : String(c.sentMessage || '').slice(0, 140)}"</em>
             </div>
             ${c.lastReplyText ? `
-              <div style="margin-top: 0.35rem; padding: 0.4rem 0.55rem; background: rgba(16, 185, 129, 0.08); border-radius: 6px; color: #065f46; font-size: 0.78rem;">
-                <strong>📩 Última respuesta (${c.lastReplyAt ? new Date(c.lastReplyAt).toLocaleString('es-CL') : ''}):</strong> "${window.escapeHtml ? window.escapeHtml(c.lastReplyText) : c.lastReplyText}"
+              <div style="margin-top: 0.35rem; padding: 0.4rem 0.55rem; background: ${pendingCount > 0 ? 'rgba(245, 158, 11, 0.1)' : 'rgba(16, 185, 129, 0.08)'}; border-radius: 6px; color: ${pendingCount > 0 ? '#92400e' : '#065f46'}; font-size: 0.78rem;">
+                <strong>📩 ${pendingCount > 0 ? 'Texto acumulado hasta ahora' : 'Último resumen'} (${c.lastReplyAt ? new Date(c.lastReplyAt).toLocaleString('es-CL') : ''}):</strong> "${window.escapeHtml ? window.escapeHtml(c.lastReplyText) : c.lastReplyText}"
               </div>
             ` : ''}
-            <div style="margin-top: 0.35rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.72rem; color: var(--color-text-muted);">
-              <span><i class="ri-group-line"></i> Reenvía a: <strong>${window.escapeHtml ? window.escapeHtml(c.targetGroupName || 'NOTIFICACIONES STOX') : 'NOTIFICACIONES STOX'}</strong></span>
+            <div style="margin-top: 0.35rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; font-size: 0.72rem; color: var(--color-text-muted);">
+              <span><i class="ri-group-line"></i> Reenvía a: <strong>${window.escapeHtml ? window.escapeHtml(c.targetGroupName || 'NOTIFICACIONES STOX') : 'NOTIFICACIONES STOX'}</strong> (ventana 30 min)</span>
+              ${pendingCount > 0 ? `
+                <button type="button" onclick="window.flushStoxTrackedContactNow('${c.phone}', this)" style="background: #f59e0b; color: #fff; border: none; border-radius: 5px; padding: 0.18rem 0.5rem; font-size: 0.7rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+                  <i class="ri-send-plane-fill"></i> Enviar resumen ahora
+                </button>
+              ` : ''}
             </div>
           </div>
         `;
@@ -48292,7 +48403,7 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
       <div id="stox-ct-pane-send" style="display: flex; flex-direction: column; gap: 0.75rem;">
         <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 0.55rem 0.75rem; font-size: 0.78rem; color: var(--color-text-main); line-height: 1.4;">
           <i class="ri-whatsapp-fill" style="color: #10b981; font-size: 0.95rem;"></i>
-          <strong>¿Cómo funciona?</strong> Stox enviará este mensaje al WhatsApp del contacto. Si el contacto responde, Stox <strong>reenviará automáticamente al grupo seleccionado</strong> el nombre del contacto, teléfono, pedido y la respuesta recibida.
+          <strong>¿Cómo funciona?</strong> Stox enviará este mensaje al WhatsApp del contacto. Si el contacto responde (incluso si envía varios mensajes cortos seguidos), Stox <strong>acumulará sus respuestas durante una ventana de 30 minutos y enviará un único resumen consolidado</strong> al grupo seleccionado con los datos del contacto y del pedido.
         </div>
 
         ${!order ? `
@@ -103496,20 +103607,14 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
     }
 
     if (sim || latestQuote) {
-      const parseNum = (v) => {
-        if (typeof v === 'number') return v;
-        if (!v) return 0;
-        const m = String(v).match(/(\d+)/);
-        return m ? parseInt(m[1], 10) : 0;
-      };
       const ordersVal = Number(latestQuote?.monthly_orders) || Number(sim?.ordersNum) || 150;
       const volVal = Number(latestQuote?.estimated_volume) || Number(sim?.volNum) || 3;
       return {
         ...base,
         monthlyOrders: ordersVal,
         storageVolumeM3: volVal,
-        shipmentsSameDay: parseNum(sim?.sameDay),
-        shipmentsCourier: parseNum(sim?.regiones),
+        shipmentsSameDay: Number(sim?.sameDayNum ?? window.parseShipmentCountFromStr?.(sim?.sameDay, ordersVal)) || 0,
+        shipmentsCourier: Number(sim?.regionesNum ?? window.parseShipmentCountFromStr?.(sim?.regiones, ordersVal)) || 0,
         hasPosService: Boolean(sim?.pos),
         hasVitrinaService: Boolean(sim?.vitrina),
         fromLeadSimulation: Boolean(sim?.isQuoteSimulation || latestQuote)

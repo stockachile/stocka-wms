@@ -47,6 +47,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 const NOTIFICACIONES_STOX_GROUP = '120363413357945543@g.us';
 
+// Ventana de acumulación de respuestas antes de enviar un único mensaje consolidado al grupo (30 minutos por defecto)
+const REPLY_BATCH_WINDOW_MINUTES = Number(process.env.STOX_REPLY_BATCH_MINUTES) || 30;
+const inMemoryFlushTimers = new Map();
+
 /**
  * Ruta del archivo persistente de seguimiento de contactos Stox
  */
@@ -218,6 +222,11 @@ function registerTrackedContact({
     targetGroup: targetGroup || NOTIFICACIONES_STOX_GROUP,
     targetGroupName: targetGroupName || 'NOTIFICACIONES STOX',
     active: true,
+    batchWindowMinutes: REPLY_BATCH_WINDOW_MINUTES,
+    pendingReplies: Array.isArray(existing?.pendingReplies) ? existing.pendingReplies : [],
+    firstPendingAt: existing?.firstPendingAt || null,
+    pendingFlushAt: existing?.pendingFlushAt || null,
+    pushName: existing?.pushName || '',
     repliesCount: existing?.repliesCount || 0,
     lastReplyAt: existing?.lastReplyAt || null,
     lastReplyText: existing?.lastReplyText || null,
@@ -423,15 +432,126 @@ async function handleIncomingTrackedReply(sock, msg, formatJid, resolveTargetWaG
 
   const { entry, state, key } = matched;
   const pushName = msg.pushName ? String(msg.pushName).trim() : '';
-  const nowIso = new Date().toISOString();
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const batchMinutes = Number(entry.batchWindowMinutes) || REPLY_BATCH_WINDOW_MINUTES;
 
-  const nowFormatted = new Date().toLocaleString('es-CL', {
-    timeZone: 'America/Santiago'
+  if (!Array.isArray(entry.pendingReplies)) {
+    entry.pendingReplies = [];
+  }
+
+  // Si es el primer mensaje de esta ráfaga, iniciar ventana de 30 minutos desde este instante
+  if (entry.pendingReplies.length === 0 || !entry.pendingFlushAt) {
+    entry.firstPendingAt = nowIso;
+    entry.pendingFlushAt = new Date(nowMs + batchMinutes * 60 * 1000).toISOString();
+  }
+
+  entry.pendingReplies.push({
+    text: incomingText,
+    pushName,
+    receivedAt: nowIso
   });
-  const sentAtFormatted = entry.sentAt
-    ? new Date(entry.sentAt).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
-    : '';
 
+  if (pushName) {
+    entry.pushName = pushName;
+  }
+
+  // Actualizar vista previa en vivo del texto consolidado hasta el momento
+  const currentCombined = entry.pendingReplies
+    .map(r => String(r.text || '').trim())
+    .filter(Boolean)
+    .join(' ');
+
+  entry.lastReplyAt = nowIso;
+  entry.lastReplyText = currentCombined;
+  state.contacts[key] = entry;
+  saveForwardingState(state);
+
+  const flushTimeStr = new Date(entry.pendingFlushAt).toLocaleTimeString('es-CL', {
+    timeZone: 'America/Santiago',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  console.log(
+    `⏳ [StoxReplyForwarder] Mensaje #${entry.pendingReplies.length} acumulado de +${entry.phone} (${entry.contactName || pushName}). Se enviará resumen consolidado a las ${flushTimeStr} hrs (${batchMinutes} min).`
+  );
+
+  // Programar temporizador en memoria para disparar al cumplirse la ventana de 30 minutos
+  scheduleBatchTimerForContact(key, entry.pendingFlushAt, sock, formatJid, resolveTargetWaGroup);
+
+  return true;
+}
+
+/**
+ * Programa un timer en memoria para despachar el resumen de un contacto exactamente al cumplirse su ventana
+ */
+function scheduleBatchTimerForContact(contactKey, pendingFlushAtIso, sock, formatJid, resolveTargetWaGroup) {
+  if (!contactKey || !pendingFlushAtIso || inMemoryFlushTimers.has(contactKey)) return;
+
+  const dueMs = new Date(pendingFlushAtIso).getTime() - Date.now();
+  const delay = Math.max(1000, dueMs);
+
+  const timer = setTimeout(async () => {
+    inMemoryFlushTimers.delete(contactKey);
+    try {
+      await flushPendingRepliesForContact(contactKey, sock, formatJid, resolveTargetWaGroup, { force: true });
+    } catch (err) {
+      console.error(`[StoxReplyForwarder] Error en flush programado de ${contactKey}:`, err.message);
+    }
+  }, delay);
+
+  if (typeof timer.unref === 'function') timer.unref();
+  inMemoryFlushTimers.set(contactKey, timer);
+}
+
+/**
+ * Consolida todos los mensajes pendientes de un contacto en un solo texto y lo envía al grupo de WhatsApp
+ */
+async function flushPendingRepliesForContact(contactKeyOrPhone, sock, formatJid, resolveTargetWaGroup, { force = false } = {}) {
+  if (!sock) return { flushed: false, reason: 'Socket no disponible' };
+
+  const state = loadForwardingState();
+  const norm = normalizePhoneDigits(contactKeyOrPhone);
+  const last8 = norm ? norm.slice(-8) : '';
+
+  let targetKey = null;
+  if (state.contacts[contactKeyOrPhone]) {
+    targetKey = contactKeyOrPhone;
+  } else if (norm && state.contacts[norm]) {
+    targetKey = norm;
+  } else if (last8) {
+    targetKey = Object.keys(state.contacts).find(k => k.endsWith(last8) || state.contacts[k]?.last8 === last8);
+  }
+
+  if (!targetKey || !state.contacts[targetKey]) {
+    return { flushed: false, reason: 'Contacto no encontrado' };
+  }
+
+  const entry = state.contacts[targetKey];
+  const pending = Array.isArray(entry.pendingReplies) ? entry.pendingReplies : [];
+  if (pending.length === 0) {
+    return { flushed: false, reason: 'Sin mensajes pendientes por consolidar' };
+  }
+
+  const nowMs = Date.now();
+  const flushAtMs = entry.pendingFlushAt ? new Date(entry.pendingFlushAt).getTime() : 0;
+  if (!force && flushAtMs > nowMs) {
+    return { flushed: false, reason: 'Aún dentro de la ventana de acumulación de 30 minutos' };
+  }
+
+  if (inMemoryFlushTimers.has(targetKey)) {
+    clearTimeout(inMemoryFlushTimers.get(targetKey));
+    inMemoryFlushTimers.delete(targetKey);
+  }
+
+  // Unificar todos los mensajes recibidos en un solo texto fluido
+  const summarizedText = pending
+    .map(r => String(r.text || '').trim())
+    .filter(Boolean)
+    .join(' ');
+
+  const pushName = entry.pushName || pending[pending.length - 1]?.pushName || '';
   const contactLabel = entry.contactName && entry.contactName !== 'Contacto'
     ? (pushName && pushName.toLowerCase() !== entry.contactName.toLowerCase()
         ? `${entry.contactName} (~${pushName})`
@@ -443,6 +563,18 @@ async function handleIncomingTrackedReply(sock, msg, formatJid, resolveTargetWaG
     ? String(entry.sentMessage).slice(0, 280) + '...'
     : String(entry.sentMessage || '');
 
+  const sentAtFormatted = entry.sentAt
+    ? new Date(entry.sentAt).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
+    : '';
+
+  const firstTimeStr = entry.firstPendingAt
+    ? new Date(entry.firstPendingAt).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' })
+    : '';
+  const lastTimeStr = pending[pending.length - 1]?.receivedAt
+    ? new Date(pending[pending.length - 1].receivedAt).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' })
+    : '';
+  const nowFormatted = new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' });
+
   const targetGroupRaw = typeof resolveTargetWaGroup === 'function'
     ? resolveTargetWaGroup(entry.targetGroup)
     : (entry.targetGroup || NOTIFICACIONES_STOX_GROUP);
@@ -450,7 +582,9 @@ async function handleIncomingTrackedReply(sock, msg, formatJid, resolveTargetWaG
 
   const forwardLines = [
     `🤖 *Stox | RESPUESTA RECIBIDA EN TORRE DE CONTROL*`,
-    `💬 *NUEVA RESPUESTA DE CONTACTO*`,
+    pending.length > 1
+      ? `💬 *RESUMEN DE RESPUESTAS (${pending.length} mensajes consolidados)*`
+      : `💬 *NUEVA RESPUESTA DE CONTACTO*`,
     `━━━━━━━━━━━━━━━━━━━━`,
     `👤 *Contacto:* ${contactLabel}`,
     `📞 *Teléfono:* +${entry.phone} (https://wa.me/${entry.phone})`,
@@ -459,34 +593,43 @@ async function handleIncomingTrackedReply(sock, msg, formatJid, resolveTargetWaG
       : (entry.comercio ? `🏪 *Comercio:* ${entry.comercio}` : null),
     locationLine ? `📍 *Destino:* ${locationLine}` : null,
     `━━━━━━━━━━━━━━━━━━━━`,
-    `📩 *Respuesta recibida:*`,
-    `${incomingText}`,
+    `📩 *Respuesta consolidada:*`,
+    `${summarizedText}`,
     `━━━━━━━━━━━━━━━━━━━━`,
     `📤 *En respuesta al mensaje de Stox:*`,
     `_"${originalExcerpt}"_`,
     `👤 *Enviado por:* ${entry.sentBy || 'Torre de Control'}${sentAtFormatted ? ` (${sentAtFormatted})` : ''}`,
     `━━━━━━━━━━━━━━━━━━━━`,
-    `🕒 _Recibido: ${nowFormatted}_`
+    pending.length > 1 && firstTimeStr && lastTimeStr
+      ? `🕒 _Recibido entre ${firstTimeStr} y ${lastTimeStr} hrs · Enviado al grupo: ${nowFormatted}_`
+      : `🕒 _Recibido: ${nowFormatted}_`
   ].filter(Boolean);
 
   const forwardMessage = forwardLines.join('\n');
 
   try {
     await sock.sendMessage(groupJid, { text: forwardMessage });
-    console.log(`✅ [StoxReplyForwarder] Respuesta de +${entry.phone} (${contactLabel}) reenviada al grupo ${groupJid}`);
+    console.log(
+      `✅ [StoxReplyForwarder] Resumen consolidado (${pending.length} msg) de +${entry.phone} (${contactLabel}) enviado al grupo ${groupJid}`
+    );
 
-    // Actualizar estado persistente
+    const nowIso = new Date().toISOString();
     entry.repliesCount = (entry.repliesCount || 0) + 1;
     entry.lastReplyAt = nowIso;
-    entry.lastReplyText = incomingText;
+    entry.lastReplyText = summarizedText;
+    entry.pendingReplies = [];
+    entry.firstPendingAt = null;
+    entry.pendingFlushAt = null;
+
     if (!Array.isArray(entry.replies)) entry.replies = [];
     entry.replies.push({
-      text: incomingText,
+      text: summarizedText,
+      messagesCount: pending.length,
       pushName,
       receivedAt: nowIso,
       forwardedTo: groupJid
     });
-    state.contacts[key] = entry;
+    state.contacts[targetKey] = entry;
 
     state.history.unshift({
       type: 'INBOUND_REPLY',
@@ -496,7 +639,8 @@ async function handleIncomingTrackedReply(sock, msg, formatJid, resolveTargetWaG
       orderId: entry.orderId,
       orderNumber: entry.orderNumber,
       comercio: entry.comercio,
-      message: incomingText,
+      messagesCount: pending.length,
+      message: summarizedText,
       originalMessage: entry.sentMessage,
       targetGroup: groupJid,
       targetGroupName: entry.targetGroupName || 'NOTIFICACIONES STOX',
@@ -505,7 +649,7 @@ async function handleIncomingTrackedReply(sock, msg, formatJid, resolveTargetWaG
 
     saveForwardingState(state);
 
-    // Si tiene un pedido asociado en el WMS, registrar en el historial de auditoría del pedido
+    // Registrar el resumen consolidado en el historial de auditoría del pedido en Supabase
     if (entry.orderId) {
       try {
         await supabase.from('order_audit_logs').insert({
@@ -513,9 +657,10 @@ async function handleIncomingTrackedReply(sock, msg, formatJid, resolveTargetWaG
           user_email: 'stox-whatsapp@stocka.cl',
           action: 'Respuesta WhatsApp Recibida (Stox)',
           details: {
-            comment: `Respuesta de ${contactLabel} (+${entry.phone}) reenviada a ${entry.targetGroupName || 'NOTIFICACIONES STOX'}: "${incomingText}"`,
+            comment: `Respuesta consolidada (${pending.length} msg) de ${contactLabel} (+${entry.phone}) reenviada a ${entry.targetGroupName || 'NOTIFICACIONES STOX'}: "${summarizedText}"`,
             phone: entry.phone,
-            reply_text: incomingText,
+            messages_count: pending.length,
+            reply_text: summarizedText,
             forwarded_group: groupJid
           }
         });
@@ -524,11 +669,46 @@ async function handleIncomingTrackedReply(sock, msg, formatJid, resolveTargetWaG
       }
     }
 
-    return true;
+    return {
+      flushed: true,
+      phone: entry.phone,
+      contactName: contactLabel,
+      messagesCount: pending.length,
+      summarizedText
+    };
   } catch (err) {
-    console.error('[StoxReplyForwarder] Error reenviando respuesta al grupo:', err.message);
-    return false;
+    console.error('[StoxReplyForwarder] Error enviando resumen consolidado al grupo:', err.message);
+    return { flushed: false, error: err.message };
   }
+}
+
+/**
+ * Revisa periódicamente (cada 60s o al reconectar) todos los contactos con mensajes acumulados
+ * cuya ventana de 30 minutos ya se cumplió, y envía el texto consolidado al grupo.
+ */
+async function processPendingReplyBatches(sock, formatJid, resolveTargetWaGroup, { forceAll = false } = {}) {
+  if (!sock) return { flushedCount: 0, results: [] };
+
+  const state = loadForwardingState();
+  const nowMs = Date.now();
+  const results = [];
+
+  for (const [key, entry] of Object.entries(state.contacts)) {
+    if (!entry || !Array.isArray(entry.pendingReplies) || entry.pendingReplies.length === 0) {
+      continue;
+    }
+
+    const flushAtMs = entry.pendingFlushAt ? new Date(entry.pendingFlushAt).getTime() : 0;
+    if (forceAll || !flushAtMs || nowMs >= flushAtMs) {
+      const res = await flushPendingRepliesForContact(key, sock, formatJid, resolveTargetWaGroup, { force: true });
+      if (res.flushed) results.push(res);
+    } else {
+      // Asegurar que exista timer en memoria (por ejemplo tras un reinicio del servidor)
+      scheduleBatchTimerForContact(key, entry.pendingFlushAt, sock, formatJid, resolveTargetWaGroup);
+    }
+  }
+
+  return { flushedCount: results.length, results };
 }
 
 /**
@@ -572,8 +752,11 @@ function deactivateTrackedContact(phoneOrJid) {
 module.exports = {
   registerTrackedContact,
   handleIncomingTrackedReply,
+  flushPendingRepliesForContact,
+  processPendingReplyBatches,
   syncRecentAuditLogsToTrackedState,
   getTrackedMessagesSummary,
   deactivateTrackedContact,
-  normalizePhoneDigits
+  normalizePhoneDigits,
+  REPLY_BATCH_WINDOW_MINUTES
 };
