@@ -122628,20 +122628,27 @@ async function openCreateRedZoneAdminModal() {
     try {
       const pList = await loadPeriodStatusListForCommerce(val);
       const activeP = pList.find(p => p.isCurrentActivePeriod) || pList[0];
-      const activeName = activeP ? activeP.name : 'Período Vigente';
-      const unpaidOrPending = pList.filter(p => p.isUpToActivePeriod && !p.isPaid);
-      if (unpaidOrPending.length > 0 || !activeP) {
-        const details = unpaidOrPending.map(p => `<li><strong>${p.name}${p.isCurrentActivePeriod ? ' (Vigente)' : ''}:</strong> ${p.statusText}${p.pending > 0 ? ` ($${p.pending.toLocaleString('es-CL')})` : ''}</li>`).join('');
+      const activeName = activeP ? activeP.name : 'Período en Curso';
+      const blockingPeriods = pList.filter(p => (p.isPreviousPeriod && !p.isPaid) || p.hasUnpaidBalance);
+      const isCurrentDesgPending = Boolean(!activeP || activeP.isDesglosePending);
+      if (blockingPeriods.length > 0) {
+        const details = blockingPeriods.map(p => `<li><strong>${p.name}${p.isCurrentActivePeriod ? ' (En Curso)' : ''}:</strong> ${p.statusText}${p.pending > 0 ? ` ($${p.pending.toLocaleString('es-CL')})` : ''}</li>`).join('');
         billingStatusBox.innerHTML = `
           <div style="background:#fff1f2;border:1px solid #fecdd3;border-left:4px solid #e11d48;padding:0.65rem 0.85rem;border-radius:6px;font-size:0.78rem;color:#881337;line-height:1.4;">
-            <strong><i class="ri-error-warning-fill"></i> Comercio con bloqueo en portal cliente (Req. al día hasta ${activeName}):</strong>
-            <ul style="margin:0.3rem 0 0 1.1rem;padding:0;">${details || `<li>Emisión pendiente del período vigente (${activeName}).</li>`}</ul>
+            <strong><i class="ri-error-warning-fill"></i> Comercio con bloqueo en portal cliente (Saldos o períodos previos pendientes):</strong>
+            <ul style="margin:0.3rem 0 0 1.1rem;padding:0;">${details}</ul>
+          </div>
+        `;
+      } else if (isCurrentDesgPending) {
+        billingStatusBox.innerHTML = `
+          <div style="background:#fffbeb;border:1px solid #fde68a;border-left:4px solid #d97706;padding:0.65rem 0.85rem;border-radius:6px;font-size:0.78rem;color:#92400e;line-height:1.4;">
+            <strong><i class="ri-checkbox-circle-fill" style="color:#16a34a;"></i> Habilitado en portal cliente:</strong> Pagos previos al día. Pendiente emisión de desglose del período en curso (<strong>${activeName}</strong>) y los que correspondan según fecha de salida.
           </div>
         `;
       } else {
         billingStatusBox.innerHTML = `
           <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-left:4px solid #16a34a;padding:0.6rem 0.85rem;border-radius:6px;font-size:0.78rem;color:#166534;">
-            <strong><i class="ri-checkbox-circle-fill"></i> Cuenta al Día:</strong> Desgloses emitidos y pagados hasta el período vigente (<strong>${activeName}</strong>).
+            <strong><i class="ri-checkbox-circle-fill"></i> Cuenta al Día:</strong> Desgloses emitidos y pagados hasta el período en curso (<strong>${activeName}</strong>).
           </div>
         `;
       }

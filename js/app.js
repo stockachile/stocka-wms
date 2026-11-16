@@ -23835,6 +23835,8 @@ async function renderRedZone(container, profile, commerceList) {
     });
 
     // Evaluar condiciones bloqueantes para iniciar solicitud de baja
+    // Se bloquea por saldos impagos o desgloses pendientes en períodos anteriores al vigente, o por saldos impagos en desgloses ya emitidos.
+    // Si únicamente está pendiente la emisión del desglose del período en curso, se permite iniciar la solicitud informando dicha condición.
     const activePeriodStatus = periodStatusList.find(p => p.isCurrentActivePeriod) || periodStatusList[0] || null;
     const activePeriodName = activePeriodStatus ? activePeriodStatus.name : 'Período Actual';
 
@@ -23855,13 +23857,10 @@ async function renderRedZone(container, profile, commerceList) {
     }
     if (previousPendingDesglosePeriods.length > 0) {
       const listStr = previousPendingDesglosePeriods.map(p => p.name).join(', ');
-      blockingReasons.push(`<strong>Desgloses pendientes en períodos previos:</strong> Existen períodos anteriores sin desglose emitido o liquidado: <strong>${listStr}</strong>.`);
-    }
-    if (isCurrentPeriodDesglosePending) {
-      blockingReasons.push(`<strong>Emisión pendiente del período vigente (${activePeriodName}):</strong> El desglose de servicios correspondiente al período vigente de cobranza (<strong>${activePeriodName}</strong>) aún se encuentra pendiente de emisión/publicación. Es requisito que el desglose de <strong>${activePeriodName}</strong> haya sido emitido y pagado para iniciar la baja del servicio.`);
+      blockingReasons.push(`<strong>Desgloses pendientes en períodos previos:</strong> Existen períodos anteriores al actual sin desglose emitido o liquidado: <strong>${listStr}</strong>.`);
     }
     if (isCurrentPeriodPaymentPending) {
-      blockingReasons.push(`<strong>Pago pendiente del período vigente (${activePeriodName}):</strong> El período vigente de cobranza (<strong>${activePeriodName}</strong>) presenta un saldo o pago pendiente de confirmación (${activePeriodStatus.pending > 0 ? `$${activePeriodStatus.pending.toLocaleString('es-CL')} CLP` : activePeriodStatus.statusText}).`);
+      blockingReasons.push(`<strong>Pago pendiente del período en curso (${activePeriodName}):</strong> El desglose ya emitido del período <strong>${activePeriodName}</strong> presenta un saldo o pago pendiente de confirmación (${activePeriodStatus.pending > 0 ? `$${activePeriodStatus.pending.toLocaleString('es-CL')} CLP` : activePeriodStatus.statusText}).`);
     }
     if (futureUnpaidPeriods.length > 0) {
       const listStr = futureUnpaidPeriods.map(p => `${p.name} ($${p.pending.toLocaleString('es-CL')})`).join(', ');
@@ -23869,7 +23868,6 @@ async function renderRedZone(container, profile, commerceList) {
     }
 
     const isExitBlockedByBilling = blockingReasons.length > 0;
-    const hasPendingBilling = periodStatusList.some(p => !p.isPaid);
     const hasOpenExitTicket = activeExitTicket && activeExitTicket.status !== 'cerrado';
 
     // Renderizar panel de Zona Roja
@@ -23926,14 +23924,14 @@ async function renderRedZone(container, profile, commerceList) {
               <div style="flex: 1; min-width: 260px;">
                 <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.4rem;">
                   <h4 style="margin: 0; color: #881337; font-size: 1.05rem; font-weight: 800;">
-                    Solicitud de Baja Bloqueada — Requisito de Pagos y Desgloses al Día
+                    Solicitud de Baja Bloqueada — Saldos Pendientes por Regularizar
                   </h4>
                   <span style="background: #be123c; color: white; font-size: 0.72rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; text-transform: uppercase;">
-                    Período Vigente: ${activePeriodName}
+                    Período en Curso: ${activePeriodName}
                   </span>
                 </div>
                 <p style="margin: 0 0 0.75rem 0; color: #9f1239; font-size: 0.86rem; line-height: 1.5;">
-                  Para poder iniciar el proceso de baja del servicio es requisito obligatorio encontrarse <strong>al día con sus pagos al menos hasta el período vigente de cobranza (${activePeriodName})</strong>, con todos los desgloses emitidos y pagados (sin saldos pendientes en períodos previos ni emisión pendiente del período actual):
+                  Para poder iniciar el proceso de baja del servicio es requisito obligatorio encontrarse <strong>al día con sus pagos sin saldos pendientes en períodos anteriores ni en desgloses ya emitidos</strong>:
                 </p>
                 <ul style="margin: 0 0 1rem 0; padding-left: 1.25rem; font-size: 0.84rem; color: #881337; display: flex; flex-direction: column; gap: 0.4rem; background: rgba(255,255,255,0.75); padding-top: 0.75rem; padding-bottom: 0.75rem; padding-right: 0.75rem; border-radius: var(--radius-sm); border: 1px solid rgba(225, 29, 72, 0.2);">
                   ${blockingReasons.map(reason => `<li>${reason}</li>`).join('')}
@@ -23943,10 +23941,30 @@ async function renderRedZone(container, profile, commerceList) {
                     <i class="ri-bill-line"></i> Ir a Mis Facturas y Estado de Cuenta
                   </button>
                   <span style="font-size: 0.78rem; color: #9f1239; font-weight: 500;">
-                    Una vez emitido y pagado el período <strong>${activePeriodName}</strong> (y saldados los períodos previos), el formulario quedará habilitado automáticamente.
+                    Una vez regularizados los saldos pendientes indicados, el formulario quedará habilitado automáticamente.
                   </span>
                 </div>
               </div>
+            </div>
+          </div>
+        ` : ''}
+
+        ${isCurrentPeriodDesglosePending ? `
+          <!-- Nota Informativa: Desglose en Curso Pendiente de Emisión y Futuros según Fecha de Salida -->
+          <div style="background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); border: 1px solid #f59e0b; border-left: 5px solid #d97706; border-radius: var(--radius-lg); padding: 1.15rem 1.35rem; display: flex; gap: 0.9rem; align-items: flex-start; box-shadow: var(--shadow-sm);">
+            <div style="background-color: #d97706; color: white; width: 38px; height: 38px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 1.25rem;">
+              <i class="ri-time-line"></i>
+            </div>
+            <div style="font-size: 0.85rem; color: #78350f; line-height: 1.5; flex: 1;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
+                <strong style="font-size: 0.95rem; color: #92400e;">Nota sobre Emisión de Desglose en Curso (${activePeriodName}) y Períodos Posteriores</strong>
+                <span style="background: #d97706; color: white; font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 99px; text-transform: uppercase;">
+                  Emisión Pendiente: ${activePeriodName}
+                </span>
+              </div>
+              <p style="margin: 0;">
+                Actualmente se encuentra <strong>pendiente de emitir el desglose de servicios correspondiente al período en curso (${activePeriodName})</strong>. ${!isExitBlockedByBilling ? 'Usted puede ingresar su solicitud de baja ahora; no obstante, ' : ''}se deja expresa constancia de que el desglose de <strong>${activePeriodName}</strong>, así como <strong>cualquier otro desglose que corresponda emitir según la fecha de salida que sea confirmada</strong>, deberá encontrarse emitido y pagado en su totalidad antes de efectuar el retiro físico de la mercadería.
+              </p>
             </div>
           </div>
         ` : ''}
@@ -23964,9 +23982,9 @@ async function renderRedZone(container, profile, commerceList) {
             <div style="margin-top: 1rem; background-color: rgba(255,255,255,0.6); padding: 1rem; border-radius: var(--radius-md); border: 1px solid rgba(239, 68, 68, 0.15);">
               <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; font-weight: 700; color: #991b1b; text-transform: uppercase; letter-spacing: 0.5px;">Condiciones Contractuales Obligatorias:</h4>
               <ul style="margin: 0; padding-left: 1.25rem; font-size: 0.85rem; color: #7f1d1d; display: flex; flex-direction: column; gap: 0.35rem;">
-                <li><strong>1. Cuenta al Día hasta el Período Vigente (${activePeriodName}):</strong> No poseer saldos pendientes de servicios en períodos previos ni en el período actual, contando con los desgloses emitidos y pagados al menos hasta <strong>${activePeriodName}</strong>.</li>
+                <li><strong>1. Pagos al Día en Períodos Emitidos:</strong> No poseer saldos pendientes de pago en períodos anteriores al actual ni en desgloses ya emitidos a la fecha.</li>
                 <li><strong>2. Aviso de Salida Anticipado:</strong> Informar la baja del servicio con un mínimo de <strong>30 días corridos de anticipación</strong> antes del retiro físico.</li>
-                <li><strong>3. Liquidación Total:</strong> Todo desglose de servicios o tarifas que se encuentre pendiente o en proceso de facturación a la fecha debe encontrarse emitido y saldado para autorizar el término de servicio.</li>
+                <li><strong>3. Desglose del Período en Curso (${activePeriodName}) y Futuros según Fecha de Salida:</strong> Si está pendiente la emisión del desglose de <strong>${activePeriodName}</strong>, este —así como cualquier desglose adicional que corresponda según la fecha de salida que sea confirmada— deberá estar emitido y pagado previo a la entrega física del stock.</li>
               </ul>
             </div>
           </div>
@@ -23983,11 +24001,11 @@ async function renderRedZone(container, profile, commerceList) {
               </h4>
               <span style="font-size: 0.76rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; background: ${isExitBlockedByBilling ? 'rgba(239, 68, 68, 0.14)' : 'rgba(16, 185, 129, 0.14)'}; color: ${isExitBlockedByBilling ? '#dc2626' : '#059669'};">
                 <i class="${isExitBlockedByBilling ? 'ri-error-warning-fill' : 'ri-checkbox-circle-fill'}"></i>
-                ${isExitBlockedByBilling ? `Cuenta con Pendientes (Req. al día hasta ${activePeriodName})` : `Cuenta al Día hasta ${activePeriodName}`}
+                ${isExitBlockedByBilling ? `Cuenta con Saldos Pendientes` : (isCurrentPeriodDesglosePending ? `Habilitado para Solicitar Baja (${activePeriodName} por emitir)` : `Cuenta al Día hasta ${activePeriodName}`)}
               </span>
             </div>
             <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--color-text-muted);">
-              Revise a continuación el estado de emisión de desglose y pago de cada período registrado para sus comercios asociados (período vigente de cobranza: <strong>${activePeriodName}</strong>):
+              Revise a continuación el estado de emisión de desglose y pago de cada período registrado para sus comercios asociados (período en curso: <strong>${activePeriodName}</strong>):
             </p>
             
             <div style="overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm); margin-bottom: 1.25rem;">
@@ -24008,7 +24026,7 @@ async function renderRedZone(container, profile, commerceList) {
                         <td style="padding: 0.75rem 1rem; font-weight: 600; color: var(--color-text-main);">
                           <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
                             <span>${p.name}</span>
-                            ${p.isCurrentActivePeriod ? `<span style="background: var(--color-primary); color: white; font-size: 0.65rem; font-weight: 700; padding: 1px 7px; border-radius: 99px; text-transform: uppercase;">Vigente</span>` : ''}
+                            ${p.isCurrentActivePeriod ? `<span style="background: var(--color-primary); color: white; font-size: 0.65rem; font-weight: 700; padding: 1px 7px; border-radius: 99px; text-transform: uppercase;">En Curso</span>` : ''}
                           </div>
                         </td>
                         <td style="padding: 0.75rem 1rem;">
@@ -24040,27 +24058,36 @@ async function renderRedZone(container, profile, commerceList) {
               </table>
             </div>
 
-            ${hasPendingBilling ? `
+            ${isExitBlockedByBilling ? `
               <div style="background-color: #fef2f2; border: 1px solid #fecdd3; border-radius: var(--radius-md); padding: 0.85rem 1rem; margin-bottom: 1rem; display: flex; gap: 0.6rem; align-items: flex-start;">
                 <i class="ri-error-warning-fill" style="color: #dc2626; font-size: 1.25rem; margin-top: 1px;"></i>
                 <div style="font-size: 0.82rem; color: #991b1b; line-height: 1.45;">
-                  <strong>Requisito de Cuenta al Día No Cumplido:</strong> Para iniciar el proceso de baja del servicio, su comercio debe encontrarse al día al menos hasta el período vigente de cobranza (<strong>${activePeriodName}</strong>), con todos los desgloses emitidos y pagados. ${isCurrentPeriodDesglosePending ? `Actualmente se encuentra pendiente la emisión del desglose del período <strong>${activePeriodName}</strong>.` : ''}
+                  <strong>Requisito de Pagos al Día No Cumplido:</strong> Para iniciar el proceso de baja del servicio, su comercio no debe presentar saldos pendientes en períodos anteriores ni en desgloses ya emitidos. Regularice los períodos pendientes para habilitar la solicitud.
                 </div>
               </div>
             ` : `
-              <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-md); padding: 0.75rem 1rem; margin-bottom: 1rem; display: flex; gap: 0.5rem; align-items: center;">
+              <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-md); padding: 0.75rem 1rem; margin-bottom: ${isCurrentPeriodDesglosePending ? '0.75rem' : '1rem'}; display: flex; gap: 0.5rem; align-items: center;">
                 <i class="ri-checkbox-circle-fill" style="color: #16a34a; font-size: 1.2rem;"></i>
                 <span style="font-size: 0.82rem; color: #166534; font-weight: 600;">
-                  Su cuenta se encuentra al día con sus desgloses emitidos y pagados hasta el período vigente (${activePeriodName}).
+                  Su cuenta se encuentra al día en todos los períodos emitidos y está habilitada para presentar la solicitud de baja.
                 </span>
               </div>
             `}
+
+            ${isCurrentPeriodDesglosePending ? `
+              <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: var(--radius-md); padding: 0.8rem 1rem; margin-bottom: 1rem; display: flex; gap: 0.6rem; align-items: flex-start;">
+                <i class="ri-information-fill" style="color: #d97706; font-size: 1.2rem; margin-top: 1px; flex-shrink: 0;"></i>
+                <div style="font-size: 0.81rem; color: #92400e; line-height: 1.45;">
+                  <strong>Nota sobre Desglose Pendiente de Emisión (${activePeriodName}):</strong> Se informa que actualmente está pendiente la emisión del desglose del período en curso (<strong>${activePeriodName}</strong>). Tanto dicho período como cualquier desglose adicional que corresponda según la fecha de salida que sea confirmada deberán ser emitidos y pagados previo al retiro definitivo del stock.
+                </div>
+              </div>
+            ` : ''}
 
             <!-- Checkbox de Declaración Jurada Legal -->
             <div style="display: flex; gap: 0.75rem; align-items: flex-start; background-color: var(--color-bg); padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); ${!hasOpenExitTicket && isExitBlockedByBilling ? 'opacity: 0.65;' : ''}">
               <input type="checkbox" id="chk-legal-billing-declaration" ${hasOpenExitTicket ? 'checked disabled' : (isExitBlockedByBilling ? 'disabled' : 'required')} style="margin-top: 0.25rem; width: 18px; height: 18px; cursor: ${!hasOpenExitTicket && isExitBlockedByBilling ? 'not-allowed' : 'pointer'}; flex-shrink: 0;">
               <label for="chk-legal-billing-declaration" style="font-size: 0.825rem; color: var(--color-text-main); line-height: 1.5; cursor: ${!hasOpenExitTicket && isExitBlockedByBilling ? 'not-allowed' : 'pointer'}; font-weight: 500;">
-                <span style="color: #ef4444; font-weight: 700;">[DECLARACIÓN JURADA DE PAGO Y NO RECLAMO]</span> El Comercio declara formalmente y bajo juramento que los desgloses de tarifas y facturas emitidas a la fecha por Stocka SpA (RUT N° 77.524.557-3), representada legalmente por doña Kyria Alejandra Oyarce Pérez (RUT N° 18.732.412-2), se encuentran totalmente saldados, conformes y pagados en su integridad. Asimismo, declara que no existen disputas de cobro ni reclamos pendientes y renuncia irrevocablemente a cualquier acción legal, civil, comercial o administrativa posterior tendiente a reclamar diferencias de cobros, tarifas o saldos de los períodos detallados en esta declaración, liberando de toda responsabilidad a Stocka SpA y a su representante legal.
+                <span style="color: #ef4444; font-weight: 700;">[DECLARACIÓN JURADA DE PAGO Y NO RECLAMO]</span> El Comercio declara formalmente y bajo juramento que los desgloses de tarifas y facturas emitidas a la fecha por Stocka SpA (RUT N° 77.524.557-3), representada legalmente por doña Kyria Alejandra Oyarce Pérez (RUT N° 18.732.412-2), se encuentran totalmente saldados, conformes y pagados en su integridad, comprometiéndose asimismo a saldar previo al retiro físico el desglose del período en curso (${activePeriodName}) y cualquier desglose posterior que se genere hasta la fecha de salida confirmada. Asimismo, declara que no existen disputas de cobro ni reclamos pendientes y renuncia irrevocablemente a cualquier acción legal, civil, comercial o administrativa posterior tendiente a reclamar diferencias de cobros, tarifas o saldos de los períodos detallados en esta declaración, liberando de toda responsabilidad a Stocka SpA y a su representante legal.
               </label>
             </div>
           </div>
@@ -24260,8 +24287,8 @@ async function renderRedZone(container, profile, commerceList) {
                 <i class="ri-checkbox-circle-line"></i> Solicitud de Salida Activa y Sincronizada
               </button>
             ` : isExitBlockedByBilling ? `
-              <button type="button" id="btn-submit-exit-request" class="btn" disabled title="Debe encontrarse al día con sus desgloses emitidos y pagados hasta ${activePeriodName} para solicitar la baja" style="background-color: #9ca3af; color: #ffffff; border: none; padding: 0.75rem 1.5rem; font-weight: 700; border-radius: var(--radius-md); cursor: not-allowed; opacity: 0.85; font-size: 0.92rem; display: inline-flex; align-items: center; gap: 0.5rem;">
-                <i class="ri-lock-2-line"></i> Solicitud Bloqueada — Regularice Desgloses y Pagos (${activePeriodName})
+              <button type="button" id="btn-submit-exit-request" class="btn" disabled title="Debe regularizar los saldos pendientes de períodos anteriores o emitidos para solicitar la baja" style="background-color: #9ca3af; color: #ffffff; border: none; padding: 0.75rem 1.5rem; font-weight: 700; border-radius: var(--radius-md); cursor: not-allowed; opacity: 0.85; font-size: 0.92rem; display: inline-flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-lock-2-line"></i> Solicitud Bloqueada — Regularice Saldos Pendientes
               </button>
             ` : `
               <button type="submit" id="btn-submit-exit-request" class="btn" style="background-color: #ef4444; color: white; border: none; padding: 0.75rem 1.5rem; font-weight: 700; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.3); font-size: 0.95rem; display: inline-flex; align-items: center; gap: 0.5rem;">
@@ -24333,7 +24360,7 @@ async function renderRedZone(container, profile, commerceList) {
       if (isExitBlockedByBilling) {
         alertContainer.innerHTML = `
           <div class="alert alert-error" style="display: block; line-height: 1.5;">
-            <strong>No es posible iniciar la solicitud de baja:</strong> Su comercio debe encontrarse al día con sus pagos al menos hasta el período vigente de cobranza (<strong>${activePeriodName}</strong>), con todos los desgloses emitidos y pagados.<br>
+            <strong>No es posible iniciar la solicitud de baja:</strong> Su comercio registra saldos pendientes en períodos anteriores o en desgloses emitidos:<br>
             <ul style="margin: 0.4rem 0 0 1.2rem; padding: 0;">
               ${blockingReasons.map(r => `<li>${r}</li>`).join('')}
             </ul>
