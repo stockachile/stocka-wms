@@ -492,16 +492,22 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
         .eq('sku', sku)
         .maybeSingle();
 
+      const itemDetail = order.products?.find((op: any) => {
+        const prodIdRef = op.product_id || op.id;
+        let opSku = op.sku || (prodIdRef ? `JS-${prodIdRef}${op.variant_id ? '-' + op.variant_id : ''}` : 'Sin-SKU');
+        let cleanItemSku = opSku.trim().replace(/\s+/g, '');
+        let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+        return mappedItemSku === sku;
+      });
+      const itemImageUrl = (typeof itemDetail?.image === 'string' ? itemDetail.image : itemDetail?.image?.url) || null;
+
+      if (product && !(product as any).image_url && itemImageUrl) {
+        await supabase.from('products').update({ image_url: itemImageUrl }).eq('id', product.id);
+        (product as any).image_url = itemImageUrl;
+      }
+
       if (!product) {
         // Auto-crear producto si falta en catálogo
-        const itemDetail = order.products?.find((op: any) => {
-          const prodIdRef = op.product_id || op.id;
-          let opSku = op.sku || (prodIdRef ? `JS-${prodIdRef}${op.variant_id ? '-' + op.variant_id : ''}` : 'Sin-SKU');
-          let cleanItemSku = opSku.trim().replace(/\s+/g, '');
-          let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
-          return mappedItemSku === sku;
-        });
-
         const productName = itemDetail?.name || 'Producto Jumpseller ' + sku;
         const productPrice = Number(itemDetail?.price || 0);
         const rawJsProdId = itemDetail ? (itemDetail.product_id || itemDetail.id) : null;
@@ -514,12 +520,13 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
             sku: sku,
             name: productName,
             price: productPrice,
+            image_url: itemImageUrl,
             description: 'Creado automáticamente desde webhook de Jumpseller',
             jumpseller_product_id: rawJsProdId ? String(rawJsProdId) : null,
             jumpseller_variant_id: itemDetail && itemDetail.variant_id ? String(itemDetail.variant_id) : null,
             raw_jumpseller_data: itemDetail || null
           }])
-          .select('id, is_pack')
+          .select('id, is_pack, image_url')
           .single();
 
         product = newProd;
@@ -750,13 +757,15 @@ async function handleProductSave(merchantId: string, comercio: string, product: 
     return cleanSku;
   };
 
+  const mainImageUrl = product.images?.[0]?.url || (typeof product.image === 'string' ? product.image : product.image?.url) || null;
+
   // Si no tiene variantes
   if (!product.variants || product.variants.length === 0) {
     let variantSku = product.sku || `JS-${product.id}`;
     let cleanSku = getUniqueSku(variantSku);
     let mappedSku = skuMap[cleanSku] || cleanSku;
 
-    const productData = {
+    const productData: Record<string, any> = {
       merchant_id: merchantId,
       comercio: comercio,
       sku: mappedSku,
@@ -767,6 +776,7 @@ async function handleProductSave(merchantId: string, comercio: string, product: 
       jumpseller_variant_id: null,
       raw_jumpseller_data: product
     };
+    if (mainImageUrl) productData.image_url = mainImageUrl;
 
     const { error } = await supabase
       .from("products")
@@ -782,8 +792,9 @@ async function handleProductSave(merchantId: string, comercio: string, product: 
       let variantSku = v.sku || `JS-${product.id}-${v.id}`;
       let cleanSku = getUniqueSku(variantSku);
       let mappedSku = skuMap[cleanSku] || cleanSku;
+      const varImg = (typeof v.image === 'string' ? v.image : v.image?.url) || mainImageUrl;
 
-      const productData = {
+      const productData: Record<string, any> = {
         merchant_id: merchantId,
         comercio: comercio,
         sku: mappedSku,
@@ -794,6 +805,7 @@ async function handleProductSave(merchantId: string, comercio: string, product: 
         jumpseller_variant_id: v.id.toString(),
         raw_jumpseller_data: v
       };
+      if (varImg) productData.image_url = varImg;
 
       const { error } = await supabase
         .from("products")

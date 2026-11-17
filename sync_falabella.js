@@ -416,6 +416,9 @@ async function syncMerchantOrders(integration) {
       let labelBase64 = existingOrder?.label_base64 || null;
 
       if (existingOrder) {
+        if (existingOrder.estado_wms === 'Entregado') {
+          continue;
+        }
         localOrderId = existingOrder.id;
         const existingRaw = existingOrder.raw_falabella_data || {};
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
@@ -448,10 +451,11 @@ async function syncMerchantOrders(integration) {
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${finalOrderNumber} cancelado en Falabella. Actualizado en el WMS (estado_wms: ${updatePayload.estado_wms || existingOrder.estado_wms}).`);
         } else {
-          // Nota operacional: En Falabella Seller Center, el estado 'shipped' o 'ready_to_ship' se activa apenas
-          // el comercio genera la etiqueta ("Retira mañana" / "Listo para despachar"), antes del despacho físico en bodega.
-          // Por ello NO debemos sobreescribir orders.status a 'despachado' mientras estado_wms siga activo en bodega.
-          if (!isDelivered && existingOrder.status === 'despachado' && !existingOrder.stock_descontado) {
+          if (isDelivered && !['entregado', 'cancelado', 'archivado'].includes(currentWmsState)) {
+            updatePayload.status = 'entregado';
+            updatePayload.estado_wms = 'Entregado';
+            updatePayload.closed_by_automation = 'auto-marketplace-delivered-to-entregado';
+          } else if (!isDelivered && existingOrder.status === 'despachado' && !existingOrder.stock_descontado) {
             if (currentWmsState === 'en procesamiento') {
               updatePayload.status = 'para procesar';
             } else if (currentWmsState === 'en preparación') {
@@ -468,8 +472,8 @@ async function syncMerchantOrders(integration) {
           console.log(`📝 Actualizado pedido local ${finalOrderNumber} (Tracking: ${trackingNum}, Courier: ${courierName})`);
         }
 
-        // Si existe pero no tiene etiqueta de despacho, intentar descargarla
-        if (!labelBase64) {
+        // Si existe pero no tiene etiqueta de despacho (y no está entregado), intentar descargarla
+        if (!labelBase64 && !isDelivered) {
           console.log(`📄 Descargando etiqueta pendiente para pedido existente...`);
           labelBase64 = await downloadLabelBase64(integration, orderId, items);
           if (labelBase64) {
@@ -556,16 +560,26 @@ async function syncMerchantOrders(integration) {
       // Registrar ítems en order_items (fuera del if-else para que se ejecute si a un pedido existente le faltan ítems)
       if (localOrderId && shouldInsertItems) {
         for (const [sku, qty] of Object.entries(itemQuantities)) {
+          const orderItemDetail = items.find(item => {
+            let itemSku = item.Sku || item.SellerSku;
+            if (!itemSku) return false;
+            let cleanItemSku = itemSku.replace(/\s+/g, '');
+            let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+            return mappedItemSku === sku;
+          });
+
+          const fallbackFalaImg = orderItemDetail?.ProductMainImage
+            || (orderItemDetail?.ShopSku ? `https://media.falabella.com/falabellaCL/${String(orderItemDetail.ShopSku).trim().split('_')[0]}_01` : null);
+
           // Buscar producto por SKU en la base de datos
           let { data: product } = await supabase
             .from('products')
-            .select('id, comercio')
+            .select('id, comercio, image_url')
             .eq('comercio', integration.comercio)
             .eq('sku', sku)
             .maybeSingle();
 
           if (product && product.comercio !== integration.comercio) {
-            // Actualizar el comercio para mantenerlo al día con la integración
             await supabase
               .from('products')
               .update({ comercio: integration.comercio })
@@ -573,19 +587,22 @@ async function syncMerchantOrders(integration) {
             product.comercio = integration.comercio;
           }
 
-          if (!product) {
-            // Buscar barcode final del catálogo de Falabella
-            console.log(`🔍 Buscando barcode en el catálogo Falabella para SKU ${sku}...`);
-            const barcode = await fetchProductBarcode(integration, sku);
+          if (product && !product.image_url) {
+            const catInfo = await fetchProductCatalogInfo(integration, sku);
+            const resolvedImg = catInfo.imageUrl || fallbackFalaImg;
+            if (resolvedImg) {
+              await supabase.from('products').update({ image_url: resolvedImg }).eq('id', product.id);
+              product.image_url = resolvedImg;
+            }
+          }
 
-            // Auto-crear producto faltante
-            const orderItemDetail = items.find(item => {
-              let itemSku = item.Sku || item.SellerSku;
-              if (!itemSku) return false;
-              let cleanItemSku = itemSku.replace(/\s+/g, '');
-              let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
-              return mappedItemSku === sku;
-            });
+          if (!product) {
+            // Buscar barcode e imagen del catálogo de Falabella
+            console.log(`🔍 Buscando barcode e imagen en el catálogo Falabella para SKU ${sku}...`);
+            const catInfo = await fetchProductCatalogInfo(integration, sku);
+            const barcode = catInfo.barcode;
+            const resolvedImg = catInfo.imageUrl || fallbackFalaImg;
+
             const productName = orderItemDetail?.Name || 'Producto Falabella ' + sku;
             const productPrice = Number(orderItemDetail?.ItemPrice || 0);
 
@@ -598,10 +615,11 @@ async function syncMerchantOrders(integration) {
                 name: productName,
                 barcode: barcode,
                 price: productPrice,
+                image_url: resolvedImg,
                 description: 'Creado automáticamente desde integración de Falabella (Mirakl)',
                 raw_falabella_data: orderItemDetail
               }])
-              .select('id')
+              .select('id, image_url')
               .single();
 
             if (!prodErr && newProd) {
@@ -669,10 +687,10 @@ async function fetchOrderItems(integration, orderId) {
 }
 
 /**
- * Obtiene el código de barras desde el catálogo usando el SKU del producto
+ * Obtiene el código de barras e imagen principal desde el catálogo usando el SKU del producto
  */
-async function fetchProductBarcode(integration, sku) {
-  if (!sku || sku === "S/SKU") return sku;
+async function fetchProductCatalogInfo(integration, sku) {
+  if (!sku || sku === "S/SKU") return { barcode: sku, imageUrl: null };
 
   const url = buildSignedUrl(integration.shop_url, integration.access_token, integration.username, 'GetProducts', {
     'Search': sku
@@ -680,20 +698,27 @@ async function fetchProductBarcode(integration, sku) {
 
   try {
     const res = await fetch(url);
-    if (!res.ok) return sku;
+    if (!res.ok) return { barcode: sku, imageUrl: null };
     
     const json = await res.json();
     if (json.SuccessResponse && json.SuccessResponse.Body && json.SuccessResponse.Body.Products) {
       const productos = json.SuccessResponse.Body.Products.Product;
-      const prod = Array.isArray(productos) ? productos[0] : productos;
+      const list = Array.isArray(productos) ? productos : [productos];
+      const prod = list.find(p => p && String(p.SellerSku || '').trim().toUpperCase() === String(sku).trim().toUpperCase()) || list[0];
       if (prod) {
-        return prod.ProductId || prod.MainProduct?.SellerSku || sku;
+        const barcode = prod.ProductId || prod.MainProduct?.SellerSku || sku;
+        const rawImgs = prod.Images?.Image;
+        let imageUrl = prod.MainImage || (Array.isArray(rawImgs) ? rawImgs[0] : rawImgs) || null;
+        if (!imageUrl && prod.ShopSku) {
+          imageUrl = `https://media.falabella.com/falabellaCL/${String(prod.ShopSku).trim().split('_')[0]}_01`;
+        }
+        return { barcode, imageUrl };
       }
     }
   } catch (e) {
-    console.error(`Error buscando ProductId para ${sku}:`, e.message);
+    console.error(`Error buscando datos de catálogo Falabella para ${sku}:`, e.message);
   }
-  return sku;
+  return { barcode: sku, imageUrl: null };
 }
 
 /**

@@ -311,17 +311,315 @@ async function resolveTiendanubeOrderNumber(comercio: string, rawOrderNumber: st
   return { orderNumber, finalOrderNumber };
 }
 
+async function loadTiendanubeSkuMap(comercio: string): Promise<Record<string, string>> {
+  const skuMap: Record<string, string> = {};
+  if (!comercio) return skuMap;
+  try {
+    const { data: equivalences } = await supabase
+      .from("sku_equivalences")
+      .select("platform_sku, master_sku, platform")
+      .eq("comercio", comercio);
+
+    if (equivalences) {
+      equivalences
+        .filter((e: any) => e.platform === "Todas")
+        .forEach((e: any) => {
+          if (e.platform_sku && e.master_sku) {
+            const clean = e.platform_sku.trim().replace(/\s+/g, "");
+            skuMap[clean] = e.master_sku.trim();
+            skuMap[clean.toUpperCase()] = e.master_sku.trim();
+          }
+        });
+      equivalences
+        .filter((e: any) => e.platform === "Tiendanube")
+        .forEach((e: any) => {
+          if (e.platform_sku && e.master_sku) {
+            const clean = e.platform_sku.trim().replace(/\s+/g, "");
+            skuMap[clean] = e.master_sku.trim();
+            skuMap[clean.toUpperCase()] = e.master_sku.trim();
+          }
+        });
+    }
+  } catch (err: any) {
+    console.error("⚠️ Error cargando equivalencias de SKU:", err.message);
+  }
+  return skuMap;
+}
+
+async function resolveMerchantWarehouseId(comercio: string, merchantId: string): Promise<string | null> {
+  if (comercio) {
+    const { data: adicCfg } = await supabase
+      .from("comercios_adicional_config")
+      .select("default_warehouse_id")
+      .eq("comercio", comercio)
+      .maybeSingle();
+    if (adicCfg?.default_warehouse_id) {
+      return adicCfg.default_warehouse_id;
+    }
+  }
+
+  if (merchantId) {
+    const { data: whRelation } = await supabase
+      .from("merchants_warehouses")
+      .select("warehouse_id")
+      .eq("merchant_id", merchantId)
+      .limit(1)
+      .maybeSingle();
+    if (whRelation?.warehouse_id) {
+      return whRelation.warehouse_id;
+    }
+  }
+
+  const { data: defaultWh } = await supabase
+    .from("warehouses")
+    .select("id")
+    .limit(1)
+    .maybeSingle();
+  return defaultWh?.id || null;
+}
+
+function buildTiendanubeFlatOrderItems(orderProducts: any[], skuMap: Record<string, string>) {
+  const itemNames: string[] = [];
+  const itemQuantities: Record<string, number> = {};
+  const itemDetailsBySku: Record<string, any> = {};
+
+  for (const item of (orderProducts || [])) {
+    let rawSku = item.sku || `TN-${item.product_id}${item.variant_id ? "-" + item.variant_id : ""}`;
+    rawSku = String(rawSku).trim().replace(/\s+/g, "");
+    const mappedSku = skuMap[rawSku] || skuMap[rawSku.toUpperCase()] || rawSku;
+    const qty = Number(item.quantity || 0);
+    if (qty <= 0) continue;
+
+    itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + qty;
+    if (!itemDetailsBySku[mappedSku]) {
+      itemDetailsBySku[mappedSku] = item;
+    }
+
+    const name = extractTiendanubeName(item.name, "Producto");
+    if (name && !itemNames.includes(name)) {
+      itemNames.push(name);
+    }
+  }
+
+  return {
+    itemQuantities,
+    itemDetailsBySku,
+    flatSku: Object.keys(itemQuantities).join(", "),
+    flatItemName: itemNames.join(", "),
+    flatQuantity: Object.values(itemQuantities).reduce((sum, qty) => sum + qty, 0)
+  };
+}
+
+/**
+ * Sincroniza y reconcilia de forma idempotente y segura ante concurrencia los order_items
+ * de un pedido Tiendanube, evitando duplicación por carrera entre order/created y order/updated
+ * con el trigger expand_pack_order_items().
+ */
+async function reconcileTiendanubeOrderItems(
+  orderId: string,
+  merchantId: string,
+  comercio: string,
+  orderProducts: any[],
+  skuMap: Record<string, string>
+) {
+  const { itemQuantities, itemDetailsBySku } = buildTiendanubeFlatOrderItems(orderProducts, skuMap);
+  const warehouseId = await resolveMerchantWarehouseId(comercio, merchantId);
+
+  const expectedQuantities = new Map<string, number>();
+
+  for (const [sku, qty] of Object.entries(itemQuantities)) {
+    let { data: product } = await supabase
+      .from("products")
+      .select("id, is_pack")
+      .eq("sku", sku)
+      .eq("comercio", comercio)
+      .limit(1)
+      .maybeSingle();
+
+    if (!product) {
+      const { data: ilikeProd } = await supabase
+        .from("products")
+        .select("id, is_pack, image_url")
+        .eq("comercio", comercio)
+        .ilike("sku", sku)
+        .limit(1)
+        .maybeSingle();
+      if (ilikeProd) product = ilikeProd;
+    }
+
+    const itemDetail = itemDetailsBySku[sku];
+    const itemImageUrl = itemDetail?.image?.src || (typeof itemDetail?.image === "string" ? itemDetail.image : null);
+
+    if (product && !(product as any).image_url && itemImageUrl) {
+      await supabase.from("products").update({ image_url: itemImageUrl }).eq("id", product.id);
+      (product as any).image_url = itemImageUrl;
+    }
+
+    if (!product) {
+      const pName = extractTiendanubeName(itemDetail?.name, "Producto Tiendanube " + sku);
+      const productPrice = Number(itemDetail?.price || 0);
+
+      const { data: newProd, error: prodErr } = await supabase
+        .from("products")
+        .insert([{
+          merchant_id: merchantId,
+          comercio: comercio,
+          sku: sku,
+          name: pName,
+          price: productPrice,
+          image_url: itemImageUrl,
+          status: "active",
+          description: "Creado automáticamente desde webhook de Tiendanube"
+        }])
+        .select("id, is_pack, image_url")
+        .single();
+
+      if (!prodErr && newProd) {
+        console.log(`Creado producto faltante SKU ${sku} en catálogo.`);
+        product = newProd;
+      } else {
+        // Si otro webhook concurrente acaba de crear el mismo SKU, recuperarlo
+        const { data: retryProd } = await supabase
+          .from("products")
+          .select("id, is_pack")
+          .eq("comercio", comercio)
+          .ilike("sku", sku)
+          .limit(1)
+          .maybeSingle();
+        if (retryProd) {
+          product = retryProd;
+        } else {
+          console.error(`Error auto-creando producto SKU ${sku}:`, prodErr);
+        }
+      }
+    }
+
+    if (product) {
+      if (product.is_pack) {
+        const { data: packMembers } = await supabase
+          .from("product_pack_items")
+          .select("member_product_id, quantity")
+          .eq("pack_product_id", product.id);
+
+        if (packMembers && packMembers.length > 0) {
+          for (const pm of packMembers) {
+            const cur = expectedQuantities.get(pm.member_product_id) || 0;
+            expectedQuantities.set(pm.member_product_id, cur + Number(pm.quantity || 1) * Number(qty));
+          }
+        } else {
+          const cur = expectedQuantities.get(product.id) || 0;
+          expectedQuantities.set(product.id, cur + Number(qty));
+        }
+      } else {
+        const cur = expectedQuantities.get(product.id) || 0;
+        expectedQuantities.set(product.id, cur + Number(qty));
+      }
+    }
+  }
+
+  // Leer ítems actuales agrupando TODAS las filas regulares por product_id (para detectar y limpiar duplicados)
+  const { data: existingItems } = await supabase
+    .from("order_items")
+    .select("id, product_id, quantity, warehouse_id, is_gift, campaign_id, tag")
+    .eq("order_id", orderId);
+
+  const existingByProduct = new Map<string, any[]>();
+  for (const item of (existingItems || [])) {
+    if (item.is_gift || item.campaign_id || item.tag === "Campaña" || item.tag === "Eliminado") continue;
+    if (!existingByProduct.has(item.product_id)) {
+      existingByProduct.set(item.product_id, []);
+    }
+    existingByProduct.get(item.product_id)!.push(item);
+  }
+
+  for (const [prodId, expQty] of expectedQuantities.entries()) {
+    const rows = existingByProduct.get(prodId) || [];
+
+    if (rows.length > 0) {
+      const primaryRow = rows[0];
+      const targetWh = primaryRow.warehouse_id || warehouseId;
+      if (Number(primaryRow.quantity) !== expQty || (!primaryRow.warehouse_id && warehouseId)) {
+        await supabase
+          .from("order_items")
+          .update({
+            quantity: expQty,
+            warehouse_id: targetWh
+          })
+          .eq("id", primaryRow.id);
+      }
+      if (rows.length > 1) {
+        for (let k = 1; k < rows.length; k++) {
+          await supabase.from("order_items").delete().eq("id", rows[k].id);
+        }
+      }
+    } else {
+      const { error: itemErr } = await supabase
+        .from("order_items")
+        .insert([{
+          order_id: orderId,
+          product_id: prodId,
+          warehouse_id: warehouseId,
+          quantity: expQty
+        }]);
+
+      if (itemErr) {
+        console.error(`Error insertando item product_id ${prodId} en order_items:`, itemErr);
+      }
+    }
+  }
+
+  // Eliminar ítems regulares que ya no estén presentes en la orden de Tiendanube
+  for (const [prodId, rows] of existingByProduct.entries()) {
+    if (!expectedQuantities.has(prodId)) {
+      for (const r of rows) {
+        await supabase.from("order_items").delete().eq("id", r.id);
+      }
+    }
+  }
+
+  // Verificación post-escritura: si un webhook simultáneo disparó la suma del trigger
+  // expand_pack_order_items() o insertó una fila paralela en el mismo milisegundo, consolidar a expQty exacto
+  const { data: postRows } = await supabase
+    .from("order_items")
+    .select("id, product_id, quantity, is_gift, campaign_id, tag")
+    .eq("order_id", orderId);
+
+  const postByProduct = new Map<string, any[]>();
+  for (const r of (postRows || [])) {
+    if (r.is_gift || r.campaign_id || r.tag === "Campaña" || r.tag === "Eliminado") continue;
+    if (!postByProduct.has(r.product_id)) postByProduct.set(r.product_id, []);
+    postByProduct.get(r.product_id)!.push(r);
+  }
+
+  for (const [prodId, rows] of postByProduct.entries()) {
+    const expQty = expectedQuantities.get(prodId);
+    if (expQty === undefined) {
+      for (const r of rows) {
+        await supabase.from("order_items").delete().eq("id", r.id);
+      }
+    } else {
+      if (Number(rows[0].quantity) !== expQty) {
+        await supabase.from("order_items").update({ quantity: expQty }).eq("id", rows[0].id);
+      }
+      for (let k = 1; k < rows.length; k++) {
+        await supabase.from("order_items").delete().eq("id", rows[k].id);
+      }
+    }
+  }
+}
+
 async function handleOrderCreate(merchantId: string, comercio: string, order: any) {
   const orderId = order.id.toString();
   const rawOrderNumber = order.number ? order.number.toString() : orderId;
   const { orderNumber, finalOrderNumber } = await resolveTiendanubeOrderNumber(comercio, rawOrderNumber);
 
-  // Verificamos que no exista
+  // Verificamos que no exista (buscando por comercio para evitar colisiones multicuentas)
   const { data: existing } = await supabase
     .from("orders")
     .select("id")
-    .eq("merchant_id", merchantId)
+    .eq("comercio", comercio)
     .in("external_order_number", [orderNumber, finalOrderNumber])
+    .limit(1)
     .maybeSingle();
 
   if (existing) {
@@ -329,63 +627,40 @@ async function handleOrderCreate(merchantId: string, comercio: string, order: an
     return;
   }
 
-  // Cargar equivalencias de SKU
-  const skuMap: Record<string, string> = {};
-  try {
-    const { data: equivalences } = await supabase
-      .from("sku_equivalences")
-      .select("platform_sku, master_sku, platform")
-      .eq("comercio", comercio);
-    
-    if (equivalences) {
-      equivalences.filter((e: any) => e.platform === "Todas").forEach((e: any) => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, "")] = e.master_sku.trim();
-      });
-      equivalences.filter((e: any) => e.platform === "Tiendanube").forEach((e: any) => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, "")] = e.master_sku.trim();
-      });
-    }
-  } catch (err: any) {
-    console.error("⚠️ Error cargando equivalencias de SKU:", err.message);
-  }
-
-  // Preparamos datos planos
-  const itemNames: string[] = [];
-  const itemQuantities: Record<string, number> = {};
-  
-  for (const item of order.products) {
-    let sku = item.sku || `TN-${item.product_id}${item.variant_id ? '-' + item.variant_id : ''}`;
-    sku = sku.trim().replace(/\s+/g, "");
-    let mappedSku = skuMap[sku] || sku;
-    itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity);
-
-    const name = typeof item.name === "string" ? item.name.trim() : (item.name?.es || item.name?.pt || (typeof item.name === "object" && item.name ? Object.values(item.name)[0] : "Producto") || "Producto");
-    if (name && !itemNames.includes(name)) {
-      itemNames.push(name);
-    }
-  }
-
-  const flatSku = Object.keys(itemQuantities).join(", ");
-  const flatItemName = itemNames.join(", ");
-  const flatQuantity = Object.values(itemQuantities).reduce((sum, qty) => sum + qty, 0);
+  const skuMap = await loadTiendanubeSkuMap(comercio);
+  const { flatSku, flatItemName, flatQuantity } = buildTiendanubeFlatOrderItems(order.products || [], skuMap);
   const totalValue = Number(order.total || 0);
 
   const addr = order.shipping_address;
   let addressString = "No especificada";
   let complementString = "";
   if (addr) {
-    addressString = `${addr.address || ''} ${addr.number || ''}`.trim() || "No especificada";
+    addressString = `${addr.address || ""} ${addr.number || ""}`.trim() || "No especificada";
     complementString = [addr.floor, addr.locality, addr.province, addr.zipcode].filter(Boolean).join(", ");
   }
 
   const customerName = extractTiendanubeCustomerName(order);
+  const statusName = order.status;
+  const paymentStatus = order.payment_status;
+  const isDelivered = order.shipping_status === "delivered";
+  const isCancelled = statusName === "cancelled" || ["voided", "refunded"].includes(paymentStatus);
+
+  let initialStatus = "para procesar";
+  let initialEstadoWms = "En procesamiento";
+  if (isCancelled) {
+    initialStatus = "cancelado";
+    initialEstadoWms = "Cancelado";
+  } else if (isDelivered || statusName === "closed") {
+    initialStatus = "despachado";
+    initialEstadoWms = "Despachado";
+  }
 
   const orderData = {
     merchant_id: merchantId,
     comercio: comercio,
     external_order_number: finalOrderNumber,
     external_platform: "Tiendanube",
-    payment_status: order.payment_status === "paid" ? "PAID" : "PENDING",
+    payment_status: paymentStatus === "paid" ? "PAID" : "PENDING",
     total_value: totalValue,
     customer_email: order.contact_email || order.customer?.email || "no-email@tiendanube.com",
     customer_phone: addr?.phone || order.contact_phone || "No especificado",
@@ -399,7 +674,8 @@ async function handleOrderCreate(merchantId: string, comercio: string, order: an
     item: flatItemName,
     cantidad: flatQuantity,
     sku: flatSku,
-    status: "para procesar"
+    status: initialStatus,
+    estado_wms: initialEstadoWms
   };
 
   // Insertar la cabecera del pedido
@@ -416,77 +692,7 @@ async function handleOrderCreate(merchantId: string, comercio: string, order: an
 
   console.log(`Creado pedido cabecera Tiendanube ${finalOrderNumber} con ID: ${newOrder.id}`);
 
-  // Buscar la primera bodega asignada al comerciante
-  const { data: whRelation } = await supabase
-    .from("merchants_warehouses")
-    .select("warehouse_id")
-    .eq("merchant_id", merchantId)
-    .limit(1)
-    .maybeSingle();
-    
-  const warehouseId = whRelation?.warehouse_id || null;
-
-  // Registrar cada item del pedido
-  for (const [sku, qty] of Object.entries(itemQuantities)) {
-    let product = null;
-
-    // Buscar el producto en el catálogo por SKU
-    const { data: foundProduct } = await supabase.from("products")
-      .select("id")
-      .eq("sku", sku)
-      .eq("comercio", comercio)
-      .maybeSingle();
-    
-    product = foundProduct;
-
-    // Auto-crear producto si no existe
-    if (!product) {
-      const itemDetail = order.products.find((item: any) => {
-        let itemSku = item.sku || `TN-${item.product_id}${item.variant_id ? '-' + item.variant_id : ''}`;
-        let cleanItemSku = itemSku.trim().replace(/\s+/g, "");
-        let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
-        return mappedItemSku === sku;
-      });
-
-      const pName = typeof itemDetail?.name === "string" ? itemDetail.name.trim() : (itemDetail?.name?.es || itemDetail?.name?.pt || (typeof itemDetail?.name === "object" && itemDetail?.name ? Object.values(itemDetail.name)[0] : "Producto Tiendanube " + sku) || "Producto Tiendanube " + sku);
-      const productPrice = Number(itemDetail?.price || 0);
-
-      const { data: newProd, error: prodErr } = await supabase
-        .from("products")
-        .insert([{
-          merchant_id: merchantId,
-          comercio: comercio,
-          sku: sku,
-          name: pName,
-          price: productPrice,
-          description: "Creado automáticamente desde webhook de Tiendanube"
-        }])
-        .select("id")
-        .single();
-
-      if (!prodErr && newProd) {
-        console.log(`Creado producto faltante SKU ${sku} en catálogo.`);
-        product = newProd;
-      } else {
-        console.error(`Error auto-creando producto SKU ${sku}:`, prodErr);
-      }
-    }
-
-    if (product) {
-      const { error: itemErr } = await supabase
-        .from("order_items")
-        .insert([{
-          order_id: newOrder.id,
-          product_id: product.id,
-          warehouse_id: warehouseId,
-          quantity: qty
-        }]);
-
-      if (itemErr) {
-        console.error(`Error insertando item SKU ${sku} en order_items:`, itemErr);
-      }
-    }
-  }
+  await reconcileTiendanubeOrderItems(newOrder.id, merchantId, comercio, order.products || [], skuMap);
 }
 
 async function handleOrderUpdate(merchantId: string, comercio: string, order: any) {
@@ -494,11 +700,11 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
   const rawOrderNumber = order.number ? order.number.toString() : orderId;
   const { orderNumber, finalOrderNumber } = await resolveTiendanubeOrderNumber(comercio, rawOrderNumber);
 
-  // Buscamos el estado actual del pedido en WMS
+  // Buscamos el estado actual del pedido en WMS por comercio
   const { data: existingOrder, error: findErr } = await supabase
     .from("orders")
     .select("id, status, estado_wms, raw_tiendanube_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement")
-    .eq("merchant_id", merchantId)
+    .eq("comercio", comercio)
     .in("external_order_number", [orderNumber, finalOrderNumber])
     .limit(1)
     .maybeSingle();
@@ -512,20 +718,25 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
   const isWmsItemsEdited = (existingOrder as any).wms_items_edited === true || existingRaw.wms_items_edited === true;
   const isWmsShippingEdited = (existingOrder as any).wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
 
-  const statusName = order.status; 
+  const statusName = order.status;
   const paymentStatus = order.payment_status;
-
   const isCancelled = statusName === "cancelled" || ["voided", "refunded"].includes(paymentStatus);
+
+  const currentWmsState = (existingOrder.estado_wms || "En procesamiento").trim().toLowerCase();
+  const estadosWmsProtegidos = ["en preparación", "pickeado", "despachado", "incidencia", "entregado", "retirado", "archivado"];
+  const isProtectedState = estadosWmsProtegidos.includes(currentWmsState);
 
   const addr = order.shipping_address;
   let addressString = "No especificada";
   let complementString = "";
   if (addr) {
-    addressString = `${addr.address || ''} ${addr.number || ''}`.trim() || "No especificada";
+    addressString = `${addr.address || ""} ${addr.number || ""}`.trim() || "No especificada";
     complementString = [addr.floor, addr.locality, addr.province, addr.zipcode].filter(Boolean).join(", ");
   }
 
   const customerName = extractTiendanubeCustomerName(order);
+  const skuMap = await loadTiendanubeSkuMap(comercio);
+  const { flatSku, flatItemName, flatQuantity } = buildTiendanubeFlatOrderItems(order.products || [], skuMap);
 
   // Preparamos datos a actualizar protegiendo modificaciones manuales del WMS
   const updatedData: Record<string, any> = {
@@ -533,17 +744,22 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
     shipping_method: order.shipping_option || "Por definir",
     raw_tiendanube_data: {
       ...order,
+      ...(existingRaw.line_items ? { line_items: existingRaw.line_items } : {}),
+      ...(existingRaw.wms_manual_edits ? { wms_manual_edits: existingRaw.wms_manual_edits } : {}),
       ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
       ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
       ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
     }
   };
 
-  if (!isWmsItemsEdited) {
+  if (!isWmsItemsEdited && !isProtectedState) {
     updatedData.total_value = Number(order.total || 0);
+    updatedData.sku = flatSku;
+    updatedData.item = flatItemName;
+    updatedData.cantidad = flatQuantity;
   }
 
-  if (!isWmsShippingEdited) {
+  if (!isWmsShippingEdited && !isProtectedState) {
     updatedData.customer_phone = addr?.phone || order.contact_phone || "No especificado";
     updatedData.customer_name = customerName;
     updatedData.shipping_address = addressString;
@@ -553,9 +769,7 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
 
   if (isCancelled) {
     updatedData.status = "cancelado";
-    const currentWmsState = (existingOrder.estado_wms || "En procesamiento").trim().toLowerCase();
-    const estadosWmsProtegidos = ["en preparación", "pickeado", "despachado", "incidencia", "entregado", "retirado", "archivado"];
-    if (!estadosWmsProtegidos.includes(currentWmsState)) {
+    if (!isProtectedState) {
       updatedData.estado_wms = "Cancelado";
     }
   }
@@ -578,18 +792,17 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
 
   // Lógica de Alertas de Pedido (WMS ya preparando o despachando)
   const wmsStatus = existingOrder.estado_wms || "En procesamiento";
-  const estadosCriticos = ["En preparación", "Pickeado", "Despachado", "Incidencia"];
-  
-  if (estadosCriticos.includes(wmsStatus)) {
+  const estadosCriticos = ["en preparación", "pickeado", "despachado", "incidencia"];
+
+  if (estadosCriticos.includes(currentWmsState)) {
     let alertMessage = `El pedido Tiendanube ${finalOrderNumber} ha sido modificado en la tienda mientras estaba en WMS con estado: ${wmsStatus}.`;
     let alertType = "MODIFICADO_EN_PREPARACION";
 
     if (isCancelled) {
-        alertMessage = `¡CRÍTICO! El pedido Tiendanube ${finalOrderNumber} ha sido CANCELADO en la tienda, pero en el WMS tiene estado: ${wmsStatus}. Detener despacho de inmediato.`;
-        alertType = "CANCELADO_EN_PREPARACION";
+      alertMessage = `¡CRÍTICO! El pedido Tiendanube ${finalOrderNumber} ha sido CANCELADO en la tienda, pero en el WMS tiene estado: ${wmsStatus}. Detener despacho de inmediato.`;
+      alertType = "CANCELADO_EN_PREPARACION";
     }
 
-    // Insertar alerta
     const { error: alertErr } = await supabase
       .from("order_alerts")
       .insert([{
@@ -598,119 +811,11 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
         alert_type: alertType,
         message: alertMessage
       }]);
-      
+
     if (alertErr) console.error("Error creando alerta de pedido:", alertErr);
-  } else if (!isCancelled) {
-    // Si no está preparando y no está cancelado, podemos re-sincronizar los ítems en caso de cambios en la orden
-    
-    // 1. Obtener ítems existentes para Smart Diffing (excluyendo regalos de campañas)
-    const { data: existingItems } = await supabase
-      .from("order_items")
-      .select("id, product_id, quantity, warehouse_id, is_gift, campaign_id, tag")
-      .eq("order_id", existingOrder.id);
-
-    const existingMap = new Map(
-      (existingItems || [])
-        .filter((i: any) => !i.is_gift && !i.campaign_id && i.tag !== "Campaña")
-        .map((i: any) => [i.product_id, i])
-    );
-    const processedProductIds = new Set();
-
-    // 2. Cargar equivalencias de SKU
-    const skuMap: Record<string, string> = {};
-    try {
-      const { data: equivalences } = await supabase
-        .from("sku_equivalences")
-        .select("platform_sku, master_sku, platform")
-        .eq("comercio", comercio);
-      
-      if (equivalences) {
-        equivalences.filter((e: any) => e.platform === "Todas").forEach((e: any) => {
-          if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, "")] = e.master_sku.trim();
-        });
-        equivalences.filter((e: any) => e.platform === "Tiendanube").forEach((e: any) => {
-          if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, "")] = e.master_sku.trim();
-        });
-      }
-    } catch (err: any) {
-      console.error("⚠️ Error cargando equivalencias:", err.message);
-    }
-
-    // 3. Registrar ítems actualizados de forma inteligente
-    const { data: whRelation } = await supabase
-      .from("merchants_warehouses")
-      .select("warehouse_id")
-      .eq("merchant_id", merchantId)
-      .limit(1)
-      .maybeSingle();
-      
-    const warehouseId = whRelation?.warehouse_id || null;
-
-    for (const item of order.products) {
-      let sku = item.sku || `TN-${item.product_id}${item.variant_id ? '-' + item.variant_id : ''}`;
-      sku = sku.trim().replace(/\s+/g, "");
-      let mappedSku = skuMap[sku] || sku;
-
-      let product = null;
-      const { data: foundProduct } = await supabase.from("products")
-        .select("id")
-        .eq("sku", mappedSku)
-        .eq("comercio", comercio)
-        .maybeSingle();
-      
-      product = foundProduct;
-
-      if (!product) {
-        const pName = item.name 
-          ? (item.name.es || item.name.pt || Object.values(item.name)[0] || "Producto Tiendanube " + sku) 
-          : "Producto Tiendanube " + sku;
-        const productPrice = Number(item.price || 0);
-
-        const { data: newProd } = await supabase
-          .from("products")
-          .insert([{
-            merchant_id: merchantId,
-            comercio: comercio,
-            sku: mappedSku,
-            name: pName,
-            price: productPrice,
-            description: "Creado automáticamente desde webhook de Tiendanube al actualizar"
-          }])
-          .select("id")
-          .single();
-
-        product = newProd;
-      }
-
-      if (product) {
-        processedProductIds.add(product.id);
-        const existing = existingMap.get(product.id);
-
-        if (existing) {
-          if (existing.quantity !== item.quantity || (warehouseId && existing.warehouse_id !== warehouseId)) {
-            await supabase.from("order_items").update({
-              quantity: item.quantity,
-              warehouse_id: warehouseId || existing.warehouse_id
-            }).eq("id", existing.id);
-          }
-        } else {
-          await supabase.from("order_items").insert([{
-            order_id: existingOrder.id,
-            product_id: product.id,
-            warehouse_id: warehouseId,
-            quantity: item.quantity
-          }]);
-        }
-      }
-    }
-
-    // 4. Eliminar únicamente los ítems que ya no están en la orden
-    for (const [prodId, existingItem] of existingMap.entries()) {
-      if (!processedProductIds.has(prodId)) {
-        await supabase.from("order_items").delete().eq("id", (existingItem as any).id);
-      }
-    }
-    console.log(`Ítems actualizados con éxito para el pedido Tiendanube ${finalOrderNumber}`);
+  } else if (!isCancelled && !isProtectedState) {
+    await reconcileTiendanubeOrderItems(existingOrder.id, merchantId, comercio, order.products || [], skuMap);
+    console.log(`Ítems reconciliados con éxito para el pedido Tiendanube ${finalOrderNumber}`);
   }
 }
 
@@ -812,11 +917,15 @@ async function handleProductSave(merchantId: string, comercio: string, product: 
       const targetSku = skuMap[cleanSku.toUpperCase()] || cleanSku;
       const { data: existingProd } = await supabase
         .from("products")
-        .select("id")
+        .select("id, image_url")
         .eq("comercio", comercio)
         .ilike("sku", targetSku)
         .limit(1)
         .maybeSingle();
+
+      if (existingProd && !existingProd.image_url && imageUrl) {
+        await supabase.from("products").update({ image_url: imageUrl }).eq("id", existingProd.id);
+      }
 
       if (!existingProd) {
         const largo = parseFloat(variant.depth) || 10;

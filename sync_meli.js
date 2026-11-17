@@ -77,7 +77,10 @@ function mapMeliStatus(meliShippingStatus) {
   if (s === 'cancelled') {
     return 'cancelado';
   }
-  if (s === 'shipped' || s === 'delivered' || s === 'returned') {
+  if (s === 'delivered') {
+    return 'entregado';
+  }
+  if (s === 'shipped' || s === 'returned') {
     return 'despachado';
   }
   // En MercadoLibre, ready_to_ship o handling significa que el pedido fue pagado y su etiqueta está lista,
@@ -311,12 +314,13 @@ async function insertOrderItems(localOrderId, itemQuantities, itemsList, resolve
       let name = 'Producto MercadoLibre ' + sku;
       let price = 0;
       let rawItemData = null;
+      let imageUrl = null;
 
       if (itemDetail) {
         name = itemDetail.title;
         price = itemDetail.price;
         
-        console.log(`🔍 Buscando datos y barcode en MercadoLibre para ítem ID ${itemDetail.itemId}...`);
+        console.log(`🔍 Buscando datos, imagen y barcode en MercadoLibre para ítem ID ${itemDetail.itemId}...`);
         try {
           const itemRes = await fetch(`https://api.mercadolibre.com/items/${itemDetail.itemId}`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -329,6 +333,8 @@ async function insertOrderItems(localOrderId, itemQuantities, itemsList, resolve
                 barcode = gtinAttr.value_name;
               }
             }
+            const rawPic = rawItemData.pictures?.[0]?.secure_url || rawItemData.secure_thumbnail || rawItemData.thumbnail || null;
+            if (rawPic) imageUrl = String(rawPic).replace(/^http:\/\//i, 'https://');
           }
         } catch (e) {
           console.error(`⚠️ Error al buscar barcode para ${sku}:`, e.message);
@@ -345,6 +351,8 @@ async function insertOrderItems(localOrderId, itemQuantities, itemsList, resolve
           name: name,
           barcode: barcode,
           price: price,
+          image_url: imageUrl,
+          raw_meli_data: rawItemData,
           description: 'Creado automáticamente desde integración de MercadoLibre'
         }])
         .select('id')
@@ -847,6 +855,9 @@ async function syncMerchantOrders(integration) {
       let localOrderId = null;
 
       if (existingOrder) {
+        if (existingOrder.estado_wms === 'Entregado') {
+          continue;
+        }
         localOrderId = existingOrder.id;
         const existingRaw = existingOrder.raw_meli_data || {};
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
@@ -896,7 +907,9 @@ async function syncMerchantOrders(integration) {
             cantidad: flatQuantity,
             sku: flatSku,
             status: targetStatus,
-            estado_wms: targetStatus === 'despachado' ? 'Despachado' : (targetStatus === 'cancelado' ? 'Cancelado' : (existingOrder.estado_wms || 'En procesamiento')),
+            estado_wms: targetStatus === 'entregado'
+              ? 'Entregado'
+              : (targetStatus === 'despachado' ? 'Despachado' : (targetStatus === 'cancelado' ? 'Cancelado' : (existingOrder.estado_wms || 'En procesamiento'))),
             sucursal_pickeo: existingOrder.sucursal_pickeo || sucursalPickeo,
             created_at: group.date_created
           };
@@ -933,14 +946,19 @@ async function syncMerchantOrders(integration) {
             updatePayload.sucursal_pickeo = sucursalPickeo;
           }
 
-          const terminalStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
-          const wmsAlreadyTerminal = ['despachado', 'cancelado', 'archivado', 'entregado', 'retirado'].includes((existingOrder.estado_wms || '').toLowerCase()) || existingOrder.stock_descontado === true;
-          if (!wmsAlreadyTerminal && (!terminalStatuses.includes(existingOrder.status) || (existingOrder.status === 'despachado' && targetStatus === 'entregado'))) {
-            // SÓLO actualizar estado WMS si en MercadoLibre figura como despachado o entregado
-            // NO sobreescribir el avance operacional del WMS (En procesamiento, En preparación, Pickeado)
-            if (targetStatus === 'despachado') {
-              updatePayload.status = 'despachado';
-              updatePayload.estado_wms = 'Despachado';
+          const existingWmsLow = (existingOrder.estado_wms || '').toLowerCase().trim();
+          if (targetStatus === 'entregado' && !['entregado', 'cancelado', 'archivado'].includes(existingWmsLow)) {
+            updatePayload.status = 'entregado';
+            updatePayload.estado_wms = 'Entregado';
+            updatePayload.closed_by_automation = 'auto-marketplace-delivered-to-entregado';
+          } else {
+            const terminalStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
+            const wmsAlreadyTerminal = ['despachado', 'cancelado', 'archivado', 'entregado', 'retirado'].includes(existingWmsLow) || existingOrder.stock_descontado === true;
+            if (!wmsAlreadyTerminal && !terminalStatuses.includes(existingOrder.status)) {
+              if (targetStatus === 'despachado') {
+                updatePayload.status = 'despachado';
+                updatePayload.estado_wms = 'Despachado';
+              }
             }
           }
 
@@ -1160,6 +1178,8 @@ async function syncMerchantProducts(integration) {
         }
 
         const itemDetail = itemWrapper.body;
+        const mainMeliImgRaw = itemDetail.pictures?.[0]?.secure_url || itemDetail.secure_thumbnail || itemDetail.thumbnail || null;
+        const mainMeliImg = mainMeliImgRaw ? String(mainMeliImgRaw).replace(/^http:\/\//i, 'https://') : null;
 
         // Comprobar si el producto tiene variaciones
         if (itemDetail.variations && itemDetail.variations.length > 0) {
@@ -1174,14 +1194,23 @@ async function syncMerchantProducts(integration) {
               if (combos) variantName += ` - ${combos}`;
             }
 
+            let varImg = mainMeliImg;
+            if (Array.isArray(variation.picture_ids) && variation.picture_ids.length > 0 && Array.isArray(itemDetail.pictures)) {
+              const matchedPic = itemDetail.pictures.find(p => p.id === variation.picture_ids[0]);
+              if (matchedPic?.secure_url || matchedPic?.url) {
+                varImg = String(matchedPic.secure_url || matchedPic.url).replace(/^http:\/\//i, 'https://');
+              }
+            }
+
             const productDataToSave = {
               comercio: integration.comercio,
               platform: 'MercadoLibre',
               sku: cleanSku,
-              name: variantName
+              name: variantName,
+              image_url: varImg
             };
 
-            await saveOrUpdateProduct(productDataToSave);
+            await saveOrUpdateProduct(productDataToSave, skuMap[cleanSku] || cleanSku);
           }
         } else {
           // Publicación sin variaciones
@@ -1192,10 +1221,11 @@ async function syncMerchantProducts(integration) {
             comercio: integration.comercio,
             platform: 'MercadoLibre',
             sku: cleanSku,
-            name: itemDetail.title
+            name: itemDetail.title,
+            image_url: mainMeliImg
           };
 
-          await saveOrUpdateProduct(productDataToSave);
+          await saveOrUpdateProduct(productDataToSave, skuMap[cleanSku] || cleanSku);
         }
       }
     }
@@ -1206,7 +1236,7 @@ async function syncMerchantProducts(integration) {
 }
 
 // Helper para guardar o actualizar producto
-async function saveOrUpdateProduct(productData) {
+async function saveOrUpdateProduct(productData, masterSku = null) {
   try {
     const { error } = await supabase
       .from('synced_products')
@@ -1216,6 +1246,18 @@ async function saveOrUpdateProduct(productData) {
       console.error(`   ❌ Error al sincronizar SKU ${productData.sku} en synced_products:`, error.message);
     } else {
       console.log(`   📥 Sincronizado SKU ${productData.sku} en synced_products`);
+    }
+
+    if (productData.image_url && productData.comercio) {
+      const targetSkus = [...new Set([productData.sku, masterSku].filter(Boolean))];
+      for (const s of targetSkus) {
+        await supabase
+          .from('products')
+          .update({ image_url: productData.image_url })
+          .eq('comercio', productData.comercio)
+          .ilike('sku', s)
+          .or('image_url.is.null,image_url.eq.');
+      }
     }
   } catch (err) {
     console.error(`   ❌ Error general al procesar SKU ${productData.sku}:`, err.message);

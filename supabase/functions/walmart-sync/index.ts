@@ -141,11 +141,16 @@ async function syncWalmartProducts(integration: any): Promise<number> {
     const sku = String(itemDetail.sku || '').trim().replace(/\s+/g, '');
     if (!sku) continue;
 
+    const imageUrl = itemDetail.mainImageUrl
+      || itemDetail.images?.[0]?.url
+      || (itemDetail.itemId ? `https://images.lider.cl/wmtcl?source=url[file:/product/${itemDetail.itemId}a.jpg]&sink` : null);
+
     const productDataToUpsert = {
       comercio: integration.comercio,
       platform: "Walmart",
       sku: sku,
-      name: itemDetail.productName || 'Producto Walmart'
+      name: itemDetail.productName || 'Producto Walmart',
+      image_url: imageUrl
     };
 
     const { error: upsertErr } = await supabase
@@ -156,6 +161,14 @@ async function syncWalmartProducts(integration: any): Promise<number> {
       console.error(`Error al guardar producto Walmart SKU ${sku}:`, upsertErr.message);
     } else {
       count++;
+      if (imageUrl && integration.comercio) {
+        await supabase
+          .from("products")
+          .update({ image_url: imageUrl })
+          .eq("comercio", integration.comercio)
+          .ilike("sku", sku)
+          .or("image_url.is.null,image_url.eq.");
+      }
     }
   }
 

@@ -371,6 +371,7 @@ function aggregateOrdersSubset(ordersSubset, configuredPlatformsMap, openTickets
     'En preparación': 0,
     'Pickeado': 0,
     'Despachado': 0,
+    'Entregado': 0,
     'Incidencia': 0,
     'Cancelado': 0,
     'Archivado': 0
@@ -409,17 +410,17 @@ function aggregateOrdersSubset(ordersSubset, configuredPlatformsMap, openTickets
 
     const stLower = String(order.status || '').toLowerCase();
     if (!['despachado', 'cancelado', 'entregado', 'retirado', 'archivado'].includes(stLower) &&
-        !['Despachado', 'Cancelado', 'Archivado'].includes(wmsState)) {
+        !['Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(wmsState)) {
       eligibleAgendasCount++;
     }
 
-    if (wmsState !== 'Cancelado' && wmsState !== 'Archivado') {
+    if (wmsState !== 'Cancelado' && wmsState !== 'Archivado' && wmsState !== 'Entregado') {
       if (wmsState === 'Incidencia' || stLower === 'incidencia') {
         b.wmsIncidencia++;
       }
 
       const tags = typeof window.getOrderTags === 'function' ? window.getOrderTags(order) : [];
-      const isDispatched = wmsState === 'Despachado';
+      const isDispatched = wmsState === 'Despachado' || wmsState === 'Entregado';
 
       for (let t = 0; t < tags.length; t++) {
         const tag = tags[t];
@@ -448,7 +449,7 @@ function aggregateOrdersSubset(ordersSubset, configuredPlatformsMap, openTickets
 
   const activeOrdersCount = Math.max(0, totalOrders - states['Cancelado'] - states['Archivado']);
   const pendingOrders = states['En procesamiento'] + states['En preparación'];
-  const fulfilledOrders = states['Pickeado'] + states['Despachado'];
+  const fulfilledOrders = states['Pickeado'] + states['Despachado'] + (states['Entregado'] || 0);
   const fulfillmentPct = activeOrdersCount > 0 ? Math.round((fulfilledOrders / activeOrdersCount) * 100) : (totalOrders > 0 ? 100 : 0);
 
   const incidentsList = [];
@@ -1042,7 +1043,7 @@ function renderRadarCardsGrid(merchants) {
         const total = d.totalOrders;
         const pending = d.states['En procesamiento'] + d.states['En preparación'];
         const picked = d.states['Pickeado'];
-        const dispatched = d.states['Despachado'];
+        const dispatched = d.states['Despachado'] + (d.states['Entregado'] || 0);
 
         const pPend = total > 0 ? (pending / total) * 100 : 0;
         const pPick = total > 0 ? (picked / total) * 100 : 0;
@@ -1056,6 +1057,7 @@ function renderRadarCardsGrid(merchants) {
         const prepCount = d.states['En preparación'];
         const pickCount = d.states['Pickeado'];
         const despCount = d.states['Despachado'];
+        const entCount  = d.states['Entregado'] || 0;
         const incCount  = d.states['Incidencia'];
 
         const activePlatKey = m.effectiveCardPlatform;
@@ -1148,6 +1150,10 @@ function renderRadarCardsGrid(merchants) {
                   <span class="radar-state-label">Despachado</span>
                   <span class="radar-state-num ${despCount === 0 ? 'is-zero' : ''}">${despCount}</span>
                 </button>
+                <button type="button" class="radar-state-cell ${activeStatus === 'Entregado' ? 'active' : ''}" onclick="window.toggleRadarCardStatus('${jsMerchantKey}', 'Entregado')" title="Seleccionar estado: Entregado / Finalizado (${entCount})">
+                  <span class="radar-state-label">Entregado</span>
+                  <span class="radar-state-num ${entCount === 0 ? 'is-zero' : ''}" style="${entCount > 0 ? 'color: #059669;' : ''}">${entCount}</span>
+                </button>
                 <button type="button" class="radar-state-cell ${activeStatus === 'Incidencia' ? 'active' : ''}" onclick="window.toggleRadarCardStatus('${jsMerchantKey}', 'Incidencia')" title="Seleccionar estado: Incidencia WMS (${incCount})">
                   <span class="radar-state-label">Incidencia</span>
                   <span class="radar-state-num ${incCount === 0 ? 'is-zero' : 'is-alert'}">${incCount}</span>
@@ -1213,6 +1219,7 @@ function renderRadarMatrixTable(merchants) {
               <th style="text-align: right;">Preparación</th>
               <th style="text-align: right;">Pickeado</th>
               <th style="text-align: right;">Despachado</th>
+              <th style="text-align: right;">Entregado</th>
               <th style="text-align: right;">Incidencia</th>
               <th style="text-align: right;">Avance</th>
               <th>Alertas por Revisar</th>
@@ -1229,6 +1236,7 @@ function renderRadarMatrixTable(merchants) {
               const prep = d.states['En preparación'];
               const pick = d.states['Pickeado'];
               const desp = d.states['Despachado'];
+              const ent  = d.states['Entregado'] || 0;
               const inc  = d.states['Incidencia'];
 
               return `
@@ -1256,6 +1264,7 @@ function renderRadarMatrixTable(merchants) {
                   <td style="text-align: right; ${prep === 0 ? 'color: var(--color-text-muted); opacity: 0.4;' : 'font-weight: 600;'}">${prep}</td>
                   <td style="text-align: right; ${pick === 0 ? 'color: var(--color-text-muted); opacity: 0.4;' : 'font-weight: 600;'}">${pick}</td>
                   <td style="text-align: right; ${desp === 0 ? 'color: var(--color-text-muted); opacity: 0.4;' : 'font-weight: 600;'}">${desp}</td>
+                  <td style="text-align: right; ${ent === 0 ? 'color: var(--color-text-muted); opacity: 0.4;' : 'color: #059669; font-weight: 700;'}">${ent}</td>
                   <td style="text-align: right; ${inc === 0 ? 'color: var(--color-text-muted); opacity: 0.4;' : 'color: #dc2626; font-weight: 700;'}">${inc}</td>
                   <td style="text-align: right; font-weight: 600; color: var(--color-text-muted);">${d.fulfillmentPct}%</td>
                   <td>

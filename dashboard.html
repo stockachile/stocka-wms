@@ -9,13 +9,13 @@
   <link rel="apple-touch-icon" href="./favicon.png">
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
   <link rel="stylesheet" href="./css/style.css?v=1.0.10">
-  <link rel="stylesheet" href="./css/layout.css?v=1.2.7">
+  <link rel="stylesheet" href="./css/layout.css?v=1.2.9">
   <link rel="stylesheet" href="./css/tour.css?v=1.0.0">
   <link rel="stylesheet" href="./css/workspace_panel.css?v=1.0.0">
   <link rel="stylesheet" href="./css/inventory_coverage.css?v=1.2.1">
   <!-- Quill Styles for Rich Content Rendering -->
   <link href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" rel="stylesheet">
-  <script src="./js/theme.js?v=1.2.4"></script>
+  <script src="./js/theme.js?v=1.2.7"></script>
 
   <!-- Immediate Shopify OAuth Detection (Enforces Shopify App Store Guideline 2.3.2) -->
   <script>
@@ -1313,7 +1313,8 @@
                     <label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; cursor: pointer;">
                       <input type="checkbox" id="order-number-auto" checked style="cursor: pointer;"> Generar automáticamente por sistema
                     </label>
-                    <input type="text" id="order-cust-external-id" class="form-input" placeholder="Ej: #9401" style="font-size: 0.85rem; display: none;">
+                    <input type="text" id="order-cust-external-id" class="form-input" placeholder="Ej: #9401" style="font-size: 0.85rem; display: none;" autocomplete="off">
+                    <div id="order-external-id-feedback" style="display: none;"></div>
                   </div>
                 </div>
               </div>
@@ -2076,7 +2077,7 @@
   <script type="module" src="./js/consolidate_orders.js?v=1.0.1"></script>
   <script type="module" src="./js/picking_requests.js?v=1.0.4"></script>
   <script type="module" src="./js/order_editor.js?v=1.0.1"></script>
-  <script type="module" src="./js/app.js?v=1.1.1"></script>
+  <script type="module" src="./js/app.js?v=1.1.5"></script>
   <script type="module" src="./js/inventory_coverage.js?v=1.2.2"></script>
   <script type="module" src="./js/tour.js?v=1.0.1"></script>
   <script type="module" src="./js/order_page.js?v=1.0.13"></script>

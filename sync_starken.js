@@ -51,10 +51,19 @@ function mapStarkenStatusToWms(starkenStatus) {
   if (!starkenStatus) return null;
   const s = String(starkenStatus).trim().toUpperCase();
 
-  if (s.includes('ENTREGAD') || s.includes('EXITOS') || s.includes('DELIVERED')) {
+  if (
+    (s.includes('ENTREGAD') || s.includes('EXITOS') || s.includes('DELIVERED')) &&
+    !s.includes('NO ENTREGAD') &&
+    !s.includes('FALLID') &&
+    !s.includes('RECHAZAD') &&
+    !s.includes('REMITENTE') &&
+    !s.includes('DEVUEL') &&
+    !s.includes('ORIGEN') &&
+    !s.includes('DISPONIBLE PARA RETIRO')
+  ) {
     return 'entregado';
   }
-  if (s.includes('TRANSIT') || s.includes('DESTINO') || s.includes('REPARTO') || s.includes('RUTA') || s.includes('CAMINO') || s.includes('REDESTIN')) {
+  if (s.includes('TRANSIT') || s.includes('DESTINO') || s.includes('REPARTO') || s.includes('RUTA') || s.includes('CAMINO') || s.includes('REDESTIN') || s.includes('DISPONIBLE PARA RETIRO')) {
     return 'en tránsito';
   }
   if (s.includes('ORIGEN') || s.includes('CREAD') || s.includes('EMIS') || s.includes('RECEPCION') || s.includes('INGRESAD')) {
@@ -63,7 +72,7 @@ function mapStarkenStatusToWms(starkenStatus) {
   if (s.includes('CANCEL') || s.includes('ANULAD')) {
     return 'cancelado';
   }
-  if (s.includes('EXCEPCION') || s.includes('FALL') || s.includes('DEVUELT') || s.includes('SINIESTRO') || s.includes('INCIDENCIA')) {
+  if (s.includes('EXCEPCION') || s.includes('FALL') || s.includes('NO ENTREGAD') || s.includes('DEVUELT') || s.includes('SINIESTRO') || s.includes('INCIDENCIA')) {
     return 'incidencia';
   }
   return null;
@@ -511,12 +520,17 @@ async function syncStarkenPro() {
       const filterStr = candidates.map(c => `"${c}"`).join(',');
       const { data: directOrders } = await supabase
         .from('orders')
-        .select('id, status, external_order_number, tracking_number, courier, starken_status, comercio, categoria_entrega')
+        .select('id, status, estado_wms, external_order_number, tracking_number, tracking_url, courier, starken_status, comercio, categoria_entrega')
         .or(`tracking_number.in.(${filterStr}),external_order_number.in.(${filterStr})`);
 
       if (directOrders && directOrders.length > 0) {
         matchedOrder = directOrders.find(o => String(o.categoria_entrega || '').toUpperCase().trim() !== 'RETIRO') || null;
       }
+    }
+
+    // Si el pedido en WMS ya está cerrado definitivamente en 'Entregado', no realizar actualizaciones adicionales
+    if (matchedOrder && matchedOrder.estado_wms === 'Entregado') {
+      continue;
     }
 
     // Si se encontró la orden en el WMS, adoptar el comercio real de la orden
@@ -564,12 +578,19 @@ async function syncStarkenPro() {
         updatePayload.courier = 'STARKEN';
       }
 
-      // Si Starken reporta movimiento activo (DESPACHADO) y la orden está en estado previo, avanzar a 'despachado'
-      if (globalStatus === 'DESPACHADO') {
+      if (wmsStatus === 'entregado') {
+        if (!['Entregado', 'Cancelado', 'Archivado'].includes(matchedOrder.estado_wms)) {
+          updatePayload.status = 'entregado';
+          updatePayload.estado_wms = 'Entregado';
+          updatePayload.delivered_at = new Date().toISOString();
+          updatePayload.closed_at = new Date().toISOString();
+          updatePayload.closed_by_automation = 'auto-dispatch-delivered-to-entregado';
+        }
+      } else if (wmsStatus === 'en tránsito' || globalStatus === 'DESPACHADO') {
         if (['para procesar', 'en preparación', 'preparado'].includes(matchedOrder.status)) {
           updatePayload.status = 'despachado';
         }
-        if (!['Despachado', 'Cancelado', 'Archivado'].includes(matchedOrder.estado_wms)) {
+        if (!['Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(matchedOrder.estado_wms)) {
           updatePayload.estado_wms = 'Despachado';
         }
       }

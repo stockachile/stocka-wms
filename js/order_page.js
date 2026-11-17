@@ -98,8 +98,17 @@ function getClientAllowedCommerces() {
 function getWmsStatusStyle(order) {
   const wms = String(order?.estado_wms || order?.status || 'En procesamiento').trim();
   const low = wms.toLowerCase();
-  if (low.includes('despachado') || low.includes('entregado') || low.includes('retirado')) {
-    return { label: wms, bg: 'rgba(16, 185, 129, 0.14)', color: '#059669', border: 'rgba(16, 185, 129, 0.35)', icon: 'ri-truck-line' };
+  if (low.includes('entregado') || low.includes('retirado')) {
+    return {
+      label: wms === 'Entregado' ? 'ENTREGADO · Finalizado' : wms,
+      bg: 'rgba(5, 150, 105, 0.16)',
+      color: '#047857',
+      border: 'rgba(5, 150, 105, 0.42)',
+      icon: 'ri-verified-badge-fill'
+    };
+  }
+  if (low.includes('despachado')) {
+    return { label: wms, bg: 'rgba(2, 132, 199, 0.14)', color: '#0369a1', border: 'rgba(2, 132, 199, 0.35)', icon: 'ri-truck-line' };
   }
   if (low.includes('pickeado') || low.includes('preparado') || low.includes('listo')) {
     return { label: wms, bg: 'rgba(59, 130, 246, 0.14)', color: '#2563eb', border: 'rgba(59, 130, 246, 0.35)', icon: 'ri-checkbox-circle-line' };
@@ -115,6 +124,65 @@ function getWmsStatusStyle(order) {
   }
   return { label: wms || 'En procesamiento', bg: 'rgba(99, 102, 241, 0.12)', color: '#4f46e5', border: 'rgba(99, 102, 241, 0.3)', icon: 'ri-time-line' };
 }
+
+window.reopenDeliveredOrderFromPage = async function(orderId) {
+  if (typeof window.openReopenDeliveredOrderModal === 'function') {
+    await window.openReopenDeliveredOrderModal(orderId);
+    if (window._activeSingleOrderPageId) {
+      window.renderSingleOrderPage(window._activeSingleOrderPageId, { isAdmin: true });
+    }
+    return;
+  }
+  if (!window.Swal || !window.supabase) return;
+  const { value: formVals } = await Swal.fire({
+    title: 'Reabrir Pedido Finalizado (Admin)',
+    width: '500px',
+    html: `
+      <div style="text-align: left; font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.75rem;">
+        <p style="margin: 0; color: var(--color-text-muted);">Los pedidos en <strong>ENTREGADO</strong> están sellados e inmutables. Indica el estado de reapertura y el motivo obligatorio de auditoría:</p>
+        <div>
+          <label style="font-weight: 700; display: block; margin-bottom: 0.25rem;">Estado WMS destino:</label>
+          <select id="sop-reopen-target-status" class="form-input" style="width: 100%; padding: 0.45rem;">
+            <option value="Despachado" selected>Despachado</option>
+            <option value="Incidencia">Incidencia</option>
+            <option value="Pickeado">Pickeado</option>
+            <option value="En procesamiento">En procesamiento</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-weight: 700; display: block; margin-bottom: 0.25rem;">Motivo de auditoría (obligatorio):</label>
+          <textarea id="sop-reopen-reason" class="form-input" rows="3" style="width: 100%; padding: 0.45rem;" placeholder="Ej: Corrección solicitada por gerencia / error de guía..."></textarea>
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: 'Reabrir y Auditar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#dc2626',
+    preConfirm: () => {
+      const target = document.getElementById('sop-reopen-target-status')?.value || 'Despachado';
+      const reason = (document.getElementById('sop-reopen-reason')?.value || '').trim();
+      if (reason.length < 5) {
+        Swal.showValidationMessage('Ingresa un motivo válido de al menos 5 caracteres.');
+        return false;
+      }
+      return { target, reason };
+    }
+  });
+  if (!formVals) return;
+  try {
+    const { error } = await window.supabase.rpc('reopen_delivered_order', {
+      p_order_id: orderId,
+      p_target_wms_status: formVals.target,
+      p_reason: formVals.reason
+    });
+    if (error) throw error;
+    await Swal.fire('Pedido Reabierto', `El pedido pasó a "${formVals.target}" y quedó registrado en auditoría.`, 'success');
+    window.renderSingleOrderPage(orderId, { isAdmin: true });
+  } catch (e) {
+    Swal.fire('Error al reabrir', e.message || String(e), 'error');
+  }
+};
 
 function getPlatformMeta(order) {
   const raw = String(order?.origen || order?.external_platform || 'Manual').trim();
@@ -1358,6 +1426,7 @@ function attachMultiCriteriaOrderSearch({ dropdownId, inputId, resultsId, isAdmi
           <option value="En preparación">En preparación</option>
           <option value="Pickeado">Pickeado / Preparado</option>
           <option value="Despachado">Despachado</option>
+          <option value="Entregado">Entregado (Finalizado)</option>
           <option value="Incidencia">Con Incidencia</option>
           <option value="Cancelado">Cancelado</option>
         </select>
@@ -2283,7 +2352,7 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
   }
 
   try {
-    const selectStr = `
+    let selectStr = `
       id,
       status,
       estado_wms,
@@ -2331,6 +2400,20 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
       periodo_facturacion,
       stock_descontado,
       stock_descontado_at,
+      picker_status,
+      picker_operator,
+      picker_scanned_label,
+      picker_last_synced_at,
+      picker_history_snapshot,
+      closed_snapshot,
+      tracking_history,
+      transport_status_normalized,
+      dispatched_at,
+      delivered_at,
+      closed_at,
+      closed_by_automation,
+      is_consolidated,
+      consolidated_into_order_id,
       order_items (
         id,
         quantity,
@@ -2344,13 +2427,21 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
       )
     `.replace(/\s+/g, ' ').trim();
 
+    const stripNewSnapshotCols = (cols) => cols.replace(/,\s*(picker_status|picker_operator|picker_scanned_label|picker_last_synced_at|picker_history_snapshot|closed_snapshot|tracking_history|transport_status_normalized|dispatched_at|delivered_at|closed_at|closed_by_automation|is_consolidated|consolidated_into_order_id)/g, '');
+
     let orderData = null;
     if (isUuid(cleanRef)) {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('orders')
         .select(selectStr)
         .eq('id', cleanRef)
         .maybeSingle();
+      if (error && error.code === '42703') {
+        selectStr = stripNewSnapshotCols(selectStr);
+        const retry = await supabase.from('orders').select(selectStr).eq('id', cleanRef).maybeSingle();
+        data = retry.data;
+        error = retry.error;
+      }
       if (error) throw error;
       orderData = data;
     }
@@ -2372,16 +2463,26 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
         refOrs.push(`and(${pr.col}.gte."${pr.prefix}",${pr.col}.lte."${pr.prefix}\uffff")`);
       });
 
-      let q = supabase
-        .from('orders')
-        .select(selectStr)
-        .or(Array.from(new Set(refOrs)).join(','))
-        .limit(10);
-      if (!isAdmin) {
-        const allowed = getClientAllowedCommerces();
-        if (allowed.length > 0) q = q.in('comercio', allowed);
+      const buildLookupQuery = (cols) => {
+        let q = supabase
+          .from('orders')
+          .select(cols)
+          .or(Array.from(new Set(refOrs)).join(','))
+          .limit(10);
+        if (!isAdmin) {
+          const allowed = getClientAllowedCommerces();
+          if (allowed.length > 0) q = q.in('comercio', allowed);
+        }
+        return q;
+      };
+
+      let { data: listData, error: listErr } = await buildLookupQuery(selectStr);
+      if (listErr && listErr.code === '42703') {
+        selectStr = stripNewSnapshotCols(selectStr);
+        const retry = await buildLookupQuery(selectStr);
+        listData = retry.data;
+        listErr = retry.error;
       }
-      const { data: listData, error: listErr } = await q;
       if (listErr) throw listErr;
       if (listData && listData.length > 0) {
         const targetComms = codeParts.hasPrefix ? (siglaMaps.siglaToCommerces.get(codeParts.prefix) || new Set()) : new Set();
@@ -2468,7 +2569,12 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
       else window.clientLoadedOrders.unshift(orderData);
     }
 
-    // Consultas en paralelo para enriquecer la Página del Pedido (Envíos Unificados, LightData Directo, Retiros, Stock, Picker directo, Comercios)
+    const isOrderDeliveredClosed = String(orderData.estado_wms || '').trim() === 'Entregado';
+    const isSealedClosed = isOrderDeliveredClosed && Boolean(orderData.closed_snapshot);
+
+    // Consultas en paralelo para enriquecer la Página del Pedido
+    // NOTA ARQUITECTÓNICA: Si el pedido está cerrado en ENTREGADO y posee closed_snapshot,
+    // CERO consultas a couriers, envios_unificados, lightdata_envios, store_pickups, inventory ni App Picker externo.
     const extRaw = String(orderData.external_order_number || '').trim();
     const extNoHash = extRaw.replace(/^#/, '').trim();
     const trkRaw = String(orderData.tracking_number || '').trim();
@@ -2504,297 +2610,312 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
       isCompleted: false
     };
 
-    await Promise.all([
-      // 1. Opciones de configuración en Admin
-      (async () => {
-        if (isAdmin && typeof window.loadConfigOptions === 'function') {
-          try { await window.loadConfigOptions(); } catch (e) {}
-        }
-      })(),
-      // 2. Envíos unificados de este pedido
-      (async () => {
-        if (refCandidates.length === 0) return;
-        try {
-          const csv = `(${refCandidates.map(r => `"${r.replace(/["(),]/g, '')}"`).join(',')})`;
-          const ldUnifiedIds = ldIdCandidates.map(id => `"lightdata_envios:${id}"`).join(',');
-          const orFilter = ldUnifiedIds
-            ? `pedido_referencia.in.${csv},tracking.in.${csv},source_id.in.${csv},id.in.(${ldUnifiedIds})`
-            : `pedido_referencia.in.${csv},tracking.in.${csv},source_id.in.${csv}`;
-
-          const { data: shData } = await supabase
-            .from('envios_unificados')
-            .select('id, source_table, source_id, pedido_referencia, tracking, tracking_url, courier, status, global_status, comuna_destino, empresa_comercio_proveedor, created_at, updated_at, raw_data')
-            .or(orFilter)
-            .order('updated_at', { ascending: false });
-          if (shData) {
-            orderShipments = shData;
-            if (isAdmin) {
-              window.loadedShipments = shData;
-              if (typeof window.buildWmsShipmentsByRefMap === 'function') {
-                window.buildWmsShipmentsByRefMap(shData);
-              }
-            }
+    if (isSealedClosed) {
+      const snap = orderData.closed_snapshot || {};
+      const snapPick = snap.picking || orderData.picker_history_snapshot || {};
+      const snapLogs = Array.isArray(snapPick.logs)
+        ? snapPick.logs
+        : (Array.isArray(orderData.picker_history_snapshot?.logs) ? orderData.picker_history_snapshot.logs : []);
+      pickerData.historyLogs = snapLogs;
+      pickerData.status = snapPick.status || orderData.picker_status || (String(orderData.categoria_entrega || '').toUpperCase().trim() === 'RETIRO' ? 'Retirado' : 'Completado');
+      pickerData.operator = snapPick.operator || snapLogs[0]?.picker || orderData.picker_operator || null;
+      pickerData.sucursal = snapPick.warehouse || snapPick.sucursal || snapLogs[0]?.sucursal || orderData.sucursal_pickeo || null;
+      pickerData.observation = snapPick.observation || snapLogs[0]?.comentarios || null;
+      pickerData.isCompleted = true;
+    } else {
+      await Promise.all([
+        // 1. Opciones de configuración en Admin
+        (async () => {
+          if (isAdmin && typeof window.loadConfigOptions === 'function') {
+            try { await window.loadConfigOptions(); } catch (e) {}
           }
-        } catch (e) {}
-      })(),
-      // 2b. Consulta directa a lightdata_envios y store_pickups para enriquecer estados en tiempo real (ej: raw_data[23] = "Entregado")
-      (async () => {
-        try {
-          const subPromises = [];
-          if (ldIdCandidates.length > 0 || refCandidates.length > 0) {
-            const refCsv = `(${refCandidates.map(r => `"${r.replace(/["(),]/g, '')}"`).join(',')})`;
-            const ldOrParts = [`tracking.in.${refCsv}`];
-            if (ldIdCandidates.length > 0) {
-              ldOrParts.push(`id.in.(${ldIdCandidates.map(i => `"${i}"`).join(',')})`);
-            }
-            subPromises.push(
-              supabase
-                .from('lightdata_envios')
-                .select('*')
-                .or(ldOrParts.join(','))
-                .order('created_at', { ascending: false })
-                .limit(5)
-                .then(({ data }) => { if (data) directLdRows = data; })
-                .catch(() => {})
-            );
-          }
-          if (refCandidates.length > 0) {
-            subPromises.push(
-              supabase
-                .from('store_pickups')
-                .select('*')
-                .in('pedido', refCandidates)
-                .limit(3)
-                .then(({ data }) => { if (data) storePickupRows = data; })
-                .catch(() => {})
-            );
-          }
-          if (subPromises.length > 0) await Promise.all(subPromises);
-        } catch (e) {}
-      })(),
-      // 3. Stock actual de los productos de este pedido
-      (async () => {
-        const prodIds = [...new Set((orderData.order_items || []).map(oi => oi.product_id).filter(Boolean))];
-        if (prodIds.length === 0) return;
-        try {
-          if (isAdmin && typeof window.fetchInventoryForOrders === 'function') {
-            await window.fetchInventoryForOrders([orderData], true);
-          }
-          const { data: invRows } = await supabase
-            .from('inventory')
-            .select('product_id, warehouse_id, quantity, warehouses (id, name)')
-            .in('product_id', prodIds);
-          if (invRows) {
-            invRows.forEach(row => {
-              if (!stockByProductMap[row.product_id]) {
-                stockByProductMap[row.product_id] = { total: 0, byWarehouse: {} };
-              }
-              const q = Number(row.quantity) || 0;
-              stockByProductMap[row.product_id].total += q;
-              if (row.warehouse_id) {
-                stockByProductMap[row.product_id].byWarehouse[row.warehouse_id] = {
-                  qty: q,
-                  name: row.warehouses?.name || 'Bodega'
-                };
-              }
-            });
-          }
-        } catch (e) {}
-      })(),
-      // 4. Consulta directa a la Base de Datos del Picker (active_orders + history_logs) sin restricción de antigüedad
-      (async () => {
-        const pickerClient = getPickerSupabase();
-        if (!pickerClient) return;
-        const pKeys = buildPickerQueryKeys(orderData);
-        if (pKeys.length === 0) return;
-        try {
-          let [
-            { data: activeRows },
-            { data: histRows }
-          ] = await Promise.all([
-            pickerClient.from('active_orders').select('*').in('order_number', pKeys),
-            pickerClient.from('history_logs').select('*').in('pedido', pKeys).order('created_at', { ascending: false })
-          ]);
-
-          const digitsOnly = String(orderData.external_order_number || '').replace(/\D/g, '');
-          const ordComUpper = String(orderData.comercio || '').trim().toUpperCase();
-
-          if (activeRows && activeRows.length > 0 && ordComUpper) {
-            const byCom = activeRows.filter(r => !r.comercio || String(r.comercio).trim().toUpperCase() === ordComUpper);
-            if (byCom.length > 0 || activeRows.every(r => r.comercio && String(r.comercio).trim().toUpperCase() !== ordComUpper)) {
-              activeRows = byCom;
-            }
-          }
-          if ((!activeRows || activeRows.length === 0) && ordComUpper && digitsOnly.length >= 3) {
-            const { data: fbAct } = await pickerClient
-              .from('active_orders')
-              .select('*')
-              .ilike('comercio', orderData.comercio.trim())
-              .ilike('order_number', `%${digitsOnly}%`);
-            if (fbAct && fbAct.length > 0) {
-              activeRows = fbAct.filter(r => String(r.order_number || '').replace(/\D/g, '') === digitsOnly);
-            }
-          }
-
-          if ((!histRows || histRows.length === 0) && digitsOnly.length >= 3) {
-            const { data: fbHist } = await pickerClient
-              .from('history_logs')
-              .select('*')
-              .ilike('pedido', `%${digitsOnly}%`)
-              .order('created_at', { ascending: false })
-              .limit(25);
-            if (fbHist && fbHist.length > 0) {
-              const ordSigla = ordComUpper && window.resolveCommercePickerSigla ? window.resolveCommercePickerSigla(ordComUpper) : '';
-              histRows = fbHist.filter(r => {
-                const pClean = String(r.pedido || '').trim().replace(/^#/, '').trim().toUpperCase();
-                if (pClean.replace(/\D/g, '') !== digitsOnly) return false;
-                const pfxMatch = pClean.match(/^([A-Z]{2,8})[#\-_\s]*(\d+.*)$/);
-                if (pfxMatch && ordComUpper) {
-                  const pfx = pfxMatch[1];
-                  if (pfx !== ordSigla && !ordComUpper.startsWith(pfx)) return false;
-                }
-                return true;
-              });
-            }
-          }
-
-          if (histRows && histRows.length > 0 && digitsOnly.length <= 5) {
-            const orderSkus = new Set();
-            if (orderData.sku) {
-              String(orderData.sku).split(/[,;|/]/).forEach(part => {
-                const c = part.trim().replace(/\s*\(x\d+\)\s*$/i, '').trim().toUpperCase();
-                if (c) orderSkus.add(c);
-              });
-            }
-            if (Array.isArray(orderData.order_items)) {
-              orderData.order_items.forEach(oi => {
-                const s = String(oi?.products?.sku || oi?.sku || '').trim().toUpperCase();
-                if (s) orderSkus.add(s);
-              });
-            }
-            if (orderSkus.size > 0) {
-              const skuMatched = histRows.filter(l => {
-                const sum = String(l.items_summary || '').trim();
-                if (!sum || sum === '-') return false;
-                const logSkus = sum.split(',').map(s => s.trim().replace(/\s*\(\d+\/\d+\)\s*$/, '').trim().toUpperCase());
-                return logSkus.some(sk => orderSkus.has(sk));
-              });
-              if (skuMatched.length > 0) histRows = skuMatched;
-            }
-          }
-
-          if (activeRows && activeRows.length > 0) {
-            const firstAct = activeRows[0];
-            pickerData.hasActive = true;
-            pickerData.activeItem = firstAct;
-            pickerData.status = firstAct.sheet_status || 'EN PREPARACIÓN';
-            pickerData.operator = firstAct.operator || null;
-            pickerData.totu = firstAct.totu || null;
-            pickerData.sucursal = firstAct.sucursal || null;
-            pickerData.observation = firstAct.observation || null;
-            pickerData.isCompleted = ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(firstAct.sheet_status);
-          }
-
-          if (histRows && histRows.length > 0) {
-            pickerData.historyLogs = histRows;
-            const firstLog = histRows[0];
-            const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(firstLog.estado);
-            if (!pickerData.hasActive || isComp) {
-              pickerData.status = firstLog.estado || 'COMPLETADO';
-              pickerData.isCompleted = isComp;
-            }
-            pickerData.operator = pickerData.operator || firstLog.picker || null;
-            pickerData.sucursal = pickerData.sucursal || firstLog.sucursal || null;
-            pickerData.observation = pickerData.observation || firstLog.comentarios || null;
-          } else if (!pickerData.hasActive && (orderData.estado_wms === 'Pickeado' || orderData.picker_status)) {
-            pickerData.status = orderData.picker_status || 'Completado';
-            pickerData.isCompleted = true;
-            pickerData.operator = orderData.picker_operator || window.pickerOperatorsMap?.[orderData.external_order_number || orderData.id] || null;
-            pickerData.sucursal = orderData.sucursal_pickeo || null;
-          }
-
-          if (!window.pickerOperatorsMap) window.pickerOperatorsMap = {};
-          if (!window.pickerStatusMap) window.pickerStatusMap = {};
-          if (pickerData.operator) {
-            pKeys.forEach(k => { window.pickerOperatorsMap[k] = pickerData.operator; });
-          }
-          if (pickerData.status && typeof window.registerOrderInPickerStatusMap === 'function') {
-            window.registerOrderInPickerStatusMap(orderData, {
-              status: pickerData.status,
-              operator: pickerData.operator,
-              sucursal: pickerData.sucursal,
-              observation: pickerData.observation,
-              totu: pickerData.totu,
-              comercio: orderData.comercio || null,
-              isActive: pickerData.hasActive && !pickerData.isCompleted,
-              isCompleted: pickerData.isCompleted,
-              source: histRows?.length ? 'history_logs' : (pickerData.hasActive ? 'active_orders' : 'wms_pickeado_state')
-            });
-          }
-        } catch (e) {
-          console.warn('[SingleOrderPage] Aviso consultando Picker en directo:', e);
-        }
-      })(),
-      // 5. Comercios para selector en Admin
-      (async () => {
-        if (isAdmin && (!window.wmsAllComercios || window.wmsAllComercios.length === 0)) {
+        })(),
+        // 2. Envíos unificados de este pedido
+        (async () => {
+          if (refCandidates.length === 0) return;
           try {
-            const { data: cfg } = await supabase.from('comercios_adicional_config').select('comercio').order('comercio');
-            if (cfg) {
-              window.wmsAllComercios = [...new Set(cfg.map(c => c.comercio).filter(Boolean))];
+            const csv = `(${refCandidates.map(r => `"${r.replace(/["(),]/g, '')}"`).join(',')})`;
+            const ldUnifiedIds = ldIdCandidates.map(id => `"lightdata_envios:${id}"`).join(',');
+            const orFilter = ldUnifiedIds
+              ? `pedido_referencia.in.${csv},tracking.in.${csv},source_id.in.${csv},id.in.(${ldUnifiedIds})`
+              : `pedido_referencia.in.${csv},tracking.in.${csv},source_id.in.${csv}`;
+
+            const { data: shData } = await supabase
+              .from('envios_unificados')
+              .select('id, source_table, source_id, pedido_referencia, tracking, tracking_url, courier, status, global_status, comuna_destino, empresa_comercio_proveedor, created_at, updated_at, raw_data')
+              .or(orFilter)
+              .order('updated_at', { ascending: false });
+            if (shData) {
+              orderShipments = shData;
+              if (isAdmin) {
+                window.loadedShipments = shData;
+                if (typeof window.buildWmsShipmentsByRefMap === 'function') {
+                  window.buildWmsShipmentsByRefMap(shData);
+                }
+              }
             }
           } catch (e) {}
-        }
-      })(),
-      // 6. Pedidos hermanos (<24h o consolidados) del mismo comercio para detección de consolidación en pestaña dedicada
-      (async () => {
-        try {
-          if (!orderData.comercio || !orderData.created_at) return;
-          const baseTime = new Date(orderData.created_at).getTime();
-          if (isNaN(baseTime)) return;
-          const minIso = new Date(baseTime - 25 * 3600 * 1000).toISOString();
-          const maxIso = new Date(baseTime + 25 * 3600 * 1000).toISOString();
+        })(),
+        // 2b. Consulta directa a lightdata_envios y store_pickups para enriquecer estados en tiempo real (ej: raw_data[23] = "Entregado")
+        (async () => {
+          try {
+            const subPromises = [];
+            if (ldIdCandidates.length > 0 || refCandidates.length > 0) {
+              const refCsv = `(${refCandidates.map(r => `"${r.replace(/["(),]/g, '')}"`).join(',')})`;
+              const ldOrParts = [`tracking.in.${refCsv}`];
+              if (ldIdCandidates.length > 0) {
+                ldOrParts.push(`id.in.(${ldIdCandidates.map(i => `"${i}"`).join(',')})`);
+              }
+              subPromises.push(
+                supabase
+                  .from('lightdata_envios')
+                  .select('*')
+                  .or(ldOrParts.join(','))
+                  .order('created_at', { ascending: false })
+                  .limit(5)
+                  .then(({ data }) => { if (data) directLdRows = data; })
+                  .catch(() => {})
+              );
+            }
+            if (refCandidates.length > 0) {
+              subPromises.push(
+                supabase
+                  .from('store_pickups')
+                  .select('*')
+                  .in('pedido', refCandidates)
+                  .limit(3)
+                  .then(({ data }) => { if (data) storePickupRows = data; })
+                  .catch(() => {})
+              );
+            }
+            if (subPromises.length > 0) await Promise.all(subPromises);
+          } catch (e) {}
+        })(),
+        // 3. Stock actual de los productos de este pedido
+        (async () => {
+          const prodIds = [...new Set((orderData.order_items || []).map(oi => oi.product_id).filter(Boolean))];
+          if (prodIds.length === 0) return;
+          try {
+            if (isAdmin && typeof window.fetchInventoryForOrders === 'function') {
+              await window.fetchInventoryForOrders([orderData], true);
+            }
+            const { data: invRows } = await supabase
+              .from('inventory')
+              .select('product_id, warehouse_id, quantity, warehouses (id, name)')
+              .in('product_id', prodIds);
+            if (invRows) {
+              invRows.forEach(row => {
+                if (!stockByProductMap[row.product_id]) {
+                  stockByProductMap[row.product_id] = { total: 0, byWarehouse: {} };
+                }
+                const q = Number(row.quantity) || 0;
+                stockByProductMap[row.product_id].total += q;
+                if (row.warehouse_id) {
+                  stockByProductMap[row.product_id].byWarehouse[row.warehouse_id] = {
+                    qty: q,
+                    name: row.warehouses?.name || 'Bodega'
+                  };
+                }
+              });
+            }
+          } catch (e) {}
+        })(),
+        // 4. Consulta directa a la Base de Datos del Picker (active_orders + history_logs) solo para pedidos abiertos
+        (async () => {
+          if (isOrderDeliveredClosed) return;
+          const pickerClient = getPickerSupabase();
+          if (!pickerClient) return;
+          const pKeys = buildPickerQueryKeys(orderData);
+          if (pKeys.length === 0) return;
+          try {
+            let [
+              { data: activeRows },
+              { data: histRows }
+            ] = await Promise.all([
+              pickerClient.from('active_orders').select('*').in('order_number', pKeys),
+              pickerClient.from('history_logs').select('*').in('pedido', pKeys).order('created_at', { ascending: false })
+            ]);
 
-          const { data: siblingRows } = await supabase
-            .from('orders')
-            .select(selectStr)
-            .eq('comercio', orderData.comercio)
-            .gte('created_at', minIso)
-            .lte('created_at', maxIso)
-            .limit(30);
+            const digitsOnly = String(orderData.external_order_number || '').replace(/\D/g, '');
+            const ordComUpper = String(orderData.comercio || '').trim().toUpperCase();
 
-          const mergeIntoLocalList = (rows) => {
-            if (!Array.isArray(rows) || rows.length === 0) return;
-            const targetList = isAdmin ? window.loadedOrders : window.clientLoadedOrders;
-            if (!Array.isArray(targetList)) return;
-            rows.forEach(r => {
-              if (!r || !r.id) return;
-              const idx = targetList.findIndex(o => String(o.id) === String(r.id));
-              if (idx === -1) targetList.push(r);
-            });
-          };
-
-          mergeIntoLocalList(siblingRows);
-
-          if (typeof window.getOrderConsolidationInfo === 'function') {
-            const cInfo = window.getOrderConsolidationInfo(orderData);
-            if (cInfo && cInfo.isConsolidated) {
-              const linkedIds = [
-                cInfo.primaryOrderId,
-                ...(Array.isArray(cInfo.childrenIds) ? cInfo.childrenIds : [])
-              ].filter(id => id && String(id) !== String(orderData.id));
-              if (linkedIds.length > 0) {
-                const { data: linkedRows } = await supabase
-                  .from('orders')
-                  .select(selectStr)
-                  .in('id', linkedIds);
-                mergeIntoLocalList(linkedRows);
+            if (activeRows && activeRows.length > 0 && ordComUpper) {
+              const byCom = activeRows.filter(r => !r.comercio || String(r.comercio).trim().toUpperCase() === ordComUpper);
+              if (byCom.length > 0 || activeRows.every(r => r.comercio && String(r.comercio).trim().toUpperCase() !== ordComUpper)) {
+                activeRows = byCom;
               }
             }
+            if ((!activeRows || activeRows.length === 0) && ordComUpper && digitsOnly.length >= 3) {
+              const { data: fbAct } = await pickerClient
+                .from('active_orders')
+                .select('*')
+                .ilike('comercio', orderData.comercio.trim())
+                .ilike('order_number', `%${digitsOnly}%`);
+              if (fbAct && fbAct.length > 0) {
+                activeRows = fbAct.filter(r => String(r.order_number || '').replace(/\D/g, '') === digitsOnly);
+              }
+            }
+
+            if ((!histRows || histRows.length === 0) && digitsOnly.length >= 3) {
+              const { data: fbHist } = await pickerClient
+                .from('history_logs')
+                .select('*')
+                .ilike('pedido', `%${digitsOnly}%`)
+                .order('created_at', { ascending: false })
+                .limit(25);
+              if (fbHist && fbHist.length > 0) {
+                const ordSigla = ordComUpper && window.resolveCommercePickerSigla ? window.resolveCommercePickerSigla(ordComUpper) : '';
+                histRows = fbHist.filter(r => {
+                  const pClean = String(r.pedido || '').trim().replace(/^#/, '').trim().toUpperCase();
+                  if (pClean.replace(/\D/g, '') !== digitsOnly) return false;
+                  const pfxMatch = pClean.match(/^([A-Z]{2,8})[#\-_\s]*(\d+.*)$/);
+                  if (pfxMatch && ordComUpper) {
+                    const pfx = pfxMatch[1];
+                    if (pfx !== ordSigla && !ordComUpper.startsWith(pfx)) return false;
+                  }
+                  return true;
+                });
+              }
+            }
+
+            if (histRows && histRows.length > 0 && digitsOnly.length <= 5) {
+              const orderSkus = new Set();
+              if (orderData.sku) {
+                String(orderData.sku).split(/[,;|/]/).forEach(part => {
+                  const c = part.trim().replace(/\s*\(x\d+\)\s*$/i, '').trim().toUpperCase();
+                  if (c) orderSkus.add(c);
+                });
+              }
+              if (Array.isArray(orderData.order_items)) {
+                orderData.order_items.forEach(oi => {
+                  const s = String(oi?.products?.sku || oi?.sku || '').trim().toUpperCase();
+                  if (s) orderSkus.add(s);
+                });
+              }
+              if (orderSkus.size > 0) {
+                const skuMatched = histRows.filter(l => {
+                  const sum = String(l.items_summary || '').trim();
+                  if (!sum || sum === '-') return false;
+                  const logSkus = sum.split(',').map(s => s.trim().replace(/\s*\(\d+\/\d+\)\s*$/, '').trim().toUpperCase());
+                  return logSkus.some(sk => orderSkus.has(sk));
+                });
+                if (skuMatched.length > 0) histRows = skuMatched;
+              }
+            }
+
+            if (activeRows && activeRows.length > 0) {
+              const firstAct = activeRows[0];
+              pickerData.hasActive = true;
+              pickerData.activeItem = firstAct;
+              pickerData.status = firstAct.sheet_status || 'EN PREPARACIÓN';
+              pickerData.operator = firstAct.operator || null;
+              pickerData.totu = firstAct.totu || null;
+              pickerData.sucursal = firstAct.sucursal || null;
+              pickerData.observation = firstAct.observation || null;
+              pickerData.isCompleted = ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(firstAct.sheet_status);
+            }
+
+            if (histRows && histRows.length > 0) {
+              pickerData.historyLogs = histRows;
+              const firstLog = histRows[0];
+              const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(firstLog.estado);
+              if (!pickerData.hasActive || isComp) {
+                pickerData.status = firstLog.estado || 'COMPLETADO';
+                pickerData.isCompleted = isComp;
+              }
+              pickerData.operator = pickerData.operator || firstLog.picker || null;
+              pickerData.sucursal = pickerData.sucursal || firstLog.sucursal || null;
+              pickerData.observation = pickerData.observation || firstLog.comentarios || null;
+            } else if (!pickerData.hasActive && (orderData.estado_wms === 'Pickeado' || orderData.picker_status)) {
+              pickerData.status = orderData.picker_status || 'Completado';
+              pickerData.isCompleted = true;
+              pickerData.operator = orderData.picker_operator || window.pickerOperatorsMap?.[orderData.external_order_number || orderData.id] || null;
+              pickerData.sucursal = orderData.sucursal_pickeo || null;
+            }
+
+            if (!window.pickerOperatorsMap) window.pickerOperatorsMap = {};
+            if (!window.pickerStatusMap) window.pickerStatusMap = {};
+            if (pickerData.operator) {
+              pKeys.forEach(k => { window.pickerOperatorsMap[k] = pickerData.operator; });
+            }
+            if (pickerData.status && typeof window.registerOrderInPickerStatusMap === 'function') {
+              window.registerOrderInPickerStatusMap(orderData, {
+                status: pickerData.status,
+                operator: pickerData.operator,
+                sucursal: pickerData.sucursal,
+                observation: pickerData.observation,
+                totu: pickerData.totu,
+                comercio: orderData.comercio || null,
+                isActive: pickerData.hasActive && !pickerData.isCompleted,
+                isCompleted: pickerData.isCompleted,
+                source: histRows?.length ? 'history_logs' : (pickerData.hasActive ? 'active_orders' : 'wms_pickeado_state')
+              });
+            }
+          } catch (e) {
+            console.warn('[SingleOrderPage] Aviso consultando Picker en directo:', e);
           }
-        } catch (e) {}
-      })()
-    ]);
+        })(),
+        // 5. Comercios para selector en Admin
+        (async () => {
+          if (isAdmin && (!window.wmsAllComercios || window.wmsAllComercios.length === 0)) {
+            try {
+              const { data: cfg } = await supabase.from('comercios_adicional_config').select('comercio').order('comercio');
+              if (cfg) {
+                window.wmsAllComercios = [...new Set(cfg.map(c => c.comercio).filter(Boolean))];
+              }
+            } catch (e) {}
+          }
+        })(),
+        // 6. Pedidos hermanos (<24h o consolidados) del mismo comercio para detección de consolidación en pestaña dedicada
+        (async () => {
+          try {
+            if (!orderData.comercio || !orderData.created_at) return;
+            const baseTime = new Date(orderData.created_at).getTime();
+            if (isNaN(baseTime)) return;
+            const minIso = new Date(baseTime - 25 * 3600 * 1000).toISOString();
+            const maxIso = new Date(baseTime + 25 * 3600 * 1000).toISOString();
+
+            const { data: siblingRows } = await supabase
+              .from('orders')
+              .select(selectStr)
+              .eq('comercio', orderData.comercio)
+              .gte('created_at', minIso)
+              .lte('created_at', maxIso)
+              .limit(30);
+
+            const mergeIntoLocalList = (rows) => {
+              if (!Array.isArray(rows) || rows.length === 0) return;
+              const targetList = isAdmin ? window.loadedOrders : window.clientLoadedOrders;
+              if (!Array.isArray(targetList)) return;
+              rows.forEach(r => {
+                if (!r || !r.id) return;
+                const idx = targetList.findIndex(o => String(o.id) === String(r.id));
+                if (idx === -1) targetList.push(r);
+              });
+            };
+
+            mergeIntoLocalList(siblingRows);
+
+            if (typeof window.getOrderConsolidationInfo === 'function') {
+              const cInfo = window.getOrderConsolidationInfo(orderData);
+              if (cInfo && cInfo.isConsolidated) {
+                const linkedIds = [
+                  cInfo.primaryOrderId,
+                  ...(Array.isArray(cInfo.childrenIds) ? cInfo.childrenIds : [])
+                ].filter(id => id && String(id) !== String(orderData.id));
+                if (linkedIds.length > 0) {
+                  const { data: linkedRows } = await supabase
+                    .from('orders')
+                    .select(selectStr)
+                    .in('id', linkedIds);
+                  mergeIntoLocalList(linkedRows);
+                }
+              }
+            }
+          } catch (e) {}
+        })()
+      ]);
+    }
 
     // Datos de Cliente con fallback a payloads originales
     let displayName = orderData.customer_name || '';
@@ -2843,8 +2964,36 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
     const copyBtn = (val, label) => window.renderCopyFieldBtn ? window.renderCopyFieldBtn(val, label) : '';
     const fullAddress = `${orderData.shipping_address || 'No registrada'}${orderData.shipping_complement ? `, ${orderData.shipping_complement}` : ''}`;
 
-    // Resolver Estado Real de Courier y Auto-Track (LightData raw_data[23], Envíame, Blue Express, Starken, Optiroute, Marketplaces y Retiros)
-    const trackingInfo = resolveOrderCourierTracking(orderData, orderShipments, directLdRows, storePickupRows, pickerData);
+    // Resolver Estado Real de Courier y Auto-Track
+    // Si el pedido está cerrado en ENTREGADO con closed_snapshot, hidratar en O(1) directamente desde su snapshot sellado en BD
+    let trackingInfo;
+    if (isSealedClosed) {
+      const snap = orderData.closed_snapshot || {};
+      const snapShip = snap.shipment || {};
+      const snapPickup = snap.pickup || null;
+      const isRet = String(snap.categoria_entrega || orderData.categoria_entrega || '').toUpperCase().trim() === 'RETIRO';
+      const effC = snapShip.courier || (isRet ? 'Retiro en Sucursal' : (orderData.courier || orderData.operador || 'Transporte Stocka'));
+      const effT = snapShip.tracking || (snapPickup?.pin_retiro ? `PIN: ${snapPickup.pin_retiro}` : (orderData.tracking_number || ''));
+      const effU = snapShip.tracking_url || orderData.tracking_url || '';
+      trackingInfo = {
+        shipment: snapShip,
+        allShipments: snapShip ? [snapShip] : [],
+        hasTracking: true,
+        effectiveCourier: effC,
+        effectiveTracking: effT,
+        effectiveTrackingUrl: effU && effU !== 'N/A' ? effU : '',
+        globalStatus: 'ENTREGADO',
+        rawStatusText: snapShip.status || (isRet ? 'Retirado en sucursal' : 'Entregado'),
+        isDelivered: true,
+        isInTransit: false,
+        isAlert: false,
+        isReturned: false,
+        sourceTable: snapShip.source_table ? `closed_snapshot (${snapShip.source_table})` : 'closed_snapshot (BD Stocka)',
+        updatedAt: snap.delivered_at || orderData.delivered_at || orderData.closed_at || orderData.stock_descontado_at || null
+      };
+    } else {
+      trackingInfo = resolveOrderCourierTracking(orderData, orderShipments, directLdRows, storePickupRows, pickerData);
+    }
     const latestShipment = trackingInfo.shipment;
     const effectiveCourier = trackingInfo.effectiveCourier;
     const effectiveTracking = trackingInfo.effectiveTracking;
@@ -2866,6 +3015,13 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
       <span style="font-size: 0.76rem; font-weight: 800; padding: 0.22rem 0.65rem; border-radius: 999px; background: ${autoTrackBadgeStyle.bg}; color: ${autoTrackBadgeStyle.color}; border: 1px solid ${autoTrackBadgeStyle.border}; display: inline-flex; align-items: center; gap: 0.3rem;" title="Estado reportado por el Courier / Auto-Track">
         <i class="${autoTrackBadgeStyle.icon}"></i>
         <span>Tracking: ${escapeHtmlSafe(trackingInfo.globalStatus)}${trackingInfo.rawStatusText && trackingInfo.rawStatusText.toUpperCase() !== trackingInfo.globalStatus ? ` (${escapeHtmlSafe(trackingInfo.rawStatusText)})` : ''}</span>
+      </span>
+    ` : '';
+
+    const sealedSnapshotBadgeHtml = isOrderDeliveredClosed ? `
+      <span style="font-size: 0.74rem; font-weight: 800; padding: 0.22rem 0.65rem; border-radius: 999px; background: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; display: inline-flex; align-items: center; gap: 0.3rem;" title="Pedido cerrado definitivamente. Datos congelados en BD sin nuevas consultas a plataformas externas.">
+        <i class="ri-shield-check-fill" style="color: #059669;"></i>
+        <span>FINALIZADO · HISTORIAL SELLADO EN BD</span>
       </span>
     ` : '';
 
@@ -2940,7 +3096,7 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
               <i class="${isFull ? 'ri-checkbox-circle-fill' : 'ri-time-line'}"></i> ${scanInfo.scanned}/${scanInfo.total} escaneado
             </span>
           `;
-        } else if (pickerData.isCompleted || String(orderData.estado_wms || '').toLowerCase() === 'pickeado' || String(orderData.estado_wms || '').toLowerCase() === 'despachado') {
+        } else if (pickerData.isCompleted || isOrderDeliveredClosed || ['pickeado', 'despachado', 'entregado'].includes(String(orderData.estado_wms || '').toLowerCase())) {
           pickerScanCell = `
             <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.48rem; border-radius: 999px; background: rgba(59, 130, 246, 0.12); color: #2563eb;">
               <i class="ri-check-double-line"></i> Verificado (${qty}/${qty})
@@ -2953,6 +3109,8 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
         let stockBadge = '<span style="color: var(--color-text-muted); font-size: 0.75rem;">-</span>';
         if (prod.is_virtual) {
           stockBadge = '<span style="font-size: 0.72rem; padding: 0.14rem 0.45rem; border-radius: 6px; background: rgba(124, 58, 237, 0.12); color: #7c3aed; font-weight: 700;">Virtual</span>';
+        } else if (isOrderDeliveredClosed) {
+          stockBadge = '<span style="font-size: 0.73rem; padding: 0.16rem 0.5rem; border-radius: 6px; background: rgba(5, 150, 105, 0.13); color: #047857; font-weight: 800; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-verified-badge-fill"></i> Cerrado</span>';
         } else if (totalStock !== null) {
           const isLow = totalStock < qty;
           const color = isLow ? '#dc2626' : '#059669';
@@ -3133,9 +3291,14 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
             <button type="button" class="sop-btn" onclick="window.renderSingleOrderPage('${orderData.id}', { isAdmin: ${isAdmin} })">
               <i class="ri-refresh-line"></i> Refrescar Datos
             </button>
-            ${isAdmin ? `
+            ${isAdmin && !isOrderDeliveredClosed ? `
               <button type="button" class="sop-btn sop-btn-primary" onclick="window.openWmsOrderModal('${orderData.id}')">
                 <i class="ri-edit-box-line"></i> Editar Ficha Completa
+              </button>
+            ` : ''}
+            ${isAdmin && isOrderDeliveredClosed ? `
+              <button type="button" class="sop-btn" onclick="window.reopenDeliveredOrderFromPage('${orderData.id}')" style="background: rgba(220, 38, 38, 0.1); color: #dc2626; border: 1px solid rgba(220, 38, 38, 0.35); font-weight: 800;">
+                <i class="ri-lock-unlock-line"></i> Reabrir Pedido (Admin)
               </button>
             ` : ''}
           </div>
@@ -3159,6 +3322,7 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                   <span style="font-size: 0.78rem; font-weight: 800; padding: 0.22rem 0.65rem; border-radius: 999px; background: ${stStyle.bg}; color: ${stStyle.color}; border: 1px solid ${stStyle.border}; display: inline-flex; align-items: center; gap: 0.3rem;">
                     <i class="${stStyle.icon}"></i> ${escapeHtmlSafe(stStyle.label)}
                   </span>
+                  ${sealedSnapshotBadgeHtml}
                   ${heroCourierBadgeHtml}
                   ${categoriaBadgeHtml}
                   ${paymentBadgeHtml}
@@ -3177,9 +3341,9 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
               ${isAdmin ? `
                 <div style="display: flex; align-items: center; gap: 0.4rem; background: var(--color-bg); padding: 0.32rem 0.65rem; border-radius: 8px; border: 1px solid var(--color-border);">
                   <label style="font-size: 0.73rem; font-weight: 700; color: var(--color-text-muted); margin: 0;">Estado WMS:</label>
-                  <select class="status-select wms-status-select" data-order-id="${orderData.id}" style="padding: 0.24rem 0.5rem; font-size: 0.79rem; font-weight: 700; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: pointer;">
-                    ${['En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado', 'Archivado'].map(st => `
-                      <option value="${st}" ${(orderData.estado_wms || orderData.status) === st ? 'selected' : ''}>${st}</option>
+                  <select class="status-select wms-status-select" data-order-id="${orderData.id}" ${isOrderDeliveredClosed ? 'disabled title="Pedido finalizado e inmutable. Usa Reabrir Pedido (Admin) para modificarlo."' : ''} style="padding: 0.24rem 0.5rem; font-size: 0.79rem; font-weight: 700; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: ${isOrderDeliveredClosed ? 'not-allowed' : 'pointer'}; opacity: ${isOrderDeliveredClosed ? '0.8' : '1'};">
+                    ${['En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado'].map(st => `
+                      <option value="${st}" ${(orderData.estado_wms || orderData.status) === st ? 'selected' : ''}>${st === 'Entregado' ? 'Entregado (Finalizado)' : st}</option>
                     `).join('')}
                   </select>
                 </div>
@@ -3192,12 +3356,12 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                   <i class="ri-file-download-line"></i> Etiqueta Courier
                 </button>
               ` : ''}
-              ${(window.canSplitOrder && window.canSplitOrder(orderData)) ? `
+              ${(!isOrderDeliveredClosed && window.canSplitOrder && window.canSplitOrder(orderData)) ? `
                 <button type="button" onclick="window.openSplitOrderModal('${orderData.id}')" class="sop-btn sop-btn-purple">
                   <i class="ri-scissors-2-line"></i> Dividir Pedido
                 </button>
               ` : ''}
-              ${isAdmin && ((window.getConsolidationCandidateGroup && window.getConsolidationCandidateGroup(orderData.id)) || (window.getOrderConsolidationInfo && window.getOrderConsolidationInfo(orderData).isConsolidated)) ? `
+              ${isAdmin && !isOrderDeliveredClosed && ((window.getConsolidationCandidateGroup && window.getConsolidationCandidateGroup(orderData.id)) || (window.getOrderConsolidationInfo && window.getOrderConsolidationInfo(orderData).isConsolidated)) ? `
                 <button type="button" onclick="window.openConsolidateOrdersModal('${orderData.id}')" class="sop-btn" style="background: #0d9488; color: #ffffff; border: 1px solid #0f766e;">
                   <i class="ri-links-fill"></i> ${(window.getOrderConsolidationInfo && window.getOrderConsolidationInfo(orderData).isConsolidated) ? 'Gestionar Consolidado' : 'Consolidar Envío (<24h)'}
                 </button>
@@ -3292,7 +3456,7 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                 <span class="sop-section-icon"><i class="ri-shopping-basket-2-line"></i></span>
                 <span>Detalle de Productos, Escaneo Picker y Stock (${items.length} SKU · ${totalUnits} unid.)</span>
               </h4>
-              ${(isAdmin || ((orderData.estado_wms || orderData.status || '').trim().toLowerCase() === 'en procesamiento')) ? `
+              ${(!isOrderDeliveredClosed && (isAdmin || ((orderData.estado_wms || orderData.status || '').trim().toLowerCase() === 'en procesamiento'))) ? `
                 <div style="display: flex; align-items: center; gap: 0.4rem;">
                   <button type="button" onclick="window.openEditOrderItemsModal('${orderData.id}')" class="sop-btn" style="cursor: pointer;" title="Editar productos y cantidades de este pedido">
                     <i class="ri-edit-line"></i> Editar Ítems
@@ -3374,16 +3538,20 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                     ${orderData.stock_descontado ? '✓ Stock Descontado' : '⏳ Pendiente de Descuento'}
                   </span>
                 </div>
-                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                  <button type="button" onclick="window.openChangeStockWarehouseModal(['${orderData.id}'])" class="sop-btn">
-                    <i class="ri-exchange-box-line"></i> Cambiar Bodega de Stock
-                  </button>
-                  ${(window.wmsAllComercios && window.wmsAllComercios.length > 0) ? `
-                    <select onchange="window.reassignOrderCommerce('${orderData.id}', this.value, this)" class="cmd-criteria-select" style="height: 32px; font-size: 0.76rem;" title="Reasignar este pedido a otro comercio">
-                      ${window.wmsAllComercios.map(c => `<option value="${escapeHtmlSafe(c)}" ${c === orderData.comercio ? 'selected' : ''}>Comercio: ${escapeHtmlSafe(c)}</option>`).join('')}
-                    </select>
-                  ` : ''}
-                </div>
+                ${!isOrderDeliveredClosed ? `
+                  <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <button type="button" onclick="window.openChangeStockWarehouseModal(['${orderData.id}'])" class="sop-btn">
+                      <i class="ri-exchange-box-line"></i> Cambiar Bodega de Stock
+                    </button>
+                    ${(window.wmsAllComercios && window.wmsAllComercios.length > 0) ? `
+                      <select onchange="window.reassignOrderCommerce('${orderData.id}', this.value, this)" class="cmd-criteria-select" style="height: 32px; font-size: 0.76rem;" title="Reasignar este pedido a otro comercio">
+                        ${window.wmsAllComercios.map(c => `<option value="${escapeHtmlSafe(c)}" ${c === orderData.comercio ? 'selected' : ''}>Comercio: ${escapeHtmlSafe(c)}</option>`).join('')}
+                      </select>
+                    ` : ''}
+                  </div>
+                ` : `
+                  <span style="font-size: 0.74rem; color: #059669; font-weight: 700;"><i class="ri-lock-line"></i> Stock e ítems congelados (ENTREGADO)</span>
+                `}
               </div>
             ` : ''}
           </div>
@@ -3395,7 +3563,7 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                 <span class="sop-section-icon"><i class="ri-user-location-line"></i></span>
                 <span>Destinatario y Despacho</span>
               </h4>
-              ${isAdmin ? `
+              ${isAdmin && !isOrderDeliveredClosed ? `
                 <div style="display: flex; gap: 0.35rem;">
                   <button type="button" onclick="window.editWmsOrderShippingDetails('${orderData.id}')" class="sop-btn" style="padding: 0.3rem 0.6rem; font-size: 0.74rem;">
                     <i class="ri-edit-line"></i> Editar Datos
@@ -3507,7 +3675,7 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                 <button type="button" onclick="window.openPickerOrderHistoryModal('${orderData.id}')" class="sop-btn sop-btn-indigo" style="padding: 0.26rem 0.6rem; font-size: 0.73rem;">
                   <i class="ri-history-line"></i> Modal Auditoría
                 </button>
-                ${isAdmin ? `
+                ${isAdmin && !isOrderDeliveredClosed ? `
                   <button type="button" onclick="window.editWmsOrderPickingInfo('${orderData.id}')" class="sop-btn" style="padding: 0.26rem 0.55rem; font-size: 0.73rem;">
                     <i class="ri-edit-line"></i> Editar Picking
                   </button>
@@ -3562,7 +3730,7 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                 <span class="sop-section-icon"><i class="ri-global-line"></i></span>
                 <span>Detalles de Plataforma, Courier y Auto-Track</span>
               </h4>
-              ${isAdmin ? `
+              ${isAdmin && !isOrderDeliveredClosed ? `
                 <button type="button" onclick="window.editWmsOrderCourierAndTracking('${orderData.id}')" class="sop-btn" style="padding: 0.26rem 0.6rem; font-size: 0.73rem;">
                   <i class="ri-edit-line"></i> Editar Envío
                 </button>
@@ -3637,6 +3805,22 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                   </span>
                 </div>
                 ${(() => {
+                  const snap = orderData.closed_snapshot || {};
+                  const snapShip = snap.shipment || {};
+                  const snapPickup = snap.pickup || {};
+                  const extraPills = [];
+                  if (snapShip.reception_name) {
+                    extraPills.push(`<div class="sop-mini-stat" style="background: var(--color-surface);"><span class="sop-mini-stat-label">Receptor Registrado</span><span class="sop-mini-stat-val">${escapeHtmlSafe(snapShip.reception_name)}${snapShip.reception_rut ? ` (${escapeHtmlSafe(snapShip.reception_rut)})` : ''}</span></div>`);
+                  }
+                  if (snapShip.gps_lat && snapShip.gps_lng) {
+                    extraPills.push(`<div class="sop-mini-stat" style="background: var(--color-surface);"><span class="sop-mini-stat-label">Coordenadas Entrega</span><span class="sop-mini-stat-val" style="font-family: monospace; font-size: 0.72rem;">${escapeHtmlSafe(`${snapShip.gps_lat}, ${snapShip.gps_lng}`)}</span></div>`);
+                  }
+                  if (snapPickup.pin_retiro) {
+                    extraPills.push(`<div class="sop-mini-stat" style="background: var(--color-surface);"><span class="sop-mini-stat-label">Retiro en Sucursal</span><span class="sop-mini-stat-val" style="font-family: monospace;">PIN ${escapeHtmlSafe(snapPickup.pin_retiro)} · ${escapeHtmlSafe(snapPickup.sucursal || 'Sucursal')}</span></div>`);
+                  }
+                  return extraPills.join('');
+                })()}
+                ${(() => {
                   const sopCommitInfo = window.getEnviameCommitmentInfo
                     ? window.getEnviameCommitmentInfo(trackingInfo.allShipments || trackingInfo.shipment, orderData, trackingInfo.isDelivered)
                     : null;
@@ -3661,6 +3845,27 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                   return '';
                 })()}
               </div>
+              ${(() => {
+                const histArr = Array.isArray(orderData.closed_snapshot?.tracking_history) && orderData.closed_snapshot.tracking_history.length > 0
+                  ? orderData.closed_snapshot.tracking_history
+                  : (Array.isArray(orderData.tracking_history) ? orderData.tracking_history : []);
+                if (histArr.length === 0) return '';
+                return `
+                  <div style="margin-top: 0.25rem; border-top: 1px dashed var(--color-border); padding-top: 0.55rem;">
+                    <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 0.35rem;">
+                      <i class="ri-history-line" style="color: #059669;"></i> Historial Sellado de Transporte (${histArr.length})
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 0.3rem; max-height: 150px; overflow-y: auto;">
+                      ${histArr.slice().reverse().map(h => `
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.3rem 0.55rem;">
+                          <span style="font-weight: 700; color: var(--color-text-main);">${escapeHtmlSafe(h.status || h.norm || 'Checkpoint')} <small style="color: var(--color-text-muted); font-weight: 500;">(${escapeHtmlSafe(h.source || 'wms')})</small></span>
+                          <span style="color: var(--color-text-muted); font-size: 0.7rem; white-space: nowrap;">${h.at ? escapeHtmlSafe(new Date(h.at).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })) : '-'}</span>
+                        </div>
+                      `).join('')}
+                    </div>
+                  </div>
+                `;
+              })()}
               ${window.renderOrderPublicTrackingSectionHtml ? window.renderOrderPublicTrackingSectionHtml(orderData, effectiveTrackingUrl, effectiveCourier) : ''}
             </div>
 
@@ -3670,20 +3875,24 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                 <button type="button" onclick="if (typeof window.openOrderShippingQuoteModal === 'function') window.openOrderShippingQuoteModal('${orderData.id}'); else if (typeof window.openOrderInClientCotizador === 'function') window.openOrderInClientCotizador('${orderData.id}');" class="sop-btn sop-btn-indigo" style="background: rgba(var(--color-primary-rgb), 0.12); color: var(--color-primary); border: 1px solid rgba(var(--color-primary-rgb), 0.35);">
                   <i class="ri-calculator-line"></i> Cotizar Envío del Pedido
                 </button>
-                <button type="button" onclick="window.wmsCreateManifestFromSingleOrder('${orderData.id}')" class="sop-btn sop-btn-indigo">
-                  <i class="ri-file-paper-2-line"></i> Crear Manifiesto
-                </button>
+                ${!isOrderDeliveredClosed ? `
+                  <button type="button" onclick="window.wmsCreateManifestFromSingleOrder('${orderData.id}')" class="sop-btn sop-btn-indigo">
+                    <i class="ri-file-paper-2-line"></i> Crear Manifiesto
+                  </button>
+                ` : ''}
                 <button type="button" onclick="window.openQuickBranchExchangeReceiptModal('${escapeHtmlSafe(orderData.external_order_number || orderData.id)}')" class="sop-btn sop-btn-purple">
                   <i class="ri-file-list-3-line"></i> Comprobante Cambio
                 </button>
-                ${(orderData.external_platform === 'Shopify' || orderData.origen === 'Shopify' || orderData.raw_shopify_data) ? `
+                ${(!isOrderDeliveredClosed && (orderData.external_platform === 'Shopify' || orderData.origen === 'Shopify' || orderData.raw_shopify_data)) ? `
                   <button type="button" id="btn-resync-shopify-${orderData.id}" onclick="window.resyncShopifyOrder('${orderData.id}')" class="sop-btn sop-btn-emerald">
                     <i class="ri-refresh-line"></i> Sync desde Shopify
                   </button>
                 ` : ''}
-                <button type="button" id="btn-resync-enviame-${orderData.id}" onclick="window.resyncEnviameOrder('${orderData.id}')" class="sop-btn sop-btn-amber">
-                  <i class="ri-refresh-line"></i> Consultar Envíame
-                </button>
+                ${!isOrderDeliveredClosed ? `
+                  <button type="button" id="btn-resync-enviame-${orderData.id}" onclick="window.resyncEnviameOrder('${orderData.id}')" class="sop-btn sop-btn-amber">
+                    <i class="ri-refresh-line"></i> Consultar Envíame
+                  </button>
+                ` : ''}
               </div>
             ` : ''}
           </div>

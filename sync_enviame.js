@@ -355,7 +355,7 @@ async function processEnviameDelivery(d, context = {}) {
     // Búsqueda ESTRICTA por comercio exacto y candidatos exactos (sin ILIKE comodín)
     const { data: matchedOrders } = await supabase
       .from('orders')
-      .select('id, external_order_number, tracking_number, courier, operador, label_url, comercio, categoria_entrega, agenda')
+      .select('id, estado_wms, external_order_number, tracking_number, courier, operador, label_url, comercio, categoria_entrega, agenda')
       .ilike('comercio', resolved.comercio)
       .in('external_order_number', uniqueCandidates)
       .limit(1);
@@ -369,7 +369,7 @@ async function processEnviameDelivery(d, context = {}) {
   if (!targetOrder) {
     const { data: o3 } = await supabase
       .from('orders')
-      .select('id, external_order_number, tracking_number, courier, operador, label_url, comercio, categoria_entrega, agenda')
+      .select('id, estado_wms, external_order_number, tracking_number, courier, operador, label_url, comercio, categoria_entrega, agenda')
       .eq('enviame_delivery_id', deliveryId)
       .ilike('comercio', resolved.comercio)
       .maybeSingle();
@@ -377,6 +377,9 @@ async function processEnviameDelivery(d, context = {}) {
   }
 
   if (targetOrder) {
+    if (targetOrder.estado_wms === 'Entregado') {
+      return Boolean(validTracking);
+    }
     if (String(targetOrder.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') {
       console.log(`⛔ Pedido [${targetOrder.comercio}] ${targetOrder.external_order_number} tiene categoría RETIRO: se bloquea asignación de courier/tracking desde Envíame.`);
       return false;
@@ -441,7 +444,7 @@ async function runSync(options = {}) {
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(specificOrder);
     let orderQuery = supabase
       .from('orders')
-      .select('id, external_order_number, comercio, enviame_delivery_id, tracking_number');
+      .select('id, estado_wms, external_order_number, comercio, enviame_delivery_id, tracking_number');
 
     if (isUuid) {
       orderQuery = orderQuery.eq('id', specificOrder);
@@ -453,6 +456,10 @@ async function runSync(options = {}) {
 
     if (o && o[0]) {
       const order = o[0];
+      if (order.estado_wms === 'Entregado') {
+        console.log(`🏁 Pedido [${order.comercio}] ${order.external_order_number} ya está cerrado en estado 'Entregado' (Finalizado). No requiere nuevas consultas externas.`);
+        return;
+      }
       deliveryId = order.enviame_delivery_id;
       if (!deliveryId) {
         const cache = await loadCommerceConfigs();

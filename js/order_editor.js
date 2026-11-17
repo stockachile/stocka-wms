@@ -223,6 +223,35 @@ window.openEditOrderItemsModal = async function(orderId) {
     const estadoWmsLower = String(order.estado_wms || order.status || '').toLowerCase().trim();
     const isEnProcesamiento = estadoWmsLower === 'en procesamiento';
 
+    if (estadoWmsLower === 'entregado') {
+      if (window.Swal) {
+        const res = await Swal.fire({
+          icon: 'info',
+          title: 'Pedido Finalizado (Entregado)',
+          html: `
+            <div style="font-size: 0.88rem; line-height: 1.5; text-align: left;">
+              <p>El pedido <strong>#${order.external_order_number || order.id}</strong> se encuentra cerrado definitivamente en estado <strong>ENTREGADO</strong> con su historial sellado en base de datos.</p>
+              <p style="margin: 0; color: var(--color-text-muted);">
+                ${isAdmin
+                  ? 'Para modificar sus ítems o datos logísticos, primero debe ejecutar una <strong>Reapertura Administrativa</strong> con motivo de auditoría.'
+                  : 'Los pedidos entregados son inmutables y no admiten modificaciones.'}
+              </p>
+            </div>
+          `,
+          showCancelButton: Boolean(isAdmin && typeof window.openReopenDeliveredOrderModal === 'function'),
+          confirmButtonText: (isAdmin && typeof window.openReopenDeliveredOrderModal === 'function') ? 'Reabrir Pedido (Admin)' : 'Entendido',
+          cancelButtonText: 'Cerrar',
+          confirmButtonColor: '#059669'
+        });
+        if (res.isConfirmed && isAdmin && typeof window.openReopenDeliveredOrderModal === 'function') {
+          window.openReopenDeliveredOrderModal(order.id);
+        }
+      } else {
+        alert(`El pedido #${order.external_order_number || order.id} está finalizado en estado ENTREGADO y es inmutable.`);
+      }
+      return;
+    }
+
     if (!isAdmin && !isEnProcesamiento) {
       if (window.Swal) {
         Swal.fire({

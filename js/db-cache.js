@@ -6,7 +6,7 @@
   if (typeof window === 'undefined') return;
 
   const WmsDbCache = {
-    dbName: 'StockaWmsCache_v1',
+    dbName: 'StockaWmsCache_v3',
     storeName: 'orders_window',
     _db: null,
 

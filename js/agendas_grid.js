@@ -815,12 +815,16 @@
         }
 
         const ref = String(order.external_order_number || order.numero_orden || order.numero_pedido || '').trim().toLowerCase();
+        const refCandidates = typeof window.getOptirouteOrderRefCandidates === 'function'
+          ? window.getOptirouteOrderRefCandidates(order)
+          : (ref ? [ref] : []);
 
         // 2. Si fue descartado en caché reciente
-        if (window.optirouteOrdersStatusCache && window.optirouteOrdersStatusCache.has(ref)) {
-          const cached = window.optirouteOrdersStatusCache.get(ref);
-          if (cached === 'descartado') {
-            return 'descartado';
+        if (window.optirouteOrdersStatusCache) {
+          for (const k of refCandidates) {
+            if (window.optirouteOrdersStatusCache.has(k) && window.optirouteOrdersStatusCache.get(k) === 'descartado') {
+              return 'descartado';
+            }
           }
         }
 
@@ -836,7 +840,7 @@
             if (!['despachado', 'cancelado', 'archivado', 'entregado'].includes(wmsStatus) &&
                 !['despachado', 'cancelado', 'archivado', 'entregado'].includes(origStatus)) {
               if (window.optirouteActiveAssignedRefs && window.optirouteActiveAssignedRefs.size > 0) {
-                return window.optirouteActiveAssignedRefs.has(ref) ? 'confirmado' : 'creado';
+                return refCandidates.some(k => window.optirouteActiveAssignedRefs.has(k)) ? 'confirmado' : 'creado';
               }
               return 'confirmado';
             }
@@ -844,9 +848,13 @@
         }
 
         // 4. Fallback a caché para creado
-        if (window.optirouteOrdersStatusCache && window.optirouteOrdersStatusCache.has(ref)) {
-          const cached = window.optirouteOrdersStatusCache.get(ref);
-          return cached === 'descartado' ? 'descartado' : 'creado';
+        if (window.optirouteOrdersStatusCache) {
+          for (const k of refCandidates) {
+            if (window.optirouteOrdersStatusCache.has(k)) {
+              const cached = window.optirouteOrdersStatusCache.get(k);
+              return cached === 'descartado' ? 'descartado' : 'creado';
+            }
+          }
         }
         return '';
       }
@@ -2763,8 +2771,17 @@
           if (ord) {
             const orderNumber = String(ord.external_order_number || ord.id);
             if (pSb) {
+              const pickerMeta = window.buildPickerOrderMeta
+                ? window.buildPickerOrderMeta({ ...ord, shipping_city: cu.value })
+                : null;
               pSb.from('active_orders')
-                .update({ contact_data_t: String(cu.value || '').slice(0, 255) })
+                .update({
+                  contact_data_t: String(cu.value || '').slice(0, 255),
+                  ...(pickerMeta ? {
+                    coverage: pickerMeta.coverage,
+                    order_tags: pickerMeta.order_tags
+                  } : {})
+                })
                 .eq('order_number', orderNumber)
                 .then(res => {
                   if (res.error) console.warn('Aviso sincronización Picker active_orders:', res.error);
@@ -4230,7 +4247,7 @@
       const wmsLower = wms.toLowerCase();
       const isPickeado = wmsLower === 'pickeado' || st === 'preparado' || st === 'pickeado';
       const isTerminalOrDiscounted = ['despachado', 'entregado', 'retirado', 'cancelado'].includes(st)
-        || ['despachado', 'cancelado', 'archivado'].includes(wmsLower)
+        || ['despachado', 'entregado', 'cancelado', 'archivado'].includes(wmsLower)
         || !!o.stock_descontado;
 
       const config = getOptirouteCommerceConfig(o.comercio);
@@ -5899,9 +5916,13 @@
 
       loaded.forEach(order => {
         const ref = String(order.external_order_number || order.numero_orden || order.numero_pedido || '').trim().toLowerCase();
+        const refCandidates = typeof window.getOptirouteOrderRefCandidates === 'function'
+          ? window.getOptirouteOrderRefCandidates(order)
+          : (ref ? [ref] : []);
         const isConfirmadoEnRutaActiva = typeof window.isOrderOptirouteConfirmado === 'function' 
           ? window.isOrderOptirouteConfirmado(order) 
-          : (window.optirouteActiveAssignedRefs && window.optirouteActiveAssignedRefs.has(ref));
+          : (window.optirouteActiveAssignedRefs && refCandidates.some(k => window.optirouteActiveAssignedRefs.has(k)));
+        const matchedOptiRef = refCandidates.find(k => optiMap.has(k));
 
         delete order._wmsTags;
 
@@ -5916,8 +5937,8 @@
             order.estado_ruta_optiroute = 'confirmado';
           }
           confCount++;
-        } else if (optiMap.has(ref)) {
-          const optiInfo = optiMap.get(ref);
+        } else if (matchedOptiRef) {
+          const optiInfo = optiMap.get(matchedOptiRef);
           // Si Optiroute devuelve 'confirmado' pero NO pertenece a una ruta activa, tratar como 'creado'
           const targetStatus = optiInfo.status === 'confirmado' ? 'creado' : optiInfo.status;
           const currentStatus = String(order.estado_ruta_optiroute || '').trim().toLowerCase();

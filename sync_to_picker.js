@@ -7,6 +7,7 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
+const { buildPickerOrderMeta, resolveProductImageForPicker } = require('./services/picker_order_meta');
 
 // 1. Cargar variables de entorno del WMS
 const envPath = '.env';
@@ -369,6 +370,10 @@ async function run() {
       .select(`
         id,
         external_order_number,
+        external_platform,
+        origen,
+        status,
+        payment_status,
         comercio,
         customer_name,
         customer_email,
@@ -396,7 +401,7 @@ async function run() {
         raw_ripley_data,
         raw_walmart_data,
         raw_lightdata_data,
-        order_items (quantity, product_id, tag, is_gift, campaign_id, is_picking_request, products(sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))
+        order_items (quantity, product_id, tag, is_gift, campaign_id, is_picking_request, products(id, comercio, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2, woocommerce_product_id, woocommerce_variation_id, tiendanube_product_id, tiendanube_variant_id, jumpseller_product_id, jumpseller_variant_id, raw_paris_data, raw_falabella_data, raw_jumpseller_data, raw_tiendanube_data, raw_woocommerce_data, raw_meli_data, raw_ripley_data))
       `)
       .eq('estado_wms', 'En preparación');
 
@@ -404,7 +409,8 @@ async function run() {
 
     if (!wmsOrders || wmsOrders.length === 0) {
       console.log("ℹ️ No hay pedidos en estado 'En preparación' en el WMS.");
-      await syncPickedRetiroOrdersToDespachado();
+      await syncPickedRetiroOrdersToEntregado();
+      await cleanupClosedOrdersFromPickerActive();
       return;
     }
 
@@ -457,31 +463,65 @@ async function run() {
     if (pickerErr) throw pickerErr;
 
     // 2.0.1 Consultar logs de completado en Picker en masa para estos pedidos
-    const completedStatuses = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'];
+    const completedStatuses = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado', 'RETIRADO'];
     const { data: pickerCompletedLogs, error: pLogsErr } = await pickerClient
       .from('history_logs')
-      .select('pedido, estado, comentarios, picker, scanned_label, created_at')
+      .select('pedido, estado, comentarios, picker, scanned_label, sucursal, items_summary, created_at')
       .in('pedido', orderNumbers)
-      .in('estado', completedStatuses)
       .order('created_at', { ascending: false });
 
     const completedLogsMap = new Map();
+    const allLogsByOrderMap = new Map();
     if (!pLogsErr && pickerCompletedLogs) {
       pickerCompletedLogs.forEach(log => {
         const pNorm = String(log.pedido || '').replace(/^#/, '').trim().toUpperCase();
-        if (!completedLogsMap.has(pNorm)) {
+        if (!allLogsByOrderMap.has(pNorm)) allLogsByOrderMap.set(pNorm, []);
+        if (allLogsByOrderMap.get(pNorm).length < 25) {
+          allLogsByOrderMap.get(pNorm).push(log);
+        }
+        if (completedStatuses.includes(log.estado) && !completedLogsMap.has(pNorm)) {
           completedLogsMap.set(pNorm, log);
         }
       });
     }
 
-    // 2.1 Cargar ubicaciones físicas de los productos de estos pedidos
+    // 2.1 Cargar ubicaciones físicas e imágenes de respaldo (synced_products) de los productos de estos pedidos
     const skusInOrders = new Set();
+    const rawSkusInOrders = new Set();
     wmsOrders.forEach(o => {
       (o.order_items || []).forEach(oi => {
-        if (oi.products?.sku) skusInOrders.add(String(oi.products.sku).trim().toUpperCase());
+        if (oi.products?.sku) {
+          skusInOrders.add(String(oi.products.sku).trim().toUpperCase());
+          rawSkusInOrders.add(String(oi.products.sku).trim());
+        }
       });
     });
+
+    const syncedImagesMap = new Map();
+    if (rawSkusInOrders.size > 0) {
+      try {
+        const skuArr = Array.from(rawSkusInOrders);
+        for (let i = 0; i < skuArr.length; i += 200) {
+          const batchSkus = skuArr.slice(i, i + 200);
+          const { data: spImgs } = await wmsClient
+            .from('synced_products')
+            .select('comercio, sku, image_url')
+            .in('sku', batchSkus)
+            .not('image_url', 'is', null);
+          (spImgs || []).forEach(sp => {
+            const img = String(sp.image_url || '').trim();
+            const sUp = String(sp.sku || '').trim().toUpperCase();
+            const cUp = String(sp.comercio || '').trim().toUpperCase();
+            if (img && sUp) {
+              if (cUp && !syncedImagesMap.has(`${cUp}__${sUp}`)) syncedImagesMap.set(`${cUp}__${sUp}`, img);
+              if (!syncedImagesMap.has(sUp)) syncedImagesMap.set(sUp, img);
+            }
+          });
+        }
+      } catch (spErr) {
+        console.warn("⚠️ Aviso cargando imágenes de synced_products:", spErr.message);
+      }
+    }
 
     const locationsBySku = {};
     if (skusInOrders.size > 0) {
@@ -668,8 +708,20 @@ async function run() {
           const finalStatus = (matchedLog && matchedLog.estado) || firstAct.sheet_status || 'Completado';
           const finalOp = (matchedLog && matchedLog.picker) || firstAct.operator || null;
           const isRetirado = String(finalStatus || '').trim().toUpperCase() === 'RETIRADO';
-          const targetWmsState = isRetirado ? 'Despachado' : 'Pickeado';
-          const targetInternalStatus = isRetirado ? 'despachado' : 'preparado';
+          const targetWmsState = isRetirado ? 'Entregado' : 'Pickeado';
+          const targetInternalStatus = isRetirado ? 'retirado' : 'preparado';
+          const scLabel = (matchedLog && matchedLog.scanned_label) || firstAct.scanned_label || null;
+          const orderHistoryLogs = allLogsByOrderMap.get(cleanOrderNo) || (matchedLog ? [matchedLog] : []);
+          const pickerHistorySnapshot = {
+            status: finalStatus,
+            operator: finalOp,
+            sucursal: (matchedLog && matchedLog.sucursal) || firstAct.sucursal || wmsOrder.sucursal_pickeo || 'Sucursal Ñuñoa',
+            scanned_label: scLabel,
+            items_summary: (matchedLog && matchedLog.items_summary) || null,
+            observation: firstAct.observation || (matchedLog && matchedLog.comentarios) || null,
+            history_logs: orderHistoryLogs,
+            synced_at: new Date().toISOString()
+          };
           console.log(`🎉 [SYNC PICKER] Pedido ${orderNo} completado en Picker (${finalStatus}). Sincronizando WMS a '${targetWmsState}'...`);
 
           try {
@@ -678,10 +730,15 @@ async function run() {
               status: targetInternalStatus,
               picker_status: finalStatus,
               picker_operator: finalOp,
-              picker_last_synced_at: new Date().toISOString()
+              picker_last_synced_at: new Date().toISOString(),
+              picker_history_snapshot: pickerHistorySnapshot
             };
-            if (isRetirado) completedPayload.stock_descontado = true;
-            const scLabel = (matchedLog && matchedLog.scanned_label) || firstAct.scanned_label;
+            if (isRetirado) {
+              completedPayload.stock_descontado = true;
+              completedPayload.delivered_at = new Date().toISOString();
+              completedPayload.closed_at = new Date().toISOString();
+              completedPayload.closed_by_automation = 'auto-pickup-retirado-to-entregado';
+            }
             if (scLabel) completedPayload.picker_scanned_label = scLabel;
 
             const res = await wmsClient.from('orders').update(completedPayload).eq('id', wmsOrder.id);
@@ -693,6 +750,7 @@ async function run() {
           }
           if (isRetirado) {
             await wmsClient.from('store_pickups').update({ estado_pedido: 'ENTREGADO' }).in('pedido', [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')]);
+            await pickerClient.from('active_orders').delete().in('order_number', [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')]);
           }
           continue;
         }
@@ -849,6 +907,12 @@ async function run() {
             const commerceStrict = strictComerciosSet.has(commerceName);
             const targetSku = resolvePickerSku(prod, wmsOrder, commerceStrict);
             const locData = resolvePickerItemLocation(prod?.sku || targetSku, wmsOrder.sucursal_pickeo || 'Sucursal Virtual (Hub)');
+            const orderMeta = buildPickerOrderMeta(wmsOrder);
+            const resolvedImg = resolveProductImageForPicker(prod, wmsOrder, syncedImagesMap);
+            if (resolvedImg && prod?.id && !prod.image_url) {
+              wmsClient.from('products').update({ image_url: resolvedImg }).eq('id', prod.id).then(() => {}).catch(() => {});
+              prod.image_url = resolvedImg;
+            }
 
             payloads.push({
               sucursal: wmsOrder.sucursal_pickeo || 'Sucursal Ñuñoa',
@@ -874,7 +938,7 @@ async function run() {
               contact_data_s: wmsOrder.shipping_address || '',
               contact_data_t: wmsOrder.shipping_city || '',
               contact_data_u: wmsOrder.shipping_complement || '',
-              extra_col_v: prod.image_url || '',
+              extra_col_v: resolvedImg || '',
               comercio: wmsOrder.comercio || 'MAGIC MAKEUP',
               created_by: 'Sistema WMS',
               picking_match_strict: commerceStrict || prod.picking_match_strict || false,
@@ -884,7 +948,14 @@ async function run() {
               picking_requests_json: prJson,
               picking_requests_confirmed: prConfirmed,
               picking_requests_operator: prOp,
-              picking_requests_confirmed_at: prAt
+              picking_requests_confirmed_at: prAt,
+              platform: orderMeta.platform,
+              platform_logo: orderMeta.platform_logo,
+              shipping_method: orderMeta.shipping_method,
+              payment_status: orderMeta.payment_status,
+              coverage: orderMeta.coverage,
+              order_tags: orderMeta.order_tags,
+              order_sla: orderMeta.order_sla
             });
           });
 
@@ -937,8 +1008,9 @@ async function run() {
             });
           }
 
-          // Si el pedido no cambió en ítems, verificar si necesita actualizar o completar ubicaciones físicas
+          // Si el pedido no cambió en ítems, verificar si necesita actualizar ubicaciones físicas, fotos o metadatos/etiquetas
           let locsUpdated = false;
+          const orderMeta = buildPickerOrderMeta(wmsOrder);
           for (const pi of pickerItemsForOrder) {
             const prod = (wmsOrder.order_items || []).find(oi => {
               const sku = resolvePickerSku(oi.products, wmsOrder, commerceStrict).trim().toUpperCase();
@@ -948,17 +1020,39 @@ async function run() {
             const cleanMasterSku = prod?.sku || String(pi.sku || '').split('|')[0].trim();
             const locData = resolvePickerItemLocation(cleanMasterSku, wmsOrder.sucursal_pickeo || pi.sucursal || 'Sucursal Virtual (Hub)');
             const newLocInfo = locData.location_info || '';
+            const resolvedImg = prod ? resolveProductImageForPicker(prod, wmsOrder, syncedImagesMap) : '';
+            if (resolvedImg && prod?.id && !prod.image_url) {
+              wmsClient.from('products').update({ image_url: resolvedImg }).eq('id', prod.id).then(() => {}).catch(() => {});
+              prod.image_url = resolvedImg;
+            }
 
+            const rowPatch = {};
             if (newLocInfo && (!pi.location_info || pi.location_info !== newLocInfo || !pi.locations_json)) {
-              await pickerClient.from('active_orders').update({
-                location_info: newLocInfo,
-                locations_json: locData.locations_json || null
-              }).eq('id', pi.id);
+              rowPatch.location_info = newLocInfo;
+              rowPatch.locations_json = locData.locations_json || null;
+            }
+            if (resolvedImg && (!pi.extra_col_v || !String(pi.extra_col_v).trim())) {
+              rowPatch.extra_col_v = resolvedImg;
+            }
+            if (pi.platform !== orderMeta.platform) rowPatch.platform = orderMeta.platform;
+            if (pi.platform_logo !== orderMeta.platform_logo) rowPatch.platform_logo = orderMeta.platform_logo;
+            if ((pi.shipping_method || '') !== (orderMeta.shipping_method || '')) rowPatch.shipping_method = orderMeta.shipping_method;
+            if (pi.payment_status !== orderMeta.payment_status) rowPatch.payment_status = orderMeta.payment_status;
+            if ((pi.coverage || null) !== (orderMeta.coverage || null)) rowPatch.coverage = orderMeta.coverage;
+            if (JSON.stringify(pi.order_tags || []) !== JSON.stringify(orderMeta.order_tags || [])) {
+              rowPatch.order_tags = orderMeta.order_tags;
+            }
+            if ((pi.order_sla || 'Sin info') !== (orderMeta.order_sla || 'Sin info')) {
+              rowPatch.order_sla = orderMeta.order_sla;
+            }
+
+            if (Object.keys(rowPatch).length > 0) {
+              await pickerClient.from('active_orders').update(rowPatch).eq('id', pi.id);
               locsUpdated = true;
             }
           }
           if (locsUpdated) {
-            console.log(`📍 Ubicaciones físicas actualizadas en Picker para pedido ${orderNo}.`);
+            console.log(`📍 Metadatos, etiquetas, fotos o ubicaciones actualizados en Picker para pedido ${orderNo}.`);
           } else {
             console.log(`✅ Pedido ${orderNo} está al día en el Picker. Sin cambios.`);
           }
@@ -984,8 +1078,31 @@ async function run() {
               await wmsClient.from('orders').update({ estado_wms: 'Cancelado' }).eq('id', wmsOrder.id);
               isPickupHandled = true;
             } else if (st === 'ENTREGADO') {
-              console.log(`📦 Pedido ${orderNo} fue entregado en Punto de Retiro. Sincronizando WMS a 'Despachado'...`);
-              await wmsClient.from('orders').update({ estado_wms: 'Despachado', status: 'despachado', stock_descontado: true }).eq('id', wmsOrder.id);
+              console.log(`📦 Pedido ${orderNo} fue entregado en Punto de Retiro. Sincronizando WMS a 'Entregado'...`);
+              const nowIso = new Date().toISOString();
+              const orderHistoryLogs = allLogsByOrderMap.get(cleanOrderNo) || [];
+              const retSnap = {
+                status: 'Retirado',
+                operator: orderHistoryLogs[0]?.picker || null,
+                sucursal: wmsOrder.sucursal_pickeo || 'Sucursal Ñuñoa',
+                scanned_label: orderHistoryLogs[0]?.scanned_label || null,
+                items_summary: orderHistoryLogs[0]?.items_summary || null,
+                observation: orderHistoryLogs[0]?.comentarios || null,
+                history_logs: orderHistoryLogs,
+                synced_at: nowIso
+              };
+              const { error: upEntErr } = await wmsClient.from('orders').update({
+                estado_wms: 'Entregado',
+                status: 'retirado',
+                stock_descontado: true,
+                delivered_at: nowIso,
+                closed_at: nowIso,
+                closed_by_automation: 'auto-pickup-retirado-to-entregado',
+                picker_history_snapshot: retSnap
+              }).eq('id', wmsOrder.id);
+              if (upEntErr) {
+                await wmsClient.from('orders').update({ estado_wms: 'Entregado', status: 'retirado', stock_descontado: true }).eq('id', wmsOrder.id);
+              }
               await wmsClient.from('store_pickups').update({ estado_pedido: 'ENTREGADO' }).in('pedido', [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')]);
               isPickupHandled = true;
             }
@@ -1002,7 +1119,7 @@ async function run() {
           const searchLogKeys = [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')];
           const { data: logs, error: logsErr } = await pickerClient
             .from('history_logs')
-            .select('pedido, estado, comentarios, picker, scanned_label')
+            .select('pedido, estado, comentarios, picker, scanned_label, sucursal, items_summary, created_at')
             .in('pedido', searchLogKeys)
             .in('estado', completedStatuses)
             .order('created_at', { ascending: false })
@@ -1020,8 +1137,20 @@ async function run() {
         if (matchedCompletedLog) {
           const logs = [matchedCompletedLog];
           const isRetirado = String(logs[0].estado || '').trim().toUpperCase() === 'RETIRADO';
-          const targetWmsState = isRetirado ? 'Despachado' : 'Pickeado';
-          const targetInternalStatus = isRetirado ? 'despachado' : 'preparado';
+          const targetWmsState = isRetirado ? 'Entregado' : 'Pickeado';
+          const targetInternalStatus = isRetirado ? 'retirado' : 'preparado';
+          const nowIso = new Date().toISOString();
+          const orderHistoryLogs = allLogsByOrderMap.get(cleanOrderNo) || logs;
+          const pickerHistorySnapshot = {
+            status: logs[0].estado,
+            operator: logs[0].picker || null,
+            sucursal: logs[0].sucursal || wmsOrder.sucursal_pickeo || 'Sucursal Ñuñoa',
+            scanned_label: logs[0].scanned_label || null,
+            items_summary: logs[0].items_summary || null,
+            observation: logs[0].comentarios || null,
+            history_logs: orderHistoryLogs,
+            synced_at: nowIso
+          };
           // El pedido fue completado o retirado en el Picker, actualizamos el WMS
           console.log(`🎉 ¡Pedido ${orderNo} completado en Picker con estado: "${logs[0].estado}"! Sincronizando WMS a '${targetWmsState}'...`);
           
@@ -1032,9 +1161,15 @@ async function run() {
               status: targetInternalStatus,
               picker_status: logs[0].estado,
               picker_operator: logs[0].picker || null,
-              picker_last_synced_at: new Date().toISOString()
+              picker_last_synced_at: nowIso,
+              picker_history_snapshot: pickerHistorySnapshot
             };
-            if (isRetirado) completedPayload.stock_descontado = true;
+            if (isRetirado) {
+              completedPayload.stock_descontado = true;
+              completedPayload.delivered_at = nowIso;
+              completedPayload.closed_at = nowIso;
+              completedPayload.closed_by_automation = 'auto-pickup-retirado-to-entregado';
+            }
             if (logs[0].scanned_label) {
               completedPayload.picker_scanned_label = logs[0].scanned_label;
             }
@@ -1113,6 +1248,12 @@ async function run() {
 
             const targetSku = resolvePickerSku(prod, wmsOrder, commerceStrict);
             const locData = resolvePickerItemLocation(prod?.sku || targetSku, wmsOrder.sucursal_pickeo || defaultSucursal);
+            const orderMeta = buildPickerOrderMeta(wmsOrder);
+            const resolvedImg = resolveProductImageForPicker(prod, wmsOrder, syncedImagesMap);
+            if (resolvedImg && prod?.id && !prod.image_url) {
+              wmsClient.from('products').update({ image_url: resolvedImg }).eq('id', prod.id).then(() => {}).catch(() => {});
+              prod.image_url = resolvedImg;
+            }
 
             payloads.push({
               sucursal: wmsOrder.sucursal_pickeo || defaultSucursal,
@@ -1141,7 +1282,7 @@ async function run() {
               contact_data_s: wmsOrder.shipping_address || '',
               contact_data_t: wmsOrder.shipping_city || '',
               contact_data_u: wmsOrder.shipping_complement || '',
-              extra_col_v: prod.image_url || '',
+              extra_col_v: resolvedImg || '',
               comercio: wmsOrder.comercio || 'STOCKA',
               created_by: 'Self-Healing Sync',
               picking_match_strict: commerceStrict || prod.picking_match_strict || false,
@@ -1151,7 +1292,14 @@ async function run() {
               picking_requests_json: prJson,
               picking_requests_confirmed: prConfirmed,
               picking_requests_operator: prOp,
-              picking_requests_confirmed_at: prAt
+              picking_requests_confirmed_at: prAt,
+              platform: orderMeta.platform,
+              platform_logo: orderMeta.platform_logo,
+              shipping_method: orderMeta.shipping_method,
+              payment_status: orderMeta.payment_status,
+              coverage: orderMeta.coverage,
+              order_tags: orderMeta.order_tags,
+              order_sla: orderMeta.order_sla
             });
           });
 
@@ -1168,8 +1316,12 @@ async function run() {
       }
     }
 
-    // 3. Sincronizar pedidos en estado 'Pickeado' que ya fueron retirados en Picker ('Retirado' / 'ENTREGADO') -> 'Despachado'
-    await syncPickedRetiroOrdersToDespachado();
+    // 3. Sincronizar pedidos en estado 'Pickeado' que ya fueron retirados en Picker ('Retirado' / 'ENTREGADO') -> 'Entregado'
+    await syncPickedRetiroOrdersToEntregado();
+
+    // 4. Limpiar de active_orders en Picker cualquier pedido que ya haya avanzado a Despachado / Entregado / Cancelado / Archivado en WMS
+    //    (ej: por automatización "En tránsito -> Despachado" o "Entregado -> Entregado")
+    await cleanupClosedOrdersFromPickerActive();
 
   } catch (err) {
     console.error("❌ Error general durante la sincronización:", err.message);
@@ -1178,11 +1330,11 @@ async function run() {
   console.log(`[${new Date().toISOString()}] Sincronización finalizada.`);
 }
 
-async function syncPickedRetiroOrdersToDespachado() {
+async function syncPickedRetiroOrdersToEntregado() {
   try {
     const { data: pickedOrders, error: pErr } = await wmsClient
       .from('orders')
-      .select('id, external_order_number, agenda, categoria_entrega, estado_wms')
+      .select('id, external_order_number, comercio, sucursal_pickeo, agenda, categoria_entrega, estado_wms')
       .eq('estado_wms', 'Pickeado');
 
     if (pErr || !pickedOrders || pickedOrders.length === 0) return;
@@ -1199,7 +1351,7 @@ async function syncPickedRetiroOrdersToDespachado() {
     const allKeys = Array.from(searchKeysSet);
     if (allKeys.length === 0) return;
 
-    const deliveredKeysSet = new Set();
+    const deliveredMetaMap = new Map();
     const chunkSize = 120;
 
     for (let i = 0; i < allKeys.length; i += chunkSize) {
@@ -1207,51 +1359,175 @@ async function syncPickedRetiroOrdersToDespachado() {
       const [pickRes, histRes] = await Promise.all([
         pickerClient
           .from('sucursal_pickups')
-          .select('pedido, estado_pedido')
+          .select('pedido, comercio, estado_pedido, sucursal')
           .in('pedido', chunk)
           .eq('estado_pedido', 'ENTREGADO'),
         pickerClient
           .from('history_logs')
-          .select('pedido, estado')
+          .select('pedido, estado, comentarios, picker, scanned_label, sucursal, items_summary, created_at')
           .in('pedido', chunk)
           .in('estado', ['Retirado', 'RETIRADO'])
+          .order('created_at', { ascending: false })
       ]);
 
       if (!pickRes.error && pickRes.data) {
         pickRes.data.forEach(r => {
           const clean = String(r.pedido || '').replace(/^#/, '').trim().toUpperCase();
-          if (clean) deliveredKeysSet.add(clean);
+          const com = String(r.comercio || '').trim().toUpperCase();
+          if (clean) {
+            if (com) deliveredMetaMap.set(`${clean}__${com}`, { pickup: r });
+            if (!deliveredMetaMap.has(clean)) deliveredMetaMap.set(clean, { pickup: r });
+          }
         });
       }
       if (!histRes.error && histRes.data) {
         histRes.data.forEach(r => {
           const clean = String(r.pedido || '').replace(/^#/, '').trim().toUpperCase();
-          if (clean) deliveredKeysSet.add(clean);
+          if (clean) {
+            const cur = deliveredMetaMap.get(clean) || {};
+            if (!cur.log) cur.log = r;
+            deliveredMetaMap.set(clean, cur);
+          }
         });
       }
     }
 
-    if (deliveredKeysSet.size === 0) return;
+    if (deliveredMetaMap.size === 0) return;
 
-    const toDespachado = pickedOrders.filter(o => {
+    const toEntregado = pickedOrders.filter(o => {
       const clean = String(o.external_order_number || o.id || '').replace(/^#/, '').trim().toUpperCase();
-      return deliveredKeysSet.has(clean);
+      const com = String(o.comercio || '').trim().toUpperCase();
+      if (com && deliveredMetaMap.has(`${clean}__${com}`)) return true;
+      const genericMatch = deliveredMetaMap.get(clean);
+      if (!genericMatch) return false;
+      if (genericMatch.pickup && genericMatch.pickup.comercio && com && String(genericMatch.pickup.comercio).trim().toUpperCase() !== com) {
+        return false;
+      }
+      return true;
     });
 
-    for (const ord of toDespachado) {
+    for (const ord of toEntregado) {
       const orderNo = String(ord.external_order_number || ord.id);
-      console.log(`📦 [AUTO-RETIRO -> DESPACHADO] Pedido ${orderNo} marcado como Retirado en Picker. Pasando WMS a 'Despachado'...`);
-      await wmsClient
+      const clean = orderNo.replace(/^#/, '').trim().toUpperCase();
+      const com = String(ord.comercio || '').trim().toUpperCase();
+      const meta = deliveredMetaMap.get(`${clean}__${com}`) || deliveredMetaMap.get(clean) || {};
+      const log = meta.log || null;
+      const nowIso = new Date().toISOString();
+      const pickerSnap = {
+        status: 'Retirado',
+        operator: log?.picker || null,
+        sucursal: log?.sucursal || meta.pickup?.sucursal || ord.sucursal_pickeo || 'Sucursal Ñuñoa',
+        scanned_label: log?.scanned_label || null,
+        items_summary: log?.items_summary || null,
+        observation: log?.comentarios || null,
+        history_logs: log ? [log] : [],
+        synced_at: nowIso
+      };
+
+      console.log(`📦 [AUTO-RETIRO -> ENTREGADO] Pedido ${orderNo} marcado como Retirado en Picker. Cerrando WMS en 'Entregado'...`);
+      const { error: upErr } = await wmsClient
         .from('orders')
-        .update({ estado_wms: 'Despachado', status: 'despachado', stock_descontado: true })
+        .update({
+          estado_wms: 'Entregado',
+          status: 'retirado',
+          stock_descontado: true,
+          delivered_at: nowIso,
+          closed_at: nowIso,
+          closed_by_automation: 'auto-pickup-retirado-to-entregado',
+          picker_history_snapshot: pickerSnap
+        })
         .eq('id', ord.id);
+      if (upErr) {
+        await wmsClient
+          .from('orders')
+          .update({ estado_wms: 'Entregado', status: 'retirado', stock_descontado: true })
+          .eq('id', ord.id);
+      }
       await wmsClient
         .from('store_pickups')
         .update({ estado_pedido: 'ENTREGADO' })
         .in('pedido', [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')]);
     }
   } catch (err) {
-    console.warn('⚠️ Aviso en syncPickedRetiroOrdersToDespachado:', err.message);
+    console.warn('⚠️ Aviso en syncPickedRetiroOrdersToEntregado:', err.message);
+  }
+}
+
+async function cleanupClosedOrdersFromPickerActive() {
+  try {
+    const { data: activeRows, error: actErr } = await pickerClient
+      .from('active_orders')
+      .select('id, order_number, comercio')
+      .limit(1000);
+
+    if (actErr || !activeRows || activeRows.length === 0) return;
+
+    const candidateKeys = new Set();
+    activeRows.forEach(r => {
+      const raw = String(r.order_number || '').trim();
+      if (!raw) return;
+      candidateKeys.add(raw);
+      candidateKeys.add('#' + raw.replace(/^#/, ''));
+      candidateKeys.add(raw.replace(/^#/, ''));
+    });
+
+    const allKeys = Array.from(candidateKeys);
+    if (allKeys.length === 0) return;
+
+    const wmsByKeyAndComercio = new Map();
+    const wmsByKeyOnly = new Map();
+    const chunkSize = 150;
+
+    for (let i = 0; i < allKeys.length; i += chunkSize) {
+      const chunk = allKeys.slice(i, i + chunkSize);
+      const { data: wmsMatches } = await wmsClient
+        .from('orders')
+        .select('id, external_order_number, comercio, estado_wms')
+        .in('external_order_number', chunk);
+
+      (wmsMatches || []).forEach(w => {
+        const clean = String(w.external_order_number || '').replace(/^#/, '').trim().toUpperCase();
+        const com = String(w.comercio || '').trim().toUpperCase();
+        if (!clean) return;
+        const pairKey = `${clean}__${com}`;
+        if (!wmsByKeyAndComercio.has(pairKey)) wmsByKeyAndComercio.set(pairKey, []);
+        wmsByKeyAndComercio.get(pairKey).push(w);
+        if (!wmsByKeyOnly.has(clean)) wmsByKeyOnly.set(clean, []);
+        wmsByKeyOnly.get(clean).push(w);
+      });
+    }
+
+    const terminalSet = new Set(['Despachado', 'Entregado', 'Cancelado', 'Archivado']);
+    const activeIdsToDelete = [];
+
+    activeRows.forEach(r => {
+      const clean = String(r.order_number || '').replace(/^#/, '').trim().toUpperCase();
+      const com = String(r.comercio || '').trim().toUpperCase();
+      if (!clean) return;
+
+      let candidates = wmsByKeyAndComercio.get(`${clean}__${com}`);
+      if (!candidates || candidates.length === 0) {
+        const generic = wmsByKeyOnly.get(clean) || [];
+        if (generic.length === 1) candidates = generic;
+      }
+      if (!candidates || candidates.length === 0) return;
+
+      const anyPreparing = candidates.some(c => c.estado_wms === 'En preparación');
+      const allTerminal = candidates.every(c => terminalSet.has(c.estado_wms));
+      if (!anyPreparing && allTerminal && r.id) {
+        activeIdsToDelete.push(r.id);
+      }
+    });
+
+    if (activeIdsToDelete.length > 0) {
+      console.log(`🧹 [SYNC PICKER] Limpiando ${activeIdsToDelete.length} fila(s) en active_orders correspondientes a pedidos ya cerrados/despachados en WMS...`);
+      for (let i = 0; i < activeIdsToDelete.length; i += 100) {
+        const batch = activeIdsToDelete.slice(i, i + 100);
+        await pickerClient.from('active_orders').delete().in('id', batch);
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ Aviso en cleanupClosedOrdersFromPickerActive:', err.message);
   }
 }
 

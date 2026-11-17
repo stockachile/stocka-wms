@@ -164,6 +164,8 @@ async function syncMeliProducts(integration: any): Promise<number> {
       if (itemWrapper.code !== 200 || !itemWrapper.body) continue;
 
       const itemDetail = itemWrapper.body;
+      const mainMeliImgRaw = itemDetail.pictures?.[0]?.secure_url || itemDetail.secure_thumbnail || itemDetail.thumbnail || null;
+      const mainMeliImg = mainMeliImgRaw ? String(mainMeliImgRaw).replace(/^http:\/\//i, 'https://') : null;
 
       // Handle items with variations
       if (itemDetail.variations && itemDetail.variations.length > 0) {
@@ -178,14 +180,20 @@ async function syncMeliProducts(integration: any): Promise<number> {
             if (combos) variantName += ` - ${combos}`;
           }
 
-          const barcode = getBarcodeFromAttributes(variation.attributes, cleanSku);
-          const price = variation.price || itemDetail.price || 0;
+          let varImg = mainMeliImg;
+          if (Array.isArray(variation.picture_ids) && variation.picture_ids.length > 0 && Array.isArray(itemDetail.pictures)) {
+            const matchedPic = itemDetail.pictures.find((p: any) => p.id === variation.picture_ids[0]);
+            if (matchedPic?.secure_url || matchedPic?.url) {
+              varImg = String(matchedPic.secure_url || matchedPic.url).replace(/^http:\/\//i, 'https://');
+            }
+          }
 
           const productDataToUpsert = {
             comercio: integration.comercio,
             platform: "MercadoLibre",
             sku: cleanSku,
-            name: variantName
+            name: variantName,
+            image_url: varImg
           };
 
           const { error: upsertErr } = await supabase
@@ -196,18 +204,28 @@ async function syncMeliProducts(integration: any): Promise<number> {
             console.error(`Error al guardar variación SKU ${cleanSku}:`, upsertErr.message);
           } else {
             count++;
+            if (varImg && integration.comercio) {
+              await supabase
+                .from("products")
+                .update({ image_url: varImg })
+                .eq("comercio", integration.comercio)
+                .ilike("sku", mappedSku)
+                .or("image_url.is.null,image_url.eq.");
+            }
           }
         }
       } else {
         // Handle items without variations
         const rawSku = getMeliSku(itemDetail, itemDetail.id);
         const cleanSku = rawSku.trim().replace(/\s+/g, '');
+        const mappedSku = skuMap[cleanSku] || cleanSku;
 
         const productDataToUpsert = {
           comercio: integration.comercio,
           platform: "MercadoLibre",
           sku: cleanSku,
-          name: itemDetail.title
+          name: itemDetail.title,
+          image_url: mainMeliImg
         };
 
         const { error: upsertErr } = await supabase
@@ -218,6 +236,14 @@ async function syncMeliProducts(integration: any): Promise<number> {
           console.error(`Error al guardar producto SKU ${cleanSku}:`, upsertErr.message);
         } else {
           count++;
+          if (mainMeliImg && integration.comercio) {
+            await supabase
+              .from("products")
+              .update({ image_url: mainMeliImg })
+              .eq("comercio", integration.comercio)
+              .ilike("sku", mappedSku)
+              .or("image_url.is.null,image_url.eq.");
+          }
         }
       }
     }

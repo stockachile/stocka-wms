@@ -23,14 +23,22 @@ export const fetchOrders = async (
   try {
     let query = supabase
       .from('orders')
-      .select('id, comercio, external_order_number, origen, external_platform, status, customer_name, customer_email, courier, tracking_number, tracking_url, total_value, created_at');
+      .select('id, comercio, external_order_number, origen, external_platform, status, estado_wms, customer_name, customer_email, courier, tracking_number, tracking_url, total_value, created_at');
 
     if (comercio && comercio !== 'no asignado') {
       query = query.eq('comercio', comercio);
     }
 
     if (statusFilter && statusFilter !== 'todos') {
-      query = query.eq('status', statusFilter);
+      if (statusFilter === 'entregado') {
+        query = query.or('estado_wms.eq.Entregado,status.in.(entregado,retirado)');
+      } else if (statusFilter === 'despachado') {
+        query = query.eq('estado_wms', 'Despachado');
+      } else if (statusFilter === 'pendiente') {
+        query = query.in('estado_wms', ['En procesamiento', 'En preparación', 'Pickeado']);
+      } else {
+        query = query.eq('status', statusFilter);
+      }
     }
 
     if (searchQuery && searchQuery.trim()) {
@@ -53,7 +61,7 @@ export const fetchOrders = async (
       id: o.id,
       order_number: o.external_order_number || o.id.substring(0, 8),
       platform: o.origen || o.external_platform || 'Manual',
-      status: o.status || 'pendiente',
+      status: o.estado_wms === 'Entregado' ? 'Entregado' : (o.estado_wms || o.status || 'pendiente'),
       customer_name: o.customer_name || 'Cliente sin nombre',
       customer_email: o.customer_email,
       courier: o.courier || 'Por asignar',

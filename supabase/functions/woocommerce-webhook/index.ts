@@ -723,7 +723,66 @@ async function resolveWooOrderNumber(comercio: string, rawNumber: string | numbe
   return { finalNumber: finalOrderNumber, sigla: siglaComercio };
 }
 
-async function handleWooOrderCreate(merchantId: string, comercio: string, order: any) {
+async function resolveCollisionAwareWooOrder(
+  comercio: string,
+  baseNumber: string,
+  initialFinalNumber: string,
+  incomingOrderKey: string | undefined,
+  selectColumns: string
+): Promise<{ existingOrder: any | null; finalOrderNumber: string; isCollision: boolean }> {
+  const { data: baseExisting } = await supabase
+    .from("orders")
+    .select(selectColumns)
+    .eq("comercio", comercio)
+    .in("external_order_number", [baseNumber, initialFinalNumber])
+    .maybeSingle();
+
+  if (!baseExisting) {
+    return { existingOrder: null, finalOrderNumber: initialFinalNumber, isCollision: false };
+  }
+
+  const existingOrderKey = (baseExisting as any)?.raw_woocommerce_data?.order_key;
+  if (!existingOrderKey || !incomingOrderKey || existingOrderKey === incomingOrderKey) {
+    return {
+      existingOrder: baseExisting,
+      finalOrderNumber: (baseExisting as any).external_order_number || initialFinalNumber,
+      isCollision: false
+    };
+  }
+
+  // WooCommerce reutilizó el número de pedido con distinto order_key (p. ej. restauración de backup)
+  const baseCollisionPrefix = `${initialFinalNumber}-R`;
+  const { data: collisionCandidates } = await supabase
+    .from("orders")
+    .select(selectColumns)
+    .eq("comercio", comercio)
+    .ilike("external_order_number", `${baseCollisionPrefix}%`);
+
+  const matchedCandidate = (collisionCandidates || []).find(
+    (c: any) => c.raw_woocommerce_data?.order_key === incomingOrderKey
+  );
+
+  if (matchedCandidate) {
+    return {
+      existingOrder: matchedCandidate,
+      finalOrderNumber: (matchedCandidate as any).external_order_number,
+      isCollision: false
+    };
+  }
+
+  const takenSet = new Set((collisionCandidates || []).map((c: any) => String(c.external_order_number).toUpperCase()));
+  let suffixIdx = 1;
+  let candidateNumber = baseCollisionPrefix;
+  while (takenSet.has(candidateNumber.toUpperCase())) {
+    suffixIdx += 1;
+    candidateNumber = `${baseCollisionPrefix}${suffixIdx}`;
+  }
+
+  console.warn(`⚠️ [WooCommerce Webhook] Colisión de folio en ${initialFinalNumber} (order_key previo=${existingOrderKey}, nuevo=${incomingOrderKey}). Asignando ${candidateNumber}.`);
+  return { existingOrder: null, finalOrderNumber: candidateNumber, isCollision: true };
+}
+
+async function handleWooOrderCreate(merchantId: string, comercio: string, order: any, forcedFinalNumber?: string, isCollisionOverride?: boolean) {
   if (!order || (!order.id && !order.number)) {
     console.log(`ℹ️ Payload de orden de WooCommerce sin número ni ID válido. Omitiendo.`);
     return;
@@ -731,13 +790,32 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
 
   const orderId = String(order.id || "");
   const baseNumber = String(order.number || orderId).trim();
-  const { finalNumber: finalOrderNumber } = await resolveWooOrderNumber(comercio, baseNumber);
+  const { finalNumber: resolvedNumber } = await resolveWooOrderNumber(comercio, baseNumber);
+
+  let finalOrderNumber = forcedFinalNumber || resolvedNumber;
+  let isCollision = Boolean(isCollisionOverride);
+
+  if (!forcedFinalNumber) {
+    const resolved = await resolveCollisionAwareWooOrder(
+      comercio,
+      baseNumber,
+      resolvedNumber,
+      order.order_key,
+      "id, external_order_number, status, raw_woocommerce_data"
+    );
+    if (resolved.existingOrder) {
+      console.log(`ℹ️ Pedido ${resolved.finalOrderNumber} ya existe en WMS. Derivando a actualización.`);
+      return await handleWooOrderUpdate(merchantId, comercio, order);
+    }
+    finalOrderNumber = resolved.finalOrderNumber;
+    isCollision = resolved.isCollision;
+  }
 
   console.log(`[WooCommerce Webhook] Procesando nuevo pedido: ${baseNumber} -> ${finalOrderNumber}`);
 
   const statusName = order.status || "processing";
   const isDelivered = statusName === "completed";
-  const isCancelled = ["cancelled", "failed", "refunded"].includes(statusName);
+  const isCancelled = ["cancelled", "failed", "refunded", "trash"].includes(statusName);
   const isActive = !isDelivered && !isCancelled;
 
   // Cargar equivalencias de SKU
@@ -755,19 +833,6 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
     }
   } catch (err: any) {
     console.error("⚠️ Error cargando equivalencias de SKU:", err.message);
-  }
-
-  // Verificar si el pedido ya existe en el WMS
-  const { data: existingOrder } = await supabase
-    .from("orders")
-    .select("id, status")
-    .eq("comercio", comercio)
-    .in("external_order_number", [baseNumber, finalOrderNumber])
-    .maybeSingle();
-
-  if (existingOrder) {
-    console.log(`ℹ️ Pedido ${finalOrderNumber} ya existe en WMS. Derivando a actualización.`);
-    return await handleWooOrderUpdate(merchantId, comercio, order);
   }
 
   if (!isActive) {
@@ -795,6 +860,9 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
   const flatItemName = itemNames.join(", ");
   const flatQuantity = Object.values(itemQuantities).reduce((sum, qty) => sum + qty, 0);
   const totalValue = Number(order.total || 0);
+  const orderDate = order.date_created_gmt
+    ? `${order.date_created_gmt}Z`
+    : (order.date_created ? new Date(order.date_created).toISOString() : new Date().toISOString());
 
   const orderDataToSave = {
     merchant_id: merchantId,
@@ -815,7 +883,8 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
     item: flatItemName,
     cantidad: flatQuantity,
     sku: flatSku,
-    status: "para procesar"
+    status: "para procesar",
+    created_at: orderDate
   };
 
   // 1. Insertar orden en Supabase
@@ -831,6 +900,18 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
   }
 
   console.log(`📥 Insertado nuevo pedido WooCommerce ${finalOrderNumber} con ID: ${newOrder.id}`);
+
+  if (isCollision) {
+    try {
+      await supabase.from("order_alerts").insert([{
+        merchant_id: merchantId,
+        comercio: comercio,
+        order_id: newOrder.id,
+        alert_type: "COLISION_FOLIO_ORIGEN",
+        message: `WooCommerce reutilizó un folio existente. Este pedido nuevo se registró como ${finalOrderNumber} para no sobrescribir el pedido histórico.`
+      }]);
+    } catch (_alertErr) {}
+  }
 
   // 2. Obtener bodega por defecto
   let warehouseId = null;
@@ -864,21 +945,27 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
   const expectedQuantities = new Map<string, number>();
 
   for (const [sku, qty] of Object.entries(itemQuantities)) {
+    const itemDetail = order.line_items?.find((item: any) => {
+      let itemSku = item.sku || `WC-${item.product_id}${item.variation_id ? "-" + item.variation_id : ""}`;
+      let cleanItemSku = itemSku.replace(/\s+/g, "");
+      let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+      return mappedItemSku === sku;
+    });
+    const itemImageUrl = itemDetail?.image?.src || (typeof itemDetail?.image === "string" ? itemDetail.image : null);
+
     let { data: product } = await supabase
       .from("products")
-      .select("id, is_pack")
+      .select("id, is_pack, image_url")
       .eq("sku", sku)
       .eq("comercio", comercio)
       .maybeSingle();
 
-    if (!product) {
-      const itemDetail = order.line_items?.find((item: any) => {
-        let itemSku = item.sku || `WC-${item.product_id}${item.variation_id ? "-" + item.variation_id : ""}`;
-        let cleanItemSku = itemSku.replace(/\s+/g, "");
-        let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
-        return mappedItemSku === sku;
-      });
+    if (product && !product.image_url && itemImageUrl) {
+      await supabase.from("products").update({ image_url: itemImageUrl }).eq("id", product.id);
+      product.image_url = itemImageUrl;
+    }
 
+    if (!product) {
       const productName = itemDetail?.name || "Producto WooCommerce " + sku;
       const productPrice = Number(itemDetail?.price || 0);
 
@@ -890,9 +977,10 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
           sku: sku,
           name: productName,
           price: productPrice,
+          image_url: itemImageUrl,
           description: "Creado automáticamente desde webhook de WooCommerce"
         }])
-        .select("id, is_pack")
+        .select("id, is_pack, image_url")
         .single();
 
       if (!prodErr && newProd) {
@@ -954,62 +1042,79 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
 
   const orderId = String(order.id || "");
   const baseNumber = String(order.number || orderId).trim();
-  const { finalNumber: finalOrderNumber } = await resolveWooOrderNumber(comercio, baseNumber);
+  const { finalNumber: resolvedNumber } = await resolveWooOrderNumber(comercio, baseNumber);
+
+  // Buscar pedido en BD verificando que no exista colisión de order_key
+  const resolved = await resolveCollisionAwareWooOrder(
+    comercio,
+    baseNumber,
+    resolvedNumber,
+    order.order_key,
+    "id, external_order_number, status, estado_wms, operador, tracking_number, fecha_procesamiento, stock_descontado, raw_woocommerce_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement"
+  );
+
+  const existingOrder = resolved.existingOrder;
+  const finalOrderNumber = resolved.finalOrderNumber;
 
   console.log(`[WooCommerce Webhook] Actualizando pedido: ${finalOrderNumber}`);
+
+  if (!existingOrder) {
+    console.log(`ℹ️ Pedido ${finalOrderNumber} no existía en WMS (colisión=${resolved.isCollision}). Creándolo...`);
+    return await handleWooOrderCreate(merchantId, comercio, order, finalOrderNumber, resolved.isCollision);
+  }
 
   const statusName = (order.status || "").toLowerCase().trim();
   const isDelivered = statusName === "completed";
   const isCancelled = ["cancelled", "failed", "refunded", "trash"].includes(statusName);
   const isActive = !isDelivered && !isCancelled;
 
-  // Buscar pedido en BD
-  const { data: existingOrder } = await supabase
-    .from("orders")
-    .select("id, status, estado_wms, operador, tracking_number, fecha_procesamiento, stock_descontado, raw_woocommerce_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement")
-    .eq("comercio", comercio)
-    .in("external_order_number", [baseNumber, finalOrderNumber])
-    .maybeSingle();
+  // Cargar equivalencias de SKU
+  const skuMap: Record<string, string> = {};
+  try {
+    const { data: equivalences } = await supabase
+      .from("sku_equivalences")
+      .select("platform_sku, master_sku, platform")
+      .eq("comercio", comercio);
 
-  if (!existingOrder) {
-    console.log(`ℹ️ Pedido ${finalOrderNumber} no existía en WMS. Creándolo...`);
-    return await handleWooOrderCreate(merchantId, comercio, order);
+    if (equivalences) {
+      equivalences.filter((e: any) => e.platform === "Todas" || e.platform === "WooCommerce").forEach((e: any) => {
+        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, "")] = e.master_sku.trim();
+      });
+    }
+  } catch (err: any) {
+    console.error("⚠️ Error cargando equivalencias:", err.message);
   }
+
+  const itemNames: string[] = [];
+  const itemQuantities: Record<string, number> = {};
+  if (order.line_items && Array.isArray(order.line_items)) {
+    for (const item of order.line_items) {
+      let sku = item.sku || `WC-${item.product_id}${item.variation_id ? "-" + item.variation_id : ""}`;
+      sku = sku.replace(/\s+/g, "");
+      const mappedSku = skuMap[sku] || sku;
+      itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity || 1);
+      if (item.name && !itemNames.includes(item.name)) {
+        itemNames.push(item.name);
+      }
+    }
+  }
+  const flatSku = Object.keys(itemQuantities).join(", ");
+  const flatItemName = itemNames.join(", ");
+  const flatQuantity = Object.values(itemQuantities).reduce((sum, qty) => sum + qty, 0);
 
   const existingRaw = (existingOrder as any).raw_woocommerce_data || {};
   const isWmsItemsEdited = (existingOrder as any).wms_items_edited === true || existingRaw.wms_items_edited === true;
   const isWmsShippingEdited = (existingOrder as any).wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
 
-  const updatedData: Record<string, any> = {
-    payment_status: order.date_paid ? "PAID" : (statusName === "processing" || statusName === "completed" ? "PAID" : "PENDING"),
-    shipping_method: order.shipping_lines?.[0]?.method_title || "Por definir",
-    raw_woocommerce_data: {
-      ...order,
-      ...(existingRaw.admin_notes ? { admin_notes: existingRaw.admin_notes } : {}),
-      ...(existingRaw.wms_admin_notes ? { wms_admin_notes: existingRaw.wms_admin_notes } : {}),
-      ...(existingRaw.internal_notes ? { internal_notes: existingRaw.internal_notes } : {}),
-      ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
-      ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
-      ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
-    }
-  };
-
-  if (!isWmsItemsEdited) {
-    updatedData.total_value = Number(order.total || 0);
-  }
-
-  if (!isWmsShippingEdited) {
-    updatedData.customer_phone = order.billing?.phone || order.shipping?.phone || "No especificado";
-    updatedData.customer_name = `${order.shipping?.first_name || order.billing?.first_name || ""} ${order.shipping?.last_name || order.billing?.last_name || ""}`.trim() || "Cliente WooCommerce";
-    updatedData.shipping_address = order.shipping?.address_1 || order.billing?.address_1 || "No especificada";
-    updatedData.shipping_city = order.shipping?.city || order.billing?.city || "No especificada";
-    updatedData.shipping_complement = [order.shipping?.address_2 || order.billing?.address_2, order.shipping?.state || order.billing?.state, order.shipping?.postcode || order.billing?.postcode].filter(Boolean).join(", ") || "";
-  }
-
   const currentWmsState = (existingOrder.estado_wms || "En procesamiento").trim().toLowerCase();
+  const currentRawStatus = (existingOrder.status || "").trim().toLowerCase();
   const estadosWmsProtegidos = ["en preparación", "pickeado", "despachado", "incidencia", "entregado", "retirado", "archivado"];
+  const estadosInmutablesDespacho = ["despachado", "entregado", "retirado", "archivado"];
+  const isInitiallyClosedOrDispatched =
+    ["despachado", "entregado", "retirado", "cancelado"].includes(currentRawStatus) ||
+    ["despachado", "entregado", "retirado", "cancelado"].includes(currentWmsState);
   const wasCancelledInWms =
-    (existingOrder.status || "").toLowerCase() === "cancelado" ||
+    currentRawStatus === "cancelado" ||
     currentWmsState === "cancelado";
   const wasManuallyProcessedInWms =
     Boolean((existingOrder as any).operador) ||
@@ -1018,6 +1123,43 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
     Boolean((existingOrder as any).stock_descontado) ||
     existingRaw.wms_manually_cancelled === true;
 
+  const willBeReactivated =
+    !isCancelled && isActive && statusName !== "pending" && wasCancelledInWms && !wasManuallyProcessedInWms && !estadosWmsProtegidos.includes(currentWmsState);
+
+  const updatedData: Record<string, any> = {
+    payment_status: order.date_paid ? "PAID" : (statusName === "processing" || statusName === "completed" ? "PAID" : "PENDING"),
+    raw_woocommerce_data: {
+      ...order,
+      ...(existingRaw.admin_notes ? { admin_notes: existingRaw.admin_notes } : {}),
+      ...(existingRaw.wms_admin_notes ? { wms_admin_notes: existingRaw.wms_admin_notes } : {}),
+      ...(existingRaw.internal_notes ? { internal_notes: existingRaw.internal_notes } : {}),
+      ...(existingRaw.wms_manually_cancelled ? { wms_manually_cancelled: true } : {}),
+      ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
+      ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
+      ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
+    }
+  };
+
+  // Solo actualizar campos planos de ítems/valor si el pedido sigue editable (no editado en WMS ni en estado protegido/cerrado)
+  if (!isWmsItemsEdited && (willBeReactivated || (!isInitiallyClosedOrDispatched && !estadosWmsProtegidos.includes(currentWmsState)))) {
+    updatedData.total_value = Number(order.total || 0);
+    if (order.line_items && Array.isArray(order.line_items)) {
+      updatedData.sku = flatSku;
+      updatedData.item = flatItemName;
+      updatedData.cantidad = flatQuantity;
+    }
+  }
+
+  // Solo actualizar datos de envío/cliente si no fue editado en WMS ni está ya despachado/cerrado
+  if (!isWmsShippingEdited && !estadosInmutablesDespacho.includes(currentWmsState) && !["despachado", "entregado", "retirado"].includes(currentRawStatus)) {
+    updatedData.shipping_method = order.shipping_lines?.[0]?.method_title || "Por definir";
+    updatedData.customer_phone = order.billing?.phone || order.shipping?.phone || "No especificado";
+    updatedData.customer_name = `${order.shipping?.first_name || order.billing?.first_name || ""} ${order.shipping?.last_name || order.billing?.last_name || ""}`.trim() || "Cliente WooCommerce";
+    updatedData.shipping_address = order.shipping?.address_1 || order.billing?.address_1 || "No especificada";
+    updatedData.shipping_city = order.shipping?.city || order.billing?.city || "No especificada";
+    updatedData.shipping_complement = [order.shipping?.address_2 || order.billing?.address_2, order.shipping?.state || order.billing?.state, order.shipping?.postcode || order.billing?.postcode].filter(Boolean).join(", ") || "";
+  }
+
   let wasReactivated = false;
 
   if (isCancelled && existingOrder.status !== "cancelado") {
@@ -1025,7 +1167,7 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
     if (!estadosWmsProtegidos.includes(currentWmsState)) {
       updatedData.estado_wms = "Cancelado";
     }
-  } else if (!isCancelled && isActive && statusName !== "pending" && wasCancelledInWms && !wasManuallyProcessedInWms && !estadosWmsProtegidos.includes(currentWmsState)) {
+  } else if (willBeReactivated) {
     updatedData.status = "para procesar";
     updatedData.estado_wms = "En procesamiento";
     wasReactivated = true;
@@ -1037,7 +1179,7 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
     .update(updatedData)
     .eq("id", existingOrder.id);
 
-  if (wasReactivated) {
+  if (wasReactivated || updatedData.status === "cancelado") {
     try {
       await supabase.rpc("recalculate_committed_stock");
     } catch (_e) {
@@ -1054,9 +1196,10 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
   const estadosCriticos = ["en preparación", "pickeado", "despachado", "incidencia", "entregado", "retirado", "cancelado"];
 
   if (isClosedOrDispatched || estadosCriticos.includes(wmsStatus.toLowerCase())) {
-    if (isCancelled) {
+    if (isCancelled && estadosWmsProtegidos.includes(currentWmsState)) {
       await supabase.from("order_alerts").insert([{
         merchant_id: merchantId,
+        comercio: comercio,
         order_id: existingOrder.id,
         alert_type: "CANCELADO_EN_PREPARACION",
         message: `¡CRÍTICO! El pedido ${finalOrderNumber} ha sido CANCELADO en WooCommerce, pero en WMS tiene estado: ${wmsStatus}. Detener preparación de inmediato.`
@@ -1065,31 +1208,6 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
   } else {
     // Smart Diffing de ítems si no ha sido editado manualmente en WMS
     if (!isWmsItemsEdited && order.line_items && Array.isArray(order.line_items)) {
-      // Cargar equivalencias
-      const skuMap: Record<string, string> = {};
-      try {
-        const { data: equivalences } = await supabase
-          .from("sku_equivalences")
-          .select("platform_sku, master_sku, platform")
-          .eq("comercio", comercio);
-
-        if (equivalences) {
-          equivalences.filter((e: any) => e.platform === "Todas" || e.platform === "WooCommerce").forEach((e: any) => {
-            if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, "")] = e.master_sku.trim();
-          });
-        }
-      } catch (err: any) {
-        console.error("⚠️ Error cargando equivalencias:", err.message);
-      }
-
-      const itemQuantities: Record<string, number> = {};
-      for (const item of order.line_items) {
-        let sku = item.sku || `WC-${item.product_id}${item.variation_id ? "-" + item.variation_id : ""}`;
-        sku = sku.replace(/\s+/g, "");
-        const mappedSku = skuMap[sku] || sku;
-        itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity || 1);
-      }
-
       const { data: existingItems } = await supabase
         .from("order_items")
         .select("id, product_id, quantity, warehouse_id, is_gift, campaign_id, tag")
@@ -1131,12 +1249,51 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
       const expectedQuantities = new Map<string, number>();
 
       for (const [sku, qty] of Object.entries(itemQuantities)) {
+        const itemDetail = order.line_items?.find((item: any) => {
+          let itemSku = item.sku || `WC-${item.product_id}${item.variation_id ? "-" + item.variation_id : ""}`;
+          let cleanItemSku = itemSku.replace(/\s+/g, "");
+          let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+          return mappedItemSku === sku;
+        });
+        const itemImageUrl = itemDetail?.image?.src || (typeof itemDetail?.image === "string" ? itemDetail.image : null);
+
         let { data: product } = await supabase
           .from("products")
-          .select("id, is_pack")
+          .select("id, is_pack, image_url")
           .eq("sku", sku)
           .eq("comercio", comercio)
           .maybeSingle();
+
+        if (product && !product.image_url && itemImageUrl) {
+          await supabase.from("products").update({ image_url: itemImageUrl }).eq("id", product.id);
+          product.image_url = itemImageUrl;
+        }
+
+        if (!product) {
+          const productName = itemDetail?.name || "Producto WooCommerce " + sku;
+          const productPrice = Number(itemDetail?.price || 0);
+
+          const { data: newProd, error: prodErr } = await supabase
+            .from("products")
+            .insert([{
+              merchant_id: merchantId,
+              comercio: comercio,
+              sku: sku,
+              name: productName,
+              price: productPrice,
+              image_url: itemImageUrl,
+              description: "Creado automáticamente desde webhook de WooCommerce"
+            }])
+            .select("id, is_pack, image_url")
+            .single();
+
+          if (!prodErr && newProd) {
+            console.log(`   * Creado automáticamente producto para SKU: ${sku} ("${productName}")`);
+            product = newProd;
+          } else {
+            console.error(`   ❌ Error al crear producto para SKU ${sku}:`, prodErr?.message);
+          }
+        }
 
         if (product && warehouseId) {
           if (product.is_pack) {
@@ -1203,16 +1360,31 @@ async function handleWooOrderDelete(_merchantId: string, comercio: string, order
 
   const { data: existingOrder } = await supabase
     .from("orders")
-    .select("id, estado_wms, status")
+    .select("id, estado_wms, status, raw_woocommerce_data")
     .eq("comercio", comercio)
     .in("external_order_number", [baseNumber, finalOrderNumber])
     .maybeSingle();
 
   if (existingOrder) {
+    const existingKey = (existingOrder as any).raw_woocommerce_data?.order_key;
+    if (existingKey && order?.order_key && existingKey !== order.order_key) {
+      console.warn(`⚠️ [WooCommerce Webhook] Ignorando order.deleted para ${finalOrderNumber}: order_key no coincide con registro local.`);
+      return;
+    }
+    const currentWmsState = (existingOrder.estado_wms || "En procesamiento").trim().toLowerCase();
+    const estadosWmsProtegidos = ["en preparación", "pickeado", "despachado", "incidencia", "entregado", "retirado", "archivado"];
+    const updatePayload: Record<string, any> = { status: "cancelado" };
+    if (!estadosWmsProtegidos.includes(currentWmsState)) {
+      updatePayload.estado_wms = "Cancelado";
+    }
     await supabase
       .from("orders")
-      .update({ status: "cancelado" })
+      .update(updatePayload)
       .eq("id", existingOrder.id);
+
+    try {
+      await supabase.rpc("recalculate_committed_stock");
+    } catch (_e) {}
   }
 }
 
@@ -1220,7 +1392,8 @@ async function handleWooProductSave(merchantId: string, comercio: string, produc
   console.log(`[WooCommerce Webhook] Guardando producto ID ${product.id} ("${product.name}")`);
 
   const sku = (product.sku || `WC-${product.id}`).replace(/\s+/g, "");
-  const productData = {
+  const prodImg = product.images?.[0]?.src || product.image?.src || null;
+  const productData: Record<string, any> = {
     merchant_id: merchantId,
     comercio: comercio,
     sku: sku,
@@ -1230,6 +1403,7 @@ async function handleWooProductSave(merchantId: string, comercio: string, produc
     woocommerce_product_id: String(product.id),
     raw_woocommerce_data: product
   };
+  if (prodImg) productData.image_url = prodImg;
 
   await supabase
     .from("products")

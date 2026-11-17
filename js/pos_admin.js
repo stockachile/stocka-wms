@@ -4847,8 +4847,8 @@ window.savePosSale = async function(e) {
     const orderPayload = {
       merchant_id: merchantId,
       comercio: commerce,
-      status: 'despachado',
-      estado_wms: 'Despachado',
+      status: 'entregado',
+      estado_wms: 'Entregado',
       customer_name: customerName,
       customer_email: customerEmail || null,
       customer_phone: customerPhone || null,

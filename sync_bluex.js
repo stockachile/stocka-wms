@@ -52,10 +52,19 @@ function mapBlueXStatusToWms(macroStateStr) {
   if (!macroStateStr) return null;
   const s = macroStateStr.trim().toUpperCase();
 
-  if (s.includes('DELIVERED') || s.includes('ENTREGAD') || s.includes('EXITOS')) {
+  if (
+    (s.includes('DELIVERED') || s.includes('ENTREGAD') || s.includes('EXITOS')) &&
+    !s.includes('NO ENTREGAD') &&
+    !s.includes('FALLID') &&
+    !s.includes('RECHAZAD') &&
+    !s.includes('REMITENTE') &&
+    !s.includes('DEVUEL') &&
+    !s.includes('ORIGEN') &&
+    !s.includes('DISPONIBLE PARA RETIRO')
+  ) {
     return 'entregado';
   }
-  if (s.includes('TRANSIT') || s.includes('RUTA') || s.includes('REPARTO') || s.includes('CAMINO') || s.includes('DISTRIBUCION')) {
+  if (s.includes('TRANSIT') || s.includes('RUTA') || s.includes('REPARTO') || s.includes('CAMINO') || s.includes('DISTRIBUCION') || s.includes('DISPONIBLE PARA RETIRO')) {
     return 'en tránsito';
   }
   if (s.includes('PICKUP') || s.includes('CREAD') || s.includes('EMITID') || s.includes('INGRESAD') || s.includes('RECEPCION') || s.includes('PROCESANDO')) {
@@ -64,7 +73,7 @@ function mapBlueXStatusToWms(macroStateStr) {
   if (s.includes('CANCEL') || s.includes('ANULAD')) {
     return 'cancelado';
   }
-  if (s.includes('FAIL') || s.includes('FALLID') || s.includes('DEVUELT') || s.includes('SINIESTRO') || s.includes('INCIDENCIA')) {
+  if (s.includes('FAIL') || s.includes('FALLID') || s.includes('NO ENTREGAD') || s.includes('DEVUELT') || s.includes('SINIESTRO') || s.includes('INCIDENCIA')) {
     return 'incidencia';
   }
   return null;
@@ -447,12 +456,17 @@ async function syncBlueExpress() {
       const filterStr = candidates.map(c => `"${c}"`).join(',');
       const { data: directOrders } = await supabase
         .from('orders')
-        .select('id, status, external_order_number, tracking_number, courier, bluex_status, comercio, categoria_entrega')
+        .select('id, status, estado_wms, external_order_number, tracking_number, tracking_url, courier, bluex_status, comercio, categoria_entrega')
         .or(`tracking_number.in.(${filterStr}),external_order_number.in.(${filterStr})`);
 
       if (directOrders && directOrders.length > 0) {
         matchedOrder = directOrders.find(o => String(o.categoria_entrega || '').toUpperCase().trim() !== 'RETIRO') || null;
       }
+    }
+
+    // Si el pedido en WMS ya está cerrado definitivamente en 'Entregado', no realizar actualizaciones adicionales
+    if (matchedOrder && matchedOrder.estado_wms === 'Entregado') {
+      continue;
     }
 
     // Si se encontró la orden en el WMS, adoptar el comercio real de la orden para que coincida en AutoTrack y filtros
@@ -511,12 +525,19 @@ async function syncBlueExpress() {
         updatePayload.courier = 'BLUEXPRESS';
       }
 
-      // Si Blue Express reporta movimiento activo (DESPACHADO) y la orden está en estado previo, avanzar a 'despachado'
-      if (globalStatus === 'DESPACHADO') {
+      if (wmsStatus === 'entregado') {
+        if (!['Entregado', 'Cancelado', 'Archivado'].includes(matchedOrder.estado_wms)) {
+          updatePayload.status = 'entregado';
+          updatePayload.estado_wms = 'Entregado';
+          updatePayload.delivered_at = new Date().toISOString();
+          updatePayload.closed_at = new Date().toISOString();
+          updatePayload.closed_by_automation = 'auto-dispatch-delivered-to-entregado';
+        }
+      } else if (wmsStatus === 'en tránsito' || globalStatus === 'DESPACHADO') {
         if (['para procesar', 'en preparación', 'preparado'].includes(matchedOrder.status)) {
           updatePayload.status = 'despachado';
         }
-        if (!['Despachado', 'Cancelado', 'Archivado'].includes(matchedOrder.estado_wms)) {
+        if (!['Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(matchedOrder.estado_wms)) {
           updatePayload.estado_wms = 'Despachado';
         }
       }

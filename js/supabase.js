@@ -78,6 +78,43 @@ class MockQueryBuilder {
     return this;
   }
 
+  ilike(column, pattern) {
+    this.filters.push(item => {
+      const val = String(item[column] || '').toLowerCase();
+      const pat = String(pattern || '').toLowerCase();
+      if (pat.startsWith('%') && pat.endsWith('%')) {
+        return val.includes(pat.slice(1, -1));
+      } else if (pat.startsWith('%')) {
+        return val.endsWith(pat.slice(1));
+      } else if (pat.endsWith('%')) {
+        return val.startsWith(pat.slice(0, -1));
+      }
+      return val === pat;
+    });
+    return this;
+  }
+
+  is(column, value) {
+    this.filters.push(item => {
+      if (value === null) return item[column] === null || item[column] === undefined;
+      return item[column] === value;
+    });
+    return this;
+  }
+
+  not(column, operator, value) {
+    this.filters.push(item => {
+      if (operator === 'is' && value === null) {
+        return item[column] !== null && item[column] !== undefined;
+      }
+      if (operator === 'eq') {
+        return String(item[column]) !== String(value);
+      }
+      return true;
+    });
+    return this;
+  }
+
   or(filterStr) {
     this.filters.push(item => {
       const clauses = filterStr.split(',');
@@ -86,8 +123,12 @@ class MockQueryBuilder {
         if (parts.length >= 3) {
           const col = parts[0];
           const op = parts[1];
-          const val = parts[2].replace(/"/g, '');
+          const val = parts.slice(2).join('.').replace(/"/g, '');
           if (op === 'eq') return String(item[col]) === String(val);
+          if (op === 'ilike') {
+            const cleanVal = val.replace(/^%|%$/g, '').toLowerCase();
+            return String(item[col] || '').toLowerCase().includes(cleanVal);
+          }
         }
         return false;
       });

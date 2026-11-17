@@ -40,7 +40,7 @@ window.canSplitOrder = function(order) {
   
   // No permitir dividir órdenes en estados terminales
   const terminalStatuses = ['despachado', 'entregado', 'retirado', 'cancelado', 'archivado'];
-  if (terminalStatuses.includes(statusLower) || ['Despachado', 'Cancelado', 'Archivado'].includes(estadoWms)) {
+  if (terminalStatuses.includes(statusLower) || ['Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(estadoWms)) {
     return false;
   }
   

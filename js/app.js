@@ -8,6 +8,7 @@ import { initChatWidget } from './chat.js';
 import { renderIncidenciasClient } from './incidencias.js?v=1.0.1';
 import { renderNotifications } from './notifications.js';
 import { renderTrackingWidgetCustomizer } from './tracking_widget_customizer.js';
+import './manual_order_number_validator.js?v=1.0.0';
 window.renderTrackingWidgetCustomizer = renderTrackingWidgetCustomizer;
 window.navigateToTrackingWidget = function() {
   const twNav = document.querySelector('.nav-item[data-view="tracking_widget"]');
@@ -905,7 +906,10 @@ window.getOriginalPlatformStatus = function(order) {
     const rawFul = String(raw.fulfillment_status || order.shopify_fulfillment_status || '').toLowerCase().trim();
     let fulLabel = 'NO PREPARADO';
     let fulColor = '#6b7280';
-    if (['fulfilled', 'despachado'].includes(rawFul) || order.estado_wms === 'Despachado') {
+    if (order.estado_wms === 'Entregado' || rawFul === 'delivered') {
+      fulLabel = 'ENTREGADO';
+      fulColor = '#059669';
+    } else if (['fulfilled', 'despachado'].includes(rawFul) || order.estado_wms === 'Despachado') {
       fulLabel = 'PREPARADO';
       fulColor = '#10b981';
     } else if (['partial', 'parcial'].includes(rawFul)) {
@@ -1026,7 +1030,7 @@ window.isOrderStockCommittedEligible = function(order) {
   const orderStatus = String(order.status || '').toLowerCase().trim();
   const wmsStatus = String(order.estado_wms || '').trim();
   if (['cancelado', 'devolución', 'devolucion'].includes(orderStatus)) return false;
-  if (['Cancelado', 'Archivado', 'Despachado'].includes(wmsStatus)) return false;
+  if (['Cancelado', 'Archivado', 'Despachado', 'Entregado'].includes(wmsStatus)) return false;
   if (order.raw_shopify_data?.cancelled_at) return false;
   if (order.raw_shopify_data?.confirmed === false) return false;
 
@@ -1259,7 +1263,10 @@ window.getItemProcessingStatusBadge = function(order, itemSku, itemName) {
 
   // Estado basado en el ciclo WMS
   const wms = (order.estado_wms || '').toLowerCase().trim();
-  if (wms === 'despachado' || wms === 'entregado' || wms === 'retirado') {
+  if (wms === 'entregado' || wms === 'retirado') {
+    return `<span class="badge" style="background-color: #ecfdf5; color: #047857; border: 1px solid #6ee7b7; font-size: 0.7rem; font-weight: 700; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-verified-badge-fill"></i> Entregado</span>`;
+  }
+  if (wms === 'despachado') {
     return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-truck-line"></i> Despachado</span>`;
   }
   if (wms === 'pickeado') {
@@ -1322,7 +1329,7 @@ window.shouldProcessOrderStockLocal = function(order, config, allOrdersList, che
   // El estado de despacho/plataforma (order.status) NO influye en el control de inventario WMS.
   if (checkTerminal) {
     const orderWmsStatus = (order.estado_wms || '').toLowerCase().trim();
-    const terminalWmsStatuses = ['despachado', 'cancelado', 'archivado'];
+    const terminalWmsStatuses = ['despachado', 'entregado', 'cancelado', 'archivado'];
     if (terminalWmsStatuses.includes(orderWmsStatus)) {
       return false;
     }
@@ -3099,7 +3106,7 @@ async function renderDashboard() {
       }
 
       // Pipeline 5 etapas (activos siempre + completados últimos 60d)
-      if (st === 'para procesar' || wmsSt === 'para procesar') {
+      if (st === 'para procesar' || wmsSt === 'para procesar' || wmsSt === 'en procesamiento') {
         pipelineToProcess++;
         activeOrders++;
       } else if (st === 'en preparación' || wmsSt === 'en preparación') {
@@ -3108,16 +3115,16 @@ async function renderDashboard() {
       } else if (st === 'preparado' || st === 'listo para retiro' || wmsSt === 'pickeado') {
         pipelineReady++;
         activeOrders++;
-      } else if (isWithin60d && (st === 'despachado' || st === 'en tránsito' || st === 'en transito')) {
-        pipelineDispatched++;
-        completedOrders++;
-      } else if (isWithin60d && (st === 'entregado' || st === 'retirado')) {
+      } else if (isWithin60d && (st === 'entregado' || st === 'retirado' || wmsSt === 'entregado')) {
         pipelineDelivered++;
+        completedOrders++;
+      } else if (isWithin60d && (st === 'despachado' || st === 'en tránsito' || st === 'en transito' || wmsSt === 'despachado')) {
+        pipelineDispatched++;
         completedOrders++;
       }
 
       // Sucursal de pickeo activa
-      if (['para procesar', 'en preparación', 'preparado'].includes(st)) {
+      if (['para procesar', 'en preparación', 'preparado'].includes(st) && !['despachado', 'entregado', 'cancelado', 'archivado'].includes(wmsSt)) {
         let orderBranch = o.sucursal_pickeo ? normalizeBranchKey(o.sucursal_pickeo) : null;
         if (!orderBranch && Array.isArray(o.order_items) && o.order_items.length > 0) {
           const firstWhId = o.order_items[0].warehouse_id;
@@ -3131,9 +3138,9 @@ async function renderDashboard() {
       }
 
       // Clasificación por operador logístico (últimos 60 días + activos)
-      if (isWithin60d || ['para procesar', 'en preparación', 'preparado'].includes(st)) {
+      if (isWithin60d || (['para procesar', 'en preparación', 'preparado'].includes(st) && !['despachado', 'entregado', 'cancelado', 'archivado'].includes(wmsSt))) {
         const cText = `${o.courier || ''} ${o.operador || ''} ${o.shipping_method || ''} ${o.categoria_entrega || ''} ${o.external_platform || ''} ${o.origen || ''}`.toLowerCase();
-        const isDone = ['despachado', 'en tránsito', 'en transito', 'entregado', 'retirado'].includes(st);
+        const isDone = ['despachado', 'en tránsito', 'en transito', 'entregado', 'retirado'].includes(st) || ['despachado', 'entregado'].includes(wmsSt);
         if (cText.includes('blue') || cText.includes('bx') || cText.includes('enviame') || cText.includes('envíame')) {
           courierStats.bluex.total++;
           if (isDone) courierStats.bluex.completed++;
@@ -8456,7 +8463,7 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
       
       const orderStatus = (item.orders.status || '').toLowerCase().trim();
       const orderWmsStatus = (item.orders.estado_wms || '').trim();
-      if (excludedStatuses.includes(orderStatus) || orderWmsStatus === 'Despachado' || orderWmsStatus === 'Cancelado' || orderWmsStatus === 'Archivado') continue;
+      if (excludedStatuses.includes(orderStatus) || orderWmsStatus === 'Despachado' || orderWmsStatus === 'Entregado' || orderWmsStatus === 'Cancelado' || orderWmsStatus === 'Archivado') continue;
       
       // NUEVO: Validar que el pedido y el pago estén confirmados (pedidos con pago pendiente o no confirmados no comprometen stock en estante; en mesa siempre se muestran los pedidos en preparación/pickeados)
       const isOrderInMesa = ['en preparación', 'pickeado'].includes(orderWmsStatus.toLowerCase());
@@ -10771,6 +10778,8 @@ window.fetchInventoryForClientOrders = async function(orders) {
 
   const allProductIds = [];
   orders.forEach(o => {
+    // Omitir pedidos finalizados en Entregado (no requieren consulta dinámica de stock)
+    if (o.estado_wms === 'Entregado') return;
     (o.order_items || []).forEach(oi => {
       const pid = oi.product_id || oi.products?.id;
       if (pid && !oi.products?.is_virtual) {
@@ -10954,6 +10963,24 @@ window.normalizeOrderKeys = function(rawKey, comercio = '') {
 window.getPickerStatusForOrder = function(order) {
   if (!order) return null;
   const comNorm = String(order.comercio || '').trim().toUpperCase();
+
+  // SHORT-CIRCUIT O(1) para pedidos cerrados en Entregado: leer desde snapshot local sellado en BD
+  if (order.estado_wms === 'Entregado') {
+    const snapPick = order.closed_snapshot?.picking || order.picker_history_snapshot || null;
+    const isRetiro = String(order.categoria_entrega || '').toUpperCase().trim() === 'RETIRO';
+    const rawSt = snapPick?.status || snapPick?.estado || order.picker_status || (isRetiro ? 'Retirado' : 'Completado');
+    return {
+      status: rawSt,
+      operator: snapPick?.operator || snapPick?.picker || order.picker_operator || null,
+      sucursal: snapPick?.warehouse || snapPick?.sucursal || order.sucursal_pickeo || null,
+      comercio: comNorm || null,
+      isActive: false,
+      isCompleted: true,
+      source: 'closed_snapshot',
+      updatedAt: snapPick?.picked_at || snapPick?.created_at || order.picker_last_synced_at || order.delivered_at || null
+    };
+  }
+
   const extRaw = String(order.external_order_number || '').trim();
   const candidates = [];
   if (order.id) candidates.push(`ORDER_ID::${order.id}`);
@@ -11017,6 +11044,39 @@ window.getPickerStatusForOrder = function(order) {
 // Sincronización en masa de operadores y estados del Picker para clientes
 window.fetchPickerOperators = async function(ordersList) {
   if (!ordersList || ordersList.length === 0) return;
+
+  // Hidratar localmente pedidos cerrados en Entregado sin consultar BD externa de Picker
+  const activeOrdersToQuery = [];
+  ordersList.forEach(o => {
+    if (o.estado_wms === 'Entregado') {
+      const snapPick = o.closed_snapshot?.picking || o.picker_history_snapshot || null;
+      const isRet = String(o.categoria_entrega || '').toUpperCase().trim() === 'RETIRO';
+      const stObj = {
+        status: snapPick?.status || snapPick?.estado || o.picker_status || (isRet ? 'Retirado' : 'Completado'),
+        operator: snapPick?.operator || snapPick?.picker || o.picker_operator || null,
+        observation: snapPick?.observation || snapPick?.comentarios || null,
+        sucursal: snapPick?.warehouse || snapPick?.sucursal || o.sucursal_pickeo || null,
+        itemsSummary: snapPick?.items_summary || null,
+        comercio: String(o.comercio || '').trim().toUpperCase() || null,
+        isActive: false,
+        isCompleted: true,
+        source: 'closed_snapshot',
+        updatedAt: snapPick?.picked_at || snapPick?.created_at || o.picker_last_synced_at || o.delivered_at || null
+      };
+      if (o.id) window.pickerStatusMap[`ORDER_ID::${o.id}`] = stObj;
+      if (o.external_order_number) {
+        window.normalizeOrderKeys(o.external_order_number, o.comercio).forEach(k => {
+          window.pickerStatusMap[k] = stObj;
+          if (stObj.operator) window.pickerOperatorsMap[k] = stObj.operator;
+        });
+      }
+      return;
+    }
+    activeOrdersToQuery.push(o);
+  });
+
+  if (activeOrdersToQuery.length === 0) return;
+
   const client = window.supabase ? window.supabase.createClient(
     'https://hpomymtecmxujbjxqawu.supabase.co',
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ'
@@ -11025,7 +11085,7 @@ window.fetchPickerOperators = async function(ordersList) {
 
   try {
     const allQueryKeysSet = new Set();
-    ordersList.forEach(o => {
+    activeOrdersToQuery.forEach(o => {
       if (o.external_order_number) {
         window.normalizeOrderKeys(o.external_order_number, o.comercio).forEach(k => {
           if (!String(k).startsWith('COMERCIO::')) allQueryKeysSet.add(k);
@@ -11182,6 +11242,59 @@ window.openPickerOrderHistoryModal = async function(orderId) {
   const order = orders.find(o => o.id === orderId || o.external_order_number === orderId) || modalOrder;
   const orderNumber = order ? (order.external_order_number || order.id) : orderId;
   const commerceName = order ? (order.comercio || 'Sin comercio') : (window._currentModalShipment?.empresa_comercio_proveedor || '');
+
+  // SHORT-CIRCUIT INMUTABLE: Pedido cerrado en ENTREGADO lee su trazabilidad sellada en BD sin consultar Picker externo
+  if (order && order.estado_wms === 'Entregado' && (order.closed_snapshot || order.picker_history_snapshot)) {
+    const snap = order.closed_snapshot || {};
+    const pick = snap.picking || order.picker_history_snapshot || {};
+    const pickup = snap.pickup || null;
+    const logs = Array.isArray(pick.logs) ? pick.logs : (Array.isArray(order.picker_history_snapshot?.logs) ? order.picker_history_snapshot.logs : []);
+    const pickedAtStr = (pick.picked_at || order.picker_last_synced_at || order.stock_descontado_at)
+      ? new Date(pick.picked_at || order.picker_last_synced_at || order.stock_descontado_at).toLocaleString('es-CL')
+      : '-';
+    const delivAtStr = (snap.delivered_at || order.delivered_at)
+      ? new Date(snap.delivered_at || order.delivered_at).toLocaleString('es-CL')
+      : '-';
+
+    Swal.fire({
+      title: `Trazabilidad de Picking · ${orderNumber}`,
+      width: '620px',
+      confirmButtonText: 'Cerrar',
+      confirmButtonColor: 'var(--color-primary)',
+      html: `
+        <div style="text-align: left; font-size: 0.86rem; display: flex; flex-direction: column; gap: 0.85rem;">
+          <div style="background: #ecfdf5; border: 1px solid #6ee7b7; color: #065f46; padding: 0.65rem 0.85rem; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem;">
+            <span style="font-weight: 800; display: inline-flex; align-items: center; gap: 0.35rem;"><i class="ri-verified-badge-fill" style="color: #059669; font-size: 1.05rem;"></i> PEDIDO FINALIZADO (ENTREGADO)</span>
+            <span style="font-size: 0.74rem; font-weight: 600;">Historial sellado en BD Stocka</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.6rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem;">
+            <div><span style="color: var(--color-text-muted); font-size: 0.73rem; display: block;">Estado Picking</span><strong style="color: #059669;">${pick.status || order.picker_status || 'Completado'}</strong></div>
+            <div><span style="color: var(--color-text-muted); font-size: 0.73rem; display: block;">Sucursal / Bodega</span><strong>${pick.warehouse || pick.sucursal || order.sucursal_pickeo || 'Centro Distribución'}</strong></div>
+            <div><span style="color: var(--color-text-muted); font-size: 0.73rem; display: block;">Preparado el</span><strong>${pickedAtStr}</strong></div>
+            <div><span style="color: var(--color-text-muted); font-size: 0.73rem; display: block;">Entregado / Cerrado</span><strong>${delivAtStr}</strong></div>
+            ${(pick.scanned_label || order.picker_scanned_label) ? `<div><span style="color: var(--color-text-muted); font-size: 0.73rem; display: block;">Etiqueta Escaneada</span><code>${pick.scanned_label || order.picker_scanned_label}</code></div>` : ''}
+            ${pickup?.pin_retiro ? `<div><span style="color: var(--color-text-muted); font-size: 0.73rem; display: block;">PIN Retiro</span><code>${pickup.pin_retiro}</code></div>` : ''}
+          </div>
+          ${logs.length > 0 ? `
+            <div style="border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem; max-height: 220px; overflow-y: auto;">
+              <div style="font-weight: 700; font-size: 0.78rem; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 0.45rem;">Bitácora de Escaneos Respaldada (${logs.length})</div>
+              ${logs.map(lg => `
+                <div style="padding: 0.45rem 0; border-bottom: 1px dashed var(--color-border); font-size: 0.8rem;">
+                  <div style="display: flex; justify-content: space-between; font-weight: 700;">
+                    <span>${lg.estado || 'Completado'} ${lg.picker ? `· ${lg.picker}` : ''}</span>
+                    <span style="color: var(--color-text-muted); font-weight: 500; font-size: 0.74rem;">${lg.created_at ? new Date(lg.created_at).toLocaleString('es-CL') : `${lg.fecha || ''} ${lg.hora || ''}`}</span>
+                  </div>
+                  ${lg.items_summary ? `<div style="font-family: monospace; font-size: 0.73rem; color: #059669; margin-top: 0.2rem;">${lg.items_summary}</div>` : ''}
+                  ${lg.comentarios ? `<div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">${lg.comentarios}</div>` : ''}
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `
+    });
+    return;
+  }
 
   const client = window.supabase ? window.supabase.createClient(
     'https://hpomymtecmxujbjxqawu.supabase.co',
@@ -11745,6 +11858,40 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
     order._clientShipmentVersion = window._clientShipmentsVersion;
     return null;
   }
+
+  // SHORT-CIRCUIT O(1) para pedidos cerrados en Entregado con snapshot sellado en BD
+  if (order.estado_wms === 'Entregado' && order.closed_snapshot && order.closed_snapshot.shipment) {
+    if (order._clientShipmentStatus && order._clientShipmentStatus.fromClosedSnapshot) {
+      return order._clientShipmentStatus;
+    }
+    const snapShip = order.closed_snapshot.shipment;
+    const snapShipObj = {
+      id: `snapshot:${order.id}`,
+      source_table: snapShip.source_table || 'closed_snapshot',
+      source_id: snapShip.source_id || order.id,
+      tracking: snapShip.tracking || order.tracking_number || 'N/A',
+      tracking_url: snapShip.tracking_url || order.tracking_url || null,
+      courier: snapShip.courier || order.courier || order.operador || 'Courier Stocka',
+      status: snapShip.status || 'Entregado',
+      global_status: 'ENTREGADO',
+      created_at: order.created_at,
+      updated_at: order.closed_snapshot.delivered_at || order.delivered_at || order.created_at
+    };
+    const snapRes = {
+      shipment: snapShipObj,
+      globStatus: 'ENTREGADO',
+      rawStatus: snapShip.status || 'Entregado',
+      courier: snapShipObj.courier,
+      trackingNumber: snapShipObj.tracking,
+      isReturned: false,
+      fromClosedSnapshot: true,
+      orderShipments: [snapShipObj]
+    };
+    order._clientShipmentStatus = snapRes;
+    order._clientShipmentVersion = window._clientShipmentsVersion;
+    return snapRes;
+  }
+
   if (order._clientShipmentStatus && order._clientShipmentVersion === window._clientShipmentsVersion) {
     return order._clientShipmentStatus;
   }
@@ -11752,7 +11899,7 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
   const shipments = window.clientLoadedShipments || [];
   const rawShopify = order.raw_shopify_data;
   const isReturned = (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at)) && 
-                     ['Despachado', 'Pickeado', 'entregado', 'retirado'].includes(order.estado_wms);
+                     ['Despachado', 'Entregado', 'Pickeado', 'entregado', 'retirado'].includes(order.estado_wms);
   const forcedInfo = window.getOrderForcedTrackingInfo ? window.getOrderForcedTrackingInfo(order) : null;
 
   const index = window._clientShipmentsIndex || window.buildClientShipmentsIndex(shipments);
@@ -12353,7 +12500,7 @@ window.checkClientOrderStockAlert = function(order) {
 
   // 2. Pedidos terminales o despachados no alertan
   const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado', 'cancelado'].includes(statusLower) || 
-    ['despachado', 'cancelado', 'archivado'].includes(wmsLower) ||
+    ['despachado', 'entregado', 'cancelado', 'archivado'].includes(wmsLower) ||
     !!order.stock_descontado;
   if (isOrderTerminalOrShipped) {
     return { hasStockAlert: false, stockAlertDetails: [], hasOverdemandAlert: false, overdemandDetails: [], overdemandSkus: [] };
@@ -12767,6 +12914,8 @@ window.filterByOrderTag = window.filterByOrderTag || window.filterByClientOrderT
 function extractClientOrderRefs(ordersList) {
   const refsSet = new Set();
   (ordersList || []).forEach(o => {
+    // SHORT-CIRCUIT: Pedidos cerrados en Entregado con snapshot sellado no requieren consultar envios_unificados
+    if (o.estado_wms === 'Entregado' && o.closed_snapshot) return;
     if (String(o.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') return;
     if (o.external_order_number) {
       const ext = String(o.external_order_number).trim();
@@ -12844,6 +12993,7 @@ async function fetchClientOrdersCursorRange({ fromISO, toISO, companyList, merch
   let useLteOnFirst = !!toISO;
   let currentStep = initialStep;
   let batchIndex = 0;
+  let effectiveSelectStr = selectStr;
 
   while (true) {
     let attempts = 0;
@@ -12851,7 +13001,7 @@ async function fetchClientOrdersCursorRange({ fromISO, toISO, companyList, merch
 
     while (attempts < 4) {
       attempts++;
-      let q = supabase.from('orders').select(selectStr);
+      let q = supabase.from('orders').select(effectiveSelectStr);
       if (fromISO) q = q.gte('created_at', fromISO);
       if (lastCreatedAt) {
         if (batchIndex === 0 && useLteOnFirst) {
@@ -12871,6 +13021,12 @@ async function fetchClientOrdersCursorRange({ fromISO, toISO, companyList, merch
 
       res = await q;
       if (!res.error) break;
+
+      if (res.error.code === '42703' && effectiveSelectStr.includes('closed_snapshot')) {
+        effectiveSelectStr = effectiveSelectStr
+          .replace(/,\s*(picker_status|picker_operator|picker_scanned_label|picker_last_synced_at|picker_history_snapshot|closed_snapshot|tracking_history|transport_status_normalized|dispatched_at|delivered_at|closed_at|closed_by_automation)/g, '');
+        continue;
+      }
 
       const isTimeout = res.error.code === '57014' ||
         String(res.error.message || '').toLowerCase().includes('timeout') ||
@@ -13024,7 +13180,7 @@ async function renderOrders() {
       }
     })();
 
-    // Selección optimizada (omite label_base64 masivo que causaba statement timeout; se descarga bajo demanda en window.downloadOrderLabel)
+    // Selección optimizada (incluye closed_snapshot y picker_history_snapshot para lectura O(1) de pedidos Entregados)
     const selectStr = `
       id,
       status,
@@ -13066,11 +13222,23 @@ async function renderOrders() {
       sucursal_pickeo,
       stock_descontado,
       stock_descontado_at,
+      picker_status,
+      picker_operator,
+      picker_scanned_label,
+      picker_last_synced_at,
+      picker_history_snapshot,
+      closed_snapshot,
+      tracking_history,
+      transport_status_normalized,
+      dispatched_at,
+      delivered_at,
+      closed_at,
+      closed_by_automation,
       order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, is_picking_request, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual))
     `.replace(/\s+/g, ' ').trim();
 
     window.clientEarliestFetchedDateStr = startOfMonthStr;
-    const cachePrefix = `client_${currentMerchantId || (companyList[0] || 'anon')}_${startOfMonthStr}`;
+    const cachePrefix = `client_v3_${currentMerchantId || (companyList[0] || 'anon')}_${startOfMonthStr}`;
     let hasHydratedFromCache = false;
 
     if (window.wmsDbCache) {
@@ -13563,6 +13731,7 @@ window.applyClientWmsFiltersAndRender = function() {
     'En preparación': 0,
     'Pickeado': 0,
     'Despachado': 0,
+    'Entregado': 0,
     'Incidencia': 0,
     'Cancelado': 0,
     'Archivado': 0
@@ -13680,7 +13849,7 @@ window.applyClientWmsFiltersAndRender = function() {
   }
 
   // 1. Renderizar pestañas
-  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado', 'Archivado'];
+  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado'];
   const tabsHtml = tabs.map(tab => {
     const isActive = activeTab === tab;
     const count = tabCounts[tab] || 0;
@@ -13689,6 +13858,9 @@ window.applyClientWmsFiltersAndRender = function() {
     if (tab === 'Incidencia') {
       badgeBg = '#fee2e2';
       badgeColor = '#ef4444';
+    } else if (tab === 'Entregado') {
+      badgeBg = '#d1fae5';
+      badgeColor = '#047857';
     } else if (tab === 'Pickeado' || tab === 'Despachado') {
       badgeBg = '#dcfce7';
       badgeColor = '#22c55e';
@@ -13703,9 +13875,11 @@ window.applyClientWmsFiltersAndRender = function() {
       badgeColor = '#4b5563';
     }
 
+    const tabLabelHtml = tab === 'Entregado' ? '<i class="ri-verified-badge-fill"></i> Entregado' : tab;
+
     return `
       <button onclick="window.setClientWmsTab('${tab}')" style="background: ${isActive ? 'var(--color-primary)' : 'transparent'}; color: ${isActive ? '#ffffff' : 'var(--color-text-main)'}; border: ${isActive ? 'none' : '1px solid var(--color-border)'}; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.825rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
-        ${tab}
+        ${tabLabelHtml}
         <span style="background: ${isActive ? 'rgba(255,255,255,0.2)' : badgeBg}; color: ${isActive ? '#ffffff' : badgeColor}; padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;">${count}</span>
       </button>
     `;
@@ -13841,12 +14015,17 @@ window.applyClientWmsFiltersAndRender = function() {
     const wmsStatus = order.estado_wms || 'En procesamiento';
     let wmsBadgeBg = '#e0f2fe';
     let wmsBadgeColor = '#0369a1';
+    let wmsBadgeBorder = 'none';
     if (wmsStatus === 'Incidencia' || wmsStatus === 'Cancelado') {
       wmsBadgeBg = '#fee2e2';
       wmsBadgeColor = '#991b1b';
     } else if (wmsStatus === 'Archivado') {
       wmsBadgeBg = '#f1f5f9';
       wmsBadgeColor = '#475569';
+    } else if (wmsStatus === 'Entregado') {
+      wmsBadgeBg = '#ecfdf5';
+      wmsBadgeColor = '#047857';
+      wmsBadgeBorder = '1px solid #6ee7b7';
     } else if (wmsStatus === 'Pickeado' || wmsStatus === 'Despachado') {
       wmsBadgeBg = '#d1fae5';
       wmsBadgeColor = '#065f46';
@@ -14094,12 +14273,14 @@ window.applyClientWmsFiltersAndRender = function() {
           : '') + (isPickingReqItem
           ? `<span class="badge" style="background-color: rgba(14, 165, 233, 0.12); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.28); font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem;" title="Se muestra en Picker como punto a chequear (Solicitud de Picking) y descuenta stock normalmente en WMS"><i class="ri-list-check-2"></i> Solicitud Picking</span>`
           : '');
-        const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms);
+        const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(order.estado_wms);
         const isAlreadyDescontado = isOrderTerminalOrShipped || !!order.stock_descontado;
         if (origItem && window.isOrderItemEliminated && window.isOrderItemEliminated(order, origItem)) {
           stockCellHtml = `<span style="color: #6b7280; font-size: 0.75rem; font-style: italic;" title="Producto eliminado del pedido"><i class="ri-close-circle-line"></i> Eliminado</span>`;
         } else if (origItem?.products?.is_virtual) {
           stockCellHtml = `<span style="color: #6b7280; font-size: 0.75rem; font-style: italic;" title="Producto Virtual"><i class="ri-seedling-line"></i> Virtual</span>`;
+        } else if (order.estado_wms === 'Entregado') {
+          stockCellHtml = `<span style="color: #059669; font-weight: 700; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.2rem;" title="Pedido cerrado e inmutable en estado ENTREGADO"><i class="ri-verified-badge-fill"></i> Entregado</span>`;
         } else if (origItem && !origItem.products?.is_virtual) {
           const invMap = window.clientOrdersInventoryMap || {};
           const prodId = origItem.product_id;
@@ -14738,7 +14919,7 @@ window.applyClientWmsFiltersAndRender = function() {
           <span style="background-color:${badgeColor}; color:${badgeTextColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${order.status}</span>
         </td>
         <td style="padding: 0.45rem 0.75rem;">
-          <span style="background-color:${wmsBadgeBg}; color:${wmsBadgeColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${wmsStatus}</span>
+          <span style="background-color:${wmsBadgeBg}; color:${wmsBadgeColor}; border:${wmsBadgeBorder}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-flex; align-items:center; gap:0.22rem;">${wmsStatus === 'Entregado' ? '<i class="ri-verified-badge-fill"></i> ENTREGADO' : wmsStatus}</span>
         </td>
       </tr>
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.15s;">
@@ -18648,6 +18829,9 @@ async function renderIntegrations() {
       if (notesEl) notesEl.value = '';
       const notesSumEl = document.getElementById('order-cust-notes-summary');
       if (notesSumEl) notesSumEl.value = '';
+      if (typeof window.resetManualOrderNumberFeedback === 'function') {
+        window.resetManualOrderNumberFeedback();
+      }
       const catSelectEl = document.getElementById('order-categoria-entrega');
       if (catSelectEl) catSelectEl.value = 'DISTRIBUCIÓN';
       const searchInput = document.getElementById('order-product-search');
@@ -18676,6 +18860,9 @@ async function renderIntegrations() {
           window.orderUseVolumetricWeightMode = false;
           window.renderClientNewOrderItemsTable();
           window.loadNewOrderProducts(this.value);
+          if (typeof window.triggerManualOrderNumberLiveCheck === 'function') {
+            window.triggerManualOrderNumberLiveCheck('client', true);
+          }
         };
       }
 
@@ -19265,69 +19452,50 @@ async function renderIntegrations() {
         finalSucursalPickeo = 'Sucursal Ñuñoa';
       }
 
-      // Generate or retrieve external order number
+      // Generate or verify external order number (uniqueness per commerce + prefix rules)
+      const selectedCommerce = document.getElementById('order-select-commerce')?.value?.trim() || (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
+      let usedAutoOrderNumber = Boolean(document.getElementById('order-number-auto')?.checked);
       let finalExternalId = externalId;
-      const isAutoOrderNumber = document.getElementById('order-number-auto').checked;
-      if (isAutoOrderNumber || !finalExternalId) {
-        const now = new Date();
-        const yy = String(now.getFullYear()).substring(2);
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const dd = String(now.getDate()).padStart(2, '0');
-        const hh = String(now.getHours()).padStart(2, '0');
-        const min = String(now.getMinutes()).padStart(2, '0');
-        const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-        finalExternalId = `MAN${yy}${mm}${dd}${hh}${min}${randomSuffix}`;
-      }
 
-      // Aplicar reglas de prefijo para pedidos Manuales
-      try {
-        const commerce = document.getElementById('order-select-commerce')?.value || (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
-        
-        const { data: configData } = await supabase
-          .from('v_comercios_config')
-          .select('sigla')
-          .eq('nombre', commerce)
-          .maybeSingle();
-
-        const { data: adicionalConfig } = await supabase
-          .from('comercios_adicional_config')
-          .select('pedido_trae_sigla, plat_siglas_config')
-          .eq('comercio', commerce)
-          .maybeSingle();
-
-        let siglaComercio = configData?.sigla ? configData.sigla.trim().toUpperCase() : '';
-        let prefijoOrigen = '';
-        let agregarPrefijo = true;
-        
-        if (adicionalConfig) {
-          const platConfig = (adicionalConfig.plat_siglas_config || {})['Manual'];
-          if (platConfig) {
-            agregarPrefijo = platConfig.agregar_prefijo !== false;
-            prefijoOrigen = (platConfig.prefijo_origen || '').trim().toUpperCase();
-          } else {
-            agregarPrefijo = !adicionalConfig.pedido_trae_sigla;
+      if (usedAutoOrderNumber || !finalExternalId) {
+        usedAutoOrderNumber = true;
+        if (typeof window.generateUniqueAutoManualOrderNumber === 'function') {
+          finalExternalId = await window.generateUniqueAutoManualOrderNumber(selectedCommerce, { mode: 'client' });
+        } else {
+          const now = new Date();
+          const yy = String(now.getFullYear()).substring(2);
+          const mm = String(now.getMonth() + 1).padStart(2, '0');
+          const dd = String(now.getDate()).padStart(2, '0');
+          const hh = String(now.getHours()).padStart(2, '0');
+          const min = String(now.getMinutes()).padStart(2, '0');
+          const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+          finalExternalId = `MAN${yy}${mm}${dd}${hh}${min}${randomSuffix}`;
+        }
+      } else if (typeof window.checkManualOrderNumberAvailability === 'function') {
+        const dupCheck = await window.checkManualOrderNumberAvailability(finalExternalId, selectedCommerce, { mode: 'client' });
+        if (dupCheck.isDuplicate) {
+          const resolution = typeof window.promptDuplicateOrderNumberResolution === 'function'
+            ? await window.promptDuplicateOrderNumberResolution(dupCheck, { mode: 'client', stage: 'submit' })
+            : { action: 'cancel' };
+          if (!resolution || resolution.action === 'cancel') {
+            return;
           }
-        }
-
-        let orderNumber = finalExternalId.toString().trim();
-        if (prefijoOrigen && orderNumber.toUpperCase().startsWith(prefijoOrigen)) {
-          orderNumber = orderNumber.substring(prefijoOrigen.length).trim();
-        }
-        if (agregarPrefijo && siglaComercio) {
-          if (!orderNumber.toUpperCase().startsWith(siglaComercio)) {
-            finalExternalId = `${siglaComercio}${orderNumber}`;
-          } else {
-            finalExternalId = orderNumber;
+          if (resolution.action === 'auto') {
+            usedAutoOrderNumber = true;
+            finalExternalId = await window.generateUniqueAutoManualOrderNumber(selectedCommerce, { mode: 'client' });
+          } else if (resolution.action === 'replace') {
+            finalExternalId = resolution.resolvedNumber || (
+              typeof window.resolveClientManualOrderNumber === 'function'
+                ? window.resolveClientManualOrderNumber(resolution.value, dupCheck.commerceMeta)
+                : resolution.value
+            );
           }
         } else {
-          finalExternalId = orderNumber;
+          finalExternalId = dupCheck.resolvedNumber || finalExternalId;
         }
-      } catch (err) {
-        console.warn('⚠️ Error al aplicar prefijo a la orden manual:', err.message);
+      } else {
+        finalExternalId = finalExternalId.replace(/[^a-zA-Z0-9-]/g, '');
       }
-
-      // Eliminar caracteres especiales como el guion
-      finalExternalId = finalExternalId.replace(/[^a-zA-Z0-9]/g, '');
 
       // Consolidated values
       const totalCantidad = items.reduce((sum, i) => sum + i.quantity, 0);
@@ -19380,7 +19548,7 @@ async function renderIntegrations() {
 
       const orderDataPayload = {
         merchant_id: merchantId,
-        comercio: document.getElementById('order-select-commerce')?.value || (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA'),
+        comercio: selectedCommerce,
         status: 'para procesar',
         estado_wms: 'En procesamiento',
         payment_status: 'pagado',
@@ -19410,26 +19578,38 @@ async function renderIntegrations() {
       orderDataPayload.shipping_cost_tax = paymentCondition === 'por_pagar' ? 0.00 : taxShippingCost;
 
       let insertedOrder = null;
-      
-      // Intentar insertar con las columnas nuevas de costos de envío
-      const insertResult = await supabase
-        .from('orders')
-        .insert([orderDataPayload])
-        .select()
-        .single();
+      const isDuplicateOrderInsertError = (err) => Boolean(err && (
+        String(err.code || '') === '23505' ||
+        /unique_orders_comercio_clean_number|duplicate key value/i.test(`${err.message || ''} ${err.details || ''}`)
+      ));
 
-      if (insertResult.error) {
+      for (let insertAttempt = 0; insertAttempt < 4; insertAttempt++) {
+        orderDataPayload.external_order_number = finalExternalId;
+
+        // Intentar insertar con las columnas nuevas de costos de envío
+        const insertResult = await supabase
+          .from('orders')
+          .insert([orderDataPayload])
+          .select()
+          .single();
+
+        let attemptError = insertResult.error;
+        if (!attemptError) {
+          insertedOrder = insertResult.data;
+          break;
+        }
+
         // Si falla por columna inexistente (código 42703 o PGRST204 de PostgREST), reintentar sin esas columnas
-        const isColumnError = insertResult.error.code === '42703' || 
-                              insertResult.error.code === 'PGRST204' || 
-                              (insertResult.error.message && insertResult.error.message.includes('shipping_cost'));
-                              
+        const isColumnError = attemptError.code === '42703' ||
+                              attemptError.code === 'PGRST204' ||
+                              (attemptError.message && attemptError.message.includes('shipping_cost'));
+
         if (isColumnError) {
           console.warn("⚠️ Columnas shipping_cost/shipping_cost_tax no existen en la BD. Reintentando inserción sin ellas...");
           const fallbackPayload = { ...orderDataPayload };
           delete fallbackPayload.shipping_cost;
           delete fallbackPayload.shipping_cost_tax;
-          
+
           // Guardar el detalle de costos en shipping_method para no perderlo
           fallbackPayload.shipping_method = `${finalShippingMethod} [Costo Neto Cotizado: $${netShippingCost} + IVA]`;
 
@@ -19439,13 +19619,51 @@ async function renderIntegrations() {
             .select()
             .single();
 
-          if (fallbackResult.error) throw fallbackResult.error;
-          insertedOrder = fallbackResult.data;
-        } else {
-          throw insertResult.error;
+          if (!fallbackResult.error) {
+            insertedOrder = fallbackResult.data;
+            break;
+          }
+          attemptError = fallbackResult.error;
         }
-      } else {
-        insertedOrder = insertResult.data;
+
+        if (isDuplicateOrderInsertError(attemptError) && insertAttempt < 3) {
+          if (usedAutoOrderNumber && typeof window.generateUniqueAutoManualOrderNumber === 'function') {
+            finalExternalId = await window.generateUniqueAutoManualOrderNumber(selectedCommerce, { mode: 'client' });
+            continue;
+          }
+          if (typeof window.promptDuplicateOrderNumberResolution === 'function') {
+            const rawTyped = document.getElementById('order-cust-external-id')?.value.trim() || finalExternalId;
+            const freshDup = typeof window.checkManualOrderNumberAvailability === 'function'
+              ? await window.checkManualOrderNumberAvailability(rawTyped, selectedCommerce, { mode: 'client' })
+              : null;
+            const dupPayload = (freshDup && freshDup.isDuplicate) ? freshDup : {
+              isDuplicate: true,
+              commerce: selectedCommerce,
+              rawInput: rawTyped,
+              resolvedNumber: finalExternalId,
+              conflictingOrder: freshDup?.conflictingOrder || { external_order_number: finalExternalId },
+              suggestions: freshDup?.suggestions || []
+            };
+            const resolution = await window.promptDuplicateOrderNumberResolution(dupPayload, {
+              mode: 'client',
+              stage: 'submit'
+            });
+            if (!resolution || resolution.action === 'cancel') {
+              return;
+            }
+            if (resolution.action === 'auto' && typeof window.generateUniqueAutoManualOrderNumber === 'function') {
+              usedAutoOrderNumber = true;
+              finalExternalId = await window.generateUniqueAutoManualOrderNumber(selectedCommerce, { mode: 'client' });
+              continue;
+            }
+            if (resolution.action === 'replace') {
+              finalExternalId = resolution.resolvedNumber || resolution.value;
+              continue;
+            }
+          }
+        }
+
+        throw attemptError;
       }
 
       if (insertedOrder) {
@@ -19513,6 +19731,9 @@ async function renderIntegrations() {
       if (notesEl) notesEl.value = '';
       const notesSumEl = document.getElementById('order-cust-notes-summary');
       if (notesSumEl) notesSumEl.value = '';
+      if (typeof window.resetManualOrderNumberFeedback === 'function') {
+        window.resetManualOrderNumberFeedback();
+      }
       window.tempClientNewOrderItems = [];
       window.tempClientNewOrderPacks = [];
       renderOrders(); // Refrescar vista
@@ -19521,7 +19742,7 @@ async function renderIntegrations() {
       alert('Error al crear pedido: ' + error.message);
     } finally {
       btnSubmit.disabled = false;
-      btnSubmit.textContent = 'Confirmar Pedido';
+      btnSubmit.innerHTML = 'Confirmar Pedido <i class="ri-check-line"></i>';
     }
   });
 
@@ -22308,8 +22529,8 @@ async function fetchAndRenderAssociatedOrder(pedidoRef, shipment) {
     const order = (orders && orders.length > 0) ? orders[0] : null;
     window._currentModalOrder = order;
 
-    // 1. Consultar siempre el sistema Picker (incluso si el envío no tiene orden previa en public.orders)
-    let pickerStatus = order ? 'Completado / Despachado' : 'Sin registro en Picker';
+    // 1. Consultar Picker (si el pedido ya está cerrado en Entregado y posee snapshot local, usar respaldo en BD sin consultar Picker externo)
+    let pickerStatus = order ? (order.estado_wms === 'Entregado' ? 'Completado · Entregado' : 'Completado / Despachado') : 'Sin registro en Picker';
     let pickerBranch = order?.sucursal_pickeo || 'Bodega Central';
     let pickerTimeStr = order?.fecha_procesamiento || '-';
     let pickerTotu = null;
@@ -22327,53 +22548,72 @@ async function fetchAndRenderAssociatedOrder(pedidoRef, shipment) {
       `;
     }
 
-    try {
-      const pickerClient = window.supabase ? window.supabase.createClient(
-        'https://hpomymtecmxujbjxqawu.supabase.co',
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ'
-      ) : null;
+    const inMemClosedOrder = order
+      ? ((window.clientLoadedOrders || window.loadedOrders || []).find(o => o.id === order.id) || order)
+      : null;
 
-      if (pickerClient && window.normalizeOrderKeys && pickerRefKey) {
-        const searchKeysSet = new Set(window.normalizeOrderKeys(pickerRefKey));
-        if (pedidoRef) {
-          window.normalizeOrderKeys(pedidoRef).forEach(k => searchKeysSet.add(k));
-        }
-        if (order?.id) {
-          window.normalizeOrderKeys(order.id).forEach(k => searchKeysSet.add(k));
-        }
-        const searchKeys = Array.from(searchKeysSet);
-
-        const [{ data: activeRows }, { data: logRows }] = await Promise.all([
-          pickerClient.from('active_orders').select('*').in('order_number', searchKeys).limit(1),
-          pickerClient.from('history_logs').select('*').in('pedido', searchKeys).order('created_at', { ascending: false }).limit(1)
-        ]);
-
-        if (logRows && logRows.length > 0) {
-          hasPickerRecord = true;
-          const lg = logRows[0];
-          pickerStatus = lg.estado || 'Completado';
-          pickerBranch = lg.sucursal || pickerBranch;
-          pickerObs = lg.comentarios || null;
-          pickerItemsSummary = lg.items_summary || null;
-          if (lg.created_at) {
-            pickerTimeStr = new Date(lg.created_at).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
-          } else if (lg.fecha) {
-            pickerTimeStr = `${lg.fecha} ${lg.hora || ''}`.trim();
-          }
-        } else if (activeRows && activeRows.length > 0) {
-          hasPickerRecord = true;
-          const act = activeRows[0];
-          pickerStatus = act.sheet_status || 'En preparación';
-          pickerBranch = act.sucursal || pickerBranch;
-          pickerTotu = act.totu || null;
-          pickerObs = act.observation || null;
-          if (act.created_at) {
-            pickerTimeStr = new Date(act.created_at).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
-          }
-        }
+    if (inMemClosedOrder?.estado_wms === 'Entregado' && (inMemClosedOrder.closed_snapshot?.picking || inMemClosedOrder.picker_history_snapshot)) {
+      window._currentModalOrder = inMemClosedOrder;
+      const snapPick = inMemClosedOrder.closed_snapshot?.picking || inMemClosedOrder.picker_history_snapshot || {};
+      const snapFirstLog = Array.isArray(snapPick.logs) && snapPick.logs.length > 0 ? snapPick.logs[0] : null;
+      hasPickerRecord = true;
+      pickerStatus = snapPick.status || snapFirstLog?.estado || 'Completado';
+      pickerBranch = snapPick.warehouse || snapPick.sucursal || snapFirstLog?.sucursal || pickerBranch;
+      pickerObs = snapFirstLog?.comentarios || snapPick.observation || null;
+      pickerItemsSummary = snapFirstLog?.items_summary || snapPick.items_summary || null;
+      const pTime = snapPick.picked_at || snapFirstLog?.created_at || inMemClosedOrder.stock_descontado_at;
+      if (pTime) {
+        pickerTimeStr = new Date(pTime).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
       }
-    } catch (pickErr) {
-      console.warn('Aviso consultando detalle de Picker en modal de despacho:', pickErr);
+    } else {
+      try {
+        const pickerClient = window.supabase ? window.supabase.createClient(
+          'https://hpomymtecmxujbjxqawu.supabase.co',
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ'
+        ) : null;
+
+        if (pickerClient && window.normalizeOrderKeys && pickerRefKey) {
+          const searchKeysSet = new Set(window.normalizeOrderKeys(pickerRefKey));
+          if (pedidoRef) {
+            window.normalizeOrderKeys(pedidoRef).forEach(k => searchKeysSet.add(k));
+          }
+          if (order?.id) {
+            window.normalizeOrderKeys(order.id).forEach(k => searchKeysSet.add(k));
+          }
+          const searchKeys = Array.from(searchKeysSet);
+
+          const [{ data: activeRows }, { data: logRows }] = await Promise.all([
+            pickerClient.from('active_orders').select('*').in('order_number', searchKeys).limit(1),
+            pickerClient.from('history_logs').select('*').in('pedido', searchKeys).order('created_at', { ascending: false }).limit(1)
+          ]);
+
+          if (logRows && logRows.length > 0) {
+            hasPickerRecord = true;
+            const lg = logRows[0];
+            pickerStatus = lg.estado || 'Completado';
+            pickerBranch = lg.sucursal || pickerBranch;
+            pickerObs = lg.comentarios || null;
+            pickerItemsSummary = lg.items_summary || null;
+            if (lg.created_at) {
+              pickerTimeStr = new Date(lg.created_at).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
+            } else if (lg.fecha) {
+              pickerTimeStr = `${lg.fecha} ${lg.hora || ''}`.trim();
+            }
+          } else if (activeRows && activeRows.length > 0) {
+            hasPickerRecord = true;
+            const act = activeRows[0];
+            pickerStatus = act.sheet_status || 'En preparación';
+            pickerBranch = act.sucursal || pickerBranch;
+            pickerTotu = act.totu || null;
+            pickerObs = act.observation || null;
+            if (act.created_at) {
+              pickerTimeStr = new Date(act.created_at).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
+            }
+          }
+        }
+      } catch (pickErr) {
+        console.warn('Aviso consultando detalle de Picker en modal de despacho:', pickErr);
+      }
     }
 
     const summaryPillsHtml = pickerItemsSummary && pickerItemsSummary !== '-'
@@ -25518,17 +25758,27 @@ async function renderPackagingConfig(container, userCommerceList, isUserAdmin) {
 
 // ====== LOGISTICA INVERSA ======
 let returnsCurrentPage = 1;
-const returnsPageSize = 50;
+let returnsPageSize = 50;
+let returnsActiveDatePreset = 'all';
+
+function getLocalDateIsoStringClient(d) {
+  const yr = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${yr}-${mo}-${da}`;
+}
 
 window.renderReturns = async function() {
   const content = document.getElementById('app-content');
   
   content.innerHTML = getObserverBanner() + `
-    <div style="margin-bottom: 2rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end;">
+    <div style="margin-bottom: 1.25rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end;">
       <div>
-        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Logística Inversa</h2>
-        <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
-          Revisa las devoluciones y cambios. Filtra, pagina y exporta los datos.
+        <h2 style="font-size: 1.65rem; font-weight: 700; margin-bottom: 0.35rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-exchange-Funds-line" style="color: var(--color-primary);"></i> Logística Inversa
+        </h2>
+        <p style="color: var(--color-text-muted); font-size: 0.92rem; max-width: 800px; line-height: 1.5; margin: 0;">
+          Revisa, filtra, edita y exporta tus devoluciones y cambios registrados en el WMS.
         </p>
       </div>
       <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
@@ -25541,8 +25791,8 @@ window.renderReturns = async function() {
         <button id="btn-create-order-exchange" class="btn btn-primary" style="background-color: var(--color-success, #10b981); color: white; display: flex; align-items: center; gap: 0.25rem; font-weight: 600;" title="Crear pedido de cambio con destinatario, courier y orden WMS">
           <i class="ri-repeat-2-line"></i> Pedido Cambio
         </button>
-        <button id="btn-info-export" class="btn" style="background-color: rgba(59, 130, 246, 0.15); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.5rem 1rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 99px; font-weight: 700; transition: all 0.2s; cursor: pointer;" title="¿Cómo exportar?">
-          <i class="ri-information-line" style="font-size: 1.15rem;"></i> Info
+        <button id="btn-info-export" class="btn" style="background-color: rgba(59, 130, 246, 0.15); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.45rem 0.85rem; display: flex; align-items: center; gap: 0.35rem; border-radius: 99px; font-weight: 700; cursor: pointer;" title="¿Cómo exportar?">
+          <i class="ri-information-line"></i> Info
         </button>
         <button id="btn-export-csv" class="btn btn-outline" style="background-color: transparent; color: #10b981; border-color: #10b981;">
           <i class="ri-file-text-line" style="margin-right: 0.25rem;"></i> CSV
@@ -25553,47 +25803,166 @@ window.renderReturns = async function() {
       </div>
     </div>
 
-    <!-- Filtros -->
-    <div class="card" style="margin-bottom: 1.5rem;">
-      <div class="card-body" style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;">
-        <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Tipo de Movimiento</label>
-          <select id="filter-ret-type" class="form-input">
-            <option value="">Todos</option>
-            <option value="CAMBIO">Cambio</option>
-            <option value="DEVOLUCION">Devolución</option>
+    <!-- KPIs Resumen -->
+    <div id="ret-client-kpi-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 0.85rem; margin-bottom: 1.25rem;">
+      <div class="card" onclick="window.filterClientReturnsByKpi('all')" style="padding: 0.9rem 1.1rem; cursor: pointer; border-left: 4px solid var(--color-primary); display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted);">Total Movimientos</div>
+          <div id="kpi-client-ret-total" style="font-size: 1.45rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.15rem;">0</div>
+          <div id="kpi-client-ret-units" style="font-size: 0.75rem; color: var(--color-text-muted);">0 unidades</div>
+        </div>
+        <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(79, 70, 229, 0.1); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+          <i class="ri-exchange-box-line"></i>
+        </div>
+      </div>
+
+      <div class="card" onclick="window.filterClientReturnsByKpi('CAMBIO')" style="padding: 0.9rem 1.1rem; cursor: pointer; border-left: 4px solid #10b981; display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted);">Cambios</div>
+          <div id="kpi-client-ret-cambios" style="font-size: 1.45rem; font-weight: 800; color: #059669; margin-top: 0.15rem;">0</div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted);">Ingresa y sale</div>
+        </div>
+        <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(16, 185, 129, 0.12); color: #059669; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+          <i class="ri-repeat-2-line"></i>
+        </div>
+      </div>
+
+      <div class="card" onclick="window.filterClientReturnsByKpi('DEVOLUCION')" style="padding: 0.9rem 1.1rem; cursor: pointer; border-left: 4px solid #ef4444; display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted);">Devoluciones</div>
+          <div id="kpi-client-ret-devoluciones" style="font-size: 1.45rem; font-weight: 800; color: #dc2626; margin-top: 0.15rem;">0</div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted);">Retorno a bodega</div>
+        </div>
+        <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(239, 68, 68, 0.12); color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+          <i class="ri-arrow-go-back-line"></i>
+        </div>
+      </div>
+
+      <div class="card" onclick="window.filterClientReturnsByKpi('pendiente')" style="padding: 0.9rem 1.1rem; cursor: pointer; border-left: 4px solid #f59e0b; display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted);">Pendientes</div>
+          <div id="kpi-client-ret-pendientes" style="font-size: 1.45rem; font-weight: 800; color: #d97706; margin-top: 0.15rem;">0</div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted);">Por recepcionar</div>
+        </div>
+        <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(245, 158, 11, 0.14); color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+          <i class="ri-time-line"></i>
+        </div>
+      </div>
+
+      <div class="card" onclick="window.filterClientReturnsByKpi('procesado')" style="padding: 0.9rem 1.1rem; cursor: pointer; border-left: 4px solid #3b82f6; display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted);">Confirmados</div>
+          <div id="kpi-client-ret-procesados" style="font-size: 1.45rem; font-weight: 800; color: #2563eb; margin-top: 0.15rem;">0</div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted);">Stock ajustado</div>
+        </div>
+        <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(59, 130, 246, 0.12); color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+          <i class="ri-checkbox-circle-line"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filtros Avanzados -->
+    <div class="card" style="margin-bottom: 1.25rem; padding: 1.1rem 1.25rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 0.85rem; align-items: flex-end;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.78rem; font-weight: 600;"><i class="ri-store-2-line" style="color: var(--color-primary);"></i> Comercio / Tienda</label>
+          <select id="filter-ret-commerce" class="form-input" style="height: 38px; font-size: 0.85rem;">
+            <option value="">Todos los Comercios</option>
           </select>
         </div>
-        <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Buscador General</label>
-          <input type="text" id="filter-ret-search" class="form-input" placeholder="Buscar por pedido, transporte, tracking...">
+
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.78rem; font-weight: 600;"><i class="ri-exchange-line" style="color: var(--color-primary);"></i> Tipo de Movimiento</label>
+          <select id="filter-ret-type" class="form-input" style="height: 38px; font-size: 0.85rem;">
+            <option value="">Todos los Tipos</option>
+            <option value="CAMBIO">Cambios (Todos)</option>
+            <option value="DEVOLUCION">Devoluciones (Todas)</option>
+            <option value="PEDIDO_CAMBIO">Solo Pedido Cambio</option>
+            <option value="PEDIDO_DEVOLUCION">Solo Pedido Devolución</option>
+          </select>
         </div>
-        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Desde Fecha</label>
-          <input type="date" id="filter-ret-date-from" class="form-input">
+
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.78rem; font-weight: 600;"><i class="ri-checkbox-multiple-line" style="color: var(--color-primary);"></i> Estado</label>
+          <select id="filter-ret-status" class="form-input" style="height: 38px; font-size: 0.85rem;">
+            <option value="">Todos</option>
+            <option value="pendiente">Pendiente</option>
+            <option value="procesado">Confirmado / Procesado</option>
+          </select>
         </div>
-        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Hasta Fecha</label>
-          <input type="date" id="filter-ret-date-to" class="form-input">
+
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.78rem; font-weight: 600;"><i class="ri-truck-line" style="color: var(--color-primary);"></i> Modalidad / Entrega</label>
+          <select id="filter-ret-delivery-mode" class="form-input" style="height: 38px; font-size: 0.85rem;">
+            <option value="">Todas las Modalidades</option>
+            <option value="sucursal">Sucursal / Punto Físico Ñuñoa</option>
+            <option value="domicilio_rm">Domicilio RM</option>
+            <option value="regiones">Envío a Regiones</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0; grid-column: span 2;">
+          <label class="form-label" style="font-size: 0.78rem; font-weight: 600;"><i class="ri-search-line" style="color: var(--color-primary);"></i> Buscador General</label>
+          <input type="text" id="filter-ret-search" class="form-input" placeholder="Buscar por #pedido, cliente, SKU, producto, tracking, sucursal..." style="height: 38px; font-size: 0.85rem;">
+        </div>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end; justify-content: space-between; margin-top: 0.9rem; padding-top: 0.85rem; border-top: 1px dashed var(--color-border);">
+        <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center;">
+          <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); margin-right: 0.25rem;"><i class="ri-calendar-event-line"></i> Periodo:</span>
+          <button type="button" class="btn btn-outline ret-client-date-preset active" data-preset="all" onclick="window.applyClientReturnsDatePreset('all')" style="padding: 0.25rem 0.6rem; font-size: 0.76rem; border-radius: 99px; background: var(--color-primary); color: #fff; border-color: var(--color-primary);">Todo</button>
+          <button type="button" class="btn btn-outline ret-client-date-preset" data-preset="today" onclick="window.applyClientReturnsDatePreset('today')" style="padding: 0.25rem 0.6rem; font-size: 0.76rem; border-radius: 99px;">Hoy</button>
+          <button type="button" class="btn btn-outline ret-client-date-preset" data-preset="yesterday" onclick="window.applyClientReturnsDatePreset('yesterday')" style="padding: 0.25rem 0.6rem; font-size: 0.76rem; border-radius: 99px;">Ayer</button>
+          <button type="button" class="btn btn-outline ret-client-date-preset" data-preset="7d" onclick="window.applyClientReturnsDatePreset('7d')" style="padding: 0.25rem 0.6rem; font-size: 0.76rem; border-radius: 99px;">7 Días</button>
+          <button type="button" class="btn btn-outline ret-client-date-preset" data-preset="30d" onclick="window.applyClientReturnsDatePreset('30d')" style="padding: 0.25rem 0.6rem; font-size: 0.76rem; border-radius: 99px;">30 Días</button>
+          <button type="button" class="btn btn-outline ret-client-date-preset" data-preset="this_month" onclick="window.applyClientReturnsDatePreset('this_month')" style="padding: 0.25rem 0.6rem; font-size: 0.76rem; border-radius: 99px;">Este Mes</button>
+          <button type="button" class="btn btn-outline ret-client-date-preset" data-preset="last_month" onclick="window.applyClientReturnsDatePreset('last_month')" style="padding: 0.25rem 0.6rem; font-size: 0.76rem; border-radius: 99px;">Mes Anterior</button>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: flex-end;">
+          <div class="form-group" style="margin-bottom: 0; min-width: 135px;">
+            <label class="form-label" style="font-size: 0.72rem; margin-bottom: 0.2rem;">Mes Específico</label>
+            <input type="month" id="filter-ret-month" class="form-input" style="height: 34px; font-size: 0.8rem; padding: 0.25rem 0.5rem;">
+          </div>
+          <div class="form-group" style="margin-bottom: 0; min-width: 130px;">
+            <label class="form-label" style="font-size: 0.72rem; margin-bottom: 0.2rem;">Desde Fecha</label>
+            <input type="date" id="filter-ret-date-from" class="form-input" style="height: 34px; font-size: 0.8rem; padding: 0.25rem 0.5rem;">
+          </div>
+          <div class="form-group" style="margin-bottom: 0; min-width: 130px;">
+            <label class="form-label" style="font-size: 0.72rem; margin-bottom: 0.2rem;">Hasta Fecha</label>
+            <input type="date" id="filter-ret-date-to" class="form-input" style="height: 34px; font-size: 0.8rem; padding: 0.25rem 0.5rem;">
+          </div>
+          <div class="form-group" style="margin-bottom: 0; min-width: 90px;">
+            <label class="form-label" style="font-size: 0.72rem; margin-bottom: 0.2rem;">Mostrar</label>
+            <select id="filter-ret-page-size" class="form-input" style="height: 34px; font-size: 0.8rem; padding: 0.25rem 0.5rem;">
+              <option value="25">25 filas</option>
+              <option value="50" selected>50 filas</option>
+              <option value="100">100 filas</option>
+              <option value="200">200 filas</option>
+            </select>
+          </div>
+          <button type="button" id="btn-ret-clear-filters" class="btn btn-outline" style="height: 34px; padding: 0 0.75rem; font-size: 0.8rem;">
+            <i class="ri-filter-off-line"></i> Limpiar
+          </button>
         </div>
       </div>
     </div>
 
     <!-- Data Table -->
     <div class="card">
-      <div class="card-body table-responsive">
+      <div class="card-body table-responsive" style="padding: 0;">
         <table class="data-table">
           <thead>
             <tr>
               <th>Fecha y Hora</th>
               <th>Tipo</th>
               <th>Comercio</th>
-              <th>Ref. Pedido</th>
-              <th>Transporte</th>
-              <th>Sucursal</th>
+              <th>Ref. Pedido / Cliente</th>
+              <th>Productos (Ingresa / Sale)</th>
+              <th>Transporte / Sucursal</th>
               <th>Ref. Transporte</th>
               <th>Estado</th>
-              <th>Cant.</th>
+              <th style="text-align: center;">Cant.</th>
               <th>Acciones</th>
             </tr>
           </thead>
@@ -25614,22 +25983,71 @@ window.renderReturns = async function() {
     </div>
   `;
 
+  // Populate commerce selector
+  await populateClientReturnsCommerceFilter();
+
   // Añadir Listeners de Filtros
-  const filters = ['filter-ret-type', 'filter-ret-date-from', 'filter-ret-date-to'];
+  const filters = ['filter-ret-commerce', 'filter-ret-type', 'filter-ret-status', 'filter-ret-delivery-mode'];
   filters.forEach(id => {
-    document.getElementById(id).addEventListener('change', () => {
+    document.getElementById(id)?.addEventListener('change', () => {
       returnsCurrentPage = 1;
       fetchAndRenderReturnsData();
     });
   });
 
+  ['filter-ret-date-from', 'filter-ret-date-to'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => {
+      const mEl = document.getElementById('filter-ret-month');
+      if (mEl) mEl.value = '';
+      highlightClientReturnsDatePreset('');
+      returnsCurrentPage = 1;
+      fetchAndRenderReturnsData();
+    });
+  });
+
+  document.getElementById('filter-ret-month')?.addEventListener('change', (e) => {
+    const val = e.target.value;
+    const fromEl = document.getElementById('filter-ret-date-from');
+    const toEl = document.getElementById('filter-ret-date-to');
+    if (val) {
+      const [yr, mo] = val.split('-').map(Number);
+      const firstDay = new Date(yr, mo - 1, 1);
+      const lastDay = new Date(yr, mo, 0);
+      if (fromEl) fromEl.value = getLocalDateIsoStringClient(firstDay);
+      if (toEl) toEl.value = getLocalDateIsoStringClient(lastDay);
+      highlightClientReturnsDatePreset('');
+    } else {
+      if (fromEl) fromEl.value = '';
+      if (toEl) toEl.value = '';
+      highlightClientReturnsDatePreset('all');
+    }
+    returnsCurrentPage = 1;
+    fetchAndRenderReturnsData();
+  });
+
+  document.getElementById('filter-ret-page-size')?.addEventListener('change', (e) => {
+    returnsPageSize = parseInt(e.target.value, 10) || 50;
+    returnsCurrentPage = 1;
+    fetchAndRenderReturnsData();
+  });
+
+  document.getElementById('btn-ret-clear-filters')?.addEventListener('click', () => {
+    ['filter-ret-commerce', 'filter-ret-type', 'filter-ret-status', 'filter-ret-delivery-mode', 'filter-ret-search', 'filter-ret-month', 'filter-ret-date-from', 'filter-ret-date-to'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    highlightClientReturnsDatePreset('all');
+    returnsCurrentPage = 1;
+    fetchAndRenderReturnsData();
+  });
+
   let searchTimeout;
-  document.getElementById('filter-ret-search').addEventListener('input', (e) => {
+  document.getElementById('filter-ret-search').addEventListener('input', () => {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
       returnsCurrentPage = 1;
       fetchAndRenderReturnsData();
-    }, 400);
+    }, 350);
   });
 
   // Listeners de paginación
@@ -25656,7 +26074,7 @@ window.renderReturns = async function() {
     showInfoModal(
       'Guía de Exportación',
       `<ol style="margin: 0; padding-left: 1.5rem;">
-         <li style="margin-bottom: 0.5rem;">Utiliza los filtros (Tipo, Buscador, Fechas) para acotar tu búsqueda.</li>
+         <li style="margin-bottom: 0.5rem;">Utiliza los filtros (Comercio, Tipo, Estado, Fechas, Buscador) para acotar tu búsqueda.</li>
          <li style="margin-bottom: 0.5rem;">Haz clic en <strong>"CSV"</strong> o <strong>"Excel"</strong> para descargar el reporte.</li>
          <li>El archivo generado sólo contendrá los registros que coincidan con los filtros actuales en pantalla.</li>
        </ol>`
@@ -25668,13 +26086,125 @@ window.renderReturns = async function() {
   await fetchAndRenderReturnsData();
 };
 
-function buildReturnsQuery(query) {
-  const fType = document.getElementById('filter-ret-type').value;
-  const fSearch = document.getElementById('filter-ret-search').value.trim();
-  const fFrom = document.getElementById('filter-ret-date-from').value;
-  const fTo = document.getElementById('filter-ret-date-to').value;
+function highlightClientReturnsDatePreset(preset) {
+  returnsActiveDatePreset = preset;
+  document.querySelectorAll('.ret-client-date-preset').forEach(btn => {
+    const isMatch = btn.getAttribute('data-preset') === preset;
+    if (isMatch) {
+      btn.classList.add('active');
+      btn.style.background = 'var(--color-primary)';
+      btn.style.color = '#fff';
+      btn.style.borderColor = 'var(--color-primary)';
+    } else {
+      btn.classList.remove('active');
+      btn.style.background = '';
+      btn.style.color = '';
+      btn.style.borderColor = '';
+    }
+  });
+}
 
+window.applyClientReturnsDatePreset = function(preset) {
+  const fromEl = document.getElementById('filter-ret-date-from');
+  const toEl = document.getElementById('filter-ret-date-to');
+  const monthEl = document.getElementById('filter-ret-month');
+  if (monthEl) monthEl.value = '';
+
+  const now = new Date();
+  let start = null;
+  let end = null;
+
+  if (preset === 'today') {
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  } else if (preset === 'yesterday') {
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  } else if (preset === '7d') {
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+    end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  } else if (preset === '30d') {
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
+    end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  } else if (preset === 'this_month') {
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
+    end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  } else if (preset === 'last_month') {
+    start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    end = new Date(now.getFullYear(), now.getMonth(), 0);
+  }
+
+  if (fromEl) fromEl.value = start ? getLocalDateIsoStringClient(start) : '';
+  if (toEl) toEl.value = end ? getLocalDateIsoStringClient(end) : '';
+
+  highlightClientReturnsDatePreset(preset);
+  returnsCurrentPage = 1;
+  fetchAndRenderReturnsData();
+};
+
+window.filterClientReturnsByKpi = function(kpiType) {
+  const typeEl = document.getElementById('filter-ret-type');
+  const statusEl = document.getElementById('filter-ret-status');
+  if (!typeEl || !statusEl) return;
+
+  if (kpiType === 'all') {
+    typeEl.value = '';
+    statusEl.value = '';
+  } else if (kpiType === 'CAMBIO' || kpiType === 'DEVOLUCION') {
+    typeEl.value = kpiType;
+    statusEl.value = '';
+  } else if (kpiType === 'pendiente' || kpiType === 'procesado') {
+    statusEl.value = kpiType;
+  }
+  returnsCurrentPage = 1;
+  fetchAndRenderReturnsData();
+};
+
+async function populateClientReturnsCommerceFilter() {
+  const select = document.getElementById('filter-ret-commerce');
+  if (!select) return;
+
+  const set = new Set();
   if (currentCompany) {
+    currentCompany.split(',').forEach(c => {
+      const trimmed = c.trim();
+      if (trimmed) set.add(trimmed);
+    });
+  }
+
+  try {
+    let q = supabase.from('reverse_logistics').select('comercio').limit(500);
+    if (currentCompany) {
+      const list = [];
+      currentCompany.split(',').forEach(c => {
+        const t = c.trim();
+        if (t) { list.push(t, t.toLowerCase(), t.toUpperCase()); }
+      });
+      if (list.length > 0) q = q.in('comercio', list);
+    }
+    const { data } = await q;
+    (data || []).forEach(r => {
+      if (r.comercio && r.comercio.trim()) set.add(r.comercio.trim());
+    });
+  } catch (_e) {}
+
+  const list = Array.from(set).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  select.innerHTML = `<option value="">Todos los Comercios (${list.length})</option>` +
+    list.map(c => `<option value="${c.replace(/"/g, '&quot;')}">${c}</option>`).join('');
+}
+
+function buildReturnsQuery(query) {
+  const fCommerce = document.getElementById('filter-ret-commerce')?.value || '';
+  const fType = document.getElementById('filter-ret-type')?.value || '';
+  const fStatus = document.getElementById('filter-ret-status')?.value || '';
+  const fDeliveryMode = document.getElementById('filter-ret-delivery-mode')?.value || '';
+  const fSearch = (document.getElementById('filter-ret-search')?.value || '').trim();
+  const fFrom = document.getElementById('filter-ret-date-from')?.value || '';
+  const fTo = document.getElementById('filter-ret-date-to')?.value || '';
+
+  if (fCommerce) {
+    query = query.ilike('comercio', fCommerce);
+  } else if (currentCompany) {
     const companyList = [];
     currentCompany.split(',').forEach(c => {
       const trimmed = c.trim();
@@ -25688,15 +26218,64 @@ function buildReturnsQuery(query) {
       query = query.in('comercio', companyList);
     }
   }
-  if (fType) query = query.eq('tipo_movimiento', fType);
+
+  if (fType === 'CAMBIO' || fType === 'DEVOLUCION') {
+    query = query.eq('tipo_movimiento', fType);
+  } else if (fType === 'PEDIDO_CAMBIO') {
+    query = query.eq('tipo_movimiento', 'CAMBIO').not('wms_order_id', 'is', null);
+  } else if (fType === 'PEDIDO_DEVOLUCION') {
+    query = query.eq('tipo_movimiento', 'DEVOLUCION').not('wms_order_id', 'is', null);
+  }
+
+  if (fStatus) query = query.eq('status', fStatus);
+
+  if (fDeliveryMode === 'sucursal') {
+    query = query.ilike('transporte', '%Sucursal%');
+  } else if (fDeliveryMode === 'domicilio_rm') {
+    query = query.ilike('transporte', '%Domicilio%');
+  } else if (fDeliveryMode === 'regiones') {
+    query = query.ilike('transporte', '%Region%');
+  }
+
   if (fSearch) {
-    query = query.or(`referencia_pedido.ilike.%${fSearch}%,transporte.ilike.%${fSearch}%,referencia_transporte.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%`);
+    query = query.or(`referencia_pedido.ilike.%${fSearch}%,comercio.ilike.%${fSearch}%,transporte.ilike.%${fSearch}%,referencia_transporte.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%,customer_name.ilike.%${fSearch}%,comentarios.ilike.%${fSearch}%`);
   }
   
-  if (fFrom) query = query.gte('created_at', fFrom + 'T00:00:00.000Z');
-  if (fTo) query = query.lte('created_at', fTo + 'T23:59:59.999Z');
+  if (fFrom) {
+    const startLocal = new Date(`${fFrom}T00:00:00`);
+    query = query.gte('created_at', !isNaN(startLocal) ? startLocal.toISOString() : (fFrom + 'T00:00:00.000Z'));
+  }
+  if (fTo) {
+    const endLocal = new Date(`${fTo}T23:59:59.999`);
+    query = query.lte('created_at', !isNaN(endLocal) ? endLocal.toISOString() : (fTo + 'T23:59:59.999Z'));
+  }
 
   return query;
+}
+
+function buildClientRlProductsSummaryHtml(r) {
+  const prods = Array.isArray(r.productos) ? r.productos : [];
+  if (prods.length === 0) {
+    return `<span style="color: var(--color-text-muted); font-size: 0.78rem; font-style: italic;">Sin detalle</span>`;
+  }
+  const lines = [];
+  prods.slice(0, 2).forEach(p => {
+    const qtyDev = p.qty_devuelto !== undefined ? p.qty_devuelto : (p.producto_devuelto ? p.cantidad || 1 : 0);
+    const qtyRep = p.qty_reemplazo !== undefined ? p.qty_reemplazo : (p.producto_reemplazo ? p.cantidad || 1 : 0);
+    if (p.producto_devuelto) {
+      const stockDot = p.regresar_a_inventario !== false
+        ? `<span title="Regresa a Stock" style="color:#059669; font-weight:700;">[+Stock]</span>`
+        : `<span title="No regresa a Stock (Merma)" style="color:#ef4444; font-weight:700;">[Merma]</span>`;
+      lines.push(`<div style="font-size: 0.77rem; line-height: 1.3; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px;" title="Ingresa: ${qtyDev}x ${p.producto_devuelto}">⬅️ <strong>${qtyDev}x</strong> ${p.producto_devuelto} ${stockDot}</div>`);
+    }
+    if (p.producto_reemplazo) {
+      lines.push(`<div style="font-size: 0.77rem; line-height: 1.3; color: #047857; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px;" title="Sale: ${qtyRep}x ${p.producto_reemplazo}">➡️ <strong>${qtyRep}x</strong> ${p.producto_reemplazo}</div>`);
+    }
+  });
+  if (prods.length > 2) {
+    lines.push(`<div style="font-size: 0.72rem; color: var(--color-primary); font-weight: 600;">+${prods.length - 2} ítem(s) más...</div>`);
+  }
+  return `<div style="display: flex; flex-direction: column; gap: 0.15rem;">${lines.join('')}</div>`;
 }
 
 async function fetchAndRenderReturnsData() {
@@ -25704,10 +26283,11 @@ async function fetchAndRenderReturnsData() {
   const btnPrev = document.getElementById('btn-ret-prev');
   const btnNext = document.getElementById('btn-ret-next');
   const info = document.getElementById('returns-pagination-info');
+  if (!tbody) return;
 
   tbody.innerHTML = '<tr><td colspan="10" class="text-center" style="padding: 2rem;">Cargando...</td></tr>';
-  btnPrev.disabled = true;
-  btnNext.disabled = true;
+  if (btnPrev) btnPrev.disabled = true;
+  if (btnNext) btnNext.disabled = true;
 
   try {
     let query = supabase.from('reverse_logistics').select('*', { count: 'exact' });
@@ -25718,8 +26298,31 @@ async function fetchAndRenderReturnsData() {
 
     query = query.order('created_at', { ascending: false }).range(from, to);
 
-    const { data: returns, error, count } = await query;
+    let { data: returns, error, count } = await query;
     if (error) throw error;
+
+    // Update KPIs
+    try {
+      let kpiQuery = supabase.from('reverse_logistics').select('tipo_movimiento, status, cantidad_total');
+      kpiQuery = buildReturnsQuery(kpiQuery);
+      const { data: kpiRows } = await kpiQuery;
+      const list = kpiRows || returns || [];
+      let cambios = 0, devoluciones = 0, pendientes = 0, procesados = 0, units = 0;
+      list.forEach(item => {
+        if (item.tipo_movimiento === 'CAMBIO') cambios++;
+        else devoluciones++;
+        if ((item.status || 'pendiente') === 'pendiente') pendientes++;
+        else procesados++;
+        units += Number(item.cantidad_total) || 0;
+      });
+      const setEl = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+      setEl('kpi-client-ret-total', list.length);
+      setEl('kpi-client-ret-units', `${units} unidades`);
+      setEl('kpi-client-ret-cambios', cambios);
+      setEl('kpi-client-ret-devoluciones', devoluciones);
+      setEl('kpi-client-ret-pendientes', pendientes);
+      setEl('kpi-client-ret-procesados', procesados);
+    } catch (_kpiErr) {}
 
     let html = '';
     if (!returns || returns.length === 0) {
@@ -25748,26 +26351,39 @@ async function fetchAndRenderReturnsData() {
         if (statusVal === 'pendiente') {
           statusBadge = `<span class="badge" style="background-color: #fef3c7; color: #d97706; border: 1px solid #fde68a;">Pendiente</span>`;
         } else {
-          statusBadge = `<span class="badge" style="background-color: #d1fae5; color: #059669; border: 1px solid #a7f3d0;">Procesado</span>`;
+          statusBadge = `<span class="badge" style="background-color: #d1fae5; color: #059669; border: 1px solid #a7f3d0;">Confirmado</span>`;
         }
+
+        const customerSub = r.customer_name
+          ? `<div style="font-size: 0.74rem; color: var(--color-text-muted); margin-top: 0.2rem;"><i class="ri-user-line"></i> ${r.customer_name}</div>`
+          : '';
 
         html += `
           <tr style="transition: background-color 0.2s;">
             <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
             <td>${typeBadge}</td>
-            <td><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${r.comercio || 'N/A'}</td>
-            <td><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${r.referencia_pedido}</span></td>
-            <td><i class="ri-truck-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${r.transporte || 'N/A'}</td>
-            <td><i class="ri-map-pin-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${r.sucursal || 'N/A'}</td>
+            <td><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i><strong>${r.comercio || 'N/A'}</strong></td>
+            <td>
+              <span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-weight: 700;">${r.referencia_pedido || 'S/R'}</span>
+              ${customerSub}
+            </td>
+            <td>${buildClientRlProductsSummaryHtml(r)}</td>
+            <td>
+              <div style="font-size: 0.84rem;"><i class="ri-truck-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${r.transporte || 'N/A'}</div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted);"><i class="ri-map-pin-line"></i> ${r.sucursal || 'N/A'}</div>
+            </td>
             <td><span style="font-family: monospace; font-size: 0.85rem; color: var(--color-text-muted);">${r.referencia_transporte || 'N/A'}</span></td>
             <td>${statusBadge}</td>
-            <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${r.cantidad_total}</strong></td>
+            <td style="text-align: center;"><strong style="color: var(--color-text-main); font-size: 1.05rem;">${r.cantidad_total}</strong></td>
             <td style="white-space: nowrap;">
-              <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.6rem; font-size: 0.8rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.25rem;"></i> Detalle</button>
-              <button class="btn btn-outline" onclick="window.openQuickBranchExchangeReceiptModal('${safeData}')" style="padding: 0.25rem 0.6rem; font-size: 0.8rem; border-color: #6366f1; color: #4f46e5; background: rgba(99, 102, 241, 0.06); margin-left: 0.25rem; font-weight: 600;" title="Generar Comprobante de Cambio / Recepción en Sucursal"><i class="ri-file-list-3-line"></i> Comprobante</button>
-              ${r.tipo_movimiento === 'CAMBIO' ? `
-                <button class="btn btn-outline" onclick="window.printSingleExchangeLabel('${safeData}')" style="padding: 0.25rem 0.6rem; font-size: 0.8rem; border-color: var(--color-success); color: var(--color-success); background: var(--color-surface); margin-left: 0.25rem;" title="Imprimir Etiqueta de Cambio"><i class="ri-printer-line"></i> Etiqueta</button>
-              ` : ''}
+              <div style="display: flex; align-items: center; gap: 0.3rem;">
+                <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.55rem; font-size: 0.78rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary);"></i> Detalle</button>
+                <button class="btn btn-outline" onclick="window.openEditReverseLogisticsModal('${safeData}')" style="padding: 0.25rem 0.55rem; font-size: 0.78rem; border-color: #f59e0b; color: #d97706; background: rgba(245, 158, 11, 0.06); font-weight: 600;" title="Editar movimiento"><i class="ri-edit-2-line"></i> Editar</button>
+                <button class="btn btn-outline" onclick="window.openQuickBranchExchangeReceiptModal('${safeData}')" style="padding: 0.25rem 0.55rem; font-size: 0.78rem; border-color: #6366f1; color: #4f46e5; background: rgba(99, 102, 241, 0.06); font-weight: 600;" title="Generar Comprobante de Cambio / Recepción en Sucursal"><i class="ri-file-list-3-line"></i> Comprobante</button>
+                ${r.tipo_movimiento === 'CAMBIO' ? `
+                  <button class="btn btn-outline" onclick="window.printSingleExchangeLabel('${safeData}')" style="padding: 0.25rem 0.55rem; font-size: 0.78rem; border-color: var(--color-success); color: var(--color-success); background: var(--color-surface);" title="Imprimir Etiqueta de Cambio"><i class="ri-printer-line"></i></button>
+                ` : ''}
+              </div>
             </td>
           </tr>
         `;
@@ -25778,10 +26394,10 @@ async function fetchAndRenderReturnsData() {
     
     // Update pagination
     const currentEnd = Math.min(from + returnsPageSize, count || 0);
-    info.textContent = `Mostrando ${count === 0 ? 0 : from + 1} a ${currentEnd} de ${count || 0} registros`;
+    if (info) info.textContent = `Mostrando ${count === 0 ? 0 : from + 1} a ${currentEnd} de ${count || 0} registros`;
     
-    btnPrev.disabled = returnsCurrentPage <= 1;
-    btnNext.disabled = currentEnd >= (count || 0);
+    if (btnPrev) btnPrev.disabled = returnsCurrentPage <= 1;
+    if (btnNext) btnNext.disabled = currentEnd >= (count || 0);
 
   } catch (err) {
     console.error('Error:', err);
@@ -26011,6 +26627,9 @@ window.openReturnsDetail = function(dataStr) {
         </div>` : ''}
 
         <div style="display: flex; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--color-border);">
+          <button type="button" class="btn btn-primary" onclick="document.getElementById('modal-generic-info')?.remove(); window.openEditReverseLogisticsModal('${dataStr}')" style="background: #d97706; border-color: #d97706; font-size: 0.88rem; display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 1rem;">
+            <i class="ri-edit-2-line" style="font-size: 1.05rem;"></i> Editar Movimiento
+          </button>
           <button type="button" class="btn btn-primary" onclick="document.getElementById('modal-generic-info')?.remove(); window.openQuickBranchExchangeReceiptModal('${dataStr}')" style="background: #4f46e5; border-color: #4f46e5; font-size: 0.88rem; display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 1rem;">
             <i class="ri-file-list-3-line" style="font-size: 1.05rem;"></i> Comprobante Sucursal (PDF / Imprimir)
           </button>
@@ -26103,6 +26722,342 @@ window.toggleRlReturnToStock = async function(recordId, productIndex) {
   } catch(e) {
     console.error(e);
     alert('Error al actualizar: ' + e.message);
+  }
+};
+
+window.openEditReverseLogisticsModal = async function(dataOrId) {
+  try {
+    let initialData = null;
+    if (typeof dataOrId === 'string') {
+      try {
+        initialData = JSON.parse(decodeURIComponent(dataOrId));
+      } catch (_e) {
+        initialData = { id: dataOrId };
+      }
+    } else if (dataOrId && typeof dataOrId === 'object') {
+      initialData = { ...dataOrId };
+    }
+
+    if (!initialData || !initialData.id) {
+      if (typeof Swal !== 'undefined') Swal.fire('Error', 'No se pudo identificar el movimiento a editar.', 'error');
+      return;
+    }
+
+    let record = initialData;
+    try {
+      const { data: freshRow, error } = await supabase
+        .from('reverse_logistics')
+        .select('*')
+        .eq('id', initialData.id)
+        .maybeSingle();
+      if (!error && freshRow) record = freshRow;
+    } catch (_e) {}
+
+    const existingModal = document.getElementById('modal-edit-reverse-logistics');
+    if (existingModal) existingModal.remove();
+
+    const parseProd = (rawStr) => {
+      if (!rawStr || typeof rawStr !== 'string') return { sku: '', name: '' };
+      const trimmed = rawStr.trim();
+      const m = trimmed.match(/^\[([^\]]+)\]\s*(.*)$/);
+      if (m) return { sku: m[1].trim(), name: (m[2] || m[1]).trim() };
+      const dashMatch = trimmed.match(/^([A-Za-z0-9_./-]+)\s+-\s+(.+)$/);
+      if (dashMatch) return { sku: dashMatch[1].trim(), name: dashMatch[2].trim() };
+      return { sku: '', name: trimmed };
+    };
+
+    const incomingList = [];
+    const outgoingList = [];
+    const rawProds = Array.isArray(record.productos) ? record.productos : [];
+    rawProds.forEach(p => {
+      if (p.producto_devuelto) {
+        const parsed = parseProd(p.producto_devuelto);
+        const qty = p.qty_devuelto !== undefined ? Number(p.qty_devuelto) : (Number(p.cantidad) || 1);
+        incomingList.push({
+          id: p.id_devuelto || '',
+          sku: parsed.sku,
+          name: parsed.name,
+          qty: qty > 0 ? qty : 1,
+          returnToStock: p.regresar_a_inventario !== false,
+          comment: p.comentario || ''
+        });
+      }
+      if (p.producto_reemplazo) {
+        const parsed = parseProd(p.producto_reemplazo);
+        const qty = p.qty_reemplazo !== undefined ? Number(p.qty_reemplazo) : (Number(p.cantidad) || 1);
+        outgoingList.push({
+          id: p.id_reemplazo || '',
+          sku: parsed.sku,
+          name: parsed.name,
+          qty: qty > 0 ? qty : 1,
+          comment: (!p.producto_devuelto && p.comentario) ? p.comentario : ''
+        });
+      }
+    });
+
+    if (incomingList.length === 0) {
+      incomingList.push({ id: '', sku: '', name: '', qty: 1, returnToStock: true, comment: '' });
+    }
+    if (outgoingList.length === 0 && record.tipo_movimiento === 'CAMBIO') {
+      outgoingList.push({ id: '', sku: '', name: '', qty: 1, comment: '' });
+    }
+
+    const esc = (str) => String(str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const pad = n => String(n).padStart(2, '0');
+    const dtObj = record.created_at ? new Date(record.created_at) : null;
+    const dtValue = dtObj && !isNaN(dtObj.getTime())
+      ? `${dtObj.getFullYear()}-${pad(dtObj.getMonth() + 1)}-${pad(dtObj.getDate())}T${pad(dtObj.getHours())}:${pad(dtObj.getMinutes())}`
+      : '';
+
+    const modal = document.createElement('div');
+    modal.id = 'modal-edit-reverse-logistics';
+    modal.className = 'modal-overlay';
+    modal.style.zIndex = '1250';
+
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 920px; width: 96%; max-height: 92vh; display: flex; flex-direction: column; padding: 0; border-radius: var(--radius-lg); overflow: hidden;">
+        <div class="modal-header" style="padding: 1.1rem 1.4rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+          <h3 style="margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-edit-2-line" style="color: #d97706;"></i> Editar Movimiento (${esc(record.referencia_pedido || '')})
+          </h3>
+          <button class="modal-close" id="btn-close-erl-client" style="font-size: 1.5rem;">&times;</button>
+        </div>
+
+        <div class="modal-body" style="padding: 1.25rem 1.4rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1rem;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 0.75rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.78rem;">Comercio *</label>
+              <input type="text" id="erl-c-comercio" class="form-input" value="${esc(record.comercio || '')}" style="height: 36px; font-size: 0.85rem;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.78rem;">Tipo de Movimiento *</label>
+              <select id="erl-c-tipo" class="form-input" style="height: 36px; font-size: 0.85rem;">
+                <option value="CAMBIO" ${record.tipo_movimiento === 'CAMBIO' ? 'selected' : ''}>CAMBIO</option>
+                <option value="DEVOLUCION" ${record.tipo_movimiento === 'DEVOLUCION' ? 'selected' : ''}>DEVOLUCIÓN</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.78rem;">Estado</label>
+              <select id="erl-c-status" class="form-input" style="height: 36px; font-size: 0.85rem;">
+                <option value="pendiente" ${(record.status || 'pendiente') === 'pendiente' ? 'selected' : ''}>Pendiente</option>
+                <option value="procesado" ${record.status === 'procesado' ? 'selected' : ''}>Confirmado / Procesado</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.78rem;">Ref. Pedido *</label>
+              <input type="text" id="erl-c-ref-pedido" class="form-input" value="${esc(record.referencia_pedido || '')}" style="height: 36px; font-size: 0.85rem; font-family: monospace;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.78rem;">Fecha y Hora</label>
+              <input type="datetime-local" id="erl-c-created-at" class="form-input" value="${esc(dtValue)}" style="height: 36px; font-size: 0.82rem;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.78rem;">Transporte / Courier</label>
+              <input type="text" id="erl-c-transporte" class="form-input" value="${esc(record.transporte || '')}" style="height: 36px; font-size: 0.85rem;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.78rem;">Sucursal / Comuna</label>
+              <input type="text" id="erl-c-sucursal" class="form-input" value="${esc(record.sucursal || '')}" style="height: 36px; font-size: 0.85rem;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.78rem;">Tracking / Ref. Transporte</label>
+              <input type="text" id="erl-c-tracking" class="form-input" value="${esc(record.referencia_transporte || '')}" style="height: 36px; font-size: 0.85rem; font-family: monospace;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.78rem;">Nombre Cliente</label>
+              <input type="text" id="erl-c-customer-name" class="form-input" value="${esc(record.customer_name || '')}" style="height: 36px; font-size: 0.85rem;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.78rem;">Teléfono Cliente</label>
+              <input type="text" id="erl-c-customer-phone" class="form-input" value="${esc(record.customer_phone || '')}" style="height: 36px; font-size: 0.85rem;">
+            </div>
+          </div>
+
+          <!-- Productos que ingresan -->
+          <div style="border: 1px solid rgba(239,68,68,0.3); background: rgba(239,68,68,0.03); border-radius: var(--radius-md); padding: 0.85rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <strong style="font-size: 0.85rem; color: #b91c1c;"><i class="ri-arrow-left-down-line"></i> Productos que Ingresan (Devueltos)</strong>
+              <button type="button" class="btn btn-outline" id="btn-erl-c-add-inc" style="padding: 0.2rem 0.6rem; font-size: 0.76rem;">+ Agregar Fila</button>
+            </div>
+            <div id="erl-c-inc-rows" style="display: flex; flex-direction: column; gap: 0.4rem;"></div>
+          </div>
+
+          <!-- Productos que salen -->
+          <div id="erl-c-out-section" style="border: 1px solid rgba(16,185,129,0.3); background: rgba(16,185,129,0.03); border-radius: var(--radius-md); padding: 0.85rem; ${record.tipo_movimiento === 'DEVOLUCION' && outgoingList.length === 0 ? 'display:none;' : ''}">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <strong style="font-size: 0.85rem; color: #047857;"><i class="ri-arrow-right-up-line"></i> Productos que Salen (Reemplazo)</strong>
+              <button type="button" class="btn btn-outline" id="btn-erl-c-add-out" style="padding: 0.2rem 0.6rem; font-size: 0.76rem;">+ Agregar Fila</button>
+            </div>
+            <div id="erl-c-out-rows" style="display: flex; flex-direction: column; gap: 0.4rem;"></div>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-size: 0.78rem;">Observaciones / Comentarios</label>
+            <textarea id="erl-c-comentarios" class="form-input" rows="2" style="font-size: 0.85rem;">${esc(record.comentarios || '')}</textarea>
+          </div>
+        </div>
+
+        <div class="modal-footer" style="padding: 0.9rem 1.4rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.6rem;">
+          <button type="button" class="btn btn-outline" id="btn-cancel-erl-client">Cancelar</button>
+          <button type="button" class="btn btn-primary" id="btn-save-erl-client" style="background: #d97706; border-color: #d97706; font-weight: 700;">
+            <i class="ri-save-3-line"></i> Guardar Cambios
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+    setTimeout(() => modal.classList.add('active'), 10);
+
+    const closeModal = () => {
+      modal.classList.remove('active');
+      setTimeout(() => modal.remove(), 220);
+    };
+    modal.querySelector('#btn-close-erl-client')?.addEventListener('click', closeModal);
+    modal.querySelector('#btn-cancel-erl-client')?.addEventListener('click', closeModal);
+
+    const incContainer = modal.querySelector('#erl-c-inc-rows');
+    const outContainer = modal.querySelector('#erl-c-out-rows');
+
+    const addIncRow = (it = { id: '', sku: '', name: '', qty: 1, returnToStock: true, comment: '' }) => {
+      const r = document.createElement('div');
+      r.className = 'erl-c-inc-row';
+      r.dataset.productId = it.id || '';
+      r.style.cssText = 'display: grid; grid-template-columns: 65px 130px 1fr 110px 150px 32px; gap: 0.4rem; align-items: center;';
+      r.innerHTML = `
+        <input type="number" class="form-input erl-qty" value="${Number(it.qty) || 1}" min="1" style="height: 32px; font-size: 0.82rem; text-align: center;">
+        <input type="text" class="form-input erl-sku" value="${esc(it.sku)}" placeholder="SKU" style="height: 32px; font-size: 0.8rem; font-family: monospace;">
+        <input type="text" class="form-input erl-name" value="${esc(it.name)}" placeholder="Nombre producto devuelto *" style="height: 32px; font-size: 0.82rem;">
+        <label style="display:flex; align-items:center; gap:0.3rem; font-size:0.75rem; margin:0; cursor:pointer;">
+          <input type="checkbox" class="erl-stock" ${it.returnToStock !== false ? 'checked' : ''}> Suma Stock
+        </label>
+        <input type="text" class="form-input erl-comment" value="${esc(it.comment)}" placeholder="Comentario" style="height: 32px; font-size: 0.78rem;">
+        <button type="button" class="btn btn-outline erl-del" style="height: 32px; padding: 0; color: #ef4444;"><i class="ri-delete-bin-line"></i></button>
+      `;
+      r.querySelector('.erl-del')?.addEventListener('click', () => r.remove());
+      incContainer.appendChild(r);
+    };
+
+    const addOutRow = (it = { id: '', sku: '', name: '', qty: 1, comment: '' }) => {
+      const r = document.createElement('div');
+      r.className = 'erl-c-out-row';
+      r.dataset.productId = it.id || '';
+      r.style.cssText = 'display: grid; grid-template-columns: 65px 130px 1fr 150px 32px; gap: 0.4rem; align-items: center;';
+      r.innerHTML = `
+        <input type="number" class="form-input erl-qty" value="${Number(it.qty) || 1}" min="1" style="height: 32px; font-size: 0.82rem; text-align: center;">
+        <input type="text" class="form-input erl-sku" value="${esc(it.sku)}" placeholder="SKU" style="height: 32px; font-size: 0.8rem; font-family: monospace;">
+        <input type="text" class="form-input erl-name" value="${esc(it.name)}" placeholder="Nombre producto reemplazo *" style="height: 32px; font-size: 0.82rem;">
+        <input type="text" class="form-input erl-comment" value="${esc(it.comment)}" placeholder="Comentario" style="height: 32px; font-size: 0.78rem;">
+        <button type="button" class="btn btn-outline erl-del" style="height: 32px; padding: 0; color: #ef4444;"><i class="ri-delete-bin-line"></i></button>
+      `;
+      r.querySelector('.erl-del')?.addEventListener('click', () => r.remove());
+      outContainer.appendChild(r);
+    };
+
+    incomingList.forEach(addIncRow);
+    outgoingList.forEach(addOutRow);
+
+    modal.querySelector('#btn-erl-c-add-inc')?.addEventListener('click', () => addIncRow());
+    modal.querySelector('#btn-erl-c-add-out')?.addEventListener('click', () => addOutRow());
+    modal.querySelector('#erl-c-tipo')?.addEventListener('change', (e) => {
+      const sec = modal.querySelector('#erl-c-out-section');
+      if (sec) sec.style.display = e.target.value === 'CAMBIO' ? 'block' : 'none';
+      if (e.target.value === 'CAMBIO' && outContainer.children.length === 0) addOutRow();
+    });
+
+    modal.querySelector('#btn-save-erl-client')?.addEventListener('click', async () => {
+      const comercio = (modal.querySelector('#erl-c-comercio')?.value || '').trim();
+      const tipo = modal.querySelector('#erl-c-tipo')?.value || 'DEVOLUCION';
+      const status = modal.querySelector('#erl-c-status')?.value || 'pendiente';
+      const refPedido = (modal.querySelector('#erl-c-ref-pedido')?.value || '').trim();
+      const createdAtVal = modal.querySelector('#erl-c-created-at')?.value || '';
+      const transporte = (modal.querySelector('#erl-c-transporte')?.value || '').trim();
+      const sucursal = (modal.querySelector('#erl-c-sucursal')?.value || '').trim();
+      const tracking = (modal.querySelector('#erl-c-tracking')?.value || '').trim();
+      const customerName = (modal.querySelector('#erl-c-customer-name')?.value || '').trim();
+      const customerPhone = (modal.querySelector('#erl-c-customer-phone')?.value || '').trim();
+      const comentarios = (modal.querySelector('#erl-c-comentarios')?.value || '').trim();
+
+      const incProds = [];
+      incContainer.querySelectorAll('.erl-c-inc-row').forEach(r => {
+        const sku = (r.querySelector('.erl-sku')?.value || '').trim();
+        const name = (r.querySelector('.erl-name')?.value || '').trim();
+        const qty = Math.max(1, parseInt(r.querySelector('.erl-qty')?.value, 10) || 1);
+        const returnToStock = Boolean(r.querySelector('.erl-stock')?.checked);
+        const comment = (r.querySelector('.erl-comment')?.value || '').trim();
+        if (sku || name) incProds.push({ id: r.dataset.productId || null, sku, name: name || sku, qty, returnToStock, comment });
+      });
+
+      const outProds = [];
+      if (tipo === 'CAMBIO') {
+        outContainer.querySelectorAll('.erl-c-out-row').forEach(r => {
+          const sku = (r.querySelector('.erl-sku')?.value || '').trim();
+          const name = (r.querySelector('.erl-name')?.value || '').trim();
+          const qty = Math.max(1, parseInt(r.querySelector('.erl-qty')?.value, 10) || 1);
+          const comment = (r.querySelector('.erl-comment')?.value || '').trim();
+          if (sku || name) outProds.push({ id: r.dataset.productId || null, sku, name: name || sku, qty, comment });
+        });
+      }
+
+      const maxLen = Math.max(incProds.length, outProds.length);
+      const productosPayload = [];
+      for (let i = 0; i < maxLen; i++) {
+        const inc = incProds[i];
+        const out = outProds[i];
+        productosPayload.push({
+          producto_devuelto: inc ? (inc.sku ? `[${inc.sku}] ${inc.name}` : inc.name) : null,
+          id_devuelto: inc ? inc.id : null,
+          qty_devuelto: inc ? inc.qty : 0,
+          regresar_a_inventario: inc ? inc.returnToStock : false,
+          producto_reemplazo: out ? (out.sku ? `[${out.sku}] ${out.name}` : out.name) : null,
+          id_reemplazo: out ? out.id : null,
+          qty_reemplazo: out ? out.qty : 0,
+          cantidad: (inc ? inc.qty : 0) + (out ? out.qty : 0),
+          comentario: (inc && inc.comment) ? inc.comment : ((out && out.comment) ? out.comment : '')
+        });
+      }
+
+      const totalInc = incProds.reduce((a, b) => a + b.qty, 0);
+      const totalOut = outProds.reduce((a, b) => a + b.qty, 0);
+      const cantidadTotal = tipo === 'CAMBIO' ? Math.max(totalInc, totalOut) : totalInc;
+
+      const payload = {
+        comercio,
+        tipo_movimiento: tipo,
+        status,
+        referencia_pedido: refPedido,
+        transporte,
+        sucursal,
+        referencia_transporte: tracking,
+        customer_name: customerName || null,
+        customer_phone: customerPhone || null,
+        productos: productosPayload,
+        cantidad_total: cantidadTotal,
+        comentarios
+      };
+      if (createdAtVal) {
+        const d = new Date(createdAtVal);
+        if (!isNaN(d.getTime())) payload.created_at = d.toISOString();
+      }
+
+      const btn = modal.querySelector('#btn-save-erl-client');
+      try {
+        btn.disabled = true;
+        btn.textContent = 'Guardando...';
+        const { error } = await supabase.from('reverse_logistics').update(payload).eq('id', record.id);
+        if (error) throw error;
+        closeModal();
+        if (typeof Swal !== 'undefined') Swal.fire('¡Actualizado!', 'El movimiento fue editado correctamente.', 'success');
+        await fetchAndRenderReturnsData();
+      } catch (err) {
+        alert('Error al guardar: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ri-save-3-line"></i> Guardar Cambios';
+      }
+    });
+  } catch (e) {
+    console.error('Error abriendo editor:', e);
   }
 };
 
@@ -44917,7 +45872,7 @@ async function buildClientShopifyExportDataset(selectedOrders) {
         sku: oi.products?.sku || oi.sku || "",
         requires_shipping: true,
         taxable: true,
-        fulfillment_status: order.estado_wms === 'Despachado' ? 'fulfilled' : null,
+        fulfillment_status: (order.estado_wms === 'Despachado' || order.estado_wms === 'Entregado') ? 'fulfilled' : null,
         vendor: "WMS STOCKA"
       }));
     } else {
@@ -44928,7 +45883,7 @@ async function buildClientShopifyExportDataset(selectedOrders) {
         sku: order.sku || "",
         requires_shipping: true,
         taxable: true,
-        fulfillment_status: order.estado_wms === 'Despachado' ? 'fulfilled' : null,
+        fulfillment_status: (order.estado_wms === 'Despachado' || order.estado_wms === 'Entregado') ? 'fulfilled' : null,
         vendor: "WMS STOCKA"
       }];
     }
@@ -44989,9 +45944,10 @@ async function buildClientShopifyExportDataset(selectedOrders) {
       finStatus = 'paid';
     }
 
-    const fulfillStatus = raw.fulfillment_status || (order.estado_wms === 'Despachado' ? 'fulfilled' : '');
+    const isWmsFulfilled = order.estado_wms === 'Despachado' || order.estado_wms === 'Entregado';
+    const fulfillStatus = raw.fulfillment_status || (isWmsFulfilled ? 'fulfilled' : '');
     const paidAt = raw.processed_at || (finStatus === 'paid' ? (order.created_at || new Date().toISOString()) : '');
-    const fulfilledAt = order.estado_wms === 'Despachado' ? (order.fecha_procesamiento || order.created_at || '') : '';
+    const fulfilledAt = isWmsFulfilled ? (order.delivered_at || order.fecha_procesamiento || order.created_at || '') : '';
     const currency = raw.currency || "CLP";
     const subtotal = raw.subtotal_price || (Number(order.total_value) || 0).toFixed(2);
     const shipping = raw.total_shipping_price_set?.shop_money?.amount || "0.00";
@@ -56663,15 +57619,47 @@ window.initWizardOrder = function() {
   const btnSubmit = document.getElementById('btn-wizard-submit');
 
   if (btnNext) {
-    btnNext.onclick = function() {
-      if (window.validateWizardStep(window.currentWizardStep)) {
-        window.currentWizardStep++;
-        window.updateWizardUI();
-        if (window.currentWizardStep === 3) {
-          window.calculateShippingQuote();
-        } else if (window.currentWizardStep === 4) {
-          window.populateWizardSummary();
+    btnNext.onclick = async function() {
+      if (!window.validateWizardStep(window.currentWizardStep)) return;
+
+      if (window.currentWizardStep === 3 && typeof window.checkManualOrderNumberAvailability === 'function') {
+        const isAutoNum = document.getElementById('order-number-auto')?.checked;
+        const rawOrderNum = document.getElementById('order-cust-external-id')?.value.trim() || '';
+        if (!isAutoNum && rawOrderNum) {
+          const commerceVal = document.getElementById('order-select-commerce')?.value?.trim() ||
+            (typeof currentCompany !== 'undefined' && currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
+          const prevHtml = btnNext.innerHTML;
+          btnNext.disabled = true;
+          btnNext.innerHTML = '<i class="ri-loader-4-line spin"></i> Verificando N°...';
+          try {
+            const dupCheck = await window.checkManualOrderNumberAvailability(rawOrderNum, commerceVal, { mode: 'client' });
+            if (dupCheck.isDuplicate && typeof window.promptDuplicateOrderNumberResolution === 'function') {
+              btnNext.disabled = false;
+              btnNext.innerHTML = prevHtml;
+              const resolution = await window.promptDuplicateOrderNumberResolution(dupCheck, {
+                mode: 'client',
+                stage: 'wizard'
+              });
+              if (!resolution || resolution.action === 'cancel') {
+                return;
+              }
+            }
+          } finally {
+            btnNext.disabled = false;
+            btnNext.innerHTML = prevHtml;
+          }
         }
+      }
+
+      window.currentWizardStep++;
+      window.updateWizardUI();
+      if (window.currentWizardStep === 3) {
+        window.calculateShippingQuote();
+        if (typeof window.triggerManualOrderNumberLiveCheck === 'function') {
+          window.triggerManualOrderNumberLiveCheck('client', true);
+        }
+      } else if (window.currentWizardStep === 4) {
+        window.populateWizardSummary();
       }
     };
   }
@@ -56770,9 +57758,26 @@ window.initWizardOrder = function() {
   if (autoOrderNumCheckbox && extOrderIdInput) {
     autoOrderNumCheckbox.onchange = function() {
       extOrderIdInput.style.display = this.checked ? 'none' : 'block';
-      if (!this.checked) extOrderIdInput.focus();
+      if (this.checked) {
+        if (typeof window.resetManualOrderNumberFeedback === 'function') {
+          window.resetManualOrderNumberFeedback();
+        }
+      } else {
+        extOrderIdInput.focus();
+        if (extOrderIdInput.value.trim() && typeof window.triggerManualOrderNumberLiveCheck === 'function') {
+          window.triggerManualOrderNumberLiveCheck('client', true);
+        }
+      }
     };
     extOrderIdInput.style.display = autoOrderNumCheckbox.checked ? 'none' : 'block';
+  }
+
+  if (typeof window.setupManualOrderNumberLiveValidation === 'function') {
+    window.setupManualOrderNumberLiveValidation(
+      'client',
+      () => document.getElementById('order-select-commerce')?.value?.trim() ||
+            (typeof currentCompany !== 'undefined' && currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA')
+    );
   }
 
   // Listeners para refrescar cotización en tiempo real

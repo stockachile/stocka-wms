@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const xlsx = require('xlsx');
 const { createClient } = require('@supabase/supabase-js');
+const { buildPickerOrderMeta, resolveProductImageForPicker } = require('./services/picker_order_meta');
 
 // Cargar archivo .env localmente de forma manual
 const envPath = path.join(__dirname, '.env');
@@ -304,10 +305,18 @@ async function sendSingleOrderToPicker(order) {
     .in('order_number', searchNumbers);
 
   if (existingActive && existingActive.length > 0) {
+    const orderMeta = buildPickerOrderMeta({ ...order, operador: 'ALPHA' });
     const updPayload = {
       tracking: cleanDid,
       operator: 'ALPHA',
-      sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)'
+      sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
+      platform: orderMeta.platform,
+      platform_logo: orderMeta.platform_logo,
+      shipping_method: orderMeta.shipping_method,
+      payment_status: orderMeta.payment_status,
+      coverage: orderMeta.coverage,
+      order_tags: orderMeta.order_tags,
+      order_sla: orderMeta.order_sla
     };
     if (hasPickingReq) {
       updPayload.has_picking_requests = true;
@@ -342,6 +351,8 @@ async function sendSingleOrderToPicker(order) {
   const totu = physicalItems.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
   const payloads = [];
 
+  const orderMeta = buildPickerOrderMeta({ ...order, operador: 'ALPHA' });
+
   for (const item of physicalItems) {
     const prod = item.products || {};
     const opt = prod.options || {};
@@ -369,6 +380,7 @@ async function sendSingleOrderToPicker(order) {
     if (pickingTag) {
       finalObs = finalObs ? `${pickingTag} | ${finalObs}` : pickingTag;
     }
+    const resolvedImg = resolveProductImageForPicker(prod, order);
 
     payloads.push({
       sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
@@ -394,7 +406,7 @@ async function sendSingleOrderToPicker(order) {
       contact_data_s: order.shipping_address || '',
       contact_data_t: order.shipping_city || '',
       contact_data_u: order.shipping_complement || '',
-      extra_col_v: prod.image_url || '',
+      extra_col_v: resolvedImg || '',
       comercio: order.comercio || 'MAGIC MAKEUP',
       created_by: 'Sistema WMS',
       picking_match_strict: commerceStrict || prod.picking_match_strict || false,
@@ -402,7 +414,14 @@ async function sendSingleOrderToPicker(order) {
       picking_requests_json: pickingReqJson,
       picking_requests_confirmed: pickingReqConfirmed,
       picking_requests_operator: pickingReqOperator,
-      picking_requests_confirmed_at: pickingReqConfirmedAt
+      picking_requests_confirmed_at: pickingReqConfirmedAt,
+      platform: orderMeta.platform,
+      platform_logo: orderMeta.platform_logo,
+      shipping_method: orderMeta.shipping_method,
+      payment_status: orderMeta.payment_status,
+      coverage: orderMeta.coverage,
+      order_tags: orderMeta.order_tags,
+      order_sla: orderMeta.order_sla
     });
   }
 

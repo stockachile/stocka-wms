@@ -474,6 +474,9 @@ async function syncMerchantOrders(integration) {
       let shouldInsertItems = false;
 
       if (existingOrder) {
+        if (existingOrder.estado_wms === 'Entregado') {
+          continue;
+        }
         const existingRaw = existingOrder.raw_paris_data || {};
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
@@ -530,7 +533,13 @@ async function syncMerchantOrders(integration) {
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${finalOrderId} cancelado en París. Actualizado en el WMS (estado_wms: ${cancelUpdate.estado_wms || existingOrder.estado_wms}).`);
         } else {
-          // Actualizar datos del pedido manteniendo el estado WMS actual
+          const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
+          if (isDelivered && !['entregado', 'cancelado', 'archivado'].includes(currentWmsState)) {
+            orderDataToUpdate.status = 'entregado';
+            orderDataToUpdate.estado_wms = 'Entregado';
+            orderDataToUpdate.closed_by_automation = 'auto-marketplace-delivered-to-entregado';
+          }
+          // Actualizar datos del pedido manteniendo el estado WMS actual (o cerrando en Entregado si corresponde)
           await supabase
             .from('orders')
             .update(orderDataToUpdate)
@@ -575,16 +584,24 @@ async function syncMerchantOrders(integration) {
       if (localOrderId && shouldInsertItems) {
 
         for (const [sku, qty] of Object.entries(itemQuantities)) {
+          const orderItemDetail = allItems.find(item => {
+            let itemSku = item.sellerSku || item.sku;
+            if (!itemSku) return false;
+            let cleanItemSku = itemSku.replace(/\s+/g, '');
+            let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+            return mappedItemSku === sku;
+          });
+          const itemImageUrl = orderItemDetail?.imagePath || orderItemDetail?.imageUrl || orderItemDetail?.thumbnail || null;
+
           // Buscar producto por SKU en la base de datos
           let { data: product } = await supabase
             .from('products')
-            .select('id, comercio')
+            .select('id, comercio, image_url')
             .eq('comercio', integration.comercio)
             .eq('sku', sku)
             .maybeSingle();
 
           if (product && product.comercio !== integration.comercio) {
-            // Actualizar el comercio para mantenerlo al día con la integración
             await supabase
               .from('products')
               .update({ comercio: integration.comercio })
@@ -592,15 +609,12 @@ async function syncMerchantOrders(integration) {
             product.comercio = integration.comercio;
           }
 
+          if (product && !product.image_url && itemImageUrl) {
+            await supabase.from('products').update({ image_url: itemImageUrl }).eq('id', product.id);
+            product.image_url = itemImageUrl;
+          }
+
           if (!product) {
-            // Auto-crear producto faltante
-            const orderItemDetail = allItems.find(item => {
-              let itemSku = item.sellerSku || item.sku;
-              if (!itemSku) return false;
-              let cleanItemSku = itemSku.replace(/\s+/g, '');
-              let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
-              return mappedItemSku === sku;
-            });
             const productName = orderItemDetail?.name || 'Producto París ' + sku;
             const productPrice = Number(orderItemDetail?.priceAfterDiscounts || orderItemDetail?.grossPrice || 0);
 
@@ -612,10 +626,11 @@ async function syncMerchantOrders(integration) {
                 sku: sku,
                 name: productName,
                 price: productPrice,
+                image_url: itemImageUrl,
                 description: 'Creado automáticamente desde integración de París (Cencosud)',
                 raw_paris_data: orderItemDetail
               }])
-              .select('id')
+              .select('id, image_url')
               .single();
 
             if (!prodErr && newProd) {

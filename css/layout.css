@@ -269,6 +269,7 @@
 
   .sidebar-flyout-group:hover > .sidebar-flyout-panel,
   .sidebar-flyout-group.flyout-open > .sidebar-flyout-panel,
+  .sidebar-flyout-group.flyout-subhover-keep > .sidebar-flyout-panel,
   .sidebar-flyout-group.tour-force-open > .sidebar-flyout-panel {
     opacity: 1;
     pointer-events: auto;
@@ -5235,6 +5236,354 @@ html[data-theme="dark"] .admin-header-v2 .theme-toggle-btn.admin-dock-theme-btn 
 [data-theme="dark"] .client-dropdown-badge {
   color: #34d399;
 }
+
+/* ==========================================================================
+   Popover Resumen Hover para Ingresos de Stock Pendientes (Menú Lateral Admin)
+   ========================================================================== */
+.inbound-hover-popover {
+  position: fixed;
+  width: 296px;
+  background-color: var(--color-sidebar-bg, #0f172a);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  box-shadow: 16px 16px 38px rgba(0, 0, 0, 0.52), 0 0 0 1px rgba(59, 130, 246, 0.12);
+  padding: 0.65rem;
+  z-index: 10020;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-6px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+  font-family: var(--font-family, 'Inter', sans-serif);
+  color: #f8fafc;
+}
+
+.inbound-hover-popover.is-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+/* Puente invisible lateral para permitir mover el cursor del ítem al desglose sin perder hover */
+.inbound-hover-popover::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  bottom: -8px;
+  left: -16px;
+  width: 18px;
+  background: transparent;
+}
+
+/* Flecha indicadora lateral alineada con la opción del menú */
+.inbound-hover-popover::after {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: var(--inbound-arrow-top, 24px);
+  width: 9px;
+  height: 9px;
+  background-color: var(--color-sidebar-bg, #0f172a);
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+  transform: translateY(-50%) rotate(45deg);
+  pointer-events: none;
+}
+
+.inbound-pop-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.45rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 9px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font-family: inherit;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.inbound-pop-header:hover {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.inbound-pop-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.inbound-pop-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: rgba(59, 130, 246, 0.16);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #60a5fa;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.inbound-pop-title-stack {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.inbound-pop-title {
+  font-size: 0.77rem;
+  font-weight: 700;
+  color: #f8fafc;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+}
+
+.inbound-pop-meta {
+  font-size: 0.67rem;
+  color: #94a3b8;
+  font-weight: 500;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inbound-pop-total {
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.14rem 0.5rem;
+  border-radius: 999px;
+  line-height: 1.25;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.35);
+}
+
+.inbound-pop-total.is-zero {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  box-shadow: none;
+}
+
+.inbound-pop-bar {
+  display: flex;
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.07);
+  margin: 0.5rem 0 0.45rem;
+  gap: 2px;
+}
+
+.inbound-pop-bar-seg {
+  height: 100%;
+  min-width: 4px;
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.inbound-pop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.16rem;
+  margin-top: 0.25rem;
+}
+
+.inbound-pop-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  padding: 0.34rem 0.45rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: #e2e8f0;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.14s ease, border-color 0.14s ease, opacity 0.14s ease;
+}
+
+.inbound-pop-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+.inbound-pop-row.is-empty {
+  opacity: 0.44;
+}
+
+.inbound-pop-row.is-empty:hover {
+  opacity: 0.82;
+}
+
+.inbound-pop-row-left {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.inbound-pop-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.inbound-pop-row-icon {
+  font-size: 0.88rem;
+  flex-shrink: 0;
+}
+
+.inbound-pop-row-labels {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.inbound-pop-row-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inbound-pop-row-sub {
+  font-size: 0.64rem;
+  color: #94a3b8;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inbound-pop-row-right {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  flex-shrink: 0;
+}
+
+.inbound-pop-units {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.inbound-pop-count {
+  min-width: 1.4rem;
+  padding: 0.08rem 0.42rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.25;
+  background: rgba(255, 255, 255, 0.06);
+  color: #94a3b8;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.inbound-pop-parallel {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.3rem 0.48rem;
+  border-radius: 7px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  color: #a5b4fc;
+  font-family: inherit;
+  font-size: 0.69rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: background-color 0.14s ease, border-color 0.14s ease;
+}
+
+.inbound-pop-parallel:hover {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: rgba(99, 102, 241, 0.45);
+}
+
+.inbound-pop-parallel-badge {
+  background: #6366f1;
+  color: #ffffff;
+  border-radius: 999px;
+  padding: 0.04rem 0.38rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+.inbound-pop-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.45rem;
+  margin-top: 0.35rem;
+  border-radius: 8px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+  font-size: 0.73rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.inbound-pop-empty i {
+  font-size: 1rem;
+  color: #10b981;
+  flex-shrink: 0;
+}
+
+.inbound-pop-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.85rem 0.5rem;
+  color: #94a3b8;
+  font-size: 0.74rem;
+}
+
+.inbound-pop-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.42rem;
+  padding: 0.32rem 0.35rem 0.08rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 0.64rem;
+  color: rgba(148, 163, 184, 0.78);
+}
+
+@media (max-width: 768px) {
+  .inbound-hover-popover {
+    display: none !important;
+  }
+}
+
 
 
 

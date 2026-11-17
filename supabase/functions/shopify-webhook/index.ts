@@ -635,6 +635,24 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
   const rawWmsStatus = (existingOrder.estado_wms || '').toLowerCase().trim();
   const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
 
+  // Si el pedido ya está finalizado e inmutable en 'Entregado', NO mutar la fila ni disparar alertas operativas de "detener despacho"
+  if (rawWmsStatus === 'entregado') {
+    if (topic === "orders/cancelled" || Boolean(order.cancelled_at)) {
+      await supabase.from("order_audit_logs").insert([{
+        order_id: existingOrder.id,
+        user_email: "Shopify Webhook",
+        action: "Evento Post-Entrega en Shopify (Ignorado por Cierre WMS)",
+        details: {
+          topic,
+          shopify_cancelled_at: order.cancelled_at || null,
+          financial_status: order.financial_status || null,
+          changes: ["El pedido fue marcado como cancelado/reembolsado en Shopify después de haber sido finalizado como 'Entregado' en WMS. El estado cerrado del WMS no fue alterado."]
+        }
+      }]);
+    }
+    return;
+  }
+
   // Si es cancelación en origen, reflejamos status = "cancelado", pero SOLO pasamos estado_wms a "Cancelado"
   // si el pedido aún está en procesamiento (NUNCA si ya está En preparación, Pickeado o Despachado).
   if (topic === "orders/cancelled" || Boolean(order.cancelled_at)) {

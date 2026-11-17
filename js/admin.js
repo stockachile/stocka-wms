@@ -9,6 +9,7 @@ import { renderIdentityQRAdmin } from './identity_qr.js';
 import { renderPricingConfigAdmin } from './pricing_admin.js';
 import { renderSurveysAdmin } from './surveys.js?v=1.0.2';
 import { renderInventoryCountAdmin } from './inventory_count.js?v=1.0.9';
+import './manual_order_number_validator.js?v=1.0.0';
 
 window.renderSurveysAdmin = renderSurveysAdmin;
 window.renderInventoryCountAdmin = renderInventoryCountAdmin;
@@ -696,23 +697,71 @@ try {
   }
 } catch (e) {}
 
-window.getOptirouteActiveAssignedInfo = function(order) {
-  if (!order) return null;
-  const candidates = [
+window.getOptirouteOrderRefCandidates = function(order) {
+  if (!order) return [];
+  const rawList = [
     order.external_order_number,
     order.numero_orden,
     order.numero_pedido,
     order.id
-  ].filter(Boolean).map(x => String(x).trim().toLowerCase());
+  ].filter(Boolean).map(x => String(x).trim().toLowerCase()).filter(Boolean);
+
+  const candidates = new Set();
+  for (const c of rawList) {
+    candidates.add(c);
+    candidates.add(c.startsWith('#') ? c.substring(1) : ('#' + c));
+  }
+
+  const comercio = String(order.comercio || '').trim();
+  if (comercio) {
+    let sigla = '';
+    if (typeof window.resolveCommercePickerSigla === 'function') {
+      sigla = String(window.resolveCommercePickerSigla(comercio) || '').trim().toLowerCase();
+    } else {
+      const alpha = comercio.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      sigla = alpha.length >= 3 ? alpha.slice(0, 3).toLowerCase() : '';
+    }
+    if (sigla) {
+      const orderNums = [
+        order.external_order_number,
+        order.numero_orden,
+        order.numero_pedido
+      ].filter(Boolean).map(x => String(x).trim().toLowerCase()).filter(Boolean);
+
+      for (const rawNum of orderNums) {
+        const clean = rawNum.replace(/^#/, '').trim();
+        if (!clean) continue;
+        if (!clean.startsWith(sigla)) {
+          candidates.add(`${sigla}#${clean}`);
+          candidates.add(`#${sigla}#${clean}`);
+          candidates.add(`${sigla}${clean}`);
+          candidates.add(`#${sigla}${clean}`);
+          candidates.add(`${sigla}-${clean}`);
+        } else {
+          const rest = clean.slice(sigla.length).replace(/^[#\-_\s]+/, '').trim();
+          if (rest) {
+            candidates.add(`${sigla}#${rest}`);
+            candidates.add(`#${sigla}#${rest}`);
+            candidates.add(`${sigla}${rest}`);
+            candidates.add(`#${sigla}${rest}`);
+            candidates.add(`${sigla}-${rest}`);
+          }
+        }
+      }
+    }
+  }
+
+  return Array.from(candidates);
+};
+
+window.getOptirouteActiveAssignedInfo = function(order) {
+  if (!order) return null;
+  const candidates = window.getOptirouteOrderRefCandidates(order);
 
   if (window.optirouteActiveAssignedMap && window.optirouteActiveAssignedMap.size > 0) {
     for (const c of candidates) {
       if (window.optirouteActiveAssignedMap.has(c)) {
         return window.optirouteActiveAssignedMap.get(c);
-      }
-      const unhashed = c.startsWith('#') ? c.substring(1) : ('#' + c);
-      if (window.optirouteActiveAssignedMap.has(unhashed)) {
-        return window.optirouteActiveAssignedMap.get(unhashed);
       }
     }
   }
@@ -752,19 +801,10 @@ window.isOrderOptirouteConfirmado = function(order) {
 
   // 3. Si las referencias de rutas activas de Optiroute ya están en memoria (fuente de verdad en vivo de Optiroute API)
   if (window.optirouteActiveAssignedRefs && window.optirouteActiveAssignedRefs.size > 0) {
-    const candidates = [
-      order.external_order_number,
-      order.numero_orden,
-      order.numero_pedido,
-      order.id
-    ].filter(Boolean).map(x => String(x).trim().toLowerCase());
+    const candidates = window.getOptirouteOrderRefCandidates(order);
 
     for (const c of candidates) {
       if (window.optirouteActiveAssignedRefs.has(c)) {
-        return true;
-      }
-      const unhashed = c.startsWith('#') ? c.substring(1) : ('#' + c);
-      if (window.optirouteActiveAssignedRefs.has(unhashed)) {
         return true;
       }
     }
@@ -1338,6 +1378,38 @@ window.renderPickerStatusBadge = function(order) {
 // Sincronización en masa de operadores y estados del Picker
 window.fetchPickerOperators = async function(ordersList) {
   if (!ordersList || ordersList.length === 0) return;
+
+  // Hidratar en O(1) los pedidos cerrados en 'Entregado' desde su snapshot local sin consultar la BD externa del Picker
+  window.pickerStatusMap = window.pickerStatusMap || {};
+  window.pickerOperatorsMap = window.pickerOperatorsMap || {};
+  const openOrdersList = [];
+  ordersList.forEach(o => {
+    if (!o) return;
+    const snapPicking = o.closed_snapshot?.picking || o.picker_history_snapshot || null;
+    if (o.estado_wms === 'Entregado' && snapPicking) {
+      const stObj = {
+        status: snapPicking.status || o.picker_status || 'Completado',
+        operator: snapPicking.operator || o.picker_operator || null,
+        comercio: o.comercio || null,
+        isCompleted: true,
+        isActive: false,
+        source: 'closed_snapshot'
+      };
+      if (typeof window.registerOrderInPickerStatusMap === 'function') {
+        window.registerOrderInPickerStatusMap(o, stObj);
+      } else if (typeof window.normalizeOrderKeys === 'function') {
+        window.normalizeOrderKeys(o.external_order_number || o.id, o.comercio || '').forEach(k => {
+          window.pickerStatusMap[k] = stObj;
+          if (stObj.operator) window.pickerOperatorsMap[k] = stObj.operator;
+        });
+      }
+      return;
+    }
+    openOrdersList.push(o);
+  });
+  ordersList = openOrdersList;
+  if (ordersList.length === 0) return;
+
   const client = window.supabase ? window.supabase.createClient(
     'https://hpomymtecmxujbjxqawu.supabase.co',
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ'
@@ -1737,6 +1809,55 @@ window.openPickerOrderHistoryModal = async function(orderId) {
   const order = window.loadedOrders ? window.loadedOrders.find(o => o.id === orderId) : null;
   const orderNumber = order ? (order.external_order_number || order.id) : orderId;
   const commerceName = order ? (order.comercio || 'Sin comercio') : '';
+
+  // SHORT-CIRCUIT INMUTABLE: Si el pedido está finalizado en 'Entregado' con snapshot sellado en BD local,
+  // renderizar trazabilidad completa sin consultar la base de datos externa del Picker.
+  const localPickingSnap = order && order.estado_wms === 'Entregado'
+    ? (order.closed_snapshot?.picking || order.picker_history_snapshot || null)
+    : null;
+  if (localPickingSnap) {
+    const snapLogs = Array.isArray(localPickingSnap.history_logs) ? localPickingSnap.history_logs : [];
+    const logsHtml = snapLogs.length > 0
+      ? snapLogs.map(l => `
+          <div style="padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--color-border); font-size: 0.82rem; text-align: left;">
+            <div style="display: flex; justify-content: space-between; font-weight: 700;">
+              <span style="color: #059669;">${window.escapeHtml(l.estado || 'Evento')}</span>
+              <span style="color: var(--color-text-muted); font-size: 0.74rem;">${l.created_at ? new Date(l.created_at).toLocaleString('es-CL') : ''}</span>
+            </div>
+            <div style="margin-top: 0.18rem; color: var(--color-text-main);">
+              Operario: <strong>${window.escapeHtml(l.picker || localPickingSnap.operator || 'Sistema')}</strong>
+              ${l.scanned_label ? ` · Etiqueta: <code>${window.escapeHtml(l.scanned_label)}</code>` : ''}
+            </div>
+            ${l.comentarios ? `<div style="margin-top: 0.15rem; color: var(--color-text-muted); font-style: italic;">${window.escapeHtml(l.comentarios)}</div>` : ''}
+          </div>
+        `).join('')
+      : `<div style="padding: 0.75rem; font-size: 0.82rem; color: var(--color-text-muted);">Estado final registrado: <strong>${window.escapeHtml(localPickingSnap.status || 'Completado')}</strong></div>`;
+
+    Swal.fire({
+      title: `Trazabilidad Picker · ${window.escapeHtml(orderNumber)}`,
+      width: '620px',
+      confirmButtonText: 'Cerrar',
+      confirmButtonColor: '#059669',
+      html: `
+        <div style="text-align: left; display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.85rem;">
+          <div style="background: #ecfdf5; border: 1px solid #6ee7b7; color: #065f46; padding: 0.5rem 0.75rem; border-radius: 8px; font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-verified-badge-fill" style="font-size: 1rem;"></i>
+            <span>HISTORIAL SELLADO EN BASE DE DATOS LOCAL · Pedido Finalizado (Sin consulta externa)</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; background: var(--color-bg); padding: 0.75rem; border-radius: 8px; border: 1px solid var(--color-border);">
+            <div><span style="color: var(--color-text-muted); font-size: 0.74rem; display: block;">Estado Picking</span><strong>${window.escapeHtml(localPickingSnap.status || 'Completado')}</strong></div>
+            <div><span style="color: var(--color-text-muted); font-size: 0.74rem; display: block;">Operario</span><strong>${window.escapeHtml(localPickingSnap.operator || order.picker_operator || 'No informado')}</strong></div>
+            <div><span style="color: var(--color-text-muted); font-size: 0.74rem; display: block;">Bodega / Sucursal</span><strong>${window.escapeHtml(localPickingSnap.warehouse || localPickingSnap.sucursal || order.sucursal_pickeo || 'Matriz Ñuñoa')}</strong></div>
+            <div><span style="color: var(--color-text-muted); font-size: 0.74rem; display: block;">Etiqueta Escaneada</span><strong>${window.escapeHtml(localPickingSnap.scanned_label || order.picker_scanned_label || '-')}</strong></div>
+          </div>
+          <div style="border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; max-height: 260px; overflow-y: auto;">
+            ${logsHtml}
+          </div>
+        </div>
+      `
+    });
+    return;
+  }
 
   const client = window.supabase ? window.supabase.createClient(
     'https://hpomymtecmxujbjxqawu.supabase.co',
@@ -3088,6 +3209,22 @@ window.updateWmsOrderField = async function(orderId, field, value) {
     updatePayload[field] = value || null;
 
     const order = window.loadedOrders ? window.loadedOrders.find(o => o.id === orderId) : null;
+    if (order && order.estado_wms === 'Entregado' && field !== 'periodo_facturacion') {
+      const reopenConfirm = await Swal.fire({
+        icon: 'info',
+        title: 'Pedido Cerrado (Entregado)',
+        html: `El pedido <strong>${window.escapeHtml(order.external_order_number || order.id)}</strong> se encuentra finalizado en estado <strong>ENTREGADO</strong> y sus campos operativos son inmutables.<br><br>Solo el <strong>Periodo de Facturación</strong> y las <strong>Notas Internas</strong> son editables sin reabrir el pedido.`,
+        showCancelButton: true,
+        confirmButtonText: 'Reabrir Pedido (Admin)',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#059669'
+      });
+      applyWmsFiltersAndRender();
+      if (reopenConfirm.isConfirmed && typeof window.openReopenDeliveredOrderModal === 'function') {
+        window.openReopenDeliveredOrderModal(orderId);
+      }
+      return;
+    }
     const currentCat = order
       ? (typeof window.getOrderEffectiveCategoriaEntrega === 'function' ? window.getOrderEffectiveCategoriaEntrega(order) : String(order.categoria_entrega || '').toUpperCase().trim())
       : '';
@@ -4473,6 +4610,571 @@ window.resolveOrderTracking = function(order) {
     }
   }
   return '';
+};
+
+// =========================================================================
+// HELPERS UNIFICADOS PARA METADATOS, ETIQUETAS Y FOTOS ENVIADOS AL PICKER
+// =========================================================================
+window.resolveOrderPlatformForPicker = function(order) {
+  if (!order) return { platform: 'Manual', platformLogo: 'img/stocka.cap.png' };
+  const raw = String(order.external_platform || order.origen || '').trim();
+  const low = raw.toLowerCase();
+  const extNo = String(order.external_order_number || '').trim().toUpperCase();
+  const rawShop = order.raw_shopify_data || {};
+
+  if (rawShop.is_reverse_logistics === true || extNo.startsWith('LI-') || low.includes('inversa')) {
+    return { platform: 'Logística Inversa', platformLogo: 'img/stocka.cap.png' };
+  }
+  if (rawShop.is_pos_sale === true || extNo.startsWith('POS-') || extNo.startsWith('VTA-') || low === 'punto de venta' || low === 'pos' || low.includes('shop point')) {
+    return { platform: 'Punto de Venta', platformLogo: 'img/stocka.cap.png' };
+  }
+  if (rawShop.manual_order === true || low === 'manual' || low === 'stocka' || low === 'wms') {
+    return { platform: 'Manual', platformLogo: 'img/stocka.cap.png' };
+  }
+  if (low.includes('meli') || low.includes('mercado') || order.raw_meli_data) {
+    return { platform: 'MercadoLibre', platformLogo: 'img/mercadolibre.png' };
+  }
+  if (low.includes('falabella') || order.raw_falabella_data) {
+    return { platform: 'Falabella', platformLogo: 'img/falabella.png' };
+  }
+  if (low.includes('paris') || low.includes('parís') || order.raw_paris_data) {
+    return { platform: 'Paris', platformLogo: 'img/paris.png' };
+  }
+  if (low.includes('walmart') || order.raw_walmart_data) {
+    return { platform: 'Walmart', platformLogo: 'img/walmart.png' };
+  }
+  if (low.includes('ripley') || order.raw_ripley_data) {
+    return { platform: 'Ripley', platformLogo: 'img/ripley.png' };
+  }
+  if (low.includes('woo') || order.raw_woocommerce_data) {
+    return { platform: 'WooCommerce', platformLogo: 'img/woocommerce.png' };
+  }
+  if (low.includes('tiendanube') || low.includes('tienda nube') || order.raw_tiendanube_data) {
+    return { platform: 'Tiendanube', platformLogo: 'img/tiendanube.png' };
+  }
+  if (low.includes('jumpseller') || order.raw_jumpseller_data) {
+    return { platform: 'Jumpseller', platformLogo: 'img/jumpseller.png' };
+  }
+  if (low.includes('shopify') || order.raw_shopify_data) {
+    return { platform: 'Shopify', platformLogo: 'img/shopify.png' };
+  }
+  return { platform: raw || 'Manual', platformLogo: 'img/stocka.cap.png' };
+};
+
+window.stripSlaSuffixForPicker = function(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/\s*\((?:L[íi]mite|Limite|SLA)[\s:][^)]*\)/gi, '')
+    .replace(/\s*-\s*(?:L[íi]mite|Limite|SLA)[\s:][^)]*$/gi, '')
+    .replace(/\s*-\s*\d{1,4}[\/\-]\d{1,2}[\/\-]\d{2,4}(?:\s+\d{1,2}:\d{2})?(?:\s*:\d{2})?$/gi, '')
+    .replace(/\s*-\s*$/, '')
+    .trim();
+};
+
+window.resolveOrderSlaForPicker = function(order) {
+  if (!order) return { hasSla: false, orderSla: 'Sin info' };
+  const fmtSantiago = (rawDate, fbTime = null) => {
+    if (!rawDate) return null;
+    try {
+      const val = (typeof rawDate === 'number' || /^\d{11,}$/.test(String(rawDate).trim()))
+        ? Number(rawDate)
+        : String(rawDate).trim();
+      if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
+        const [y, m, d] = val.split('-');
+        return `${d}/${m}/${y.slice(-2)}`;
+      }
+      const isoCand = typeof val === 'string' && /^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(val)
+        ? val.replace(' ', 'T')
+        : val;
+      const dObj = new Date(isoCand);
+      if (isNaN(dObj.getTime())) return null;
+      if (typeof isoCand === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(isoCand) && !/[zZ]|[+\-]\d{2}:?\d{2}$/.test(isoCand)) {
+        const dd = String(dObj.getDate()).padStart(2, '0');
+        const mm = String(dObj.getMonth() + 1).padStart(2, '0');
+        const yy = String(dObj.getFullYear()).slice(-2);
+        const hh = String(dObj.getHours()).padStart(2, '0');
+        const mi = String(dObj.getMinutes()).padStart(2, '0');
+        return (hh === '00' && mi === '00') ? `${dd}/${mm}/${yy}` : `${dd}/${mm}/${yy} ${hh}:${mi}`;
+      }
+      const formatter = new Intl.DateTimeFormat('es-CL', {
+        timeZone: 'America/Santiago',
+        day: '2-digit', month: '2-digit', year: '2-digit',
+        hour: '2-digit', minute: '2-digit', hour12: false
+      });
+      const parts = formatter.formatToParts(dObj);
+      const dd = parts.find(p => p.type === 'day')?.value;
+      const mm = parts.find(p => p.type === 'month')?.value;
+      const yy = parts.find(p => p.type === 'year')?.value;
+      let hh = parts.find(p => p.type === 'hour')?.value;
+      let mi = parts.find(p => p.type === 'minute')?.value;
+      if (fbTime && (!hh || hh === '00')) {
+        try {
+          const fbD = new Date(fbTime);
+          if (!isNaN(fbD.getTime())) {
+            const fbP = formatter.formatToParts(fbD);
+            const fbH = fbP.find(p => p.type === 'hour')?.value;
+            const fbM = fbP.find(p => p.type === 'minute')?.value;
+            if (fbH && fbM && (fbH !== '00' || fbM !== '00')) { hh = fbH; mi = fbM; }
+          }
+        } catch (_) {}
+      }
+      if (!dd || !mm || !yy) return null;
+      return (hh && mi && (hh !== '00' || mi !== '00')) ? `${dd}/${mm}/${yy} ${hh}:${mi}` : `${dd}/${mm}/${yy}`;
+    } catch (_) {
+      return null;
+    }
+  };
+  const parseTxt = (str) => {
+    if (!str) return null;
+    const s = String(str).trim();
+    let m = s.match(/(?:L[íi]mite|Limite|SLA)[\s:]+(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/i);
+    if (m) {
+      const yy = m[3].length === 4 ? m[3].slice(-2) : m[3];
+      const t = (m[4] && m[5]) ? ` ${m[4].padStart(2, '0')}:${m[5].padStart(2, '0')}` : '';
+      return `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${yy}${t}`;
+    }
+    m = s.match(/(?:L[íi]mite|Limite|SLA)[\s:]+(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/i)
+      || s.match(/\s+-\s+(?:SLA[\s:]*)?(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?(?:\s*:\d{2})?$/i);
+    if (m) {
+      const yy = m[1].length === 4 ? m[1].slice(-2) : m[1];
+      const t = (m[4] && m[5]) ? ` ${m[4].padStart(2, '0')}:${m[5].padStart(2, '0')}` : '';
+      return `${m[3].padStart(2, '0')}/${m[2].padStart(2, '0')}/${yy}${t}`;
+    }
+    m = s.match(/\s+-\s+(?:SLA[\s:]*)?(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?(?:\s*:\d{2})?$/i);
+    if (m) {
+      const yy = m[3].length === 4 ? m[3].slice(-2) : m[3];
+      const t = (m[4] && m[5]) ? ` ${m[4].padStart(2, '0')}:${m[5].padStart(2, '0')}` : '';
+      return `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${yy}${t}`;
+    }
+    return null;
+  };
+
+  const fromShip = parseTxt(order.shipping_method);
+  if (fromShip) return { hasSla: true, orderSla: fromShip };
+  const fromOp = parseTxt(order.operador);
+  if (fromOp) return { hasSla: true, orderSla: fromOp };
+
+  const rawTags = [
+    ...(Array.isArray(order.tags) ? order.tags : String(order.tags || '').split(',')),
+    ...String(order.raw_shopify_data?.tags || '').split(',')
+  ].map(t => String(t).trim()).filter(Boolean);
+  for (const t of rawTags) {
+    const ft = parseTxt(t);
+    if (ft) return { hasSla: true, orderSla: ft };
+  }
+
+  if (order.raw_falabella_data?.PromisedShippingTime) {
+    const f = fmtSantiago(order.raw_falabella_data.PromisedShippingTime);
+    if (f) return { hasSla: true, orderSla: f };
+  }
+  if (order.raw_meli_data) {
+    const rm = Array.isArray(order.raw_meli_data) ? order.raw_meli_data[0] : order.raw_meli_data;
+    const sh = rm?.shipping || (Array.isArray(rm?.orders) ? rm.orders[0]?.shipping : null);
+    const exp = rm?.expected_date || sh?.expected_date || sh?.shipping_option?.estimated_delivery_limit?.date || sh?.shipping_option?.estimated_delivery_time?.date;
+    const pb = sh?.shipping_option?.estimated_delivery_time?.pay_before || null;
+    if (exp) {
+      const f = fmtSantiago(exp, pb);
+      if (f) return { hasSla: true, orderSla: f };
+    }
+  }
+  if (order.raw_paris_data?.subOrders?.[0]) {
+    const so = order.raw_paris_data.subOrders[0];
+    const pd = so.dispatchDate || so.arrivalDateEnd || so.arrivalDate;
+    if (pd) {
+      const f = fmtSantiago(pd);
+      if (f) return { hasSla: true, orderSla: f };
+    }
+  }
+  if (order.raw_walmart_data?.shippingInfo) {
+    const wd = order.raw_walmart_data.shippingInfo.estimatedShipDate || order.raw_walmart_data.shippingInfo.estimatedDeliveryDate;
+    if (wd) {
+      const f = fmtSantiago(wd);
+      if (f) return { hasSla: true, orderSla: f };
+    }
+  }
+  if (order.raw_ripley_data?.shipping_deadline) {
+    const f = fmtSantiago(order.raw_ripley_data.shipping_deadline);
+    if (f) return { hasSla: true, orderSla: f };
+  }
+  return { hasSla: false, orderSla: 'Sin info' };
+};
+
+window.resolveCustomerShippingMethodForPicker = function(order) {
+  if (!order) return '';
+  const direct = window.stripSlaSuffixForPicker(String(order.shipping_method || '').trim());
+  if (direct && direct !== '-' && direct.toLowerCase() !== 'por definir' && direct.toLowerCase() !== 'no informado') {
+    return direct;
+  }
+  if (order.raw_shopify_data?.shipping_lines?.length) {
+    const t = order.raw_shopify_data.shipping_lines.map(s => s?.title || s?.code).filter(Boolean).join(', ').trim();
+    if (t) return t;
+  }
+  if (order.raw_woocommerce_data?.shipping_lines?.length) {
+    const t = order.raw_woocommerce_data.shipping_lines.map(s => s?.method_title || s?.method_id).filter(Boolean).join(', ').trim();
+    if (t) return t;
+  }
+  if (order.raw_tiendanube_data) {
+    const t = String(order.raw_tiendanube_data.shipping_option || order.raw_tiendanube_data.shipping_pickup_details?.name || '').trim();
+    if (t) return t;
+  }
+  if (order.raw_jumpseller_data) {
+    const t = String(order.raw_jumpseller_data.shipping_method_name || order.raw_jumpseller_data.external_shipping_rate_description || order.raw_jumpseller_data.shipping_option || '').trim();
+    if (t) return t;
+  }
+  if (order.raw_falabella_data?.ShippingType) {
+    return String(order.raw_falabella_data.ShippingType).trim();
+  }
+  if (order.raw_paris_data?.subOrders?.[0]) {
+    const so = order.raw_paris_data.subOrders[0];
+    const t = String(so.deliveryOption?.translate || so.deliveryOption?.name || so.carrier || '').trim();
+    if (t) return t;
+  }
+  if (order.raw_walmart_data?.shippingInfo?.methodCode) {
+    return String(order.raw_walmart_data.shippingInfo.methodCode).trim();
+  }
+  if (order.raw_ripley_data) {
+    const t = String(order.raw_ripley_data.shipping_type_label || order.raw_ripley_data.shipping_company || '').trim();
+    if (t) return t;
+  }
+  return direct || '';
+};
+
+window.resolveOrderPaymentForPicker = function(order) {
+  if (!order) return { paymentStatus: 'NO PAGADO', isPorPagar: false };
+  const opUpper = String(order.operador || '').toUpperCase().trim();
+  const curUpper = String(order.courier || '').toUpperCase().trim();
+  const shipUpper = String(order.shipping_method || '').toUpperCase().trim();
+  const rawFin = String(order.raw_shopify_data?.financial_status || order.payment_status || '').toLowerCase().trim();
+
+  const isPorPagar =
+    opUpper.includes('POR PAGAR') ||
+    curUpper.includes('POR PAGAR') ||
+    shipUpper.includes('POR PAGAR') ||
+    rawFin === 'por_pagar' ||
+    rawFin === 'por pagar';
+
+  const { platform } = window.resolveOrderPlatformForPicker(order);
+  const isMarketplace = ['Falabella', 'MercadoLibre', 'Paris', 'Walmart', 'Ripley'].includes(platform);
+  const orderStatusLower = String(order.status || '').toLowerCase().trim();
+
+  const refundedOrVoided = [
+    'refunded', 'reembolsado', 'reembolsada',
+    'partially_refunded', 'parcialmente_reembolsado',
+    'voided', 'anulado', 'cancelled', 'canceled'
+  ];
+
+  if (isMarketplace && orderStatusLower !== 'cancelado' && !refundedOrVoided.includes(rawFin)) {
+    return { paymentStatus: 'PAGADO', isPorPagar };
+  }
+
+  const unpaidStates = new Set([
+    ...refundedOrVoided,
+    'pending', 'pendiente', 'unpaid', 'no pagado', 'por_pagar', 'por pagar',
+    'partially_paid', 'parcialmente_pagado', 'abandoned', 'abandonado',
+    'open', 'failed', 'waiting_debit_payment', 'waiting_acceptance'
+  ]);
+  if (unpaidStates.has(rawFin)) {
+    return { paymentStatus: 'NO PAGADO', isPorPagar };
+  }
+
+  const paidStates = new Set([
+    'paid', 'pagado', 'completed', 'confirmed', 'approved', 'cobrado',
+    'authorized', 'autorizado', 'shipped', 'delivered', 'acknowledged',
+    'created', 'shipping', 'packing', 'waiting_shipping', 'processing'
+  ]);
+  if (paidStates.has(rawFin)) {
+    return { paymentStatus: 'PAGADO', isPorPagar };
+  }
+
+  if (order.raw_woocommerce_data) {
+    const wcSt = String(order.raw_woocommerce_data.status || '').toLowerCase();
+    if (wcSt === 'processing' || wcSt === 'completed' || order.raw_woocommerce_data.date_paid) {
+      return { paymentStatus: 'PAGADO', isPorPagar };
+    }
+  }
+
+  if (['Manual', 'Punto de Venta', 'Logística Inversa'].includes(platform)) {
+    return { paymentStatus: 'PAGADO', isPorPagar };
+  }
+
+  return { paymentStatus: 'NO PAGADO', isPorPagar };
+};
+
+window.resolveOrderCoverageForPicker = function(order) {
+  if (!order) return null;
+  const rawCity = String(order.shipping_city || order.comuna_destino || '').trim();
+  const candidates = [];
+  if (rawCity && rawCity.toLowerCase() !== 'no especificada' && rawCity.toLowerCase() !== 'sin comuna') {
+    candidates.push(rawCity);
+    rawCity.split(/[,/\-()]+/).forEach(part => {
+      const t = part.trim();
+      if (t) candidates.push(t);
+    });
+  }
+  for (const cand of candidates) {
+    if (window.isAlphaComunaExact && window.isAlphaComunaExact(cand)) return 'RM';
+    if (window.isChileComuna && window.isChileComuna(cand)) return 'REGIONES';
+  }
+  const agendaUpper = String(order.agenda || '').toUpperCase().trim();
+  if (agendaUpper === 'RM' || agendaUpper === 'RM-STK') return 'RM';
+  if (agendaUpper.includes('REGION')) return 'REGIONES';
+  return null;
+};
+
+window.buildOrderTagsForPicker = function(order) {
+  if (!order) return [];
+  const tags = [];
+  const addTag = (t) => {
+    if (t && !tags.includes(t)) tags.push(t);
+  };
+
+  const { platform } = window.resolveOrderPlatformForPicker(order);
+  const shipMethod = window.resolveCustomerShippingMethodForPicker(order);
+  const shipUpper = shipMethod.toUpperCase();
+  const agendaUpper = String(order.agenda || '').toUpperCase().trim();
+  const opUpper = String(order.operador || '').toUpperCase().trim();
+  const curUpper = String(order.courier || '').toUpperCase().trim();
+  const catEntrega = (typeof window.getOrderEffectiveCategoriaEntrega === 'function')
+    ? window.getOrderEffectiveCategoriaEntrega(order)
+    : String(order.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
+  const { paymentStatus, isPorPagar } = window.resolveOrderPaymentForPicker(order);
+  const coverage = window.resolveOrderCoverageForPicker(order);
+
+  addTag(paymentStatus);
+  if (isPorPagar) addTag('POR PAGAR');
+
+  const rawMeliObj = Array.isArray(order.raw_meli_data) ? order.raw_meli_data[0] : order.raw_meli_data;
+  const rawMeliLogistic = String(
+    rawMeliObj?.shipping?.logistic_type ||
+    rawMeliObj?.orders?.[0]?.shipping?.logistic_type ||
+    order.shipping_type ||
+    ''
+  ).toLowerCase().trim();
+
+  const isMeli = platform === 'MercadoLibre' || !!order.raw_meli_data;
+  const isFalabella = platform === 'Falabella' || !!order.raw_falabella_data || agendaUpper.includes('FALABELLA') || opUpper.includes('FALABELLA') || curUpper.includes('FALABELLA');
+  const isParis = platform === 'Paris' || !!order.raw_paris_data || agendaUpper.includes('PARIS') || opUpper.includes('PARIS') || curUpper.includes('PARIS');
+  const isWalmart = platform === 'Walmart' || !!order.raw_walmart_data || agendaUpper.includes('WALMART') || opUpper.includes('WALMART') || curUpper.includes('WALMART');
+
+  const isExplicitCentroEnvio =
+    shipUpper.includes('CENTRO DE ENVIO') ||
+    shipUpper.includes('CENTRO DE ENVÍO') ||
+    shipUpper.includes('CENTRO ENVIO') ||
+    shipUpper.includes('CENTRO ENVÍO') ||
+    agendaUpper.includes('CENTRO DE ENVIO') ||
+    agendaUpper.includes('CENTRO DE ENVÍOS') ||
+    opUpper.includes('CENTRO DE ENVIO') ||
+    opUpper.includes('CENTRO DE ENVÍOS') ||
+    opUpper.includes('AGENCIA') ||
+    (isMeli && (
+      rawMeliLogistic === 'cross_docking' ||
+      rawMeliLogistic === 'drop_off' ||
+      rawMeliLogistic === 'xd_drop_off' ||
+      rawMeliLogistic === 'xd' ||
+      shipUpper.includes('COLECTA') ||
+      shipUpper.includes('PLACES') ||
+      shipUpper.includes('MERCADO ENV')
+    )) ||
+    (isFalabella && (
+      shipUpper.includes('OWN WAREHOUSE') ||
+      shipUpper.includes('CROSSDOCK') ||
+      shipUpper.includes('CROSS DOCK') ||
+      shipUpper.includes('CROSS-DOCK') ||
+      shipUpper.includes('FBF')
+    ));
+
+  const isFlex =
+    rawMeliLogistic === 'self_service' ||
+    rawMeliLogistic === 'flex' ||
+    shipUpper.includes('FLEX') ||
+    opUpper.includes('FLEX') ||
+    curUpper.includes('FLEX') ||
+    (!isExplicitCentroEnvio && agendaUpper.includes('FLEX'));
+
+  if (isExplicitCentroEnvio) addTag('CENTRO DE ENVÍO');
+  if (isFlex) addTag('FLEX');
+  if (isFalabella) addTag('FALABELLA');
+  if (isParis) addTag('PARIS');
+  if (isWalmart) addTag('WALMART');
+
+  if (catEntrega === 'RETIRO' || agendaUpper === 'RETIRO') {
+    addTag('RETIRO');
+  } else if ((catEntrega === 'DISTRIBUCIÓN' || catEntrega === 'DISTRIBUCION') && agendaUpper !== 'INGRESO') {
+    addTag('DISTRIBUCIÓN');
+  }
+
+  if (coverage === 'RM' || coverage === 'REGIONES') {
+    addTag(coverage);
+  }
+
+  return tags;
+};
+
+window.resolveProductImageForPicker = function(prod, order, syncedImagesMap = null) {
+  const normImg = (url, ripleyBase = '') => {
+    if (!url || typeof url !== 'string') return '';
+    let c = url.trim();
+    if (!c) return '';
+    if (c.startsWith('//')) c = 'https:' + c;
+    if (c.startsWith('http://http2.mlstatic.com')) c = c.replace(/^http:\/\//i, 'https://');
+    if (c.startsWith('/') && ripleyBase) c = ripleyBase.replace(/\/$/, '') + c;
+    return c;
+  };
+
+  if (prod?.image_url && String(prod.image_url).trim()) {
+    return normImg(prod.image_url);
+  }
+
+  const skuUpper = String(prod?.sku || '').trim().toUpperCase();
+  const comercioUpper = String(order?.comercio || prod?.comercio || '').trim().toUpperCase();
+
+  if (syncedImagesMap && skuUpper) {
+    const byComm = comercioUpper ? syncedImagesMap.get(`${comercioUpper}__${skuUpper}`) : null;
+    if (byComm) return normImg(byComm);
+    const bySku = syncedImagesMap.get(skuUpper);
+    if (bySku) return normImg(bySku);
+  }
+
+  if (prod?.raw_paris_data) {
+    const pImg = prod.raw_paris_data.imagePath || prod.raw_paris_data.imageUrl || prod.raw_paris_data.thumbnail;
+    if (pImg) return normImg(pImg);
+  }
+  if (prod?.raw_falabella_data) {
+    const rf = prod.raw_falabella_data;
+    const fImg = rf.MainImage || rf.ProductMainImage || (Array.isArray(rf.Images?.Image) ? rf.Images.Image[0] : rf.Images?.Image);
+    if (fImg) return normImg(fImg);
+    if (rf.ShopSku) {
+      const baseShopSku = String(rf.ShopSku).trim().split('_')[0];
+      if (baseShopSku) return `https://media.falabella.com/falabellaCL/${baseShopSku}_01`;
+    }
+  }
+  if (prod?.raw_jumpseller_data) {
+    const rj = prod.raw_jumpseller_data;
+    const jImg = (typeof rj.image === 'string' ? rj.image : rj.image?.url) || rj.images?.[0]?.url;
+    if (jImg) return normImg(jImg);
+  }
+  if (prod?.raw_tiendanube_data) {
+    const rt = prod.raw_tiendanube_data;
+    const tImg = rt.image?.src || (typeof rt.image === 'string' ? rt.image : '') || rt.images?.[0]?.src;
+    if (tImg) return normImg(tImg);
+  }
+  if (prod?.raw_woocommerce_data) {
+    const rw = prod.raw_woocommerce_data;
+    const wImg = rw.image?.src || rw.images?.[0]?.src;
+    if (wImg) return normImg(wImg);
+  }
+  if (prod?.raw_meli_data) {
+    const rm = prod.raw_meli_data;
+    const mImg = rm.secure_thumbnail || rm.pictures?.[0]?.secure_url || rm.pictures?.[0]?.url || rm.thumbnail;
+    if (mImg) return normImg(mImg);
+  }
+  if (prod?.raw_ripley_data) {
+    const rr = prod.raw_ripley_data;
+    const rImg = rr.product_medias?.[0]?.media_url || rr.image_url;
+    if (rImg) return normImg(rImg, 'https://ripley-prod.mirakl.net');
+  }
+
+  if (!order) return '';
+
+  const matchSku = (cand) => {
+    if (!cand || !skuUpper) return false;
+    const c = String(cand).trim().replace(/\s+/g, '').toUpperCase();
+    return c === skuUpper || c.includes(skuUpper) || skuUpper.includes(c);
+  };
+
+  if (Array.isArray(order.raw_woocommerce_data?.line_items)) {
+    const items = order.raw_woocommerce_data.line_items;
+    const hit = items.find(li => matchSku(li?.sku) || (prod?.woocommerce_variation_id && String(li?.variation_id) === String(prod.woocommerce_variation_id)) || (prod?.woocommerce_product_id && String(li?.product_id) === String(prod.woocommerce_product_id)))
+      || (items.length === 1 ? items[0] : null);
+    const src = hit?.image?.src || (typeof hit?.image === 'string' ? hit.image : '');
+    if (src) return normImg(src);
+  }
+  if (Array.isArray(order.raw_tiendanube_data?.products)) {
+    const items = order.raw_tiendanube_data.products;
+    const hit = items.find(li => matchSku(li?.sku) || (prod?.tiendanube_variant_id && String(li?.variant_id) === String(prod.tiendanube_variant_id)) || (prod?.tiendanube_product_id && String(li?.product_id) === String(prod.tiendanube_product_id)))
+      || (items.length === 1 ? items[0] : null);
+    const src = hit?.image?.src || (typeof hit?.image === 'string' ? hit.image : '');
+    if (src) return normImg(src);
+  }
+  if (Array.isArray(order.raw_jumpseller_data?.products)) {
+    const items = order.raw_jumpseller_data.products;
+    const hit = items.find(li => matchSku(li?.sku) || (prod?.jumpseller_variant_id && String(li?.variant_id) === String(prod.jumpseller_variant_id)) || (prod?.jumpseller_product_id && String(li?.product_id || li?.id) === String(prod.jumpseller_product_id)))
+      || (items.length === 1 ? items[0] : null);
+    const src = typeof hit?.image === 'string' ? hit.image : hit?.image?.url;
+    if (src) return normImg(src);
+  }
+  if (Array.isArray(order.raw_paris_data?.subOrders)) {
+    const allItems = [];
+    order.raw_paris_data.subOrders.forEach(so => {
+      if (Array.isArray(so?.items)) allItems.push(...so.items);
+    });
+    const hit = allItems.find(li => matchSku(li?.sellerSku) || matchSku(li?.sku)) || (allItems.length === 1 ? allItems[0] : null);
+    const src = hit?.imagePath || hit?.imageUrl || hit?.thumbnail;
+    if (src) return normImg(src);
+  }
+  if (Array.isArray(order.raw_ripley_data?.order_lines)) {
+    const items = order.raw_ripley_data.order_lines;
+    const hit = items.find(li => matchSku(li?.offer_sku) || matchSku(li?.product_sku)) || (items.length === 1 ? items[0] : null);
+    const src = hit?.product_medias?.[0]?.media_url || hit?.image_url;
+    if (src) return normImg(src, 'https://ripley-prod.mirakl.net');
+  }
+  if (order.raw_meli_data) {
+    const rawM = order.raw_meli_data;
+    const mOrders = Array.isArray(rawM) ? rawM : (Array.isArray(rawM.orders) ? rawM.orders : [rawM]);
+    const mItems = [];
+    mOrders.forEach(mo => { if (Array.isArray(mo?.order_items)) mItems.push(...mo.order_items); });
+    const hit = mItems.find(oi => matchSku(oi?.item?.seller_sku) || matchSku(oi?.item?.seller_custom_field) || matchSku(oi?.item?.id))
+      || (mItems.length === 1 ? mItems[0] : null);
+    const src = hit?.item?.secure_thumbnail || hit?.item?.thumbnail || '';
+    if (src) return normImg(src);
+  }
+  return '';
+};
+
+window.loadSyncedProductImagesMapForOrder = async function(items, comercio) {
+  const map = new Map();
+  try {
+    const missingSkus = (items || [])
+      .map(it => it?.products)
+      .filter(p => p && !p.image_url && p.sku)
+      .map(p => String(p.sku).trim())
+      .filter(Boolean);
+    if (missingSkus.length === 0 || !supabase) return map;
+    const uniqueSkus = Array.from(new Set(missingSkus));
+    let q = supabase.from('synced_products').select('comercio, sku, image_url').in('sku', uniqueSkus).not('image_url', 'is', null);
+    if (comercio) q = q.eq('comercio', comercio);
+    const { data } = await q;
+    (data || []).forEach(sp => {
+      const img = String(sp.image_url || '').trim();
+      const sUp = String(sp.sku || '').trim().toUpperCase();
+      const cUp = String(sp.comercio || '').trim().toUpperCase();
+      if (img && sUp) {
+        if (cUp) map.set(`${cUp}__${sUp}`, img);
+        map.set(sUp, img);
+      }
+    });
+  } catch (_) {}
+  return map;
+};
+
+window.buildPickerOrderMeta = function(order) {
+  const { platform, platformLogo } = window.resolveOrderPlatformForPicker(order);
+  const shippingMethod = window.resolveCustomerShippingMethodForPicker(order);
+  const { paymentStatus, isPorPagar } = window.resolveOrderPaymentForPicker(order);
+  const coverage = window.resolveOrderCoverageForPicker(order);
+  const orderTags = window.buildOrderTagsForPicker(order);
+  const { orderSla, hasSla } = window.resolveOrderSlaForPicker(order);
+  return {
+    platform: String(platform || 'Manual').slice(0, 100),
+    platform_logo: String(platformLogo || 'img/stocka.cap.png').slice(0, 500),
+    shipping_method: String(shippingMethod || '').slice(0, 500),
+    payment_status: String(paymentStatus || 'NO PAGADO').slice(0, 50),
+    coverage: coverage ? String(coverage).slice(0, 50) : null,
+    order_tags: orderTags,
+    order_sla: String(orderSla || 'Sin info').slice(0, 120),
+    hasSla,
+    isPorPagar
+  };
 };
 
 // Helper para construir la nota estandarizada de pedidos creados desde Logística Inversa
@@ -7644,6 +8346,181 @@ function updateCategoryHeadersVisibility() {
   setInterval(window.updateAdminBadges, 60000);
 }
 
+window.computeAndSyncDeclarationsBreakdown = function(pendingRows = []) {
+  const safeRows = Array.isArray(pendingRows)
+    ? pendingRows.filter(d => d && !['Recibido Conforme', 'Recibido con Incidencias'].includes(d.status))
+    : [];
+
+  const stageDefs = [
+    {
+      id: 'Creada',
+      label: '1. Creada',
+      sublabel: 'Sin bodega asignada',
+      icon: 'ri-file-list-3-line',
+      color: '#60a5fa',
+      dotColor: '#3b82f6',
+      pillBg: 'rgba(59, 130, 246, 0.18)',
+      tabId: 'Creada'
+    },
+    {
+      id: 'Bodega Asignada',
+      label: '2. Bodega Asignada',
+      sublabel: 'Por llegar a sucursal',
+      icon: 'ri-building-line',
+      color: '#818cf8',
+      dotColor: '#6366f1',
+      pillBg: 'rgba(99, 102, 241, 0.2)',
+      tabId: 'Bodega Asignada'
+    },
+    {
+      id: 'En Recepción - Pendiente Conteo',
+      label: '3. En Recepción',
+      sublabel: 'En andén · pend. conteo',
+      icon: 'ri-truck-line',
+      color: '#fbbf24',
+      dotColor: '#f59e0b',
+      pillBg: 'rgba(245, 158, 11, 0.2)',
+      tabId: 'En Recepción - Pendiente Conteo'
+    },
+    {
+      id: 'En proceso de conteo/clasificación',
+      label: '4. En Conteo',
+      sublabel: 'En curso · clasificación',
+      icon: 'ri-calculator-line',
+      color: '#c084fc',
+      dotColor: '#a855f7',
+      pillBg: 'rgba(168, 85, 247, 0.2)',
+      tabId: 'En proceso de conteo/clasificación'
+    },
+    {
+      id: 'Recepción Parcial',
+      label: 'Recepción Parcial',
+      sublabel: 'Saldo pendiente',
+      icon: 'ri-pie-chart-2-line',
+      color: '#34d399',
+      dotColor: '#10b981',
+      pillBg: 'rgba(16, 185, 129, 0.18)',
+      tabId: 'Recepción Parcial'
+    }
+  ];
+
+  const buckets = new Map();
+  stageDefs.forEach(s => buckets.set(s.id, { ...s, count: 0, units: 0, volume: 0 }));
+
+  const otherBucket = {
+    id: '__other__',
+    label: 'Otros en curso',
+    sublabel: 'En gestión operativa',
+    icon: 'ri-time-line',
+    color: '#94a3b8',
+    dotColor: '#64748b',
+    pillBg: 'rgba(148, 163, 184, 0.18)',
+    tabId: 'pending',
+    count: 0,
+    units: 0,
+    volume: 0
+  };
+
+  let totalUnits = 0;
+  let totalVolume = 0;
+  let parallelCount = 0;
+
+  safeRows.forEach(d => {
+    const u = Math.max(0, Number(d.quantity_declared) || 0);
+    const v = Math.max(0, parseFloat(d.volume_declared) || 0);
+    totalUnits += u;
+    totalVolume += v;
+    if (d.parallel_count) parallelCount++;
+
+    const bucket = buckets.get(d.status) || otherBucket;
+    bucket.count += 1;
+    bucket.units += u;
+    bucket.volume += v;
+  });
+
+  const totalCount = safeRows.length;
+  const stages = Array.from(buckets.values());
+  if (otherBucket.count > 0) {
+    stages.push(otherBucket);
+  }
+
+  stages.forEach(s => {
+    s.pct = totalCount > 0 ? Math.max(0, (s.count / totalCount) * 100) : 0;
+  });
+
+  const badgeDecs = document.getElementById('badge-declarations');
+  if (badgeDecs) {
+    badgeDecs.textContent = totalCount;
+    badgeDecs.style.display = totalCount > 0 ? 'inline-flex' : 'none';
+  }
+
+  const summary = {
+    loaded: true,
+    updatedAt: Date.now(),
+    totalCount,
+    totalUnits,
+    totalVolume,
+    parallelCount,
+    stages
+  };
+
+  window._inboundDeclarationsSummary = summary;
+  window.dispatchEvent(new CustomEvent('stocka:declarations-breakdown-updated', { detail: summary }));
+  return summary;
+};
+
+window.refreshDeclarationsBreakdownBadge = async function() {
+  if (window._refreshingDecBreakdownPromise) return window._refreshingDecBreakdownPromise;
+  window._refreshingDecBreakdownPromise = (async () => {
+    try {
+      let { data, error } = await supabase
+        .from('stock_declarations')
+        .select('id, status, quantity_declared, volume_declared, parallel_count')
+        .neq('status', 'Recibido Conforme')
+        .neq('status', 'Recibido con Incidencias');
+
+      if (error) {
+        const fb = await supabase
+          .from('stock_declarations')
+          .select('id, status, quantity_declared, volume_declared')
+          .neq('status', 'Recibido Conforme')
+          .neq('status', 'Recibido con Incidencias');
+        data = fb.data;
+        error = fb.error;
+      }
+
+      if (!error && Array.isArray(data)) {
+        return window.computeAndSyncDeclarationsBreakdown(data);
+      }
+    } catch (err) {
+      console.warn('Error fetching declarations breakdown for sidebar badge:', err);
+    } finally {
+      window._refreshingDecBreakdownPromise = null;
+    }
+    return null;
+  })();
+  return window._refreshingDecBreakdownPromise;
+};
+
+window.navigateToDeclarationsStage = function(tabId = 'pending') {
+  const targetTab = tabId || 'pending';
+  window.adminDeclarationTab = targetTab;
+  window.adminDeclarationCalendarDateFilter = null;
+
+  const sidebar = document.querySelector('.sidebar');
+  const canonicalLink = (sidebar && sidebar.querySelector('.nav-item[data-view="declarations_admin"]')) ||
+                        document.querySelector('.nav-item[data-view="declarations_admin"]');
+  const isCardMounted = !!document.getElementById('admin-dec-table-card');
+
+  if (isCardMounted && canonicalLink && canonicalLink.classList.contains('active') && typeof window.setAdminDeclarationTab === 'function') {
+    window.setAdminDeclarationTab(targetTab);
+  } else if (canonicalLink) {
+    canonicalLink.click();
+  } else if (typeof window.renderDeclarationsAdmin === 'function') {
+    window.renderDeclarationsAdmin();
+  }
+};
+
 window.updateAdminBadges = async function() {
   try {
     // 1. Tickets (Casos Abiertos)
@@ -7668,6 +8545,11 @@ window.updateAdminBadges = async function() {
     if (badgeTicketsSupport && ticketsCount !== null) {
       badgeTicketsSupport.textContent = ticketsCount;
       badgeTicketsSupport.style.display = ticketsCount > 0 ? 'inline-flex' : 'none';
+    }
+
+    // 1B. Monitor automático de Tickets Sin Atender (SLA) y alerta por correo a stockachile@gmail.com
+    if (typeof window.checkAndNotifyOverdueTickets === 'function') {
+      window.checkAndNotifyOverdueTickets(supabase).catch(() => {});
     }
 
     // 2. Billing
@@ -7699,18 +8581,8 @@ window.updateAdminBadges = async function() {
       badgeUsers.style.display = usersCount > 0 ? 'inline-flex' : 'none';
     }
 
-    // 4. Declarations
-    const { count: decCount } = await supabase
-      .from('stock_declarations')
-      .select('*', { count: 'exact', head: true })
-      .neq('status', 'Recibido Conforme')
-      .neq('status', 'Recibido con Incidencias');
-      
-    const badgeDecs = document.getElementById('badge-declarations');
-    if (badgeDecs && decCount !== null) {
-      badgeDecs.textContent = decCount;
-      badgeDecs.style.display = decCount > 0 ? 'inline-flex' : 'none';
-    }
+    // 4. Declarations (badge + desglose resumen por etapa)
+    await window.refreshDeclarationsBreakdownBadge();
 
     // 5. Integrations
     const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
@@ -8939,6 +9811,8 @@ window.extractOrderReferencesForShipments = function(ordersList) {
   const refs = [];
   ordersList.forEach(o => {
     if (!o) return;
+    // Si el pedido ya está finalizado en 'Entregado' y cuenta con snapshot sellado en BD, NO consultar envios_unificados
+    if (o.estado_wms === 'Entregado' && o.closed_snapshot) return;
     const hasTrk = isValidTrack(o.tracking_number);
     const ld = o.raw_lightdata_data;
     const hasLd = !!(ld && (ld.id || ld.did || ld.tracking));
@@ -8979,7 +9853,7 @@ window.extractOrderReferencesForShipments = function(ordersList) {
 // CACHÉ LOCAL INDEXEDDB PARA TORRE DE CONTROL (SWR ACCELERATION)
 // ==========================================================
 window.wmsDbCache = {
-  dbName: 'StockaWmsCache_v2',
+  dbName: 'StockaWmsCache_v3',
   storeName: 'orders_window',
   _db: null,
 
@@ -9271,6 +10145,14 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
         picker_operator,
         picker_last_synced_at,
         picker_scanned_label,
+        picker_history_snapshot,
+        closed_snapshot,
+        tracking_history,
+        transport_status_normalized,
+        dispatched_at,
+        delivered_at,
+        closed_at,
+        closed_by_automation,
         periodo_facturacion,
         stock_descontado,
         stock_descontado_at,
@@ -9322,7 +10204,19 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
 
         if (res.error) {
           const errMsg = String(res.error.message || '');
-          if (res.error.code === '42703' || errMsg.includes('estado_ruta_optiroute') || errMsg.includes('picker_')) {
+          if (res.error.code === '42703' || errMsg.includes('closed_snapshot') || errMsg.includes('transport_status_normalized') || errMsg.includes('estado_ruta_optiroute') || errMsg.includes('picker_')) {
+            if (errMsg.includes('closed_snapshot') || errMsg.includes('picker_history_snapshot') || errMsg.includes('tracking_history') || errMsg.includes('transport_status_normalized') || errMsg.includes('delivered_at') || errMsg.includes('closed_at') || errMsg.includes('closed_by_automation') || errMsg.includes('dispatched_at')) {
+              selectStr = selectStr
+                .replace(/,?\s*picker_history_snapshot/g, '')
+                .replace(/,?\s*closed_snapshot/g, '')
+                .replace(/,?\s*tracking_history/g, '')
+                .replace(/,?\s*transport_status_normalized/g, '')
+                .replace(/,?\s*dispatched_at/g, '')
+                .replace(/,?\s*delivered_at/g, '')
+                .replace(/,?\s*closed_at/g, '')
+                .replace(/,?\s*closed_by_automation/g, '');
+              continue;
+            }
             if (errMsg.includes('picker_scanned_label')) {
               selectStr = selectStr.replace(/,?\s*picker_scanned_label/g, '');
               continue;
@@ -9441,7 +10335,10 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
           })(),
           (async () => {
             if (window.fetchInventoryForOrders) {
-              await window.fetchInventoryForOrders(orders, true);
+              const activeForInv = orders.filter(o => !(o && o.estado_wms === 'Entregado' && o.closed_snapshot));
+              if (activeForInv.length > 0) {
+                await window.fetchInventoryForOrders(activeForInv, true);
+              }
             }
           })(),
           (async () => {
@@ -10964,7 +11861,14 @@ async function renderAdminOrders() {
       const isManuallyEdited = !!(
         order.wms_items_edited ||
         order.raw_woocommerce_data?.wms_items_edited ||
-        order.raw_shopify_data?.wms_items_edited
+        order.raw_shopify_data?.wms_items_edited ||
+        order.raw_tiendanube_data?.wms_items_edited ||
+        order.raw_jumpseller_data?.wms_items_edited ||
+        order.raw_falabella_data?.wms_items_edited ||
+        order.raw_paris_data?.wms_items_edited ||
+        order.raw_ripley_data?.wms_items_edited ||
+        order.raw_meli_data?.wms_items_edited ||
+        order.raw_walmart_data?.wms_items_edited
       );
 
       // En Shopify (sync_shopify.js), order.cantidad (headerQty) ya viene actualizado con las unidades físicas
@@ -11175,6 +12079,21 @@ async function renderAdminOrders() {
       if (effCat === 'RETIRO') {
         order._wmsShipmentGlobalStatus = null;
         return null;
+      }
+
+      // SHORT-CIRCUIT O(1): Si el pedido ya está finalizado en 'Entregado' y cuenta con closed_snapshot sellado en BD,
+      // devolver directamente el envío congelado sin escanear loadedShipments ni recalcular regex.
+      if (order.estado_wms === 'Entregado' && order.closed_snapshot && order.closed_snapshot.shipment) {
+        const snapShip = order.closed_snapshot.shipment;
+        const sealedResult = {
+          shipment: snapShip,
+          globStatus: 'ENTREGADO',
+          isReturned: false,
+          orderShipments: [snapShip],
+          fromSnapshot: true
+        };
+        order._wmsShipmentGlobalStatus = sealedResult;
+        return sealedResult;
       }
 
       const rawShopify = order.raw_shopify_data;
@@ -11802,7 +12721,7 @@ async function renderAdminOrders() {
       let overdemandDetails = [];
       let overdemandSkus = [];
 
-      const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado', 'cancelado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms) || !!order.stock_descontado;
+      const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado', 'cancelado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(order.estado_wms) || !!order.stock_descontado;
       if (shouldProcessStock && !isOrderTerminalOrShipped) {
         const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual && (!window.isOrderItemEliminated || !window.isOrderItemEliminated(order, item)));
         if (itemsToCheck.length > 0) {
@@ -12075,6 +12994,46 @@ async function renderAdminOrders() {
             }
           } catch (e) {}
         }
+      }
+
+      // Fallback a Paris, Walmart y Ripley si no venía en shipping_method
+      if (!slaDateStr && order.raw_paris_data?.subOrders?.[0]) {
+        const so = order.raw_paris_data.subOrders[0];
+        const pRaw = String(so.dispatchDate || so.arrivalDateEnd || so.arrivalDate || '').split('T')[0];
+        const pm = pRaw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (pm) slaDateStr = `${pm[3]}-${pm[2]}-${pm[1].slice(-2)}`;
+      }
+      if (!slaDateStr && order.raw_walmart_data?.shippingInfo) {
+        const wRaw = order.raw_walmart_data.shippingInfo.estimatedShipDate || order.raw_walmart_data.shippingInfo.estimatedDeliveryDate;
+        if (wRaw) {
+          try {
+            const wd = new Date(typeof wRaw === 'number' || /^\d+$/.test(String(wRaw)) ? Number(wRaw) : wRaw);
+            if (!isNaN(wd.getTime())) {
+              const parts = new Intl.DateTimeFormat('es-CL', {
+                timeZone: 'America/Santiago',
+                day: '2-digit', month: '2-digit', year: '2-digit',
+                hour: '2-digit', minute: '2-digit', hour12: false
+              }).formatToParts(wd);
+              const dd = parts.find(p => p.type === 'day')?.value;
+              const mm = parts.find(p => p.type === 'month')?.value;
+              const yy = parts.find(p => p.type === 'year')?.value;
+              const hh = parts.find(p => p.type === 'hour')?.value;
+              const mi = parts.find(p => p.type === 'minute')?.value;
+              if (dd && mm && yy) {
+                slaDateStr = `${dd}-${mm}-${yy}`;
+                if (hh && mi && (hh !== '00' || mi !== '00')) slaTimeStr = `${hh}:${mi}`;
+              }
+            }
+          } catch (_) {}
+        }
+      }
+      if (!slaDateStr && order.raw_ripley_data?.shipping_deadline) {
+        try {
+          const rd = new Date(order.raw_ripley_data.shipping_deadline);
+          if (!isNaN(rd.getTime())) {
+            slaDateStr = `${String(rd.getDate()).padStart(2, '0')}-${String(rd.getMonth() + 1).padStart(2, '0')}-${String(rd.getFullYear()).slice(-2)}`;
+          }
+        } catch (_) {}
       }
 
       if (slaDateStr) {
@@ -14655,6 +15614,7 @@ window.applyWmsFiltersAndRender = function() {
     'En preparación': 0,
     'Pickeado': 0,
     'Despachado': 0,
+    'Entregado': 0,
     'Incidencia': 0,
     'Cancelado': 0,
     'Archivado': 0
@@ -14686,14 +15646,14 @@ window.applyWmsFiltersAndRender = function() {
   }
 
   const isSinRegFilterActive = selectedTag === 'Picker: Sin registro';
-  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado', 'Archivado'];
+  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado'];
   const tabsHtml = tabs.map(tab => {
     const isActive = window.wmsActiveTab === tab;
     const count = tabCounts[tab] || 0;
     let badgeClass = 'status-gray';
     if (tab === 'Incidencia') {
       badgeClass = 'status-red';
-    } else if (tab === 'Pickeado' || tab === 'Despachado') {
+    } else if (tab === 'Pickeado' || tab === 'Despachado' || tab === 'Entregado') {
       badgeClass = 'status-green';
     } else if (tab === 'En preparación') {
       badgeClass = 'status-yellow';
@@ -14704,16 +15664,22 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     const activeSpanStyle = `background: rgba(255,255,255,0.2); color: #ffffff; padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; border: none;`;
-    const inactiveSpanStyle = `padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;`;
+    const inactiveSpanStyle = tab === 'Entregado'
+      ? `background: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 800;`
+      : `padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;`;
 
     const prepMissingAlertPillHtml = (tab === 'En preparación' && prepMissingPickerCount > 0)
       ? `<span onclick="event.stopPropagation(); window.togglePrepMissingPickerFilter(event);" style="background: ${isSinRegFilterActive ? '#dc2626' : '#fef2f2'}; color: ${isSinRegFilterActive ? '#ffffff' : '#dc2626'}; border: 1px solid ${isSinRegFilterActive ? '#b91c1c' : '#fca5a5'}; padding: 0.12rem 0.42rem; border-radius: 9999px; font-size: 0.68rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.2rem; box-shadow: 0 1px 3px rgba(220,38,38,0.22); cursor: pointer;" title="⚠️ Alerta: ${prepMissingPickerCount} pedido(s) en 'En preparación' tienen 'Picker: Sin registro' (no existen en la bodega física asignada). Clic para filtrarlos."><i class="ri-error-warning-fill" style="font-size: 0.75rem; color: ${isSinRegFilterActive ? '#ffffff' : '#dc2626'};"></i> ${prepMissingPickerCount} sin registro</span>`
       : '';
 
+    const tabLabelHtml = tab === 'Entregado'
+      ? `<i class="ri-verified-badge-fill" style="color: ${isActive ? '#ffffff' : '#059669'}; font-size: 0.92rem;"></i> Entregado`
+      : tab;
+
     return `
-      <button onclick="window.setWmsTab('${tab}')" style="background: ${isActive ? 'var(--color-primary)' : 'transparent'}; color: ${isActive ? '#ffffff' : 'var(--color-text-main)'}; border: ${isActive ? 'none' : (tab === 'En preparación' && prepMissingPickerCount > 0 ? '1.5px solid #fca5a5' : '1px solid var(--color-border)')}; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.825rem; cursor: pointer; display: flex; align-items: center; gap: 0.45rem; transition: all 0.2s;">
-        ${tab}
-        <span class="${isActive ? '' : badgeClass}" style="${isActive ? activeSpanStyle : inactiveSpanStyle}">${count}</span>
+      <button onclick="window.setWmsTab('${tab}')" style="background: ${isActive ? (tab === 'Entregado' ? '#059669' : 'var(--color-primary)') : 'transparent'}; color: ${isActive ? '#ffffff' : 'var(--color-text-main)'}; border: ${isActive ? 'none' : (tab === 'En preparación' && prepMissingPickerCount > 0 ? '1.5px solid #fca5a5' : (tab === 'Entregado' ? '1px solid #6ee7b7' : '1px solid var(--color-border)'))}; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.825rem; cursor: pointer; display: flex; align-items: center; gap: 0.45rem; transition: all 0.2s;">
+        ${tabLabelHtml}
+        <span class="${isActive || tab === 'Entregado' ? '' : badgeClass}" style="${isActive ? activeSpanStyle : inactiveSpanStyle}">${count}</span>
         ${prepMissingAlertPillHtml}
       </button>
     `;
@@ -15158,7 +16124,7 @@ window.applyWmsFiltersAndRender = function() {
     const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
     const isStockTrackingActive = !!(config && config.inventario_seguimiento);
     const shouldProcessStock = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders) : isStockTrackingActive;
-    const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms) || !!order.stock_descontado;
+    const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(order.estado_wms) || !!order.stock_descontado;
 
     const stockAlert = window.checkOrderStockAlert ? window.checkOrderStockAlert(order) : { hasStockAlert: false, stockAlertDetails: [], hasOverdemandAlert: false, overdemandDetails: [], overdemandSkus: [] };
     const hasStockAlert = stockAlert.hasStockAlert;
@@ -16366,9 +17332,11 @@ window.applyWmsFiltersAndRender = function() {
     };
 
     // Color del dropdown de WMS según el estado
+    const isOrderFinalDelivered = order.estado_wms === 'Entregado';
     let wmsColor = '#0ea5e9'; // info
     if (order.estado_wms === 'Incidencia' || order.estado_wms === 'Cancelado') wmsColor = '#ef4444'; // danger
     else if (order.estado_wms === 'Archivado') wmsColor = '#64748b'; // slate / gray
+    else if (order.estado_wms === 'Entregado') wmsColor = '#059669'; // emerald seal
     else if (order.estado_wms === 'Pickeado' || order.estado_wms === 'Despachado') wmsColor = '#22c55e'; // success
     else if (order.estado_wms === 'En preparación') wmsColor = '#f59e0b'; // warning
 
@@ -16387,7 +17355,7 @@ window.applyWmsFiltersAndRender = function() {
 
     const currentCategoria = window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : (order.categoria_entrega || 'DISTRIBUCIÓN');
     const categoriaSelectHtml = `
-      <select onchange="window.updateWmsOrderField('${order.id}', 'categoria_entrega', this.value)" style="padding: 0.25rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 95px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main);">
+      <select ${isOrderFinalDelivered ? 'disabled' : ''} onchange="window.updateWmsOrderField('${order.id}', 'categoria_entrega', this.value)" style="padding: 0.25rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 95px; cursor: ${isOrderFinalDelivered ? 'not-allowed' : 'pointer'}; opacity: ${isOrderFinalDelivered ? '0.75' : '1'}; background: var(--color-surface); color: var(--color-text-main);">
         <option value="DISTRIBUCIÓN" ${currentCategoria === 'DISTRIBUCIÓN' ? 'selected' : ''}>DISTRIBUCIÓN</option>
         <option value="RETIRO" ${currentCategoria === 'RETIRO' ? 'selected' : ''}>RETIRO</option>
         <option value="LOGÍSTICA INVERSA" ${currentCategoria === 'LOGÍSTICA INVERSA' ? 'selected' : ''}>LOGÍSTICA INVERSA</option>
@@ -16396,18 +17364,18 @@ window.applyWmsFiltersAndRender = function() {
     `;
 
     const agendaSelectHtml = `
-      <select onchange="window.updateWmsOrderField('${order.id}', 'agenda', this.value)" 
-              style="padding: 0.18rem 0.25rem; font-size: 0.75rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 65px; max-width: 82px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;"
-              title="Cambiar agenda de este pedido">
+      <select ${isOrderFinalDelivered ? 'disabled' : ''} onchange="window.updateWmsOrderField('${order.id}', 'agenda', this.value)" 
+              style="padding: 0.18rem 0.25rem; font-size: 0.75rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 65px; max-width: 82px; cursor: ${isOrderFinalDelivered ? 'not-allowed' : 'pointer'}; opacity: ${isOrderFinalDelivered ? '0.78' : '1'}; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;"
+              title="${isOrderFinalDelivered ? 'Pedido cerrado en Entregado (inmutable)' : 'Cambiar agenda de este pedido'}">
         <option value="">-</option>
         ${tempAgendas.map(opt => `<option value="${opt}" ${currentAgenda === opt ? 'selected' : ''}>${opt}</option>`).join('')}
       </select>
     `;
 
     const operadorSelectHtml = `
-      <select onchange="window.updateWmsOrderField('${order.id}', 'operador', this.value)" 
-              style="padding: 0.18rem 0.25rem; font-size: 0.75rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 70px; max-width: 88px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;"
-              title="Cambiar operador de este pedido">
+      <select ${isOrderFinalDelivered ? 'disabled' : ''} onchange="window.updateWmsOrderField('${order.id}', 'operador', this.value)" 
+              style="padding: 0.18rem 0.25rem; font-size: 0.75rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 70px; max-width: 88px; cursor: ${isOrderFinalDelivered ? 'not-allowed' : 'pointer'}; opacity: ${isOrderFinalDelivered ? '0.78' : '1'}; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;"
+              title="${isOrderFinalDelivered ? 'Pedido cerrado en Entregado (inmutable)' : 'Cambiar operador de este pedido'}">
         <option value="">-</option>
         ${tempOperadores.map(opt => `<option value="${opt}" ${currentOperador === opt ? 'selected' : ''}>${opt}</option>`).join('')}
       </select>
@@ -16415,10 +17383,11 @@ window.applyWmsFiltersAndRender = function() {
 
     const fechaProcHtml = `
       <input type="text" 
+             ${isOrderFinalDelivered ? 'disabled' : ''}
              placeholder="DD-MM" 
              value="${order.fecha_procesamiento || ''}" 
              onchange="window.updateWmsOrderField('${order.id}', 'fecha_procesamiento', this.value)" 
-             style="padding: 0.18rem 0.2rem; font-size: 0.75rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 50px; text-align: center; background: var(--color-surface); color: var(--color-text-main);" 
+             style="padding: 0.18rem 0.2rem; font-size: 0.75rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 50px; text-align: center; opacity: ${isOrderFinalDelivered ? '0.78' : '1'}; background: var(--color-surface); color: var(--color-text-main);" 
              maxlength="5" />
     `;
 
@@ -17110,15 +18079,27 @@ window.applyWmsFiltersAndRender = function() {
           <div style="display: flex; flex-direction: column; gap: 0.25rem; min-width: 145px; max-width: 195px;">
             <div style="display: flex; align-items: center; gap: 0.25rem;">
               <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; width: 44px; flex-shrink: 0; line-height: 1;">WMS:</span>
-              <select class="form-input wms-status-select" data-order-id="${order.id}" style="padding: 0.15rem 0.3rem; font-size: 0.74rem; width: 100%; min-width: 95px; font-weight: 700; border: 1.5px solid ${wmsColor}; color: ${wmsColor}; background: ${wmsColor}06; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; height: 24px; line-height: 1;">
-                <option value="En procesamiento" ${order.estado_wms === 'En procesamiento' ? 'selected' : ''}>En procesamiento</option>
-                <option value="En preparación" ${order.estado_wms === 'En preparación' ? 'selected' : ''}>En preparación</option>
-                <option value="Pickeado" ${order.estado_wms === 'Pickeado' ? 'selected' : ''}>Pickeado</option>
-                <option value="Despachado" ${order.estado_wms === 'Despachado' ? 'selected' : ''}>Despachado</option>
-                <option value="Incidencia" ${order.estado_wms === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
-                <option value="Cancelado" ${order.estado_wms === 'Cancelado' ? 'selected' : ''}>Cancelado</option>
-                <option value="Archivado" ${order.estado_wms === 'Archivado' ? 'selected' : ''}>Archivado</option>
-              </select>
+              ${isOrderFinalDelivered ? `
+                <div style="display: flex; align-items: center; gap: 0.22rem; width: 100%;">
+                  <span style="flex: 1; display: inline-flex; align-items: center; gap: 0.22rem; padding: 0.18rem 0.42rem; font-size: 0.72rem; font-weight: 800; border-radius: 5px; background: #ecfdf5; color: #065f46; border: 1.5px solid #34d399; white-space: nowrap;" title="Pedido Finalizado · Trazabilidad sellada en BD sin nuevas consultas externas">
+                    <i class="ri-verified-badge-fill" style="color: #059669; font-size: 0.82rem;"></i> ENTREGADO
+                  </span>
+                  <button type="button" onclick="event.stopPropagation(); window.openReopenDeliveredOrderModal('${order.id}')" style="background: #ffffff; border: 1px solid #cbd5e1; color: #475569; border-radius: 4px; padding: 0.12rem 0.3rem; font-size: 0.68rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center;" title="Reabrir pedido cerrado (Solo Administradores con motivo de auditoría)">
+                    <i class="ri-lock-unlock-line"></i>
+                  </button>
+                </div>
+              ` : `
+                <select class="form-input wms-status-select" data-order-id="${order.id}" style="padding: 0.15rem 0.3rem; font-size: 0.74rem; width: 100%; min-width: 95px; font-weight: 700; border: 1.5px solid ${wmsColor}; color: ${wmsColor}; background: ${wmsColor}06; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; height: 24px; line-height: 1;">
+                  <option value="En procesamiento" ${order.estado_wms === 'En procesamiento' ? 'selected' : ''}>En procesamiento</option>
+                  <option value="En preparación" ${order.estado_wms === 'En preparación' ? 'selected' : ''}>En preparación</option>
+                  <option value="Pickeado" ${order.estado_wms === 'Pickeado' ? 'selected' : ''}>Pickeado</option>
+                  <option value="Despachado" ${order.estado_wms === 'Despachado' ? 'selected' : ''}>Despachado</option>
+                  <option value="Entregado" ${order.estado_wms === 'Entregado' ? 'selected' : ''}>Entregado</option>
+                  <option value="Incidencia" ${order.estado_wms === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
+                  <option value="Cancelado" ${order.estado_wms === 'Cancelado' ? 'selected' : ''}>Cancelado</option>
+                  <option value="Archivado" ${order.estado_wms === 'Archivado' ? 'selected' : ''}>Archivado</option>
+                </select>
+              `}
             </div>
             <div style="display: flex; align-items: center; gap: 0.25rem;">
               <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; width: 44px; flex-shrink: 0; line-height: 1;">Origen:</span>
@@ -17134,7 +18115,7 @@ window.applyWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row ${isOverdueItem ? 'wms-overdue-badges-row' : ''}" style="transition: background-color 0.2s;">
         <td colspan="13" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${overdueRowBadgeHtml}${categoryBadgeHtml}${(window.getConsolidationBadgeHtml ? window.getConsolidationBadgeHtml(order) : '')}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${(window.renderOrderCartpaperBoxBadgeHtml ? window.renderOrderCartpaperBoxBadgeHtml(order) : '')}${qtyMismatchBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${noteBadgeHtml}${adminNoteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
+            ${isOrderFinalDelivered ? `<span class="badge" style="background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.25px;" title="Seguimiento cerrado · Snapshot 360° guardado en BD sin nuevas consultas externas"><i class="ri-shield-check-fill" style="color: #059669; font-size: 0.76rem;"></i> FINALIZADO · SNAPSHOT SELLADO</span>` : ''}${overdueRowBadgeHtml}${categoryBadgeHtml}${(window.getConsolidationBadgeHtml ? window.getConsolidationBadgeHtml(order) : '')}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${(window.renderOrderCartpaperBoxBadgeHtml ? window.renderOrderCartpaperBoxBadgeHtml(order) : '')}${qtyMismatchBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${noteBadgeHtml}${adminNoteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>
@@ -17322,11 +18303,32 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
     estado_ruta_optiroute,
     fecha_procesamiento,
     sucursal_pickeo,
+    picker_status,
+    picker_operator,
+    picker_last_synced_at,
+    picker_scanned_label,
+    picker_history_snapshot,
+    closed_snapshot,
+    tracking_history,
+    transport_status_normalized,
+    dispatched_at,
+    delivered_at,
+    closed_at,
+    closed_by_automation,
     periodo_facturacion,
     stock_descontado,
     stock_descontado_at,
     order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, is_picking_request, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, length, width, height, volumen, weight))
   `.replace(/\s+/g, ' ').trim();
+  const baseSelectStrFallback = selectStr
+    .replace(/,?\s*picker_history_snapshot/g, '')
+    .replace(/,?\s*closed_snapshot/g, '')
+    .replace(/,?\s*tracking_history/g, '')
+    .replace(/,?\s*transport_status_normalized/g, '')
+    .replace(/,?\s*dispatched_at/g, '')
+    .replace(/,?\s*delivered_at/g, '')
+    .replace(/,?\s*closed_at/g, '')
+    .replace(/,?\s*closed_by_automation/g, '');
 
   // Helper interno para fusionar (upsert) pedidos y actualizar dependencias
   const syncOrderSubset = async (refreshedOrders, modeLabel) => {
@@ -17419,7 +18421,10 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
             });
           });
         }
-        await window.fetchInventoryForOrders(refreshedOrders, true);
+        const activeSubsetForInv = refreshedOrders.filter(o => !(o && o.estado_wms === 'Entregado' && o.closed_snapshot));
+        if (activeSubsetForInv.length > 0) {
+          await window.fetchInventoryForOrders(activeSubsetForInv, true);
+        }
       } catch (invErr) {
         console.warn('[Sync Subset] Error actualizando inventario:', invErr);
       }
@@ -17538,11 +18543,16 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
         return;
       }
 
-      const { data: refreshedOrders, error: refErr } = await supabase
+      let { data: refreshedOrders, error: refErr } = await supabase
         .from('orders')
         .select(selectStr)
         .in('id', pageIds);
 
+      if (refErr && (refErr.code === '42703' || String(refErr.message || '').includes('closed_snapshot'))) {
+        const fbRes = await supabase.from('orders').select(baseSelectStrFallback).in('id', pageIds);
+        refreshedOrders = fbRes.data;
+        refErr = fbRes.error;
+      }
       if (refErr) throw refErr;
       await syncOrderSubset(refreshedOrders || [], 'Página Visible');
       return;
@@ -17644,7 +18654,17 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
 
     query = query.order('created_at', { ascending: false }).limit(500);
 
-    const { data: refreshedOrders, error: queryErr } = await query;
+    let { data: refreshedOrders, error: queryErr } = await query;
+    if (queryErr && (queryErr.code === '42703' || String(queryErr.message || '').includes('closed_snapshot'))) {
+      let fbQuery = supabase.from('orders').select(baseSelectStrFallback);
+      if (dateFrom) fbQuery = fbQuery.gte('created_at', new Date(dateFrom + 'T00:00:00').toISOString());
+      if (dateTo) fbQuery = fbQuery.lte('created_at', new Date(dateTo + 'T23:59:59').toISOString());
+      if (selectedMerchant) fbQuery = fbQuery.eq('comercio', selectedMerchant);
+      if (activeTab !== 'Todos') fbQuery = fbQuery.eq('estado_wms', activeTab);
+      const fbRes = await fbQuery.order('created_at', { ascending: false }).limit(500);
+      refreshedOrders = fbRes.data;
+      queryErr = fbRes.error;
+    }
     if (queryErr) throw queryErr;
 
     let combinedRefreshed = refreshedOrders || [];
@@ -18201,6 +19221,7 @@ function renderWmsBulkActionsBar() {
           <option value="En preparación">En preparación</option>
           <option value="Pickeado">Pickeado</option>
           <option value="Despachado">Despachado</option>
+          <option value="Entregado">🏁 Entregado (Finalizado)</option>
           <option value="Incidencia">Incidencia</option>
           <option value="Cancelado">Cancelado</option>
           <option value="Archivado">Archivado</option>
@@ -18677,8 +19698,25 @@ window.forceSendDeferredOrdersToPicker = async function(deferredOrders) {
 
 window.applyBulkWmsStatus = async function() {
   const newStatus = document.getElementById('bulk-wms-status').value;
-  const ids = Array.from(window.wmsSelectedOrderIds);
+  let ids = Array.from(window.wmsSelectedOrderIds);
   if (ids.length === 0) return;
+
+  // Excluir pedidos ya sellados en 'Entregado' de cambios masivos (requieren Reapertura Administrativa individual auditada)
+  if (newStatus !== 'Entregado' && Array.isArray(window.loadedOrders)) {
+    const sealedOrders = window.loadedOrders.filter(o => ids.includes(o.id) && o.estado_wms === 'Entregado');
+    if (sealedOrders.length > 0) {
+      ids = ids.filter(id => !sealedOrders.some(so => so.id === id));
+      if (ids.length === 0) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Pedidos Finalizados (Entregado)',
+          html: `Los <strong>${sealedOrders.length}</strong> pedidos seleccionados ya se encuentran cerrados e inmutables en estado <strong>ENTREGADO</strong>.<br><br>Para reabrir un pedido entregado usa el botón <strong><i class="ri-lock-unlock-line"></i> Reabrir</strong> en su fila indicando el motivo de auditoría.`,
+          confirmButtonColor: '#059669'
+        });
+        return;
+      }
+    }
+  }
 
   if (newStatus === 'En preparación') {
     // Obtener datos comunes de los pedidos seleccionados para autocompletar
@@ -19672,6 +20710,11 @@ window.applyBulkWmsStatus = async function() {
         updateData.status = 'para procesar';
       } else if (newStatus === 'Pickeado') {
         updateData.status = 'preparado';
+      } else if (newStatus === 'Entregado') {
+        updateData.status = 'entregado';
+        updateData.stock_descontado = true;
+        updateData.delivered_at = new Date().toISOString();
+        updateData.closed_at = new Date().toISOString();
       }
       for (let i = 0; i < idsToProcess.length; i += 100) {
         const chunk = idsToProcess.slice(i, i + 100);
@@ -19744,6 +20787,9 @@ window.applyBulkWmsStatus = async function() {
       applyWmsFiltersAndRender();
       if (typeof window.refreshAgendasOrderCell === 'function') {
         idsToProcess.forEach(id => window.refreshAgendasOrderCell(id, 'estado_wms', newStatus));
+      }
+      if (newStatus === 'Entregado' || newStatus === 'Pickeado') {
+        window.triggerShopifyFulfillmentSync(idsToProcess);
       }
     } catch (err) {
       console.error(err);
@@ -21717,6 +22763,14 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         updateData.status = 'para procesar';
       } else if (newWmsStatus === 'Pickeado') {
         updateData.status = 'preparado';
+      } else if (newWmsStatus === 'Entregado') {
+        const effCat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+          ? window.getOrderEffectiveCategoriaEntrega(order)
+          : String(order.categoria_entrega || '').toUpperCase().trim();
+        updateData.status = effCat === 'RETIRO' ? 'retirado' : 'entregado';
+        updateData.stock_descontado = true;
+        updateData.delivered_at = new Date().toISOString();
+        updateData.closed_at = new Date().toISOString();
       } else if (order.status === 'cancelado' && !order.raw_shopify_data?.cancelled_at) {
         updateData.status = 'para procesar';
       }
@@ -21727,17 +22781,31 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         
       if (error) throw error;
       
+      if (newWmsStatus === 'Entregado') {
+        try {
+          const { data: sealedRow } = await supabase
+            .from('orders')
+            .select('closed_snapshot, tracking_history, delivered_at, closed_at, stock_descontado')
+            .eq('id', orderId)
+            .maybeSingle();
+          if (sealedRow) Object.assign(order, sealedRow);
+        } catch (_) {}
+      }
       order.estado_wms = newWmsStatus;
       if (updateData.status) {
         order.status = updateData.status;
       }
-      delete order._wmsTags;
+      if (typeof window.clearSingleOrderWmsCache === 'function') {
+        window.clearSingleOrderWmsCache(order);
+      } else {
+        delete order._wmsTags;
+      }
       
       applyWmsFiltersAndRender();
       if (typeof window.refreshAgendasOrderCell === 'function') {
         window.refreshAgendasOrderCell(orderId, 'estado_wms', newWmsStatus);
       }
-      if (newWmsStatus === 'Pickeado' || newWmsStatus === 'En preparación') {
+      if (newWmsStatus === 'Pickeado' || newWmsStatus === 'En preparación' || newWmsStatus === 'Entregado') {
         window.triggerShopifyFulfillmentSync([orderId]);
       }
 
@@ -21752,6 +22820,94 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       console.error(err);
       Swal.fire('Error', 'Error al actualizar estado WMS: ' + err.message, 'error');
     }
+  }
+};
+
+// Reapertura administrativa auditada de pedidos cerrados en 'Entregado'
+window.openReopenDeliveredOrderModal = async function(orderId) {
+  const order = window.loadedOrders ? window.loadedOrders.find(o => String(o.id) === String(orderId)) : null;
+  const orderLabel = order ? (order.external_order_number || order.id) : orderId;
+
+  const { value: formVals } = await Swal.fire({
+    title: 'Reapertura Administrativa de Pedido Entregado',
+    width: '540px',
+    html: `
+      <div style="text-align: left; font-size: 0.86rem; display: flex; flex-direction: column; gap: 0.75rem;">
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #d97706; padding: 0.65rem 0.8rem; border-radius: 6px; color: #92400e; line-height: 1.4;">
+          <strong>Acción auditada exclusiva para Administradores:</strong> El pedido <strong>${window.escapeHtml(orderLabel)}</strong> está finalizado e inmutable. Reabrirlo reactivará su seguimiento y registrará tu usuario y motivo en el historial de auditoría.
+        </div>
+        <div>
+          <label style="font-weight: 700; display: block; margin-bottom: 0.3rem;">Estado WMS destino al reabrir</label>
+          <select id="swal-reopen-target-wms" class="form-input" style="width: 100%; font-weight: 600;">
+            <option value="Despachado" selected>🚚 Despachado (Mantiene descuento de stock)</option>
+            <option value="Incidencia">⚠️ Incidencia (Para gestión de reclamo / devolución)</option>
+            <option value="Pickeado">✅ Pickeado</option>
+            <option value="En procesamiento">⏳ En procesamiento</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-weight: 700; display: block; margin-bottom: 0.3rem;">Motivo obligatorio de auditoría <span style="color: #dc2626;">*</span></label>
+          <textarea id="swal-reopen-reason" class="form-input" rows="3" placeholder="Ej: Courier reportó entrega errónea y paquete regresó a ruta / Cliente solicitó gestión post-entrega..." style="width: 100%; resize: vertical;"></textarea>
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: 'Confirmar Reapertura',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#d97706',
+    preConfirm: () => {
+      const targetWms = document.getElementById('swal-reopen-target-wms')?.value || 'Despachado';
+      const reason = (document.getElementById('swal-reopen-reason')?.value || '').trim();
+      if (reason.length < 5) {
+        Swal.showValidationMessage('Debes ingresar un motivo válido (mínimo 5 caracteres).');
+        return false;
+      }
+      return { targetWms, reason };
+    }
+  });
+
+  if (!formVals) return;
+
+  try {
+    Swal.fire({
+      title: 'Reabriendo pedido...',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading()
+    });
+
+    const { data, error } = await supabase.rpc('reopen_delivered_order', {
+      p_order_id: orderId,
+      p_target_wms_status: formVals.targetWms,
+      p_reason: formVals.reason
+    });
+    if (error) throw error;
+
+    if (order) {
+      order.estado_wms = formVals.targetWms;
+      if (data?.new_status) order.status = data.new_status;
+      order.closed_at = null;
+      order.closed_by_automation = null;
+      if (typeof window.clearSingleOrderWmsCache === 'function') {
+        window.clearSingleOrderWmsCache(order);
+      }
+    }
+    if (window.wmsDbCache && typeof window.wmsDbCache.clearCache === 'function') {
+      window.wmsDbCache.clearCache().catch(() => {});
+    }
+    if (typeof applyWmsFiltersAndRender === 'function') {
+      applyWmsFiltersAndRender();
+    }
+
+    Swal.fire({
+      icon: 'success',
+      title: 'Pedido Reabierto',
+      text: `El pedido ${orderLabel} pasó a "${formVals.targetWms}" y quedó registrado en auditoría.`,
+      timer: 2200,
+      showConfirmButton: false
+    });
+  } catch (err) {
+    console.error('[ReopenOrder] Error:', err);
+    Swal.fire('Error al reabrir pedido', err.message || String(err), 'error');
   }
 };
 
@@ -52356,6 +53512,39 @@ window.downloadBase64File = function(base64, filename) {
   }
 };
 
+window.downloadDeclarationFile = async function(decId) {
+  try {
+    let dec = (window._adminDeclarationsCache || []).find(d => String(d.id) === String(decId));
+    if (!dec || !dec.file_base64) {
+      const { data, error } = await supabase
+        .from('stock_declarations')
+        .select('file_base64, file_name')
+        .eq('id', decId)
+        .single();
+      if (error) throw error;
+      if (data) {
+        if (dec) {
+          dec.file_base64 = data.file_base64;
+          dec.file_name = data.file_name || dec.file_name;
+        }
+        dec = data;
+      }
+    }
+    if (!dec || !dec.file_base64) {
+      if (window.Swal) {
+        window.Swal.fire('Sin archivo adjunto', 'Este ingreso fue creado desde el catálogo y no tiene una planilla adjunta.', 'info');
+      } else {
+        alert('Este ingreso no tiene una planilla adjunta.');
+      }
+      return;
+    }
+    window.downloadBase64File(dec.file_base64, dec.file_name || `ingreso_${String(decId).substring(0, 8)}.xlsx`);
+  } catch (err) {
+    console.error('Error al descargar planilla del ingreso:', err);
+    alert('No se pudo descargar la planilla: ' + (err.message || err));
+  }
+};
+
 window.adminDeclarationTab = window.adminDeclarationTab || 'pending';
 if (window.adminDeclarationTab === 'active') {
   window.adminDeclarationTab = 'pending';
@@ -53007,7 +54196,7 @@ function buildDeclarationViewData(dec) {
         <button class="table-action-menu-item" onclick="window.exportDeclarationToPDF('${dec.id}')" title="Comprobante general del ingreso">
           <i class="ri-file-pdf-line" style="color: var(--color-primary);"></i> Comprobante PDF
         </button>
-        <button class="table-action-menu-item" onclick="downloadBase64File('${dec.file_base64}', '${dec.file_name}')">
+        <button class="table-action-menu-item" onclick="window.downloadDeclarationFile('${dec.id}')">
           <i class="ri-file-excel-2-line" style="color: var(--color-success);"></i> Planilla
         </button>
         <button class="table-action-menu-item" onclick="manageDeclaration('${dec.id}')">
@@ -54342,6 +55531,9 @@ window.refreshActiveDeclarationsView = async function() {
           warehouseMap: window._adminDashboardWarehouseMap || {}
         });
       }
+      if (typeof window.refreshDeclarationsBreakdownBadge === 'function') {
+        window.refreshDeclarationsBreakdownBadge();
+      }
     } catch (e) {
       console.warn('No se pudo refrescar el calendario del dashboard:', e);
     }
@@ -54639,6 +55831,9 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
       window._adminDeclarationsCache = decRes.data || [];
       if (!evRes.error && Array.isArray(evRes.data)) {
         window._operationalCalendarEventsCache = evRes.data;
+      }
+      if (typeof window.refreshDeclarationsBreakdownBadge === 'function') {
+        window.refreshDeclarationsBreakdownBadge();
       }
     }
 
@@ -57671,6 +58866,101 @@ window.renderDeclarationHistoryTimeline = function(dec) {
   container.innerHTML = timelineHtml;
 };
 
+window._adminCatalogByCommerceCache = window._adminCatalogByCommerceCache || {};
+window._adminCatalogByCommerceInFlight = window._adminCatalogByCommerceInFlight || {};
+
+window.getOrLoadAdminPhysicalWarehouses = async function(force = false) {
+  if (!force && Array.isArray(window.manageDecWarehousesCache) && window.manageDecWarehousesCache.length > 0) {
+    return window.manageDecWarehousesCache;
+  }
+  const { data: rawWarehouses } = await supabase
+    .from('warehouses')
+    .select('id, name, address, comuna, operating_days')
+    .order('name');
+  const warehouses = typeof window.filterPhysicalWarehouses === 'function'
+    ? window.filterPhysicalWarehouses(rawWarehouses || [])
+    : (rawWarehouses || []);
+  window.manageDecWarehousesCache = warehouses;
+  return warehouses;
+};
+
+window.loadFullCommerceCatalogInBackground = function(comercio, onReadyCallback) {
+  if (!comercio) return Promise.resolve([]);
+  const cacheEntry = window._adminCatalogByCommerceCache[comercio];
+  const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
+  if (cacheEntry && Array.isArray(cacheEntry.products) && (Date.now() - cacheEntry.timestamp < CACHE_TTL_MS)) {
+    window.adminCatalogProductsCache = cacheEntry.products;
+    if (typeof onReadyCallback === 'function') onReadyCallback(cacheEntry.products);
+    return Promise.resolve(cacheEntry.products);
+  }
+
+  if (window._adminCatalogByCommerceInFlight[comercio]) {
+    return window._adminCatalogByCommerceInFlight[comercio].then(prods => {
+      if (typeof onReadyCallback === 'function') onReadyCallback(prods);
+      return prods;
+    });
+  }
+
+  window._loadingAdminCatalogForDec = true;
+  const promise = (async () => {
+    try {
+      const prods = await window.fetchAllSupabaseRows(
+        'products',
+        'sku, name, volumen, largo, ancho, alto, price, barcode, barcode_wms, is_virtual, is_pack, status, color, talla, variable_1, variable_2, options',
+        q => q.eq('comercio', comercio).order('name')
+      );
+      const list = prods || [];
+      window._adminCatalogByCommerceCache[comercio] = {
+        products: list,
+        timestamp: Date.now()
+      };
+      if (
+        (window.currentDeclarationEditing && window.currentDeclarationEditing.comercio === comercio) ||
+        (window.adminOriginalDeclarationEditing && window.adminOriginalDeclarationEditing.comercio === comercio)
+      ) {
+        window.adminCatalogProductsCache = list;
+      }
+      if (typeof onReadyCallback === 'function') {
+        try { onReadyCallback(list); } catch (_) {}
+      }
+      return list;
+    } catch (e) {
+      console.warn('Error preloading full catalog in background for', comercio, e);
+      return window.adminCatalogProductsCache || [];
+    } finally {
+      window._loadingAdminCatalogForDec = false;
+      delete window._adminCatalogByCommerceInFlight[comercio];
+    }
+  })();
+
+  window._adminCatalogByCommerceInFlight[comercio] = promise;
+  return promise;
+};
+
+window.fetchTargetedCatalogSkusForDeclaration = async function(comercio, dec) {
+  if (!comercio || !dec) return [];
+  const cacheEntry = window._adminCatalogByCommerceCache[comercio];
+  if (cacheEntry && Array.isArray(cacheEntry.products) && cacheEntry.products.length > 0) {
+    return cacheEntry.products;
+  }
+  const rawProds = (typeof getDeclarationProducts === 'function' ? getDeclarationProducts(dec) : dec.products_list) || [];
+  const skus = Array.from(new Set(
+    rawProds.map(p => String(p?.sku ?? p?.SKU ?? '').trim()).filter(Boolean)
+  ));
+  if (skus.length === 0) return [];
+  try {
+    const { data } = await supabase
+      .from('products')
+      .select('sku, name, volumen, largo, ancho, alto, price, barcode, barcode_wms, is_virtual, is_pack, status, color, talla, variable_1, variable_2, options')
+      .eq('comercio', comercio)
+      .in('sku', skus.slice(0, 200));
+    return data || [];
+  } catch (e) {
+    console.warn('Error fetching targeted SKUs for declaration:', e);
+    return [];
+  }
+};
+
 window.manageDeclaration = async function(id) {
   try {
     if (window.Swal) {
@@ -57679,7 +58969,7 @@ window.manageDeclaration = async function(id) {
         html: `
           <div style="display: flex; flex-direction: column; align-items: center; gap: 14px; margin: 16px 0;">
             <i class="ri-loader-4-line ri-spin" style="font-size: 3rem; color: var(--color-primary, #6366f1); animation: spin 1s linear infinite; display: inline-block;"></i>
-            <span style="color: var(--color-text-muted, #64748b); font-size: 0.95rem;">Obteniendo información del ingreso y catálogo de productos...</span>
+            <span style="color: var(--color-text-muted, #64748b); font-size: 0.95rem;">Abriendo panel de gestión del ingreso...</span>
           </div>
         `,
         allowOutsideClick: false,
@@ -57689,31 +58979,51 @@ window.manageDeclaration = async function(id) {
 
     window.currentDeclarationProductsEditing = null;
     window.currentDeclarationProductsEditing_id = null;
-    
-    const { data: dec, error } = await supabase
-      .from('stock_declarations')
-      .select('*, profiles (company_name), warehouses (name, address, comuna)')
-      .eq('id', id)
-      .single();
 
+    const cachedDec = (window._adminDeclarationsCache || []).find(d => String(d.id) === String(id));
+    const knownComercio = cachedDec?.comercio || null;
+
+    // Ejecutar consultas principales en paralelo para abrir el modal de inmediato
+    const [decRes, warehouses, initialVariantCfg, initialTargetedProds] = await Promise.all([
+      supabase
+        .from('stock_declarations')
+        .select('*, profiles (company_name, full_name, email), warehouses (name, address, comuna)')
+        .eq('id', id)
+        .single(),
+      window.getOrLoadAdminPhysicalWarehouses(),
+      knownComercio
+        ? getCommerceVariantConfig(knownComercio).catch(() => null)
+        : Promise.resolve(null),
+      (knownComercio && cachedDec)
+        ? window.fetchTargetedCatalogSkusForDeclaration(knownComercio, cachedDec)
+        : Promise.resolve(null)
+    ]);
+
+    const { data: dec, error } = decRes;
     if (error) throw error;
 
-    // Pre-cargar productos de catálogo para la búsqueda de productos adicionales (incluyendo medidas y variantes)
-    try {
-      const prods = await window.fetchAllSupabaseRows('products', 'sku, name, volumen, largo, ancho, alto, price, barcode, color, talla, variable_1, variable_2, options', q => q.eq('comercio', dec.comercio).order('name'));
-      window.adminCatalogProductsCache = prods || [];
-    } catch (e) {
-      console.error('Error preloading products for admin:', e);
-      window.adminCatalogProductsCache = [];
+    // Si no teníamos el comercio en caché antes de consultar dec, resolvemos variantes y SKUs declarados en paralelo
+    if (!knownComercio || knownComercio !== dec.comercio) {
+      const [vCfg, targetedProds] = await Promise.all([
+        getCommerceVariantConfig(dec.comercio).catch(() => null),
+        window.fetchTargetedCatalogSkusForDeclaration(dec.comercio, dec)
+      ]);
+      window.currentDeclarationVariantConfig = vCfg;
+      window.adminCatalogProductsCache = targetedProds || [];
+    } else {
+      window.currentDeclarationVariantConfig = initialVariantCfg;
+      window.adminCatalogProductsCache = initialTargetedProds || [];
     }
 
-    // Cargar configuración de variantes del comercio
-    try {
-      window.currentDeclarationVariantConfig = await getCommerceVariantConfig(dec.comercio);
-    } catch (e) {
-      console.warn('Error fetching variant config for declaration:', e);
-      window.currentDeclarationVariantConfig = null;
-    }
+    // Precargar el catálogo completo del comercio en segundo plano (sin bloquear la apertura del modal) para el buscador de productos adicionales
+    window.loadFullCommerceCatalogInBackground(dec.comercio, (fullCatalog) => {
+      window.adminCatalogProductsCache = fullCatalog;
+      const sInp = document.getElementById('manage-dec-product-search');
+      const sRes = document.getElementById('manage-dec-search-results');
+      if (sInp && sRes && sInp.value.trim() && sRes.style.display !== 'none' && typeof sInp.oninput === 'function') {
+        sInp.oninput({ target: sInp });
+      }
+    });
 
     // Configurar autocompletar en la modal del administrador
     const searchInput = document.getElementById('manage-dec-product-search');
@@ -58053,10 +59363,13 @@ window.manageDeclaration = async function(id) {
       labelingInfoEl.innerHTML = `<strong>${labelingTextMap[dec.labeling_type || 'completely']}</strong>`;
     }
 
-    // Obtener UF para la fecha de creación
+    // Obtener UF para la fecha de creación sin bloquear la apertura del modal
     const dateObj = new Date(dec.created_at || new Date());
     const formattedDate = `${String(dateObj.getDate()).padStart(2, '0')}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${dateObj.getFullYear()}`;
-    const ufRate = await window.getUfValueForDate(formattedDate);
+    const cachedUfRate = (window._ufMemoryCache && window._ufMemoryCache[formattedDate]) ||
+                         parseFloat(localStorage.getItem(`stocka-uf-${formattedDate}`) || '0') ||
+                         (typeof window.getFallbackUfValue === 'function' ? window.getFallbackUfValue() : 37500);
+    const ufRate = cachedUfRate;
     window.modalUfRate = ufRate;
 
     document.getElementById('manage-dec-estimated-cost').textContent = (dec.estimated_cost || 0).toFixed(4) + ' UF';
@@ -58066,6 +59379,26 @@ window.manageDeclaration = async function(id) {
       estClpEl.textContent = `≈ $${Math.round(estClp).toLocaleString('es-CL')} CLP`;
     }
     document.getElementById('manage-dec-method').textContent = dec.delivery_method;
+
+    // Resolver UF exacta en segundo plano si aún no estaba en caché
+    if (typeof window.getUfValueForDate === 'function') {
+      window.getUfValueForDate(formattedDate).then(exactUf => {
+        if (exactUf && exactUf !== window.modalUfRate && window.currentDeclarationEditing && window.currentDeclarationEditing.id === dec.id) {
+          window.modalUfRate = exactUf;
+          if (estClpEl) {
+            estClpEl.textContent = `≈ $${Math.round((dec.estimated_cost || 0) * exactUf).toLocaleString('es-CL')} CLP`;
+          }
+          const rCostVal = parseFloat(document.getElementById('manage-dec-real-cost')?.value || '0') || 0;
+          const rClpEl = document.getElementById('manage-dec-real-cost-clp');
+          if (rClpEl) {
+            rClpEl.textContent = `≈ $${Math.round(rCostVal * exactUf).toLocaleString('es-CL')} CLP`;
+          }
+          if (typeof window.recalculateManageDeclarationCosts === 'function') {
+            window.recalculateManageDeclarationCosts();
+          }
+        }
+      }).catch(() => {});
+    }
 
     // Bodega asignada
     const warehouseNameEl = document.getElementById('manage-dec-warehouse-name');
@@ -58077,13 +59410,7 @@ window.manageDeclaration = async function(id) {
       }
     }
 
-    // Cargar bodegas físicas para el selector y tarjetas interactivas (excluyendo Bodega Central / ficticia)
-    const { data: rawWarehouses } = await supabase
-      .from('warehouses')
-      .select('id, name, address, comuna, operating_days')
-      .order('name');
-
-    const warehouses = window.filterPhysicalWarehouses(rawWarehouses || []);
+    // Usar bodegas físicas ya cargadas en paralelo (excluyendo Bodega Central / ficticia)
     window.manageDecWarehousesCache = warehouses;
 
     const isDecCurrentWhVirtual = dec.warehouse_id && window.isVirtualOrCentralWarehouse({ id: dec.warehouse_id, name: dec.warehouses?.name });
@@ -60789,27 +62116,28 @@ window.editDeclarationAdmin = async function(id) {
     const alertContainer = document.getElementById('admin-edit-dec-alert-container');
     if (alertContainer) alertContainer.innerHTML = '';
 
-    // 1. Obtener la declaración completa
-    const { data: dec, error } = await supabase
-      .from('stock_declarations')
-      .select('*, profiles (company_name, full_name, email), warehouses (id, name, address, comuna)')
-      .eq('id', id)
-      .single();
+    const cachedDec = (window._adminDeclarationsCache || []).find(d => String(d.id) === String(id));
+    const knownComercio = cachedDec?.comercio || null;
 
+    // 1. Obtener la declaración completa, bodegas físicas y variantes en paralelo
+    const [decRes, warehouses, initialVariantCfg] = await Promise.all([
+      supabase
+        .from('stock_declarations')
+        .select('*, profiles (company_name, full_name, email), warehouses (id, name, address, comuna)')
+        .eq('id', id)
+        .single(),
+      window.getOrLoadAdminPhysicalWarehouses(),
+      knownComercio
+        ? window.getCommerceVariantConfig(knownComercio).catch(() => null)
+        : Promise.resolve(null)
+    ]);
+
+    const { data: dec, error } = decRes;
     if (error) throw error;
     if (!dec) throw new Error('No se encontró el ingreso de stock.');
 
     // Guardar copia original para cálculo de diferencias y auditoría
     window.adminOriginalDeclarationEditing = JSON.parse(JSON.stringify(dec));
-
-    // Cargar bodegas físicas para el selector (excluyendo Bodega Central)
-    const { data: rawWarehouses } = await supabase
-      .from('warehouses')
-      .select('id, name, address, comuna')
-      .order('name');
-    const warehouses = typeof window.filterPhysicalWarehouses === 'function'
-      ? window.filterPhysicalWarehouses(rawWarehouses || [])
-      : (rawWarehouses || []);
 
     const whSelect = document.getElementById('admin-edit-dec-warehouse');
     if (whSelect) {
@@ -60909,7 +62237,9 @@ window.editDeclarationAdmin = async function(id) {
     document.getElementById('admin-edit-dec-reason').value = '';
 
     // Cargar configuración de variantes del comercio
-    window.adminEditDeclarationVariantConfig = await window.getCommerceVariantConfig(dec.comercio);
+    window.adminEditDeclarationVariantConfig = (knownComercio && knownComercio === dec.comercio)
+      ? initialVariantCfg
+      : await window.getCommerceVariantConfig(dec.comercio);
 
     // Cargar productos
     const prods = getDeclarationProducts(dec) || [];
@@ -60942,83 +62272,85 @@ window.editDeclarationAdmin = async function(id) {
     window.renderAdminEditDeclarationProducts();
     window.recalculateAdminEditTotals();
 
-    // Precargar catálogo de productos del comercio para búsqueda (filtrado a Catálogo Maestro)
-    try {
-      let mainPlatform = '';
+    // Precargar catálogo de productos del comercio en segundo plano (sin bloquear la apertura del modal)
+    (async () => {
       try {
-        const { data: integrations } = await supabase
-          .from('merchant_integrations')
-          .select('platform, is_active, is_main')
-          .eq('comercio', dec.comercio)
-          .eq('is_active', true);
+        const [intRes, catProds] = await Promise.all([
+          supabase
+            .from('merchant_integrations')
+            .select('platform, is_active, is_main')
+            .eq('comercio', dec.comercio)
+            .eq('is_active', true),
+          window.fetchAllSupabaseRows(
+            'products',
+            'sku, name, volumen, price, barcode, is_virtual, is_pack, status, description, shopify_product_id, meli_item_id, tiendanube_product_id, color, talla, variable_1, variable_2, options',
+            q => q.eq('comercio', dec.comercio).order('name')
+          )
+        ]);
 
-        const activeIntegrations = (integrations || []).filter(i => i.platform !== 'Optiroute');
+        let mainPlatform = '';
+        const activeIntegrations = ((intRes && intRes.data) || []).filter(i => i.platform !== 'Optiroute');
         const mainInt = activeIntegrations.find(i => i.is_main);
         if (mainInt) {
           mainPlatform = mainInt.platform;
         } else if (activeIntegrations.length === 1) {
           mainPlatform = activeIntegrations[0].platform;
         }
-      } catch (e) {}
 
-      const catProds = await window.fetchAllSupabaseRows(
-        'products', 
-        'sku, name, volumen, price, barcode, is_virtual, is_pack, status, description, shopify_product_id, raw_shopify_data, meli_item_id, raw_meli_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_woocommerce_data, raw_jumpseller_data, tiendanube_product_id, raw_tiendanube_data, raw_walmart_data, color, talla, variable_1, variable_2, options', 
-        q => q.eq('comercio', dec.comercio).order('name')
-      );
-
-      // Cruzar con productos de la declaración para poblar atributos de variantes si no venían en la planilla
-      const catProdsMap = {};
-      (catProds || []).forEach(cp => {
-        if (cp.sku) catProdsMap[cp.sku.trim().toUpperCase()] = cp;
-      });
-      window.adminEditingDeclarationProducts.forEach(p => {
-        const cp = p.sku ? catProdsMap[p.sku.trim().toUpperCase()] : null;
-        if (cp) {
-          if (!p.color && cp.color) p.color = cp.color;
-          if (!p.talla && cp.talla) p.talla = cp.talla;
-          if (!p.variable_1 && cp.variable_1) p.variable_1 = cp.variable_1;
-          if (!p.variable_2 && cp.variable_2) p.variable_2 = cp.variable_2;
-          if (!p.options && cp.options) p.options = cp.options;
+        // Cruzar con productos de la declaración para poblar atributos de variantes si no venían en la planilla
+        const catProdsMap = {};
+        (catProds || []).forEach(cp => {
+          if (cp.sku) catProdsMap[cp.sku.trim().toUpperCase()] = cp;
+        });
+        if (window.adminEditingDeclarationProducts_id === dec.id && Array.isArray(window.adminEditingDeclarationProducts)) {
+          window.adminEditingDeclarationProducts.forEach(p => {
+            const cp = p.sku ? catProdsMap[p.sku.trim().toUpperCase()] : null;
+            if (cp) {
+              if (!p.color && cp.color) p.color = cp.color;
+              if (!p.talla && cp.talla) p.talla = cp.talla;
+              if (!p.variable_1 && cp.variable_1) p.variable_1 = cp.variable_1;
+              if (!p.variable_2 && cp.variable_2) p.variable_2 = cp.variable_2;
+              if (!p.options && cp.options) p.options = cp.options;
+            }
+          });
+          window.renderAdminEditDeclarationProducts();
         }
-      });
-      window.renderAdminEditDeclarationProducts();
 
-      const getProductPlatform = (p) => {
-        if (p.shopify_product_id || p.raw_shopify_data || (p.description && p.description.includes('Shopify'))) return 'Shopify';
-        if (p.meli_item_id || p.raw_meli_data || (p.description && p.description.includes('MercadoLibre')) || (p.sku && String(p.sku).toUpperCase().startsWith('MLC'))) return 'MercadoLibre';
-        if (p.raw_falabella_data || (p.description && p.description.includes('Falabella')) || (p.sku && String(p.sku).toUpperCase().startsWith('FAL-'))) return 'Falabella';
-        if (p.raw_paris_data || (p.description && p.description.includes('Paris'))) return 'Paris';
-        if (p.raw_ripley_data || (p.description && p.description.includes('Ripley'))) return 'Ripley';
-        if (p.woocommerce_product_id || p.raw_woocommerce_data || (p.description && p.description.includes('WooCommerce'))) return 'WooCommerce';
-        if (p.jumpseller_product_id || p.raw_jumpseller_data || (p.description && p.description.includes('Jumpseller'))) return 'Jumpseller';
-        if (p.tiendanube_product_id || p.raw_tiendanube_data || (p.description && p.description.includes('Tiendanube')) || (p.sku && String(p.sku).toUpperCase().startsWith('TN-'))) return 'Tiendanube';
-        if (p.raw_walmart_data || (p.description && p.description.includes('Walmart'))) return 'Walmart';
-        return 'Manual';
-      };
+        const getProductPlatform = (p) => {
+          if (p.shopify_product_id || (p.description && p.description.includes('Shopify'))) return 'Shopify';
+          if (p.meli_item_id || (p.description && p.description.includes('MercadoLibre')) || (p.sku && String(p.sku).toUpperCase().startsWith('MLC'))) return 'MercadoLibre';
+          if ((p.description && p.description.includes('Falabella')) || (p.sku && String(p.sku).toUpperCase().startsWith('FAL-'))) return 'Falabella';
+          if (p.description && p.description.includes('Paris')) return 'Paris';
+          if (p.description && p.description.includes('Ripley')) return 'Ripley';
+          if (p.woocommerce_product_id || (p.description && p.description.includes('WooCommerce'))) return 'WooCommerce';
+          if (p.jumpseller_product_id || (p.description && p.description.includes('Jumpseller'))) return 'Jumpseller';
+          if (p.tiendanube_product_id || (p.description && p.description.includes('Tiendanube')) || (p.sku && String(p.sku).toUpperCase().startsWith('TN-'))) return 'Tiendanube';
+          if (p.description && p.description.includes('Walmart')) return 'Walmart';
+          return 'Manual';
+        };
 
-      const filteredProds = (catProds || []).filter(p => {
-        const st = (p.status || '').toLowerCase().trim();
-        if (st === 'archived' || st === 'archivado') return false;
-        if (p.is_virtual === true || p.is_virtual === 1 || String(p.is_virtual).toLowerCase() === 'true') return false;
-        if (p.is_pack === true || p.is_pack === 1 || String(p.is_pack).toLowerCase() === 'true') return false;
-        if (mainPlatform) {
-          const plat = getProductPlatform(p);
-          if (plat.toLowerCase() === mainPlatform.toLowerCase() || plat === 'Manual') return true;
-          return false;
-        }
-        return true;
-      }).map(p => ({
-        ...p,
-        name: (p.name || '').replace(/\s*-\s*\[object\s+Object\]/gi, '').trim(),
-        platform_origin: getProductPlatform(p)
-      }));
+        const filteredProds = (catProds || []).filter(p => {
+          const st = (p.status || '').toLowerCase().trim();
+          if (st === 'archived' || st === 'archivado') return false;
+          if (p.is_virtual === true || p.is_virtual === 1 || String(p.is_virtual).toLowerCase() === 'true') return false;
+          if (p.is_pack === true || p.is_pack === 1 || String(p.is_pack).toLowerCase() === 'true') return false;
+          if (mainPlatform) {
+            const plat = getProductPlatform(p);
+            if (plat.toLowerCase() === mainPlatform.toLowerCase() || plat === 'Manual') return true;
+            return false;
+          }
+          return true;
+        }).map(p => ({
+          ...p,
+          name: (p.name || '').replace(/\s*-\s*\[object\s+Object\]/gi, '').trim(),
+          platform_origin: getProductPlatform(p)
+        }));
 
-      window.adminCatalogProductsCache = filteredProds;
-    } catch (e) {
-      console.warn('Error loading catalog cache for admin edit:', e);
-      window.adminCatalogProductsCache = [];
-    }
+        window.adminCatalogProductsCache = filteredProds;
+      } catch (e) {
+        console.warn('Error loading catalog cache for admin edit:', e);
+      }
+    })();
 
     // Configurar buscador de productos en modal de edición
     const searchInput = document.getElementById('admin-edit-dec-prod-search');
@@ -66180,8 +67512,9 @@ window.renderBillingAdmin = async function() {
         <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main); letter-spacing: -0.01em;">Control de Facturación</h3>
         <p style="margin: 0.2rem 0 0 0; font-size: 0.83rem; color: var(--color-text-muted);">Gestiona desgloses, métricas, periodos de facturación y avisos de pago de los comercios</p>
       </div>
-      <div style="display: flex; gap: 0.75rem; align-items: center;">
+      <div style="display: flex; gap: 0.65rem; align-items: center; flex-wrap: wrap;">
         <span id="saving-badge" class="billing-saving-badge"><i class="ri-checkbox-circle-line"></i> Guardado</span>
+        <button type="button" class="btn btn-outline" onclick="window.openLiorenConnectionStatusModal && window.openLiorenConnectionStatusModal()" style="border-radius: 9px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem; border-color: rgba(124, 58, 237, 0.35);" title="Verificar conexión, Certificado Digital SII y folios CAF en Lioren"><i class="ri-flashlight-fill" style="color: #7c3aed;"></i> Conexión Lioren SII</button>
         <button class="btn btn-primary" onclick="openCreatePeriodModal()" style="border-radius: 9px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 6px rgba(95, 6, 250, 0.2);"><i class="ri-add-line"></i> Nuevo Periodo</button>
       </div>
     </div>
@@ -66217,6 +67550,7 @@ window.renderBillingAdmin = async function() {
         </button>
         <button class="billing-tab-btn" id="tab-extra-btn" onclick="switchBillingAdminTab('extra')">
           <i class="ri-add-circle-line"></i> Saldos Adicionales
+          <span id="pending-extra-charges-badge" class="billing-tab-badge badge-warning" style="display: none;">0</span>
         </button>
 
         <div class="billing-tab-divider"></div>
@@ -66325,6 +67659,7 @@ window.renderBillingAdmin = async function() {
   
   updatePendingReportsBadge().catch(e => console.warn(e));
   updatePendingObservationsBadge().catch(e => console.warn(e));
+  updatePendingExtraChargesBadge().catch(e => console.warn(e));
   switchBillingAdminTab('generator');
 };
 
@@ -66421,6 +67756,30 @@ async function updatePendingObservationsBadge() {
     console.error('Error updating pending observations badge:', err);
   }
 }
+window.updatePendingObservationsBadge = updatePendingObservationsBadge;
+
+async function updatePendingExtraChargesBadge() {
+  try {
+    const { count, error } = await supabase
+      .from('extra_billing_charges')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pendiente');
+    if (error) throw error;
+
+    const badge = document.getElementById('pending-extra-charges-badge');
+    if (badge) {
+      if (count > 0) {
+        badge.textContent = count;
+        badge.style.display = 'inline-flex';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  } catch (err) {
+    console.error('Error updating pending extra charges badge:', err);
+  }
+}
+window.updatePendingExtraChargesBadge = updatePendingExtraChargesBadge;
 
 window.loadBillingObservationsTab = async function() {
   const container = document.getElementById('observations-list-container');
@@ -67319,6 +68678,15 @@ window.renderCommerceDetailModalContent = function(r, periodId, periodName, alDi
               ` : '<span style="color: var(--color-text-muted); font-style: italic; font-weight: 400;">No registrado</span>'}
             </div>
           </div>
+          <div>
+            <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); font-weight: 700; margin-bottom: 0.2rem;">Datos Facturación SII</div>
+            <div style="font-weight: 600; color: var(--color-text-main); display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.78rem;">
+              ${(legal.giro_facturacion || legal.direccion_facturacion || legal.comuna_facturacion) ? `
+                ${legal.giro_facturacion ? `<span title="Giro SII"><i class="ri-briefcase-4-line" style="color: #7c3aed;"></i> ${escapeAttr(legal.giro_facturacion)}</span>` : ''}
+                ${(legal.direccion_facturacion || legal.comuna_facturacion) ? `<span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 400;">${[legal.direccion_facturacion ? escapeAttr(legal.direccion_facturacion) : '', legal.comuna_facturacion ? escapeAttr(legal.comuna_facturacion) : ''].filter(Boolean).join(', ')}</span>` : ''}
+              ` : '<span style="color: var(--color-text-muted); font-style: italic; font-weight: 400;">Pendiente completar giro / dirección</span>'}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -67497,18 +68865,43 @@ window.renderCommerceDetailModalContent = function(r, periodId, periodName, alDi
               </select>
             </div>
             <div class="form-group" style="margin: 0;">
-              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Folio / Factura #:</label>
-              <div style="position: relative; display: flex; align-items: center;">
-                <span style="position: absolute; left: 10px; font-size: 0.85rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">#</span>
-                <input type="number" id="modal-field-folio-fulf-${r.id}" value="${r.num_factura || ''}" placeholder="Ej: 10452" class="billing-input" onblur="window.saveModalNumberField('${r.id}', 'num_factura', this.value, '${periodId}', true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%; padding-left: 24px; font-size: 0.88rem;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem; gap: 0.4rem;">
+                <label class="form-label" style="margin: 0; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Folio / Factura #:</label>
+                ${r.lioren_sii_status_fulfillment && window.renderLiorenSiiBadgeHtml ? window.renderLiorenSiiBadgeHtml(r.lioren_sii_status_fulfillment) : ''}
               </div>
+              <div style="display: flex; align-items: center; gap: 0.45rem;">
+                <div style="position: relative; display: flex; align-items: center; flex: 1;">
+                  <span style="position: absolute; left: 10px; font-size: 0.85rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">#</span>
+                  <input type="number" id="modal-field-folio-fulf-${r.id}" value="${r.num_factura || ''}" placeholder="Ej: 10452" class="billing-input" onblur="window.saveModalNumberField('${r.id}', 'num_factura', this.value, '${periodId}', true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%; padding-left: 24px; font-size: 0.88rem;">
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" onclick="window.markDashboardInvoiceAsIssued('${r.id}', 'fulfillment')" style="background: linear-gradient(135deg, #6d28d9, #4f46e5); border: none; font-size: 0.75rem; padding: 0.38rem 0.65rem; display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap;" title="Emitir Factura Electrónica con Lioren API o registrar folio manual">
+                  <i class="ri-flashlight-fill"></i> ${r.num_factura ? 'Lioren / Folio' : 'Emitir Lioren'}
+                </button>
+              </div>
+              ${r.num_factura ? `
+                <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.45rem;">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="window.consultLiorenDteStatus && window.consultLiorenDteStatus('${r.id}', 'fulfillment', '${r.num_factura}')" style="font-size: 0.7rem; padding: 0.16rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-refresh-line"></i> Consultar Estado SII
+                  </button>
+                  <button type="button" class="btn btn-outline btn-sm" onclick="window.openLiorenCreditNoteModal && window.openLiorenCreditNoteModal('${r.id}', 'fulfillment')" style="font-size: 0.7rem; padding: 0.16rem 0.5rem; border-color: rgba(239, 68, 68, 0.35); color: #ef4444; display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-arrow-go-back-line"></i> Anular (NC 61)
+                  </button>
+                </div>
+              ` : ''}
             </div>
             ${r.factura_fulfillment_pdf_url ? `
-              <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.65rem; background: rgba(16, 185, 129, 0.07); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; flex-wrap: wrap; padding: 0.4rem 0.65rem; background: rgba(16, 185, 129, 0.07); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px;">
                 <span style="font-size: 0.78rem; color: var(--color-text-main); font-weight: 600;"><i class="ri-file-pdf-fill" style="color: #ef4444;"></i> Factura PDF Fulfillment</span>
-                <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('Factura Fulfillment - ${(r.comercio || '').replace(/'/g, "\\'")}', '${r.factura_fulfillment_pdf_url}')" style="font-size: 0.72rem; padding: 0.15rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
-                  <i class="ri-eye-line"></i> Ver / Descargar
-                </button>
+                <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('Factura Fulfillment - ${(r.comercio || '').replace(/'/g, "\\'")}', '${r.factura_fulfillment_pdf_url}')" style="font-size: 0.72rem; padding: 0.15rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-eye-line"></i> PDF
+                  </button>
+                  ${r.factura_fulfillment_xml_url ? `
+                    <a href="${r.factura_fulfillment_xml_url}" target="_blank" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.15rem 0.5rem; text-decoration: none; display: inline-flex; align-items: center; gap: 0.25rem;" title="Descargar XML firmado SII">
+                      <i class="ri-code-s-slash-line"></i> XML
+                    </a>
+                  ` : ''}
+                </div>
               </div>
             ` : ''}
           </div>
@@ -67613,22 +69006,47 @@ window.renderCommerceDetailModalContent = function(r, periodId, periodName, alDi
               </select>
             </div>
             <div class="form-group" style="margin: 0;">
-              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Folio / Factura Envíame #:</label>
-              <div style="position: relative; display: flex; align-items: center;">
-                <span style="position: absolute; left: 10px; font-size: 0.85rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">#</span>
-                <input type="number" id="modal-field-folio-env-${r.id}" value="${r.num_factura_enviame || ''}" placeholder="Ej: 20560" class="billing-input" onblur="window.saveModalNumberField('${r.id}', 'num_factura_enviame', this.value, '${periodId}', true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%; padding-left: 24px; font-size: 0.88rem;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem; gap: 0.4rem;">
+                <label class="form-label" style="margin: 0; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Folio / Factura Envíame #:</label>
+                ${r.lioren_sii_status_enviame && window.renderLiorenSiiBadgeHtml ? window.renderLiorenSiiBadgeHtml(r.lioren_sii_status_enviame) : ''}
               </div>
+              <div style="display: flex; align-items: center; gap: 0.45rem;">
+                <div style="position: relative; display: flex; align-items: center; flex: 1;">
+                  <span style="position: absolute; left: 10px; font-size: 0.85rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">#</span>
+                  <input type="number" id="modal-field-folio-env-${r.id}" value="${r.num_factura_enviame || ''}" placeholder="Ej: 20560" class="billing-input" onblur="window.saveModalNumberField('${r.id}', 'num_factura_enviame', this.value, '${periodId}', true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%; padding-left: 24px; font-size: 0.88rem;">
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" onclick="window.markDashboardInvoiceAsIssued('${r.id}', 'enviame')" style="background: linear-gradient(135deg, #6d28d9, #4f46e5); border: none; font-size: 0.75rem; padding: 0.38rem 0.65rem; display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap;" title="Emitir Factura Electrónica Envíame con Lioren API o registrar folio manual">
+                  <i class="ri-flashlight-fill"></i> ${r.num_factura_enviame ? 'Lioren / Folio' : 'Emitir Lioren'}
+                </button>
+              </div>
+              ${r.num_factura_enviame ? `
+                <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.45rem;">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="window.consultLiorenDteStatus && window.consultLiorenDteStatus('${r.id}', 'enviame', '${r.num_factura_enviame}')" style="font-size: 0.7rem; padding: 0.16rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-refresh-line"></i> Consultar Estado SII
+                  </button>
+                  <button type="button" class="btn btn-outline btn-sm" onclick="window.openLiorenCreditNoteModal && window.openLiorenCreditNoteModal('${r.id}', 'enviame')" style="font-size: 0.7rem; padding: 0.16rem 0.5rem; border-color: rgba(239, 68, 68, 0.35); color: #ef4444; display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-arrow-go-back-line"></i> Anular (NC 61)
+                  </button>
+                </div>
+              ` : ''}
             </div>
             <div style="margin-top: 0.25rem;">
               <span style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.35rem;">Planillas y PDFs Adjuntos:</span>
               ${envDocsHtml}
             </div>
             ${r.factura_enviame_pdf_url ? `
-              <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.65rem; background: rgba(16, 185, 129, 0.07); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; flex-wrap: wrap; padding: 0.4rem 0.65rem; background: rgba(16, 185, 129, 0.07); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px;">
                 <span style="font-size: 0.78rem; color: var(--color-text-main); font-weight: 600;"><i class="ri-file-pdf-fill" style="color: #ef4444;"></i> Factura PDF Envíame</span>
-                <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('Factura Envíame - ${(r.comercio || '').replace(/'/g, "\\'")}', '${r.factura_enviame_pdf_url}')" style="font-size: 0.72rem; padding: 0.15rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
-                  <i class="ri-eye-line"></i> Ver / Descargar
-                </button>
+                <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('Factura Envíame - ${(r.comercio || '').replace(/'/g, "\\'")}', '${r.factura_enviame_pdf_url}')" style="font-size: 0.72rem; padding: 0.15rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-eye-line"></i> PDF
+                  </button>
+                  ${r.factura_enviame_xml_url ? `
+                    <a href="${r.factura_enviame_xml_url}" target="_blank" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.15rem 0.5rem; text-decoration: none; display: inline-flex; align-items: center; gap: 0.25rem;" title="Descargar XML firmado SII">
+                      <i class="ri-code-s-slash-line"></i> XML
+                    </a>
+                  ` : ''}
+                </div>
               </div>
             ` : ''}
           </div>
@@ -67888,6 +69306,15 @@ window.toggleCommerceStatusFromModal = async function(comercio, badgeEl, periodI
 
     badgeEl.className = `badge ${nextIsAlDia ? 'badge-success' : 'badge-danger'}`;
     badgeEl.innerHTML = `<i class="${nextIsAlDia ? 'ri-checkbox-circle-line' : 'ri-pause-circle-line'}"></i> ${nextIsAlDia ? 'Al Día' : 'Servicio Pausado'}`;
+
+    if (Array.isArray(cachedDashboardCommerceStatus)) {
+      const idx = cachedDashboardCommerceStatus.findIndex(s => (s.comercio || '').toLowerCase() === String(comercio || '').toLowerCase());
+      if (idx >= 0) cachedDashboardCommerceStatus[idx].al_dia = nextIsAlDia;
+      else cachedDashboardCommerceStatus.push({ comercio, al_dia: nextIsAlDia });
+    }
+    if (document.getElementById('d-commerce-select') && typeof window.syncCommerceViewHeaderOnly === 'function') {
+      window.syncCommerceViewHeaderOnly();
+    }
 
     ['fulf', 'env', 'resumen'].forEach(sub => {
       const rEl = document.getElementById(`row-${sub}-${recordId}`);
@@ -68760,12 +70187,12 @@ window.fetchBillingCommerceLegalDataset = async function(forceRefresh = false) {
     safeQuery(
       supabase
         .from('comercios_adicional_config')
-        .select('comercio, rut, razon_social, rep_legal_nombre, rep_legal_rut, rep_legal_email, rep_legal_telefono')
+        .select('*')
     ),
     safeQuery(
       supabase
         .from('onboarding_requests')
-        .select('nombre_fantasia, razon_social, rut_empresa, rep_legal_nombre, rep_legal_rut, rep_legal_email, rep_legal_telefono, status, created_at')
+        .select('nombre_fantasia, razon_social, rut_empresa, giro_comercio, direccion_facturacion, comuna, email_facturacion, rep_legal_nombre, rep_legal_rut, rep_legal_email, rep_legal_telefono, status, created_at')
         .order('created_at', { ascending: false })
     ),
     safeQuery(
@@ -68827,6 +70254,13 @@ window.getBillingCommerceLegalInfo = function(commerceName, dataset = null) {
     comercio: commerceName,
     razon_social: '',
     rut: '',
+    giro_facturacion: '',
+    direccion_facturacion: '',
+    comuna_facturacion: '',
+    ciudad_facturacion: '',
+    lioren_comuna_id: null,
+    lioren_ciudad_id: null,
+    email_facturacion: '',
     rep_legal_nombre: '',
     rep_legal_rut: '',
     rep_legal_email: '',
@@ -68843,6 +70277,13 @@ window.getBillingCommerceLegalInfo = function(commerceName, dataset = null) {
   for (const cfg of matchingConfigs) {
     if (!info.rut && cfg.rut && String(cfg.rut).trim()) info.rut = String(cfg.rut).trim();
     if (!info.razon_social && cfg.razon_social && String(cfg.razon_social).trim()) info.razon_social = String(cfg.razon_social).trim();
+    if (!info.giro_facturacion && cfg.giro_facturacion && String(cfg.giro_facturacion).trim()) info.giro_facturacion = String(cfg.giro_facturacion).trim();
+    if (!info.direccion_facturacion && cfg.direccion_facturacion && String(cfg.direccion_facturacion).trim()) info.direccion_facturacion = String(cfg.direccion_facturacion).trim();
+    if (!info.comuna_facturacion && cfg.comuna_facturacion && String(cfg.comuna_facturacion).trim()) info.comuna_facturacion = String(cfg.comuna_facturacion).trim();
+    if (!info.ciudad_facturacion && cfg.ciudad_facturacion && String(cfg.ciudad_facturacion).trim()) info.ciudad_facturacion = String(cfg.ciudad_facturacion).trim();
+    if (!info.lioren_comuna_id && cfg.lioren_comuna_id) info.lioren_comuna_id = Number(cfg.lioren_comuna_id);
+    if (!info.lioren_ciudad_id && cfg.lioren_ciudad_id) info.lioren_ciudad_id = Number(cfg.lioren_ciudad_id);
+    if (!info.email_facturacion && cfg.email_facturacion && String(cfg.email_facturacion).trim()) info.email_facturacion = String(cfg.email_facturacion).trim();
     if (!info.rep_legal_nombre && cfg.rep_legal_nombre && String(cfg.rep_legal_nombre).trim()) info.rep_legal_nombre = String(cfg.rep_legal_nombre).trim();
     if (!info.rep_legal_rut && cfg.rep_legal_rut && String(cfg.rep_legal_rut).trim()) info.rep_legal_rut = String(cfg.rep_legal_rut).trim();
     if (!info.rep_legal_email && cfg.rep_legal_email && String(cfg.rep_legal_email).trim()) info.rep_legal_email = String(cfg.rep_legal_email).trim();
@@ -68868,6 +70309,10 @@ window.getBillingCommerceLegalInfo = function(commerceName, dataset = null) {
     if (matchesOb) {
       if (!info.razon_social && ob.razon_social && String(ob.razon_social).trim()) info.razon_social = String(ob.razon_social).trim();
       if (!info.rut && ob.rut_empresa && String(ob.rut_empresa).trim()) info.rut = String(ob.rut_empresa).trim();
+      if (!info.giro_facturacion && ob.giro_comercio && String(ob.giro_comercio).trim()) info.giro_facturacion = String(ob.giro_comercio).trim();
+      if (!info.direccion_facturacion && ob.direccion_facturacion && String(ob.direccion_facturacion).trim()) info.direccion_facturacion = String(ob.direccion_facturacion).trim();
+      if (!info.comuna_facturacion && ob.comuna && String(ob.comuna).trim()) info.comuna_facturacion = String(ob.comuna).trim();
+      if (!info.email_facturacion && ob.email_facturacion && String(ob.email_facturacion).trim()) info.email_facturacion = String(ob.email_facturacion).trim();
       if (!info.rep_legal_nombre && ob.rep_legal_nombre && String(ob.rep_legal_nombre).trim()) info.rep_legal_nombre = String(ob.rep_legal_nombre).trim();
       if (!info.rep_legal_rut && ob.rep_legal_rut && String(ob.rep_legal_rut).trim()) info.rep_legal_rut = String(ob.rep_legal_rut).trim();
       if (!info.rep_legal_email && ob.rep_legal_email && String(ob.rep_legal_email).trim()) info.rep_legal_email = String(ob.rep_legal_email).trim();
@@ -68883,6 +70328,13 @@ window.getBillingCommerceLegalInfo = function(commerceName, dataset = null) {
         const parsed = JSON.parse(localRaw);
         if (!info.razon_social && parsed.razon_social) info.razon_social = String(parsed.razon_social).trim();
         if (!info.rut && parsed.rut) info.rut = String(parsed.rut).trim();
+        if (!info.giro_facturacion && parsed.giro_facturacion) info.giro_facturacion = String(parsed.giro_facturacion).trim();
+        if (!info.direccion_facturacion && parsed.direccion_facturacion) info.direccion_facturacion = String(parsed.direccion_facturacion).trim();
+        if (!info.comuna_facturacion && parsed.comuna_facturacion) info.comuna_facturacion = String(parsed.comuna_facturacion).trim();
+        if (!info.ciudad_facturacion && parsed.ciudad_facturacion) info.ciudad_facturacion = String(parsed.ciudad_facturacion).trim();
+        if (!info.lioren_comuna_id && parsed.lioren_comuna_id) info.lioren_comuna_id = Number(parsed.lioren_comuna_id);
+        if (!info.lioren_ciudad_id && parsed.lioren_ciudad_id) info.lioren_ciudad_id = Number(parsed.lioren_ciudad_id);
+        if (!info.email_facturacion && parsed.email_facturacion) info.email_facturacion = String(parsed.email_facturacion).trim();
         if (!info.rep_legal_nombre && parsed.rep_legal_nombre) info.rep_legal_nombre = String(parsed.rep_legal_nombre).trim();
         if (!info.rep_legal_rut && parsed.rep_legal_rut) info.rep_legal_rut = String(parsed.rep_legal_rut).trim();
         if (!info.rep_legal_email && parsed.rep_legal_email) info.rep_legal_email = String(parsed.rep_legal_email).trim();
@@ -68909,16 +70361,24 @@ window.getBillingCommerceLegalInfo = function(commerceName, dataset = null) {
     }
   }
 
-  // 5. Billing contacts fallback for Representante Legal
-  if (!info.rep_legal_nombre) {
-    for (const c of contacts) {
-      if (c.activo === false) continue;
-      if (aliases.has(norm(c.comercio)) && !isInvalidPersonName(c.nombre, aliases)) {
+  // 5. Billing contacts fallback for Representante Legal and Email Facturación
+  for (const c of contacts) {
+    if (c.activo === false) continue;
+    if (aliases.has(norm(c.comercio))) {
+      if (!info.email_facturacion && c.email) info.email_facturacion = String(c.email).trim();
+      if (!info.rep_legal_nombre && !isInvalidPersonName(c.nombre, aliases)) {
         info.rep_legal_nombre = String(c.nombre).trim();
         if (!info.rep_legal_email && c.email) info.rep_legal_email = String(c.email).trim();
-        break;
       }
     }
+  }
+
+  // 6. Auto-resolve Lioren locality IDs if comuna text is available
+  if ((!info.lioren_comuna_id || !info.lioren_ciudad_id) && (info.comuna_facturacion || info.ciudad_facturacion) && typeof window.resolveLiorenLocalityIds === 'function') {
+    const loc = window.resolveLiorenLocalityIds(info.comuna_facturacion, info.ciudad_facturacion);
+    if (!info.lioren_comuna_id && loc.comunaId) info.lioren_comuna_id = loc.comunaId;
+    if (!info.lioren_ciudad_id && loc.ciudadId) info.lioren_ciudad_id = loc.ciudadId;
+    if (!info.ciudad_facturacion && loc.ciudadNombre) info.ciudad_facturacion = loc.ciudadNombre;
   }
 
   return info;
@@ -68992,55 +70452,105 @@ window.openQuickEditCommerceLegalModal = async function(comercioName, periodId =
   const info = window.getBillingCommerceLegalInfo(comercioName, dataset);
   const esc = (str) => String(str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+  const catalogs = window.LIOREN_CATALOGS || { comunas: [], ciudades: [] };
+  const resolvedLoc = typeof window.resolveLiorenLocalityIds === 'function'
+    ? window.resolveLiorenLocalityIds(info.comuna_facturacion || '', info.ciudad_facturacion || '')
+    : { comunaId: null, ciudadId: null };
+  const selectedComunaId = info.lioren_comuna_id || resolvedLoc.comunaId || '';
+  const selectedCiudadId = info.lioren_ciudad_id || resolvedLoc.ciudadId || '';
+
+  const comunasSelectHtml = catalogs.comunas.length > 0
+    ? `<select id="qe-legal-comuna-select" class="form-input" style="width: 100%; margin: 0;">
+         <option value="">— Seleccionar Comuna SII —</option>
+         ${catalogs.comunas.map(c => `<option value="${c.id}" data-nombre="${esc(c.nombre)}" ${Number(selectedComunaId) === c.id ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('')}
+       </select>`
+    : `<input type="text" id="qe-legal-comuna-text" class="form-input" value="${esc(info.comuna_facturacion)}" placeholder="Ej: Providencia" style="width: 100%; margin: 0;">`;
+
+  const ciudadesSelectHtml = catalogs.ciudades.length > 0
+    ? `<select id="qe-legal-ciudad-select" class="form-input" style="width: 100%; margin: 0;">
+         <option value="">— Seleccionar Ciudad SII —</option>
+         ${catalogs.ciudades.map(ci => `<option value="${ci.id}" data-nombre="${esc(ci.nombre)}" ${Number(selectedCiudadId) === ci.id ? 'selected' : ''}>${esc(ci.nombre)}</option>`).join('')}
+       </select>`
+    : `<input type="text" id="qe-legal-ciudad-text" class="form-input" value="${esc(info.ciudad_facturacion)}" placeholder="Ej: Santiago" style="width: 100%; margin: 0;">`;
+
   const modal = document.createElement('div');
   modal.id = 'modal-quick-edit-commerce-legal';
   modal.className = 'modal-overlay active';
   modal.style.zIndex = '1050';
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 500px; width: 95%;">
+    <div class="modal-content" style="max-width: 560px; width: 95%; max-height: 92vh; overflow-y: auto;">
       <div class="modal-header">
         <h3 style="display: flex; align-items: center; gap: 0.5rem; margin: 0; font-size: 1.05rem;">
           <i class="ri-building-2-line" style="color: var(--color-primary);"></i>
-          <span>Datos Legales — ${esc(comercioName)}</span>
+          <span>Datos Legales y SII — ${esc(comercioName)}</span>
         </h3>
         <button type="button" class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
       </div>
       <form id="form-quick-edit-commerce-legal">
-        <div class="modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 0.9rem;">
-          <div style="background: rgba(99, 102, 241, 0.06); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 8px; padding: 0.65rem 0.85rem; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.4;">
+        <div class="modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 0.85rem;">
+          <div style="background: rgba(99, 102, 241, 0.06); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 8px; padding: 0.6rem 0.85rem; font-size: 0.77rem; color: var(--color-text-muted); line-height: 1.4;">
             <i class="ri-information-line" style="color: var(--color-primary);"></i>
-            Estos datos se sincronizan con la configuración del comercio y se reflejan en todos los periodos de facturación y exportaciones Excel.
+            Estos datos se sincronizan con la ficha del comercio y se utilizan automáticamente al emitir Facturas Electrónicas en <strong>Lioren SII</strong>.
           </div>
 
-          <div class="form-group" style="margin: 0;">
-            <label class="form-label" style="font-size: 0.78rem; font-weight: 600; margin-bottom: 0.3rem; display: block;">Razón Social de la Empresa</label>
-            <input type="text" id="qe-legal-razon-social" class="form-input" value="${esc(info.razon_social)}" placeholder="Ej: COMERCIALIZADORA EJEMPLO SPA" style="width: 100%; margin: 0;">
+          <div style="display: grid; grid-template-columns: 1.35fr 1fr; gap: 0.75rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.76rem; font-weight: 600; margin-bottom: 0.25rem; display: block;">Razón Social Empresa</label>
+              <input type="text" id="qe-legal-razon-social" class="form-input" value="${esc(info.razon_social)}" placeholder="Ej: COMERCIALIZADORA EJEMPLO SPA" maxlength="100" style="width: 100%; margin: 0;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.76rem; font-weight: 600; margin-bottom: 0.25rem; display: block;">RUT del Comercio</label>
+              <input type="text" id="qe-legal-rut" class="form-input" value="${esc(info.rut)}" placeholder="Ej: 76123456-7" style="width: 100%; margin: 0;">
+            </div>
           </div>
 
-          <div class="form-group" style="margin: 0;">
-            <label class="form-label" style="font-size: 0.78rem; font-weight: 600; margin-bottom: 0.3rem; display: block;">RUT del Comercio (Empresa)</label>
-            <input type="text" id="qe-legal-rut" class="form-input" value="${esc(info.rut)}" placeholder="Ej: 76.123.456-7" style="width: 100%; margin: 0;">
+          <div style="border-top: 1px dashed var(--color-border); padding-top: 0.75rem; margin-top: 0.05rem;">
+            <div style="font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #7c3aed; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-flashlight-fill"></i> Datos de Facturación SII (Lioren API)
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem;">
+              <div class="form-group" style="margin: 0; grid-column: span 2;">
+                <label class="form-label" style="font-size: 0.75rem; font-weight: 600; margin-bottom: 0.22rem; display: block;">Giro Tributario SII <span style="font-weight: 400; color: var(--color-text-muted);">(máx. 40 caracteres)</span></label>
+                <input type="text" id="qe-legal-giro" class="form-input" value="${esc((info.giro_facturacion || '').slice(0, 40))}" maxlength="40" placeholder="Ej: VENTA AL POR MENOR POR INTERNET" style="width: 100%; margin: 0;">
+              </div>
+              <div class="form-group" style="margin: 0; grid-column: span 2;">
+                <label class="form-label" style="font-size: 0.75rem; font-weight: 600; margin-bottom: 0.22rem; display: block;">Dirección Tributaria <span style="font-weight: 400; color: var(--color-text-muted);">(máx. 70 caracteres)</span></label>
+                <input type="text" id="qe-legal-direccion" class="form-input" value="${esc((info.direccion_facturacion || '').slice(0, 70))}" maxlength="70" placeholder="Ej: AV. PROVIDENCIA 1234 OF 501" style="width: 100%; margin: 0;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.75rem; font-weight: 600; margin-bottom: 0.22rem; display: block;">Comuna SII</label>
+                ${comunasSelectHtml}
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.75rem; font-weight: 600; margin-bottom: 0.22rem; display: block;">Ciudad SII</label>
+                ${ciudadesSelectHtml}
+              </div>
+              <div class="form-group" style="margin: 0; grid-column: span 2;">
+                <label class="form-label" style="font-size: 0.75rem; font-weight: 600; margin-bottom: 0.22rem; display: block;">Correo Recepción DTE (Opcional)</label>
+                <input type="email" id="qe-legal-email-fact" class="form-input" value="${esc(info.email_facturacion)}" placeholder="Ej: facturacion@empresa.cl" maxlength="80" style="width: 100%; margin: 0;">
+              </div>
+            </div>
           </div>
 
-          <div style="border-top: 1px dashed var(--color-border); padding-top: 0.75rem; margin-top: 0.1rem;">
-            <div style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-primary); margin-bottom: 0.65rem; display: flex; align-items: center; gap: 0.35rem;">
+          <div style="border-top: 1px dashed var(--color-border); padding-top: 0.75rem; margin-top: 0.05rem;">
+            <div style="font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-primary); margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.35rem;">
               <i class="ri-user-star-line"></i> Representante Legal
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem;">
               <div class="form-group" style="margin: 0; grid-column: span 2;">
-                <label class="form-label" style="font-size: 0.76rem; font-weight: 600; margin-bottom: 0.25rem; display: block;">Nombre Completo</label>
+                <label class="form-label" style="font-size: 0.75rem; font-weight: 600; margin-bottom: 0.22rem; display: block;">Nombre Completo</label>
                 <input type="text" id="qe-legal-rep-nombre" class="form-input" value="${esc(info.rep_legal_nombre)}" placeholder="Ej: Juan Pérez González" style="width: 100%; margin: 0;">
               </div>
               <div class="form-group" style="margin: 0;">
-                <label class="form-label" style="font-size: 0.76rem; font-weight: 600; margin-bottom: 0.25rem; display: block;">RUT Rep. Legal (Opcional)</label>
+                <label class="form-label" style="font-size: 0.75rem; font-weight: 600; margin-bottom: 0.22rem; display: block;">RUT Rep. Legal (Opcional)</label>
                 <input type="text" id="qe-legal-rep-rut" class="form-input" value="${esc(info.rep_legal_rut)}" placeholder="Ej: 15.234.567-8" style="width: 100%; margin: 0;">
               </div>
               <div class="form-group" style="margin: 0;">
-                <label class="form-label" style="font-size: 0.76rem; font-weight: 600; margin-bottom: 0.25rem; display: block;">Teléfono (Opcional)</label>
+                <label class="form-label" style="font-size: 0.75rem; font-weight: 600; margin-bottom: 0.22rem; display: block;">Teléfono (Opcional)</label>
                 <input type="text" id="qe-legal-rep-telefono" class="form-input" value="${esc(info.rep_legal_telefono)}" placeholder="Ej: +56 9 1234 5678" style="width: 100%; margin: 0;">
               </div>
               <div class="form-group" style="margin: 0; grid-column: span 2;">
-                <label class="form-label" style="font-size: 0.76rem; font-weight: 600; margin-bottom: 0.25rem; display: block;">Correo Electrónico Rep. Legal (Opcional)</label>
+                <label class="form-label" style="font-size: 0.75rem; font-weight: 600; margin-bottom: 0.22rem; display: block;">Correo Electrónico Rep. Legal (Opcional)</label>
                 <input type="email" id="qe-legal-rep-email" class="form-input" value="${esc(info.rep_legal_email)}" placeholder="Ej: representante@empresa.cl" style="width: 100%; margin: 0;">
               </div>
             </div>
@@ -69058,6 +70568,20 @@ window.openQuickEditCommerceLegalModal = async function(comercioName, periodId =
 
   document.body.appendChild(modal);
 
+  // Sincronización automática Comuna SII -> Ciudad SII
+  const qeComunaSel = document.getElementById('qe-legal-comuna-select');
+  const qeCiudadSel = document.getElementById('qe-legal-ciudad-select');
+  if (qeComunaSel && qeCiudadSel && typeof window.resolveLiorenLocalityIds === 'function') {
+    qeComunaSel.addEventListener('change', () => {
+      const opt = qeComunaSel.options[qeComunaSel.selectedIndex];
+      const cName = opt ? opt.getAttribute('data-nombre') : '';
+      if (cName) {
+        const autoLoc = window.resolveLiorenLocalityIds(cName, '');
+        if (autoLoc.ciudadId) qeCiudadSel.value = String(autoLoc.ciudadId);
+      }
+    });
+  }
+
   const form = document.getElementById('form-quick-edit-commerce-legal');
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -69067,10 +70591,24 @@ window.openQuickEditCommerceLegalModal = async function(comercioName, periodId =
       saveBtn.innerHTML = '<i class="ri-loader-4-line spin"></i> Guardando...';
     }
 
+    const selComunaOpt = qeComunaSel ? qeComunaSel.options[qeComunaSel.selectedIndex] : null;
+    const selCiudadOpt = qeCiudadSel ? qeCiudadSel.options[qeCiudadSel.selectedIndex] : null;
+    const liorenComunaId = qeComunaSel && qeComunaSel.value ? parseInt(qeComunaSel.value, 10) : null;
+    const liorenCiudadId = qeCiudadSel && qeCiudadSel.value ? parseInt(qeCiudadSel.value, 10) : null;
+    const comunaText = selComunaOpt?.getAttribute('data-nombre') || document.getElementById('qe-legal-comuna-text')?.value.trim() || null;
+    const ciudadText = selCiudadOpt?.getAttribute('data-nombre') || document.getElementById('qe-legal-ciudad-text')?.value.trim() || null;
+
     const payload = {
       comercio: comercioName,
       razon_social: document.getElementById('qe-legal-razon-social')?.value.trim() || null,
       rut: document.getElementById('qe-legal-rut')?.value.trim() || null,
+      giro_facturacion: document.getElementById('qe-legal-giro')?.value.trim().slice(0, 40) || null,
+      direccion_facturacion: document.getElementById('qe-legal-direccion')?.value.trim().slice(0, 70) || null,
+      comuna_facturacion: comunaText,
+      ciudad_facturacion: ciudadText,
+      lioren_comuna_id: liorenComunaId,
+      lioren_ciudad_id: liorenCiudadId,
+      email_facturacion: document.getElementById('qe-legal-email-fact')?.value.trim() || null,
       rep_legal_nombre: document.getElementById('qe-legal-rep-nombre')?.value.trim() || null,
       rep_legal_rut: document.getElementById('qe-legal-rep-rut')?.value.trim() || null,
       rep_legal_telefono: document.getElementById('qe-legal-rep-telefono')?.value.trim() || null,
@@ -69084,16 +70622,31 @@ window.openQuickEditCommerceLegalModal = async function(comercioName, periodId =
         .upsert(payload, { onConflict: 'comercio' });
 
       if (error) {
-        // Fallback if optional rep_legal columns are restricted
-        const { error: fallbackErr } = await supabase
+        // Fallback 1 if new Lioren columns are not yet migrated in DB
+        const { error: repErr } = await supabase
           .from('comercios_adicional_config')
           .upsert({
             comercio: comercioName,
             razon_social: payload.razon_social,
             rut: payload.rut,
+            rep_legal_nombre: payload.rep_legal_nombre,
+            rep_legal_rut: payload.rep_legal_rut,
+            rep_legal_telefono: payload.rep_legal_telefono,
+            rep_legal_email: payload.rep_legal_email,
             updated_at: payload.updated_at
           }, { onConflict: 'comercio' });
-        if (fallbackErr) throw fallbackErr;
+
+        if (repErr) {
+          const { error: fallbackErr } = await supabase
+            .from('comercios_adicional_config')
+            .upsert({
+              comercio: comercioName,
+              razon_social: payload.razon_social,
+              rut: payload.rut,
+              updated_at: payload.updated_at
+            }, { onConflict: 'comercio' });
+          if (fallbackErr) throw fallbackErr;
+        }
       }
 
       try {
@@ -69132,6 +70685,7 @@ window.openQuickEditCommerceLegalModal = async function(comercioName, periodId =
   });
 };
 
+window.loadBillingRecords = loadBillingRecords;
 async function loadBillingRecords(periodId, bodyElement) {
   try {
     // 1. Obtener registros de facturación, estados de comercio y datos legales en paralelo
@@ -69331,8 +70885,16 @@ async function loadBillingRecords(periodId, bodyElement) {
                   </select>
                   <div style="position: relative; display: inline-flex; align-items: center;" title="Número de Folio / Factura">
                     <span style="position: absolute; left: 6px; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">#</span>
-                    <input type="number" value="${r.num_factura || ''}" placeholder="Folio" class="billing-input billing-folio-input" onblur="saveNumberField('${r.id}', 'num_factura', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 65px; padding-left: 16px; font-size: 0.78rem; text-align: left;">
+                    <input type="number" value="${r.num_factura || ''}" placeholder="Folio" class="billing-input billing-folio-input" onblur="saveNumberField('${r.id}', 'num_factura', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 62px; padding-left: 15px; font-size: 0.78rem; text-align: left;">
                   </div>
+                  ${!r.num_factura && totalFulf > 0 ? `
+                    <button type="button" class="btn-lioren-1click compact" onclick="event.stopPropagation(); window.quickEmitLiorenInvoice && window.quickEmitLiorenInvoice('${r.id}', 'fulfillment', this)" title="⚡ Emitir Factura Fulfillment en 1-Click (Lioren SII)">
+                      <i class="ri-flashlight-fill"></i> 1-Click
+                    </button>
+                  ` : ''}
+                  <button type="button" class="btn-lioren-quick-emit" onclick="event.stopPropagation(); window.markDashboardInvoiceAsIssued('${r.id}', 'fulfillment')" title="Abrir Modal Facturación Lioren / Registrar Folio Manual">
+                    <i class="ri-equalizer-line"></i>
+                  </button>
                 </div>
               </div>
             </div>
@@ -69480,6 +71042,14 @@ async function loadBillingRecords(periodId, bodyElement) {
                   <span style="position: absolute; left: 6px; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">#</span>
                   <input type="number" value="${r.num_factura_enviame || ''}" placeholder="Sin folio" class="billing-input billing-folio-input" onblur="saveNumberField('${r.id}', 'num_factura_enviame', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%; padding-left: 16px; font-size: 0.78rem; text-align: left;">
                 </div>
+                ${!r.num_factura_enviame && totalEnv > 0 ? `
+                  <button type="button" class="btn-lioren-1click compact" onclick="event.stopPropagation(); window.quickEmitLiorenInvoice && window.quickEmitLiorenInvoice('${r.id}', 'enviame', this)" title="⚡ Emitir Factura Envíame en 1-Click (Lioren SII)">
+                    <i class="ri-flashlight-fill"></i> 1-Click
+                  </button>
+                ` : ''}
+                <button type="button" class="btn-lioren-quick-emit" onclick="event.stopPropagation(); window.markDashboardInvoiceAsIssued('${r.id}', 'enviame')" title="Abrir Modal Facturación Envíame Lioren / Registrar Folio Manual">
+                  <i class="ri-equalizer-line"></i>
+                </button>
               </div>
             </div>
           </td>
@@ -70748,6 +72318,16 @@ window.saveField = async function(recordId, fieldName, fieldValue) {
       .eq('id', recordId);
       
     if (error) throw error;
+
+    if (Array.isArray(cachedDashboardRecords)) {
+      const cachedRec = cachedDashboardRecords.find(r => String(r.id) === String(recordId));
+      if (cachedRec) {
+        cachedRec[fieldName] = fieldValue;
+      }
+    }
+    if (document.getElementById('d-commerce-select') && typeof window.syncCommerceViewLiveMetrics === 'function') {
+      window.syncCommerceViewLiveMetrics(recordId);
+    }
     
     if (['total_fulfillment', 'enviame', 'abono_fulfillment', 'abono_enviame'].includes(fieldName)) {
       const row = ['enviame', 'abono_enviame', 'pago_enviame', 'factura_enviame', 'num_factura_enviame', 'fecha_limite_enviame'].includes(fieldName)
@@ -71865,6 +73445,12 @@ window.deleteBillingRecord = async function(recordId, commerceName, periodId) {
     if (body) {
       await loadBillingRecords(periodId, body);
     }
+    if (Array.isArray(cachedDashboardRecords)) {
+      cachedDashboardRecords = cachedDashboardRecords.filter(r => String(r.id) !== String(recordId));
+    }
+    if (document.getElementById('d-commerce-select') && typeof window.updateDashboardCommerceView === 'function') {
+      window.updateDashboardCommerceView();
+    }
   } catch (err) {
     console.error('Error deleting record:', err);
     alert('Error al eliminar registro: ' + err.message);
@@ -72351,9 +73937,11 @@ let cachedDashboardPeriods = [];
 let cachedDashboardCommerceStatus = [];
 let cachedDashboardCommerceAdicionalConfig = [];
 let cachedDashboardBillingMappings = [];
+let cachedDashboardPendingReportsCount = 0;
+let cachedDashboardPendingExtraCharges = [];
 
 async function fetchBillingDashboardData() {
-  const [recRes, perRes, csRes, legalDataset] = await Promise.all([
+  const [recRes, perRes, csRes, legalDataset, repRes, extraRes] = await Promise.all([
     supabase
       .from('billing_records')
       .select('*, billing_periods(name, status, period_month, period_year)'),
@@ -72365,7 +73953,17 @@ async function fetchBillingDashboardData() {
     supabase
       .from('commerce_billing_status')
       .select('*'),
-    window.fetchBillingCommerceLegalDataset ? window.fetchBillingCommerceLegalDataset() : Promise.resolve(null)
+    window.fetchBillingCommerceLegalDataset ? window.fetchBillingCommerceLegalDataset() : Promise.resolve(null),
+    supabase
+      .from('payment_reports')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pendiente')
+      .then(res => res, () => ({ count: 0 })),
+    supabase
+      .from('extra_billing_charges')
+      .select('id, comercio, amount, type, status')
+      .eq('status', 'pendiente')
+      .then(res => res, () => ({ data: [] }))
   ]);
 
   if (recRes.error) throw recRes.error;
@@ -72377,45 +73975,47 @@ async function fetchBillingDashboardData() {
   cachedDashboardCommerceStatus = csRes.data || [];
   cachedDashboardCommerceAdicionalConfig = legalDataset?.configs || [];
   cachedDashboardBillingMappings = legalDataset?.mappings || [];
+  cachedDashboardPendingReportsCount = Number(repRes?.count) || 0;
+  cachedDashboardPendingExtraCharges = Array.isArray(extraRes?.data) ? extraRes.data : [];
 }
 
-async function loadBillingMetricsDashboard() {
+async function loadBillingMetricsDashboard(preserveState = false) {
   const container = document.getElementById('metrics-dashboard-container');
   if (!container) return;
-  
-  container.innerHTML = `
-    <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
-      <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
-      Calculando métricas y analizando datos de facturación...
-    </div>
-  `;
-  
+
+  injectExecutiveDashboardStyles();
+
+  if (!preserveState) {
+    container.innerHTML = `
+      <div class="text-center" style="padding: 3.5rem 2rem; color: var(--color-text-muted);">
+        <i class="ri-loader-4-line spin" style="font-size: 2.2rem; color: var(--color-primary); display: block; margin-bottom: 0.65rem;"></i>
+        <div style="font-weight: 700; color: var(--color-text-main); font-size: 1rem;">Cargando Centro de Inteligencia de Facturación...</div>
+        <div style="font-size: 0.82rem; margin-top: 0.25rem;">Consolidando ingresos, cartera por tramos de vencimiento, tendencias y proyecciones...</div>
+      </div>
+    `;
+  }
+
   try {
-    await fetchBillingDashboardData();
-    
+    await Promise.all([
+      fetchBillingDashboardData(),
+      loadChartJS()
+    ]);
+
     if (cachedDashboardRecords.length === 0) {
       container.innerHTML = `
         <div class="card" style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
           <i class="ri-bar-chart-2-line" style="font-size: 3rem; display: block; margin-bottom: 1rem; color: var(--color-border);"></i>
-          <p style="font-weight: 500; font-size: 1rem; margin-bottom: 0.5rem;">No hay registros de facturación creados</p>
+          <p style="font-weight: 600; font-size: 1rem; margin-bottom: 0.5rem; color: var(--color-text-main);">No hay registros de facturación creados</p>
           <p style="font-size: 0.85rem;">Para visualizar las métricas del dashboard, primero crea un periodo mensual y agrega cobros.</p>
         </div>
       `;
       return;
     }
-    
-    container.innerHTML = `
-      <div class="dashboard-subtabs">
-        <button class="dashboard-subtab-btn active" id="d-subtab-period" onclick="switchDashboardSubTab('period')"><i class="ri-calendar-line"></i> Vista por Periodo</button>
-        <button class="dashboard-subtab-btn" id="d-subtab-year" onclick="switchDashboardSubTab('year')"><i class="ri-bar-chart-box-line"></i> Vista Anual</button>
-      </div>
-      
-      <div id="d-content-period"></div>
-      <div id="d-content-year" style="display: none;"></div>
-    `;
-    
-    switchDashboardSubTab('period');
-    
+
+    const st = getExecDashboardState();
+    renderExecutiveDashboardShell(container);
+    switchDashboardSubTab(st.subTab || 'period');
+
   } catch (err) {
     console.error('Error loading billing dashboard:', err);
     container.innerHTML = `
@@ -72498,543 +74098,2052 @@ async function loadBillingPendingTab() {
   }
 }
 
+// =========================================================================
+// DASHBOARD EJECUTIVO DE FACTURACIÓN (MENSUAL Y ANUAL) - CORE & HELPERS
+// =========================================================================
+
+let periodAgingChartInstance = null;
+let periodTrendChartInstance = null;
+
+function getExecDashboardState() {
+  if (!window._execDashboardState) {
+    let savedTax = 'gross';
+    let savedHoldings = true;
+    let savedGoal = 35000000;
+    try {
+      savedTax = localStorage.getItem('stocka_dash_tax_mode') || 'gross';
+      const hRaw = localStorage.getItem('stocka_dash_group_holdings');
+      if (hRaw !== null) savedHoldings = hRaw === 'true';
+      const gRaw = parseInt(localStorage.getItem('stocka_dash_monthly_goal') || '35000000', 10);
+      if (!isNaN(gRaw) && gRaw > 0) savedGoal = gRaw;
+    } catch (e) {}
+
+    window._execDashboardState = {
+      subTab: 'period',
+      selectedPeriodId: '',
+      selectedYear: 0,
+      serviceFilter: 'all', // 'all' | 'fulfillment' | 'enviame'
+      taxMode: savedTax === 'net' ? 'net' : 'gross', // 'gross' | 'net'
+      groupHoldings: savedHoldings,
+      monthlyGoal: savedGoal, // stored as Bruto CLP
+      rankingMode: 'fact', // 'fact' | 'debt' | 'overdue'
+      rankingSearch: '',
+      agingFilter: 'all', // 'all' | 'over_15' | 'over_8_15' | 'over_1_7' | 'due_3' | 'due_7' | 'due_plus'
+      forecastModel: 'weighted', // 'weighted' | 'average' | 'growth'
+      annualChartMode: 'forecast', // 'forecast' | 'collected' | 'ytd' | 'mom'
+      paretoViewMode: 'pareto', // 'pareto' | 'doughnut'
+      modalServiceFilter: 'all',
+      modalSearchQuery: ''
+    };
+  }
+  return window._execDashboardState;
+}
+
+function injectExecutiveDashboardStyles() {
+  if (document.getElementById('exec-billing-dashboard-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'exec-billing-dashboard-styles';
+  style.textContent = `
+    .d-modal-container {
+      max-width: 960px !important;
+      width: 94% !important;
+    }
+    .ed-shell-bar {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 14px;
+      padding: 0.9rem 1.15rem;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.85rem;
+      flex-wrap: wrap;
+      box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+    }
+    .ed-seg-group {
+      display: inline-flex;
+      align-items: center;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: 10px;
+      padding: 3px;
+      gap: 2px;
+    }
+    .ed-seg-btn {
+      font-family: Outfit, sans-serif;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--color-text-muted);
+      background: transparent;
+      border: none;
+      border-radius: 7px;
+      padding: 0.36rem 0.78rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all 0.18s ease;
+      white-space: nowrap;
+    }
+    .ed-seg-btn:hover {
+      color: var(--color-text-main);
+    }
+    .ed-seg-btn.active {
+      background: var(--color-surface);
+      color: var(--color-primary);
+      box-shadow: 0 1px 4px rgba(15, 23, 42, 0.1);
+      font-weight: 700;
+    }
+    .ed-seg-btn.active-primary {
+      background: var(--color-primary);
+      color: #ffffff !important;
+      box-shadow: 0 2px 6px rgba(95, 6, 250, 0.25);
+      font-weight: 700;
+    }
+    .ed-toggle-pill {
+      font-family: Outfit, sans-serif;
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 0.4rem 0.8rem;
+      border-radius: 9px;
+      border: 1px solid var(--color-border);
+      background: var(--color-bg);
+      color: var(--color-text-muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all 0.18s ease;
+      white-space: nowrap;
+    }
+    .ed-toggle-pill.active {
+      background: rgba(95, 6, 250, 0.09);
+      border-color: rgba(95, 6, 250, 0.35);
+      color: var(--color-primary);
+      font-weight: 700;
+    }
+    [data-theme="dark"] .ed-toggle-pill.active {
+      background: rgba(139, 92, 246, 0.18);
+      border-color: rgba(139, 92, 246, 0.45);
+      color: #c4b5fd;
+    }
+    .ed-context-bar {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 13px;
+      padding: 0.85rem 1.15rem;
+      margin-bottom: 1.15rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .ed-step-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      border: 1px solid var(--color-border);
+      background: var(--color-bg);
+      color: var(--color-text-main);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .ed-step-btn:hover:not(:disabled) {
+      border-color: var(--color-primary);
+      color: var(--color-primary);
+    }
+    .ed-step-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .ed-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.15rem;
+    }
+    @media (max-width: 1180px) {
+      .ed-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 720px) {
+      .ed-kpi-grid { grid-template-columns: 1fr; }
+    }
+    .ed-kpi-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 14px;
+      padding: 1.05rem 1.15rem;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+    }
+    .ed-kpi-card.clickable { cursor: pointer; }
+    .ed-kpi-card.clickable:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+      border-color: rgba(95, 6, 250, 0.4);
+    }
+    .ed-kpi-card::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      border-radius: 4px 0 0 4px;
+      background: var(--color-primary);
+    }
+    .ed-kpi-card.tone-violet::before { background: linear-gradient(180deg, #5f06fa, #8b5cf6); }
+    .ed-kpi-card.tone-emerald::before { background: linear-gradient(180deg, #059669, #10b981); }
+    .ed-kpi-card.tone-amber::before { background: linear-gradient(180deg, #d97706, #f59e0b); }
+    .ed-kpi-card.tone-danger::before { background: linear-gradient(180deg, #dc2626, #f43f5e); }
+    .ed-kpi-card.tone-sky::before { background: linear-gradient(180deg, #0284c7, #38bdf8); }
+    .ed-kpi-card.tone-indigo::before { background: linear-gradient(180deg, #4f46e5, #818cf8); }
+
+    .ed-kpi-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.45rem;
+    }
+    .ed-kpi-title {
+      font-size: 0.74rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--color-text-muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .ed-kpi-val {
+      font-size: 1.58rem;
+      font-weight: 800;
+      color: var(--color-text-main);
+      letter-spacing: -0.02em;
+      line-height: 1.18;
+      margin-bottom: 0.35rem;
+    }
+    .ed-badge {
+      font-size: 0.71rem;
+      font-weight: 700;
+      padding: 0.14rem 0.5rem;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.22rem;
+      white-space: nowrap;
+    }
+    .ed-badge.up { background: rgba(16, 185, 129, 0.13); color: #059669; }
+    .ed-badge.down { background: rgba(239, 68, 68, 0.13); color: #dc2626; }
+    .ed-badge.warn { background: rgba(245, 158, 11, 0.15); color: #d97706; }
+    .ed-badge.violet { background: rgba(95, 6, 250, 0.11); color: #5f06fa; }
+    .ed-badge.sky { background: rgba(14, 165, 233, 0.13); color: #0284c7; }
+    .ed-badge.neutral { background: var(--color-bg); color: var(--color-text-muted); border: 1px solid var(--color-border); }
+    [data-theme="dark"] .ed-badge.up { color: #34d399; background: rgba(16, 185, 129, 0.2); }
+    [data-theme="dark"] .ed-badge.down { color: #f87171; background: rgba(239, 68, 68, 0.2); }
+    [data-theme="dark"] .ed-badge.warn { color: #fbbf24; background: rgba(245, 158, 11, 0.2); }
+    [data-theme="dark"] .ed-badge.violet { color: #c4b5fd; background: rgba(139, 92, 246, 0.22); }
+    [data-theme="dark"] .ed-badge.sky { color: #38bdf8; background: rgba(14, 165, 233, 0.22); }
+
+    .ed-progress-track {
+      height: 6px;
+      width: 100%;
+      background: var(--color-bg);
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 0.35rem 0 0.5rem 0;
+      display: flex;
+    }
+    .ed-kpi-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+      padding-top: 0.45rem;
+      border-top: 1px dashed var(--color-border);
+    }
+    .ed-mini-pill {
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 0.14rem 0.48rem;
+      border-radius: 6px;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      color: var(--color-text-main);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.28rem;
+    }
+    .ed-mini-pill.actionable {
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .ed-mini-pill.actionable:hover {
+      border-color: var(--color-primary);
+      color: var(--color-primary);
+    }
+    .ed-grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1.15rem;
+      margin-bottom: 1.15rem;
+    }
+    .ed-grid-asym {
+      display: grid;
+      grid-template-columns: 5fr 7fr;
+      gap: 1.15rem;
+      margin-bottom: 1.15rem;
+    }
+    @media (max-width: 1024px) {
+      .ed-grid-2, .ed-grid-asym { grid-template-columns: 1fr; }
+    }
+    .ed-panel {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 14px;
+      padding: 1.15rem 1.25rem;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+      display: flex;
+      flex-direction: column;
+    }
+    .ed-panel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      padding-bottom: 0.85rem;
+      margin-bottom: 0.9rem;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .ed-panel-title {
+      margin: 0;
+      font-size: 0.96rem;
+      font-weight: 700;
+      color: var(--color-text-main);
+      display: flex;
+      align-items: center;
+      gap: 0.42rem;
+    }
+    .ed-panel-sub {
+      margin: 0.18rem 0 0 0;
+      font-size: 0.76rem;
+      color: var(--color-text-muted);
+    }
+    .ed-rank-row {
+      border: 1px solid var(--color-border);
+      background: var(--color-bg);
+      border-radius: 11px;
+      padding: 0.7rem 0.85rem;
+      margin-bottom: 0.55rem;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+    .ed-rank-row:hover {
+      border-color: rgba(95, 6, 250, 0.35);
+      background: var(--color-surface);
+    }
+    .ed-matrix-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .ed-matrix-table th {
+      text-align: left;
+      padding: 0.65rem 0.75rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--color-text-muted);
+      border-bottom: 1px solid var(--color-border);
+      background: var(--color-bg);
+      white-space: nowrap;
+    }
+    .ed-matrix-table td {
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid var(--color-border);
+      color: var(--color-text-main);
+      white-space: nowrap;
+    }
+    .ed-matrix-table tbody tr.real-row {
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .ed-matrix-table tbody tr.real-row:hover {
+      background: rgba(95, 6, 250, 0.04);
+    }
+    .ed-matrix-table tbody tr.forecast-row {
+      background: repeating-linear-gradient(
+        -45deg,
+        rgba(139, 92, 246, 0.04),
+        rgba(139, 92, 246, 0.04) 8px,
+        transparent 8px,
+        transparent 16px
+      );
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function isDashboardDarkTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'dark' ||
+         document.body?.getAttribute('data-theme') === 'dark';
+}
+
+function escapeDashHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function applyDashTax(rawAmount) {
+  const val = Number(rawAmount) || 0;
+  const st = getExecDashboardState();
+  return st.taxMode === 'net' ? Math.round(val / 1.19) : Math.round(val);
+}
+
+function formatCompactCLP(rawAmount) {
+  const val = Number(rawAmount) || 0;
+  const abs = Math.abs(val);
+  const sign = val < 0 ? '-' : '';
+  if (abs >= 1000000) return `${sign}$${(abs / 1000000).toFixed(1)}M`;
+  if (abs >= 1000) return `${sign}$${Math.round(abs / 1000)}k`;
+  return `${sign}$${Math.round(abs)}`;
+}
+
+function parseDashboardPeriodYM(periodObj) {
+  if (!periodObj) return { month: 1, year: new Date().getFullYear() };
+  let m = parseInt(periodObj.period_month, 10);
+  let y = parseInt(periodObj.period_year, 10);
+  if (!m || !y) {
+    const parts = String(periodObj.name || '').trim().split(/\s+/);
+    const monthsMap = {
+      'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4,
+      'MAYO': 5, 'JUNIO': 6, 'JULIO': 7, 'AGOSTO': 8,
+      'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
+    };
+    if (!m) m = monthsMap[(parts[0] || '').toUpperCase()] || 1;
+    if (!y) y = parseInt(parts[1], 10) || new Date().getFullYear();
+  }
+  return { month: m, year: y };
+}
+
+function getSortedDashboardPeriodsDesc() {
+  return [...(cachedDashboardPeriods || [])].sort((a, b) => {
+    const ymA = parseDashboardPeriodYM(a);
+    const ymB = parseDashboardPeriodYM(b);
+    return (ymB.year * 100 + ymB.month) - (ymA.year * 100 + ymA.month);
+  });
+}
+
+function classifyDashServiceAging(pendingRaw, pagoStatus, dueDateStr) {
+  const settled = ['Recibido', 'aprobado', 'Sin movimientos'];
+  const status = String(pagoStatus || 'Por solicitar');
+  if (pendingRaw <= 0 || settled.includes(status)) {
+    return { bucket: 'paid', isOverdue: false, isPending: false, diffDays: null, label: 'Al día / Pagado' };
+  }
+
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let dueDate = null;
+  let diffDays = null;
+
+  if (dueDateStr && /^\d{4}-\d{2}-\d{2}/.test(String(dueDateStr))) {
+    const clean = String(dueDateStr).slice(0, 10);
+    const parsed = new Date(clean + 'T00:00:00');
+    if (!isNaN(parsed.getTime())) {
+      dueDate = parsed;
+      diffDays = Math.round((dueDate.getTime() - todayMidnight.getTime()) / 86400000);
+    }
+  }
+
+  const isChronologicallyExpired = diffDays !== null && diffDays < 0;
+  const isManualOverdue = status === 'Atrasado';
+
+  if (isManualOverdue || isChronologicallyExpired) {
+    const daysLate = diffDays !== null && diffDays < 0 ? Math.abs(diffDays) : 1;
+    if (daysLate > 15) {
+      return { bucket: 'over_15', isOverdue: true, isPending: true, diffDays, label: `Vencido hace ${daysLate}d (+15d)` };
+    }
+    if (daysLate >= 8) {
+      return { bucket: 'over_8_15', isOverdue: true, isPending: true, diffDays, label: `Vencido hace ${daysLate}d (8-15d)` };
+    }
+    return {
+      bucket: 'over_1_7',
+      isOverdue: true,
+      isPending: true,
+      diffDays,
+      label: isChronologicallyExpired ? `Vencido hace ${daysLate}d (1-7d)` : 'Atrasado'
+    };
+  }
+
+  if (diffDays === null) {
+    return { bucket: 'due_plus', subNoDate: true, isOverdue: false, isPending: true, diffDays: null, label: 'Pendiente (sin fecha)' };
+  }
+  if (diffDays <= 3) {
+    return { bucket: 'due_3', isOverdue: false, isPending: true, diffDays, label: diffDays === 0 ? 'Vence hoy' : `Vence en ${diffDays}d` };
+  }
+  if (diffDays <= 7) {
+    return { bucket: 'due_7', isOverdue: false, isPending: true, diffDays, label: `Vence en ${diffDays}d` };
+  }
+  return { bucket: 'due_plus', subNoDate: false, isOverdue: false, isPending: true, diffDays, label: `Vence en ${diffDays}d` };
+}
+
+function createDashboardEntityResolver(groupHoldings) {
+  const pausedSet = new Set();
+  (cachedDashboardCommerceStatus || []).forEach(cs => {
+    if (cs && cs.comercio && cs.al_dia === false) {
+      pausedSet.add(cs.comercio.trim().toUpperCase());
+    }
+  });
+
+  const storeToBillingMap = new Map();
+  const billingToChildrenMap = new Map();
+
+  if (Array.isArray(cachedDashboardBillingMappings)) {
+    cachedDashboardBillingMappings.forEach(m => {
+      const store = String(m.comercio_nombre || '').trim();
+      const bill = String(m.billing_name || '').trim();
+      if (store && bill) {
+        const billUp = bill.toUpperCase();
+        storeToBillingMap.set(store.toUpperCase(), billUp);
+        if (!billingToChildrenMap.has(billUp)) billingToChildrenMap.set(billUp, new Set());
+        billingToChildrenMap.get(billUp).add(store.toUpperCase());
+      }
+    });
+  }
+
+  // Detectar holdings por RUT compartido si existen más de 1 comercio con el mismo RUT
+  const rutMap = new Map();
+  if (Array.isArray(cachedDashboardCommerceAdicionalConfig)) {
+    cachedDashboardCommerceAdicionalConfig.forEach(cfg => {
+      const rut = String(cfg.rut || '').replace(/\./g, '').trim().toUpperCase();
+      const com = String(cfg.comercio || '').trim();
+      if (rut && rut.length >= 7 && com) {
+        if (!rutMap.has(rut)) rutMap.set(rut, { razon: String(cfg.razon_social || '').trim(), stores: [] });
+        rutMap.get(rut).stores.push(com.toUpperCase());
+      }
+    });
+  }
+
+  const allKnownRecordCommerces = new Set(
+    (cachedDashboardRecords || []).map(r => String(r.comercio || '').trim()).filter(Boolean)
+  );
+
+  return function resolveEntity(rawCommerceName) {
+    const clean = String(rawCommerceName || 'Otro').trim();
+    const upper = clean.toUpperCase();
+    const isDirectPaused = pausedSet.has(upper);
+
+    if (!groupHoldings) {
+      return {
+        key: upper,
+        displayName: clean,
+        isHolding: false,
+        childCount: 1,
+        primaryCommerce: clean,
+        isPaused: isDirectPaused
+      };
+    }
+
+    let holdingName = storeToBillingMap.get(upper) || '';
+    if (!holdingName) {
+      if (upper.includes('BIG BANG')) holdingName = 'BIG BANG';
+      else if (upper.includes('SILVER FOX')) holdingName = 'SILVER FOX';
+    }
+
+    if (holdingName) {
+      const childrenSet = billingToChildrenMap.get(holdingName) || new Set([upper]);
+      const anyChildPaused = isDirectPaused || Array.from(childrenSet).some(ch => pausedSet.has(ch));
+      let primaryTarget = clean;
+      if (allKnownRecordCommerces.has(holdingName)) {
+        primaryTarget = holdingName;
+      }
+      return {
+        key: holdingName,
+        displayName: holdingName,
+        isHolding: childrenSet.size > 1 || holdingName === 'BIG BANG' || holdingName === 'SILVER FOX',
+        childCount: Math.max(childrenSet.size, (holdingName === 'BIG BANG' || holdingName === 'SILVER FOX') ? 2 : 1),
+        primaryCommerce: primaryTarget,
+        isPaused: anyChildPaused
+      };
+    }
+
+    return {
+      key: upper,
+      displayName: clean,
+      isHolding: false,
+      childCount: 1,
+      primaryCommerce: clean,
+      isPaused: isDirectPaused
+    };
+  };
+}
+
+function computePeriodAnalytics(periodId) {
+  const st = getExecDashboardState();
+  const resolveEntity = createDashboardEntityResolver(st.groupHoldings);
+  const records = (cachedDashboardRecords || []).filter(r => r.period_id === periodId);
+
+  let rawFulfFact = 0, rawEnvFact = 0;
+  let rawFulfRec = 0, rawEnvRec = 0;
+  let rawFulfPend = 0, rawEnvPend = 0;
+
+  let rawOverdue = 0, overdueServicesCount = 0;
+  let rawInTime = 0, rawDue72h = 0, rawNoDate = 0;
+
+  const agingBuckets = {
+    over_15: { label: 'Vencido +15d', short: '+15d venc.', color: '#b91c1c', amount: 0, count: 0 },
+    over_8_15: { label: 'Vencido 8–15d', short: '8-15d venc.', color: '#ef4444', amount: 0, count: 0 },
+    over_1_7: { label: 'Vencido 1–7d', short: '1-7d venc.', color: '#fb7185', amount: 0, count: 0 },
+    due_3: { label: 'Vence ≤ 3d', short: 'Vence ≤3d', color: '#f59e0b', amount: 0, count: 0 },
+    due_7: { label: 'Vence 4–7d', short: 'Vence 4-7d', color: '#0ea5e9', amount: 0, count: 0 },
+    due_plus: { label: 'Vence +7d / S.Plazo', short: '+7d / S.Plazo', color: '#6366f1', amount: 0, count: 0 }
+  };
+
+  let desglosesTotal = 0, desglosesPublished = 0;
+  let invoicesTotal = 0, invoicesEmitted = 0, invoicesPending = 0;
+  let servicesBillableTotal = 0, servicesNotifiedOrActive = 0, servicesConciliated = 0;
+  let appealsPendingPeriod = 0;
+
+  const entitiesMap = new Map();
+  const overdueEntitiesSet = new Set();
+
+  records.forEach(r => {
+    const tf = Math.max(0, Number(r.total_fulfillment) || 0);
+    const af = Math.max(0, Number(r.abono_fulfillment) || 0);
+    const pf = Math.max(0, tf - af);
+
+    const te = Math.max(0, Number(r.enviame) || 0);
+    const ae = Math.max(0, Number(r.abono_enviame) || 0);
+    const pe = Math.max(0, te - ae);
+
+    rawFulfFact += tf;
+    rawEnvFact += te;
+    rawFulfRec += Math.min(tf, af);
+    rawEnvRec += Math.min(te, ae);
+    rawFulfPend += pf;
+    rawEnvPend += pe;
+
+    const includeFulf = st.serviceFilter === 'all' || st.serviceFilter === 'fulfillment';
+    const includeEnv = st.serviceFilter === 'all' || st.serviceFilter === 'enviame';
+
+    const ent = resolveEntity(r.comercio);
+    if (!entitiesMap.has(ent.key)) {
+      entitiesMap.set(ent.key, {
+        key: ent.key,
+        name: ent.displayName,
+        isHolding: ent.isHolding,
+        childCount: ent.childCount,
+        primaryCommerce: ent.primaryCommerce,
+        isPaused: ent.isPaused,
+        sampleRecordId: r.id,
+        rawFact: 0,
+        rawRec: 0,
+        rawPend: 0,
+        rawOverdue: 0,
+        rawInTime: 0,
+        isOverdue: false,
+        agingSet: new Set(),
+        nearestDue: null,
+        statusLabel: 'Al día'
+      });
+    }
+    const eItem = entitiesMap.get(ent.key);
+    if (ent.isPaused) eItem.isPaused = true;
+
+    if (includeFulf) {
+      eItem.rawFact += tf;
+      eItem.rawRec += Math.min(tf, af);
+      eItem.rawPend += pf;
+
+      if (tf > 0) {
+        desglosesTotal++;
+        const isPub = r.desglose_fulfillment === 'Enviado' ||
+                      r.desglose_fulfillment === 'Aprobado' ||
+                      Boolean(r.fulfillment_link && String(r.fulfillment_link).includes('billing_snapshots'));
+        if (isPub) desglosesPublished++;
+
+        if (r.factura_fulfillment !== 'No se factura' && r.factura_fulfillment !== 'Sin movimientos') {
+          invoicesTotal++;
+          if (r.factura_fulfillment === 'Emitida') invoicesEmitted++;
+          else if (['Facturar', 'Esperando'].includes(r.factura_fulfillment)) invoicesPending++;
+        }
+
+        servicesBillableTotal++;
+        if (r.pago_fulfillment && r.pago_fulfillment !== 'Por solicitar' && r.pago_fulfillment !== 'Sin movimientos') {
+          servicesNotifiedOrActive++;
+        }
+        if (pf <= 0 || ['Recibido', 'aprobado'].includes(r.pago_fulfillment)) {
+          servicesConciliated++;
+        }
+      }
+      if (r.observation_status === 'pendiente') appealsPendingPeriod++;
+
+      const agF = classifyDashServiceAging(pf, r.pago_fulfillment, r.fecha_limite);
+      if (agF.isPending) {
+        eItem.agingSet.add(agF.bucket);
+        if (r.fecha_limite && (!eItem.nearestDue || r.fecha_limite < eItem.nearestDue)) {
+          eItem.nearestDue = r.fecha_limite;
+        }
+        if (agingBuckets[agF.bucket]) {
+          agingBuckets[agF.bucket].amount += applyDashTax(pf);
+          agingBuckets[agF.bucket].count++;
+        }
+        if (agF.isOverdue) {
+          rawOverdue += pf;
+          eItem.rawOverdue += pf;
+          eItem.isOverdue = true;
+          overdueServicesCount++;
+          overdueEntitiesSet.add(ent.key);
+        } else {
+          rawInTime += pf;
+          eItem.rawInTime += pf;
+          if (agF.bucket === 'due_3') rawDue72h += pf;
+          if (agF.subNoDate) rawNoDate += pf;
+        }
+      }
+    }
+
+    if (includeEnv) {
+      eItem.rawFact += te;
+      eItem.rawRec += Math.min(te, ae);
+      eItem.rawPend += pe;
+
+      if (te > 0) {
+        if (r.factura_enviame !== 'No se factura' && r.factura_enviame !== 'Sin movimientos') {
+          invoicesTotal++;
+          if (r.factura_enviame === 'Emitida') invoicesEmitted++;
+          else if (['Facturar', 'Esperando'].includes(r.factura_enviame)) invoicesPending++;
+        }
+
+        servicesBillableTotal++;
+        if (r.pago_enviame && r.pago_enviame !== 'Por solicitar' && r.pago_enviame !== 'Sin movimientos') {
+          servicesNotifiedOrActive++;
+        }
+        if (pe <= 0 || ['Recibido', 'aprobado'].includes(r.pago_enviame)) {
+          servicesConciliated++;
+        }
+      }
+      if (r.observation_status_enviame === 'pendiente') appealsPendingPeriod++;
+
+      const agE = classifyDashServiceAging(pe, r.pago_enviame, r.fecha_limite_enviame);
+      if (agE.isPending) {
+        eItem.agingSet.add(agE.bucket);
+        if (r.fecha_limite_enviame && (!eItem.nearestDue || r.fecha_limite_enviame < eItem.nearestDue)) {
+          eItem.nearestDue = r.fecha_limite_enviame;
+        }
+        if (agingBuckets[agE.bucket]) {
+          agingBuckets[agE.bucket].amount += applyDashTax(pe);
+          agingBuckets[agE.bucket].count++;
+        }
+        if (agE.isOverdue) {
+          rawOverdue += pe;
+          eItem.rawOverdue += pe;
+          eItem.isOverdue = true;
+          overdueServicesCount++;
+          overdueEntitiesSet.add(ent.key);
+        } else {
+          rawInTime += pe;
+          eItem.rawInTime += pe;
+          if (agE.bucket === 'due_3') rawDue72h += pe;
+          if (agE.subNoDate) rawNoDate += pe;
+        }
+      }
+    }
+  });
+
+  const selRawFact = st.serviceFilter === 'fulfillment' ? rawFulfFact : (st.serviceFilter === 'enviame' ? rawEnvFact : (rawFulfFact + rawEnvFact));
+  const selRawRec = st.serviceFilter === 'fulfillment' ? rawFulfRec : (st.serviceFilter === 'enviame' ? rawEnvRec : (rawFulfRec + rawEnvRec));
+  const selRawPend = st.serviceFilter === 'fulfillment' ? rawFulfPend : (st.serviceFilter === 'enviame' ? rawEnvPend : (rawFulfPend + rawEnvPend));
+
+  const totalFact = applyDashTax(selRawFact);
+  const totalRec = applyDashTax(selRawRec);
+  const totalPend = applyDashTax(selRawPend);
+  const fulfFact = applyDashTax(rawFulfFact);
+  const envFact = applyDashTax(rawEnvFact);
+  const fulfRec = applyDashTax(rawFulfRec);
+  const envRec = applyDashTax(rawEnvRec);
+  const fulfPend = applyDashTax(rawFulfPend);
+  const envPend = applyDashTax(rawEnvPend);
+
+  const overdueAmt = applyDashTax(rawOverdue);
+  const inTimeAmt = applyDashTax(rawInTime);
+  const due72hAmt = applyDashTax(rawDue72h);
+  const noDateAmt = applyDashTax(rawNoDate);
+
+  const entitiesList = Array.from(entitiesMap.values())
+    .map(e => {
+      const fact = applyDashTax(e.rawFact);
+      const rec = applyDashTax(e.rawRec);
+      const pend = applyDashTax(e.rawPend);
+      const over = applyDashTax(e.rawOverdue);
+      const inTime = applyDashTax(e.rawInTime);
+      const sharePct = totalFact > 0 ? (fact / totalFact) * 100 : 0;
+      return {
+        ...e,
+        fact,
+        rec,
+        pend,
+        over,
+        inTime,
+        sharePct
+      };
+    })
+    .filter(e => e.fact > 0 || e.pend > 0);
+
+  const activeByFact = [...entitiesList].filter(e => e.fact > 0).sort((a, b) => b.fact - a.fact);
+  const activeEntitiesCount = activeByFact.length;
+  const arpu = activeEntitiesCount > 0 ? Math.round(totalFact / activeEntitiesCount) : 0;
+
+  let medianFact = 0;
+  if (activeEntitiesCount > 0) {
+    const mid = Math.floor(activeEntitiesCount / 2);
+    medianFact = activeEntitiesCount % 2 !== 0
+      ? activeByFact[mid].fact
+      : Math.round((activeByFact[mid - 1].fact + activeByFact[mid].fact) / 2);
+  }
+
+  const top1Entity = activeByFact[0] || null;
+
+  return {
+    periodId,
+    totalFact,
+    totalRec,
+    totalPend,
+    fulfFact,
+    envFact,
+    fulfRec,
+    envRec,
+    fulfPend,
+    envPend,
+    overdueAmt,
+    overdueServicesCount,
+    overdueEntitiesCount: overdueEntitiesSet.size,
+    inTimeAmt,
+    due72hAmt,
+    noDateAmt,
+    agingBuckets,
+    entitiesList,
+    activeEntitiesCount,
+    arpu,
+    medianFact,
+    top1Entity,
+    funnel: {
+      desglosesTotal,
+      desglosesPublished,
+      invoicesTotal,
+      invoicesEmitted,
+      invoicesPending,
+      servicesBillableTotal,
+      servicesNotifiedOrActive: Math.max(servicesNotifiedOrActive, servicesConciliated),
+      servicesConciliated,
+      appealsPendingPeriod
+    }
+  };
+}
+
+function renderExecutiveDashboardShell(container) {
+  const st = getExecDashboardState();
+  container.innerHTML = `
+    <div class="ed-shell-bar">
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <div class="ed-seg-group">
+          <button type="button" class="ed-seg-btn ${st.subTab === 'period' ? 'active-primary' : ''}" id="d-subtab-period" onclick="switchDashboardSubTab('period')">
+            <i class="ri-calendar-event-line"></i> Vista por Periodo
+          </button>
+          <button type="button" class="ed-seg-btn ${st.subTab === 'year' ? 'active-primary' : ''}" id="d-subtab-year" onclick="switchDashboardSubTab('year')">
+            <i class="ri-line-chart-line"></i> Vista Anual & Proyecciones
+          </button>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
+        <div class="ed-seg-group" title="Filtrar línea de servicio en todo el dashboard">
+          <button type="button" class="ed-seg-btn ${st.serviceFilter === 'all' ? 'active' : ''}" id="ed-srv-all" onclick="window.setExecDashServiceFilter('all')">
+            Consolidado
+          </button>
+          <button type="button" class="ed-seg-btn ${st.serviceFilter === 'fulfillment' ? 'active' : ''}" id="ed-srv-fulfillment" onclick="window.setExecDashServiceFilter('fulfillment')">
+            <i class="ri-box-3-line"></i> Fulfillment
+          </button>
+          <button type="button" class="ed-seg-btn ${st.serviceFilter === 'enviame' ? 'active' : ''}" id="ed-srv-enviame" onclick="window.setExecDashServiceFilter('enviame')">
+            <i class="ri-truck-line"></i> Envíame
+          </button>
+        </div>
+
+        <div class="ed-seg-group" title="Alternar entre montos Brutos (con IVA 19%) y Netos (ingreso real sin IVA)">
+          <button type="button" class="ed-seg-btn ${st.taxMode === 'gross' ? 'active' : ''}" id="ed-tax-gross" onclick="window.setExecDashTaxMode('gross')">
+            Bruto (c/IVA)
+          </button>
+          <button type="button" class="ed-seg-btn ${st.taxMode === 'net' ? 'active' : ''}" id="ed-tax-net" onclick="window.setExecDashTaxMode('net')">
+            Neto (s/IVA)
+          </button>
+        </div>
+
+        <button type="button" class="ed-toggle-pill ${st.groupHoldings ? 'active' : ''}" id="ed-btn-holdings" onclick="window.toggleExecDashHoldings()" title="Consolidar tiendas hijas bajo su Holding / Razón Social en rankings y Pareto">
+          <i class="ri-building-2-line"></i> Agrupar Holdings
+        </button>
+
+        <button type="button" class="ed-toggle-pill" onclick="window.refreshExecutiveDashboard()" title="Sincronizar métricas en vivo con Supabase">
+          <i class="ri-refresh-line"></i> Actualizar
+        </button>
+
+        <button type="button" class="ed-toggle-pill" onclick="window.exportExecutiveDashboardExcel()" style="border-color: rgba(16, 185, 129, 0.4); color: var(--color-success);" title="Exportar informe ejecutivo completo en Excel (.xlsx)">
+          <i class="ri-file-excel-2-line"></i> Exportar Excel
+        </button>
+      </div>
+    </div>
+
+    <div id="d-content-period"></div>
+    <div id="d-content-year" style="display: none;"></div>
+  `;
+}
+
+function syncExecShellControlButtons() {
+  const st = getExecDashboardState();
+  ['all', 'fulfillment', 'enviame'].forEach(k => {
+    const el = document.getElementById(`ed-srv-${k}`);
+    if (el) el.classList.toggle('active', st.serviceFilter === k);
+  });
+  ['gross', 'net'].forEach(k => {
+    const el = document.getElementById(`ed-tax-${k}`);
+    if (el) el.classList.toggle('active', st.taxMode === k);
+  });
+  const hBtn = document.getElementById('ed-btn-holdings');
+  if (hBtn) hBtn.classList.toggle('active', Boolean(st.groupHoldings));
+}
+
+window.setExecDashServiceFilter = function(srv) {
+  const st = getExecDashboardState();
+  st.serviceFilter = srv || 'all';
+  syncExecShellControlButtons();
+  if (st.subTab === 'year') window.updateDashboardYearView();
+  else window.updateDashboardPeriodView();
+};
+
+window.setExecDashTaxMode = function(mode) {
+  const st = getExecDashboardState();
+  st.taxMode = mode === 'net' ? 'net' : 'gross';
+  try { localStorage.setItem('stocka_dash_tax_mode', st.taxMode); } catch (e) {}
+  syncExecShellControlButtons();
+  if (st.subTab === 'year') window.updateDashboardYearView();
+  else window.updateDashboardPeriodView();
+};
+
+window.toggleExecDashHoldings = function() {
+  const st = getExecDashboardState();
+  st.groupHoldings = !st.groupHoldings;
+  try { localStorage.setItem('stocka_dash_group_holdings', String(st.groupHoldings)); } catch (e) {}
+  syncExecShellControlButtons();
+  if (st.subTab === 'year') window.updateDashboardYearView();
+  else window.updateDashboardPeriodView();
+};
+
+window.updateExecDashMonthlyGoal = function(rawVal) {
+  const st = getExecDashboardState();
+  const num = parseInt(String(rawVal || '').replace(/\D/g, ''), 10);
+  if (!isNaN(num) && num >= 100000) {
+    // Si está en modo Neto, guardar equivalente Bruto para mantener coherencia al cambiar switch
+    st.monthlyGoal = st.taxMode === 'net' ? Math.round(num * 1.19) : num;
+    try { localStorage.setItem('stocka_dash_monthly_goal', String(st.monthlyGoal)); } catch (e) {}
+    if (st.subTab === 'year') window.updateDashboardYearView();
+    else window.updateDashboardPeriodView();
+  }
+};
+
+window.refreshExecutiveDashboard = async function() {
+  await loadBillingMetricsDashboard(true);
+};
+
+window.openCommerceFromDashboard = function(commerceName, onlyPausedFilter = false) {
+  window.closeDashboardModal();
+  if (!window._commerceViewState) {
+    window._commerceViewState = {
+      selectedCommerce: '',
+      commerceListFilter: 'all',
+      commerceSearch: '',
+      serviceTab: 'all',
+      quickFilter: 'all',
+      yearFilter: 'all',
+      periodSearch: '',
+      selectedRecordIds: new Set()
+    };
+  }
+  window._commerceViewState.commerceSearch = '';
+  window._commerceViewState.commerceListFilter = onlyPausedFilter ? 'paused' : 'all';
+  if (commerceName) {
+    const knownCommerces = Array.from(new Set((cachedDashboardRecords || []).map(r => r.comercio).filter(Boolean)));
+    const exact = knownCommerces.find(c => c.toUpperCase() === String(commerceName).trim().toUpperCase());
+    if (exact) {
+      window._commerceViewState.selectedCommerce = exact;
+    } else if (Array.isArray(cachedDashboardBillingMappings)) {
+      const childMatch = cachedDashboardBillingMappings.find(
+        m => String(m.billing_name || '').trim().toUpperCase() === String(commerceName).trim().toUpperCase()
+      );
+      if (childMatch && childMatch.comercio_nombre) {
+        const foundChild = knownCommerces.find(c => c.toUpperCase() === childMatch.comercio_nombre.trim().toUpperCase());
+        if (foundChild) window._commerceViewState.selectedCommerce = foundChild;
+      }
+    }
+  }
+  window.switchBillingAdminTab('commerce');
+};
+
+window.jumpToDashboardPeriod = function(periodId) {
+  if (!periodId) return;
+  const st = getExecDashboardState();
+  st.selectedPeriodId = periodId;
+  st.agingFilter = 'all';
+  window.switchDashboardSubTab('period');
+};
+
+window.stepDashboardPeriod = function(delta) {
+  const selectEl = document.getElementById('d-period-select');
+  if (!selectEl || selectEl.options.length === 0) return;
+  // Options están ordenadas descendente (0 = más reciente), así que delta=-1 va a un mes anterior (índice + 1)
+  const nextIdx = selectEl.selectedIndex - delta;
+  if (nextIdx >= 0 && nextIdx < selectEl.options.length) {
+    selectEl.selectedIndex = nextIdx;
+    const st = getExecDashboardState();
+    st.selectedPeriodId = selectEl.value;
+    st.agingFilter = 'all';
+    window.updateDashboardPeriodView();
+  }
+};
+
 window.switchDashboardSubTab = function(tabName) {
   if (tabName === 'commerce' || tabName === 'pending') {
     window.switchBillingAdminTab(tabName);
     return;
   }
 
+  const st = getExecDashboardState();
+  st.subTab = tabName === 'year' ? 'year' : 'period';
+
   const tabs = ['period', 'year'];
   tabs.forEach(t => {
     const btn = document.getElementById(`d-subtab-${t}`);
     const content = document.getElementById(`d-content-${t}`);
     if (btn && content) {
-      if (t === tabName) {
-        btn.classList.add('active');
-        content.style.display = 'block';
-      } else {
-        btn.classList.remove('active');
-        content.style.display = 'none';
-      }
+      const isAct = t === st.subTab;
+      btn.classList.toggle('active-primary', isAct);
+      btn.classList.toggle('active', isAct);
+      content.style.display = isAct ? 'block' : 'none';
     }
   });
-  
-  if (tabName === 'period') {
+
+  if (st.subTab === 'period') {
     renderDashboardPeriodView();
-  } else if (tabName === 'year') {
-    renderDashboardYearView();
+  } else if (st.subTab === 'year') {
+    window.renderDashboardYearView();
   }
 };
 
 function renderDashboardPeriodView() {
   const content = document.getElementById('d-content-period');
   if (!content) return;
-  
-  let options = '';
-  let selectedPeriodId = '';
-  const activePeriod = cachedDashboardPeriods.find(p => p.status === 'activo');
-  if (activePeriod) {
-    selectedPeriodId = activePeriod.id;
-  } else if (cachedDashboardPeriods.length > 0) {
-    selectedPeriodId = cachedDashboardPeriods[0].id;
+
+  const st = getExecDashboardState();
+  const sortedPeriods = getSortedDashboardPeriodsDesc();
+
+  if (!st.selectedPeriodId || !sortedPeriods.some(p => p.id === st.selectedPeriodId)) {
+    const activePeriod = sortedPeriods.find(p => p.status === 'activo');
+    st.selectedPeriodId = activePeriod ? activePeriod.id : (sortedPeriods[0]?.id || '');
   }
-  
-  cachedDashboardPeriods.forEach(p => {
-    options += `<option value="${p.id}" ${p.id === selectedPeriodId ? 'selected' : ''}>${p.name} (${p.status.toUpperCase()})</option>`;
-  });
-  
+
+  const options = sortedPeriods.map(p =>
+    `<option value="${p.id}" ${p.id === st.selectedPeriodId ? 'selected' : ''}>${escapeDashHtml(p.name)} (${String(p.status || '').toUpperCase()})</option>`
+  ).join('');
+
+  const displayGoal = applyDashTax(st.monthlyGoal);
+
   content.innerHTML = `
-    <div style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 1.25rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem;">
-      <div style="display: flex; align-items: center; gap: 0.75rem;">
-        <label style="font-weight: 600; font-size: 0.9rem; color: var(--color-text-main);">Seleccionar Periodo:</label>
-        <select id="d-period-select" class="form-input" style="width: 250px; margin: 0; padding: 0.35rem 0.75rem;" onchange="updateDashboardPeriodView()">
+    <div class="ed-context-bar">
+      <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
+        <span style="font-weight: 700; font-size: 0.84rem; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-calendar-check-line" style="color: var(--color-primary);"></i> Periodo:
+        </span>
+        <button type="button" class="ed-step-btn" id="ed-prev-period-btn" onclick="window.stepDashboardPeriod(-1)" title="Periodo anterior">
+          <i class="ri-arrow-left-s-line"></i>
+        </button>
+        <select id="d-period-select" class="form-input" style="min-width: 240px; width: auto; margin: 0; height: 36px; padding: 0.3rem 0.75rem; font-weight: 600; font-size: 0.85rem;" onchange="window._execDashboardState.selectedPeriodId = this.value; window._execDashboardState.agingFilter = 'all'; updateDashboardPeriodView();">
           ${options}
         </select>
+        <button type="button" class="ed-step-btn" id="ed-next-period-btn" onclick="window.stepDashboardPeriod(1)" title="Periodo siguiente">
+          <i class="ri-arrow-right-s-line"></i>
+        </button>
+        <div id="d-period-status-badge"></div>
       </div>
-      <div id="d-period-status-badge"></div>
+
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="display: inline-flex; align-items: center; gap: 0.4rem; background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.25rem 0.65rem; border-radius: 9px;" title="Define una meta mensual referencial para medir el porcentaje de avance del periodo">
+          <i class="ri-flag-2-line" style="color: var(--color-primary); font-size: 0.9rem;"></i>
+          <span style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted);">Meta Mes (${st.taxMode === 'net' ? 'Neto' : 'Bruto'}): $</span>
+          <input type="number" id="ed-goal-input" value="${displayGoal}" step="500000"
+            onchange="window.updateExecDashMonthlyGoal(this.value)"
+            style="width: 108px; border: none; background: transparent; font-family: Outfit, sans-serif; font-size: 0.82rem; font-weight: 700; color: var(--color-text-main); outline: none; text-align: right;" />
+        </div>
+      </div>
     </div>
-    
-    <div id="d-period-metrics-cards" class="dashboard-grid"></div>
-    
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1.5rem;">
-      <div class="card" style="margin: 0;">
-        <div class="card-header">
-          <h3><i class="ri-history-line"></i> Resumen de Recaudación del Periodo</h3>
+
+    <!-- 6 KPIs Ejecutivos -->
+    <div id="d-period-metrics-cards" class="ed-kpi-grid"></div>
+
+    <!-- Gráficas Dinámicas del Periodo: Aging de Cartera + Tendencia 6 Periodos -->
+    <div class="ed-grid-2">
+      <div class="ed-panel">
+        <div class="ed-panel-head">
+          <div>
+            <h4 class="ed-panel-title"><i class="ri-hourglass-2-fill" style="color: #f59e0b;"></i> Envejecimiento de Cartera (Aging) y Flujo por Vencer</h4>
+            <p class="ed-panel-sub">Haz clic en cualquier barra para filtrar el ranking o inspeccionar los comercios de ese tramo</p>
+          </div>
+          <div id="ed-aging-active-chip"></div>
         </div>
-        <div class="card-body" id="d-period-recaudacion-summary" style="padding: 1.25rem;"></div>
+        <div style="position: relative; height: 245px; width: 100%;">
+          <canvas id="chart-period-aging"></canvas>
+        </div>
+        <div id="ed-aging-footer-strip" style="margin-top: 0.75rem; padding-top: 0.65rem; border-top: 1px dashed var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; font-size: 0.76rem; color: var(--color-text-muted);"></div>
       </div>
-      <div class="card" style="margin: 0;">
-        <div class="card-header">
-          <h3><i class="ri-trophy-line"></i> Top Facturadores de este Periodo</h3>
+
+      <div class="ed-panel">
+        <div class="ed-panel-head">
+          <div>
+            <h4 class="ed-panel-title"><i class="ri-bar-chart-grouped-line" style="color: var(--color-primary);"></i> Evolución Reciente (Últimos 6 Periodos: Facturado vs. Cobrado)</h4>
+            <p class="ed-panel-sub">Comparativa histórica inmediata · Clic en una barra para cambiar de periodo</p>
+          </div>
+          <span class="ed-badge violet" id="ed-trend6-avg-badge">Promedio 6M: -</span>
         </div>
-        <div class="card-body" id="d-period-top-commerces" style="padding: 1.25rem;"></div>
+        <div style="position: relative; height: 245px; width: 100%;">
+          <canvas id="chart-period-trend6"></canvas>
+        </div>
+        <div id="ed-trend6-footer-strip" style="margin-top: 0.75rem; padding-top: 0.65rem; border-top: 1px dashed var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; font-size: 0.76rem; color: var(--color-text-muted);"></div>
+      </div>
+    </div>
+
+    <!-- Fila Operativa Inferior: Embudo SII & Conciliación + Ranking Inteligente de Cuentas -->
+    <div class="ed-grid-asym">
+      <div class="ed-panel">
+        <div class="ed-panel-head">
+          <div>
+            <h4 class="ed-panel-title"><i class="ri-filter-2-line" style="color: #0ea5e9;"></i> Embudo Operativo SII y Desglose Tributario</h4>
+            <p class="ed-panel-sub">Avance desde la publicación de desgloses hasta la conciliación bancaria final</p>
+          </div>
+        </div>
+        <div id="d-period-recaudacion-summary" style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; gap: 1rem;"></div>
+      </div>
+
+      <div class="ed-panel">
+        <div class="ed-panel-head">
+          <div>
+            <h4 class="ed-panel-title"><i class="ri-trophy-line" style="color: var(--color-primary);"></i> Ranking Inteligente de Cuentas del Periodo</h4>
+            <p class="ed-panel-sub">Participación sobre ingresos (% share), progreso de pago y acciones directas</p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+            <div class="ed-seg-group">
+              <button type="button" class="ed-seg-btn ${st.rankingMode === 'fact' ? 'active' : ''}" id="ed-rk-fact" onclick="window.setExecDashRankingMode('fact')">Mayor Facturación</button>
+              <button type="button" class="ed-seg-btn ${st.rankingMode === 'debt' ? 'active' : ''}" id="ed-rk-debt" onclick="window.setExecDashRankingMode('debt')">Mayor Saldo</button>
+              <button type="button" class="ed-seg-btn ${st.rankingMode === 'overdue' ? 'active' : ''}" id="ed-rk-overdue" onclick="window.setExecDashRankingMode('overdue')">Con Atraso</button>
+            </div>
+            <div style="position: relative;">
+              <i class="ri-search-line" style="position: absolute; left: 0.55rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.8rem;"></i>
+              <input type="text" id="ed-ranking-search" class="form-input" value="${escapeDashHtml(st.rankingSearch)}"
+                placeholder="Buscar cuenta..." oninput="window.setExecDashRankingSearch(this.value)"
+                style="margin: 0; height: 31px; width: 155px; padding: 0.2rem 0.55rem 0.2rem 1.75rem; font-size: 0.78rem;" />
+            </div>
+          </div>
+        </div>
+        <div id="d-period-top-commerces" style="max-height: 390px; overflow-y: auto; padding-right: 0.2rem;"></div>
       </div>
     </div>
   `;
-  
-  updateDashboardPeriodView();
+
+  window.updateDashboardPeriodView();
+}
+
+window.setExecDashRankingMode = function(mode) {
+  const st = getExecDashboardState();
+  st.rankingMode = mode || 'fact';
+  ['fact', 'debt', 'overdue'].forEach(k => {
+    const el = document.getElementById(`ed-rk-${k}`);
+    if (el) el.classList.toggle('active', st.rankingMode === k);
+  });
+  renderPeriodRankingList();
+};
+
+window.setExecDashRankingSearch = function(query) {
+  const st = getExecDashboardState();
+  st.rankingSearch = String(query || '');
+  renderPeriodRankingList();
+};
+
+window.setExecDashAgingFilter = function(bucketKey) {
+  const st = getExecDashboardState();
+  st.agingFilter = st.agingFilter === bucketKey ? 'all' : (bucketKey || 'all');
+  window.updateDashboardPeriodView();
+};
+
+function buildMoMBadgeHtml(curr, prev, hasPrev, invertColors = false) {
+  if (!hasPrev) return `<span class="ed-badge neutral">Sin mes ant.</span>`;
+  if (prev === 0 && curr === 0) return `<span class="ed-badge neutral">0.0% vs mes ant.</span>`;
+  const pct = prev === 0 ? 100 : (((curr - prev) / prev) * 100);
+  if (Math.abs(pct) < 0.05) return `<span class="ed-badge neutral">0.0% vs mes ant.</span>`;
+  const isUp = pct > 0;
+  const good = invertColors ? !isUp : isUp;
+  const cls = good ? 'up' : 'down';
+  const arrow = isUp ? '▲' : '▼';
+  const sign = isUp ? '+' : '';
+  return `<span class="ed-badge ${cls}">${arrow} ${sign}${pct.toFixed(1)}% vs mes ant.</span>`;
 }
 
 window.updateDashboardPeriodView = function() {
   const periodSelect = document.getElementById('d-period-select');
   if (!periodSelect) return;
+
+  const st = getExecDashboardState();
   const periodId = periodSelect.value;
-  
+  st.selectedPeriodId = periodId;
+
+  // Actualizar estado de botones Anterior / Siguiente periodo
+  const prevBtn = document.getElementById('ed-prev-period-btn');
+  const nextBtn = document.getElementById('ed-next-period-btn');
+  if (prevBtn) prevBtn.disabled = periodSelect.selectedIndex >= periodSelect.options.length - 1;
+  if (nextBtn) nextBtn.disabled = periodSelect.selectedIndex <= 0;
+
+  const goalInput = document.getElementById('ed-goal-input');
+  if (goalInput) goalInput.value = applyDashTax(st.monthlyGoal);
+
   const periodObj = cachedDashboardPeriods.find(p => p.id === periodId);
   const statusBadge = document.getElementById('d-period-status-badge');
   if (statusBadge && periodObj) {
     let statusClass = 'badge-neutral';
     if (periodObj.status === 'activo') statusClass = 'badge-success';
     if (periodObj.status === 'en_proceso') statusClass = 'badge-warning';
-    statusBadge.innerHTML = `<span class="badge ${statusClass}" style="text-transform: uppercase;">Estado: ${periodObj.status}</span>`;
+    statusBadge.innerHTML = `
+      <div style="display: inline-flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+        <span class="badge ${statusClass}" style="text-transform: uppercase;">Estado: ${escapeDashHtml(periodObj.status)}</span>
+        <span class="ed-badge ${st.taxMode === 'net' ? 'violet' : 'neutral'}">
+          ${st.taxMode === 'net' ? 'Montos Netos (sin IVA)' : 'Montos Brutos (IVA incl.)'}
+        </span>
+      </div>
+    `;
   }
-  
-  const periodRecords = cachedDashboardRecords.filter(r => r.period_id === periodId);
-  
-  let totalFulfFact = 0;
-  let totalEnvFact = 0;
-  let totalFulfRec = 0;
-  let totalEnvRec = 0;
-  let totalAtrasado = 0;
-  let totalProximo = 0;
-  
-  periodRecords.forEach(r => {
-    totalFulfFact += (r.total_fulfillment || 0);
-    totalEnvFact += (r.enviame || 0);
-    totalFulfRec += (r.abono_fulfillment || 0);
-    totalEnvRec += (r.abono_enviame || 0);
-    
-    const pendingFulf = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
-    const pendingEnv = (r.enviame || 0) - (r.abono_enviame || 0);
-    
-    if (r.pago_fulfillment === 'Atrasado') {
-      totalAtrasado += pendingFulf;
-    } else if (r.pago_fulfillment !== 'Recibido' && r.pago_fulfillment !== 'abono' && r.pago_fulfillment !== 'aprobado' && r.pago_fulfillment !== 'Sin movimientos') {
-      totalProximo += pendingFulf;
-    }
-    
-    if (r.pago_enviame === 'Atrasado') {
-      totalAtrasado += pendingEnv;
-    } else if (r.pago_enviame !== 'Recibido' && r.pago_enviame !== 'abono' && r.pago_enviame !== 'aprobado' && r.pago_enviame !== 'Sin movimientos') {
-      totalProximo += pendingEnv;
-    }
-  });
-  
-  // Calcular variaciones con respecto al mes anterior
-  let cMonth = periodObj.period_month;
-  let cYear = periodObj.period_year;
-  if (!cMonth || !cYear) {
-    const parts = (periodObj.name || '').split(' ');
-    cYear = parts[1] ? parseInt(parts[1], 10) : new Date().getFullYear();
-    const monthsMap = {
-      'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4,
-      'MAYO': 5, 'JUNIO': 6, 'JULIO': 7, 'AGOSTO': 8,
-      'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
-    };
-    cMonth = monthsMap[parts[0]?.toUpperCase()] || 1;
-  }
-  
-  let prevMonth = cMonth - 1;
-  let prevYear = cYear;
-  if (prevMonth === 0) {
-    prevMonth = 12;
-    prevYear = cYear - 1;
-  }
-  
+
+  const currStats = computePeriodAnalytics(periodId);
+  window._lastComputedPeriodStats = currStats;
+
+  // Buscar periodo inmediatamente anterior para variaciones MoM
+  const { month: cMonth, year: cYear } = parseDashboardPeriodYM(periodObj);
+  const targetPrevMonth = cMonth === 1 ? 12 : cMonth - 1;
+  const targetPrevYear = cMonth === 1 ? cYear - 1 : cYear;
   const prevPeriodObj = cachedDashboardPeriods.find(p => {
-    let pM = p.period_month;
-    let pY = p.period_year;
-    if (!pM || !pY) {
-      const parts = (p.name || '').split(' ');
-      pY = parts[1] ? parseInt(parts[1], 10) : 0;
-      const monthsMap = {
-        'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4,
-        'MAYO': 5, 'JUNIO': 6, 'JULIO': 7, 'AGOSTO': 8,
-        'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
-      };
-      pM = monthsMap[parts[0]?.toUpperCase()] || 0;
-    }
-    return pM === prevMonth && pY === prevYear;
+    const ym = parseDashboardPeriodYM(p);
+    return ym.month === targetPrevMonth && ym.year === targetPrevYear;
   });
-  
-  let prevFulfFact = 0;
-  let prevEnvFact = 0;
-  let prevFulfRec = 0;
-  let prevEnvRec = 0;
-  let prevAtrasado = 0;
-  let prevProximo = 0;
-  let hasPrevData = false;
-  
-  if (prevPeriodObj) {
-    hasPrevData = true;
-    const prevRecords = cachedDashboardRecords.filter(r => r.period_id === prevPeriodObj.id);
-    prevRecords.forEach(r => {
-      prevFulfFact += (r.total_fulfillment || 0);
-      prevEnvFact += (r.enviame || 0);
-      prevFulfRec += (r.abono_fulfillment || 0);
-      prevEnvRec += (r.abono_enviame || 0);
-      
-      const pendingFulf = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
-      const pendingEnv = (r.enviame || 0) - (r.abono_enviame || 0);
-      
-      if (r.pago_fulfillment === 'Atrasado') {
-        prevAtrasado += pendingFulf;
-      } else if (r.pago_fulfillment !== 'Recibido' && r.pago_fulfillment !== 'abono' && r.pago_fulfillment !== 'aprobado' && r.pago_fulfillment !== 'Sin movimientos') {
-        prevProximo += pendingFulf;
-      }
-      
-      if (r.pago_enviame === 'Atrasado') {
-        prevAtrasado += pendingEnv;
-      } else if (r.pago_enviame !== 'Recibido' && r.pago_enviame !== 'abono' && r.pago_enviame !== 'aprobado' && r.pago_enviame !== 'Sin movimientos') {
-        prevProximo += pendingEnv;
-      }
-    });
-  }
-  
-  const getVariationHtml = (curr, prev, isOverdue = false) => {
-    if (!hasPrevData) {
-      return `<span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">Sin datos del mes anterior</span>`;
-    }
-    if (prev === 0 && curr === 0) {
-      return `<span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">0% vs mes anterior</span>`;
-    }
-    
-    let pct = 0;
-    if (prev === 0) {
-      pct = 100;
-    } else {
-      pct = ((curr - prev) / prev) * 100;
-    }
-    
-    let colorClass = '';
-    let arrow = '';
-    let sign = pct > 0 ? '+' : '';
-    
-    if (pct > 0) {
-      arrow = '▲';
-      if (isOverdue) {
-        colorClass = 'color: var(--color-danger)';
-      } else {
-        colorClass = 'color: var(--color-success)';
-      }
-    } else if (pct < 0) {
-      arrow = '▼';
-      if (isOverdue) {
-        colorClass = 'color: var(--color-success)';
-      } else {
-        colorClass = 'color: var(--color-danger)';
-      }
-    } else {
-      return `<span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">0% vs mes anterior</span>`;
-    }
-    
-    return `<span style="font-size: 0.72rem; ${colorClass}; font-weight: 600; display: block; margin-top: 0.25rem;">${arrow} ${sign}${pct.toFixed(1)}% vs mes ant.</span>`;
-  };
-  
+
+  const hasPrev = Boolean(prevPeriodObj);
+  const prevStats = hasPrev ? computePeriodAnalytics(prevPeriodObj.id) : null;
+
+  const displayGoal = Math.max(1, applyDashTax(st.monthlyGoal));
+  const goalPct = Math.min(100, Math.round((currStats.totalFact / displayGoal) * 100));
+  const goalRawPct = ((currStats.totalFact / displayGoal) * 100).toFixed(1);
+  const recPct = currStats.totalFact > 0 ? ((currStats.totalRec / currStats.totalFact) * 100).toFixed(1) : '0.0';
+  const recBarPct = Math.min(100, parseFloat(recPct) || 0);
+  const delinquencyPct = currStats.totalFact > 0 ? ((currStats.overdueAmt / currStats.totalFact) * 100).toFixed(1) : '0.0';
+
+  const pausedGlobalCount = (cachedDashboardCommerceStatus || []).filter(s => s.al_dia === false).length;
+  const pendingExtraCount = (cachedDashboardPendingExtraCharges || []).length;
+  const pendingReportsCount = cachedDashboardPendingReportsCount || 0;
+
+  const srvLabel = st.serviceFilter === 'fulfillment' ? 'Fulfillment' : (st.serviceFilter === 'enviame' ? 'Courier Envíame' : 'Consolidado');
+  const factModalType = st.serviceFilter === 'fulfillment' ? 'fulf_fact' : (st.serviceFilter === 'enviame' ? 'env_fact' : 'all_fact');
+  const recModalType = st.serviceFilter === 'fulfillment' ? 'fulf_rec' : (st.serviceFilter === 'enviame' ? 'env_rec' : 'all_rec');
+
+  const fulfMixPct = (currStats.fulfFact + currStats.envFact) > 0
+    ? Math.round((currStats.fulfFact / (currStats.fulfFact + currStats.envFact)) * 100)
+    : 0;
+  const envMixPct = (currStats.fulfFact + currStats.envFact) > 0 ? (100 - fulfMixPct) : 0;
+
   const cardsContainer = document.getElementById('d-period-metrics-cards');
   if (cardsContainer) {
     cardsContainer.innerHTML = `
-      <div class="dashboard-card primary" onclick="showDashboardMetricDetail('fulf_fact', '${periodId}')">
-        <div class="dashboard-card-label"><i class="ri-bill-line"></i> Total Facturación Fulfillment</div>
-        <div class="dashboard-card-value">${window.formatCLP(totalFulfFact)}</div>
-        <div class="dashboard-card-sub">Clic para ver detalle de comercios</div>
-        ${getVariationHtml(totalFulfFact, prevFulfFact, false)}
+      <!-- KPI 1: Ingresos Facturados -->
+      <div class="ed-kpi-card tone-violet clickable" onclick="showDashboardMetricDetail('${factModalType}', '${periodId}')">
+        <div>
+          <div class="ed-kpi-top">
+            <span class="ed-kpi-title"><i class="ri-funds-box-line" style="color: var(--color-primary);"></i> Facturación (${srvLabel})</span>
+            ${buildMoMBadgeHtml(currStats.totalFact, prevStats?.totalFact || 0, hasPrev, false)}
+          </div>
+          <div class="ed-kpi-val">${window.formatCLP(currStats.totalFact)}</div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.74rem; color: var(--color-text-muted);">
+            <span>Avance Meta Mensual</span>
+            <strong style="color: var(--color-primary);">${goalRawPct}% de ${formatCompactCLP(displayGoal)}</strong>
+          </div>
+          <div class="ed-progress-track">
+            <div style="width: ${goalPct}%; background: linear-gradient(90deg, #5f06fa, #8b5cf6); height: 100%;"></div>
+          </div>
+        </div>
+        <div class="ed-kpi-foot">
+          <span class="ed-mini-pill">Fulf: <strong>${window.formatCLP(currStats.fulfFact)}</strong> (${fulfMixPct}%)</span>
+          <span class="ed-mini-pill">Env: <strong>${window.formatCLP(currStats.envFact)}</strong> (${envMixPct}%)</span>
+        </div>
       </div>
-      <div class="dashboard-card primary" onclick="showDashboardMetricDetail('env_fact', '${periodId}')">
-        <div class="dashboard-card-label"><i class="ri-bill-line"></i> Total Facturación Envíame</div>
-        <div class="dashboard-card-value">${window.formatCLP(totalEnvFact)}</div>
-        <div class="dashboard-card-sub">Clic para ver detalle de comercios</div>
-        ${getVariationHtml(totalEnvFact, prevEnvFact, false)}
+
+      <!-- KPI 2: Efectividad de Cobranza -->
+      <div class="ed-kpi-card tone-emerald clickable" onclick="showDashboardMetricDetail('${recModalType}', '${periodId}')">
+        <div>
+          <div class="ed-kpi-top">
+            <span class="ed-kpi-title" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Efectividad de Cobranza</span>
+            ${buildMoMBadgeHtml(currStats.totalRec, prevStats?.totalRec || 0, hasPrev, false)}
+          </div>
+          <div class="ed-kpi-val" style="color: var(--color-success);">${window.formatCLP(currStats.totalRec)}</div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.74rem; color: var(--color-text-muted);">
+            <span>Tasa de recaudación del mes</span>
+            <strong style="color: var(--color-success);">${recPct}% cobrado</strong>
+          </div>
+          <div class="ed-progress-track">
+            <div style="width: ${recBarPct}%; background: linear-gradient(90deg, #059669, #34d399); height: 100%;"></div>
+          </div>
+        </div>
+        <div class="ed-kpi-foot">
+          <span>Fulf: <strong style="color: var(--color-text-main);">${window.formatCLP(currStats.fulfRec)}</strong></span>
+          <span>Env: <strong style="color: var(--color-text-main);">${window.formatCLP(currStats.envRec)}</strong></span>
+        </div>
       </div>
-      <div class="dashboard-card success" onclick="showDashboardMetricDetail('fulf_rec', '${periodId}')">
-        <div class="dashboard-card-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Pagos Recibidos Fulfillment</div>
-        <div class="dashboard-card-value" style="color: var(--color-success);">${window.formatCLP(totalFulfRec)}</div>
-        <div class="dashboard-card-sub">${totalFulfFact > 0 ? ((totalFulfRec / totalFulfFact) * 100).toFixed(0) : 0}% recaudado</div>
-        ${getVariationHtml(totalFulfRec, prevFulfRec, false)}
+
+      <!-- KPI 3: Flujo por Cobrar en Plazo -->
+      <div class="ed-kpi-card tone-amber clickable" onclick="showDashboardMetricDetail('proximo', '${periodId}')">
+        <div>
+          <div class="ed-kpi-top">
+            <span class="ed-kpi-title" style="color: var(--color-warning);"><i class="ri-calendar-todo-line"></i> Flujo por Cobrar en Plazo</span>
+            <span class="ed-badge warn">Vigente</span>
+          </div>
+          <div class="ed-kpi-val" style="color: var(--color-warning);">${window.formatCLP(currStats.inTimeAmt)}</div>
+          <div style="font-size: 0.76rem; color: var(--color-text-muted); margin-bottom: 0.45rem;">
+            Saldo pendiente total (vigente + vencido): <strong style="color: var(--color-text-main);">${window.formatCLP(currStats.totalPend)}</strong>
+          </div>
+        </div>
+        <div class="ed-kpi-foot">
+          <span>Vence ≤ 72h: <strong style="color: #d97706;">${window.formatCLP(currStats.due72hAmt)}</strong></span>
+          <span>Sin plazo: <strong>${window.formatCLP(currStats.noDateAmt)}</strong></span>
+        </div>
       </div>
-      <div class="dashboard-card success" onclick="showDashboardMetricDetail('env_rec', '${periodId}')">
-        <div class="dashboard-card-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Pagos Recibidos Envíame</div>
-        <div class="dashboard-card-value" style="color: var(--color-success);">${window.formatCLP(totalEnvRec)}</div>
-        <div class="dashboard-card-sub">${totalEnvFact > 0 ? ((totalEnvRec / totalEnvFact) * 100).toFixed(0) : 0}% recaudado</div>
-        ${getVariationHtml(totalEnvRec, prevEnvRec, false)}
+
+      <!-- KPI 4: Cartera Vencida (Morosidad Real) -->
+      <div class="ed-kpi-card tone-danger clickable" onclick="showDashboardMetricDetail('atrasado', '${periodId}')">
+        <div>
+          <div class="ed-kpi-top">
+            <span class="ed-kpi-title" style="color: var(--color-danger);"><i class="ri-alarm-warning-line"></i> Cartera Vencida Real</span>
+            ${buildMoMBadgeHtml(currStats.overdueAmt, prevStats?.overdueAmt || 0, hasPrev, true)}
+          </div>
+          <div class="ed-kpi-val" style="color: var(--color-danger);">${window.formatCLP(currStats.overdueAmt)}</div>
+          <div style="font-size: 0.76rem; color: var(--color-text-muted); margin-bottom: 0.45rem;">
+            Índice de morosidad del periodo: <strong style="color: var(--color-danger);">${delinquencyPct}%</strong> sobre lo facturado
+          </div>
+        </div>
+        <div class="ed-kpi-foot">
+          <span><strong>${currStats.overdueServicesCount}</strong> cobro(s) vencido(s)</span>
+          <span style="color: var(--color-primary); font-weight: 700;">Gestionar cobros →</span>
+        </div>
       </div>
-      <div class="dashboard-card danger" onclick="showDashboardMetricDetail('atrasado', '${periodId}')">
-        <div class="dashboard-card-label" style="color: var(--color-danger);"><i class="ri-error-warning-line"></i> Montos con Atraso</div>
-        <div class="dashboard-card-value" style="color: var(--color-danger);">${window.formatCLP(totalAtrasado)}</div>
-        <div class="dashboard-card-sub">Total vencido y no pagado</div>
-        ${getVariationHtml(totalAtrasado, prevAtrasado, true)}
+
+      <!-- KPI 5: Ticket Promedio (ARPU) y Concentración -->
+      <div class="ed-kpi-card tone-sky clickable" onclick="showDashboardMetricDetail('arpu_ranking', '${periodId}')">
+        <div>
+          <div class="ed-kpi-top">
+            <span class="ed-kpi-title" style="color: #0284c7;"><i class="ri-radar-line"></i> Ticket Medio (ARPU) & Cartera</span>
+            <span class="ed-badge sky">${currStats.activeEntitiesCount} activas</span>
+          </div>
+          <div class="ed-kpi-val">${window.formatCLP(currStats.arpu)}</div>
+          <div style="font-size: 0.76rem; color: var(--color-text-muted); margin-bottom: 0.45rem;">
+            Mediana por cuenta: <strong style="color: var(--color-text-main);">${window.formatCLP(currStats.medianFact)}</strong>
+          </div>
+        </div>
+        <div class="ed-kpi-foot">
+          ${currStats.top1Entity
+            ? `<span>Concentración Top 1 (<strong>${escapeDashHtml(currStats.top1Entity.name)}</strong>):</span>
+               <strong style="color: ${currStats.top1Entity.sharePct >= 45 ? '#d97706' : 'var(--color-text-main)'};">${currStats.top1Entity.sharePct.toFixed(1)}%</strong>`
+            : `<span>Sin cuentas activas con facturación</span>`}
+        </div>
       </div>
-      <div class="dashboard-card warning" onclick="showDashboardMetricDetail('proximo', '${periodId}')">
-        <div class="dashboard-card-label" style="color: var(--color-warning);"><i class="ri-time-line"></i> Montos Próximos a Vencer</div>
-        <div class="dashboard-card-value" style="color: var(--color-warning);">${window.formatCLP(totalProximo)}</div>
-        <div class="dashboard-card-sub">Pagos pendientes a tiempo</div>
-        ${getVariationHtml(totalProximo, prevProximo, true)}
+
+      <!-- KPI 6: Salud Operativa y Pipeline SII -->
+      <div class="ed-kpi-card tone-indigo">
+        <div>
+          <div class="ed-kpi-top">
+            <span class="ed-kpi-title" style="color: #4f46e5;"><i class="ri-shield-flash-line"></i> Pipeline SII y Alertas</span>
+            <span class="ed-badge violet" style="cursor: pointer;" onclick="showDashboardMetricDetail('sii_pending', '${periodId}')">
+              SII: ${currStats.funnel.invoicesEmitted}/${currStats.funnel.invoicesTotal}
+            </span>
+          </div>
+          <div class="ed-kpi-val" style="font-size: 1.32rem;">
+            ${currStats.funnel.invoicesPending > 0
+              ? `<span style="color: #d97706;">${currStats.funnel.invoicesPending} Factura(s) por Emitir</span>`
+              : `<span style="color: var(--color-success);">Facturación SII al Día</span>`}
+          </div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-bottom: 0.45rem;">
+            Accesos rápidos a pendientes operativos:
+          </div>
+        </div>
+        <div class="ed-kpi-foot" style="gap: 0.35rem; justify-content: flex-start;">
+          <span class="ed-mini-pill actionable" onclick="window.switchBillingAdminTab('pending')" title="Ir a Tareas y Pendientes">
+            <i class="ri-file-list-3-line" style="color: #4f46e5;"></i> Por facturar: <strong>${currStats.funnel.invoicesPending}</strong>
+          </span>
+          <span class="ed-mini-pill actionable" onclick="window.openCommerceFromDashboard('', true)" title="Ver comercios con servicio pausado">
+            <i class="ri-pause-circle-line" style="color: var(--color-danger);"></i> Pausados: <strong>${pausedGlobalCount}</strong>
+          </span>
+          <span class="ed-mini-pill actionable" onclick="window.switchBillingAdminTab('reports')" title="Revisar avisos de pago">
+            <i class="ri-notification-3-line" style="color: #0ea5e9;"></i> Avisos: <strong>${pendingReportsCount}</strong>
+          </span>
+          <span class="ed-mini-pill actionable" onclick="window.switchBillingAdminTab('observations')" title="Ver apelaciones pendientes en este periodo">
+            <i class="ri-question-answer-line" style="color: #d97706;"></i> Apelac.: <strong>${currStats.funnel.appealsPendingPeriod}</strong>
+          </span>
+          ${pendingExtraCount > 0 ? `
+            <span class="ed-mini-pill actionable" onclick="window.switchBillingAdminTab('extra')" title="Saldos adicionales sin asignar a periodo">
+              <i class="ri-add-circle-line" style="color: #8b5cf6;"></i> Saldos Adic.: <strong>${pendingExtraCount}</strong>
+            </span>
+          ` : ''}
+        </div>
       </div>
     `;
   }
-  
-  const recSummary = document.getElementById('d-period-recaudacion-summary');
-  if (recSummary) {
-    const totalFact = totalFulfFact + totalEnvFact;
-    const totalRec = totalFulfRec + totalEnvRec;
-    const recPercent = totalFact > 0 ? ((totalRec / totalFact) * 100).toFixed(1) : '0';
-    
-    recSummary.innerHTML = `
-      <div style="display: flex; flex-direction: column; gap: 1rem;">
-        <div style="display: flex; justify-content: space-between; font-size: 0.95rem; color: var(--color-text-main); font-weight: 500;">
-          <span>Total Facturado del Periodo:</span>
-          <strong>${window.formatCLP(totalFact)}</strong>
-        </div>
-        <div style="display: flex; justify-content: space-between; font-size: 0.95rem; color: var(--color-success); font-weight: 500;">
-          <span>Total Recaudado:</span>
-          <strong>${window.formatCLP(totalRec)} (${recPercent}%)</strong>
-        </div>
-        <div style="background: var(--color-bg); border-radius: 6px; height: 10px; width: 100%; overflow: hidden; margin: 0.5rem 0;">
-          <div style="background: var(--color-success); height: 100%; width: ${recPercent}%;"></div>
-        </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; border-top: 1px solid var(--color-border); padding-top: 1rem; font-size: 0.85rem;">
-          <div>
-            <span style="color: var(--color-text-muted);">Pendiente Fulfillment:</span><br>
-            <strong>${window.formatCLP(totalFulfFact - totalFulfRec)}</strong>
-          </div>
-          <div>
-            <span style="color: var(--color-text-muted);">Pendiente Envíame:</span><br>
-            <strong>${window.formatCLP(totalEnvFact - totalEnvRec)}</strong>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-  
-  const topCommercesContainer = document.getElementById('d-period-top-commerces');
-  if (topCommercesContainer) {
-    const commList = periodRecords.map(r => {
-      const recTotal = (r.total_fulfillment || 0) + (r.enviame || 0);
-      const recPagado = (r.abono_fulfillment || 0) + (r.abono_enviame || 0);
-      return {
-        name: r.comercio,
-        total: recTotal,
-        recibido: recPagado,
-        pendiente: recTotal - recPagado
-      };
-    }).sort((a, b) => b.total - a.total).slice(0, 5);
-    
-    if (commList.length === 0) {
-      topCommercesContainer.innerHTML = '<p style="color: var(--color-text-muted); text-align: center; padding: 2rem;">No hay registros en este periodo</p>';
-      return;
-    }
-    
-    const maxVal = commList[0].total || 1;
-    
-    topCommercesContainer.innerHTML = commList.map(c => {
-      const widthPct = ((c.total / maxVal) * 100).toFixed(0);
-      return `
-        <div style="margin-bottom: 1rem; border-bottom: 1px dashed var(--color-border); padding-bottom: 0.5rem;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
-            <span style="font-weight: 600; color: var(--color-text-main); font-size: 0.9rem;">${c.name}</span>
-            <strong style="color: var(--color-text-main); font-size: 0.9rem;">${window.formatCLP(c.total)}</strong>
-          </div>
-          <div style="background: var(--color-bg); border-radius: 4px; height: 6px; width: 100%; overflow: hidden;">
-            <div style="background: var(--color-primary); height: 100%; width: ${widthPct}%;"></div>
-          </div>
-          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.2rem;">
-            <span>Recibido: ${window.formatCLP(c.recibido)}</span>
-            <span>Pendiente: ${window.formatCLP(c.pendiente)}</span>
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
+
+  renderPeriodCharts(periodId, currStats);
+  renderPeriodFunnelPanel(currStats);
+  renderPeriodRankingList();
 };
 
+function renderPeriodCharts(periodId, currStats) {
+  const st = getExecDashboardState();
+  const dark = isDashboardDarkTheme();
+  const tickColor = dark ? '#94a3b8' : '#64748b';
+  const gridColor = dark ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.18)';
+
+  // Chip indicador de filtro activo en Aging
+  const chipContainer = document.getElementById('ed-aging-active-chip');
+  if (chipContainer) {
+    if (st.agingFilter !== 'all' && currStats.agingBuckets[st.agingFilter]) {
+      const bInfo = currStats.agingBuckets[st.agingFilter];
+      chipContainer.innerHTML = `
+        <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
+          <button type="button" class="ed-badge violet" style="border: none; cursor: pointer;" onclick="showDashboardMetricDetail('aging:${st.agingFilter}', '${periodId}')">
+            <i class="ri-external-link-line"></i> Ver modal (${bInfo.count})
+          </button>
+          <button type="button" class="ed-badge neutral" style="cursor: pointer;" onclick="window.setExecDashAgingFilter('all')">
+            Filtro: ${escapeDashHtml(bInfo.short)} &times;
+          </button>
+        </div>
+      `;
+    } else {
+      chipContainer.innerHTML = `<span class="ed-badge neutral">Clic en barra para filtrar</span>`;
+    }
+  }
+
+  const agingStrip = document.getElementById('ed-aging-footer-strip');
+  if (agingStrip) {
+    agingStrip.innerHTML = `
+      <span>Total Vencido: <strong style="color: var(--color-danger);">${window.formatCLP(currStats.overdueAmt)}</strong> (${currStats.overdueServicesCount} cobros)</span>
+      <span>En Plazo: <strong style="color: #0284c7;">${window.formatCLP(currStats.inTimeAmt)}</strong></span>
+    `;
+  }
+
+  if (window.Chart) {
+    // 1. Gráfica Aging de Cartera
+    const ctxAging = document.getElementById('chart-period-aging');
+    if (ctxAging) {
+      if (periodAgingChartInstance) periodAgingChartInstance.destroy();
+      const bucketKeys = ['over_15', 'over_8_15', 'over_1_7', 'due_3', 'due_7', 'due_plus'];
+      const labels = bucketKeys.map(k => currStats.agingBuckets[k].short);
+      const values = bucketKeys.map(k => currStats.agingBuckets[k].amount);
+      const counts = bucketKeys.map(k => currStats.agingBuckets[k].count);
+      const bgColors = bucketKeys.map(k => {
+        const base = currStats.agingBuckets[k].color;
+        if (st.agingFilter !== 'all' && st.agingFilter !== k) return base + '40';
+        return base;
+      });
+
+      periodAgingChartInstance = new Chart(ctxAging, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Saldo por tramo',
+            data: values,
+            backgroundColor: bgColors,
+            borderRadius: 6,
+            maxBarThickness: 46
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          onClick: (_evt, elements) => {
+            if (elements && elements.length > 0) {
+              const idx = elements[0].index;
+              const key = bucketKeys[idx];
+              window.setExecDashAgingFilter(key);
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const idx = ctx.dataIndex;
+                  return `${window.formatCLP(ctx.raw)} (${counts[idx]} cobro${counts[idx] === 1 ? '' : 's'})`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { color: tickColor, font: { family: 'Outfit, sans-serif', size: 11, weight: '600' } }
+            },
+            y: {
+              beginAtZero: true,
+              grid: { color: gridColor },
+              ticks: {
+                color: tickColor,
+                font: { family: 'Outfit, sans-serif', size: 11 },
+                callback: (v) => formatCompactCLP(v)
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // 2. Gráfica de Evolución Últimos 6 Periodos
+    const ctxTrend = document.getElementById('chart-period-trend6');
+    if (ctxTrend) {
+      if (periodTrendChartInstance) periodTrendChartInstance.destroy();
+
+      const descPeriods = getSortedDashboardPeriodsDesc();
+      const selIdx = descPeriods.findIndex(p => p.id === periodId);
+      const sliceStart = selIdx >= 0 ? selIdx : 0;
+      const last6Chrono = descPeriods.slice(sliceStart, sliceStart + 6).reverse();
+
+      const pLabels = last6Chrono.map(p => {
+        const parts = String(p.name || '').split(/\s+/);
+        const mShort = (parts[0] || '').slice(0, 3);
+        const yShort = (parts[1] || '').slice(-2);
+        return `${mShort.charAt(0).toUpperCase() + mShort.slice(1).toLowerCase()} '${yShort}`;
+      });
+
+      const seriesStats = last6Chrono.map(p => computePeriodAnalytics(p.id));
+      const avg6M = seriesStats.length > 0
+        ? Math.round(seriesStats.reduce((s, x) => s + x.totalFact, 0) / seriesStats.length)
+        : 0;
+
+      const avgBadge = document.getElementById('ed-trend6-avg-badge');
+      if (avgBadge) avgBadge.textContent = `Promedio ${seriesStats.length}M: ${formatCompactCLP(avg6M)}`;
+
+      const trendStrip = document.getElementById('ed-trend6-footer-strip');
+      if (trendStrip && seriesStats.length > 0) {
+        const diffVsAvg = avg6M > 0 ? (((currStats.totalFact - avg6M) / avg6M) * 100).toFixed(1) : '0.0';
+        const sign = parseFloat(diffVsAvg) >= 0 ? '+' : '';
+        trendStrip.innerHTML = `
+          <span>Periodo actual vs media reciente: <strong style="color: ${parseFloat(diffVsAvg) >= 0 ? 'var(--color-success)' : 'var(--color-danger)'};">${sign}${diffVsAvg}%</strong></span>
+          <span>Línea verde = Recaudación efectiva</span>
+        `;
+      }
+
+      const datasets = [];
+      if (st.serviceFilter === 'all' || st.serviceFilter === 'fulfillment') {
+        datasets.push({
+          type: 'bar',
+          label: 'Fulfillment',
+          data: seriesStats.map(s => s.fulfFact),
+          backgroundColor: last6Chrono.map(p => p.id === periodId ? '#5f06fa' : 'rgba(95, 6, 250, 0.62)'),
+          borderRadius: 4,
+          stack: 'fact',
+          order: 2,
+          maxBarThickness: 38
+        });
+      }
+      if (st.serviceFilter === 'all' || st.serviceFilter === 'enviame') {
+        datasets.push({
+          type: 'bar',
+          label: 'Courier Envíame',
+          data: seriesStats.map(s => s.envFact),
+          backgroundColor: last6Chrono.map(p => p.id === periodId ? '#0ea5e9' : 'rgba(14, 165, 233, 0.62)'),
+          borderRadius: 4,
+          stack: 'fact',
+          order: 2,
+          maxBarThickness: 38
+        });
+      }
+      datasets.push({
+        type: 'line',
+        label: 'Recaudado',
+        data: seriesStats.map(s => s.totalRec),
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16, 185, 129, 0.15)',
+        borderWidth: 2.5,
+        pointRadius: 4,
+        pointBackgroundColor: '#10b981',
+        tension: 0.3,
+        order: 1
+      });
+
+      periodTrendChartInstance = new Chart(ctxTrend, {
+        type: 'bar',
+        data: { labels: pLabels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          onClick: (_evt, elements) => {
+            if (elements && elements.length > 0) {
+              const targetPeriod = last6Chrono[elements[0].index];
+              if (targetPeriod && targetPeriod.id !== periodId) {
+                window.jumpToDashboardPeriod(targetPeriod.id);
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: { color: tickColor, boxWidth: 11, font: { family: 'Outfit, sans-serif', size: 11 } }
+            },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.dataset.label}: ${window.formatCLP(ctx.raw)}`
+              }
+            }
+          },
+          scales: {
+            x: {
+              stacked: true,
+              grid: { display: false },
+              ticks: { color: tickColor, font: { family: 'Outfit, sans-serif', size: 11, weight: '600' } }
+            },
+            y: {
+              stacked: true,
+              beginAtZero: true,
+              grid: { color: gridColor },
+              ticks: {
+                color: tickColor,
+                font: { family: 'Outfit, sans-serif', size: 11 },
+                callback: (v) => formatCompactCLP(v)
+              }
+            }
+          }
+        }
+      });
+    }
+  }
+}
+
+function renderPeriodFunnelPanel(currStats) {
+  const recSummary = document.getElementById('d-period-recaudacion-summary');
+  if (!recSummary) return;
+
+  const st = getExecDashboardState();
+  const f = currStats.funnel;
+
+  const pctDesgloses = f.desglosesTotal > 0 ? Math.round((f.desglosesPublished / f.desglosesTotal) * 100) : 100;
+  const pctInvoices = f.invoicesTotal > 0 ? Math.round((f.invoicesEmitted / f.invoicesTotal) * 100) : 100;
+  const pctNotified = f.servicesBillableTotal > 0 ? Math.round((f.servicesNotifiedOrActive / f.servicesBillableTotal) * 100) : 100;
+  const pctConciliated = f.servicesBillableTotal > 0 ? Math.round((f.servicesConciliated / f.servicesBillableTotal) * 100) : 100;
+
+  // Cálculo explícito Neto e IVA sobre el total bruto del filtro actual
+  const rawGrossEquivalent = st.taxMode === 'net' ? Math.round(currStats.totalFact * 1.19) : currStats.totalFact;
+  const netEquivalent = st.taxMode === 'net' ? currStats.totalFact : Math.round(currStats.totalFact / 1.19);
+  const ivaEquivalent = Math.max(0, rawGrossEquivalent - netEquivalent);
+
+  const funnelRow = (icon, label, num, den, pct, barColor) => `
+    <div style="margin-bottom: 0.7rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; margin-bottom: 0.28rem;">
+        <span style="font-weight: 600; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.35rem;">
+          <i class="${icon}" style="color: ${barColor};"></i> ${label}
+        </span>
+        <span style="font-size: 0.76rem; color: var(--color-text-muted);">
+          <strong style="color: var(--color-text-main);">${num}/${den}</strong> (${pct}%)
+        </span>
+      </div>
+      <div style="height: 7px; width: 100%; background: var(--color-bg); border-radius: 999px; overflow: hidden;">
+        <div style="height: 100%; width: ${pct}%; background: ${barColor}; border-radius: 999px; transition: width 0.35s ease;"></div>
+      </div>
+    </div>
+  `;
+
+  recSummary.innerHTML = `
+    <div>
+      ${st.serviceFilter !== 'enviame'
+        ? funnelRow('ri-file-upload-line', '1. Desgloses Publicados (Fulfillment)', f.desglosesPublished, f.desglosesTotal, pctDesgloses, '#8b5cf6')
+        : ''}
+      ${funnelRow('ri-bill-line', '2. Facturas Oficiales SII Emitidas', f.invoicesEmitted, f.invoicesTotal, pctInvoices, '#0ea5e9')}
+      ${funnelRow('ri-mail-check-line', '3. Cobros en Gestión / Notificados', f.servicesNotifiedOrActive, f.servicesBillableTotal, pctNotified, '#f59e0b')}
+      ${funnelRow('ri-shield-check-line', '4. Cobros 100% Conciliados (Pagados)', f.servicesConciliated, f.servicesBillableTotal, pctConciliated, '#10b981')}
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 11px; padding: 0.8rem;">
+      <div>
+        <div style="font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted);">Ingreso Neto (s/IVA)</div>
+        <div style="font-size: 0.95rem; font-weight: 800; color: var(--color-text-main);">${window.formatCLP(netEquivalent)}</div>
+      </div>
+      <div>
+        <div style="font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted);">IVA Débito (19%)</div>
+        <div style="font-size: 0.95rem; font-weight: 800; color: var(--color-primary);">${window.formatCLP(ivaEquivalent)}</div>
+      </div>
+      <div style="border-top: 1px dashed var(--color-border); padding-top: 0.5rem;">
+        <div style="font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted);">Saldo Fulfillment</div>
+        <div style="font-size: 0.9rem; font-weight: 700; color: var(--color-text-main);">${window.formatCLP(currStats.fulfPend)}</div>
+      </div>
+      <div style="border-top: 1px dashed var(--color-border); padding-top: 0.5rem;">
+        <div style="font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted);">Saldo Envíame</div>
+        <div style="font-size: 0.9rem; font-weight: 700; color: var(--color-text-main);">${window.formatCLP(currStats.envPend)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderPeriodRankingList() {
+  const topCommercesContainer = document.getElementById('d-period-top-commerces');
+  if (!topCommercesContainer) return;
+
+  const st = getExecDashboardState();
+  const currStats = window._lastComputedPeriodStats;
+  if (!currStats) return;
+
+  const q = st.rankingSearch.trim().toLowerCase();
+  let list = [...currStats.entitiesList];
+
+  if (st.agingFilter !== 'all') {
+    list = list.filter(e => e.agingSet && e.agingSet.has(st.agingFilter));
+  }
+  if (q) {
+    list = list.filter(e => e.name.toLowerCase().includes(q) || e.primaryCommerce.toLowerCase().includes(q));
+  }
+
+  if (st.rankingMode === 'debt') {
+    list = list.filter(e => e.pend > 0).sort((a, b) => b.pend - a.pend);
+  } else if (st.rankingMode === 'overdue') {
+    list = list.filter(e => e.over > 0 || e.isOverdue).sort((a, b) => b.over - a.over);
+  } else {
+    list.sort((a, b) => b.fact - a.fact);
+  }
+
+  if (list.length === 0) {
+    topCommercesContainer.innerHTML = `
+      <div style="padding: 2.2rem 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.84rem;">
+        <i class="ri-inbox-archive-line" style="font-size: 1.8rem; display: block; margin-bottom: 0.4rem; opacity: 0.6;"></i>
+        No hay cuentas que coincidan con el filtro seleccionado en este periodo.
+      </div>
+    `;
+    return;
+  }
+
+  const visibleList = q ? list : list.slice(0, 12);
+
+  topCommercesContainer.innerHTML = visibleList.map((c, idx) => {
+    const baseTotal = Math.max(1, c.fact);
+    const paidPct = Math.min(100, Math.round((c.rec / baseTotal) * 100));
+    const overPct = Math.min(100 - paidPct, Math.round((c.over / baseTotal) * 100));
+    const inTimePct = Math.max(0, 100 - paidPct - overPct);
+
+    let stateBadge = `<span class="ed-badge up">Pagado</span>`;
+    if (c.isPaused) {
+      stateBadge = `<span class="ed-badge down"><i class="ri-pause-circle-fill"></i> Pausado</span>`;
+    } else if (c.over > 0 || c.isOverdue) {
+      stateBadge = `<span class="ed-badge down">Atrasado</span>`;
+    } else if (c.pend > 0) {
+      stateBadge = `<span class="ed-badge warn">En plazo</span>`;
+    }
+
+    const safePrimaryJs = String(c.primaryCommerce || c.name).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+    return `
+      <div class="ed-rank-row">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.4rem;">
+          <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+            <span style="width: 22px; height: 22px; border-radius: 6px; background: var(--color-surface); border: 1px solid var(--color-border); font-size: 0.72rem; font-weight: 800; color: var(--color-text-muted); display: inline-flex; align-items: center; justify-content: center;">
+              ${idx + 1}
+            </span>
+            <strong style="font-size: 0.88rem; color: var(--color-text-main);">
+              ${c.isHolding ? '🏢 ' : ''}${escapeDashHtml(c.name)}
+            </strong>
+            ${stateBadge}
+            <span class="ed-badge neutral" title="Participación sobre la facturación total del periodo">${c.sharePct.toFixed(1)}% share</span>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 0.45rem;">
+            <strong style="font-size: 0.92rem; color: var(--color-text-main);">${window.formatCLP(c.fact)}</strong>
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.openCommerceFromDashboard('${safePrimaryJs}')" title="Abrir Ficha en Vista por Comercio" style="padding: 0.18rem 0.45rem; height: 26px; font-size: 0.73rem;">
+              <i class="ri-store-2-line"></i> Ficha
+            </button>
+            ${c.sampleRecordId ? `
+              <button type="button" class="btn btn-outline btn-sm" onclick="window.openSendBillingEmailModal('${c.sampleRecordId}', '${safePrimaryJs}', '${currStats.periodId}')" title="Enviar notificación por correo" style="padding: 0.18rem 0.45rem; height: 26px; font-size: 0.73rem; border-color: rgba(95, 6, 250, 0.35); color: var(--color-primary);">
+                <i class="ri-mail-send-line"></i>
+              </button>
+            ` : ''}
+          </div>
+        </div>
+
+        <div style="height: 7px; width: 100%; background: var(--color-surface); border-radius: 999px; overflow: hidden; display: flex;">
+          <div style="width: ${paidPct}%; background: #10b981; height: 100%;" title="Pagado: ${window.formatCLP(c.rec)}"></div>
+          <div style="width: ${inTimePct}%; background: #f59e0b; height: 100%;" title="En plazo: ${window.formatCLP(c.inTime)}"></div>
+          <div style="width: ${overPct}%; background: #ef4444; height: 100%;" title="Vencido: ${window.formatCLP(c.over)}"></div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.74rem; color: var(--color-text-muted); margin-top: 0.35rem;">
+          <span>Recibido: <strong style="color: var(--color-success);">${window.formatCLP(c.rec)} (${paidPct}%)</strong></span>
+          <span>
+            Saldo: <strong style="color: ${c.over > 0 ? 'var(--color-danger)' : (c.pend > 0 ? '#d97706' : 'var(--color-text-main)')};">${window.formatCLP(c.pend)}</strong>
+            ${c.nearestDue && c.pend > 0 ? ` · Plazo: ${new Date(c.nearestDue + 'T00:00:00').toLocaleDateString('es-CL')}` : ''}
+          </span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 window.showDashboardMetricDetail = function(metricType, periodId) {
+  const st = getExecDashboardState();
+  st.modalServiceFilter = 'all';
+  st.modalSearchQuery = '';
+
+  const periodObj = cachedDashboardPeriods.find(p => p.id === periodId);
+  const periodLabel = periodObj ? periodObj.name : 'Periodo';
   const periodRecords = cachedDashboardRecords.filter(r => r.period_id === periodId);
+
   const modal = document.getElementById('dashboard-detail-modal');
   const modalTitle = document.getElementById('d-modal-title');
   const modalBody = document.getElementById('d-modal-body-content');
-  
   if (!modal || !modalTitle || !modalBody) return;
-  
-  let titleText = '';
-  let tableRows = '';
-  let filterBarHtml = '';
-  
-  if (metricType === 'fulf_fact') {
-    titleText = 'Detalle de Facturación Fulfillment';
-    tableRows = periodRecords.map(r => `
-      <tr>
-        <td><strong>${r.comercio}</strong></td>
-        <td style="font-weight: 600;">${window.formatCLP(r.total_fulfillment)}</td>
-        <td>${r.fecha_limite ? new Date(r.fecha_limite + 'T00:00:00').toLocaleDateString() : '-'} ${window.getDeadlineBadgeHtml(r.fecha_limite, r.pago_fulfillment)}</td>
-        <td><span class="client-badge ${getStatusClass(r.pago_fulfillment)}">${r.pago_fulfillment}</span></td>
-      </tr>
-    `).join('');
-  } else if (metricType === 'env_fact') {
-    titleText = 'Detalle de Facturación Envíame';
-    tableRows = periodRecords.map(r => `
-      <tr>
-        <td><strong>${r.comercio}</strong></td>
-        <td style="font-weight: 600;">${window.formatCLP(r.enviame)}</td>
-        <td>${r.fecha_limite_enviame ? new Date(r.fecha_limite_enviame + 'T00:00:00').toLocaleDateString() : '-'} ${window.getDeadlineBadgeHtml(r.fecha_limite_enviame, r.pago_enviame)}</td>
-        <td><span class="client-badge ${getStatusClass(r.pago_enviame)}">${r.pago_enviame}</span></td>
-      </tr>
-    `).join('');
-  } else if (metricType === 'fulf_rec') {
-    titleText = 'Detalle de Pagos Recibidos Fulfillment';
-    const filtered = periodRecords.filter(r => (r.abono_fulfillment || 0) > 0);
-    tableRows = filtered.map(r => `
-      <tr>
-        <td><strong>${r.comercio}</strong></td>
-        <td style="font-weight: 600; color: var(--color-success);">${window.formatCLP(r.abono_fulfillment)} <span style="font-weight: normal; font-size: 0.75rem; color: var(--color-text-muted);">de ${window.formatCLP(r.total_fulfillment)}</span></td>
-        <td>${r.fecha_limite ? new Date(r.fecha_limite + 'T00:00:00').toLocaleDateString() : '-'} ${window.getDeadlineBadgeHtml(r.fecha_limite, r.pago_fulfillment)}</td>
-        <td><span class="client-badge ${getStatusClass(r.pago_fulfillment)}">${r.pago_fulfillment}</span></td>
-      </tr>
-    `).join('');
-  } else if (metricType === 'env_rec') {
-    titleText = 'Detalle de Pagos Recibidos Envíame';
-    const filtered = periodRecords.filter(r => (r.abono_enviame || 0) > 0);
-    tableRows = filtered.map(r => `
-      <tr>
-        <td><strong>${r.comercio}</strong></td>
-        <td style="font-weight: 600; color: var(--color-success);">${window.formatCLP(r.abono_enviame)} <span style="font-weight: normal; font-size: 0.75rem; color: var(--color-text-muted);">de ${window.formatCLP(r.enviame)}</span></td>
-        <td>${r.fecha_limite_enviame ? new Date(r.fecha_limite_enviame + 'T00:00:00').toLocaleDateString() : '-'} ${window.getDeadlineBadgeHtml(r.fecha_limite_enviame, r.pago_enviame)}</td>
-        <td><span class="client-badge ${getStatusClass(r.pago_enviame)}">${r.pago_enviame}</span></td>
-      </tr>
-    `).join('');
-  } else if (metricType === 'atrasado') {
-    titleText = 'Detalle de Montos con Atraso';
-    
-    filterBarHtml = `
-      <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
-        <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin: 0;">
-          <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
-          <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
-          <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
-        </div>
-        <div id="modal-metric-total-summary" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); background: var(--color-bg); padding: 0.35rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
-          Total: <span id="modal-metric-total-val" style="color: var(--color-primary);">-</span>
-        </div>
-      </div>
-    `;
 
-    const list = [];
+  const taxSuffix = st.taxMode === 'net' ? 'Neto s/IVA' : 'Bruto c/IVA';
+  let titleText = `Detalle — ${periodLabel} (${taxSuffix})`;
+  const items = [];
+
+  const pushServiceRow = (r, serviceLabel, rawAmount, rawTotalRef, dueDate, statusStr, agingInfo = null) => {
+    const amount = applyDashTax(rawAmount);
+    const totalRef = rawTotalRef !== null ? applyDashTax(rawTotalRef) : null;
+    items.push({
+      recordId: r.id,
+      periodId,
+      commerce: r.comercio || 'Comercio',
+      service: serviceLabel,
+      serviceKey: serviceLabel === 'Fulfillment' ? 'fulfillment' : 'enviame',
+      amount,
+      totalRef,
+      dueDate,
+      status: statusStr || 'Por solicitar',
+      agingLabel: agingInfo ? agingInfo.label : ''
+    });
+  };
+
+  if (metricType === 'all_fact' || metricType === 'fulf_fact' || metricType === 'env_fact') {
+    titleText = `Facturación del Periodo — ${periodLabel} (${taxSuffix})`;
     periodRecords.forEach(r => {
-      const fPending = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
-      const ePending = (r.enviame || 0) - (r.abono_enviame || 0);
-      
-      if (r.pago_fulfillment === 'Atrasado' && fPending > 0) {
-        list.push({ recordId: r.id, commerce: r.comercio, service: 'Fulfillment', amount: fPending, dueDate: r.fecha_limite, status: r.pago_fulfillment });
+      if ((metricType === 'all_fact' || metricType === 'fulf_fact') && (r.total_fulfillment || 0) > 0) {
+        pushServiceRow(r, 'Fulfillment', r.total_fulfillment, null, r.fecha_limite, r.pago_fulfillment);
       }
-      if (r.pago_enviame === 'Atrasado' && ePending > 0) {
-        list.push({ recordId: r.id, commerce: r.comercio, service: 'Envíame', amount: ePending, dueDate: r.fecha_limite_enviame, status: r.pago_enviame });
+      if ((metricType === 'all_fact' || metricType === 'env_fact') && (r.enviame || 0) > 0) {
+        pushServiceRow(r, 'Envíame', r.enviame, null, r.fecha_limite_enviame, r.pago_enviame);
       }
     });
-    
-    tableRows = list.map(item => `
-      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}" data-amount="${item.amount}">
-        <td><strong>${item.commerce}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service}</span></td>
-        <td style="color: var(--color-danger); font-weight: 600;">${window.formatCLP(item.amount)}</td>
-        <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
-        <td><span class="client-badge ${getStatusClass(item.status)}">${item.status}</span></td>
-        <td style="vertical-align: middle; text-align: center;">
-          <div style="display: inline-flex; gap: 0.25rem;">
-            <button class="btn btn-outline btn-sm" onclick="window.openCommerceEmailHistoryModal('${item.recordId}', '${item.commerce.replace(/'/g, "\\'")}', '${periodId}')" title="Ver Historial de Correos" style="padding: 0.2rem 0.4rem; height: 28px; line-height: 1;">
-              <i class="ri-history-line" style="font-size: 0.9rem;"></i>
+  } else if (metricType === 'all_rec' || metricType === 'fulf_rec' || metricType === 'env_rec') {
+    titleText = `Pagos Recibidos — ${periodLabel} (${taxSuffix})`;
+    periodRecords.forEach(r => {
+      if ((metricType === 'all_rec' || metricType === 'fulf_rec') && (r.abono_fulfillment || 0) > 0) {
+        pushServiceRow(r, 'Fulfillment', r.abono_fulfillment, r.total_fulfillment, r.fecha_limite, r.pago_fulfillment);
+      }
+      if ((metricType === 'all_rec' || metricType === 'env_rec') && (r.abono_enviame || 0) > 0) {
+        pushServiceRow(r, 'Envíame', r.abono_enviame, r.enviame, r.fecha_limite_enviame, r.pago_enviame);
+      }
+    });
+  } else if (metricType === 'atrasado') {
+    titleText = `Cartera Vencida (Morosidad Real) — ${periodLabel} (${taxSuffix})`;
+    periodRecords.forEach(r => {
+      const pf = Math.max(0, (r.total_fulfillment || 0) - (r.abono_fulfillment || 0));
+      const pe = Math.max(0, (r.enviame || 0) - (r.abono_enviame || 0));
+      const agF = classifyDashServiceAging(pf, r.pago_fulfillment, r.fecha_limite);
+      const agE = classifyDashServiceAging(pe, r.pago_enviame, r.fecha_limite_enviame);
+      if (agF.isOverdue) pushServiceRow(r, 'Fulfillment', pf, r.total_fulfillment, r.fecha_limite, r.pago_fulfillment, agF);
+      if (agE.isOverdue) pushServiceRow(r, 'Envíame', pe, r.enviame, r.fecha_limite_enviame, r.pago_enviame, agE);
+    });
+  } else if (metricType === 'proximo') {
+    titleText = `Flujo por Cobrar en Plazo — ${periodLabel} (${taxSuffix})`;
+    periodRecords.forEach(r => {
+      const pf = Math.max(0, (r.total_fulfillment || 0) - (r.abono_fulfillment || 0));
+      const pe = Math.max(0, (r.enviame || 0) - (r.abono_enviame || 0));
+      const agF = classifyDashServiceAging(pf, r.pago_fulfillment, r.fecha_limite);
+      const agE = classifyDashServiceAging(pe, r.pago_enviame, r.fecha_limite_enviame);
+      if (agF.isPending && !agF.isOverdue) pushServiceRow(r, 'Fulfillment', pf, r.total_fulfillment, r.fecha_limite, r.pago_fulfillment, agF);
+      if (agE.isPending && !agE.isOverdue) pushServiceRow(r, 'Envíame', pe, r.enviame, r.fecha_limite_enviame, r.pago_enviame, agE);
+    });
+  } else if (String(metricType).startsWith('aging:')) {
+    const targetBucket = metricType.split(':')[1];
+    titleText = `Detalle Tramo de Vencimiento — ${periodLabel} (${taxSuffix})`;
+    periodRecords.forEach(r => {
+      const pf = Math.max(0, (r.total_fulfillment || 0) - (r.abono_fulfillment || 0));
+      const pe = Math.max(0, (r.enviame || 0) - (r.abono_enviame || 0));
+      const agF = classifyDashServiceAging(pf, r.pago_fulfillment, r.fecha_limite);
+      const agE = classifyDashServiceAging(pe, r.pago_enviame, r.fecha_limite_enviame);
+      if (agF.isPending && agF.bucket === targetBucket) pushServiceRow(r, 'Fulfillment', pf, r.total_fulfillment, r.fecha_limite, r.pago_fulfillment, agF);
+      if (agE.isPending && agE.bucket === targetBucket) pushServiceRow(r, 'Envíame', pe, r.enviame, r.fecha_limite_enviame, r.pago_enviame, agE);
+    });
+  } else if (metricType === 'sii_pending') {
+    titleText = `Facturas Oficiales SII Pendientes de Emisión — ${periodLabel}`;
+    periodRecords.forEach(r => {
+      if ((r.total_fulfillment || 0) > 0 && ['Facturar', 'Esperando'].includes(r.factura_fulfillment)) {
+        pushServiceRow(r, 'Fulfillment', r.total_fulfillment, null, r.fecha_limite, `Factura: ${r.factura_fulfillment}`);
+      }
+      if ((r.enviame || 0) > 0 && ['Facturar', 'Esperando'].includes(r.factura_enviame)) {
+        pushServiceRow(r, 'Envíame', r.enviame, null, r.fecha_limite_enviame, `Factura: ${r.factura_enviame}`);
+      }
+    });
+  } else if (metricType === 'arpu_ranking') {
+    titleText = `Participación y ARPU por Cuenta — ${periodLabel} (${taxSuffix})`;
+    const stats = computePeriodAnalytics(periodId);
+    stats.entitiesList.sort((a, b) => b.fact - a.fact).forEach(e => {
+      items.push({
+        recordId: e.sampleRecordId,
+        periodId,
+        commerce: e.name,
+        primaryCommerce: e.primaryCommerce,
+        service: e.isHolding ? `Holding (${e.childCount} marcas)` : 'Consolidado',
+        serviceKey: 'all',
+        amount: e.fact,
+        totalRef: null,
+        dueDate: e.nearestDue,
+        status: e.over > 0 ? 'Atrasado' : (e.pend > 0 ? 'En espera' : 'Recibido'),
+        agingLabel: `${e.sharePct.toFixed(1)}% del mes · Saldo: ${window.formatCLP(e.pend)}`
+      });
+    });
+  }
+
+  items.sort((a, b) => b.amount - a.amount);
+  renderDashboardDetailModalTable(modalTitle, modalBody, modal, titleText, items);
+};
+
+function renderDashboardDetailModalTable(modalTitle, modalBody, modal, titleText, items) {
+  modalTitle.textContent = titleText;
+
+  if (!items || items.length === 0) {
+    modalBody.innerHTML = `
+      <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+        <i class="ri-checkbox-circle-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; color: var(--color-success);"></i>
+        No hay registros para esta métrica en la selección actual.
+      </div>
+    `;
+    modal.classList.add('active');
+    return;
+  }
+
+  const rowsHtml = items.map(item => {
+    const safeCommJs = String(item.primaryCommerce || item.commerce || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const dueStr = item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString('es-CL') : '-';
+    const subExtra = item.periodLabel ? `${item.service} · ${escapeDashHtml(item.periodLabel)}` : item.service;
+    return `
+      <tr class="metric-row" data-service="${item.serviceKey}" data-commerce="${escapeDashHtml(String(item.commerce).toLowerCase())}" data-amount="${item.amount}">
+        <td>
+          <strong>${escapeDashHtml(item.commerce)}</strong>
+          <div style="font-size: 0.74rem; color: var(--color-text-muted);">${escapeDashHtml(subExtra)}</div>
+        </td>
+        <td style="font-weight: 700; color: var(--color-text-main);">
+          ${window.formatCLP(item.amount)}
+          ${item.totalRef !== null ? `<div style="font-size: 0.72rem; font-weight: 500; color: var(--color-text-muted);">de ${window.formatCLP(item.totalRef)}</div>` : ''}
+        </td>
+        <td>
+          <div>${dueStr}</div>
+          ${item.agingLabel ? `<div style="font-size: 0.72rem; color: var(--color-text-muted);">${escapeDashHtml(item.agingLabel)}</div>` : ''}
+        </td>
+        <td><span class="client-badge ${getStatusClass(item.status)}">${escapeDashHtml(item.status)}</span></td>
+        <td style="text-align: center; white-space: nowrap;">
+          <div style="display: inline-flex; gap: 0.3rem;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.openCommerceFromDashboard('${safeCommJs}')" title="Ir a Vista por Comercio" style="padding: 0.2rem 0.45rem; height: 28px;">
+              <i class="ri-store-2-line"></i>
             </button>
-            <button class="btn btn-outline btn-sm" onclick="window.openSendBillingEmailModal('${item.recordId}', '${item.commerce.replace(/'/g, "\\'")}', '${periodId}')" title="Enviar Correo Manual" style="padding: 0.2rem 0.4rem; border-color: var(--color-primary); color: var(--color-primary); height: 28px; line-height: 1;">
-              <i class="ri-mail-send-line" style="font-size: 0.9rem;"></i>
-            </button>
+            ${item.recordId ? `
+              <button type="button" class="btn btn-outline btn-sm" onclick="window.openCommerceEmailHistoryModal('${item.recordId}', '${safeCommJs}', '${item.periodId}')" title="Ver Bitácora de Correos" style="padding: 0.2rem 0.45rem; height: 28px;">
+                <i class="ri-history-line"></i>
+              </button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="window.openSendBillingEmailModal('${item.recordId}', '${safeCommJs}', '${item.periodId}')" title="Enviar Notificación por Correo" style="padding: 0.2rem 0.45rem; height: 28px; border-color: var(--color-primary); color: var(--color-primary);">
+                <i class="ri-mail-send-line"></i>
+              </button>
+            ` : ''}
           </div>
         </td>
       </tr>
-    `).join('');
-  } else if (metricType === 'proximo') {
-    titleText = 'Detalle de Montos Próximos a Vencer';
-    
-    filterBarHtml = `
-      <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
-        <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin: 0;">
-          <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
-          <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
-          <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
-        </div>
-        <div id="modal-metric-total-summary" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); background: var(--color-bg); padding: 0.35rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
-          Total: <span id="modal-metric-total-val" style="color: var(--color-primary);">-</span>
-        </div>
-      </div>
     `;
+  }).join('');
 
-    const list = [];
-    periodRecords.forEach(r => {
-      const fPending = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
-      const ePending = (r.enviame || 0) - (r.abono_enviame || 0);
-      
-      if (r.pago_fulfillment !== 'Recibido' && r.pago_fulfillment !== 'abono' && r.pago_fulfillment !== 'aprobado' && r.pago_fulfillment !== 'Sin movimientos' && r.pago_fulfillment !== 'Atrasado' && fPending > 0) {
-        list.push({ commerce: r.comercio, service: 'Fulfillment', amount: fPending, dueDate: r.fecha_limite, status: r.pago_fulfillment });
-      }
-      if (r.pago_enviame !== 'Recibido' && r.pago_enviame !== 'abono' && r.pago_enviame !== 'aprobado' && r.pago_enviame !== 'Sin movimientos' && r.pago_enviame !== 'Atrasado' && ePending > 0) {
-        list.push({ commerce: r.comercio, service: 'Envíame', amount: ePending, dueDate: r.fecha_limite_enviame, status: r.pago_enviame });
-      }
-    });
-    
-    tableRows = list.map(item => `
-      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}" data-amount="${item.amount}">
-        <td><strong>${item.commerce}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service}</span></td>
-        <td style="color: var(--color-warning); font-weight: 600;">${window.formatCLP(item.amount)}</td>
-        <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
-        <td><span class="client-badge ${getStatusClass(item.status)}">${item.status}</span></td>
-      </tr>
-    `).join('');
-  }
-  
-  modalTitle.textContent = titleText;
-  
-  if (!tableRows) {
-    modalBody.innerHTML = `
-      <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
-        No hay registros para esta métrica en este periodo.
+  modalBody.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+        <div class="d-modal-tabs" style="display: flex; gap: 0.4rem; margin: 0;">
+          <button type="button" class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-primary); background: var(--color-primary); color: white; padding: 0.32rem 0.85rem; font-weight: 600;">Todos</button>
+          <button type="button" class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.32rem 0.85rem; font-weight: 600;">Fulfillment</button>
+          <button type="button" class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.32rem 0.85rem; font-weight: 600;">Envíame</button>
+        </div>
+        <div style="position: relative;">
+          <i class="ri-search-line" style="position: absolute; left: 0.55rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.82rem;"></i>
+          <input type="text" id="d-modal-search-inp" class="form-input" placeholder="Filtrar comercio..." oninput="window.filterModalMetricSearch(this.value)" style="margin: 0; height: 32px; width: 180px; padding: 0.25rem 0.6rem 0.25rem 1.8rem; font-size: 0.8rem;" />
+        </div>
       </div>
-    `;
-  } else {
-    const hasActions = (metricType === 'atrasado');
-    modalBody.innerHTML = `
-      ${filterBarHtml}
-      <div class="table-responsive">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Comercio</th>
-              <th>Monto</th>
-              <th>Fecha Vencimiento</th>
-              <th>Estado</th>
-              ${hasActions ? '<th style="text-align: center;">Notificaciones</th>' : ''}
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRows}
-          </tbody>
-        </table>
+      <div id="modal-metric-total-summary" style="font-size: 0.96rem; font-weight: 700; color: var(--color-text-main); background: var(--color-bg); padding: 0.35rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+        Total visible: <span id="modal-metric-total-val" style="color: var(--color-primary);">-</span>
       </div>
-    `;
-  }
-  
+    </div>
+    <div class="table-responsive" style="max-height: 56vh; overflow-y: auto;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Comercio / Cuenta</th>
+            <th>Monto</th>
+            <th>Vencimiento / Detalle</th>
+            <th>Estado</th>
+            <th style="text-align: center;">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    </div>
+  `;
+
   modal.classList.add('active');
-  
-  if (tableRows && (metricType === 'atrasado' || metricType === 'proximo')) {
-    window.filterModalMetricService('all');
-  }
-};
+  window.filterModalMetricService('all');
+}
 
 window.closeDashboardModal = function() {
   const modal = document.getElementById('dashboard-detail-modal');
   if (modal) modal.classList.remove('active');
 };
 
+window.filterModalMetricSearch = function(query) {
+  const st = getExecDashboardState();
+  st.modalSearchQuery = String(query || '').toLowerCase().trim();
+  window.filterModalMetricService(st.modalServiceFilter || 'all');
+};
+
 window.filterModalMetricService = function(serviceType) {
-  // Actualizar estilos de los botones de pestañas
+  const st = getExecDashboardState();
+  st.modalServiceFilter = serviceType || 'all';
+  const searchQ = st.modalSearchQuery || '';
+
   const buttons = document.querySelectorAll('.d-modal-tabs button');
   buttons.forEach(btn => {
-    const isTarget = btn.getAttribute('onclick').includes(`'${serviceType}'`);
+    const isTarget = (btn.getAttribute('onclick') || '').includes(`'${st.modalServiceFilter}'`);
     if (isTarget) {
       btn.style.background = 'var(--color-primary)';
       btn.style.color = 'white';
@@ -73046,41 +76155,38 @@ window.filterModalMetricService = function(serviceType) {
     }
   });
 
-  // Filtrar filas de la tabla y calcular total
-  const rows = document.querySelectorAll('.data-table tbody tr.metric-row');
+  const rows = document.querySelectorAll('#dashboard-detail-modal .data-table tbody tr.metric-row');
   let visibleCount = 0;
   let total = 0;
   rows.forEach(row => {
-    const rowService = row.getAttribute('data-service');
-    if (serviceType === 'all' || rowService === serviceType) {
+    const rowService = row.getAttribute('data-service') || 'all';
+    const rowComm = row.getAttribute('data-commerce') || '';
+    const matchSrv = st.modalServiceFilter === 'all' || rowService === 'all' || rowService === st.modalServiceFilter;
+    const matchSearch = !searchQ || rowComm.includes(searchQ);
+    if (matchSrv && matchSearch) {
       row.style.display = '';
       visibleCount++;
-      const amt = parseFloat(row.getAttribute('data-amount') || '0');
-      total += amt;
+      total += parseFloat(row.getAttribute('data-amount') || '0');
     } else {
       row.style.display = 'none';
     }
   });
 
   const totalValEl = document.getElementById('modal-metric-total-val');
-  if (totalValEl) {
-    totalValEl.textContent = window.formatCLP(total);
-  }
+  if (totalValEl) totalValEl.textContent = `${window.formatCLP(total)} (${visibleCount})`;
 
-  // Manejar el estado vacío dentro del filtro
   let emptyRow = document.getElementById('modal-empty-filter-row');
   if (visibleCount === 0) {
     if (!emptyRow) {
-      const tbody = document.querySelector('.data-table tbody');
+      const tbody = document.querySelector('#dashboard-detail-modal .data-table tbody');
       if (tbody) {
         emptyRow = document.createElement('tr');
         emptyRow.id = 'modal-empty-filter-row';
-        // Determinar cuántas columnas tiene la tabla
-        const colCount = document.querySelectorAll('.data-table thead th').length || 4;
+        const colCount = document.querySelectorAll('#dashboard-detail-modal .data-table thead th').length || 5;
         emptyRow.innerHTML = `
-          <td colspan="${colCount}" style="text-align: center; color: var(--color-text-muted); padding: 2.5rem 1rem;">
-            <i class="ri-information-line" style="font-size: 1.5rem; color: var(--color-text-muted); display: block; margin-bottom: 0.5rem;"></i>
-            No hay registros para este tipo de servicio.
+          <td colspan="${colCount}" style="text-align: center; color: var(--color-text-muted); padding: 2.2rem 1rem;">
+            <i class="ri-information-line" style="font-size: 1.4rem; display: block; margin-bottom: 0.4rem;"></i>
+            No hay registros que coincidan con el filtro aplicado.
           </td>
         `;
         tbody.appendChild(emptyRow);
@@ -73088,8 +76194,86 @@ window.filterModalMetricService = function(serviceType) {
     } else {
       emptyRow.style.display = '';
     }
-  } else {
-    if (emptyRow) emptyRow.style.display = 'none';
+  } else if (emptyRow) {
+    emptyRow.style.display = 'none';
+  }
+};
+
+window.exportExecutiveDashboardExcel = function() {
+  try {
+    if (typeof XLSX === 'undefined') {
+      alert('La librería Excel (XLSX) no está disponible en este momento.');
+      return;
+    }
+    const st = getExecDashboardState();
+    const wb = XLSX.utils.book_new();
+    const taxLabel = st.taxMode === 'net' ? 'Neto_sIVA' : 'Bruto_cIVA';
+
+    if (st.subTab === 'year' && window._lastComputedAnnualReport) {
+      const rep = window._lastComputedAnnualReport;
+      const matrixRows = rep.monthsMatrix.map(m => ({
+        'Mes': m.fullLabel,
+        'Estado': m.stateLabel,
+        'Clientes Activos': m.activeClients,
+        'Fulfillment': m.fulf,
+        'Courier Envíame': m.env,
+        'Total Facturado': m.fact,
+        'Total Recaudado': m.isForecast ? 0 : m.rec,
+        '% Cobranza': m.isForecast ? 'Proyectado' : `${m.recPct}%`,
+        'Saldo Pendiente': m.isForecast ? 0 : m.pend,
+        'Variación MoM %': `${m.momPct >= 0 ? '+' : ''}${m.momPct.toFixed(1)}%`
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(matrixRows), `Matriz_${rep.year}`);
+
+      const paretoRows = rep.paretoList.map((p, idx) => ({
+        'Ranking': idx + 1,
+        'Cuenta / Comercio': p.name,
+        'Facturación Anual': p.val,
+        '% Participación': `${p.sharePct.toFixed(2)}%`,
+        '% Acumulado Pareto': `${p.cumPct.toFixed(2)}%`
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(paretoRows), 'Pareto_80_20');
+
+      XLSX.writeFile(wb, `Dashboard_Anual_Stocka_${rep.year}_${taxLabel}.xlsx`);
+      return;
+    }
+
+    const periodId = st.selectedPeriodId;
+    const periodObj = cachedDashboardPeriods.find(p => p.id === periodId);
+    const pName = (periodObj?.name || 'Periodo').replace(/\s+/g, '_');
+    const stats = computePeriodAnalytics(periodId);
+
+    const kpiRows = [
+      { 'Indicador': 'Periodo', 'Valor': periodObj?.name || '-' },
+      { 'Indicador': 'Modalidad Tributaria', 'Valor': st.taxMode === 'net' ? 'Neto (sin IVA)' : 'Bruto (con IVA)' },
+      { 'Indicador': 'Facturación Consolidada Vista', 'Valor': stats.totalFact },
+      { 'Indicador': 'Facturación Fulfillment', 'Valor': stats.fulfFact },
+      { 'Indicador': 'Facturación Envíame', 'Valor': stats.envFact },
+      { 'Indicador': 'Total Recaudado', 'Valor': stats.totalRec },
+      { 'Indicador': 'Flujo en Plazo', 'Valor': stats.inTimeAmt },
+      { 'Indicador': 'Cartera Vencida (Morosidad Real)', 'Valor': stats.overdueAmt },
+      { 'Indicador': 'Cuentas Activas', 'Valor': stats.activeEntitiesCount },
+      { 'Indicador': 'Ticket Promedio (ARPU)', 'Valor': stats.arpu }
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(kpiRows), 'Resumen_KPIs');
+
+    const rankRows = [...stats.entitiesList].sort((a, b) => b.fact - a.fact).map((e, i) => ({
+      'Posición': i + 1,
+      'Cuenta / Comercio': e.name,
+      'Tipo': e.isHolding ? 'Holding' : 'Comercio',
+      'Facturado': e.fact,
+      '% Participación': `${e.sharePct.toFixed(2)}%`,
+      'Recaudado': e.rec,
+      'Saldo Pendiente': e.pend,
+      'Monto Vencido': e.over,
+      'Estado': e.isPaused ? 'Pausado' : (e.over > 0 ? 'Atrasado' : (e.pend > 0 ? 'En Plazo' : 'Pagado'))
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rankRows), 'Ranking_Cuentas');
+
+    XLSX.writeFile(wb, `Dashboard_Facturacion_${pName}_${taxLabel}.xlsx`);
+  } catch (err) {
+    console.error('Error exportando Excel de Dashboard:', err);
+    alert('No se pudo exportar el Excel: ' + err.message);
   }
 };
 
@@ -73231,511 +76415,3577 @@ window.openCommerceEmailHistoryModal = async function(recordId, commerceName, pe
   }
 };
 
+// =========================================================================
+// VISTA POR COMERCIO 360° — GESTIÓN INTEGRAL Y ESTADO DE CUENTA INTERACTIVO
+// =========================================================================
+
+window._commerceViewState = window._commerceViewState || {
+  selectedCommerce: '',
+  commerceListFilter: 'all', // 'all' | 'debt' | 'paused'
+  commerceSearch: '',
+  serviceTab: 'both',        // 'both' | 'fulf' | 'env'
+  quickFilter: 'all',        // 'all' | 'saldo' | 'atraso' | 'facturar' | 'desglose' | 'aldia'
+  yearFilter: 'all',
+  periodSearch: '',
+  hideZeroPeriods: false,
+  collapsedYears: {},
+  selectedRecordIds: new Set()
+};
+
+function injectCommerceViewStyles() {
+  if (!document.getElementById('billing-styles') && typeof injectBillingStyles === 'function') {
+    injectBillingStyles();
+  }
+  const existing = document.getElementById('commerce-view-enhanced-styles');
+  if (existing) existing.remove();
+
+  const style = document.createElement('style');
+  style.id = 'commerce-view-enhanced-styles';
+  style.innerHTML = `
+    .cv-executive-header {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 14px;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+      overflow: hidden;
+    }
+    .cv-header-top {
+      padding: 1.1rem 1.35rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, transparent 60%);
+    }
+    .cv-selector-cluster {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      flex: 1 1 460px;
+      min-width: 290px;
+    }
+    .cv-selector-top-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .cv-filter-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.22rem 0.62rem;
+      border-radius: 9999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      border: 1px solid var(--color-border);
+      background: var(--color-bg);
+      color: var(--color-text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .cv-filter-chip:hover {
+      border-color: var(--color-primary);
+      color: var(--color-text-main);
+    }
+    .cv-filter-chip.active {
+      background: var(--color-primary);
+      border-color: var(--color-primary);
+      color: #fff;
+    }
+    .cv-filter-chip.chip-debt.active {
+      background: #d97706;
+      border-color: #d97706;
+    }
+    .cv-filter-chip.chip-paused.active {
+      background: #dc2626;
+      border-color: #dc2626;
+    }
+    .cv-selector-main-row {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+    }
+    .cv-avatar-box {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: rgba(99, 102, 241, 0.12);
+      color: var(--color-primary);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      flex-shrink: 0;
+    }
+    .cv-nav-step-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: 1px solid var(--color-border);
+      background: var(--color-bg);
+      color: var(--color-text-main);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-size: 1.05rem;
+      flex-shrink: 0;
+    }
+    .cv-nav-step-btn:hover:not(:disabled) {
+      border-color: var(--color-primary);
+      color: var(--color-primary);
+      background: rgba(99, 102, 241, 0.08);
+    }
+    .cv-nav-step-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .cv-header-identity {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .cv-service-toggle-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.42rem 0.85rem;
+      border-radius: 9999px;
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: 1px solid transparent;
+    }
+    .cv-service-toggle-btn.is-active {
+      background: rgba(16, 185, 129, 0.12);
+      color: #047857;
+      border-color: rgba(16, 185, 129, 0.35);
+    }
+    [data-theme="dark"] .cv-service-toggle-btn.is-active {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+    }
+    .cv-service-toggle-btn.is-paused {
+      background: rgba(239, 68, 68, 0.14);
+      color: #b91c1c;
+      border-color: rgba(239, 68, 68, 0.4);
+    }
+    [data-theme="dark"] .cv-service-toggle-btn.is-paused {
+      background: rgba(239, 68, 68, 0.22);
+      color: #f87171;
+    }
+    .cv-service-toggle-btn:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.04);
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08);
+    }
+    .cv-header-actions-bar {
+      padding: 0.65rem 1.35rem;
+      border-top: 1px solid var(--color-border);
+      background: rgba(0, 0, 0, 0.015);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.65rem;
+      flex-wrap: wrap;
+    }
+    [data-theme="dark"] .cv-header-actions-bar {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .cv-tool-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.36rem 0.72rem;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      color: var(--color-text-main);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .cv-tool-btn:hover:not(:disabled) {
+      border-color: var(--color-primary);
+      color: var(--color-primary);
+      transform: translateY(-1px);
+    }
+    .cv-tool-btn.btn-pay-all {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #ffffff;
+      border-color: #059669;
+      box-shadow: 0 2px 6px rgba(16, 185, 129, 0.25);
+    }
+    .cv-tool-btn.btn-pay-all:hover:not(:disabled) {
+      color: #ffffff;
+      filter: brightness(1.06);
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
+    }
+    .cv-tool-btn.btn-add-period {
+      background: rgba(99, 102, 241, 0.1);
+      color: var(--color-primary);
+      border-color: rgba(99, 102, 241, 0.3);
+    }
+    .cv-tool-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    /* 4 KPI Cards */
+    .cv-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(235px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+    .cv-kpi-split {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+      margin-top: 0.45rem;
+    }
+    .cv-kpi-mini-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.12rem 0.45rem;
+      border-radius: 5px;
+      background: rgba(0, 0, 0, 0.04);
+      color: var(--color-text-muted);
+      border: 1px solid var(--color-border);
+    }
+    [data-theme="dark"] .cv-kpi-mini-pill {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .cv-progress-track {
+      width: 100%;
+      height: 6px;
+      background: rgba(16, 185, 129, 0.14);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 0.45rem;
+    }
+    .cv-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #10b981, #34d399);
+      border-radius: 999px;
+      transition: width 0.35s ease;
+    }
+
+    /* Workspace Card & Tabs */
+    .cv-workspace-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 14px;
+      box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+      overflow: hidden;
+    }
+    .cv-workspace-topbar {
+      padding: 0.75rem 1.25rem;
+      border-bottom: 1px solid var(--color-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.85rem;
+      flex-wrap: wrap;
+      background: var(--color-surface);
+    }
+    .cv-service-tabs {
+      display: inline-flex;
+      gap: 0.3rem;
+      background: var(--color-bg);
+      padding: 3px;
+      border-radius: 9px;
+      border: 1px solid var(--color-border);
+    }
+    .cv-service-tab-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.38rem;
+      font-family: Outfit, sans-serif;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 0.38rem 0.85rem;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+    .cv-service-tab-btn.active {
+      background: var(--color-surface);
+      color: var(--color-primary);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+    }
+    .cv-secondary-filters {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      flex-wrap: wrap;
+    }
+
+    /* Bulk Action Bar */
+    .cv-bulk-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      padding: 0.65rem 1.25rem;
+      background: linear-gradient(90deg, rgba(99, 102, 241, 0.12), rgba(16, 185, 129, 0.08));
+      border-bottom: 1px solid rgba(99, 102, 241, 0.3);
+    }
+    .cv-bulk-bar.active {
+      display: flex;
+    }
+
+    /* Year Group Banner */
+    .cv-year-banner {
+      padding: 0.65rem 1.15rem;
+      background: var(--color-bg);
+      border-top: 1px solid var(--color-border);
+      border-bottom: 1px solid var(--color-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      cursor: pointer;
+      user-select: none;
+    }
+    .cv-year-banner:hover {
+      background: rgba(99, 102, 241, 0.04);
+    }
+
+    /* Service Sub-Zone inside Integral Row */
+    .cv-service-zone {
+      display: flex;
+      flex-direction: column;
+      gap: 0.42rem;
+      padding: 0.45rem 0.6rem;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.015);
+      border: 1px solid var(--color-border);
+      border-left-width: 3px;
+    }
+    [data-theme="dark"] .cv-service-zone {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .cv-service-zone.zone-fulf {
+      border-left-color: #3b82f6;
+    }
+    .cv-service-zone.zone-env {
+      border-left-color: #8b5cf6;
+    }
+    .cv-zone-deadline-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+      padding-bottom: 0.32rem;
+      border-bottom: 1px dashed var(--color-border);
+    }
+    .cv-zone-grid {
+      display: grid;
+      grid-template-columns: minmax(158px, 1fr) minmax(195px, 1.25fr);
+      gap: 0.55rem;
+      align-items: start;
+    }
+    @media (max-width: 1280px) {
+      .cv-zone-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Quick Pay & Deadline Extension Mini Buttons */
+    .cv-quick-pay-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.25rem;
+      padding: 0.22rem 0.55rem;
+      border-radius: 6px;
+      font-size: 0.71rem;
+      font-weight: 700;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      background: rgba(16, 185, 129, 0.12);
+      color: #047857;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      width: 100%;
+    }
+    [data-theme="dark"] .cv-quick-pay-btn {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+    }
+    .cv-quick-pay-btn:hover {
+      background: #10b981;
+      color: #ffffff;
+      border-color: #059669;
+      box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
+    }
+    .cv-deadline-ext-btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.14rem 0.36rem;
+      border-radius: 4px;
+      font-size: 0.67rem;
+      font-weight: 700;
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      color: var(--color-text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .cv-deadline-ext-btn:hover {
+      border-color: var(--color-primary);
+      color: var(--color-primary);
+      background: rgba(99, 102, 241, 0.08);
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function getCommerceViewStatsMap() {
+  const map = {};
+  const statusLookup = {};
+  (cachedDashboardCommerceStatus || []).forEach(s => {
+    if (s && s.comercio) statusLookup[s.comercio.toLowerCase()] = s.al_dia !== false;
+  });
+
+  (cachedDashboardRecords || []).forEach(r => {
+    const name = r.comercio;
+    if (!name) return;
+    if (!map[name]) {
+      const legal = window.getBillingCommerceLegalInfo ? window.getBillingCommerceLegalInfo(name) : {};
+      map[name] = {
+        comercio: name,
+        alDia: statusLookup[name.toLowerCase()] !== undefined ? statusLookup[name.toLowerCase()] : true,
+        totalFact: 0,
+        totalAbono: 0,
+        saldo: 0,
+        razon: (legal.razon_social || '').toLowerCase(),
+        rut: (legal.rut || '').toLowerCase(),
+        rep: (legal.rep_legal_nombre || '').toLowerCase()
+      };
+    }
+    const tf = r.total_fulfillment || 0;
+    const af = r.abono_fulfillment || 0;
+    const te = r.enviame || 0;
+    const ae = r.abono_enviame || 0;
+    map[name].totalFact += tf + te;
+    map[name].totalAbono += af + ae;
+    map[name].saldo += Math.max(0, tf - af) + Math.max(0, te - ae);
+  });
+  return map;
+}
+
+function getFilteredCommerceNamesForSelector() {
+  const st = window._commerceViewState;
+  const statsMap = getCommerceViewStatsMap();
+  const allNames = Object.keys(statsMap).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  const q = (st.commerceSearch || '').trim().toLowerCase();
+
+  return allNames.filter(name => {
+    const info = statsMap[name];
+    if (st.commerceListFilter === 'debt' && info.saldo <= 0) return false;
+    if (st.commerceListFilter === 'paused' && info.alDia) return false;
+    if (q) {
+      const matchName = name.toLowerCase().includes(q);
+      const matchRazon = info.razon.includes(q);
+      const matchRut = info.rut.includes(q) || info.rut.replace(/[.\-]/g, '').includes(q.replace(/[.\-]/g, ''));
+      const matchRep = info.rep.includes(q);
+      if (!matchName && !matchRazon && !matchRut && !matchRep) return false;
+    }
+    return true;
+  });
+}
+
+window.openCommerceViewFor = async function(commerceName) {
+  if (!commerceName) return;
+  window._commerceViewState.selectedCommerce = commerceName;
+  window._commerceViewState.commerceListFilter = 'all';
+  window._commerceViewState.commerceSearch = '';
+  if (typeof window.switchBillingAdminTab === 'function') {
+    window.switchBillingAdminTab('commerce');
+  }
+};
+
+window.refreshCommerceViewData = async function(silent = false) {
+  const selectEl = document.getElementById('d-commerce-select');
+  if (selectEl && selectEl.value) {
+    window._commerceViewState.selectedCommerce = selectEl.value;
+  }
+  if (!silent) showSavingBadge(true);
+  try {
+    await fetchBillingDashboardData();
+    renderDashboardCommerceView();
+    if (!silent) setTimeout(() => showSavingBadge(false), 400);
+  } catch (err) {
+    console.error('Error refreshing commerce view:', err);
+    if (!silent) showSavingBadge(false);
+  }
+};
+
+window.setCommerceSelectorFilter = function(mode) {
+  window._commerceViewState.commerceListFilter = mode;
+  window._commerceViewState.selectedRecordIds.clear();
+  renderDashboardCommerceView();
+};
+
+window.handleCommerceSearchInput = function(val) {
+  window._commerceViewState.commerceSearch = val || '';
+  const filtered = getFilteredCommerceNamesForSelector();
+  const selectEl = document.getElementById('d-commerce-select');
+  const statsMap = getCommerceViewStatsMap();
+  if (!selectEl) return;
+
+  const prevVal = window._commerceViewState.selectedCommerce || selectEl.value;
+  if (filtered.length === 0) {
+    selectEl.innerHTML = `<option value="">Sin coincidencias (${val})</option>`;
+    return;
+  }
+
+  selectEl.innerHTML = filtered.map(c => {
+    const s = statsMap[c];
+    const dot = !s.alDia ? '🔴' : (s.saldo > 0 ? '🟠' : '🟢');
+    const suffix = !s.alDia
+      ? ` — Pausado${s.saldo > 0 ? ' · Pend: ' + window.formatCLP(s.saldo) : ''}`
+      : (s.saldo > 0 ? ` — Pend: ${window.formatCLP(s.saldo)}` : ' — Al día');
+    return `<option value="${c.replace(/"/g, '&quot;')}">${dot} ${c}${suffix}</option>`;
+  }).join('');
+
+  if (filtered.includes(prevVal)) {
+    selectEl.value = prevVal;
+  } else {
+    selectEl.value = filtered[0];
+    window._commerceViewState.selectedCommerce = filtered[0];
+    window._commerceViewState.selectedRecordIds.clear();
+    window.updateDashboardCommerceView();
+  }
+  window.updateCommerceNavButtonsState();
+};
+
+window.stepCommerceSelection = function(delta) {
+  const selectEl = document.getElementById('d-commerce-select');
+  if (!selectEl || selectEl.options.length === 0) return;
+  const nextIdx = selectEl.selectedIndex + delta;
+  if (nextIdx >= 0 && nextIdx < selectEl.options.length) {
+    selectEl.selectedIndex = nextIdx;
+    window._commerceViewState.selectedCommerce = selectEl.value;
+    window._commerceViewState.selectedRecordIds.clear();
+    window.updateDashboardCommerceView();
+  }
+};
+
+window.updateCommerceNavButtonsState = function() {
+  const selectEl = document.getElementById('d-commerce-select');
+  const prevBtn = document.getElementById('cv-prev-commerce-btn');
+  const nextBtn = document.getElementById('cv-next-commerce-btn');
+  const counterEl = document.getElementById('cv-commerce-pos-counter');
+  if (!selectEl) return;
+  const total = selectEl.options.length;
+  const idx = selectEl.selectedIndex;
+  if (prevBtn) prevBtn.disabled = total <= 1 || idx <= 0 || !selectEl.value;
+  if (nextBtn) nextBtn.disabled = total <= 1 || idx >= total - 1 || !selectEl.value;
+  if (counterEl) {
+    counterEl.textContent = selectEl.value && total > 0 ? `${idx + 1} / ${total}` : '0 / 0';
+  }
+};
+
 function renderDashboardCommerceView() {
   const content = document.getElementById('d-content-commerce');
   if (!content) return;
-  
-  const commerces = [...new Set(cachedDashboardRecords.map(r => r.comercio))].sort();
-  
-  let options = '';
-  commerces.forEach(c => {
-    options += `<option value="${c}">${c}</option>`;
-  });
-  
+
+  injectCommerceViewStyles();
+
+  const st = window._commerceViewState;
+  const statsMap = getCommerceViewStatsMap();
+  const allNames = Object.keys(statsMap);
+  const countAll = allNames.length;
+  const countDebt = allNames.filter(n => statsMap[n].saldo > 0).length;
+  const countPaused = allNames.filter(n => !statsMap[n].alDia).length;
+
+  const filteredCommerces = getFilteredCommerceNamesForSelector();
+  if (!st.selectedCommerce || !filteredCommerces.includes(st.selectedCommerce)) {
+    st.selectedCommerce = filteredCommerces[0] || allNames[0] || '';
+  }
+
+  const optionsHtml = filteredCommerces.length > 0
+    ? filteredCommerces.map(c => {
+        const s = statsMap[c];
+        const dot = !s.alDia ? '🔴' : (s.saldo > 0 ? '🟠' : '🟢');
+        const suffix = !s.alDia
+          ? ` — Pausado${s.saldo > 0 ? ' · Pend: ' + window.formatCLP(s.saldo) : ''}`
+          : (s.saldo > 0 ? ` — Pend: ${window.formatCLP(s.saldo)}` : ' — Al día');
+        const sel = c === st.selectedCommerce ? 'selected' : '';
+        return `<option value="${c.replace(/"/g, '&quot;')}" ${sel}>${dot} ${c}${suffix}</option>`;
+      }).join('')
+    : `<option value="">Sin comercios para este filtro</option>`;
+
+  const escSearch = String(st.commerceSearch || '').replace(/"/g, '&quot;');
+
   content.innerHTML = `
-    <div style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 1.25rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem;">
-      <div style="display: flex; align-items: center; gap: 0.75rem;">
-        <label style="font-weight: 600; font-size: 0.9rem; color: var(--color-text-main);">Seleccionar Comercio:</label>
-        <select id="d-commerce-select" class="form-input" style="width: 250px; margin: 0; padding: 0.35rem 0.75rem;" onchange="updateDashboardCommerceView()">
-          ${options}
-        </select>
+    <div class="cv-executive-header">
+      <div class="cv-header-top">
+        <div class="cv-selector-cluster">
+          <div class="cv-selector-top-row">
+            <span style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
+              <i class="ri-filter-3-line"></i> Cartera de Comercios:
+            </span>
+            <button type="button" class="cv-filter-chip ${st.commerceListFilter === 'all' ? 'active' : ''}" onclick="window.setCommerceSelectorFilter('all')">
+              Todos <span>(${countAll})</span>
+            </button>
+            <button type="button" class="cv-filter-chip chip-debt ${st.commerceListFilter === 'debt' ? 'active' : ''}" onclick="window.setCommerceSelectorFilter('debt')">
+              <i class="ri-coins-line"></i> Con Saldo <span>(${countDebt})</span>
+            </button>
+            <button type="button" class="cv-filter-chip chip-paused ${st.commerceListFilter === 'paused' ? 'active' : ''}" onclick="window.setCommerceSelectorFilter('paused')">
+              <i class="ri-pause-circle-line"></i> Pausados <span>(${countPaused})</span>
+            </button>
+            <span id="cv-commerce-pos-counter" style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; margin-left: 0.25rem;"></span>
+          </div>
+
+          <div class="cv-selector-main-row">
+            <div class="cv-avatar-box" title="Ficha Integral por Comercio">
+              <i class="ri-store-2-line"></i>
+            </div>
+            <button type="button" id="cv-prev-commerce-btn" class="cv-nav-step-btn" onclick="window.stepCommerceSelection(-1)" title="Comercio anterior">
+              <i class="ri-arrow-left-s-line"></i>
+            </button>
+            <select id="d-commerce-select" class="form-input" style="min-width: 280px; max-width: 390px; flex: 1; margin: 0; height: 38px; font-weight: 600; font-size: 0.86rem; padding: 0.35rem 0.75rem;" onchange="window._commerceViewState.selectedCommerce = this.value; window._commerceViewState.selectedRecordIds.clear(); updateDashboardCommerceView();">
+              ${optionsHtml}
+            </select>
+            <button type="button" id="cv-next-commerce-btn" class="cv-nav-step-btn" onclick="window.stepCommerceSelection(1)" title="Siguiente comercio">
+              <i class="ri-arrow-right-s-line"></i>
+            </button>
+            <div style="position: relative; min-width: 205px; flex: 0 1 240px;">
+              <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.85rem; pointer-events: none;"></i>
+              <input type="text" id="cv-commerce-search-input" class="form-input" value="${escSearch}" placeholder="Buscar comercio, RUT, razón..." oninput="window.handleCommerceSearchInput(this.value)" style="margin: 0; height: 38px; padding-left: 2rem; font-size: 0.8rem; width: 100%;">
+            </div>
+          </div>
+        </div>
+
+        <div id="d-commerce-status-indicator" class="cv-header-identity"></div>
       </div>
-      <div id="d-commerce-status-indicator"></div>
+
+      <div id="d-commerce-global-actions" class="cv-header-actions-bar"></div>
     </div>
-    
-    <div id="d-commerce-summary-cards" class="dashboard-grid"></div>
-    
-    <div class="card" style="margin-top: 1.5rem;">
-      <div class="card-header">
-        <h3><i class="ri-history-line"></i> Historial Completo y Registro Anual</h3>
-      </div>
-      <div class="card-body table-responsive" id="d-commerce-history-table" style="padding: 0;"></div>
+
+    <div id="d-commerce-summary-cards" class="cv-kpi-grid"></div>
+
+    <div class="cv-workspace-card">
+      <div class="cv-workspace-topbar" id="cv-workspace-topbar"></div>
+      <div id="cv-triage-strip-container"></div>
+      <div id="cv-bulk-action-bar" class="cv-bulk-bar"></div>
+      <div class="table-responsive" id="d-commerce-history-table" style="padding: 0;"></div>
     </div>
   `;
-  
+
   updateDashboardCommerceView();
 }
+
+window.syncCommerceViewHeaderOnly = function() {
+  const commSelect = document.getElementById('d-commerce-select');
+  if (!commSelect || !commSelect.value) return;
+  const commerce = commSelect.value;
+  const safeCommerceJs = commerce.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+  const statusObj = (cachedDashboardCommerceStatus || []).find(s => (s.comercio || '').toLowerCase() === commerce.toLowerCase());
+  const isAlDia = statusObj ? statusObj.al_dia !== false : true;
+  const legalInfo = window.getBillingCommerceLegalInfo ? window.getBillingCommerceLegalInfo(commerce) : {};
+
+  const commRecords = (cachedDashboardRecords || []).filter(r => (r.comercio || '').toLowerCase() === commerce.toLowerCase());
+  const sortedRecs = [...commRecords].sort((a, b) => {
+    const kA = ((a.billing_periods?.period_year || 2026) * 100) + (a.billing_periods?.period_month || 1);
+    const kB = ((b.billing_periods?.period_year || 2026) * 100) + (b.billing_periods?.period_month || 1);
+    return kB - kA;
+  });
+  const latestRec = sortedRecs[0] || null;
+  const priorityPendingRec = sortedRecs.find(r => ((r.total_fulfillment || 0) - (r.abono_fulfillment || 0) > 0) || ((r.enviame || 0) - (r.abono_enviame || 0) > 0)) || latestRec;
+
+  const statusIndicator = document.getElementById('d-commerce-status-indicator');
+  if (statusIndicator) {
+    statusIndicator.innerHTML = `
+      ${window.renderCommerceLegalSubBlockHtml ? window.renderCommerceLegalSubBlockHtml(commerce, legalInfo, latestRec?.period_id || '', latestRec?.id || '') : ''}
+      <button type="button" class="cv-service-toggle-btn ${isAlDia ? 'is-active' : 'is-paused'}" onclick="window.toggleCommerceServiceFromView('${safeCommerceJs}')" title="Click para cambiar el estado operativo del servicio WMS para ${commerce}">
+        <i class="${isAlDia ? 'ri-checkbox-circle-fill' : 'ri-pause-circle-fill'}" style="font-size: 1rem;"></i>
+        <span>${isAlDia ? 'SERVICIO ACTIVO (AL DÍA)' : 'SERVICIO PAUSADO / SUSPENDIDO'}</span>
+        <i class="ri-refresh-line" style="opacity: 0.7; font-size: 0.82rem;"></i>
+      </button>
+    `;
+  }
+
+  // Update option label in selector
+  const statsMap = getCommerceViewStatsMap();
+  const stInfo = statsMap[commerce];
+  if (stInfo && commSelect.selectedOptions && commSelect.selectedOptions[0]) {
+    const dot = !stInfo.alDia ? '🔴' : (stInfo.saldo > 0 ? '🟠' : '🟢');
+    const suffix = !stInfo.alDia
+      ? ` — Pausado${stInfo.saldo > 0 ? ' · Pend: ' + window.formatCLP(stInfo.saldo) : ''}`
+      : (stInfo.saldo > 0 ? ` — Pend: ${window.formatCLP(stInfo.saldo)}` : ' — Al día');
+    commSelect.selectedOptions[0].textContent = `${dot} ${commerce}${suffix}`;
+  }
+
+  let totalPending = 0;
+  let pendingServicesCount = 0;
+  commRecords.forEach(r => {
+    const sf = Math.max(0, (r.total_fulfillment || 0) - (r.abono_fulfillment || 0));
+    const se = Math.max(0, (r.enviame || 0) - (r.abono_enviame || 0));
+    if (sf > 0) { totalPending += sf; pendingServicesCount++; }
+    if (se > 0) { totalPending += se; pendingServicesCount++; }
+  });
+
+  const actionsBar = document.getElementById('d-commerce-global-actions');
+  if (actionsBar) {
+    actionsBar.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+        <button type="button" class="cv-tool-btn btn-pay-all" ${totalPending <= 0 ? 'disabled' : ''} onclick="window.markAllCommercePendingPaid('${safeCommerceJs}')" title="${totalPending > 0 ? 'Marcar todos los saldos pendientes de este comercio como Recibidos' : 'Este comercio no tiene saldos pendientes'}">
+          <i class="ri-check-double-line"></i>
+          <span>${totalPending > 0 ? `Saldar Todo (${window.formatCLP(totalPending)} en ${pendingServicesCount} cobro${pendingServicesCount === 1 ? '' : 's'})` : 'Cuenta sin Deuda ($0)'}</span>
+        </button>
+        <button type="button" class="cv-tool-btn btn-add-period" onclick="window.openAddPeriodForCommerceModal('${safeCommerceJs}')" title="Asociar este comercio a otro periodo mensual">
+          <i class="ri-add-circle-line"></i> Agregar Periodo
+        </button>
+        ${priorityPendingRec ? `
+          <button type="button" class="cv-tool-btn" onclick="window.openSendBillingEmailModal('${priorityPendingRec.id}', '${safeCommerceJs}', '${priorityPendingRec.period_id}')" title="Enviar notificación o estado de cuenta por correo">
+            <i class="ri-mail-send-line" style="color: var(--color-primary);"></i> Enviar Notificación
+          </button>
+        ` : ''}
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+        <button type="button" class="cv-tool-btn" onclick="window.openCommerceBillingHistoryModal('${safeCommerceJs}', '${latestRec?.period_id || ''}')" title="Ver gráfico de evolución histórica y variaciones mensuales">
+          <i class="ri-line-chart-line" style="color: #6366f1;"></i> Evolución
+        </button>
+        ${latestRec ? `
+          <button type="button" class="cv-tool-btn" onclick="window.openCommerceEmailHistoryModal('${latestRec.id}', '${safeCommerceJs}', '${latestRec.period_id}')" title="Revisar bitácora de correos enviados a este comercio">
+            <i class="ri-mail-check-line" style="color: #0ea5e9;"></i> Bitácora Emails
+          </button>
+        ` : ''}
+        <button type="button" class="cv-tool-btn" onclick="window.exportCommerceAccountToExcel('${safeCommerceJs}')" title="Descargar Estado de Cuenta completo en Excel (.xlsx)">
+          <i class="ri-file-excel-2-line" style="color: #10b981;"></i> Exportar Excel
+        </button>
+        <button type="button" class="cv-tool-btn" onclick="window.refreshCommerceViewData()" title="Sincronizar registros con base de datos">
+          <i class="ri-refresh-line"></i>
+        </button>
+      </div>
+    `;
+  }
+
+  window.updateCommerceNavButtonsState();
+};
+
+window.renderCommerceViewKpiCards = function(commerce) {
+  const cards = document.getElementById('d-commerce-summary-cards');
+  if (!cards || !commerce) return;
+
+  const commRecords = (cachedDashboardRecords || []).filter(r => (r.comercio || '').toLowerCase() === commerce.toLowerCase());
+  const now = new Date();
+
+  let factFulf = 0, factEnv = 0;
+  let abonoFulf = 0, abonoEnv = 0;
+  let saldoFulf = 0, saldoEnv = 0;
+  let activePeriods = 0;
+  let overdueCount = 0;
+  let pendingInvoicesCount = 0;
+  let pendingDesgloseCount = 0;
+  let pendingAppealsCount = 0;
+  let nearestDeadline = null;
+
+  commRecords.forEach(r => {
+    const tf = r.total_fulfillment || 0;
+    const af = r.abono_fulfillment || 0;
+    const sf = Math.max(0, tf - af);
+    const te = r.enviame || 0;
+    const ae = r.abono_enviame || 0;
+    const se = Math.max(0, te - ae);
+
+    factFulf += tf;
+    factEnv += te;
+    abonoFulf += af;
+    abonoEnv += ae;
+    saldoFulf += sf;
+    saldoEnv += se;
+
+    if (tf + te > 0) activePeriods++;
+
+    const pagoF = r.pago_fulfillment || 'Por solicitar';
+    const pagoE = r.pago_enviame || 'Por solicitar';
+
+    const overF = pagoF === 'Atrasado' || (r.fecha_limite && new Date(r.fecha_limite + 'T23:59:59') < now && !['Recibido', 'aprobado', 'Sin movimientos'].includes(pagoF) && sf > 0);
+    const overE = pagoE === 'Atrasado' || (r.fecha_limite_enviame && new Date(r.fecha_limite_enviame + 'T23:59:59') < now && !['Recibido', 'aprobado', 'Sin movimientos'].includes(pagoE) && se > 0);
+    if (overF) overdueCount++;
+    if (overE) overdueCount++;
+
+    if (sf > 0 && r.fecha_limite && !['Recibido', 'aprobado', 'Sin movimientos'].includes(pagoF)) {
+      if (!nearestDeadline || r.fecha_limite < nearestDeadline) nearestDeadline = r.fecha_limite;
+    }
+    if (se > 0 && r.fecha_limite_enviame && !['Recibido', 'aprobado', 'Sin movimientos'].includes(pagoE)) {
+      if (!nearestDeadline || r.fecha_limite_enviame < nearestDeadline) nearestDeadline = r.fecha_limite_enviame;
+    }
+
+    if (['Facturar', 'Esperando'].includes(r.factura_fulfillment) && tf > 0) pendingInvoicesCount++;
+    if (['Facturar', 'Esperando'].includes(r.factura_enviame) && te > 0) pendingInvoicesCount++;
+    if (['Por Generar', 'Creado'].includes(r.desglose_fulfillment) && tf > 0) pendingDesgloseCount++;
+    if (r.observation_status === 'pendiente') pendingAppealsCount++;
+    if (r.observation_status_enviame === 'pendiente') pendingAppealsCount++;
+  });
+
+  const totalFact = factFulf + factEnv;
+  const totalRec = abonoFulf + abonoEnv;
+  const totalSaldo = saldoFulf + saldoEnv;
+  const pctRec = totalFact > 0 ? Math.min(100, Math.round((totalRec / totalFact) * 100)) : 100;
+
+  const saldoStateClass = totalSaldo <= 0 ? 'success' : (overdueCount > 0 ? 'danger' : 'warning');
+  const saldoColor = totalSaldo <= 0 ? 'var(--color-success)' : (overdueCount > 0 ? 'var(--color-danger)' : 'var(--color-warning)');
+
+  let deadlineLabel = 'Sin vencimientos abiertos';
+  if (nearestDeadline) {
+    const dFmt = new Date(nearestDeadline + 'T00:00:00').toLocaleDateString('es-CL');
+    deadlineLabel = overdueCount > 0 ? `Vencido desde ${dFmt}` : `Próximo plazo: ${dFmt}`;
+  }
+
+  cards.innerHTML = `
+    <div class="dashboard-card primary" onclick="window.setCommerceViewQuickFilter('all')" title="Click para ver todos los periodos">
+      <div class="dashboard-card-label"><i class="ri-bill-line"></i> Total Facturado Histórico</div>
+      <div class="dashboard-card-value">${window.formatCLP(totalFact)}</div>
+      <div class="dashboard-card-sub">${activePeriods} periodo${activePeriods === 1 ? '' : 's'} con cobro (de ${commRecords.length})</div>
+      <div class="cv-kpi-split">
+        <span class="cv-kpi-mini-pill"><i class="ri-box-3-line" style="color:#3b82f6;"></i> Fulf: ${window.formatCLP(factFulf)}</span>
+        <span class="cv-kpi-mini-pill"><i class="ri-truck-line" style="color:#8b5cf6;"></i> Env: ${window.formatCLP(factEnv)}</span>
+      </div>
+    </div>
+
+    <div class="dashboard-card success" onclick="window.setCommerceViewQuickFilter('aldia')" title="Click para filtrar periodos pagados / al día">
+      <div class="dashboard-card-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Total Pagado / Recaudado</div>
+      <div class="dashboard-card-value" style="color: var(--color-success);">${window.formatCLP(totalRec)}</div>
+      <div class="dashboard-card-sub" style="display:flex; justify-content:space-between; align-items:center;">
+        <span><strong>${pctRec}%</strong> de efectividad de cobro</span>
+      </div>
+      <div class="cv-progress-track">
+        <div class="cv-progress-fill" style="width: ${pctRec}%;"></div>
+      </div>
+      <div class="cv-kpi-split">
+        <span class="cv-kpi-mini-pill">Fulf: ${window.formatCLP(abonoFulf)}</span>
+        <span class="cv-kpi-mini-pill">Env: ${window.formatCLP(abonoEnv)}</span>
+      </div>
+    </div>
+
+    <div class="dashboard-card ${saldoStateClass}" onclick="window.setCommerceViewQuickFilter('${overdueCount > 0 ? 'atraso' : 'saldo'}')" title="Click para filtrar periodos con saldo pendiente">
+      <div class="dashboard-card-label" style="color: ${saldoColor};">
+        <i class="${totalSaldo <= 0 ? 'ri-shield-check-line' : 'ri-error-warning-line'}"></i> Saldo Pendiente Acumulado
+      </div>
+      <div class="dashboard-card-value" style="color: ${saldoColor};">${window.formatCLP(totalSaldo)}</div>
+      <div class="dashboard-card-sub">
+        ${totalSaldo <= 0 ? 'Comercio 100% al día en pagos' : (overdueCount > 0 ? `<strong style="color:var(--color-danger);">${overdueCount} cobro${overdueCount === 1 ? '' : 's'} con atraso</strong>` : 'Dentro de plazo de pago')}
+      </div>
+      <div class="cv-kpi-split">
+        <span class="cv-kpi-mini-pill">Pend. Fulf: <strong style="color:${saldoFulf > 0 ? 'var(--color-danger)' : 'inherit'};">${window.formatCLP(saldoFulf)}</strong></span>
+        <span class="cv-kpi-mini-pill">Pend. Env: <strong style="color:${saldoEnv > 0 ? 'var(--color-danger)' : 'inherit'};">${window.formatCLP(saldoEnv)}</strong></span>
+      </div>
+    </div>
+
+    <div class="dashboard-card info" onclick="window.setCommerceViewQuickFilter('${pendingInvoicesCount > 0 ? 'facturar' : 'desglose'}')" title="Click para filtrar tareas documentales pendientes">
+      <div class="dashboard-card-label" style="color: #6366f1;"><i class="ri-file-list-3-line"></i> Gestión Documental & Plazos</div>
+      <div class="dashboard-card-value" style="font-size: 1.22rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+        <span>${pendingInvoicesCount} por facturar</span>
+        ${pendingAppealsCount > 0 ? `<span class="badge badge-warning" style="font-size:0.7rem;">${pendingAppealsCount} apelación</span>` : ''}
+      </div>
+      <div class="dashboard-card-sub">${deadlineLabel}</div>
+      <div class="cv-kpi-split">
+        <span class="cv-kpi-mini-pill"><i class="ri-draft-line"></i> Desgloses pend.: ${pendingDesgloseCount}</span>
+        <span class="cv-kpi-mini-pill"><i class="ri-calendar-event-line"></i> Atrasos: ${overdueCount}</span>
+      </div>
+    </div>
+  `;
+};
 
 window.updateDashboardCommerceView = function() {
   const commSelect = document.getElementById('d-commerce-select');
   if (!commSelect) return;
   const commerce = commSelect.value;
-  if (!commerce) return;
-  
-  const statusObj = cachedDashboardCommerceStatus.find(s => s.comercio.toLowerCase() === commerce.toLowerCase());
-  const isAlDia = statusObj ? statusObj.al_dia : true;
-  const legalInfo = window.getBillingCommerceLegalInfo ? window.getBillingCommerceLegalInfo(commerce) : {};
-  
-  const statusIndicator = document.getElementById('d-commerce-status-indicator');
-  if (statusIndicator) {
-    statusIndicator.innerHTML = `
-      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; justify-content: flex-end;">
-        ${window.renderCommerceLegalSubBlockHtml ? window.renderCommerceLegalSubBlockHtml(commerce, legalInfo) : ''}
-        <span class="badge ${isAlDia ? 'badge-success' : 'badge-danger'}" style="text-transform: uppercase; font-size: 0.75rem; padding: 0.25rem 0.5rem; font-weight: 600;">
-          Estado del Servicio: ${isAlDia ? 'Al Día (Activo)' : 'Pausado / Suspendido'}
-        </span>
-      </div>
-    `;
-  }
-  
-  const commRecords = cachedDashboardRecords.filter(r => r.comercio.toLowerCase() === commerce.toLowerCase());
-  
-  let totalFact = 0;
-  let totalRec = 0;
-  commRecords.forEach(r => {
-    totalFact += (r.total_fulfillment || 0) + (r.enviame || 0);
-    totalRec += (r.abono_fulfillment || 0) + (r.abono_enviame || 0);
-  });
-  
-  const cards = document.getElementById('d-commerce-summary-cards');
-  if (cards) {
-    cards.innerHTML = `
-      <div class="dashboard-card primary">
-        <div class="dashboard-card-label"><i class="ri-bill-line"></i> Total Facturado Histórico</div>
-        <div class="dashboard-card-value">${window.formatCLP(totalFact)}</div>
-        <div class="dashboard-card-sub">Fulfillment + Envíame</div>
-      </div>
-      <div class="dashboard-card success">
-        <div class="dashboard-card-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Total Pagado Histórico</div>
-        <div class="dashboard-card-value" style="color: var(--color-success);">${window.formatCLP(totalRec)}</div>
-        <div class="dashboard-card-sub">${totalFact > 0 ? ((totalRec / totalFact) * 100).toFixed(0) : 0}% recaudado</div>
-      </div>
-      <div class="dashboard-card warning">
-        <div class="dashboard-card-label" style="color: var(--color-warning);"><i class="ri-error-warning-line"></i> Saldo Pendiente Acumulado</div>
-        <div class="dashboard-card-value" style="color: var(--color-warning);">${window.formatCLP(totalFact - totalRec)}</div>
-        <div class="dashboard-card-sub">Monto por cobrar restante</div>
-      </div>
-    `;
-  }
-  
-  const recordsByYear = {};
-  commRecords.forEach(r => {
-    let year = r.billing_periods?.period_year;
-    let month = r.billing_periods?.period_month;
-    
-    if (!year || !month) {
-      const parts = (r.billing_periods?.name || '').split(' ');
-      year = parts[1] ? parseInt(parts[1], 10) : new Date().getFullYear();
+  const tableContainer = document.getElementById('d-commerce-history-table');
+
+  if (!commerce) {
+    if (tableContainer) {
+      tableContainer.innerHTML = '<div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">Selecciona un comercio para gestionar sus periodos y facturación.</div>';
     }
-    
+    return;
+  }
+
+  window._commerceViewState.selectedCommerce = commerce;
+  window.syncCommerceViewHeaderOnly();
+  window.renderCommerceViewKpiCards(commerce);
+  window.renderCommerceViewWorkspace(commerce);
+};
+
+function addBusinessDaysLocal(startDateStr, daysToAdd) {
+  if (typeof window.addBusinessDays === 'function' && startDateStr) {
+    return window.addBusinessDays(startDateStr, daysToAdd);
+  }
+  const base = startDateStr && /^\d{4}-\d{2}-\d{2}$/.test(startDateStr)
+    ? new Date(startDateStr + 'T12:00:00')
+    : new Date();
+  const d = isNaN(base.getTime()) ? new Date() : base;
+  let added = 0;
+  while (added < daysToAdd) {
+    d.setDate(d.getDate() + 1);
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) added++;
+  }
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+window.addBusinessDaysLocal = addBusinessDaysLocal;
+
+function getCommerceRecordYearAndMonth(r) {
+  let year = r.billing_periods?.period_year;
+  let month = r.billing_periods?.period_month;
+  if (!year) {
+    year = window.getBillingPeriodYear ? window.getBillingPeriodYear(r.billing_periods) : new Date().getFullYear();
+  }
+  if (!month) {
+    month = window.getBillingPeriodMonth ? window.getBillingPeriodMonth(r.billing_periods) : 1;
+  }
+  return { year: Number(year) || new Date().getFullYear(), month: Number(month) || 1 };
+}
+
+function evaluateCommerceRecordFlags(r, serviceTab = 'both') {
+  const now = new Date();
+  const tf = r.total_fulfillment || 0;
+  const af = r.abono_fulfillment || 0;
+  const sf = Math.max(0, tf - af);
+  const pf = r.pago_fulfillment || 'Por solicitar';
+
+  const te = r.enviame || 0;
+  const ae = r.abono_enviame || 0;
+  const se = Math.max(0, te - ae);
+  const pe = r.pago_enviame || 'Por solicitar';
+
+  const overF = pf === 'Atrasado' || (r.fecha_limite && new Date(r.fecha_limite + 'T23:59:59') < now && !['Recibido', 'aprobado', 'Sin movimientos'].includes(pf) && sf > 0);
+  const overE = pe === 'Atrasado' || (r.fecha_limite_enviame && new Date(r.fecha_limite_enviame + 'T23:59:59') < now && !['Recibido', 'aprobado', 'Sin movimientos'].includes(pe) && se > 0);
+
+  const factPendF = ['Facturar', 'Esperando'].includes(r.factura_fulfillment) && tf > 0;
+  const factPendE = ['Facturar', 'Esperando'].includes(r.factura_enviame) && te > 0;
+  const desgPendF = ['Por Generar', 'Creado'].includes(r.desglose_fulfillment) && tf > 0;
+
+  const alDiaF = (tf > 0 && sf <= 0) || ['Recibido', 'aprobado', 'Sin movimientos'].includes(pf);
+  const alDiaE = (te > 0 && se <= 0) || ['Recibido', 'aprobado', 'Sin movimientos'].includes(pe);
+
+  if (serviceTab === 'fulf') {
+    return {
+      hasSaldo: sf > 0,
+      hasAtraso: overF,
+      hasFacturar: factPendF,
+      hasDesglose: desgPendF,
+      isAlDia: alDiaF && sf <= 0,
+      isZero: tf === 0
+    };
+  }
+  if (serviceTab === 'env') {
+    return {
+      hasSaldo: se > 0,
+      hasAtraso: overE,
+      hasFacturar: factPendE,
+      hasDesglose: false,
+      isAlDia: alDiaE && se <= 0,
+      isZero: te === 0
+    };
+  }
+  return {
+    hasSaldo: (sf + se) > 0,
+    hasAtraso: overF || overE,
+    hasFacturar: factPendF || factPendE,
+    hasDesglose: desgPendF,
+    isAlDia: (sf + se) <= 0 && ((tf + te > 0) || (['Recibido', 'aprobado', 'Sin movimientos'].includes(pf) && ['Recibido', 'aprobado', 'Sin movimientos'].includes(pe))),
+    isZero: (tf + te) === 0
+  };
+}
+
+window.setCommerceViewServiceTab = function(tab) {
+  window._commerceViewState.serviceTab = tab;
+  const comm = document.getElementById('d-commerce-select')?.value;
+  if (comm) window.renderCommerceViewWorkspace(comm);
+};
+
+window.setCommerceViewQuickFilter = function(filterKey) {
+  window._commerceViewState.quickFilter = filterKey;
+  const comm = document.getElementById('d-commerce-select')?.value;
+  if (comm) window.renderCommerceViewWorkspace(comm);
+};
+
+window.setCommerceViewYearFilter = function(yearVal) {
+  window._commerceViewState.yearFilter = yearVal;
+  const comm = document.getElementById('d-commerce-select')?.value;
+  if (comm) window.renderCommerceViewTableOnly(comm);
+};
+
+window.setCommerceViewPeriodSearch = function(val) {
+  window._commerceViewState.periodSearch = val || '';
+  const comm = document.getElementById('d-commerce-select')?.value;
+  if (comm) window.renderCommerceViewTableOnly(comm);
+};
+
+window.toggleCommerceViewHideZero = function(checked) {
+  window._commerceViewState.hideZeroPeriods = !!checked;
+  const comm = document.getElementById('d-commerce-select')?.value;
+  if (comm) window.renderCommerceViewWorkspace(comm);
+};
+
+window.toggleCommerceViewYearCollapse = function(year) {
+  const map = window._commerceViewState.collapsedYears;
+  map[year] = !map[year];
+  const comm = document.getElementById('d-commerce-select')?.value;
+  if (comm) window.renderCommerceViewTableOnly(comm);
+};
+
+window.renderCommerceViewWorkspace = function(commerce) {
+  const st = window._commerceViewState;
+  const commRecords = (cachedDashboardRecords || []).filter(r => (r.comercio || '').toLowerCase() === commerce.toLowerCase());
+
+  const yearsSet = new Set();
+  commRecords.forEach(r => yearsSet.add(String(getCommerceRecordYearAndMonth(r).year)));
+  const yearsList = [...yearsSet].sort((a, b) => Number(b) - Number(a));
+  if (st.yearFilter !== 'all' && !yearsSet.has(String(st.yearFilter))) {
+    st.yearFilter = 'all';
+  }
+
+  let cAll = 0, cSaldo = 0, cAtraso = 0, cFact = 0, cDesg = 0, cAlDia = 0;
+  commRecords.forEach(r => {
+    const flags = evaluateCommerceRecordFlags(r, st.serviceTab);
+    if (st.hideZeroPeriods && flags.isZero) return;
+    cAll++;
+    if (flags.hasSaldo) cSaldo++;
+    if (flags.hasAtraso) cAtraso++;
+    if (flags.hasFacturar) cFact++;
+    if (flags.hasDesglose) cDesg++;
+    if (flags.isAlDia) cAlDia++;
+  });
+
+  const topbar = document.getElementById('cv-workspace-topbar');
+  if (topbar) {
+    const escPeriodQ = String(st.periodSearch || '').replace(/"/g, '&quot;');
+    topbar.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <div class="cv-service-tabs">
+          <button type="button" class="cv-service-tab-btn ${st.serviceTab === 'both' ? 'active' : ''}" onclick="window.setCommerceViewServiceTab('both')">
+            <i class="ri-layout-column-line"></i> Vista Integral (Ambos)
+          </button>
+          <button type="button" class="cv-service-tab-btn ${st.serviceTab === 'fulf' ? 'active' : ''}" onclick="window.setCommerceViewServiceTab('fulf')">
+            <i class="ri-box-3-line" style="color: #3b82f6;"></i> Solo Fulfillment
+          </button>
+          <button type="button" class="cv-service-tab-btn ${st.serviceTab === 'env' ? 'active' : ''}" onclick="window.setCommerceViewServiceTab('env')">
+            <i class="ri-truck-line" style="color: #8b5cf6;"></i> Solo Envíame
+          </button>
+        </div>
+      </div>
+
+      <div class="cv-secondary-filters">
+        <div style="position: relative; width: 185px;">
+          <i class="ri-search-line" style="position: absolute; left: 0.55rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.8rem; pointer-events: none;"></i>
+          <input type="text" class="form-input" value="${escPeriodQ}" placeholder="Periodo o #folio..." oninput="window.setCommerceViewPeriodSearch(this.value)" style="margin: 0; height: 32px; padding-left: 1.75rem; font-size: 0.78rem; width: 100%;">
+        </div>
+
+        <select class="form-input" onchange="window.setCommerceViewYearFilter(this.value)" style="margin: 0; height: 32px; padding: 0.2rem 0.6rem; font-size: 0.78rem; width: auto; font-weight: 600;">
+          <option value="all" ${st.yearFilter === 'all' ? 'selected' : ''}>Todos los años</option>
+          ${yearsList.map(y => `<option value="${y}" ${String(st.yearFilter) === String(y) ? 'selected' : ''}>Año ${y}</option>`).join('')}
+        </select>
+
+        <label style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.76rem; font-weight: 600; color: var(--color-text-muted); cursor: pointer; padding: 0.28rem 0.6rem; border-radius: 7px; border: 1px solid var(--color-border); background: var(--color-bg); user-select: none;">
+          <input type="checkbox" ${st.hideZeroPeriods ? 'checked' : ''} onchange="window.toggleCommerceViewHideZero(this.checked)" style="accent-color: var(--color-primary); width: 14px; height: 14px; cursor: pointer;">
+          <span>Ocultar en $0</span>
+        </label>
+      </div>
+    `;
+  }
+
+  const triageContainer = document.getElementById('cv-triage-strip-container');
+  if (triageContainer) {
+    triageContainer.innerHTML = `
+      <div class="billing-triage-strip">
+        <span class="triage-strip-title"><i class="ri-flashlight-fill" style="color: #f59e0b;"></i> Filtro Rápido:</span>
+        <button type="button" class="billing-triage-pill ${st.quickFilter === 'all' ? 'active' : ''}" onclick="window.setCommerceViewQuickFilter('all')">
+          Todos <span class="triage-pill-count" id="cv-pill-count-all">${cAll}</span>
+        </button>
+        <button type="button" class="billing-triage-pill pill-saldo ${st.quickFilter === 'saldo' ? 'active' : ''}" onclick="window.setCommerceViewQuickFilter('saldo')">
+          <i class="ri-coins-line"></i> Con Saldo <span class="triage-pill-count" id="cv-pill-count-saldo">${cSaldo}</span>
+        </button>
+        <button type="button" class="billing-triage-pill pill-atraso ${st.quickFilter === 'atraso' ? 'active' : ''}" onclick="window.setCommerceViewQuickFilter('atraso')">
+          <i class="ri-alarm-warning-line"></i> Con Atraso <span class="triage-pill-count" id="cv-pill-count-atraso">${cAtraso}</span>
+        </button>
+        <button type="button" class="billing-triage-pill pill-por-facturar ${st.quickFilter === 'facturar' ? 'active' : ''}" onclick="window.setCommerceViewQuickFilter('facturar')">
+          <i class="ri-file-text-line"></i> Por Facturar <span class="triage-pill-count" id="cv-pill-count-facturar">${cFact}</span>
+        </button>
+        ${st.serviceTab !== 'env' ? `
+          <button type="button" class="billing-triage-pill pill-desglose ${st.quickFilter === 'desglose' ? 'active' : ''}" onclick="window.setCommerceViewQuickFilter('desglose')">
+            <i class="ri-draft-line"></i> Desglose Pendiente <span class="triage-pill-count" id="cv-pill-count-desglose">${cDesg}</span>
+          </button>
+        ` : ''}
+        <button type="button" class="billing-triage-pill pill-al-dia ${st.quickFilter === 'aldia' ? 'active' : ''}" onclick="window.setCommerceViewQuickFilter('aldia')">
+          <i class="ri-checkbox-circle-line"></i> Al Día / Pagados <span class="triage-pill-count" id="cv-pill-count-aldia">${cAlDia}</span>
+        </button>
+      </div>
+    `;
+  }
+
+  window.updateCommerceViewBulkBar();
+  window.renderCommerceViewTableOnly(commerce);
+};
+
+function buildCommerceViewPeriodSummaryHtml(r) {
+  const periodName = r.billing_periods?.name || 'Periodo';
+  const periodStatus = (r.billing_periods?.status || '').toLowerCase();
+  const tf = r.total_fulfillment || 0;
+  const af = r.abono_fulfillment || 0;
+  const te = r.enviame || 0;
+  const ae = r.abono_enviame || 0;
+  const totalMes = tf + te;
+  const abonoMes = af + ae;
+  const saldoMes = Math.max(0, tf - af) + Math.max(0, te - ae);
+  const flags = evaluateCommerceRecordFlags(r, 'both');
+
+  let statusChip = '';
+  if (flags.hasAtraso) {
+    statusChip = `<span class="badge badge-danger" style="font-size:0.65rem; padding:0.12rem 0.4rem;">Atrasado</span>`;
+  } else if (saldoMes > 0) {
+    statusChip = `<span class="badge badge-warning" style="font-size:0.65rem; padding:0.12rem 0.4rem;">Pendiente</span>`;
+  } else if (totalMes > 0) {
+    statusChip = `<span class="badge badge-success" style="font-size:0.65rem; padding:0.12rem 0.4rem;">Pagado</span>`;
+  } else {
+    statusChip = `<span class="badge badge-neutral" style="font-size:0.65rem; padding:0.12rem 0.4rem;">$0 / Sin cobro</span>`;
+  }
+
+  const pBadge = periodStatus === 'activo'
+    ? `<span style="font-size:0.63rem; font-weight:700; color:#10b981; text-transform:uppercase;">● Activo</span>`
+    : '';
+
+  return `
+    <div style="display: flex; flex-direction: column; gap: 0.28rem;">
+      <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+        <button type="button" onclick="window.openBillingCommerceDetailModal('${r.id}', '${r.period_id}', 'totales')" style="background:none; border:none; padding:0; font-weight:700; font-size:0.86rem; color:var(--color-text-main); cursor:pointer; display:inline-flex; align-items:center; gap:0.25rem; text-align:left;" title="Abrir Ficha 360° de ${periodName}">
+          <span>${periodName}</span>
+          <i class="ri-external-link-line" style="font-size:0.78rem; color:var(--color-primary);"></i>
+        </button>
+        ${pBadge}
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+        ${statusChip}
+      </div>
+      <div style="font-size: 0.76rem; color: var(--color-text-muted); margin-top: 0.1rem;">
+        Mes: <strong style="color: var(--color-text-main);">${window.formatCLP(totalMes)}</strong>
+        ${saldoMes > 0 ? `<div style="color: var(--color-danger); font-weight: 700; font-size: 0.74rem;">Saldo: ${window.formatCLP(saldoMes)}</div>` : ''}
+      </div>
+      ${saldoMes > 0 ? `
+        <button type="button" class="cv-quick-pay-btn" style="margin-top:0.15rem;" onclick="window.quickMarkServicePaidInCommerceView('${r.id}', 'both')" title="Marcar todo el periodo ${periodName} como Pagado (Recibido)">
+          <i class="ri-check-double-line"></i> Saldar Mes
+        </button>
+      ` : ''}
+    </div>
+  `;
+}
+
+function buildCommerceViewQuickPayBtnHtml(r, service) {
+  const isEnv = service === 'env';
+  const total = isEnv ? (r.enviame || 0) : (r.total_fulfillment || 0);
+  const abono = isEnv ? (r.abono_enviame || 0) : (r.abono_fulfillment || 0);
+  const pago = isEnv ? (r.pago_enviame || 'Por solicitar') : (r.pago_fulfillment || 'Por solicitar');
+  const saldo = Math.max(0, total - abono);
+
+  if (saldo > 0 || (total > 0 && pago !== 'Recibido' && pago !== 'aprobado')) {
+    const label = isEnv ? 'Marcar como pagado Envíame' : 'Marcar como pagado Fulfillment';
+    return `
+      <button type="button" class="cv-quick-pay-btn" onclick="window.quickMarkServicePaidInCommerceView('${r.id}', '${service}')" title="Marcar ${isEnv ? 'Envíame' : 'Fulfillment'} como Recibido con 100% de abono y fecha de hoy">
+        <i class="ri-check-line"></i> ${label}
+      </button>
+    `;
+  }
+  return '';
+}
+
+function buildCommerceViewActionsHtml(r, defaultTab = 'totales') {
+  const periodId = r.period_id;
+  const safeComm = (r.comercio || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const hasFulfFiles = Boolean(r.fulfillment_link || r.fulfillment_pdf_url);
+  const hasEnvFiles = Boolean(r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0);
+  const hasAnyFiles = hasFulfFiles || hasEnvFiles;
+
+  const lastNotified = r.last_notified_at
+    ? new Date(r.last_notified_at).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : null;
+  const emailBtnTitle = lastNotified
+    ? `Notificado el ${lastNotified}. Click para enviar nuevo correo.`
+    : 'Enviar Notificación por Correo';
+
+  const obsPending = r.observation_status === 'pendiente' || r.observation_status_enviame === 'pendiente';
+  const obsResolved = !obsPending && (r.observation_status === 'respondida' || r.observation_status_enviame === 'respondida');
+  const obsService = r.observation_status_enviame === 'pendiente' && r.observation_status !== 'pendiente' ? 'enviame' : (defaultTab === 'env' ? 'enviame' : 'fulfillment');
+
+  return `
+    <div class="billing-actions-group">
+      <button type="button" class="billing-action-btn btn-history" onclick="window.openBillingCommerceDetailModal('${r.id}', '${periodId}', '${defaultTab}')" title="🔍 Abrir Ficha 360° del Periodo">
+        <i class="ri-eye-line"></i>
+      </button>
+      <button type="button" class="billing-action-btn btn-gestor" onclick="window.openBillingGeneratorForRecord('${periodId}', '${safeComm}')" title="⚡ Abrir Gestor de Facturación y Desglose Stocka">
+        <i class="ri-calculator-line"></i>
+      </button>
+      <button type="button" class="billing-action-btn btn-attachment ${hasAnyFiles ? 'has-files active' : ''}" onclick="openBillingAttachmentsModal('${r.id}', '${safeComm}', '${periodId}')" title="📎 Gestionar Facturas PDF y Enlaces">
+        <i class="ri-attachment-line"></i>
+        ${hasAnyFiles ? '<span class="action-btn-dot active"></span>' : ''}
+      </button>
+      <button type="button" class="billing-action-btn btn-email ${lastNotified ? 'sent active' : ''}" onclick="window.openSendBillingEmailModal('${r.id}', '${safeComm}', '${periodId}')" title="${emailBtnTitle}">
+        <i class="ri-mail-send-line"></i>
+        ${lastNotified ? '<span class="action-btn-dot active"></span>' : ''}
+      </button>
+      <button type="button" class="billing-action-btn btn-obs ${obsPending ? 'pending' : (obsResolved ? 'resolved' : '')}" onclick="openAdminBillingObservationModal('${r.id}', '${safeComm}', '${periodId}', '${obsService}')" title="${obsPending ? 'Apelación Pendiente de Respuesta' : 'Ver / Responder Apelaciones'}">
+        <i class="ri-question-answer-line"></i>
+        ${obsPending ? '<span class="action-btn-dot pending"></span>' : (obsResolved ? '<span class="action-btn-dot active"></span>' : '')}
+      </button>
+      <button type="button" class="billing-action-btn btn-delete" onclick="deleteBillingRecord('${r.id}', '${safeComm}', '${periodId}')" title="Eliminar este periodo del comercio">
+        <i class="ri-delete-bin-line"></i>
+      </button>
+    </div>
+  `;
+}
+
+function buildFulfPaymentOptionsHtml(val) {
+  const opts = [
+    ['Por solicitar', 'Por solicitar'],
+    ['Recibido', 'Recibido'],
+    ['En espera', 'En espera'],
+    ['Atrasado', 'Atrasado'],
+    ['abono', 'Abono'],
+    ['aprobado', 'Aprobado'],
+    ['incobrable', 'Incobrable'],
+    ['Sin movimientos', 'Sin movimientos']
+  ];
+  return opts.map(([v, label]) => `<option value="${v}" ${val === v ? 'selected' : ''}>${label}</option>`).join('');
+}
+
+function buildInvoiceOptionsHtml(val) {
+  const opts = ['Esperando', 'No se factura', 'Emitida', 'Facturar', 'Sin movimientos'];
+  return opts.map(v => `<option value="${v}" ${val === v ? 'selected' : ''}>${v}</option>`).join('');
+}
+
+function buildDesgloseOptionsHtml(val) {
+  const opts = [
+    ['Por Generar', 'Por Generar'],
+    ['Creado', 'Creado'],
+    ['Enviado', 'Publicado (Enviado)'],
+    ['Aprobado', 'Aprobado'],
+    ['Sin movimientos', 'Sin movimientos']
+  ];
+  return opts.map(([v, label]) => `<option value="${v}" ${val === v ? 'selected' : ''}>${label}</option>`).join('');
+}
+
+window.renderCommerceViewTableOnly = function(commerce) {
+  const tableContainer = document.getElementById('d-commerce-history-table');
+  if (!tableContainer || !commerce) return;
+
+  const st = window._commerceViewState;
+  const q = (st.periodSearch || '').trim().toLowerCase();
+
+  const commRecords = (cachedDashboardRecords || []).filter(r => (r.comercio || '').toLowerCase() === commerce.toLowerCase());
+  const filtered = commRecords.filter(r => {
+    const { year } = getCommerceRecordYearAndMonth(r);
+    if (st.yearFilter !== 'all' && String(year) !== String(st.yearFilter)) return false;
+
+    const flags = evaluateCommerceRecordFlags(r, st.serviceTab);
+    if (st.hideZeroPeriods && flags.isZero) return false;
+
+    if (st.quickFilter === 'saldo' && !flags.hasSaldo) return false;
+    if (st.quickFilter === 'atraso' && !flags.hasAtraso) return false;
+    if (st.quickFilter === 'facturar' && !flags.hasFacturar) return false;
+    if (st.quickFilter === 'desglose' && !flags.hasDesglose) return false;
+    if (st.quickFilter === 'aldia' && !flags.isAlDia) return false;
+
+    if (q) {
+      const pName = (r.billing_periods?.name || '').toLowerCase();
+      const f1 = String(r.num_factura || '').toLowerCase();
+      const f2 = String(r.num_factura_enviame || '').toLowerCase();
+      if (!pName.includes(q) && !f1.includes(q.replace('#', '')) && !f2.includes(q.replace('#', ''))) return false;
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    tableContainer.innerHTML = `
+      <div style="padding: 3rem 1.5rem; text-align: center; color: var(--color-text-muted);">
+        <i class="ri-inbox-archive-line" style="font-size: 2.4rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+        <div style="font-weight: 600; font-size: 0.95rem; color: var(--color-text-main);">No hay periodos que coincidan con el filtro actual</div>
+        <div style="font-size: 0.8rem; margin-top: 0.25rem;">Puedes cambiar el filtro rápido o usar el botón <strong>Agregar Periodo</strong> arriba.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const recordsByYear = {};
+  filtered.forEach(r => {
+    const { year } = getCommerceRecordYearAndMonth(r);
     if (!recordsByYear[year]) recordsByYear[year] = [];
     recordsByYear[year].push(r);
   });
-  
-  const sortedYears = Object.keys(recordsByYear).sort((a, b) => b - a);
-  
-  const tableContainer = document.getElementById('d-commerce-history-table');
-  if (tableContainer) {
-    if (sortedYears.length === 0) {
-      tableContainer.innerHTML = '<div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">Sin historial registrado</div>';
+
+  const sortedYears = Object.keys(recordsByYear).sort((a, b) => Number(b) - Number(a));
+  let html = '';
+
+  sortedYears.forEach(year => {
+    const yearRecords = recordsByYear[year].sort((a, b) => {
+      const ymA = getCommerceRecordYearAndMonth(a);
+      const ymB = getCommerceRecordYearAndMonth(b);
+      return ymB.month - ymA.month;
+    });
+
+    let yFact = 0, yRec = 0, ySaldo = 0;
+    yearRecords.forEach(r => {
+      const tf = r.total_fulfillment || 0;
+      const af = r.abono_fulfillment || 0;
+      const te = r.enviame || 0;
+      const ae = r.abono_enviame || 0;
+      if (st.serviceTab === 'fulf') {
+        yFact += tf; yRec += af; ySaldo += Math.max(0, tf - af);
+      } else if (st.serviceTab === 'env') {
+        yFact += te; yRec += ae; ySaldo += Math.max(0, te - ae);
+      } else {
+        yFact += tf + te; yRec += af + ae; ySaldo += Math.max(0, tf - af) + Math.max(0, te - ae);
+      }
+    });
+
+    const isCollapsed = !!st.collapsedYears[year];
+    const allYearSelected = yearRecords.length > 0 && yearRecords.every(r => st.selectedRecordIds.has(String(r.id)));
+
+    html += `
+      <div class="cv-year-banner" onclick="window.toggleCommerceViewYearCollapse('${year}')">
+        <div style="display: flex; align-items: center; gap: 0.55rem;">
+          <i class="ri-arrow-${isCollapsed ? 'right' : 'down'}-s-line" style="font-size: 1.1rem; color: var(--color-primary);"></i>
+          <span style="font-weight: 700; font-size: 0.92rem; color: var(--color-text-main);">Año ${year}</span>
+          <span class="badge badge-neutral" style="font-size: 0.7rem;">${yearRecords.length} periodo${yearRecords.length === 1 ? '' : 's'}</span>
+        </div>
+        <div id="cv-year-stats-${year}" style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; font-size: 0.76rem;">
+          <span style="color: var(--color-text-muted);">Facturado: <strong style="color: var(--color-text-main);">${window.formatCLP(yFact)}</strong></span>
+          <span style="color: var(--color-text-muted);">Pagado: <strong style="color: var(--color-success);">${window.formatCLP(yRec)}</strong></span>
+          <span style="color: var(--color-text-muted);">Saldo: <strong style="color: ${ySaldo > 0 ? 'var(--color-danger)' : 'var(--color-success)'};">${window.formatCLP(ySaldo)}</strong></span>
+        </div>
+      </div>
+    `;
+
+    if (!isCollapsed) {
+      if (st.serviceTab === 'both') {
+        const rowsHtml = yearRecords.map(r => {
+          const isChecked = st.selectedRecordIds.has(String(r.id));
+          const desgClass = (r.desglose_fulfillment === 'Enviado' || (r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots')))
+            ? 'status-purple'
+            : getStatusClass(r.desglose_fulfillment);
+
+          return `
+            <tr id="cv-row-${r.id}" class="commerce-view-row" data-record-id="${r.id}">
+              <td style="width: 38px; text-align: center; vertical-align: middle;">
+                <input type="checkbox" class="cv-row-checkbox" value="${r.id}" ${isChecked ? 'checked' : ''} onchange="window.toggleCommerceViewRowSelect('${r.id}', this.checked)" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+              </td>
+
+              <td id="cv-period-summary-${r.id}" style="width: 185px; vertical-align: top;">
+                ${buildCommerceViewPeriodSummaryHtml(r)}
+              </td>
+
+              <!-- Gestión Fulfillment -->
+              <td style="vertical-align: top;">
+                <div class="cv-service-zone zone-fulf">
+                  <div class="cv-zone-deadline-bar">
+                    <div style="display: inline-flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;">
+                      <span style="font-size: 0.7rem; font-weight: 700; color: #3b82f6; text-transform: uppercase;"><i class="ri-box-3-line"></i> Fulf. Plazo:</span>
+                      <input type="date" id="cv-limit-fulf-${r.id}" value="${r.fecha_limite || ''}" class="billing-limit-input" onchange="saveField('${r.id}', 'fecha_limite', this.value)" title="Fecha límite de pago Fulfillment">
+                      <button type="button" class="cv-deadline-ext-btn" onclick="window.extendCommerceRecordDeadline('${r.id}', 'fulf', 3)" title="Extender plazo +3 días hábiles">+3d</button>
+                      <button type="button" class="cv-deadline-ext-btn" onclick="window.extendCommerceRecordDeadline('${r.id}', 'fulf', 5)" title="Extender plazo +5 días hábiles">+5d</button>
+                    </div>
+                    <div id="cv-deadline-badge-fulf-${r.id}">
+                      ${window.getDeadlineBadgeHtml ? window.getDeadlineBadgeHtml(r.fecha_limite, r.pago_fulfillment) : ''}
+                    </div>
+                  </div>
+
+                  <div class="cv-zone-grid">
+                    <!-- Balance Fulf -->
+                    <div class="cell-financial-block" style="display: flex; flex-direction: column; gap: 0.3rem;">
+                      <div class="financial-row" style="display: flex; align-items: center; justify-content: space-between; gap: 0.3rem;">
+                        <span style="font-size: 0.71rem; font-weight: 600; color: var(--color-text-muted);">Total:</span>
+                        <span class="amount-cell">
+                          <input type="text" id="cv-input-total-fulf-${r.id}" value="${window.formatCLP(r.total_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\\d-]/g, '')" onblur="window.saveCommerceViewMoneyField('${r.id}', 'total_fulfillment', this)" onkeydown="if(event.key==='Enter')this.blur()">
+                          <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard(document.getElementById('cv-input-total-fulf-${r.id}').value.replace(/[^\\d-]/g,''), this)" title="Copiar monto"><i class="ri-file-copy-line"></i></button>
+                        </span>
+                      </div>
+                      <div class="financial-row" style="display: flex; align-items: center; justify-content: space-between; gap: 0.3rem;">
+                        <span style="font-size: 0.71rem; font-weight: 600; color: var(--color-text-muted);">Abono:</span>
+                        <span class="amount-cell">
+                          <input type="text" id="cv-input-abono-fulf-${r.id}" value="${window.formatCLP(r.abono_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\\d-]/g, '')" onblur="window.saveCommerceViewMoneyField('${r.id}', 'abono_fulfillment', this)" onkeydown="if(event.key==='Enter')this.blur()">
+                          <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard(document.getElementById('cv-input-abono-fulf-${r.id}').value.replace(/[^\\d-]/g,''), this)" title="Copiar abono"><i class="ri-file-copy-line"></i></button>
+                        </span>
+                      </div>
+                      <div id="cv-fin-badge-fulf-${r.id}">
+                        ${window.renderFinancialBadgeHtml ? window.renderFinancialBadgeHtml(r.total_fulfillment || 0, r.abono_fulfillment || 0) : ''}
+                      </div>
+                    </div>
+
+                    <!-- Ciclo & Cobro Fulf -->
+                    <div style="display: flex; flex-direction: column; gap: 0.28rem;">
+                      <div style="display: flex; align-items: center; gap: 0.25rem;">
+                        <span style="font-size: 0.69rem; color: var(--color-text-muted); font-weight: 600; min-width: 48px;">Desgl.:</span>
+                        <select id="cv-select-desglose-fulf-${r.id}" class="billing-select ${desgClass}" onchange="window.updateCommerceViewSelectField(this, '${r.id}', 'desglose_fulfillment')" style="flex: 1; min-width: 98px; padding-top: 0.22rem; padding-bottom: 0.22rem;">
+                          ${buildDesgloseOptionsHtml(r.desglose_fulfillment)}
+                        </select>
+                      </div>
+                      <div style="display: flex; align-items: center; gap: 0.25rem;">
+                        <span style="font-size: 0.69rem; color: var(--color-text-muted); font-weight: 600; min-width: 48px;">Fact.:</span>
+                        <select id="cv-select-factura-fulf-${r.id}" class="billing-select ${getStatusClass(r.factura_fulfillment)}" onchange="window.updateCommerceViewSelectField(this, '${r.id}', 'factura_fulfillment')" style="flex: 1; min-width: 85px; padding-top: 0.22rem; padding-bottom: 0.22rem;">
+                          ${buildInvoiceOptionsHtml(r.factura_fulfillment)}
+                        </select>
+                        <div style="position: relative; display: inline-flex; align-items: center;" title="N° Folio Factura Fulfillment">
+                          <span style="position: absolute; left: 5px; font-size: 0.68rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">#</span>
+                          <input type="number" id="cv-folio-fulf-${r.id}" value="${r.num_factura || ''}" placeholder="Folio" class="billing-input billing-folio-input" onblur="saveNumberField('${r.id}', 'num_factura', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 64px; padding-left: 14px; font-size: 0.74rem; border: 1px solid var(--color-border); border-radius: 5px;">
+                        </div>
+                        ${!r.num_factura && (r.total_fulfillment || 0) > 0 ? `
+                          <button type="button" class="btn-lioren-1click compact" onclick="window.quickEmitLiorenInvoice && window.quickEmitLiorenInvoice('${r.id}', 'fulfillment', this)" title="⚡ Emitir Factura Fulfillment en 1-Click (Lioren SII)">
+                            <i class="ri-flashlight-fill"></i>
+                          </button>
+                        ` : ''}
+                        <button type="button" class="btn-lioren-quick-emit" onclick="window.markDashboardInvoiceAsIssued('${r.id}', 'fulfillment')" title="Abrir Modal Facturación Fulfillment / Registrar Folio">
+                          <i class="ri-equalizer-line"></i>
+                        </button>
+                      </div>
+                      <div style="display: flex; align-items: center; gap: 0.25rem;">
+                        <span style="font-size: 0.69rem; color: var(--color-text-muted); font-weight: 600; min-width: 48px;">Cobro:</span>
+                        <select id="cv-select-pago-fulf-${r.id}" class="billing-select ${getStatusClass(r.pago_fulfillment)}" onchange="window.updateCommerceViewSelectField(this, '${r.id}', 'pago_fulfillment')" style="flex: 1; min-width: 98px; padding-top: 0.22rem; padding-bottom: 0.22rem;">
+                          ${buildFulfPaymentOptionsHtml(r.pago_fulfillment)}
+                        </select>
+                      </div>
+                      <div id="cv-paydate-fulf-${r.id}">
+                        ${r.pago_fulfillment === 'Recibido' ? `
+                          <div class="payment-date-badge" title="Fecha de Pago Recibido Fulfillment">
+                            <i class="ri-calendar-check-line" style="color: #10b981; font-size: 0.8rem;"></i>
+                            <input type="date" value="${r.fecha_pago_recibido_fulfillment || ''}" class="billing-compact-date" onchange="saveField('${r.id}', 'fecha_pago_recibido_fulfillment', this.value)">
+                          </div>
+                        ` : ''}
+                      </div>
+                      <div id="cv-quickpay-fulf-${r.id}">
+                        ${buildCommerceViewQuickPayBtnHtml(r, 'fulf')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </td>
+
+              <!-- Gestión Envíame -->
+              <td style="vertical-align: top;">
+                <div class="cv-service-zone zone-env">
+                  <div class="cv-zone-deadline-bar">
+                    <div style="display: inline-flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;">
+                      <span style="font-size: 0.7rem; font-weight: 700; color: #8b5cf6; text-transform: uppercase;"><i class="ri-truck-line"></i> Env. Plazo:</span>
+                      <input type="date" id="cv-limit-env-${r.id}" value="${r.fecha_limite_enviame || ''}" class="billing-limit-input" onchange="saveField('${r.id}', 'fecha_limite_enviame', this.value)" title="Fecha límite de pago Envíame">
+                      <button type="button" class="cv-deadline-ext-btn" onclick="window.extendCommerceRecordDeadline('${r.id}', 'env', 3)" title="Extender plazo Envíame +3 días hábiles">+3d</button>
+                      <button type="button" class="cv-deadline-ext-btn" onclick="window.extendCommerceRecordDeadline('${r.id}', 'env', 5)" title="Extender plazo Envíame +5 días hábiles">+5d</button>
+                    </div>
+                    <div id="cv-deadline-badge-env-${r.id}">
+                      ${window.getDeadlineBadgeHtml ? window.getDeadlineBadgeHtml(r.fecha_limite_enviame, r.pago_enviame) : ''}
+                    </div>
+                  </div>
+
+                  <div class="cv-zone-grid">
+                    <!-- Balance Env -->
+                    <div class="cell-financial-block" style="display: flex; flex-direction: column; gap: 0.3rem;">
+                      <div class="financial-row" style="display: flex; align-items: center; justify-content: space-between; gap: 0.3rem;">
+                        <span style="font-size: 0.71rem; font-weight: 600; color: var(--color-text-muted);">Total:</span>
+                        <span class="amount-cell">
+                          <input type="text" id="cv-input-total-env-${r.id}" value="${window.formatCLP(r.enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\\d-]/g, '')" onblur="window.saveCommerceViewMoneyField('${r.id}', 'enviame', this)" onkeydown="if(event.key==='Enter')this.blur()">
+                          <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard(document.getElementById('cv-input-total-env-${r.id}').value.replace(/[^\\d-]/g,''), this)" title="Copiar monto"><i class="ri-file-copy-line"></i></button>
+                        </span>
+                      </div>
+                      <div class="financial-row" style="display: flex; align-items: center; justify-content: space-between; gap: 0.3rem;">
+                        <span style="font-size: 0.71rem; font-weight: 600; color: var(--color-text-muted);">Abono:</span>
+                        <span class="amount-cell">
+                          <input type="text" id="cv-input-abono-env-${r.id}" value="${window.formatCLP(r.abono_enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\\d-]/g, '')" onblur="window.saveCommerceViewMoneyField('${r.id}', 'abono_enviame', this)" onkeydown="if(event.key==='Enter')this.blur()">
+                          <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard(document.getElementById('cv-input-abono-env-${r.id}').value.replace(/[^\\d-]/g,''), this)" title="Copiar abono"><i class="ri-file-copy-line"></i></button>
+                        </span>
+                      </div>
+                      <div id="cv-fin-badge-env-${r.id}">
+                        ${window.renderFinancialBadgeHtml ? window.renderFinancialBadgeHtml(r.enviame || 0, r.abono_enviame || 0) : ''}
+                      </div>
+                    </div>
+
+                    <!-- Ciclo & Cobro Env -->
+                    <div style="display: flex; flex-direction: column; gap: 0.28rem;">
+                      <div style="display: flex; align-items: center; gap: 0.25rem;">
+                        <span style="font-size: 0.69rem; color: var(--color-text-muted); font-weight: 600; min-width: 48px;">Fact.:</span>
+                        <select id="cv-select-factura-env-${r.id}" class="billing-select ${getStatusClass(r.factura_enviame)}" onchange="window.updateCommerceViewSelectField(this, '${r.id}', 'factura_enviame')" style="flex: 1; min-width: 85px; padding-top: 0.22rem; padding-bottom: 0.22rem;">
+                          ${buildInvoiceOptionsHtml(r.factura_enviame)}
+                        </select>
+                        <div style="position: relative; display: inline-flex; align-items: center;" title="N° Folio Factura Envíame">
+                          <span style="position: absolute; left: 5px; font-size: 0.68rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">#</span>
+                          <input type="number" id="cv-folio-env-${r.id}" value="${r.num_factura_enviame || ''}" placeholder="Folio" class="billing-input billing-folio-input" onblur="saveNumberField('${r.id}', 'num_factura_enviame', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 64px; padding-left: 14px; font-size: 0.74rem; border: 1px solid var(--color-border); border-radius: 5px;">
+                        </div>
+                        ${!r.num_factura_enviame && (r.enviame || 0) > 0 ? `
+                          <button type="button" class="btn-lioren-1click compact" onclick="window.quickEmitLiorenInvoice && window.quickEmitLiorenInvoice('${r.id}', 'enviame', this)" title="⚡ Emitir Factura Envíame en 1-Click (Lioren SII)">
+                            <i class="ri-flashlight-fill"></i>
+                          </button>
+                        ` : ''}
+                        <button type="button" class="btn-lioren-quick-emit" onclick="window.markDashboardInvoiceAsIssued('${r.id}', 'enviame')" title="Abrir Modal Facturación Envíame / Registrar Folio">
+                          <i class="ri-equalizer-line"></i>
+                        </button>
+                      </div>
+                      <div style="display: flex; align-items: center; gap: 0.25rem;">
+                        <span style="font-size: 0.69rem; color: var(--color-text-muted); font-weight: 600; min-width: 48px;">Cobro:</span>
+                        <select id="cv-select-pago-env-${r.id}" class="billing-select ${getStatusClass(r.pago_enviame)}" onchange="window.updateCommerceViewSelectField(this, '${r.id}', 'pago_enviame')" style="flex: 1; min-width: 98px; padding-top: 0.22rem; padding-bottom: 0.22rem;">
+                          ${buildFulfPaymentOptionsHtml(r.pago_enviame)}
+                        </select>
+                      </div>
+                      <div id="cv-paydate-env-${r.id}">
+                        ${r.pago_enviame === 'Recibido' ? `
+                          <div class="payment-date-badge" title="Fecha de Pago Recibido Envíame">
+                            <i class="ri-calendar-check-line" style="color: #10b981; font-size: 0.8rem;"></i>
+                            <input type="date" value="${r.fecha_pago_recibido_enviame || ''}" class="billing-compact-date" onchange="saveField('${r.id}', 'fecha_pago_recibido_enviame', this.value)">
+                          </div>
+                        ` : ''}
+                      </div>
+                      <div id="cv-quickpay-env-${r.id}">
+                        ${buildCommerceViewQuickPayBtnHtml(r, 'env')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </td>
+
+              <td style="width: 175px; vertical-align: middle; text-align: center;">
+                ${buildCommerceViewActionsHtml(r, 'totales')}
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+        html += `
+          <table class="billing-table" style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr>
+                <th style="width: 38px; text-align: center;">
+                  <input type="checkbox" ${allYearSelected ? 'checked' : ''} onchange="window.toggleAllCommerceViewRows(this.checked, '${year}')" title="Seleccionar todos los periodos de ${year}" style="width: 15px; height: 15px; accent-color: var(--color-primary); cursor: pointer;">
+                </th>
+                <th style="width: 185px;">Periodo & Resumen</th>
+                <th><i class="ri-box-3-line" style="color: #3b82f6;"></i> Gestión Fulfillment</th>
+                <th><i class="ri-truck-line" style="color: #8b5cf6;"></i> Gestión Envíame</th>
+                <th style="width: 175px; text-align: center;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        `;
+      } else {
+        const isEnv = st.serviceTab === 'env';
+        const rowsHtml = yearRecords.map(r => {
+          const isChecked = st.selectedRecordIds.has(String(r.id));
+          const periodName = r.billing_periods?.name || 'Periodo';
+          const limitVal = isEnv ? (r.fecha_limite_enviame || '') : (r.fecha_limite || '');
+          const limitField = isEnv ? 'fecha_limite_enviame' : 'fecha_limite';
+          const totalVal = isEnv ? (r.enviame || 0) : (r.total_fulfillment || 0);
+          const abonoVal = isEnv ? (r.abono_enviame || 0) : (r.abono_fulfillment || 0);
+          const totalField = isEnv ? 'enviame' : 'total_fulfillment';
+          const abonoField = isEnv ? 'abono_enviame' : 'abono_fulfillment';
+          const pagoVal = isEnv ? r.pago_enviame : r.pago_fulfillment;
+          const pagoField = isEnv ? 'pago_enviame' : 'pago_fulfillment';
+          const payDateVal = isEnv ? (r.fecha_pago_recibido_enviame || '') : (r.fecha_pago_recibido_fulfillment || '');
+          const payDateField = isEnv ? 'fecha_pago_recibido_enviame' : 'fecha_pago_recibido_fulfillment';
+          const factVal = isEnv ? r.factura_enviame : r.factura_fulfillment;
+          const factField = isEnv ? 'factura_enviame' : 'factura_fulfillment';
+          const folioVal = isEnv ? (r.num_factura_enviame || '') : (r.num_factura || '');
+          const folioField = isEnv ? 'num_factura_enviame' : 'num_factura';
+          const svcKey = isEnv ? 'env' : 'fulf';
+          const desgClass = (r.desglose_fulfillment === 'Enviado' || (r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots')))
+            ? 'status-purple'
+            : getStatusClass(r.desglose_fulfillment);
+
+          return `
+            <tr id="cv-row-${r.id}" class="commerce-view-row" data-record-id="${r.id}">
+              <td style="width: 40px; text-align: center;">
+                <input type="checkbox" class="cv-row-checkbox" value="${r.id}" ${isChecked ? 'checked' : ''} onchange="window.toggleCommerceViewRowSelect('${r.id}', this.checked)" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+              </td>
+
+              <td class="cell-commerce-block">
+                <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+                  <button type="button" onclick="window.openBillingCommerceDetailModal('${r.id}', '${r.period_id}', '${svcKey}')" style="background:none; border:none; padding:0; font-weight:700; font-size:0.88rem; color:var(--color-text-main); cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem; text-align:left;">
+                    <span>${periodName}</span>
+                    <i class="ri-external-link-line" style="font-size:0.8rem; color:var(--color-primary);"></i>
+                  </button>
+                  <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                    <input type="date" id="cv-limit-${svcKey}-${r.id}" value="${limitVal}" class="billing-limit-input" onchange="saveField('${r.id}', '${limitField}', this.value)">
+                    <button type="button" class="cv-deadline-ext-btn" onclick="window.extendCommerceRecordDeadline('${r.id}', '${svcKey}', 3)" title="Extender +3 días hábiles">+3d</button>
+                    <button type="button" class="cv-deadline-ext-btn" onclick="window.extendCommerceRecordDeadline('${r.id}', '${svcKey}', 5)" title="Extender +5 días hábiles">+5d</button>
+                    <span id="cv-deadline-badge-${svcKey}-${r.id}">
+                      ${window.getDeadlineBadgeHtml ? window.getDeadlineBadgeHtml(limitVal, pagoVal) : ''}
+                    </span>
+                  </div>
+                </div>
+              </td>
+
+              <td class="cell-financial-block">
+                <div style="display: flex; flex-direction: column; gap: 0.35rem; max-width: 215px;">
+                  <div class="financial-row" style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem;">
+                    <span style="font-size: 0.73rem; font-weight: 600; color: var(--color-text-muted);">Total:</span>
+                    <span class="amount-cell">
+                      <input type="text" id="cv-input-total-${svcKey}-${r.id}" value="${window.formatCLP(totalVal)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\\d-]/g, '')" onblur="window.saveCommerceViewMoneyField('${r.id}', '${totalField}', this)" onkeydown="if(event.key==='Enter')this.blur()">
+                      <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard(document.getElementById('cv-input-total-${svcKey}-${r.id}').value.replace(/[^\\d-]/g,''), this)" title="Copiar monto"><i class="ri-file-copy-line"></i></button>
+                    </span>
+                  </div>
+                  <div class="financial-row" style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem;">
+                    <span style="font-size: 0.73rem; font-weight: 600; color: var(--color-text-muted);">Abono:</span>
+                    <span class="amount-cell">
+                      <input type="text" id="cv-input-abono-${svcKey}-${r.id}" value="${window.formatCLP(abonoVal)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\\d-]/g, '')" onblur="window.saveCommerceViewMoneyField('${r.id}', '${abonoField}', this)" onkeydown="if(event.key==='Enter')this.blur()">
+                      <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard(document.getElementById('cv-input-abono-${svcKey}-${r.id}').value.replace(/[^\\d-]/g,''), this)" title="Copiar abono"><i class="ri-file-copy-line"></i></button>
+                    </span>
+                  </div>
+                  <div id="cv-fin-badge-${svcKey}-${r.id}">
+                    ${window.renderFinancialBadgeHtml ? window.renderFinancialBadgeHtml(totalVal, abonoVal) : ''}
+                  </div>
+                </div>
+              </td>
+
+              <td class="cell-ops-block">
+                <div style="display: flex; flex-direction: column; gap: 0.35rem; max-width: 245px;">
+                  ${!isEnv ? `
+                    <div style="display: flex; align-items: center; gap: 0.35rem;">
+                      <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; min-width: 54px;">Desglose:</span>
+                      <select id="cv-select-desglose-fulf-${r.id}" class="billing-select ${desgClass}" onchange="window.updateCommerceViewSelectField(this, '${r.id}', 'desglose_fulfillment')" style="flex: 1;">
+                        ${buildDesgloseOptionsHtml(r.desglose_fulfillment)}
+                      </select>
+                    </div>
+                  ` : ''}
+                  <div style="display: flex; align-items: center; gap: 0.35rem;">
+                    <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; min-width: 54px;">Factura:</span>
+                    <select id="cv-select-factura-${svcKey}-${r.id}" class="billing-select ${getStatusClass(factVal)}" onchange="window.updateCommerceViewSelectField(this, '${r.id}', '${factField}')" style="flex: 1; min-width: 95px;">
+                      ${buildInvoiceOptionsHtml(factVal)}
+                    </select>
+                    <div style="position: relative; display: inline-flex; align-items: center;">
+                      <span style="position: absolute; left: 6px; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">#</span>
+                      <input type="number" id="cv-folio-${svcKey}-${r.id}" value="${folioVal}" placeholder="Folio" class="billing-input" onblur="saveNumberField('${r.id}', '${folioField}', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 64px; padding-left: 15px; font-size: 0.78rem; border: 1px solid var(--color-border); border-radius: 6px;">
+                    </div>
+                    ${!folioVal && totalVal > 0 ? `
+                      <button type="button" class="btn-lioren-1click compact" onclick="window.quickEmitLiorenInvoice && window.quickEmitLiorenInvoice('${r.id}', '${isEnv ? 'enviame' : 'fulfillment'}', this)" title="⚡ Emitir Factura en 1-Click (Lioren SII)">
+                        <i class="ri-flashlight-fill"></i>
+                      </button>
+                    ` : ''}
+                    <button type="button" class="btn-lioren-quick-emit" onclick="window.markDashboardInvoiceAsIssued('${r.id}', '${isEnv ? 'enviame' : 'fulfillment'}')" title="Abrir Modal Facturación Lioren / Registrar Folio">
+                      <i class="ri-equalizer-line"></i>
+                    </button>
+                  </div>
+                </div>
+              </td>
+
+              <td class="cell-payment-block">
+                <div style="display: flex; flex-direction: column; gap: 0.32rem; max-width: 165px;">
+                  <select id="cv-select-pago-${svcKey}-${r.id}" class="billing-select ${getStatusClass(pagoVal)}" onchange="window.updateCommerceViewSelectField(this, '${r.id}', '${pagoField}')">
+                    ${buildFulfPaymentOptionsHtml(pagoVal)}
+                  </select>
+                  <div id="cv-paydate-${svcKey}-${r.id}">
+                    ${pagoVal === 'Recibido' ? `
+                      <div class="payment-date-badge" title="Fecha de Pago Recibido">
+                        <i class="ri-calendar-check-line" style="color: #10b981; font-size: 0.8rem;"></i>
+                        <input type="date" value="${payDateVal}" class="billing-compact-date" onchange="saveField('${r.id}', '${payDateField}', this.value)">
+                      </div>
+                    ` : ''}
+                  </div>
+                  <div id="cv-quickpay-${svcKey}-${r.id}">
+                    ${buildCommerceViewQuickPayBtnHtml(r, svcKey)}
+                  </div>
+                </div>
+              </td>
+
+              <td style="width: 175px; text-align: center;">
+                ${buildCommerceViewActionsHtml(r, svcKey)}
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+        html += `
+          <table class="billing-table" style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr>
+                <th style="width: 40px; text-align: center;">
+                  <input type="checkbox" ${allYearSelected ? 'checked' : ''} onchange="window.toggleAllCommerceViewRows(this.checked, '${year}')" style="width: 15px; height: 15px; accent-color: var(--color-primary); cursor: pointer;">
+                </th>
+                <th>Periodo & Plazo</th>
+                <th>Balance Financiero</th>
+                <th>Ciclo de Facturación</th>
+                <th>Estado de Cobro</th>
+                <th style="width: 175px; text-align: center;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        `;
+      }
+    }
+  });
+
+  tableContainer.innerHTML = html;
+};
+
+// =========================================================================
+// EDICIÓN INLINE Y SINCRONIZACIÓN REACTIVA SIN PERDER FOCO
+// =========================================================================
+
+window.saveCommerceViewMoneyField = function(recordId, fieldName, inputEl) {
+  let raw = (inputEl.value || '0').replace(/[^\d-]/g, '');
+  const parsed = parseInt(raw, 10);
+  const numericVal = isNaN(parsed) ? 0 : parsed;
+  inputEl.value = window.formatCLP(numericVal);
+  saveField(recordId, fieldName, numericVal);
+};
+
+window.updateCommerceViewSelectField = async function(selectEl, recordId, fieldName) {
+  const val = selectEl.value;
+  if (fieldName === 'desglose_fulfillment' && val === 'Enviado') {
+    selectEl.className = 'billing-select status-purple';
+  } else {
+    selectEl.className = 'billing-select ' + getStatusClass(val);
+  }
+
+  const rec = (cachedDashboardRecords || []).find(r => String(r.id) === String(recordId));
+  const today = new Date().toLocaleDateString('sv-SE');
+  const updates = { [fieldName]: val };
+
+  if (fieldName === 'pago_fulfillment') {
+    if (val === 'Recibido' || val === 'aprobado') {
+      const totalVal = rec ? (rec.total_fulfillment || 0) : 0;
+      updates.abono_fulfillment = totalVal;
+      const abonoInput = document.getElementById(`cv-input-abono-fulf-${recordId}`);
+      if (abonoInput) abonoInput.value = window.formatCLP(totalVal);
+      if (val === 'Recibido') {
+        updates.fecha_pago_recibido_fulfillment = (rec && rec.fecha_pago_recibido_fulfillment) || today;
+        const payDateBox = document.getElementById(`cv-paydate-fulf-${recordId}`);
+        if (payDateBox) {
+          payDateBox.innerHTML = `
+            <div class="payment-date-badge" title="Fecha de Pago Recibido Fulfillment">
+              <i class="ri-calendar-check-line" style="color: #10b981; font-size: 0.8rem;"></i>
+              <input type="date" value="${updates.fecha_pago_recibido_fulfillment}" class="billing-compact-date" onchange="saveField('${recordId}', 'fecha_pago_recibido_fulfillment', this.value)">
+            </div>
+          `;
+        }
+      } else {
+        const payDateBox = document.getElementById(`cv-paydate-fulf-${recordId}`);
+        if (payDateBox) payDateBox.innerHTML = '';
+      }
+    } else {
+      updates.fecha_pago_recibido_fulfillment = null;
+      const payDateBox = document.getElementById(`cv-paydate-fulf-${recordId}`);
+      if (payDateBox) payDateBox.innerHTML = '';
+    }
+  } else if (fieldName === 'pago_enviame') {
+    if (val === 'Recibido' || val === 'aprobado') {
+      const totalVal = rec ? (rec.enviame || 0) : 0;
+      updates.abono_enviame = totalVal;
+      const abonoInput = document.getElementById(`cv-input-abono-env-${recordId}`);
+      if (abonoInput) abonoInput.value = window.formatCLP(totalVal);
+      if (val === 'Recibido') {
+        updates.fecha_pago_recibido_enviame = (rec && rec.fecha_pago_recibido_enviame) || today;
+        const payDateBox = document.getElementById(`cv-paydate-env-${recordId}`);
+        if (payDateBox) {
+          payDateBox.innerHTML = `
+            <div class="payment-date-badge" title="Fecha de Pago Recibido Envíame">
+              <i class="ri-calendar-check-line" style="color: #10b981; font-size: 0.8rem;"></i>
+              <input type="date" value="${updates.fecha_pago_recibido_enviame}" class="billing-compact-date" onchange="saveField('${recordId}', 'fecha_pago_recibido_enviame', this.value)">
+            </div>
+          `;
+        }
+      } else {
+        const payDateBox = document.getElementById(`cv-paydate-env-${recordId}`);
+        if (payDateBox) payDateBox.innerHTML = '';
+      }
+    } else {
+      updates.fecha_pago_recibido_enviame = null;
+      const payDateBox = document.getElementById(`cv-paydate-env-${recordId}`);
+      if (payDateBox) payDateBox.innerHTML = '';
+    }
+  } else if (fieldName === 'desglose_fulfillment' && val === 'Aprobado') {
+    const totalVal = rec ? (rec.total_fulfillment || 0) : 0;
+    updates.abono_fulfillment = totalVal;
+    const abonoInput = document.getElementById(`cv-input-abono-fulf-${recordId}`);
+    if (abonoInput) abonoInput.value = window.formatCLP(totalVal);
+    if (!rec || (rec.pago_fulfillment !== 'Recibido' && rec.pago_fulfillment !== 'aprobado')) {
+      updates.pago_fulfillment = 'aprobado';
+      const pagoSelect = document.getElementById(`cv-select-pago-fulf-${recordId}`);
+      if (pagoSelect) {
+        pagoSelect.value = 'aprobado';
+        pagoSelect.className = 'billing-select ' + getStatusClass('aprobado');
+      }
+    }
+  }
+
+  showSavingBadge(true);
+  try {
+    const { error } = await supabase
+      .from('billing_records')
+      .update(updates)
+      .eq('id', recordId);
+    if (error) throw error;
+
+    if (rec) Object.assign(rec, updates);
+    window.syncCommerceViewLiveMetrics(recordId);
+    setTimeout(() => showSavingBadge(false), 450);
+  } catch (err) {
+    console.error('Error updating commerce view select field:', err);
+    alert('Error al guardar cambio: ' + err.message);
+    showSavingBadge(false);
+  }
+};
+
+window.syncCommerceViewLiveMetrics = function(recordId) {
+  const commSelect = document.getElementById('d-commerce-select');
+  if (!commSelect || !commSelect.value) return;
+  const commerce = commSelect.value;
+
+  window.syncCommerceViewHeaderOnly();
+  window.renderCommerceViewKpiCards(commerce);
+
+  const rec = (cachedDashboardRecords || []).find(r => String(r.id) === String(recordId));
+  if (rec) {
+    const finFulf = document.getElementById(`cv-fin-badge-fulf-${recordId}`);
+    if (finFulf && window.renderFinancialBadgeHtml) {
+      finFulf.innerHTML = window.renderFinancialBadgeHtml(rec.total_fulfillment || 0, rec.abono_fulfillment || 0);
+    }
+    const finEnv = document.getElementById(`cv-fin-badge-env-${recordId}`);
+    if (finEnv && window.renderFinancialBadgeHtml) {
+      finEnv.innerHTML = window.renderFinancialBadgeHtml(rec.enviame || 0, rec.abono_enviame || 0);
+    }
+    const dlFulf = document.getElementById(`cv-deadline-badge-fulf-${recordId}`);
+    if (dlFulf && window.getDeadlineBadgeHtml) {
+      dlFulf.innerHTML = window.getDeadlineBadgeHtml(rec.fecha_limite, rec.pago_fulfillment);
+    }
+    const dlEnv = document.getElementById(`cv-deadline-badge-env-${recordId}`);
+    if (dlEnv && window.getDeadlineBadgeHtml) {
+      dlEnv.innerHTML = window.getDeadlineBadgeHtml(rec.fecha_limite_enviame, rec.pago_enviame);
+    }
+    const qpFulf = document.getElementById(`cv-quickpay-fulf-${recordId}`);
+    if (qpFulf) qpFulf.innerHTML = buildCommerceViewQuickPayBtnHtml(rec, 'fulf');
+    const qpEnv = document.getElementById(`cv-quickpay-env-${recordId}`);
+    if (qpEnv) qpEnv.innerHTML = buildCommerceViewQuickPayBtnHtml(rec, 'env');
+    const summaryCell = document.getElementById(`cv-period-summary-${recordId}`);
+    if (summaryCell) summaryCell.innerHTML = buildCommerceViewPeriodSummaryHtml(rec);
+
+    // Update year subtotal strip
+    const { year } = getCommerceRecordYearAndMonth(rec);
+    const yearEl = document.getElementById(`cv-year-stats-${year}`);
+    if (yearEl) {
+      const st = window._commerceViewState;
+      const yearRecs = (cachedDashboardRecords || []).filter(r =>
+        (r.comercio || '').toLowerCase() === commerce.toLowerCase() &&
+        getCommerceRecordYearAndMonth(r).year === year
+      );
+      let yFact = 0, yRec = 0, ySaldo = 0;
+      yearRecs.forEach(item => {
+        const tf = item.total_fulfillment || 0, af = item.abono_fulfillment || 0;
+        const te = item.enviame || 0, ae = item.abono_enviame || 0;
+        if (st.serviceTab === 'fulf') { yFact += tf; yRec += af; ySaldo += Math.max(0, tf - af); }
+        else if (st.serviceTab === 'env') { yFact += te; yRec += ae; ySaldo += Math.max(0, te - ae); }
+        else { yFact += tf + te; yRec += af + ae; ySaldo += Math.max(0, tf - af) + Math.max(0, te - ae); }
+      });
+      yearEl.innerHTML = `
+        <span style="color: var(--color-text-muted);">Facturado: <strong style="color: var(--color-text-main);">${window.formatCLP(yFact)}</strong></span>
+        <span style="color: var(--color-text-muted);">Pagado: <strong style="color: var(--color-success);">${window.formatCLP(yRec)}</strong></span>
+        <span style="color: var(--color-text-muted);">Saldo: <strong style="color: ${ySaldo > 0 ? 'var(--color-danger)' : 'var(--color-success)'};">${window.formatCLP(ySaldo)}</strong></span>
+      `;
+    }
+  }
+};
+
+// =========================================================================
+// HERRAMIENTAS 1-CLIC: MARCAR PAGADO, EXTENDER PLAZO, SALDAR TODO Y MASIVOS
+// =========================================================================
+
+window.quickMarkServicePaidInCommerceView = async function(recordId, target = 'both') {
+  const rec = (cachedDashboardRecords || []).find(r => String(r.id) === String(recordId));
+  if (!rec) return;
+
+  const today = new Date().toLocaleDateString('sv-SE');
+  const updates = {};
+
+  if (target === 'fulf' || target === 'both') {
+    const tf = rec.total_fulfillment || 0;
+    if (target === 'fulf' || tf > 0 || (rec.abono_fulfillment || 0) < tf) {
+      updates.abono_fulfillment = tf;
+      updates.pago_fulfillment = tf > 0 ? 'Recibido' : 'Sin movimientos';
+      updates.fecha_pago_recibido_fulfillment = tf > 0 ? (rec.fecha_pago_recibido_fulfillment || today) : null;
+    }
+  }
+  if (target === 'env' || target === 'both') {
+    const te = rec.enviame || 0;
+    if (target === 'env' || te > 0 || (rec.abono_enviame || 0) < te) {
+      updates.abono_enviame = te;
+      updates.pago_enviame = te > 0 ? 'Recibido' : 'Sin movimientos';
+      updates.fecha_pago_recibido_enviame = te > 0 ? (rec.fecha_pago_recibido_enviame || today) : null;
+    }
+  }
+
+  if (Object.keys(updates).length === 0) return;
+
+  showSavingBadge(true);
+  try {
+    const { error } = await supabase
+      .from('billing_records')
+      .update(updates)
+      .eq('id', recordId);
+    if (error) throw error;
+
+    Object.assign(rec, updates);
+    window.updateDashboardCommerceView();
+    setTimeout(() => showSavingBadge(false), 450);
+  } catch (err) {
+    console.error('Error marking service paid:', err);
+    alert('Error al marcar como pagado: ' + err.message);
+    showSavingBadge(false);
+  }
+};
+
+window.extendCommerceRecordDeadline = async function(recordId, service, businessDays = 3) {
+  const rec = (cachedDashboardRecords || []).find(r => String(r.id) === String(recordId));
+  if (!rec) return;
+
+  const field = service === 'env' ? 'fecha_limite_enviame' : 'fecha_limite';
+  const currentVal = rec[field] || new Date().toLocaleDateString('sv-SE');
+  const nextDate = addBusinessDaysLocal(currentVal, businessDays);
+
+  const inputEl = document.getElementById(`cv-limit-${service}-${recordId}`);
+  if (inputEl) inputEl.value = nextDate;
+
+  await saveField(recordId, field, nextDate);
+};
+
+window.markAllCommercePendingPaid = async function(commerce) {
+  const commRecords = (cachedDashboardRecords || []).filter(r => (r.comercio || '').toLowerCase() === commerce.toLowerCase());
+  const pendingRows = commRecords.filter(r =>
+    ((r.total_fulfillment || 0) - (r.abono_fulfillment || 0) > 0) ||
+    ((r.enviame || 0) - (r.abono_enviame || 0) > 0)
+  );
+  if (pendingRows.length === 0) return;
+
+  let totalPending = 0;
+  pendingRows.forEach(r => {
+    totalPending += Math.max(0, (r.total_fulfillment || 0) - (r.abono_fulfillment || 0));
+    totalPending += Math.max(0, (r.enviame || 0) - (r.abono_enviame || 0));
+  });
+
+  if (!confirm(`¿Confirmas saldar todos los cobros pendientes de "${commerce}"?\n\n• Periodos afectados: ${pendingRows.length}\n• Monto total a marcar como Recibido: ${window.formatCLP(totalPending)}\n• Fecha de pago: Hoy`)) {
+    return;
+  }
+
+  const today = new Date().toLocaleDateString('sv-SE');
+  showSavingBadge(true);
+  try {
+    await Promise.all(pendingRows.map(async r => {
+      const upd = {};
+      if ((r.total_fulfillment || 0) - (r.abono_fulfillment || 0) > 0) {
+        upd.abono_fulfillment = r.total_fulfillment || 0;
+        upd.pago_fulfillment = 'Recibido';
+        upd.fecha_pago_recibido_fulfillment = r.fecha_pago_recibido_fulfillment || today;
+      }
+      if ((r.enviame || 0) - (r.abono_enviame || 0) > 0) {
+        upd.abono_enviame = r.enviame || 0;
+        upd.pago_enviame = 'Recibido';
+        upd.fecha_pago_recibido_enviame = r.fecha_pago_recibido_enviame || today;
+      }
+      const { error } = await supabase.from('billing_records').update(upd).eq('id', r.id);
+      if (error) throw error;
+      Object.assign(r, upd);
+    }));
+
+    window.updateDashboardCommerceView();
+    setTimeout(() => showSavingBadge(false), 500);
+  } catch (err) {
+    console.error('Error marking all commerce pending paid:', err);
+    alert('Error al saldar cobros pendientes: ' + err.message);
+    showSavingBadge(false);
+  }
+};
+
+window.toggleCommerceServiceFromView = async function(commerce) {
+  const statusObj = (cachedDashboardCommerceStatus || []).find(s => (s.comercio || '').toLowerCase() === commerce.toLowerCase());
+  const currentAlDia = statusObj ? statusObj.al_dia !== false : true;
+  const nextAlDia = !currentAlDia;
+  const actionLabel = nextAlDia ? 'REACTIVAR el servicio (Al Día)' : 'PAUSAR / SUSPENDER el servicio';
+
+  if (!confirm(`¿Deseas ${actionLabel} para el comercio "${commerce}"?`)) return;
+
+  showSavingBadge(true);
+  try {
+    const { error } = await supabase
+      .from('commerce_billing_status')
+      .upsert({ comercio: commerce, al_dia: nextAlDia, updated_at: new Date().toISOString() }, { onConflict: 'comercio' });
+    if (error) throw error;
+
+    if (statusObj) {
+      statusObj.al_dia = nextAlDia;
+    } else {
+      cachedDashboardCommerceStatus.push({ comercio: commerce, al_dia: nextAlDia });
+    }
+
+    Promise.resolve(supabase.rpc('check_overdue_payments')).catch(e => console.warn(e));
+    window.syncCommerceViewHeaderOnly();
+    setTimeout(() => showSavingBadge(false), 450);
+  } catch (err) {
+    console.error('Error toggling commerce service status:', err);
+    alert('Error al actualizar el estado del servicio: ' + err.message);
+    showSavingBadge(false);
+  }
+};
+
+// =========================================================================
+// SELECCIÓN MÚLTIPLE DE PERIODOS (ACCIONES EN LOTE)
+// =========================================================================
+
+window.toggleCommerceViewRowSelect = function(recordId, checked) {
+  const set = window._commerceViewState.selectedRecordIds;
+  if (checked) set.add(String(recordId));
+  else set.delete(String(recordId));
+  window.updateCommerceViewBulkBar();
+};
+
+window.toggleAllCommerceViewRows = function(checked, year = null) {
+  const comm = document.getElementById('d-commerce-select')?.value;
+  if (!comm) return;
+  const st = window._commerceViewState;
+  const commRecords = (cachedDashboardRecords || []).filter(r => (r.comercio || '').toLowerCase() === comm.toLowerCase());
+
+  commRecords.forEach(r => {
+    const ym = getCommerceRecordYearAndMonth(r);
+    if (year && String(ym.year) !== String(year)) return;
+    const rowEl = document.getElementById(`cv-row-${r.id}`);
+    if (rowEl) {
+      if (checked) st.selectedRecordIds.add(String(r.id));
+      else st.selectedRecordIds.delete(String(r.id));
+      const cb = rowEl.querySelector('.cv-row-checkbox');
+      if (cb) cb.checked = checked;
+    }
+  });
+  window.updateCommerceViewBulkBar();
+};
+
+window.clearCommerceViewSelection = function() {
+  window._commerceViewState.selectedRecordIds.clear();
+  document.querySelectorAll('.cv-row-checkbox').forEach(cb => { cb.checked = false; });
+  window.updateCommerceViewBulkBar();
+};
+
+window.updateCommerceViewBulkBar = function() {
+  const bar = document.getElementById('cv-bulk-action-bar');
+  if (!bar) return;
+  const st = window._commerceViewState;
+  const count = st.selectedRecordIds.size;
+
+  if (count === 0) {
+    bar.classList.remove('active');
+    bar.innerHTML = '';
+    return;
+  }
+
+  const defaultScope = st.serviceTab === 'fulf' ? 'fulf' : (st.serviceTab === 'env' ? 'env' : 'both');
+
+  bar.classList.add('active');
+  bar.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
+      <span class="badge badge-primary" style="font-size: 0.78rem; padding: 0.28rem 0.65rem;">
+        ${count} periodo${count === 1 ? '' : 's'} seleccionado${count === 1 ? '' : 's'}
+      </span>
+      <select id="cv-bulk-scope-select" class="form-input" style="margin: 0; height: 30px; padding: 0.15rem 0.5rem; font-size: 0.75rem; width: auto; font-weight: 600;">
+        <option value="both" ${defaultScope === 'both' ? 'selected' : ''}>Ambos Servicios</option>
+        <option value="fulf" ${defaultScope === 'fulf' ? 'selected' : ''}>Solo Fulfillment</option>
+        <option value="env" ${defaultScope === 'env' ? 'selected' : ''}>Solo Envíame</option>
+      </select>
+      <button type="button" class="cv-tool-btn btn-pay-all" style="height: 30px; padding: 0 0.7rem; font-size: 0.75rem;" onclick="window.bulkPayCommerceViewRecords()">
+        <i class="ri-check-double-line"></i> Marcar Pagados
+      </button>
+      <button type="button" class="btn-lioren-1click" style="height: 30px; padding: 0 0.75rem; font-size: 0.75rem;" onclick="window.bulkEmitFromCommerceView && window.bulkEmitFromCommerceView()" title="Emitir masivamente las facturas de los periodos seleccionados en Lioren SII">
+        <i class="ri-flashlight-fill"></i> Emitir Facturas Lioren
+      </button>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+      <div style="display: inline-flex; align-items: center; gap: 0.25rem; background: var(--color-surface); padding: 2px 6px; border-radius: 7px; border: 1px solid var(--color-border);">
+        <span style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted);">Plazo:</span>
+        <input type="date" id="cv-bulk-deadline-input" class="billing-limit-input" style="height: 26px; width: 120px;">
+        <button type="button" class="cv-deadline-ext-btn" onclick="window.bulkSetDeadlineCommerceView('input')">Aplicar</button>
+        <button type="button" class="cv-deadline-ext-btn" onclick="window.bulkSetDeadlineCommerceView('+3')" title="Sumar 3 días hábiles">+3d</button>
+        <button type="button" class="cv-deadline-ext-btn" onclick="window.bulkSetDeadlineCommerceView('+5')" title="Sumar 5 días hábiles">+5d</button>
+      </div>
+
+      <div style="display: inline-flex; align-items: center; gap: 0.25rem; background: var(--color-surface); padding: 2px 6px; border-radius: 7px; border: 1px solid var(--color-border);">
+        <select id="cv-bulk-field-select" class="form-input" style="margin:0; height:26px; padding:0 0.4rem; font-size:0.73rem; width:auto;">
+          <option value="pago">Estado Cobro</option>
+          <option value="factura">Estado Factura</option>
+          <option value="desglose_fulfillment">Desglose Fulf.</option>
+        </select>
+        <select id="cv-bulk-val-select" class="form-input" style="margin:0; height:26px; padding:0 0.4rem; font-size:0.73rem; width:auto;">
+          <option value="En espera">En espera</option>
+          <option value="Por solicitar">Por solicitar</option>
+          <option value="Atrasado">Atrasado</option>
+          <option value="Recibido">Recibido</option>
+          <option value="Facturar">Facturar</option>
+          <option value="Emitida">Emitida</option>
+          <option value="No se factura">No se factura</option>
+          <option value="Enviado">Desglose Enviado</option>
+          <option value="Sin movimientos">Sin movimientos</option>
+        </select>
+        <button type="button" class="cv-deadline-ext-btn" onclick="window.bulkUpdateStatusCommerceView()">Cambiar</button>
+      </div>
+
+      <button type="button" class="cv-tool-btn" style="height: 30px; padding: 0 0.55rem; font-size: 0.74rem;" onclick="window.clearCommerceViewSelection()" title="Limpiar selección">
+        <i class="ri-close-line"></i>
+      </button>
+    </div>
+  `;
+};
+
+window.bulkPayCommerceViewRecords = async function() {
+  const ids = [...window._commerceViewState.selectedRecordIds];
+  if (ids.length === 0) return;
+  const scope = document.getElementById('cv-bulk-scope-select')?.value || 'both';
+  const today = new Date().toLocaleDateString('sv-SE');
+
+  if (!confirm(`¿Marcar como Pagado (Recibido) los ${ids.length} periodos seleccionados?`)) return;
+
+  showSavingBadge(true);
+  try {
+    await Promise.all(ids.map(async id => {
+      const rec = (cachedDashboardRecords || []).find(r => String(r.id) === String(id));
+      if (!rec) return;
+      const upd = {};
+      if (scope === 'fulf' || scope === 'both') {
+        const tf = rec.total_fulfillment || 0;
+        upd.abono_fulfillment = tf;
+        upd.pago_fulfillment = tf > 0 ? 'Recibido' : 'Sin movimientos';
+        upd.fecha_pago_recibido_fulfillment = tf > 0 ? (rec.fecha_pago_recibido_fulfillment || today) : null;
+      }
+      if (scope === 'env' || scope === 'both') {
+        const te = rec.enviame || 0;
+        upd.abono_enviame = te;
+        upd.pago_enviame = te > 0 ? 'Recibido' : 'Sin movimientos';
+        upd.fecha_pago_recibido_enviame = te > 0 ? (rec.fecha_pago_recibido_enviame || today) : null;
+      }
+      const { error } = await supabase.from('billing_records').update(upd).eq('id', id);
+      if (error) throw error;
+      Object.assign(rec, upd);
+    }));
+    window._commerceViewState.selectedRecordIds.clear();
+    window.updateDashboardCommerceView();
+    setTimeout(() => showSavingBadge(false), 450);
+  } catch (err) {
+    console.error('Error in bulkPayCommerceViewRecords:', err);
+    alert('Error en pago masivo: ' + err.message);
+    showSavingBadge(false);
+  }
+};
+
+window.bulkSetDeadlineCommerceView = async function(mode) {
+  const ids = [...window._commerceViewState.selectedRecordIds];
+  if (ids.length === 0) return;
+  const scope = document.getElementById('cv-bulk-scope-select')?.value || 'both';
+  const fixedDate = document.getElementById('cv-bulk-deadline-input')?.value || '';
+
+  if (mode === 'input' && !fixedDate) {
+    alert('Selecciona una fecha en el calendario de plazo masivo.');
+    return;
+  }
+
+  showSavingBadge(true);
+  try {
+    const addDays = mode === '+5' ? 5 : 3;
+    const today = new Date().toLocaleDateString('sv-SE');
+    await Promise.all(ids.map(async id => {
+      const rec = (cachedDashboardRecords || []).find(r => String(r.id) === String(id));
+      if (!rec) return;
+      const upd = {};
+      if (scope === 'fulf' || scope === 'both') {
+        upd.fecha_limite = mode === 'input' ? fixedDate : addBusinessDaysLocal(rec.fecha_limite || today, addDays);
+      }
+      if (scope === 'env' || scope === 'both') {
+        upd.fecha_limite_enviame = mode === 'input' ? fixedDate : addBusinessDaysLocal(rec.fecha_limite_enviame || today, addDays);
+      }
+      const { error } = await supabase.from('billing_records').update(upd).eq('id', id);
+      if (error) throw error;
+      Object.assign(rec, upd);
+    }));
+    window.updateDashboardCommerceView();
+    setTimeout(() => showSavingBadge(false), 450);
+  } catch (err) {
+    console.error('Error in bulkSetDeadlineCommerceView:', err);
+    alert('Error al ajustar plazos: ' + err.message);
+    showSavingBadge(false);
+  }
+};
+
+window.bulkUpdateStatusCommerceView = async function() {
+  const ids = [...window._commerceViewState.selectedRecordIds];
+  if (ids.length === 0) return;
+  const scope = document.getElementById('cv-bulk-scope-select')?.value || 'both';
+  const fieldType = document.getElementById('cv-bulk-field-select')?.value || 'pago';
+  const val = document.getElementById('cv-bulk-val-select')?.value;
+  if (!val) return;
+
+  const today = new Date().toLocaleDateString('sv-SE');
+  showSavingBadge(true);
+  try {
+    await Promise.all(ids.map(async id => {
+      const rec = (cachedDashboardRecords || []).find(r => String(r.id) === String(id));
+      if (!rec) return;
+      const upd = {};
+      if (fieldType === 'desglose_fulfillment') {
+        upd.desglose_fulfillment = val;
+      } else if (fieldType === 'factura') {
+        if (scope === 'fulf' || scope === 'both') upd.factura_fulfillment = val;
+        if (scope === 'env' || scope === 'both') upd.factura_enviame = val;
+      } else if (fieldType === 'pago') {
+        if (scope === 'fulf' || scope === 'both') {
+          upd.pago_fulfillment = val;
+          if (val === 'Recibido') {
+            upd.abono_fulfillment = rec.total_fulfillment || 0;
+            upd.fecha_pago_recibido_fulfillment = rec.fecha_pago_recibido_fulfillment || today;
+          }
+        }
+        if (scope === 'env' || scope === 'both') {
+          upd.pago_enviame = val;
+          if (val === 'Recibido') {
+            upd.abono_enviame = rec.enviame || 0;
+            upd.fecha_pago_recibido_enviame = rec.fecha_pago_recibido_enviame || today;
+          }
+        }
+      }
+      const { error } = await supabase.from('billing_records').update(upd).eq('id', id);
+      if (error) throw error;
+      Object.assign(rec, upd);
+    }));
+    window.updateDashboardCommerceView();
+    setTimeout(() => showSavingBadge(false), 450);
+  } catch (err) {
+    console.error('Error in bulkUpdateStatusCommerceView:', err);
+    alert('Error al actualizar estados en lote: ' + err.message);
+    showSavingBadge(false);
+  }
+};
+
+// =========================================================================
+// AGREGAR PERIODO AL COMERCIO & EXPORTAR ESTADO DE CUENTA EXCEL
+// =========================================================================
+
+window.openAddPeriodForCommerceModal = async function(commerce) {
+  const existing = document.getElementById('modal-cv-add-period');
+  if (existing) existing.remove();
+
+  const usedPeriodIds = new Set(
+    (cachedDashboardRecords || [])
+      .filter(r => (r.comercio || '').toLowerCase() === commerce.toLowerCase())
+      .map(r => String(r.period_id))
+  );
+
+  const availablePeriods = (cachedDashboardPeriods || []).filter(p => !usedPeriodIds.has(String(p.id)));
+  if (availablePeriods.length === 0) {
+    alert(`El comercio "${commerce}" ya está registrado en todos los periodos de facturación existentes.`);
+    return;
+  }
+
+  const defaultDue = addBusinessDaysLocal(new Date().toLocaleDateString('sv-SE'), 5);
+  const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-cv-add-period';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '1060';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 480px; width: 95%;">
+      <div class="modal-header">
+        <h3 style="margin: 0; font-size: 1.05rem; display: flex; align-items: center; gap: 0.45rem;">
+          <i class="ri-calendar-todo-line" style="color: var(--color-primary);"></i>
+          <span>Agregar Periodo — ${esc(commerce)}</span>
+        </h3>
+        <button type="button" class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <form id="form-cv-add-period">
+        <div class="modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 0.85rem;">
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-size: 0.78rem; font-weight: 600;">Periodo Mensual Disponible</label>
+            <select id="cv-add-period-id" class="form-input" required style="margin: 0; width: 100%;">
+              ${availablePeriods.map(p => `<option value="${p.id}">${esc(p.name)} (${esc(p.status || 'Activo')})</option>`).join('')}
+            </select>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.76rem; font-weight: 600;">Total Fulfillment ($)</label>
+              <input type="number" id="cv-add-total-fulf" class="form-input" value="0" min="0" style="margin: 0; width: 100%;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.76rem; font-weight: 600;">Plazo Fulfillment</label>
+              <input type="date" id="cv-add-limit-fulf" class="form-input" value="${defaultDue}" style="margin: 0; width: 100%;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.76rem; font-weight: 600;">Total Envíame ($)</label>
+              <input type="number" id="cv-add-total-env" class="form-input" value="0" min="0" style="margin: 0; width: 100%;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-size: 0.76rem; font-weight: 600;">Plazo Envíame</label>
+              <input type="date" id="cv-add-limit-env" class="form-input" value="${defaultDue}" style="margin: 0; width: 100%;">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0.85rem 1.25rem; border-top: 1px solid var(--color-border);">
+          <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-cv-add-period">
+            <i class="ri-add-line"></i> Crear Registro
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  document.getElementById('form-cv-add-period').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const btn = document.getElementById('btn-submit-cv-add-period');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Creando...';
+
+    const periodId = document.getElementById('cv-add-period-id').value;
+    const tf = parseInt(document.getElementById('cv-add-total-fulf').value, 10) || 0;
+    const te = parseInt(document.getElementById('cv-add-total-env').value, 10) || 0;
+    const lf = document.getElementById('cv-add-limit-fulf').value || null;
+    const le = document.getElementById('cv-add-limit-env').value || null;
+
+    try {
+      const { error } = await supabase.from('billing_records').insert({
+        period_id: periodId,
+        comercio: commerce,
+        total_fulfillment: tf,
+        abono_fulfillment: 0,
+        fecha_limite: lf,
+        desglose_fulfillment: tf > 0 ? 'Creado' : 'Por Generar',
+        factura_fulfillment: 'Esperando',
+        pago_fulfillment: tf > 0 ? 'En espera' : 'Por solicitar',
+        enviame: te,
+        abono_enviame: 0,
+        fecha_limite_enviame: le,
+        factura_enviame: 'Esperando',
+        pago_enviame: te > 0 ? 'En espera' : 'Por solicitar'
+      });
+      if (error) throw error;
+
+      modal.remove();
+      await window.refreshCommerceViewData();
+    } catch (err) {
+      console.error('Error adding period for commerce:', err);
+      alert('Error al agregar periodo: ' + err.message);
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ri-add-line"></i> Crear Registro';
+    }
+  });
+};
+
+window.exportCommerceAccountToExcel = function(commerce) {
+  try {
+    if (typeof XLSX === 'undefined') {
+      alert('La librería Excel (XLSX) no está disponible en este momento.');
       return;
     }
-    
-    let html = '';
-    sortedYears.forEach(year => {
-      const yearRecords = recordsByYear[year].sort((a, b) => {
-        const m1 = a.billing_periods?.period_month || 1;
-        const m2 = b.billing_periods?.period_month || 1;
-        return m2 - m1;
+    const commRecords = (cachedDashboardRecords || [])
+      .filter(r => (r.comercio || '').toLowerCase() === commerce.toLowerCase())
+      .sort((a, b) => {
+        const ymA = getCommerceRecordYearAndMonth(a);
+        const ymB = getCommerceRecordYearAndMonth(b);
+        return (ymB.year * 100 + ymB.month) - (ymA.year * 100 + ymA.month);
       });
-      
-      const rows = yearRecords.map(r => `
-        <tr>
-          <td><strong>${r.billing_periods?.name}</strong></td>
-          <td>${window.formatCLP(r.total_fulfillment)}</td>
-          <td>${window.formatCLP(r.abono_fulfillment)}</td>
-          <td>
-            <span class="client-badge ${getStatusClass(r.pago_fulfillment)}">${r.pago_fulfillment}</span>
-            ${r.pago_fulfillment === 'Recibido' && r.fecha_pago_recibido_fulfillment ? `
-              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;">
-                Recibido: ${new Date(r.fecha_pago_recibido_fulfillment + 'T00:00:00').toLocaleDateString()}
+
+    if (commRecords.length === 0) {
+      alert('No hay registros para exportar de este comercio.');
+      return;
+    }
+
+    const legal = window.getBillingCommerceLegalInfo ? window.getBillingCommerceLegalInfo(commerce) : {};
+    const rows = commRecords.map(r => {
+      const tf = r.total_fulfillment || 0;
+      const af = r.abono_fulfillment || 0;
+      const te = r.enviame || 0;
+      const ae = r.abono_enviame || 0;
+      return {
+        'Periodo': r.billing_periods?.name || '-',
+        'Comercio': r.comercio,
+        'Razón Social': legal.razon_social || '-',
+        'RUT': legal.rut || '-',
+        'Representante Legal': legal.rep_legal_nombre || '-',
+        'Plazo Fulfillment': r.fecha_limite || '-',
+        'Total Fulfillment': tf,
+        'Abono Fulfillment': af,
+        'Saldo Fulfillment': Math.max(0, tf - af),
+        'Desglose Fulfillment': r.desglose_fulfillment || '-',
+        'Factura Fulfillment': r.factura_fulfillment || '-',
+        'N° Folio Fulfillment': r.num_factura || '-',
+        'Estado Pago Fulfillment': r.pago_fulfillment || '-',
+        'Fecha Pago Fulfillment': r.fecha_pago_recibido_fulfillment || '-',
+        'Plazo Envíame': r.fecha_limite_enviame || '-',
+        'Total Envíame': te,
+        'Abono Envíame': ae,
+        'Saldo Envíame': Math.max(0, te - ae),
+        'Factura Envíame': r.factura_enviame || '-',
+        'N° Folio Envíame': r.num_factura_enviame || '-',
+        'Estado Pago Envíame': r.pago_enviame || '-',
+        'Fecha Pago Envíame': r.fecha_pago_recibido_enviame || '-',
+        'Total Mes': tf + te,
+        'Total Pagado Mes': af + ae,
+        'Saldo Pendiente Mes': Math.max(0, tf - af) + Math.max(0, te - ae)
+      };
+    });
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, 'Estado_Cuenta');
+    const safeFile = commerce.replace(/[^a-zA-Z0-9_-]/g, '_');
+    XLSX.writeFile(wb, `Estado_Cuenta_${safeFile}.xlsx`);
+  } catch (err) {
+    console.error('Error exporting commerce account to Excel:', err);
+    alert('Error al exportar Estado de Cuenta: ' + err.message);
+  }
+};
+
+// =========================================================================
+// TAREAS Y PENDIENTES — CENTRO OPERATIVO DE EMISIÓN RÁPIDA Y LOTES MASIVOS
+// =========================================================================
+window._pendingTasksState = window._pendingTasksState || {
+  activeQueue: 'invoices',     // 'invoices' | 'fulf_details' | 'env_details' | 'all'
+  triage: 'all',               // 'all' | 'sii_ready' | 'paid' | 'overdue' | 'waiting' | 'sii_missing'
+  search: '',
+  commerce: '',
+  period: '',
+  service: '',
+  paymentStatus: '',
+  hideTestAndMicro: false,
+  autoEmailOneClick: true,
+  sortBy: 'period',            // 'period' | 'commerce' | 'service' | 'payment' | 'sii' | 'amount'
+  sortDir: 'desc',
+  desgSortBy: 'period',        // 'period' | 'commerce' | 'status' | 'amount'
+  desgSortDir: 'desc',
+  selectedKeys: new Set(),     // 'recordId:fulfillment' | 'recordId:enviame'
+  selectedFulfIds: new Set(),
+  selectedEnvIds: new Set()
+};
+
+function injectPendingTasksStyles() {
+  if (document.getElementById('pending-tasks-modern-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'pending-tasks-modern-styles';
+  style.textContent = `
+    .pt-queue-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 0.85rem;
+      margin-bottom: 1.15rem;
+    }
+    .pt-queue-card {
+      background: var(--color-surface);
+      border: 1.5px solid var(--color-border);
+      border-radius: 13px;
+      padding: 0.9rem 1.1rem;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      text-align: left;
+      position: relative;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
+    }
+    .pt-queue-card:hover {
+      border-color: rgba(109, 40, 217, 0.45);
+      transform: translateY(-1px);
+    }
+    .pt-queue-card.active {
+      border-color: #6d28d9;
+      background: linear-gradient(135deg, rgba(109, 40, 217, 0.06) 0%, rgba(79, 70, 229, 0.02) 100%);
+      box-shadow: 0 4px 14px rgba(109, 40, 217, 0.12);
+    }
+    .pt-card-shell {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 14px;
+      box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+      overflow: hidden;
+      margin-bottom: 1.35rem;
+    }
+    .pt-toolbar {
+      padding: 0.9rem 1.2rem;
+      border-bottom: 1px solid var(--color-border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .pt-triage-row {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+    }
+    .pt-triage-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.3rem 0.7rem;
+      border-radius: 9999px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      border: 1px solid var(--color-border);
+      background: var(--color-bg);
+      color: var(--color-text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .pt-triage-chip:hover {
+      border-color: #6d28d9;
+      color: var(--color-text-main);
+    }
+    .pt-triage-chip.active {
+      background: #6d28d9;
+      border-color: #6d28d9;
+      color: #ffffff;
+      box-shadow: 0 2px 6px rgba(109, 40, 217, 0.25);
+    }
+    .pt-triage-chip .pt-chip-count {
+      padding: 0.05rem 0.42rem;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      background: rgba(15, 23, 42, 0.08);
+      color: inherit;
+    }
+    [data-theme="dark"] .pt-triage-chip .pt-chip-count {
+      background: rgba(255, 255, 255, 0.12);
+    }
+    .pt-triage-chip.active .pt-chip-count {
+      background: rgba(255, 255, 255, 0.24);
+      color: #ffffff;
+    }
+    .pt-filters-grid {
+      display: grid;
+      grid-template-columns: minmax(220px, 1.6fr) repeat(4, minmax(135px, 1fr)) auto;
+      gap: 0.6rem;
+      align-items: end;
+    }
+    @media (max-width: 1180px) {
+      .pt-filters-grid {
+        grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+      }
+    }
+    .pt-toggle-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.28rem 0.65rem;
+      border-radius: 8px;
+      font-size: 0.73rem;
+      font-weight: 600;
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      color: var(--color-text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+    .pt-toggle-pill.on {
+      border-color: rgba(16, 185, 129, 0.45);
+      background: rgba(16, 185, 129, 0.1);
+      color: #059669;
+    }
+    [data-theme="dark"] .pt-toggle-pill.on {
+      color: #34d399;
+    }
+    .pt-bulk-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      padding: 0.68rem 1.2rem;
+      background: linear-gradient(90deg, rgba(109, 40, 217, 0.11) 0%, rgba(16, 185, 129, 0.08) 100%);
+      border-bottom: 1px solid rgba(109, 40, 217, 0.28);
+    }
+    .pt-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .pt-table thead th {
+      background: var(--color-bg);
+      color: var(--color-text-muted);
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.65rem 0.85rem;
+      border-bottom: 1px solid var(--color-border);
+      white-space: nowrap;
+      user-select: none;
+    }
+    .pt-table thead th.sortable {
+      cursor: pointer;
+      transition: color 0.15s ease, background 0.15s ease;
+    }
+    .pt-table thead th.sortable:hover {
+      color: var(--color-primary);
+      background: rgba(99, 102, 241, 0.05);
+    }
+    .pt-table thead th.sorted {
+      color: #6d28d9;
+    }
+    [data-theme="dark"] .pt-table thead th.sorted {
+      color: #c4b5fd;
+    }
+    .pt-table tbody tr {
+      border-bottom: 1px solid var(--color-border);
+      transition: background 0.14s ease;
+    }
+    .pt-table tbody tr:hover {
+      background: rgba(99, 102, 241, 0.035);
+    }
+    .pt-table tbody tr.is-selected {
+      background: rgba(109, 40, 217, 0.065);
+    }
+    .pt-table tbody td {
+      padding: 0.68rem 0.85rem;
+      vertical-align: middle;
+    }
+    /* Modern Pill Badges */
+    .pt-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.2rem 0.58rem;
+      border-radius: 9999px;
+      font-size: 0.71rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+      border: 1px solid transparent;
+      line-height: 1.2;
+    }
+    .pt-pill.svc-fulf {
+      background: rgba(124, 58, 237, 0.11);
+      color: #6d28d9;
+      border-color: rgba(124, 58, 237, 0.26);
+    }
+    [data-theme="dark"] .pt-pill.svc-fulf { color: #c4b5fd; background: rgba(139, 92, 246, 0.18); }
+    .pt-pill.svc-env {
+      background: rgba(13, 148, 136, 0.11);
+      color: #0f766e;
+      border-color: rgba(13, 148, 136, 0.28);
+    }
+    [data-theme="dark"] .pt-pill.svc-env { color: #5eead4; background: rgba(20, 184, 166, 0.18); }
+    .pt-pill.pay-paid {
+      background: rgba(16, 185, 129, 0.12);
+      color: #047857;
+      border-color: rgba(16, 185, 129, 0.32);
+    }
+    [data-theme="dark"] .pt-pill.pay-paid { color: #6ee7b7; }
+    .pt-pill.pay-overdue {
+      background: rgba(239, 68, 68, 0.12);
+      color: #dc2626;
+      border-color: rgba(239, 68, 68, 0.32);
+    }
+    [data-theme="dark"] .pt-pill.pay-overdue { color: #fca5a5; }
+    .pt-pill.pay-waiting {
+      background: rgba(59, 130, 246, 0.12);
+      color: #1d4ed8;
+      border-color: rgba(59, 130, 246, 0.3);
+    }
+    [data-theme="dark"] .pt-pill.pay-waiting { color: #93c5fd; }
+    .pt-pill.pay-request {
+      background: rgba(245, 158, 11, 0.13);
+      color: #b45309;
+      border-color: rgba(245, 158, 11, 0.34);
+    }
+    [data-theme="dark"] .pt-pill.pay-request { color: #fcd34d; }
+    .pt-pill.pay-neutral {
+      background: rgba(148, 163, 184, 0.14);
+      color: var(--color-text-muted);
+      border-color: var(--color-border);
+    }
+    .pt-pill.sii-ok {
+      background: rgba(16, 185, 129, 0.1);
+      color: #059669;
+      border-color: rgba(16, 185, 129, 0.28);
+    }
+    [data-theme="dark"] .pt-pill.sii-ok { color: #6ee7b7; }
+    .pt-pill.sii-warn {
+      background: rgba(245, 158, 11, 0.12);
+      color: #b45309;
+      border-color: rgba(245, 158, 11, 0.38);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    [data-theme="dark"] .pt-pill.sii-warn { color: #fcd34d; }
+    .pt-pill.sii-warn:hover {
+      background: #f59e0b;
+      color: #ffffff;
+    }
+    .pt-period-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 7px;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      font-size: 0.74rem;
+      font-weight: 700;
+      color: var(--color-text-main);
+      white-space: nowrap;
+    }
+    .pt-icon-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      color: var(--color-text-muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-size: 0.85rem;
+    }
+    .pt-icon-btn:hover {
+      border-color: #6d28d9;
+      color: #6d28d9;
+      background: rgba(109, 40, 217, 0.07);
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function getSpanishPeriodSortKey(periodObj, fallbackName = '') {
+  if (periodObj?.period_year && periodObj?.period_month) {
+    return Number(periodObj.period_year) * 100 + Number(periodObj.period_month);
+  }
+  const raw = String(periodObj?.name || fallbackName || '').toUpperCase();
+  const months = {
+    ENERO: 1, FEBRERO: 2, MARZO: 3, ABRIL: 4, MAYO: 5, JUNIO: 6,
+    JULIO: 7, AGOSTO: 8, SEPTIEMBRE: 9, SETIEMBRE: 9, OCTUBRE: 10, NOVIEMBRE: 11, DICIEMBRE: 12
+  };
+  let m = 0;
+  for (const [k, v] of Object.entries(months)) {
+    if (raw.includes(k)) { m = v; break; }
+  }
+  const yMatch = raw.match(/20\d{2}/);
+  const y = yMatch ? parseInt(yMatch[0], 10) : 2026;
+  return y * 100 + m;
+}
+
+function renderPendingPaymentPillHtml(status) {
+  const s = String(status || 'Sin estado').trim();
+  const low = s.toLowerCase();
+  if (low === 'recibido' || low === 'aprobado') {
+    return `<span class="pt-pill pay-paid"><i class="ri-checkbox-circle-fill"></i> ${s === 'aprobado' ? 'Aprobado' : 'Recibido'}</span>`;
+  }
+  if (low === 'atrasado') {
+    return `<span class="pt-pill pay-overdue"><i class="ri-alarm-warning-fill"></i> Atrasado</span>`;
+  }
+  if (low === 'en espera') {
+    return `<span class="pt-pill pay-waiting"><i class="ri-time-line"></i> En espera</span>`;
+  }
+  if (low === 'por solicitar') {
+    return `<span class="pt-pill pay-request"><i class="ri-send-plane-line"></i> Por solicitar</span>`;
+  }
+  if (low === 'abono') {
+    return `<span class="pt-pill pay-waiting"><i class="ri-coins-line"></i> Abono</span>`;
+  }
+  return `<span class="pt-pill pay-neutral">${s}</span>`;
+}
+
+function buildPendingTasksDataModel() {
+  const invoicesToEmit = [];
+  const siiCache = new Map();
+  const legalCache = new Map();
+
+  const getCommerceMeta = (comercio) => {
+    const key = String(comercio || '');
+    if (!legalCache.has(key)) {
+      const legal = window.getBillingCommerceLegalInfo ? window.getBillingCommerceLegalInfo(key) : {};
+      const sii = window.evaluateCommerceSiiReadiness
+        ? window.evaluateCommerceSiiReadiness(key)
+        : {
+            ready: Boolean(legal.rut && legal.razon_social && legal.giro_facturacion && legal.direccion_facturacion && (legal.lioren_comuna_id || legal.comuna_facturacion)),
+            missing: []
+          };
+      legalCache.set(key, legal);
+      siiCache.set(key, sii);
+    }
+    return { legal: legalCache.get(key), sii: siiCache.get(key) };
+  };
+
+  (cachedDashboardRecords || []).forEach(r => {
+    const periodName = r.billing_periods?.name || '';
+    const periodSort = getSpanishPeriodSortKey(r.billing_periods, periodName);
+    const { legal, sii } = getCommerceMeta(r.comercio);
+    const isTestStore = /\b(test|demo|prueba)\b/i.test(String(r.comercio || '')) || /\b(test|demo)\b/i.test(String(legal.razon_social || ''));
+
+    if (r.factura_fulfillment === 'Facturar' && !r.num_factura) {
+      const amt = Math.round(Number(r.total_fulfillment || 0));
+      invoicesToEmit.push({
+        key: `${r.id}:fulfillment`,
+        recordId: String(r.id),
+        periodId: String(r.period_id || ''),
+        periodName,
+        periodSort,
+        commerce: r.comercio || '',
+        service: 'Fulfillment',
+        type: 'fulfillment',
+        amount: amt,
+        netAmount: amt > 0 ? Math.round(amt / 1.19) : 0,
+        paymentStatus: r.pago_fulfillment || 'Por solicitar',
+        rut: legal.rut || '',
+        razonSocial: legal.razon_social || '',
+        giro: legal.giro_facturacion || '',
+        comuna: sii.comunaNombre || legal.comuna_facturacion || '',
+        repLegal: legal.rep_legal_nombre || '',
+        siiReady: Boolean(sii.ready && amt > 0),
+        siiMissing: sii.missing || [],
+        isTestOrMicro: isTestStore || amt <= 100
+      });
+    }
+
+    if (r.factura_enviame === 'Facturar' && !r.num_factura_enviame) {
+      const amt = Math.round(Number(r.enviame || 0));
+      invoicesToEmit.push({
+        key: `${r.id}:enviame`,
+        recordId: String(r.id),
+        periodId: String(r.period_id || ''),
+        periodName,
+        periodSort,
+        commerce: r.comercio || '',
+        service: 'Envíame',
+        type: 'enviame',
+        amount: amt,
+        netAmount: amt > 0 ? Math.round(amt / 1.19) : 0,
+        paymentStatus: r.pago_enviame || 'Por solicitar',
+        rut: legal.rut || '',
+        razonSocial: legal.razon_social || '',
+        giro: legal.giro_facturacion || '',
+        comuna: sii.comunaNombre || legal.comuna_facturacion || '',
+        repLegal: legal.rep_legal_nombre || '',
+        siiReady: Boolean(sii.ready && amt > 0),
+        siiMissing: sii.missing || [],
+        isTestOrMicro: isTestStore || amt <= 100
+      });
+    }
+  });
+
+  const fulfDetailsToSend = (cachedDashboardRecords || [])
+    .filter(r => (r.desglose_fulfillment === 'Por Generar' || r.desglose_fulfillment === 'Creado') && (r.total_fulfillment || 0) > 0)
+    .map(r => {
+      const periodName = r.billing_periods?.name || '';
+      const { legal, sii } = getCommerceMeta(r.comercio);
+      return {
+        record: r,
+        id: String(r.id),
+        periodId: String(r.period_id || ''),
+        periodName,
+        periodSort: getSpanishPeriodSortKey(r.billing_periods, periodName),
+        commerce: r.comercio || '',
+        status: r.desglose_fulfillment || 'Por Generar',
+        amount: Math.round(Number(r.total_fulfillment || 0)),
+        rut: legal.rut || '',
+        razonSocial: legal.razon_social || '',
+        siiReady: Boolean(sii.ready)
+      };
+    });
+
+  const envDetailsToSend = (cachedDashboardRecords || [])
+    .filter(r => r.pago_enviame === 'Por solicitar' && (r.enviame || 0) > 0)
+    .map(r => {
+      const periodName = r.billing_periods?.name || '';
+      const { legal, sii } = getCommerceMeta(r.comercio);
+      return {
+        record: r,
+        id: String(r.id),
+        periodId: String(r.period_id || ''),
+        periodName,
+        periodSort: getSpanishPeriodSortKey(r.billing_periods, periodName),
+        commerce: r.comercio || '',
+        status: r.pago_enviame || 'Por solicitar',
+        amount: Math.round(Number(r.enviame || 0)),
+        hasFolio: Boolean(r.num_factura_enviame),
+        folio: r.num_factura_enviame || '',
+        rut: legal.rut || '',
+        razonSocial: legal.razon_social || '',
+        siiReady: Boolean(sii.ready)
+      };
+    });
+
+  return { invoicesToEmit, fulfDetailsToSend, envDetailsToSend };
+}
+
+function getFilteredAndSortedPendingInvoices(allItems) {
+  const st = window._pendingTasksState;
+  const q = (st.search || '').trim().toLowerCase();
+  const qCleanRut = q.replace(/[.\-\s]/g, '');
+
+  // Base filter (all dropdowns + search + test toggle, BEFORE triage chip so triage counts stay accurate!)
+  const baseFiltered = allItems.filter(i => {
+    if (st.hideTestAndMicro && i.isTestOrMicro) return false;
+    if (st.commerce && i.commerce !== st.commerce) return false;
+    if (st.period && i.periodName !== st.period) return false;
+    if (st.service && i.service !== st.service) return false;
+    if (st.paymentStatus && i.paymentStatus.toLowerCase() !== st.paymentStatus.toLowerCase()) return false;
+    if (q) {
+      const matchName = i.commerce.toLowerCase().includes(q);
+      const matchRazon = i.razonSocial.toLowerCase().includes(q);
+      const matchGiro = i.giro.toLowerCase().includes(q);
+      const matchRep = i.repLegal.toLowerCase().includes(q);
+      const matchPer = i.periodName.toLowerCase().includes(q);
+      const matchRut = qCleanRut.length >= 2 && i.rut.replace(/[.\-\s]/g, '').toLowerCase().includes(qCleanRut);
+      if (!matchName && !matchRazon && !matchGiro && !matchRep && !matchPer && !matchRut) return false;
+    }
+    return true;
+  });
+
+  const triageCounts = {
+    all: baseFiltered.length,
+    sii_ready: baseFiltered.filter(i => i.siiReady).length,
+    paid: baseFiltered.filter(i => ['recibido', 'aprobado'].includes(i.paymentStatus.toLowerCase())).length,
+    overdue: baseFiltered.filter(i => i.paymentStatus.toLowerCase() === 'atrasado').length,
+    waiting: baseFiltered.filter(i => ['en espera', 'por solicitar', 'abono'].includes(i.paymentStatus.toLowerCase())).length,
+    sii_missing: baseFiltered.filter(i => !i.siiReady).length
+  };
+
+  const triaged = baseFiltered.filter(i => {
+    if (st.triage === 'sii_ready') return i.siiReady;
+    if (st.triage === 'paid') return ['recibido', 'aprobado'].includes(i.paymentStatus.toLowerCase());
+    if (st.triage === 'overdue') return i.paymentStatus.toLowerCase() === 'atrasado';
+    if (st.triage === 'waiting') return ['en espera', 'por solicitar', 'abono'].includes(i.paymentStatus.toLowerCase());
+    if (st.triage === 'sii_missing') return !i.siiReady;
+    return true;
+  });
+
+  const dir = st.sortDir === 'asc' ? 1 : -1;
+  triaged.sort((a, b) => {
+    let cmp = 0;
+    if (st.sortBy === 'commerce') {
+      cmp = a.commerce.localeCompare(b.commerce, 'es', { sensitivity: 'base' });
+    } else if (st.sortBy === 'period') {
+      cmp = a.periodSort - b.periodSort;
+    } else if (st.sortBy === 'service') {
+      cmp = a.service.localeCompare(b.service, 'es');
+    } else if (st.sortBy === 'payment') {
+      cmp = a.paymentStatus.localeCompare(b.paymentStatus, 'es');
+    } else if (st.sortBy === 'sii') {
+      cmp = Number(a.siiReady) - Number(b.siiReady);
+    } else if (st.sortBy === 'amount') {
+      cmp = a.amount - b.amount;
+    }
+    if (cmp !== 0) return cmp * dir;
+    // Secondary tie-breaker: newest period first, then highest amount
+    if (b.periodSort !== a.periodSort) return b.periodSort - a.periodSort;
+    return b.amount - a.amount;
+  });
+
+  return { baseFiltered, triaged, triageCounts };
+}
+
+function renderPendingInvoicesDynamicZone() {
+  const zone = document.getElementById('pt-invoices-dynamic-zone');
+  if (!zone) return;
+
+  const st = window._pendingTasksState;
+  const model = window._lastPendingTasksModel || buildPendingTasksDataModel();
+  const { triaged, triageCounts } = getFilteredAndSortedPendingInvoices(model.invoicesToEmit);
+  window._currentVisiblePendingInvoices = triaged;
+
+  const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Clean stale selected keys that no longer exist in pending list
+  const validKeySet = new Set(model.invoicesToEmit.map(i => i.key));
+  for (const k of [...st.selectedKeys]) {
+    if (!validKeySet.has(k)) st.selectedKeys.delete(k);
+  }
+
+  const selectedItems = model.invoicesToEmit.filter(i => st.selectedKeys.has(i.key));
+  const selectedGross = selectedItems.reduce((acc, i) => acc + i.amount, 0);
+  const selectedNet = selectedItems.reduce((acc, i) => acc + i.netAmount, 0);
+
+  const visibleGross = triaged.reduce((acc, i) => acc + i.amount, 0);
+  const visibleNet = triaged.reduce((acc, i) => acc + i.netAmount, 0);
+  const allVisibleChecked = triaged.length > 0 && triaged.every(i => st.selectedKeys.has(i.key));
+
+  // Update counter in top header if present
+  const countBadge = document.getElementById('pt-visible-summary-label');
+  if (countBadge) {
+    countBadge.innerHTML = `Mostrando <strong>${triaged.length}</strong> de ${model.invoicesToEmit.length} · Total vista: <strong style="color: var(--color-primary);">${window.formatCLP(visibleGross)}</strong> <span style="color: var(--color-text-muted);">(Neto ${window.formatCLP(visibleNet)})</span>`;
+  }
+
+  const sortIcon = (col) => {
+    if (st.sortBy !== col) return '<i class="ri-arrow-up-down-line" style="opacity: 0.4; margin-left: 0.2rem;"></i>';
+    return st.sortDir === 'asc'
+      ? '<i class="ri-arrow-up-line" style="margin-left: 0.2rem; color: #6d28d9;"></i>'
+      : '<i class="ri-arrow-down-line" style="margin-left: 0.2rem; color: #6d28d9;"></i>';
+  };
+
+  const rowsHtml = triaged.map(i => {
+    const isSelected = st.selectedKeys.has(i.key);
+    const safeCommJs = i.commerce.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const safeRutJs = i.rut.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const detailTab = i.type === 'enviame' ? 'env' : 'fulf';
+
+    const siiBadgeHtml = i.siiReady
+      ? `<span class="pt-pill sii-ok" title="Giro: ${esc(i.giro)} · Comuna: ${esc(i.comuna)}"><i class="ri-shield-check-fill"></i> SII Listo</span>`
+      : `<button type="button" class="pt-pill sii-warn" onclick="window.openQuickEditCommerceLegalModal('${safeCommJs}', '${i.periodId}', '${i.recordId}')" title="Falta: ${esc(i.siiMissing.join(', ')) || 'Monto $0'} — Click para completar ficha SII">
+           <i class="ri-edit-circle-line"></i> ${i.amount <= 0 ? 'Monto $0' : 'Completar SII'}
+         </button>`;
+
+    return `
+      <tr class="${isSelected ? 'is-selected' : ''}">
+        <td style="width: 40px; text-align: center;">
+          <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="window.togglePendingInvoiceSelect('${i.key}', this.checked)" style="width: 16px; height: 16px; accent-color: #6d28d9; cursor: pointer;">
+        </td>
+        <td style="min-width: 250px;">
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <strong style="font-size: 0.87rem; color: var(--color-text-main); cursor: pointer;" onclick="window.openBillingCommerceDetailModal('${i.recordId}', '${i.periodId}', '${detailTab}')" title="Abrir Ficha 360° de ${esc(i.commerce)}">
+              ${esc(i.commerce)}
+            </strong>
+            ${i.isTestOrMicro ? `<span class="pt-pill pay-neutral" style="font-size: 0.63rem; padding: 0.08rem 0.4rem;">Test / Micro</span>` : ''}
+          </div>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.2rem; display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+            ${i.rut ? `
+              <span style="display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 600; color: var(--color-text-main);">
+                <i class="ri-fingerprint-line" style="color: var(--color-primary);"></i> ${esc(i.rut)}
+                <button type="button" class="copy-amount-btn" style="width: 17px; height: 17px; font-size: 0.62rem; border: none; background: transparent;" onclick="copyRutToClipboard('${safeRutJs}', this)" title="Copiar RUT sin puntos">
+                  <i class="ri-file-copy-line"></i>
+                </button>
+              </span>
+            ` : `<span style="color: #d97706; font-style: italic;">Sin RUT registrado</span>`}
+            ${i.razonSocial ? `<span style="opacity: 0.45;">•</span><span title="${esc(i.razonSocial)}">${esc(i.razonSocial.length > 36 ? i.razonSocial.slice(0, 36) + '…' : i.razonSocial)}</span>` : ''}
+            ${i.comuna ? `<span style="opacity: 0.45;">•</span><span><i class="ri-map-pin-2-line"></i> ${esc(i.comuna)}</span>` : ''}
+          </div>
+        </td>
+        <td style="width: 145px;">
+          <span class="pt-period-badge"><i class="ri-calendar-event-line" style="color: var(--color-primary);"></i> ${esc(i.periodName)}</span>
+        </td>
+        <td style="width: 130px;">
+          <span class="pt-pill ${i.type === 'fulfillment' ? 'svc-fulf' : 'svc-env'}">
+            <i class="${i.type === 'fulfillment' ? 'ri-box-3-fill' : 'ri-truck-fill'}"></i> ${esc(i.service)}
+          </span>
+        </td>
+        <td style="width: 140px;">
+          ${renderPendingPaymentPillHtml(i.paymentStatus)}
+        </td>
+        <td style="width: 135px;">
+          ${siiBadgeHtml}
+        </td>
+        <td style="width: 155px; text-align: right;">
+          <div style="display: inline-flex; align-items: center; justify-content: flex-end; gap: 0.35rem;">
+            <div>
+              <div style="font-weight: 800; font-size: 0.88rem; color: var(--color-text-main); font-variant-numeric: tabular-nums;">
+                ${window.formatCLP(i.amount)}
               </div>
-            ` : ''}
-          </td>
-          <td>${r.num_factura ? '#' + r.num_factura : '-'}</td>
-          
-          <td>${window.formatCLP(r.enviame)}</td>
-          <td>${window.formatCLP(r.abono_enviame)}</td>
-          <td>
-            <span class="client-badge ${getStatusClass(r.pago_enviame)}">${r.pago_enviame}</span>
-            ${r.pago_enviame === 'Recibido' && r.fecha_pago_recibido_enviame ? `
-              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;">
-                Recibido: ${new Date(r.fecha_pago_recibido_enviame + 'T00:00:00').toLocaleDateString()}
+              <div style="font-size: 0.68rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums;">
+                Neto ${window.formatCLP(i.netAmount)}
               </div>
-            ` : ''}
-          </td>
-          <td>${r.num_factura_enviame ? '#' + r.num_factura_enviame : '-'}</td>
-          
-          <td style="font-weight: 600; color: var(--color-text-main);">${window.formatCLP((r.total_fulfillment || 0) + (r.enviame || 0))}</td>
-        </tr>
-      `).join('');
-      
-      html += `
-        <div style="padding: 0.85rem 1.25rem; background: var(--color-surface-hover); border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); font-weight: 600; font-size: 0.95rem; color: var(--color-text-main);">
-          Año ${year}
+            </div>
+            <button type="button" class="copy-amount-btn" onclick="copyAmountToClipboard(${i.amount}, this)" title="Copiar monto bruto">
+              <i class="ri-file-copy-line"></i>
+            </button>
+          </div>
+        </td>
+        <td style="width: 215px; text-align: right;">
+          <div style="display: inline-flex; align-items: center; justify-content: flex-end; gap: 0.35rem;">
+            <button type="button" class="btn-lioren-1click ${i.siiReady ? '' : 'needs-setup'}" onclick="window.quickEmitLiorenInvoice('${i.recordId}', '${i.type}', this)" title="${i.siiReady ? '⚡ Emitir Factura Electrónica de inmediato en 1 solo click (Lioren SII)' : 'Completar datos SII faltantes y emitir'}">
+              <i class="ri-flashlight-fill"></i> ${i.siiReady ? '1-Click' : 'Completar'}
+            </button>
+            <button type="button" class="pt-icon-btn" onclick="window.markDashboardInvoiceAsIssued('${i.recordId}', '${i.type}')" title="Abrir modal completo (previsualizar glosa / Factura Exenta 34 / Folio manual)">
+              <i class="ri-equalizer-line"></i>
+            </button>
+            <button type="button" class="pt-icon-btn" onclick="window.openBillingCommerceDetailModal('${i.recordId}', '${i.periodId}', '${detailTab}')" title="Ver Ficha 360° y Desglose del Comercio">
+              <i class="ri-eye-line"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  zone.innerHTML = `
+    <!-- Triage Pills Strip -->
+    <div style="padding: 0.65rem 1.2rem; border-bottom: 1px solid var(--color-border); background: rgba(99, 102, 241, 0.02); display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+      <div class="pt-triage-row">
+        <button type="button" class="pt-triage-chip ${st.triage === 'all' ? 'active' : ''}" onclick="window.setPendingInvoiceTriage('all')">
+          <span>Todas</span> <span class="pt-chip-count">${triageCounts.all}</span>
+        </button>
+        <button type="button" class="pt-triage-chip ${st.triage === 'sii_ready' ? 'active' : ''}" onclick="window.setPendingInvoiceTriage('sii_ready')" title="Tienen RUT, Razón Social, Giro, Dirección y Comuna listas para emitir en 1-Click">
+          <i class="ri-flashlight-fill" style="${st.triage === 'sii_ready' ? '' : 'color: #6d28d9;'}"></i>
+          <span>Listas 1-Click SII</span> <span class="pt-chip-count">${triageCounts.sii_ready}</span>
+        </button>
+        <button type="button" class="pt-triage-chip ${st.triage === 'paid' ? 'active' : ''}" onclick="window.setPendingInvoiceTriage('paid')" title="Clientes que ya pagaron y están esperando su factura oficial">
+          <i class="ri-checkbox-circle-fill" style="${st.triage === 'paid' ? '' : 'color: #10b981;'}"></i>
+          <span>Ya Pagadas</span> <span class="pt-chip-count">${triageCounts.paid}</span>
+        </button>
+        <button type="button" class="pt-triage-chip ${st.triage === 'overdue' ? 'active' : ''}" onclick="window.setPendingInvoiceTriage('overdue')">
+          <i class="ri-alarm-warning-fill" style="${st.triage === 'overdue' ? '' : 'color: #ef4444;'}"></i>
+          <span>Con Atraso</span> <span class="pt-chip-count">${triageCounts.overdue}</span>
+        </button>
+        <button type="button" class="pt-triage-chip ${st.triage === 'waiting' ? 'active' : ''}" onclick="window.setPendingInvoiceTriage('waiting')">
+          <i class="ri-time-line" style="${st.triage === 'waiting' ? '' : 'color: #3b82f6;'}"></i>
+          <span>En Espera / Solicitar</span> <span class="pt-chip-count">${triageCounts.waiting}</span>
+        </button>
+        <button type="button" class="pt-triage-chip ${st.triage === 'sii_missing' ? 'active' : ''}" onclick="window.setPendingInvoiceTriage('sii_missing')" title="Comercios a los que falta completar RUT, Giro o Dirección por única vez">
+          <i class="ri-error-warning-fill" style="${st.triage === 'sii_missing' ? '' : 'color: #f59e0b;'}"></i>
+          <span>Falta Ficha SII</span> <span class="pt-chip-count">${triageCounts.sii_missing}</span>
+        </button>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+        <button type="button" class="btn btn-outline btn-sm" style="font-size: 0.73rem; padding: 0.28rem 0.65rem;" onclick="window.selectVisibleReadyPendingInvoices()" title="Marca automáticamente todas las facturas visibles que están 100% listas para emitir en Lioren">
+          <i class="ri-checkbox-multiple-line" style="color: #6d28d9;"></i> Seleccionar Listas SII (${triaged.filter(i => i.siiReady).length})
+        </button>
+      </div>
+    </div>
+
+    <!-- Barra de Acción Masiva (aparece al seleccionar 1 o más filas) -->
+    ${selectedItems.length > 0 ? `
+      <div class="pt-bulk-bar">
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; font-size: 0.82rem;">
+          <span class="pt-pill svc-fulf" style="font-size: 0.76rem; padding: 0.25rem 0.65rem;">
+            <i class="ri-checkbox-multiple-fill"></i> ${selectedItems.length} seleccionada${selectedItems.length === 1 ? '' : 's'}
+          </span>
+          <span style="color: var(--color-text-main); font-weight: 600;">
+            Total Bruto: <strong>${window.formatCLP(selectedGross)}</strong>
+            <span style="color: var(--color-text-muted); font-weight: 400;">(Neto: ${window.formatCLP(selectedNet)})</span>
+          </span>
         </div>
-        <table class="data-table" style="margin-bottom: 1.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" class="btn-lioren-1click" style="height: 32px; padding: 0 0.9rem; font-size: 0.78rem;" onclick="window.emitSelectedPendingInvoicesBulk()">
+            <i class="ri-flashlight-fill"></i> Emitir ${selectedItems.length} Factura${selectedItems.length === 1 ? '' : 's'} en Lioren
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" style="height: 32px; font-size: 0.74rem; border-color: rgba(239, 68, 68, 0.35); color: #ef4444;" onclick="window.markSelectedPendingAsNotBilled()" title="Cambiar estado de las seleccionadas a 'No se factura'">
+            <i class="ri-forbid-2-line"></i> Marcar No se factura
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" style="height: 32px; font-size: 0.74rem;" onclick="window.clearPendingInvoicesSelection()">
+            Limpiar
+          </button>
+        </div>
+      </div>
+    ` : ''}
+
+    <!-- Tabla Ordenable -->
+    <div class="table-responsive">
+      ${triaged.length > 0 ? `
+        <table class="pt-table" id="pending-invoices-table">
           <thead>
             <tr>
-              <th>Periodo</th>
-              <th>Fulf. Total</th>
-              <th>Fulf. Abono</th>
-              <th>Fulf. Pago</th>
-              <th>Fulf. Factura</th>
-              <th>Env. Total</th>
-              <th>Env. Abono</th>
-              <th>Env. Pago</th>
-              <th>Env. Factura</th>
-              <th>Monto Mes</th>
+              <th style="width: 40px; text-align: center;">
+                <input type="checkbox" ${allVisibleChecked ? 'checked' : ''} onchange="window.toggleSelectAllVisiblePendingInvoices(this.checked)" title="Seleccionar todas las filas visibles" style="width: 16px; height: 16px; accent-color: #6d28d9; cursor: pointer;">
+              </th>
+              <th class="sortable ${st.sortBy === 'commerce' ? 'sorted' : ''}" onclick="window.sortPendingInvoicesBy('commerce')">
+                Comercio / Receptor SII ${sortIcon('commerce')}
+              </th>
+              <th class="sortable ${st.sortBy === 'period' ? 'sorted' : ''}" onclick="window.sortPendingInvoicesBy('period')">
+                Periodo ${sortIcon('period')}
+              </th>
+              <th class="sortable ${st.sortBy === 'service' ? 'sorted' : ''}" onclick="window.sortPendingInvoicesBy('service')">
+                Servicio ${sortIcon('service')}
+              </th>
+              <th class="sortable ${st.sortBy === 'payment' ? 'sorted' : ''}" onclick="window.sortPendingInvoicesBy('payment')">
+                Estado Pago ${sortIcon('payment')}
+              </th>
+              <th class="sortable ${st.sortBy === 'sii' ? 'sorted' : ''}" onclick="window.sortPendingInvoicesBy('sii')">
+                Ficha SII ${sortIcon('sii')}
+              </th>
+              <th class="sortable ${st.sortBy === 'amount' ? 'sorted' : ''}" style="text-align: right;" onclick="window.sortPendingInvoicesBy('amount')">
+                Monto ${sortIcon('amount')}
+              </th>
+              <th style="text-align: right;">Acción Rápida</th>
             </tr>
           </thead>
           <tbody>
-            ${rows}
+            ${rowsHtml}
           </tbody>
         </table>
-      `;
-    });
-    
-    tableContainer.innerHTML = html;
-  }
-};
+      ` : `
+        <div style="padding: 3rem 1.5rem; text-align: center; color: var(--color-text-muted);">
+          <i class="ri-inbox-archive-line" style="font-size: 2.2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+          <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.92rem;">No hay facturas pendientes con los filtros actuales</div>
+          <div style="font-size: 0.78rem; margin-top: 0.25rem;">Prueba cambiar la píldora de filtro rápido o haz clic en <strong>Limpiar</strong>.</div>
+        </div>
+      `}
+    </div>
+  `;
+}
 
 function renderDashboardPendingView() {
   const content = document.getElementById('d-content-pending');
   if (!content) return;
-  
-  // Persist filter state across re-renders
-  const prevCommerceSelect = document.getElementById('filter-pending-commerce-select')?.value || '';
-  const prevSearch = document.getElementById('filter-pending-search')?.value || '';
-  const prevPeriod = document.getElementById('filter-pending-period')?.value || '';
-  const prevService = document.getElementById('filter-pending-service')?.value || '';
-  const prevFiltersVisible = document.getElementById('pending-invoices-filters')?.style.display !== 'none';
-  
-  const invoicesToEmit = [];
-  const configMap = new Map();
-  if (Array.isArray(cachedDashboardCommerceAdicionalConfig)) {
-    cachedDashboardCommerceAdicionalConfig.forEach(c => {
-      if (c.comercio) {
-        configMap.set(c.comercio.toLowerCase().trim(), c);
-      }
-    });
-  }
 
-  if (Array.isArray(cachedDashboardBillingMappings)) {
-    cachedDashboardBillingMappings.forEach(m => {
-      if (m.comercio_nombre && m.billing_name) {
-        const origKey = m.comercio_nombre.toLowerCase().trim();
-        const billKey = m.billing_name.toLowerCase().trim();
-        if (configMap.has(origKey) && !configMap.has(billKey)) {
-          const config = configMap.get(origKey);
-          if (config && (config.rut || config.razon_social)) {
-            configMap.set(billKey, {
-              comercio: m.billing_name,
-              rut: config.rut,
-              razon_social: config.razon_social
-            });
-          }
-        }
-      }
-    });
-  }
+  injectPendingTasksStyles();
+  const st = window._pendingTasksState;
+  const model = buildPendingTasksDataModel();
+  window._lastPendingTasksModel = model;
 
-  cachedDashboardRecords.forEach(r => {
-    const legal = window.getBillingCommerceLegalInfo ? window.getBillingCommerceLegalInfo(r.comercio) : (configMap.get((r.comercio || '').toLowerCase().trim()) || {});
-    if (r.factura_fulfillment === 'Facturar') {
-      invoicesToEmit.push({ 
-        recordId: r.id, 
-        periodName: r.billing_periods?.name || '', 
-        commerce: r.comercio, 
-        service: 'Fulfillment', 
-        amount: r.total_fulfillment, 
-        type: 'fulfillment', 
-        paymentStatus: r.pago_fulfillment || 'Sin estado',
-        rut: legal.rut || '',
-        razonSocial: legal.razon_social || '',
-        repLegal: legal.rep_legal_nombre || ''
-      });
-    }
-    if (r.factura_enviame === 'Facturar') {
-      invoicesToEmit.push({ 
-        recordId: r.id, 
-        periodName: r.billing_periods?.name || '', 
-        commerce: r.comercio, 
-        service: 'Envíame', 
-        amount: r.enviame, 
-        type: 'enviame', 
-        paymentStatus: r.pago_enviame || 'Sin estado',
-        rut: legal.rut || '',
-        razonSocial: legal.razon_social || '',
-        repLegal: legal.rep_legal_nombre || ''
-      });
+  const { invoicesToEmit, fulfDetailsToSend, envDetailsToSend } = model;
+  const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Unique periods sorted chronologically newest -> oldest
+  const periodMap = new Map();
+  invoicesToEmit.forEach(i => {
+    if (i.periodName && !periodMap.has(i.periodName)) {
+      periodMap.set(i.periodName, i.periodSort);
     }
   });
-  
-  const fulfDetailsToSend = cachedDashboardRecords.filter(r => 
-    (r.desglose_fulfillment === 'Por Generar' || r.desglose_fulfillment === 'Creado') && (r.total_fulfillment || 0) > 0
-  );
-  
-  const envDetailsToSend = cachedDashboardRecords.filter(r => 
-    r.pago_enviame === 'Por solicitar' && (r.enviame || 0) > 0
-  );
+  const sortedPeriods = [...periodMap.entries()].sort((a, b) => b[1] - a[1]).map(e => e[0]);
+  const allCommerces = [...new Set(invoicesToEmit.map(i => i.commerce))].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  const allPaymentStatuses = [...new Set(invoicesToEmit.map(i => i.paymentStatus))].sort((a, b) => a.localeCompare(b, 'es'));
 
-  // Build filter options from data
-  const allCommerces = [...new Set(invoicesToEmit.map(i => i.commerce))].sort();
-  const allPeriods = [...new Set(invoicesToEmit.map(i => i.periodName))].sort();
-  const allServices = [...new Set(invoicesToEmit.map(i => i.service))].sort();
+  const totalInvGross = invoicesToEmit.reduce((a, b) => a + b.amount, 0);
+  const readyInvCount = invoicesToEmit.filter(i => i.siiReady).length;
+  const totalFulfDesg = fulfDetailsToSend.reduce((a, b) => a + b.amount, 0);
+  const totalEnvDesg = envDetailsToSend.reduce((a, b) => a + b.amount, 0);
 
-  const commerceOptions = allCommerces.map(c => `<option value="${c}">${c}</option>`).join('');
-  const periodOptions = allPeriods.map(p => `<option value="${p}">${p}</option>`).join('');
-  const serviceOptions = allServices.map(s => `<option value="${s}">${s}</option>`).join('');
+  // Clean stale selections for queues 2 & 3
+  const validFulfSet = new Set(fulfDetailsToSend.map(r => r.id));
+  for (const id of [...st.selectedFulfIds]) { if (!validFulfSet.has(id)) st.selectedFulfIds.delete(id); }
+  const validEnvSet = new Set(envDetailsToSend.map(r => r.id));
+  for (const id of [...st.selectedEnvIds]) { if (!validEnvSet.has(id)) st.selectedEnvIds.delete(id); }
 
-  // Service badge color helper
-  function getServiceBadgeClass(service) {
-    return service === 'Fulfillment' ? 'status-purple' : 'status-teal';
-  }
-  
-  let invoicesRows = invoicesToEmit.map(i => `
-    <tr data-commerce="${i.commerce}" data-rut="${i.rut || ''}" data-razon="${i.razonSocial || ''}" data-rep="${i.repLegal || ''}" data-period="${i.periodName}" data-service="${i.service}">
-      <td>
-        <strong>${i.commerce}</strong>
-        ${i.rut || i.razonSocial || i.repLegal ? `
-          <div style="font-size: 0.725rem; color: var(--color-text-muted); margin-top: 0.15rem; font-weight: normal; line-height: 1.3; display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;">
-            ${i.rut ? `
-              <span style="display: inline-flex; align-items: center; gap: 0.2rem;">
-                RUT: ${i.rut}
-                <button class="copy-amount-btn" style="width: 16px; height: 16px; font-size: 0.6rem; border-radius: 2px;" onclick="copyRutToClipboard('${i.rut}', this)" title="Copiar RUT sin puntos">
-                  <i class="ri-file-copy-line"></i>
-                </button>
-              </span>
-            ` : ''}
-            ${i.rut && i.razonSocial ? '<span style="opacity: 0.5;">|</span>' : ''}
-            ${i.razonSocial ? `<span>${i.razonSocial}</span>` : ''}
-            ${(i.rut || i.razonSocial) && i.repLegal ? '<span style="opacity: 0.5;">|</span>' : ''}
-            ${i.repLegal ? `<span title="Representante Legal"><i class="ri-user-star-line" style="color: #0d9488;"></i> ${i.repLegal}</span>` : ''}
-          </div>
-        ` : ''}
-      </td>
-      <td>${i.periodName}</td>
-      <td><span class="client-badge ${getServiceBadgeClass(i.service)}">${i.service}</span></td>
-      <td><span class="client-badge ${getStatusClass(i.paymentStatus)}">${i.paymentStatus}</span></td>
-      <td style="font-weight: 600;">
-        <span class="amount-cell">
-          ${window.formatCLP(i.amount)}
-          <button class="copy-amount-btn" onclick="copyAmountToClipboard(${i.amount}, this)" title="Copiar monto">
-            <i class="ri-file-copy-line"></i>
-          </button>
-        </span>
-      </td>
-      <td>
-        <button class="btn btn-primary btn-sm" onclick="markDashboardInvoiceAsIssued('${i.recordId}', '${i.type}')">
-          <i class="ri-file-add-line"></i> Registrar Factura
-        </button>
-      </td>
-    </tr>
-  `).join('');
-  
-  let fulfDetailsRows = fulfDetailsToSend.map(r => `
-    <tr>
-      <td><strong>${r.comercio}</strong></td>
-      <td>${r.billing_periods?.name || ''}</td>
-      <td><span class="client-badge status-gray">${r.desglose_fulfillment}</span></td>
-      <td style="font-weight: 500;">
-        <span class="amount-cell">
-          ${window.formatCLP(r.total_fulfillment)}
-          <button class="copy-amount-btn" onclick="copyAmountToClipboard(${r.total_fulfillment}, this)" title="Copiar monto">
-            <i class="ri-file-copy-line"></i>
-          </button>
-        </span>
-      </td>
-      <td>
-        <button class="btn btn-outline btn-sm" onclick="markDashboardFulfDetailSent('${r.id}')">
-          <i class="ri-mail-send-line"></i> Marcar Enviado
-        </button>
-      </td>
-    </tr>
-  `).join('');
-  
-  let envDetailsRows = envDetailsToSend.map(r => `
-    <tr>
-      <td><strong>${r.comercio}</strong></td>
-      <td>${r.billing_periods?.name || ''}</td>
-      <td><span class="client-badge status-gray">${r.pago_enviame}</span></td>
-      <td style="font-weight: 500;">
-        <span class="amount-cell">
-          ${window.formatCLP(r.enviame)}
-          <button class="copy-amount-btn" onclick="copyAmountToClipboard(${r.enviame}, this)" title="Copiar monto">
-            <i class="ri-file-copy-line"></i>
-          </button>
-        </span>
-      </td>
-      <td>
-        <button class="btn btn-outline btn-sm" onclick="markDashboardEnvDetailSent('${r.id}')">
-          <i class="ri-mail-send-line"></i> Marcar Enviado
-        </button>
-      </td>
-    </tr>
-  `).join('');
-  
+  // Sort Queues 2 & 3
+  const sortDesgList = (arr) => {
+    const d = st.desgSortDir === 'asc' ? 1 : -1;
+    return [...arr].sort((a, b) => {
+      let c = 0;
+      if (st.desgSortBy === 'commerce') c = a.commerce.localeCompare(b.commerce, 'es', { sensitivity: 'base' });
+      else if (st.desgSortBy === 'amount') c = a.amount - b.amount;
+      else if (st.desgSortBy === 'status') c = a.status.localeCompare(b.status, 'es');
+      else c = a.periodSort - b.periodSort;
+      if (c !== 0) return c * d;
+      return b.amount - a.amount;
+    });
+  };
+
+  const sortedFulfDesg = sortDesgList(fulfDetailsToSend);
+  const sortedEnvDesg = sortDesgList(envDetailsToSend);
+  const allFulfChecked = sortedFulfDesg.length > 0 && sortedFulfDesg.every(r => st.selectedFulfIds.has(r.id));
+  const allEnvChecked = sortedEnvDesg.length > 0 && sortedEnvDesg.every(r => st.selectedEnvIds.has(r.id));
+
+  const desgSortIcon = (col) => {
+    if (st.desgSortBy !== col) return '<i class="ri-arrow-up-down-line" style="opacity: 0.4; margin-left: 0.2rem;"></i>';
+    return st.desgSortDir === 'asc'
+      ? '<i class="ri-arrow-up-line" style="margin-left: 0.2rem; color: #6d28d9;"></i>'
+      : '<i class="ri-arrow-down-line" style="margin-left: 0.2rem; color: #6d28d9;"></i>';
+  };
+
+  const showInvoices = st.activeQueue === 'invoices' || st.activeQueue === 'all';
+  const showFulf = st.activeQueue === 'fulf_details' || st.activeQueue === 'all';
+  const showEnv = st.activeQueue === 'env_details' || st.activeQueue === 'all';
+
   content.innerHTML = `
-    <!-- Section 1: Facturas por Emitir -->
-    <div class="card" style="margin-bottom: 1.5rem;">
-      <div class="card-header" style="flex-direction: column; align-items: stretch;">
+    <!-- Tarjetas Superiores de Colas Operativas -->
+    <div class="pt-queue-grid">
+      <button type="button" class="pt-queue-card ${st.activeQueue === 'invoices' ? 'active' : ''}" onclick="window.setPendingActiveQueue('invoices')">
         <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-          <h3><i class="ri-file-warning-line"></i> Facturas por Emitir (${invoicesToEmit.length})</h3>
-          <button class="btn btn-outline btn-sm" onclick="togglePendingFilters()" style="font-size: 0.78rem; gap: 0.35rem;">
-            <i class="ri-filter-3-line"></i> Filtros
-          </button>
+          <span style="font-size: 0.76rem; font-weight: 700; text-transform: uppercase; color: #6d28d9; display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-file-list-3-fill"></i> 1. Facturas por Emitir
+          </span>
+          <span class="pt-pill svc-fulf">${invoicesToEmit.length}</span>
         </div>
-        <div id="pending-invoices-filters" style="display: none; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--color-border);">
-          <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
-            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1.2; min-width: 180px;">
-              <label style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Comercio</label>
-              <select id="filter-pending-commerce-select" onchange="applyPendingInvoiceFilters()" style="padding: 0.4rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main); outline: none;">
-                <option value="">Todos</option>
-                ${commerceOptions}
-              </select>
+        <div style="font-size: 1.25rem; font-weight: 800; color: var(--color-text-main);">${window.formatCLP(totalInvGross)}</div>
+        <div style="font-size: 0.73rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.4rem;">
+          <span style="color: #059669; font-weight: 700;"><i class="ri-flashlight-fill"></i> ${readyInvCount} listas 1-Click</span>
+          <span>· ${invoicesToEmit.length - readyInvCount} por revisar</span>
+        </div>
+      </button>
+
+      <button type="button" class="pt-queue-card ${st.activeQueue === 'fulf_details' ? 'active' : ''}" onclick="window.setPendingActiveQueue('fulf_details')">
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+          <span style="font-size: 0.76rem; font-weight: 700; text-transform: uppercase; color: #2563eb; display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-box-3-fill"></i> 2. Desgloses Fulfillment Pendientes
+          </span>
+          <span class="pt-pill pay-waiting">${fulfDetailsToSend.length}</span>
+        </div>
+        <div style="font-size: 1.25rem; font-weight: 800; color: var(--color-text-main);">${window.formatCLP(totalFulfDesg)}</div>
+        <div style="font-size: 0.73rem; color: var(--color-text-muted);">Por publicar desglose o enviar a facturar masivamente</div>
+      </button>
+
+      <button type="button" class="pt-queue-card ${st.activeQueue === 'env_details' ? 'active' : ''}" onclick="window.setPendingActiveQueue('env_details')">
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+          <span style="font-size: 0.76rem; font-weight: 700; text-transform: uppercase; color: #0f766e; display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-truck-fill"></i> 3. Cobros Envíame por Solicitar
+          </span>
+          <span class="pt-pill svc-env">${envDetailsToSend.length}</span>
+        </div>
+        <div style="font-size: 1.25rem; font-weight: 800; color: var(--color-text-main);">${window.formatCLP(totalEnvDesg)}</div>
+        <div style="font-size: 0.73rem; color: var(--color-text-muted);">Solicitar cobro o emitir facturas Envíame en lote</div>
+      </button>
+    </div>
+
+    ${showInvoices ? `
+      <!-- SECCIÓN 1: FACTURAS POR EMITIR -->
+      <div class="pt-card-shell">
+        <div class="pt-toolbar">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <div>
+              <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; display: flex; align-items: center; gap: 0.45rem; color: var(--color-text-main);">
+                <i class="ri-flashlight-fill" style="color: #6d28d9;"></i> Cola de Emisión de Facturas SII
+              </h3>
+              <div id="pt-visible-summary-label" style="font-size: 0.76rem; color: var(--color-text-muted); margin-top: 0.15rem;"></div>
             </div>
-            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1.5; min-width: 200px;">
-              <label style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Buscar RUT / Razón Social</label>
-              <div style="position: relative; display: flex; align-items: center; width: 100%;">
-                <i class="ri-search-line" style="position: absolute; left: 0.6rem; color: var(--color-text-muted); font-size: 0.9rem; pointer-events: none;"></i>
-                <input type="text" id="filter-pending-search" oninput="applyPendingInvoiceFilters()" placeholder="Buscar por RUT, Razón Social o texto..." style="padding: 0.4rem 0.6rem 0.4rem 1.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main); outline: none; width: 100%; box-sizing: border-box; height: 32px;">
+
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <button type="button" class="pt-toggle-pill ${st.hideTestAndMicro ? 'on' : ''}" onclick="window.togglePendingHideTest()">
+                <i class="ri-flask-line"></i> Ocultar Test / &le; $100
+              </button>
+              <button type="button" class="pt-toggle-pill ${st.autoEmailOneClick ? 'on' : ''}" onclick="window.togglePendingAutoEmail()" title="Cuando está activo, el botón 1-Click envía también el correo de factura emitida por Brevo al cliente">
+                <i class="ri-mail-check-line"></i> Correo Brevo en 1-Click: <strong>${st.autoEmailOneClick ? 'SÍ' : 'NO'}</strong>
+              </button>
+              <button type="button" class="pt-toggle-pill ${st.activeQueue === 'all' ? 'on' : ''}" onclick="window.setPendingActiveQueue('${st.activeQueue === 'all' ? 'invoices' : 'all'}')">
+                <i class="ri-layout-masonry-line"></i> ${st.activeQueue === 'all' ? 'Mostrando 3 Colas' : 'Ver 3 Colas Juntas'}
+              </button>
+            </div>
+          </div>
+
+          <!-- Barra de Filtros Siempre Visible -->
+          <div class="pt-filters-grid">
+            <div>
+              <label style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.22rem;">Buscar Comercio / RUT / Razón Social</label>
+              <div style="position: relative; display: flex; align-items: center;">
+                <i class="ri-search-line" style="position: absolute; left: 0.6rem; color: var(--color-text-muted); font-size: 0.88rem; pointer-events: none;"></i>
+                <input type="text" id="filter-pending-search" value="${esc(st.search)}" oninput="window.handlePendingSearchInput(this.value)" placeholder="Ej: Big Bang, 77205635-4, giro..." class="form-input" style="width: 100%; height: 34px; padding-left: 1.85rem; font-size: 0.8rem; margin: 0;">
               </div>
             </div>
-            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 150px;">
-              <label style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Periodo</label>
-              <select id="filter-pending-period" onchange="applyPendingInvoiceFilters()" style="padding: 0.4rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main); outline: none;">
-                <option value="">Todos</option>
-                ${periodOptions}
+
+            <div>
+              <label style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.22rem;">Periodo</label>
+              <select id="filter-pending-period" onchange="window.updatePendingFilterField('period', this.value)" class="form-input" style="width: 100%; height: 34px; font-size: 0.8rem; margin: 0;">
+                <option value="">Todos los periodos</option>
+                ${sortedPeriods.map(p => `<option value="${esc(p)}" ${st.period === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}
               </select>
             </div>
-            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 150px;">
-              <label style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Servicio</label>
-              <select id="filter-pending-service" onchange="applyPendingInvoiceFilters()" style="padding: 0.4rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main); outline: none;">
-                <option value="">Todos</option>
-                ${serviceOptions}
+
+            <div>
+              <label style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.22rem;">Servicio</label>
+              <select id="filter-pending-service" onchange="window.updatePendingFilterField('service', this.value)" class="form-input" style="width: 100%; height: 34px; font-size: 0.8rem; margin: 0;">
+                <option value="">Ambos servicios</option>
+                <option value="Fulfillment" ${st.service === 'Fulfillment' ? 'selected' : ''}>Fulfillment</option>
+                <option value="Envíame" ${st.service === 'Envíame' ? 'selected' : ''}>Envíame</option>
               </select>
             </div>
-            <div style="display: flex; align-items: flex-end; padding-bottom: 1px;">
-              <button class="btn btn-outline btn-sm" onclick="clearPendingInvoiceFilters()" style="font-size: 0.75rem; padding: 0.4rem 0.6rem; color: var(--color-text-muted);">
-                <i class="ri-close-line"></i> Limpiar
+
+            <div>
+              <label style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.22rem;">Estado Pago</label>
+              <select id="filter-pending-payment" onchange="window.updatePendingFilterField('paymentStatus', this.value)" class="form-input" style="width: 100%; height: 34px; font-size: 0.8rem; margin: 0;">
+                <option value="">Todos los estados</option>
+                ${allPaymentStatuses.map(ps => `<option value="${esc(ps)}" ${st.paymentStatus === ps ? 'selected' : ''}>${esc(ps)}</option>`).join('')}
+              </select>
+            </div>
+
+            <div>
+              <label style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.22rem;">Comercio</label>
+              <select id="filter-pending-commerce-select" onchange="window.updatePendingFilterField('commerce', this.value)" class="form-input" style="width: 100%; height: 34px; font-size: 0.8rem; margin: 0;">
+                <option value="">Todos (${allCommerces.length})</option>
+                ${allCommerces.map(c => `<option value="${esc(c)}" ${st.commerce === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+              </select>
+            </div>
+
+            <div>
+              <button type="button" class="btn btn-outline btn-sm" onclick="window.clearPendingInvoiceFilters()" style="height: 34px; padding: 0 0.7rem; font-size: 0.76rem; white-space: nowrap;">
+                <i class="ri-refresh-line"></i> Limpiar
               </button>
             </div>
           </div>
         </div>
+
+        <div id="pt-invoices-dynamic-zone"></div>
       </div>
-      <div class="card-body table-responsive" style="padding: 0;">
-        ${invoicesRows ? `
-          <table class="data-table" id="pending-invoices-table">
-            <thead>
-              <tr>
-                <th>Comercio</th>
-                <th>Periodo</th>
-                <th>Servicio</th>
-                <th>Estado Pago</th>
-                <th>Monto</th>
-                <th>Acción</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${invoicesRows}
-            </tbody>
-          </table>
-          <div id="pending-no-results" style="display: none; padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
-            <i class="ri-filter-off-line" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
-            No se encontraron registros con los filtros aplicados.
+    ` : ''}
+
+    ${showFulf ? `
+      <!-- SECCIÓN 2: DESGLOSES FULFILLMENT POR PUBLICAR / EMITIR -->
+      <div class="pt-card-shell">
+        <div class="pt-toolbar" style="flex-direction: row; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+          <div>
+            <h3 style="margin: 0; font-size: 1rem; font-weight: 800; display: flex; align-items: center; gap: 0.45rem;">
+              <i class="ri-box-3-fill" style="color: #2563eb;"></i> Desgloses Fulfillment Pendientes (${sortedFulfDesg.length})
+            </h3>
+            <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.12rem;">Selecciona varios desgloses para marcarlos como publicados o enviarlos masivamente a emitir su factura en Lioren.</div>
           </div>
-        ` : `
-          <div style="padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
-            No hay facturas pendientes de emisión.
-          </div>
-        `}
-      </div>
-    </div>
-    
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-      <!-- Section 2: Enviar Detalle Fulfillment -->
-      <div class="card" style="margin: 0;">
-        <div class="card-header">
-          <h3><i class="ri-mail-line"></i> Enviar Detalle Fulfillment (${fulfDetailsToSend.length})</h3>
+          ${st.selectedFulfIds.size > 0 ? `
+            <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+              <span class="pt-pill pay-waiting">${st.selectedFulfIds.size} seleccionado(s)</span>
+              <button type="button" class="btn-lioren-1click" style="height: 31px; padding: 0 0.8rem;" onclick="window.bulkEmitSelectedDesgloses('fulfillment')">
+                <i class="ri-flashlight-fill"></i> Emitir Facturas en Lioren (${st.selectedFulfIds.size})
+              </button>
+              <button type="button" class="btn btn-outline btn-sm" style="height: 31px; font-size: 0.74rem;" onclick="window.bulkMarkFulfDesglosesSent()">
+                <i class="ri-mail-send-line"></i> Marcar Enviados
+              </button>
+            </div>
+          ` : ''}
         </div>
-        <div class="card-body table-responsive" style="padding: 0;">
-          ${fulfDetailsRows ? `
-            <table class="data-table">
+        <div class="table-responsive">
+          ${sortedFulfDesg.length > 0 ? `
+            <table class="pt-table">
               <thead>
                 <tr>
-                  <th>Comercio</th>
-                  <th>Periodo</th>
-                  <th>Estado</th>
-                  <th>Monto</th>
-                  <th>Acción</th>
+                  <th style="width: 40px; text-align: center;">
+                    <input type="checkbox" ${allFulfChecked ? 'checked' : ''} onchange="window.toggleAllPendingDesgloses('fulf', this.checked)" style="width: 16px; height: 16px; accent-color: #2563eb; cursor: pointer;">
+                  </th>
+                  <th class="sortable" onclick="window.sortPendingDesglosesBy('commerce')">Comercio ${desgSortIcon('commerce')}</th>
+                  <th class="sortable" onclick="window.sortPendingDesglosesBy('period')">Periodo ${desgSortIcon('period')}</th>
+                  <th class="sortable" onclick="window.sortPendingDesglosesBy('status')">Estado Desglose ${desgSortIcon('status')}</th>
+                  <th class="sortable" style="text-align: right;" onclick="window.sortPendingDesglosesBy('amount')">Monto Bruto ${desgSortIcon('amount')}</th>
+                  <th style="text-align: right;">Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                ${fulfDetailsRows}
+                ${sortedFulfDesg.map(r => {
+                  const safeCommJs = r.commerce.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                  const checked = st.selectedFulfIds.has(r.id);
+                  return `
+                    <tr class="${checked ? 'is-selected' : ''}">
+                      <td style="text-align: center;">
+                        <input type="checkbox" ${checked ? 'checked' : ''} onchange="window.togglePendingDesgloseSelect('fulf', '${r.id}', this.checked)" style="width: 16px; height: 16px; accent-color: #2563eb; cursor: pointer;">
+                      </td>
+                      <td>
+                        <strong>${esc(r.commerce)}</strong>
+                        ${r.rut ? `<div style="font-size: 0.71rem; color: var(--color-text-muted);">${esc(r.rut)} ${r.razonSocial ? '· ' + esc(r.razonSocial.slice(0, 34)) : ''}</div>` : ''}
+                      </td>
+                      <td><span class="pt-period-badge"><i class="ri-calendar-event-line" style="color: #2563eb;"></i> ${esc(r.periodName)}</span></td>
+                      <td><span class="pt-pill pay-request"><i class="ri-draft-line"></i> ${esc(r.status)}</span></td>
+                      <td style="text-align: right; font-weight: 800; font-variant-numeric: tabular-nums;">
+                        ${window.formatCLP(r.amount)}
+                        <button type="button" class="copy-amount-btn" style="margin-left: 0.3rem;" onclick="copyAmountToClipboard(${r.amount}, this)"><i class="ri-file-copy-line"></i></button>
+                      </td>
+                      <td style="text-align: right;">
+                        <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
+                          <button type="button" class="btn-lioren-1click ${r.siiReady ? '' : 'needs-setup'}" onclick="window.quickEmitLiorenInvoice('${r.id}', 'fulfillment', this)" title="Emitir Factura Fulfillment en 1-Click">
+                            <i class="ri-flashlight-fill"></i> 1-Click
+                          </button>
+                          <button type="button" class="btn btn-outline btn-sm" style="font-size: 0.73rem; padding: 0.25rem 0.55rem;" onclick="window.openBillingGeneratorForRecord('${r.periodId}', '${safeCommJs}')" title="Abrir en Gestor Oficial Stocka">
+                            <i class="ri-calculator-line"></i> Gestor
+                          </button>
+                          <button type="button" class="btn btn-outline btn-sm" style="font-size: 0.73rem; padding: 0.25rem 0.55rem;" onclick="markDashboardFulfDetailSent('${r.id}')">
+                            <i class="ri-check-line"></i> Enviado
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
               </tbody>
             </table>
           ` : `
-            <div style="padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
-              No hay detalles de Fulfillment pendientes de enviar.
-            </div>
+            <div style="padding: 2.2rem; text-align: center; color: var(--color-text-muted);">No hay desgloses de Fulfillment pendientes de enviar.</div>
           `}
         </div>
       </div>
-      
-      <!-- Section 3: Enviar Detalle Envíame -->
-      <div class="card" style="margin: 0;">
-        <div class="card-header">
-          <h3><i class="ri-mail-line"></i> Enviar Detalle Envíame (${envDetailsToSend.length})</h3>
+    ` : ''}
+
+    ${showEnv ? `
+      <!-- SECCIÓN 3: COBROS ENVÍAME POR SOLICITAR / EMITIR -->
+      <div class="pt-card-shell">
+        <div class="pt-toolbar" style="flex-direction: row; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+          <div>
+            <h3 style="margin: 0; font-size: 1rem; font-weight: 800; display: flex; align-items: center; gap: 0.45rem;">
+              <i class="ri-truck-fill" style="color: #0f766e;"></i> Cobros Envíame por Solicitar (${sortedEnvDesg.length})
+            </h3>
+            <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.12rem;">Solicita el pago masivamente o emite sus facturas Envíame directamente en Lioren.</div>
+          </div>
+          ${st.selectedEnvIds.size > 0 ? `
+            <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+              <span class="pt-pill svc-env">${st.selectedEnvIds.size} seleccionado(s)</span>
+              <button type="button" class="btn-lioren-1click" style="height: 31px; padding: 0 0.8rem;" onclick="window.bulkEmitSelectedDesgloses('enviame')">
+                <i class="ri-flashlight-fill"></i> Emitir Facturas Envíame (${st.selectedEnvIds.size})
+              </button>
+              <button type="button" class="btn btn-outline btn-sm" style="height: 31px; font-size: 0.74rem;" onclick="window.bulkMarkEnvDesglosesSent()">
+                <i class="ri-mail-send-line"></i> Solicitar Pago (En espera)
+              </button>
+            </div>
+          ` : ''}
         </div>
-        <div class="card-body table-responsive" style="padding: 0;">
-          ${envDetailsRows ? `
-            <table class="data-table">
+        <div class="table-responsive">
+          ${sortedEnvDesg.length > 0 ? `
+            <table class="pt-table">
               <thead>
                 <tr>
-                  <th>Comercio</th>
-                  <th>Periodo</th>
-                  <th>Estado</th>
-                  <th>Monto</th>
-                  <th>Acción</th>
+                  <th style="width: 40px; text-align: center;">
+                    <input type="checkbox" ${allEnvChecked ? 'checked' : ''} onchange="window.toggleAllPendingDesgloses('env', this.checked)" style="width: 16px; height: 16px; accent-color: #0f766e; cursor: pointer;">
+                  </th>
+                  <th class="sortable" onclick="window.sortPendingDesglosesBy('commerce')">Comercio ${desgSortIcon('commerce')}</th>
+                  <th class="sortable" onclick="window.sortPendingDesglosesBy('period')">Periodo ${desgSortIcon('period')}</th>
+                  <th>Estado / Folio</th>
+                  <th class="sortable" style="text-align: right;" onclick="window.sortPendingDesglosesBy('amount')">Monto Bruto ${desgSortIcon('amount')}</th>
+                  <th style="text-align: right;">Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                ${envDetailsRows}
+                ${sortedEnvDesg.map(r => {
+                  const checked = st.selectedEnvIds.has(r.id);
+                  return `
+                    <tr class="${checked ? 'is-selected' : ''}">
+                      <td style="text-align: center;">
+                        <input type="checkbox" ${checked ? 'checked' : ''} onchange="window.togglePendingDesgloseSelect('env', '${r.id}', this.checked)" style="width: 16px; height: 16px; accent-color: #0f766e; cursor: pointer;">
+                      </td>
+                      <td>
+                        <strong>${esc(r.commerce)}</strong>
+                        ${r.rut ? `<div style="font-size: 0.71rem; color: var(--color-text-muted);">${esc(r.rut)} ${r.razonSocial ? '· ' + esc(r.razonSocial.slice(0, 34)) : ''}</div>` : ''}
+                      </td>
+                      <td><span class="pt-period-badge"><i class="ri-calendar-event-line" style="color: #0f766e;"></i> ${esc(r.periodName)}</span></td>
+                      <td>
+                        ${renderPendingPaymentPillHtml(r.status)}
+                        ${r.hasFolio ? `<span class="pt-pill sii-ok" style="margin-left: 0.25rem;">#${esc(r.folio)}</span>` : ''}
+                      </td>
+                      <td style="text-align: right; font-weight: 800; font-variant-numeric: tabular-nums;">
+                        ${window.formatCLP(r.amount)}
+                        <button type="button" class="copy-amount-btn" style="margin-left: 0.3rem;" onclick="copyAmountToClipboard(${r.amount}, this)"><i class="ri-file-copy-line"></i></button>
+                      </td>
+                      <td style="text-align: right;">
+                        <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
+                          ${!r.hasFolio ? `
+                            <button type="button" class="btn-lioren-1click ${r.siiReady ? '' : 'needs-setup'}" onclick="window.quickEmitLiorenInvoice('${r.id}', 'enviame', this)" title="Emitir Factura Envíame en 1-Click">
+                              <i class="ri-flashlight-fill"></i> 1-Click
+                            </button>
+                          ` : ''}
+                          <button type="button" class="btn btn-outline btn-sm" style="font-size: 0.73rem; padding: 0.25rem 0.55rem;" onclick="markDashboardEnvDetailSent('${r.id}')">
+                            <i class="ri-mail-send-line"></i> Solicitar Pago
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
               </tbody>
             </table>
           ` : `
-            <div style="padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
-              No hay detalles de Envíame pendientes de enviar.
-            </div>
+            <div style="padding: 2.2rem; text-align: center; color: var(--color-text-muted);">No hay cobros de Envíame pendientes por solicitar.</div>
           `}
         </div>
       </div>
-    </div>
+    ` : ''}
   `;
 
-  // Restore persisted filter state
-  const cSel = document.getElementById('filter-pending-commerce-select');
-  const sInp = document.getElementById('filter-pending-search');
-  const pSel = document.getElementById('filter-pending-period');
-  const sSel = document.getElementById('filter-pending-service');
-  const filtersDiv = document.getElementById('pending-invoices-filters');
-  if (cSel && prevCommerceSelect) cSel.value = prevCommerceSelect;
-  if (sInp && prevSearch) sInp.value = prevSearch;
-  if (pSel && prevPeriod) pSel.value = prevPeriod;
-  if (sSel && prevService) sSel.value = prevService;
-  if (filtersDiv && prevFiltersVisible) filtersDiv.style.display = 'block';
-  if (prevCommerceSelect || prevSearch || prevPeriod || prevService) applyPendingInvoiceFilters();
+  if (showInvoices) {
+    renderPendingInvoicesDynamicZone();
+  }
 }
 
 // === Copy amount to clipboard utility ===
@@ -73831,77 +80081,206 @@ window.copyTextToClipboard = function(text, btnEl) {
   });
 };
 
-// === Toggle pending invoices filters ===
-window.togglePendingFilters = function() {
-  const filtersDiv = document.getElementById('pending-invoices-filters');
-  if (!filtersDiv) return;
-  const isHidden = filtersDiv.style.display === 'none';
-  filtersDiv.style.display = isHidden ? 'block' : 'none';
+// === Controladores Interactivos de Tareas y Pendientes ===
+window.setPendingActiveQueue = function(queue) {
+  window._pendingTasksState.activeQueue = queue;
+  renderDashboardPendingView();
 };
 
-// === Apply filters on pending invoices table ===
-window.applyPendingInvoiceFilters = function() {
-  const commerceSelectVal = document.getElementById('filter-pending-commerce-select')?.value || '';
-  const searchVal = document.getElementById('filter-pending-search')?.value || '';
-  const periodVal = document.getElementById('filter-pending-period')?.value || '';
-  const serviceVal = document.getElementById('filter-pending-service')?.value || '';
-  
-  const cleanSearchVal = searchVal.trim().toLowerCase();
-  
-  const table = document.getElementById('pending-invoices-table');
-  if (!table) return;
-  
-  const rows = table.querySelectorAll('tbody tr');
-  let visibleCount = 0;
-  
-  rows.forEach(row => {
-    const rowCommerce = row.dataset.commerce || '';
-    const rowRut = row.dataset.rut || '';
-    const rowRazon = row.dataset.razon || '';
-    const rowRep = row.dataset.rep || '';
-    const rowPeriod = row.dataset.period || '';
-    const rowService = row.dataset.service || '';
-    
-    const matchCommerceSelect = !commerceSelectVal || rowCommerce === commerceSelectVal;
-    
-    const matchSearch = !cleanSearchVal || 
-      rowCommerce.toLowerCase().includes(cleanSearchVal) ||
-      rowRut.replace(/\./g, '').toLowerCase().includes(cleanSearchVal.replace(/\./g, '')) ||
-      rowRazon.toLowerCase().includes(cleanSearchVal) ||
-      rowRep.toLowerCase().includes(cleanSearchVal);
-      
-    const matchPeriod = !periodVal || rowPeriod === periodVal;
-    const matchService = !serviceVal || rowService === serviceVal;
-    
-    if (matchCommerceSelect && matchSearch && matchPeriod && matchService) {
-      row.style.display = '';
-      visibleCount++;
-    } else {
-      row.style.display = 'none';
-    }
-  });
-  
-  // Show/hide "no results" message
-  const noResults = document.getElementById('pending-no-results');
-  if (noResults) {
-    noResults.style.display = visibleCount === 0 ? 'block' : 'none';
-  }
-  if (table) {
-    table.style.display = visibleCount === 0 ? 'none' : '';
-  }
+window.setPendingInvoiceTriage = function(triageKey) {
+  window._pendingTasksState.triage = triageKey;
+  renderPendingInvoicesDynamicZone();
 };
 
-// === Clear all pending invoice filters ===
+window.handlePendingSearchInput = function(val) {
+  window._pendingTasksState.search = val || '';
+  renderPendingInvoicesDynamicZone();
+};
+
+window.updatePendingFilterField = function(field, val) {
+  window._pendingTasksState[field] = val || '';
+  renderPendingInvoicesDynamicZone();
+};
+
+window.togglePendingHideTest = function() {
+  window._pendingTasksState.hideTestAndMicro = !window._pendingTasksState.hideTestAndMicro;
+  renderDashboardPendingView();
+};
+
+window.togglePendingAutoEmail = function() {
+  window._pendingTasksState.autoEmailOneClick = !window._pendingTasksState.autoEmailOneClick;
+  renderDashboardPendingView();
+};
+
+window.sortPendingInvoicesBy = function(col) {
+  const st = window._pendingTasksState;
+  if (st.sortBy === col) {
+    st.sortDir = st.sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    st.sortBy = col;
+    st.sortDir = (col === 'period' || col === 'amount' || col === 'sii') ? 'desc' : 'asc';
+  }
+  renderPendingInvoicesDynamicZone();
+};
+
+window.sortPendingDesglosesBy = function(col) {
+  const st = window._pendingTasksState;
+  if (st.desgSortBy === col) {
+    st.desgSortDir = st.desgSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    st.desgSortBy = col;
+    st.desgSortDir = (col === 'period' || col === 'amount') ? 'desc' : 'asc';
+  }
+  renderDashboardPendingView();
+};
+
 window.clearPendingInvoiceFilters = function() {
-  const cSel = document.getElementById('filter-pending-commerce-select');
-  const sInp = document.getElementById('filter-pending-search');
-  const period = document.getElementById('filter-pending-period');
-  const service = document.getElementById('filter-pending-service');
-  if (cSel) cSel.value = '';
-  if (sInp) sInp.value = '';
-  if (period) period.value = '';
-  if (service) service.value = '';
-  applyPendingInvoiceFilters();
+  const st = window._pendingTasksState;
+  st.triage = 'all';
+  st.search = '';
+  st.commerce = '';
+  st.period = '';
+  st.service = '';
+  st.paymentStatus = '';
+  st.hideTestAndMicro = false;
+  renderDashboardPendingView();
+};
+
+window.togglePendingInvoiceSelect = function(key, checked) {
+  const set = window._pendingTasksState.selectedKeys;
+  if (checked) set.add(key);
+  else set.delete(key);
+  renderPendingInvoicesDynamicZone();
+};
+
+window.toggleSelectAllVisiblePendingInvoices = function(checked) {
+  const set = window._pendingTasksState.selectedKeys;
+  (window._currentVisiblePendingInvoices || []).forEach(i => {
+    if (checked) set.add(i.key);
+    else set.delete(i.key);
+  });
+  renderPendingInvoicesDynamicZone();
+};
+
+window.selectVisibleReadyPendingInvoices = function() {
+  const set = window._pendingTasksState.selectedKeys;
+  (window._currentVisiblePendingInvoices || []).forEach(i => {
+    if (i.siiReady) set.add(i.key);
+  });
+  renderPendingInvoicesDynamicZone();
+};
+
+window.clearPendingInvoicesSelection = function() {
+  window._pendingTasksState.selectedKeys.clear();
+  renderPendingInvoicesDynamicZone();
+};
+
+window.emitSelectedPendingInvoicesBulk = function() {
+  const keys = [...window._pendingTasksState.selectedKeys];
+  if (keys.length === 0) return;
+  const items = keys.map(k => {
+    const [recordId, serviceType] = k.split(':');
+    return { recordId, serviceType };
+  });
+  if (typeof window.openBulkLiorenEmitModal === 'function') {
+    window.openBulkLiorenEmitModal(items);
+  }
+};
+
+window.markSelectedPendingAsNotBilled = async function() {
+  const keys = [...window._pendingTasksState.selectedKeys];
+  if (keys.length === 0) return;
+  if (!confirm(`¿Cambiar el estado de ${keys.length} registro(s) seleccionado(s) a "No se factura"?`)) return;
+
+  showSavingBadge(true);
+  try {
+    const byRec = new Map();
+    keys.forEach(k => {
+      const [recId, svc] = k.split(':');
+      if (!byRec.has(recId)) byRec.set(recId, {});
+      if (svc === 'fulfillment') byRec.get(recId).factura_fulfillment = 'No se factura';
+      else byRec.get(recId).factura_enviame = 'No se factura';
+    });
+
+    await Promise.all([...byRec.entries()].map(([id, upd]) =>
+      supabase.from('billing_records').update(upd).eq('id', id)
+    ));
+
+    window._pendingTasksState.selectedKeys.clear();
+    await refreshDashboardData();
+  } catch (err) {
+    alert('Error al actualizar registros: ' + (err.message || err));
+  } finally {
+    showSavingBadge(false);
+  }
+};
+
+window.togglePendingDesgloseSelect = function(kind, id, checked) {
+  const set = kind === 'env' ? window._pendingTasksState.selectedEnvIds : window._pendingTasksState.selectedFulfIds;
+  if (checked) set.add(String(id));
+  else set.delete(String(id));
+  renderDashboardPendingView();
+};
+
+window.toggleAllPendingDesgloses = function(kind, checked) {
+  const model = window._lastPendingTasksModel || buildPendingTasksDataModel();
+  const list = kind === 'env' ? model.envDetailsToSend : model.fulfDetailsToSend;
+  const set = kind === 'env' ? window._pendingTasksState.selectedEnvIds : window._pendingTasksState.selectedFulfIds;
+  list.forEach(r => {
+    if (checked) set.add(String(r.id));
+    else set.delete(String(r.id));
+  });
+  renderDashboardPendingView();
+};
+
+window.bulkMarkFulfDesglosesSent = async function() {
+  const ids = [...window._pendingTasksState.selectedFulfIds];
+  if (ids.length === 0) return;
+  if (!confirm(`¿Marcar ${ids.length} desglose(s) de Fulfillment como "Enviado"?`)) return;
+  showSavingBadge(true);
+  try {
+    const { error } = await supabase.from('billing_records').update({ desglose_fulfillment: 'Enviado' }).in('id', ids);
+    if (error) throw error;
+    window._pendingTasksState.selectedFulfIds.clear();
+    await refreshDashboardData();
+  } catch (err) {
+    alert('Error: ' + (err.message || err));
+  } finally {
+    showSavingBadge(false);
+  }
+};
+
+window.bulkMarkEnvDesglosesSent = async function() {
+  const ids = [...window._pendingTasksState.selectedEnvIds];
+  if (ids.length === 0) return;
+  if (!confirm(`¿Marcar ${ids.length} cobro(s) de Envíame como solicitados ("En espera")?`)) return;
+  showSavingBadge(true);
+  try {
+    const { error } = await supabase.from('billing_records').update({ pago_enviame: 'En espera' }).in('id', ids);
+    if (error) throw error;
+    window._pendingTasksState.selectedEnvIds.clear();
+    await refreshDashboardData();
+  } catch (err) {
+    alert('Error: ' + (err.message || err));
+  } finally {
+    showSavingBadge(false);
+  }
+};
+
+window.bulkEmitSelectedDesgloses = async function(serviceType) {
+  const isEnv = serviceType === 'enviame';
+  const ids = [...(isEnv ? window._pendingTasksState.selectedEnvIds : window._pendingTasksState.selectedFulfIds)];
+  if (ids.length === 0) return;
+
+  // Si son desgloses Fulfillment pendientes, marcar también desglose_fulfillment = 'Enviado' al pasarlos a emisión
+  if (!isEnv) {
+    await supabase.from('billing_records').update({ desglose_fulfillment: 'Enviado' }).in('id', ids);
+  }
+
+  const items = ids.map(recordId => ({ recordId, serviceType }));
+  if (typeof window.openBulkLiorenEmitModal === 'function') {
+    window.openBulkLiorenEmitModal(items);
+  }
 };
 
 // Inject CSS for copy button and amount cell
@@ -73948,7 +80327,10 @@ window.clearPendingInvoiceFilters = function() {
   }
 })();
 
-window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
+window.markDashboardInvoiceAsIssued = async function(recordId, serviceType, options = {}) {
+  if (typeof window.openLiorenEmitModal === 'function') {
+    return window.openLiorenEmitModal(recordId, serviceType, options);
+  }
   showSavingBadge(true);
   try {
     // 1. Obtener detalles del registro de facturación
@@ -73994,6 +80376,21 @@ window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
     const razonSocial = legal.razon_social || '';
     const repLegal = legal.rep_legal_nombre || '';
     const amount = serviceType === 'fulfillment' ? (record.total_fulfillment || 0) : (record.enviame || 0);
+    const currentDueDate = serviceType === 'fulfillment'
+      ? (record.fecha_limite || record.fulfillment_details?.invoiceDates?.dueDate || '')
+      : (record.fecha_limite_enviame || '');
+    const currentPagoStatus = serviceType === 'fulfillment'
+      ? (record.pago_fulfillment || 'Por solicitar')
+      : (record.pago_enviame || 'Por solicitar');
+    const todayIso = new Date().toLocaleDateString('sv-SE');
+    const suggestedDueDate = typeof addBusinessDaysLocal === 'function'
+      ? addBusinessDaysLocal(todayIso, 5)
+      : (() => {
+          const d = new Date();
+          d.setDate(d.getDate() + 5);
+          return d.toLocaleDateString('sv-SE');
+        })();
+    const initialDueDate = currentDueDate || suggestedDueDate;
 
     const periodRaw = record.billing_periods?.name || '';
     const formattedPeriod = periodRaw.replace(/[\s-]+/g, '-').toUpperCase();
@@ -74009,7 +80406,7 @@ window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
     modal.id = 'modal-register-dashboard-invoice';
     modal.className = 'modal-overlay active';
     modal.innerHTML = `
-      <div class="modal-content" style="max-width: 460px; width: 95%;">
+      <div class="modal-content" style="max-width: 475px; width: 95%;">
         <div class="modal-header">
           <h3><i class="ri-file-add-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Registrar Factura Oficial</h3>
           <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
@@ -74098,13 +80495,36 @@ window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
 
             </div>
 
-            <div class="form-group" style="margin-bottom: 1.25rem;">
+            <div class="form-group" style="margin-bottom: 1.1rem;">
               <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Número de Factura</label>
               <input type="number" id="reg-invoice-num" class="form-input" placeholder="Ej: 12345" min="1" required style="width: 100%; box-sizing: border-box; height: 38px; border-radius: var(--radius-sm); transition: border-color 0.2s;">
               <div id="reg-invoice-num-feedback" style="font-size: 0.75rem; margin-top: 0.3rem; font-weight: 500; display: none; line-height: 1.3;"></div>
             </div>
 
-            <div class="form-group" style="margin-bottom: 1.25rem;">
+            <div class="form-group" style="margin-bottom: 1.15rem;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.35rem; flex-wrap: wrap;">
+                <label for="reg-invoice-due-date" class="form-label" style="font-weight: 600; margin: 0; display: inline-flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-calendar-event-line" style="color: var(--color-primary);"></i> Fecha Límite de Pago
+                </label>
+                <span id="reg-invoice-due-badge">
+                  ${window.getDeadlineBadgeHtml ? window.getDeadlineBadgeHtml(initialDueDate, currentPagoStatus) : ''}
+                </span>
+              </div>
+              <input type="date" id="reg-invoice-due-date" value="${initialDueDate}" class="form-input" style="width: 100%; box-sizing: border-box; height: 38px; border-radius: var(--radius-sm);">
+              <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.4rem;">
+                <span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600;">Rápido:</span>
+                <button type="button" class="reg-due-preset-btn" data-preset="3b" style="padding: 0.16rem 0.48rem; font-size: 0.7rem; font-weight: 600; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: pointer;">+3 días háb.</button>
+                <button type="button" class="reg-due-preset-btn" data-preset="5b" style="padding: 0.16rem 0.48rem; font-size: 0.7rem; font-weight: 600; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: pointer;">+5 días háb.</button>
+                <button type="button" class="reg-due-preset-btn" data-preset="10b" style="padding: 0.16rem 0.48rem; font-size: 0.7rem; font-weight: 600; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: pointer;">+10 días háb.</button>
+                <button type="button" class="reg-due-preset-btn" data-preset="eom" style="padding: 0.16rem 0.48rem; font-size: 0.7rem; font-weight: 600; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: pointer;">Fin de mes</button>
+                ${currentDueDate ? `<button type="button" class="reg-due-preset-btn" data-preset="orig" style="padding: 0.16rem 0.48rem; font-size: 0.7rem; font-weight: 600; border-radius: 999px; border: 1px solid rgba(99, 102, 241, 0.35); background: rgba(99, 102, 241, 0.08); color: var(--color-primary); cursor: pointer;">Actual (${new Date(currentDueDate + 'T00:00:00').toLocaleDateString('es-CL')})</button>` : ''}
+              </div>
+              <p style="font-size: 0.7rem; color: var(--color-text-muted); margin: 0.3rem 0 0 0;">
+                ${currentDueDate ? 'Se cargó la fecha límite actual del registro; puedes mantenerla o modificarla.' : 'Se sugiere automáticamente +5 días hábiles desde hoy (incluida en el aviso por correo).'}
+              </p>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.15rem;">
               <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Archivo Factura PDF (Opcional)</label>
               <input type="file" id="reg-invoice-file" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; background: var(--color-surface); font-size: 0.8rem; height: 38px; border-radius: var(--radius-sm); box-sizing: border-box;">
               <p style="font-size: 0.7rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Si subes la factura, el cliente podrá verla y descargarla desde su portal.</p>
@@ -74129,10 +80549,42 @@ window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
 
     // 3. Validación en tiempo real del número de factura al escribir (con debounce)
     const invoiceNumInput = document.getElementById('reg-invoice-num');
+    const dueDateInput = document.getElementById('reg-invoice-due-date');
+    const dueBadgeEl = document.getElementById('reg-invoice-due-badge');
     const feedbackDiv = document.getElementById('reg-invoice-num-feedback');
     const btnSubmit = document.getElementById('btn-submit-reg-invoice');
     let validationTimeout = null;
     let isNumberDuplicate = false;
+
+    const refreshRegDueBadge = () => {
+      if (dueBadgeEl && window.getDeadlineBadgeHtml) {
+        dueBadgeEl.innerHTML = dueDateInput.value
+          ? window.getDeadlineBadgeHtml(dueDateInput.value, currentPagoStatus)
+          : '<span class="badge badge-neutral" style="font-size: 0.68rem;">Sin fecha límite</span>';
+      }
+    };
+
+    if (dueDateInput) {
+      dueDateInput.addEventListener('change', refreshRegDueBadge);
+      modal.querySelectorAll('.reg-due-preset-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const preset = btn.getAttribute('data-preset');
+          if (preset === 'orig' && currentDueDate) {
+            dueDateInput.value = currentDueDate;
+          } else if (preset === 'eom') {
+            const now = new Date();
+            const eom = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+            dueDateInput.value = eom.toLocaleDateString('sv-SE');
+          } else {
+            const bDays = parseInt(preset, 10) || 5;
+            dueDateInput.value = typeof addBusinessDaysLocal === 'function'
+              ? addBusinessDaysLocal(todayIso, bDays)
+              : suggestedDueDate;
+          }
+          refreshRegDueBadge();
+        });
+      });
+    }
 
     invoiceNumInput.addEventListener('input', () => {
       clearTimeout(validationTimeout);
@@ -74243,13 +80695,16 @@ window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
           }
         }
 
-        // B. Actualizar número de factura y estado de facturación
+        // B. Actualizar número de factura, fecha límite de pago y estado de facturación
+        const selectedDueDate = (dueDateInput?.value || '').trim() || null;
         if (serviceType === 'fulfillment') {
           updates.factura_fulfillment = 'Emitida';
           updates.num_factura = num;
+          updates.fecha_limite = selectedDueDate;
         } else {
           updates.factura_enviame = 'Emitida';
           updates.num_factura_enviame = num;
+          updates.fecha_limite_enviame = selectedDueDate;
         }
 
         const { error: saveError } = await supabase
@@ -74272,6 +80727,8 @@ window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
                 },
                 body: JSON.stringify({
                   recordId,
+                  commerceName: record.comercio,
+                  comercio: record.comercio,
                   serviceType,
                   emails: [],
                   customMessage: 'Factura oficial emitida.',
@@ -74376,43 +80833,26 @@ window.markDashboardEnvDetailSent = async function(recordId) {
 
 async function refreshDashboardData() {
   try {
-    const { data: records, error } = await supabase
-      .from('billing_records')
-      .select('*, billing_periods(name, status, period_month, period_year)');
-    if (error) throw error;
-    
-    let adcConfigs = [];
-    try {
-      const { data, error: adcError } = await supabase
-        .from('comercios_adicional_config')
-        .select('comercio, rut, razon_social');
-      if (!adcError) {
-        adcConfigs = data || [];
-      }
-    } catch (e) {
-      console.warn("Error fetching config in refreshDashboardData:", e);
-    }
+    const [recRes, legalDataset] = await Promise.all([
+      supabase
+        .from('billing_records')
+        .select('*, billing_periods(name, status, period_month, period_year)'),
+      window.fetchBillingCommerceLegalDataset ? window.fetchBillingCommerceLegalDataset(true) : Promise.resolve(null)
+    ]);
+    if (recRes.error) throw recRes.error;
 
-    let billMappings = [];
-    try {
-      const { data, error: mErr } = await supabase
-        .from('billing_mappings')
-        .select('comercio_nombre, billing_name');
-      if (!mErr) {
-        billMappings = data || [];
-      }
-    } catch (e) {
-      console.warn("Error fetching billing_mappings in refreshDashboardData:", e);
-    }
-
-    cachedDashboardRecords = records || [];
-    cachedDashboardCommerceAdicionalConfig = adcConfigs;
-    cachedDashboardBillingMappings = billMappings;
+    cachedDashboardRecords = recRes.data || [];
+    cachedDashboardCommerceAdicionalConfig = legalDataset?.configs || [];
+    cachedDashboardBillingMappings = legalDataset?.mappings || [];
     renderDashboardPendingView();
+    if (document.getElementById('d-commerce-select') && typeof window.updateDashboardCommerceView === 'function') {
+      window.updateDashboardCommerceView();
+    }
   } catch(err) {
     console.error('Error refreshing dashboard records:', err);
   }
 }
+window.refreshDashboardData = refreshDashboardData;
 
 async function renderProfile() {
   const appContent = document.getElementById('app-content');
@@ -76153,6 +82593,9 @@ window.openBillingAttachmentsModal = async function(recordId, commerceName, peri
         if (body) {
           await loadBillingRecords(periodId, body);
         }
+        if (document.getElementById('d-commerce-select') && typeof window.refreshCommerceViewData === 'function') {
+          await window.refreshCommerceViewData(true);
+        }
         
       } catch (err) {
         console.error('Error saving billing attachments:', err);
@@ -76370,7 +82813,8 @@ async function fetchAndRenderExtraCharges() {
     if (error) throw error;
 
     allExtraCharges = data || [];
-    filterAndRenderExtraChargesTable('');
+    filterAndRenderExtraChargesTable(document.getElementById('extra-charges-search')?.value?.toLowerCase() || '');
+    updatePendingExtraChargesBadge().catch(e => console.warn(e));
   } catch (err) {
     console.error('Error fetching extra charges:', err);
     const tbody = document.getElementById('extra-charges-table-body');
@@ -76435,6 +82879,12 @@ function filterAndRenderExtraChargesTable(query) {
     }
 
     actionsHtml += `
+      <button class="btn btn-outline btn-sm" onclick="switchBillingAdminTab('generator', '${String(c.comercio || '').replace(/'/g, "\\'")}', ${c.periodo_id ? `'${c.periodo_id}'` : 'null'})" style="border-color: #5f06fa; color: #5f06fa; padding: 0.15rem 0.35rem; margin-right: 0.25rem;" title="Abrir comercio en Gestor de Facturación para incorporar al desglose">
+        <i class="ri-calculator-line" style="font-size: 0.9rem;"></i>
+      </button>
+    `;
+
+    actionsHtml += `
       <button class="btn btn-outline btn-sm" onclick="window.openEditExtraChargeModal('${c.id}')" style="border-color: var(--color-primary); color: var(--color-primary); padding: 0.15rem 0.35rem; margin-right: 0.25rem;" title="Editar Registro">
         <i class="ri-pencil-line" style="font-size: 0.9rem;"></i>
       </button>
@@ -76484,6 +82934,12 @@ function filterAndRenderExtraChargesTable(query) {
     `;
   }).join('');
 }
+
+window.refreshExtraChargesTabIfMounted = function() {
+  if (document.getElementById('extra-charges-table-body')) {
+    fetchAndRenderExtraCharges();
+  }
+};
 
 window.openCreateExtraChargeModal = async function() {
   let modal = document.getElementById('modal-create-extra-charge');
@@ -77470,66 +83926,170 @@ window.markAdminOrdersAsExported = async function(customIds = null) {
 
 
 // =========================================================================
-// DASHBOARD VISTA ANUAL - ADMIN VIEW WITH INTERACTIVE CHARTJS
+// DASHBOARD VISTA ANUAL & PROYECCIONES - ADMIN VIEW WITH INTERACTIVE CHARTJS
 // =========================================================================
+
+let annualMonthlyChartInstance = null;
+let annualCommerceChartInstance = null;
+let annualArpuChartInstance = null;
+
+function loadChartJS() {
+  return new Promise((resolve) => {
+    if (window.Chart) {
+      resolve();
+      return;
+    }
+    const existing = document.querySelector('script[data-chartjs-loader="1"]');
+    if (existing) {
+      existing.addEventListener('load', () => resolve(), { once: true });
+      existing.addEventListener('error', () => resolve(), { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+    script.setAttribute('data-chartjs-loader', '1');
+    script.onload = () => resolve();
+    script.onerror = () => {
+      console.warn('No se pudo cargar Chart.js desde CDN');
+      resolve();
+    };
+    document.head.appendChild(script);
+  });
+}
 
 window.renderDashboardYearView = async function() {
   const content = document.getElementById('d-content-year');
   if (!content) return;
 
+  const st = getExecDashboardState();
   const yearsSet = new Set();
-  cachedDashboardPeriods.forEach(p => {
-    let pY = p.period_year;
-    if (!pY) {
-      const parts = (p.name || '').split(' ');
-      pY = parts[1] ? parseInt(parts[1], 10) : 0;
-    }
-    if (pY > 2000) {
-      yearsSet.add(pY);
-    }
+  (cachedDashboardPeriods || []).forEach(p => {
+    const ym = parseDashboardPeriodYM(p);
+    if (ym.year > 2000) yearsSet.add(ym.year);
   });
 
   let yearsList = Array.from(yearsSet).sort((a, b) => b - a);
-  if (yearsList.length === 0) {
-    yearsList = [new Date().getFullYear()];
+  if (yearsList.length === 0) yearsList = [new Date().getFullYear()];
+
+  if (!st.selectedYear || !yearsList.includes(st.selectedYear)) {
+    st.selectedYear = yearsList[0];
   }
 
-  const selectedYear = yearsList[0];
-  const options = yearsList.map(y => `<option value="${y}" ${y === selectedYear ? 'selected' : ''}>${y}</option>`).join('');
+  const options = yearsList.map(y =>
+    `<option value="${y}" ${y === st.selectedYear ? 'selected' : ''}>Año ${y}</option>`
+  ).join('');
 
   content.innerHTML = `
-    <div style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 1.25rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap;">
-      <div style="display: flex; align-items: center; gap: 0.75rem;">
-        <label style="font-weight: 600; font-size: 0.9rem; color: var(--color-text-main);">Seleccionar Año:</label>
-        <select id="d-year-select" class="form-input" style="width: 150px; margin: 0; padding: 0.35rem 0.75rem;" onchange="window.updateDashboardYearView()">
+    <div class="ed-context-bar">
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <span style="font-weight: 700; font-size: 0.84rem; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-calendar-2-line" style="color: var(--color-primary);"></i> Ejercicio Fiscal:
+        </span>
+        <select id="d-year-select" class="form-input" style="width: 150px; margin: 0; height: 36px; padding: 0.3rem 0.75rem; font-weight: 700; font-size: 0.85rem;" onchange="window._execDashboardState.selectedYear = parseInt(this.value, 10); window.updateDashboardYearView();">
           ${options}
         </select>
+        <div id="ed-year-summary-badges" style="display: inline-flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;"></div>
       </div>
-      <div style="font-size: 0.85rem; color: var(--color-text-muted);">
-        <i class="ri-information-line"></i> Métricas anuales consolidadas en base a los registros de facturación creados.
+
+      <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+        <span style="font-size: 0.76rem; font-weight: 700; color: var(--color-text-muted);">
+          <i class="ri-magic-line" style="color: var(--color-primary);"></i> Escenario de Proyección:
+        </span>
+        <select id="ed-forecast-select" class="form-input" style="width: auto; min-width: 245px; margin: 0; height: 36px; padding: 0.28rem 0.7rem; font-size: 0.8rem; font-weight: 600;" onchange="window.setExecDashForecastModel(this.value)">
+          <option value="weighted" ${st.forecastModel === 'weighted' ? 'selected' : ''}>Ponderado Reciente (Últ. 3M 50/30/20 + Estac.)</option>
+          <option value="average" ${st.forecastModel === 'average' ? 'selected' : ''}>Run-Rate Lineal (Promedio YTD)</option>
+          <option value="growth" ${st.forecastModel === 'growth' ? 'selected' : ''}>Expansión Comercial (+Tendencia CMGR)</option>
+        </select>
       </div>
     </div>
-    
-    <!-- KPI Cards Grid -->
-    <div id="d-year-metrics-cards" class="dashboard-grid" style="margin-bottom: 1.5rem;"></div>
 
-    <!-- Charts Section -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
-      <div class="card" style="padding: 1.25rem;">
-        <div class="card-header" style="padding: 0 0 1rem 0; border-bottom: 1px solid var(--color-border); margin-bottom: 1rem;">
-          <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;"><i class="ri-bar-chart-fill" style="color: var(--color-primary);"></i> Facturación Mensual (CLP)</h4>
+    <!-- 6 KPIs Estratégicos Anuales -->
+    <div id="d-year-metrics-cards" class="ed-kpi-grid"></div>
+
+    <!-- Gráfico Maestro 12 Meses con 4 Modos Dinámicos -->
+    <div class="ed-panel" style="margin-bottom: 1.15rem;">
+      <div class="ed-panel-head">
+        <div>
+          <h4 class="ed-panel-title"><i class="ri-bar-chart-box-line" style="color: var(--color-primary);"></i> Evolución Maestra 12 Meses, Cobranza y Forecast de Cierre</h4>
+          <p class="ed-panel-sub">Haz clic en cualquier mes contabilizado para abrir su Vista por Periodo detallada</p>
         </div>
-        <div style="position: relative; height: 320px; width: 100%;">
-          <canvas id="chart-annual-monthly"></canvas>
+        <div class="ed-seg-group">
+          <button type="button" class="ed-seg-btn ${st.annualChartMode === 'forecast' ? 'active' : ''}" id="ed-ann-mode-forecast" onclick="window.setExecDashAnnualChartMode('forecast')">Facturado + Proyección</button>
+          <button type="button" class="ed-seg-btn ${st.annualChartMode === 'collected' ? 'active' : ''}" id="ed-ann-mode-collected" onclick="window.setExecDashAnnualChartMode('collected')">Facturado vs. Cobrado</button>
+          <button type="button" class="ed-seg-btn ${st.annualChartMode === 'ytd' ? 'active' : ''}" id="ed-ann-mode-ytd" onclick="window.setExecDashAnnualChartMode('ytd')">Curva Acumulada YTD</button>
+          <button type="button" class="ed-seg-btn ${st.annualChartMode === 'mom' ? 'active' : ''}" id="ed-ann-mode-mom" onclick="window.setExecDashAnnualChartMode('mom')">Variación MoM %</button>
         </div>
       </div>
-      <div class="card" style="padding: 1.25rem;">
-        <div class="card-header" style="padding: 0 0 1rem 0; border-bottom: 1px solid var(--color-border); margin-bottom: 1rem;">
-          <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;"><i class="ri-pie-chart-fill" style="color: var(--color-primary);"></i> Top 8 Comercios por Facturación Anual</h4>
+      <div style="position: relative; height: 310px; width: 100%;">
+        <canvas id="chart-annual-monthly"></canvas>
+      </div>
+    </div>
+
+    <!-- Fila Analítica Secundaria: Pareto 80/20 + Clientes Activos vs ARPU -->
+    <div class="ed-grid-2">
+      <div class="ed-panel">
+        <div class="ed-panel-head">
+          <div>
+            <h4 class="ed-panel-title"><i class="ri-pie-chart-2-line" style="color: #8b5cf6;"></i> Concentración de Ingresos (Análisis Pareto 80/20)</h4>
+            <p class="ed-panel-sub">Identifica qué cuentas explican el 80% de la facturación anual</p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+            <span class="ed-badge violet" id="ed-pareto-80-badge">-</span>
+            <div class="ed-seg-group">
+              <button type="button" class="ed-seg-btn ${st.paretoViewMode === 'pareto' ? 'active' : ''}" id="ed-par-mode-pareto" onclick="window.setExecDashParetoMode('pareto')">Curva Pareto</button>
+              <button type="button" class="ed-seg-btn ${st.paretoViewMode === 'doughnut' ? 'active' : ''}" id="ed-par-mode-doughnut" onclick="window.setExecDashParetoMode('doughnut')">Dona Top 8</button>
+            </div>
+          </div>
         </div>
-        <div style="position: relative; height: 320px; width: 100%; display: flex; justify-content: center; align-items: center;">
-          <canvas id="chart-annual-commerce" style="max-height: 100%; max-width: 100%;"></canvas>
+        <div style="position: relative; height: 275px; width: 100%;">
+          <canvas id="chart-annual-commerce"></canvas>
         </div>
+      </div>
+
+      <div class="ed-panel">
+        <div class="ed-panel-head">
+          <div>
+            <h4 class="ed-panel-title"><i class="ri-user-star-line" style="color: #0284c7;"></i> Evolución de Base Activa vs. Ticket Medio Mensual (ARPU)</h4>
+            <p class="ed-panel-sub">Distingue crecimiento por nuevos clientes activos vs. mayor facturación por cuenta</p>
+          </div>
+          <span class="ed-badge sky" id="ed-arpu-trend-badge">ARPU Anual</span>
+        </div>
+        <div style="position: relative; height: 275px; width: 100%;">
+          <canvas id="chart-annual-arpu"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Matriz Financiera Ejecutiva de 12 Meses -->
+    <div class="ed-panel">
+      <div class="ed-panel-head">
+        <div>
+          <h4 class="ed-panel-title"><i class="ri-table-2" style="color: var(--color-success);"></i> Matriz Financiera Ejecutiva Mensual (12 Meses + Forecast)</h4>
+          <p class="ed-panel-sub">Consolidado contable mes a mes · Clic en cualquier mes real para ir a su detalle</p>
+        </div>
+        <button type="button" class="ed-toggle-pill" onclick="window.exportExecutiveDashboardExcel()" style="border-color: rgba(16, 185, 129, 0.4); color: var(--color-success);">
+          <i class="ri-file-excel-2-line"></i> Descargar Matriz (.xlsx)
+        </button>
+      </div>
+      <div class="table-responsive">
+        <table class="ed-matrix-table">
+          <thead>
+            <tr>
+              <th>Mes</th>
+              <th>Estado</th>
+              <th style="text-align: center;">Cuentas Activas</th>
+              <th style="text-align: right;">Fulfillment</th>
+              <th style="text-align: right;">Courier Envíame</th>
+              <th style="text-align: right;">Total Facturado</th>
+              <th style="text-align: right;">Recaudado</th>
+              <th style="text-align: center;">% Cobro</th>
+              <th style="text-align: right;">Saldo Pendiente</th>
+              <th style="text-align: right;">Var. MoM</th>
+            </tr>
+          </thead>
+          <tbody id="ed-annual-matrix-tbody"></tbody>
+          <tfoot id="ed-annual-matrix-tfoot"></tfoot>
+        </table>
       </div>
     </div>
   `;
@@ -77538,182 +84098,831 @@ window.renderDashboardYearView = async function() {
   window.updateDashboardYearView();
 };
 
-let annualMonthlyChartInstance = null;
-let annualCommerceChartInstance = null;
+window.setExecDashForecastModel = function(modelKey) {
+  const st = getExecDashboardState();
+  st.forecastModel = modelKey || 'weighted';
+  window.updateDashboardYearView();
+};
 
-function loadChartJS() {
-  return new Promise((resolve) => {
-    if (window.Chart) {
-      resolve();
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
-    script.onload = () => {
-      resolve();
-    };
-    document.head.appendChild(script);
+window.setExecDashAnnualChartMode = function(modeKey) {
+  const st = getExecDashboardState();
+  st.annualChartMode = modeKey || 'forecast';
+  ['forecast', 'collected', 'ytd', 'mom'].forEach(k => {
+    const el = document.getElementById(`ed-ann-mode-${k}`);
+    if (el) el.classList.toggle('active', st.annualChartMode === k);
   });
+  window.updateDashboardYearView();
+};
+
+window.setExecDashParetoMode = function(modeKey) {
+  const st = getExecDashboardState();
+  st.paretoViewMode = modeKey === 'doughnut' ? 'doughnut' : 'pareto';
+  ['pareto', 'doughnut'].forEach(k => {
+    const el = document.getElementById(`ed-par-mode-${k}`);
+    if (el) el.classList.toggle('active', st.paretoViewMode === k);
+  });
+  window.updateDashboardYearView();
+};
+
+function computeYearTotalForYoY(targetYear) {
+  const st = getExecDashboardState();
+  const periods = (cachedDashboardPeriods || []).filter(p => parseDashboardPeriodYM(p).year === targetYear);
+  if (periods.length === 0) return { hasData: false, totalFact: 0 };
+  const pIds = new Set(periods.map(p => p.id));
+  let rawF = 0, rawE = 0;
+  (cachedDashboardRecords || []).forEach(r => {
+    if (!pIds.has(r.period_id)) return;
+    rawF += Math.max(0, Number(r.total_fulfillment) || 0);
+    rawE += Math.max(0, Number(r.enviame) || 0);
+  });
+  const selRaw = st.serviceFilter === 'fulfillment' ? rawF : (st.serviceFilter === 'enviame' ? rawE : (rawF + rawE));
+  return { hasData: selRaw > 0, totalFact: applyDashTax(selRaw) };
 }
 
 window.updateDashboardYearView = function() {
   const yearSelect = document.getElementById('d-year-select');
   if (!yearSelect) return;
-  const selectedYear = parseInt(yearSelect.value, 10);
 
-  const yearPeriods = cachedDashboardPeriods.filter(p => {
-    let pY = p.period_year;
-    if (!pY) {
-      const parts = (p.name || '').split(' ');
-      pY = parts[1] ? parseInt(parts[1], 10) : 0;
+  const st = getExecDashboardState();
+  const selectedYear = parseInt(yearSelect.value, 10) || new Date().getFullYear();
+  st.selectedYear = selectedYear;
+
+  const resolveEntity = createDashboardEntityResolver(st.groupHoldings);
+  const monthsFullNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const monthsShort = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+  // Mapear periodos reales de este año por número de mes (1..12)
+  const monthPeriodMap = new Map();
+  (cachedDashboardPeriods || []).forEach(p => {
+    const ym = parseDashboardPeriodYM(p);
+    if (ym.year === selectedYear && ym.month >= 1 && ym.month <= 12) {
+      // Si hubiera duplicado raro, priorizar activo o el primero
+      if (!monthPeriodMap.has(ym.month) || p.status === 'activo') {
+        monthPeriodMap.set(ym.month, p);
+      }
     }
-    return pY === selectedYear;
   });
 
-  const periodIds = yearPeriods.map(p => p.id);
-  const yearRecords = cachedDashboardRecords.filter(r => periodIds.includes(r.period_id));
-
-  const periodMonthMap = {};
-  yearPeriods.forEach(p => {
-    let pM = p.period_month;
-    if (!pM) {
-      const parts = (p.name || '').split(' ');
-      const monthsMap = {
-        'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4,
-        'MAYO': 5, 'JUNIO': 6, 'JULIO': 7, 'AGOSTO': 8,
-        'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
+  // Calcular métricas reales por mes (1..12)
+  const rawMonths = Array.from({ length: 12 }, (_, idx) => {
+    const mNum = idx + 1;
+    const pObj = monthPeriodMap.get(mNum) || null;
+    if (!pObj) {
+      return {
+        monthNum: mNum,
+        shortLabel: monthsShort[idx],
+        fullLabel: `${monthsFullNames[idx]} ${selectedYear}`,
+        periodId: null,
+        periodStatus: null,
+        hasRealPeriod: false,
+        fulf: 0,
+        env: 0,
+        fact: 0,
+        rec: 0,
+        pend: 0,
+        overdue: 0,
+        activeClients: 0,
+        arpu: 0
       };
-      pM = monthsMap[parts[0]?.toUpperCase()] || 1;
     }
-    periodMonthMap[p.id] = pM;
+    const stats = computePeriodAnalytics(pObj.id);
+    return {
+      monthNum: mNum,
+      shortLabel: monthsShort[idx],
+      fullLabel: `${monthsFullNames[idx]} ${selectedYear}`,
+      periodId: pObj.id,
+      periodStatus: pObj.status || 'cerrado',
+      hasRealPeriod: true,
+      fulf: stats.fulfFact,
+      env: stats.envFact,
+      fact: stats.totalFact,
+      rec: stats.totalRec,
+      pend: stats.totalPend,
+      overdue: stats.overdueAmt,
+      activeClients: stats.activeEntitiesCount,
+      arpu: stats.arpu
+    };
   });
 
-  let annualFulfFact = 0;
-  let annualEnvFact = 0;
-  let annualFulfRec = 0;
-  let annualEnvRec = 0;
-  let annualAtrasado = 0;
-  let annualProximo = 0;
-  
-  const monthlyData = Array.from({ length: 12 }, () => ({ fulfillment: 0, enviame: 0 }));
-  const commerceBillingMap = {};
+  // Determinar meses reales con movimiento para calibrar el modelo de Forecast
+  const recordedMonths = rawMonths.filter(m => m.hasRealPeriod && m.fact > 0);
+  const maxRecordedMonth = recordedMonths.length > 0 ? Math.max(...recordedMonths.map(m => m.monthNum)) : 0;
 
-  yearRecords.forEach(r => {
-    const fulfFact = r.total_fulfillment || 0;
-    const envFact = r.enviame || 0;
-    const fulfRec = r.abono_fulfillment || 0;
-    const envRec = r.abono_enviame || 0;
-    const fPending = fulfFact - fulfRec;
-    const ePending = envFact - envRec;
+  // Para proyecciones, usar preferentemente meses cerrados o consolidados; si un último mes recién creado tiene <25% de la media reciente y está en_proceso/activo, permitir que los meses siguientes no se distorsionen a la baja
+  const avgRecordedFact = recordedMonths.length > 0
+    ? recordedMonths.reduce((s, m) => s + m.fact, 0) / recordedMonths.length
+    : 0;
+  const avgActiveClients = recordedMonths.length > 0
+    ? Math.round(recordedMonths.reduce((s, m) => s + m.activeClients, 0) / recordedMonths.length)
+    : 0;
 
-    annualFulfFact += fulfFact;
-    annualEnvFact += envFact;
-    annualFulfRec += fulfRec;
-    annualEnvRec += envRec;
+  let referenceSeries = [...recordedMonths];
+  if (referenceSeries.length >= 2) {
+    const lastM = referenceSeries[referenceSeries.length - 1];
+    const prevM = referenceSeries[referenceSeries.length - 2];
+    if (lastM.periodStatus === 'activo' && lastM.fact < prevM.fact * 0.25) {
+      referenceSeries = referenceSeries.slice(0, -1);
+    }
+  }
 
-    // Calcular montos con atraso anuales
-    if (r.pago_fulfillment === 'Atrasado' && fPending > 0) {
-      annualAtrasado += fPending;
-    }
-    if (r.pago_enviame === 'Atrasado' && ePending > 0) {
-      annualAtrasado += ePending;
+  const refCount = referenceSeries.length;
+  const refAvg = refCount > 0 ? referenceSeries.reduce((s, m) => s + m.fact, 0) / refCount : avgRecordedFact;
+
+  // CMGR sobre meses de referencia
+  let cmgrRatio = 0;
+  if (refCount >= 2 && referenceSeries[0].fact > 0) {
+    const firstVal = referenceSeries[0].fact;
+    const lastVal = referenceSeries[refCount - 1].fact;
+    const rawCmgr = Math.pow(lastVal / firstVal, 1 / (refCount - 1)) - 1;
+    cmgrRatio = Math.max(-0.15, Math.min(0.25, rawCmgr));
+  }
+
+  // Mix promedio Fulfillment vs Envíame en meses recientes
+  const recentForMix = referenceSeries.slice(-3);
+  const sumRecentFulf = recentForMix.reduce((s, m) => s + m.fulf, 0);
+  const sumRecentEnv = recentForMix.reduce((s, m) => s + m.env, 0);
+  const fulfShareForecast = st.serviceFilter === 'fulfillment'
+    ? 1
+    : (st.serviceFilter === 'enviame'
+      ? 0
+      : ((sumRecentFulf + sumRecentEnv) > 0 ? (sumRecentFulf / (sumRecentFulf + sumRecentEnv)) : 0.7));
+
+  // Construir matriz final de 12 meses con Forecast para meses posteriores a maxRecordedMonth
+  const allKnownYears = Array.from(new Set((cachedDashboardPeriods || []).map(p => parseDashboardPeriodYM(p).year)));
+  const maxYearInDb = allKnownYears.length > 0 ? Math.max(...allKnownYears) : selectedYear;
+  const allowTrailingForecast = selectedYear >= maxYearInDb && maxRecordedMonth > 0 && maxRecordedMonth < 12;
+
+  let runningForecastBase = refCount > 0 ? referenceSeries[refCount - 1].fact : avgRecordedFact;
+  if (st.forecastModel === 'weighted' && refCount >= 1) {
+    const m1 = referenceSeries[refCount - 1]?.fact || refAvg;
+    const m2 = referenceSeries[refCount - 2]?.fact ?? m1;
+    const m3 = referenceSeries[refCount - 3]?.fact ?? m2;
+    runningForecastBase = m1 * 0.5 + m2 * 0.3 + m3 * 0.2;
+  }
+
+  let cumulativeYtd = 0;
+  const monthsMatrix = rawMonths.map((m, idx) => {
+    const isFutureForecast = allowTrailingForecast && !m.hasRealPeriod && m.monthNum > maxRecordedMonth;
+    // También proyectar si el periodo existe pero aún está en $0 y es posterior al último mes con facturación
+    const isEmptyFuturePeriod = allowTrailingForecast && m.hasRealPeriod && m.fact === 0 && m.monthNum > maxRecordedMonth;
+
+    if (isFutureForecast || isEmptyFuturePeriod) {
+      const stepsAhead = m.monthNum - maxRecordedMonth;
+      let projFact = Math.round(refAvg);
+      if (st.forecastModel === 'weighted') {
+        // Estacionalidad suave Q4 (Cyber / Navidad en Nov-Dic)
+        const q4Boost = m.monthNum === 11 ? 1.04 : (m.monthNum === 12 ? 1.08 : 1.0);
+        projFact = Math.round(runningForecastBase * q4Boost);
+      } else if (st.forecastModel === 'growth') {
+        const effectiveGrowth = Math.max(0.02, Math.min(0.12, cmgrRatio > 0 ? cmgrRatio : 0.05));
+        projFact = Math.round(runningForecastBase * Math.pow(1 + effectiveGrowth, stepsAhead));
+      }
+
+      const projFulf = st.serviceFilter === 'enviame' ? 0 : Math.round(projFact * fulfShareForecast);
+      const projEnv = st.serviceFilter === 'fulfillment' ? 0 : Math.max(0, projFact - projFulf);
+
+      cumulativeYtd += projFact;
+      return {
+        ...m,
+        isForecast: true,
+        stateLabel: 'Proyectado',
+        fulf: projFulf,
+        env: projEnv,
+        fact: projFact,
+        rec: 0,
+        pend: 0,
+        recPct: 0,
+        activeClients: avgActiveClients,
+        arpu: avgActiveClients > 0 ? Math.round(projFact / avgActiveClients) : 0,
+        ytdCumulative: cumulativeYtd,
+        momPct: 0
+      };
     }
 
-    // Calcular montos próximos a vencer anuales
-    if (r.pago_fulfillment !== 'Recibido' && r.pago_fulfillment !== 'abono' && r.pago_fulfillment !== 'aprobado' && r.pago_fulfillment !== 'Sin movimientos' && r.pago_fulfillment !== 'Atrasado' && fPending > 0) {
-      annualProximo += fPending;
-    }
-    if (r.pago_enviame !== 'Recibido' && r.pago_enviame !== 'abono' && r.pago_enviame !== 'aprobado' && r.pago_enviame !== 'Sin movimientos' && r.pago_enviame !== 'Atrasado' && ePending > 0) {
-      annualProximo += ePending;
-    }
+    cumulativeYtd += m.fact;
+    const recPct = m.fact > 0 ? Math.round((m.rec / m.fact) * 100) : 0;
+    const stateLabel = !m.hasRealPeriod
+      ? 'Sin apertura'
+      : (m.periodStatus === 'activo' ? 'En Curso' : (m.periodStatus === 'en_proceso' ? 'En Proceso' : 'Cerrado'));
 
-    const monthVal = periodMonthMap[r.period_id];
-    if (monthVal && monthVal >= 1 && monthVal <= 12) {
-      monthlyData[monthVal - 1].fulfillment += fulfFact;
-      monthlyData[monthVal - 1].enviame += envFact;
-    }
-
-    const comm = r.comercio || 'Otro';
-    if (!commerceBillingMap[comm]) {
-      commerceBillingMap[comm] = 0;
-    }
-    commerceBillingMap[comm] += (fulfFact + envFact);
+    return {
+      ...m,
+      isForecast: false,
+      stateLabel,
+      recPct,
+      ytdCumulative: cumulativeYtd,
+      momPct: 0
+    };
   });
 
-  const annualTotalFact = annualFulfFact + annualEnvFact;
-  const annualTotalRec = annualFulfRec + annualEnvRec;
-  const annualPending = annualTotalFact - annualTotalRec;
-  const recPercentage = annualTotalFact > 0 ? ((annualTotalRec / annualTotalFact) * 100).toFixed(1) : '0';
+  // Calcular variaciones MoM % a lo largo de la serie
+  for (let i = 0; i < monthsMatrix.length; i++) {
+    if (i === 0 || monthsMatrix[i - 1].fact <= 0 || monthsMatrix[i].fact <= 0) {
+      monthsMatrix[i].momPct = 0;
+    } else {
+      monthsMatrix[i].momPct = ((monthsMatrix[i].fact - monthsMatrix[i - 1].fact) / monthsMatrix[i - 1].fact) * 100;
+    }
+  }
 
+  // Totales anuales reales vs proyectados
+  const realMonthsWithData = monthsMatrix.filter(m => !m.isForecast && m.hasRealPeriod);
+  const forecastMonthsList = monthsMatrix.filter(m => m.isForecast);
+
+  const ytdRealFact = realMonthsWithData.reduce((s, m) => s + m.fact, 0);
+  const ytdRealFulf = realMonthsWithData.reduce((s, m) => s + m.fulf, 0);
+  const ytdRealEnv = realMonthsWithData.reduce((s, m) => s + m.env, 0);
+  const ytdRealRec = realMonthsWithData.reduce((s, m) => s + m.rec, 0);
+  const ytdRealPend = realMonthsWithData.reduce((s, m) => s + m.pend, 0);
+  const ytdRealOverdue = realMonthsWithData.reduce((s, m) => s + m.overdue, 0);
+
+  const forecastAddFact = forecastMonthsList.reduce((s, m) => s + m.fact, 0);
+  const projectedYearClose = ytdRealFact + forecastAddFact;
+  const bandLow = ytdRealFact + Math.round(forecastAddFact * 0.90);
+  const bandHigh = ytdRealFact + Math.round(forecastAddFact * 1.10);
+
+  const annualRecPct = ytdRealFact > 0 ? ((ytdRealRec / ytdRealFact) * 100).toFixed(1) : '0.0';
+  const annualDelinquencyPct = ytdRealFact > 0 ? ((ytdRealOverdue / ytdRealFact) * 100).toFixed(1) : '0.0';
+  const healthyPct = Math.max(0, 100 - parseFloat(annualDelinquencyPct)).toFixed(1);
+
+  const bestMonthObj = [...recordedMonths].sort((a, b) => b.fact - a.fact)[0] || null;
+  const cmgrPctStr = (cmgrRatio * 100).toFixed(1);
+
+  const minClients = recordedMonths.length > 0 ? Math.min(...recordedMonths.map(m => m.activeClients)) : 0;
+  const maxClients = recordedMonths.length > 0 ? Math.max(...recordedMonths.map(m => m.activeClients)) : 0;
+  const avgMonthlyArpu = recordedMonths.length > 0
+    ? Math.round(recordedMonths.reduce((s, m) => s + m.arpu, 0) / recordedMonths.length)
+    : 0;
+
+  // Comparación YoY contra año anterior
+  const prevYearSummary = computeYearTotalForYoY(selectedYear - 1);
+  let yoyBadgeHtml = `<span class="ed-badge sky">${recordedMonths.length} mes(es) reales</span>`;
+  if (prevYearSummary.hasData && prevYearSummary.totalFact > 0) {
+    const yoyPct = (((ytdRealFact - prevYearSummary.totalFact) / prevYearSummary.totalFact) * 100);
+    const sign = yoyPct >= 0 ? '+' : '';
+    yoyBadgeHtml = `<span class="ed-badge ${yoyPct >= 0 ? 'up' : 'down'}">${yoyPct >= 0 ? '▲' : '▼'} ${sign}${yoyPct.toFixed(1)}% vs ${selectedYear - 1}</span>`;
+  }
+
+  const summaryBadgesEl = document.getElementById('ed-year-summary-badges');
+  if (summaryBadgesEl) {
+    summaryBadgesEl.innerHTML = `
+      <span class="ed-badge ${st.taxMode === 'net' ? 'violet' : 'neutral'}">${st.taxMode === 'net' ? 'Montos Netos (sin IVA)' : 'Montos Brutos (IVA incl.)'}</span>
+      <span class="ed-badge neutral">${recordedMonths.length} reales · ${forecastMonthsList.length} proyectados</span>
+    `;
+  }
+
+  // Pareto 80/20 sobre todos los registros reales del año
+  const yearPeriodIds = new Set(realMonthsWithData.map(m => m.periodId).filter(Boolean));
+  const entityTotalsMap = new Map();
+  (cachedDashboardRecords || []).forEach(r => {
+    if (!yearPeriodIds.has(r.period_id)) return;
+    const tf = st.serviceFilter === 'enviame' ? 0 : Math.max(0, Number(r.total_fulfillment) || 0);
+    const te = st.serviceFilter === 'fulfillment' ? 0 : Math.max(0, Number(r.enviame) || 0);
+    const val = applyDashTax(tf + te);
+    if (val <= 0) return;
+    const ent = resolveEntity(r.comercio);
+    if (!entityTotalsMap.has(ent.key)) {
+      entityTotalsMap.set(ent.key, { name: ent.displayName, isHolding: ent.isHolding, val: 0 });
+    }
+    entityTotalsMap.get(ent.key).val += val;
+  });
+
+  const sortedEntitiesAnnual = Array.from(entityTotalsMap.values()).sort((a, b) => b.val - a.val);
+  const totalEntitiesSum = Math.max(1, sortedEntitiesAnnual.reduce((s, x) => s + x.val, 0));
+  let runningParetoPct = 0;
+  let accountsFor80Count = 0;
+  const paretoList = sortedEntitiesAnnual.map(item => {
+    const sharePct = (item.val / totalEntitiesSum) * 100;
+    if (runningParetoPct < 80) accountsFor80Count++;
+    runningParetoPct += sharePct;
+    return {
+      ...item,
+      sharePct,
+      cumPct: Math.min(100, runningParetoPct)
+    };
+  });
+
+  window._lastComputedAnnualReport = {
+    year: selectedYear,
+    monthsMatrix,
+    paretoList
+  };
+
+  const factAnnualModalType = st.serviceFilter === 'fulfillment' ? 'fulf_fact' : (st.serviceFilter === 'enviame' ? 'env_fact' : 'all_fact');
+
+  // Renderizar 6 KPIs Estratégicos Anuales
   const cardsContainer = document.getElementById('d-year-metrics-cards');
   if (cardsContainer) {
+    const closeAdvancePct = projectedYearClose > 0 ? Math.min(100, Math.round((ytdRealFact / projectedYearClose) * 100)) : 100;
     cardsContainer.innerHTML = `
-      <div class="dashboard-card primary" onclick="window.showDashboardAnnualMetricDetail('fulf_fact', ${selectedYear})" style="cursor: pointer;">
-        <div class="dashboard-card-label"><i class="ri-bill-line"></i> Facturación Fulfillment</div>
-        <div class="dashboard-card-value">${window.formatCLP(annualFulfFact)}</div>
-        <div class="dashboard-card-sub">Total facturado (Hacer clic para ver detalle)</div>
+      <!-- KPI 1: Facturación Acumulada YTD -->
+      <div class="ed-kpi-card tone-violet clickable" onclick="window.showDashboardAnnualMetricDetail('${factAnnualModalType}', ${selectedYear})">
+        <div>
+          <div class="ed-kpi-top">
+            <span class="ed-kpi-title"><i class="ri-bar-chart-2-line" style="color: var(--color-primary);"></i> Facturación Acumulada (YTD)</span>
+            ${yoyBadgeHtml}
+          </div>
+          <div class="ed-kpi-val">${window.formatCLP(ytdRealFact)}</div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-bottom: 0.45rem;">
+            Contabilizado en <strong>${recordedMonths.length}</strong> periodo(s) con movimiento en ${selectedYear}
+          </div>
+        </div>
+        <div class="ed-kpi-foot">
+          <span>Fulf: <strong>${formatCompactCLP(ytdRealFulf)}</strong></span>
+          <span>Env: <strong>${formatCompactCLP(ytdRealEnv)}</strong></span>
+        </div>
       </div>
-      <div class="dashboard-card primary" onclick="window.showDashboardAnnualMetricDetail('env_fact', ${selectedYear})" style="cursor: pointer;">
-        <div class="dashboard-card-label"><i class="ri-bill-line"></i> Facturación Envíame</div>
-        <div class="dashboard-card-value">${window.formatCLP(annualEnvFact)}</div>
-        <div class="dashboard-card-sub">Total facturado (Hacer clic para ver detalle)</div>
+
+      <!-- KPI 2: Proyección de Cierre Anual (Forecast) -->
+      <div class="ed-kpi-card tone-indigo">
+        <div>
+          <div class="ed-kpi-top">
+            <span class="ed-kpi-title" style="color: #6d28d9;"><i class="ri-rocket-2-line"></i> Proyección Cierre ${selectedYear}</span>
+            <span class="ed-badge violet">${forecastMonthsList.length > 0 ? `+${forecastMonthsList.length}M Forecast` : 'Año Completo'}</span>
+          </div>
+          <div class="ed-kpi-val" style="color: var(--color-primary);">${window.formatCLP(projectedYearClose)}</div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.74rem; color: var(--color-text-muted);">
+            <span>Avance real sobre cierre estimado</span>
+            <strong style="color: var(--color-primary);">${closeAdvancePct}%</strong>
+          </div>
+          <div class="ed-progress-track">
+            <div style="width: ${closeAdvancePct}%; background: linear-gradient(90deg, #5f06fa, #a855f7); height: 100%;"></div>
+          </div>
+        </div>
+        <div class="ed-kpi-foot">
+          ${forecastMonthsList.length > 0
+            ? `<span>Banda estimada: <strong>${formatCompactCLP(bandLow)}</strong> – <strong>${formatCompactCLP(bandHigh)}</strong></span>`
+            : `<span>12 meses cerrados / contabilizados sin proyección restante</span>`}
+        </div>
       </div>
-      <div class="dashboard-card primary" style="background: rgba(147, 51, 234, 0.05); border-color: rgba(147, 51, 234, 0.2);">
-        <div class="dashboard-card-label" style="color: #a855f7;"><i class="ri-calculator-line"></i> Facturación Total Anual</div>
-        <div class="dashboard-card-value" style="color: #a855f7;">${window.formatCLP(annualTotalFact)}</div>
-        <div class="dashboard-card-sub">Fulfillment + Envíame</div>
+
+      <!-- KPI 3: Promedio Mensual y Crecimiento Compuesto (CMGR) -->
+      <div class="ed-kpi-card tone-sky">
+        <div>
+          <div class="ed-kpi-top">
+            <span class="ed-kpi-title" style="color: #0284c7;"><i class="ri-line-chart-line"></i> Promedio Mensual & CMGR</span>
+            <span class="ed-badge ${cmgrRatio >= 0 ? 'up' : 'down'}">${cmgrRatio >= 0 ? '+' : ''}${cmgrPctStr}% CMGR</span>
+          </div>
+          <div class="ed-kpi-val">${window.formatCLP(Math.round(avgRecordedFact))} <span style="font-size: 0.78rem; font-weight: 500; color: var(--color-text-muted);">/mes</span></div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-bottom: 0.45rem;">
+            Tasa de crecimiento compuesto mensual en ${selectedYear}
+          </div>
+        </div>
+        <div class="ed-kpi-foot">
+          ${bestMonthObj
+            ? `<span>Récord: <strong>${escapeDashHtml(bestMonthObj.shortLabel)} (${formatCompactCLP(bestMonthObj.fact)})</strong></span>`
+            : `<span>Sin meses registrados</span>`}
+        </div>
       </div>
-      <div class="dashboard-card success" onclick="window.showDashboardAnnualMetricDetail('received', ${selectedYear})" style="cursor: pointer;">
-        <div class="dashboard-card-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Pagos Recibidos</div>
-        <div class="dashboard-card-value" style="color: var(--color-success);">${window.formatCLP(annualTotalRec)}</div>
-        <div class="dashboard-card-sub">${recPercentage}% recaudado (Hacer clic para ver detalle)</div>
+
+      <!-- KPI 4: Recaudación Anual -->
+      <div class="ed-kpi-card tone-emerald clickable" onclick="window.showDashboardAnnualMetricDetail('received', ${selectedYear})">
+        <div>
+          <div class="ed-kpi-top">
+            <span class="ed-kpi-title" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Recaudación Anual Efectiva</span>
+            <span class="ed-badge up">${annualRecPct}% cobrado</span>
+          </div>
+          <div class="ed-kpi-val" style="color: var(--color-success);">${window.formatCLP(ytdRealRec)}</div>
+          <div class="ed-progress-track">
+            <div style="width: ${Math.min(100, parseFloat(annualRecPct) || 0)}%; background: linear-gradient(90deg, #059669, #34d399); height: 100%;"></div>
+          </div>
+        </div>
+        <div class="ed-kpi-foot">
+          <span>Saldo anual por cobrar: <strong style="color: var(--color-text-main);">${window.formatCLP(ytdRealPend)}</strong></span>
+        </div>
       </div>
-      <div class="dashboard-card danger" onclick="window.showDashboardAnnualMetricDetail('atrasado', ${selectedYear})" style="cursor: pointer;">
-        <div class="dashboard-card-label" style="color: var(--color-danger);"><i class="ri-error-warning-line"></i> Montos con Atraso (Anual)</div>
-        <div class="dashboard-card-value" style="color: var(--color-danger);">${window.formatCLP(annualAtrasado)}</div>
-        <div class="dashboard-card-sub">Total vencido (Hacer clic para ver detalle)</div>
+
+      <!-- KPI 5: Exposición a Morosidad Anual -->
+      <div class="ed-kpi-card tone-danger clickable" onclick="window.showDashboardAnnualMetricDetail('atrasado', ${selectedYear})">
+        <div>
+          <div class="ed-kpi-top">
+            <span class="ed-kpi-title" style="color: var(--color-danger);"><i class="ri-error-warning-line"></i> Exposición Morosidad Anual</span>
+            <span class="ed-badge ${ytdRealOverdue > 0 ? 'down' : 'up'}">${annualDelinquencyPct}% del YTD</span>
+          </div>
+          <div class="ed-kpi-val" style="color: var(--color-danger);">${window.formatCLP(ytdRealOverdue)}</div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-bottom: 0.45rem;">
+            Incluye deuda en atraso y plazos vencidos no conciliados
+          </div>
+        </div>
+        <div class="ed-kpi-foot">
+          <span>Cartera sana histórica: <strong style="color: var(--color-success);">${healthyPct}%</strong></span>
+          <span style="color: var(--color-primary); font-weight: 700;">Ver detalle →</span>
+        </div>
       </div>
-      <div class="dashboard-card warning" onclick="window.showDashboardAnnualMetricDetail('proximo', ${selectedYear})" style="cursor: pointer;">
-        <div class="dashboard-card-label" style="color: var(--color-warning);"><i class="ri-time-line"></i> Próximos a Vencer (Anual)</div>
-        <div class="dashboard-card-value" style="color: var(--color-warning);">${window.formatCLP(annualProximo)}</div>
-        <div class="dashboard-card-sub">Total por vencer (Hacer clic para ver detalle)</div>
-      </div>
-      <div class="dashboard-card primary" style="background: rgba(100, 116, 139, 0.05); border-color: rgba(100, 116, 139, 0.2);">
-        <div class="dashboard-card-label" style="color: #64748b;"><i class="ri-wallet-3-line"></i> Saldo Pendiente Anual</div>
-        <div class="dashboard-card-value" style="color: #64748b;">${window.formatCLP(annualPending)}</div>
-        <div class="dashboard-card-sub">Fulfillment + Envíame por cobrar</div>
+
+      <!-- KPI 6: Base Activa y Ticket Medio Mensual (ARPU) -->
+      <div class="ed-kpi-card tone-amber">
+        <div>
+          <div class="ed-kpi-top">
+            <span class="ed-kpi-title" style="color: #d97706;"><i class="ri-store-3-line"></i> Base Activa & ARPU Mensual</span>
+            <span class="ed-badge warn">${minClients} → ${maxClients} cuentas</span>
+          </div>
+          <div class="ed-kpi-val">${window.formatCLP(avgMonthlyArpu)}</div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-bottom: 0.45rem;">
+            Facturación mensual media por cuenta activa en ${selectedYear}
+          </div>
+        </div>
+        <div class="ed-kpi-foot">
+          <span>Concentración 80%: <strong>${accountsFor80Count} ${st.groupHoldings ? 'cuenta(s)' : 'tienda(s)'}</strong></span>
+          <span>Media: <strong>${avgActiveClients} activas/mes</strong></span>
+        </div>
       </div>
     `;
   }
 
+  const paretoBadge = document.getElementById('ed-pareto-80-badge');
+  if (paretoBadge) {
+    paretoBadge.textContent = `${accountsFor80Count} ${st.groupHoldings ? 'cuenta(s)' : 'tienda(s)'} generan el 80%`;
+  }
+
+  const arpuBadge = document.getElementById('ed-arpu-trend-badge');
+  if (arpuBadge) {
+    arpuBadge.textContent = `Media: ${avgActiveClients} cuentas · ARPU ${formatCompactCLP(avgMonthlyArpu)}`;
+  }
+
+  renderAnnualCharts(monthsMatrix, paretoList);
+  renderAnnualFinancialMatrixTable(monthsMatrix, {
+    ytdRealFulf,
+    ytdRealEnv,
+    ytdRealFact,
+    ytdRealRec,
+    ytdRealPend,
+    annualRecPct,
+    projectedYearClose,
+    forecastCount: forecastMonthsList.length,
+    cmgrPctStr
+  });
+};
+
+function renderAnnualCharts(monthsMatrix, paretoList) {
   if (!window.Chart) return;
 
-  const ctxMonthly = document.getElementById('chart-annual-monthly');
-  if (ctxMonthly) {
-    if (annualMonthlyChartInstance) {
-      annualMonthlyChartInstance.destroy();
+  const st = getExecDashboardState();
+  const dark = isDashboardDarkTheme();
+  const tickColor = dark ? '#94a3b8' : '#64748b';
+  const gridColor = dark ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.18)';
+  const labels12 = monthsMatrix.map(m => m.isForecast ? `${m.shortLabel}*` : m.shortLabel);
+  const goalMonthly = applyDashTax(st.monthlyGoal);
+
+  // 1. Gráfico Maestro 12 Meses
+  const ctxMaster = document.getElementById('chart-annual-monthly');
+  if (ctxMaster) {
+    if (annualMonthlyChartInstance) annualMonthlyChartInstance.destroy();
+
+    let datasets = [];
+    let stackedAxes = false;
+
+    if (st.annualChartMode === 'forecast') {
+      stackedAxes = true;
+      if (st.serviceFilter === 'all' || st.serviceFilter === 'fulfillment') {
+        datasets.push({
+          type: 'bar',
+          label: 'Fulfillment (Real)',
+          data: monthsMatrix.map(m => m.isForecast ? 0 : m.fulf),
+          backgroundColor: '#5f06fa',
+          borderRadius: 4,
+          stack: 'main',
+          order: 2
+        });
+      }
+      if (st.serviceFilter === 'all' || st.serviceFilter === 'enviame') {
+        datasets.push({
+          type: 'bar',
+          label: 'Courier Envíame (Real)',
+          data: monthsMatrix.map(m => m.isForecast ? 0 : m.env),
+          backgroundColor: '#0ea5e9',
+          borderRadius: 4,
+          stack: 'main',
+          order: 2
+        });
+      }
+      if (monthsMatrix.some(m => m.isForecast)) {
+        datasets.push({
+          type: 'bar',
+          label: 'Proyección (Forecast)',
+          data: monthsMatrix.map(m => m.isForecast ? m.fact : 0),
+          backgroundColor: 'rgba(139, 92, 246, 0.28)',
+          borderColor: '#8b5cf6',
+          borderWidth: 1.5,
+          borderRadius: 4,
+          stack: 'main',
+          order: 2
+        });
+      }
+      datasets.push({
+        type: 'line',
+        label: 'Meta Mensual',
+        data: monthsMatrix.map(() => goalMonthly),
+        borderColor: '#f59e0b',
+        borderWidth: 1.8,
+        borderDash: [6, 5],
+        pointRadius: 0,
+        fill: false,
+        order: 1
+      });
+    } else if (st.annualChartMode === 'collected') {
+      stackedAxes = true;
+      datasets = [
+        {
+          type: 'bar',
+          label: 'Recaudado Efectivo',
+          data: monthsMatrix.map(m => m.isForecast ? 0 : m.rec),
+          backgroundColor: '#10b981',
+          borderRadius: 4,
+          stack: 'col',
+          order: 2
+        },
+        {
+          type: 'bar',
+          label: 'Saldo por Cobrar',
+          data: monthsMatrix.map(m => m.isForecast ? 0 : m.pend),
+          backgroundColor: '#f59e0b',
+          borderRadius: 4,
+          stack: 'col',
+          order: 2
+        },
+        {
+          type: 'bar',
+          label: 'Forecast Pendiente de Apertura',
+          data: monthsMatrix.map(m => m.isForecast ? m.fact : 0),
+          backgroundColor: 'rgba(148, 163, 184, 0.25)',
+          borderColor: '#94a3b8',
+          borderWidth: 1,
+          borderRadius: 4,
+          stack: 'col',
+          order: 2
+        }
+      ];
+    } else if (st.annualChartMode === 'ytd') {
+      const lastRealIdx = monthsMatrix.reduce((acc, m, idx) => (!m.isForecast && m.hasRealPeriod ? idx : acc), -1);
+      datasets = [
+        {
+          type: 'line',
+          label: 'Acumulado Real (YTD)',
+          data: monthsMatrix.map((m, idx) => idx <= lastRealIdx ? m.ytdCumulative : null),
+          borderColor: '#5f06fa',
+          backgroundColor: 'rgba(95, 6, 250, 0.14)',
+          borderWidth: 3,
+          fill: true,
+          tension: 0.3,
+          pointRadius: 4
+        },
+        {
+          type: 'line',
+          label: 'Curva Proyectada Cierre',
+          data: monthsMatrix.map((m, idx) => idx >= Math.max(0, lastRealIdx) ? m.ytdCumulative : null),
+          borderColor: '#8b5cf6',
+          backgroundColor: 'rgba(139, 92, 246, 0.08)',
+          borderWidth: 2.5,
+          borderDash: [6, 4],
+          fill: true,
+          tension: 0.3,
+          pointRadius: 4
+        }
+      ];
+    } else if (st.annualChartMode === 'mom') {
+      datasets = [{
+        type: 'bar',
+        label: 'Variación Mensual MoM (%)',
+        data: monthsMatrix.map(m => Number(m.momPct.toFixed(1))),
+        backgroundColor: monthsMatrix.map(m =>
+          m.isForecast ? 'rgba(139, 92, 246, 0.45)' : (m.momPct >= 0 ? '#10b981' : '#ef4444')
+        ),
+        borderRadius: 5
+      }];
     }
 
-    const monthsLabels = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const fulfDataset = monthlyData.map(d => d.fulfillment);
-    const envDataset = monthlyData.map(d => d.enviame);
+    annualMonthlyChartInstance = new Chart(ctxMaster, {
+      type: st.annualChartMode === 'ytd' ? 'line' : 'bar',
+      data: { labels: labels12, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        onClick: (_evt, elements) => {
+          if (elements && elements.length > 0) {
+            const mRow = monthsMatrix[elements[0].index];
+            if (mRow && !mRow.isForecast && mRow.periodId) {
+              window.jumpToDashboardPeriod(mRow.periodId);
+            }
+          }
+        },
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: { color: tickColor, boxWidth: 12, font: { family: 'Outfit, sans-serif', size: 11 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                if (st.annualChartMode === 'mom') {
+                  const v = Number(ctx.raw) || 0;
+                  return `${ctx.dataset.label}: ${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+                }
+                return `${ctx.dataset.label}: ${window.formatCLP(ctx.raw || 0)}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            stacked: stackedAxes,
+            grid: { display: false },
+            ticks: { color: tickColor, font: { family: 'Outfit, sans-serif', size: 11, weight: '600' } }
+          },
+          y: {
+            stacked: stackedAxes,
+            beginAtZero: st.annualChartMode !== 'mom',
+            grid: { color: gridColor },
+            ticks: {
+              color: tickColor,
+              font: { family: 'Outfit, sans-serif', size: 11 },
+              callback: (v) => st.annualChartMode === 'mom' ? `${v}%` : formatCompactCLP(v)
+            }
+          }
+        }
+      }
+    });
+  }
 
-    annualMonthlyChartInstance = new Chart(ctxMonthly, {
+  // 2. Gráfico Pareto 80/20 o Dona Top 8
+  const ctxPareto = document.getElementById('chart-annual-commerce');
+  if (ctxPareto) {
+    if (annualCommerceChartInstance) annualCommerceChartInstance.destroy();
+
+    if (st.paretoViewMode === 'doughnut') {
+      const top8 = paretoList.slice(0, 8);
+      const restSum = paretoList.slice(8).reduce((s, x) => s + x.val, 0);
+      const dLabels = top8.map(x => x.name);
+      const dVals = top8.map(x => x.val);
+      if (restSum > 0) {
+        dLabels.push(`Otros (${paretoList.length - 8})`);
+        dVals.push(restSum);
+      }
+      const palette = ['#5f06fa', '#0ea5e9', '#10b981', '#f59e0b', '#ec4899', '#6366f1', '#14b8a6', '#f97316', '#64748b'];
+      const totalSum = Math.max(1, dVals.reduce((s, v) => s + v, 0));
+
+      annualCommerceChartInstance = new Chart(ctxPareto, {
+        type: 'doughnut',
+        data: {
+          labels: dLabels,
+          datasets: [{
+            data: dVals,
+            backgroundColor: palette.slice(0, dLabels.length),
+            borderWidth: 1.5,
+            borderColor: dark ? '#1e293b' : '#ffffff'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'right',
+              labels: { color: tickColor, boxWidth: 11, font: { family: 'Outfit, sans-serif', size: 11 } }
+            },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const val = ctx.raw || 0;
+                  const pct = ((val / totalSum) * 100).toFixed(1);
+                  return `${ctx.label}: ${window.formatCLP(val)} (${pct}%)`;
+                }
+              }
+            }
+          }
+        }
+      });
+    } else {
+      // Curva Pareto 80/20 (Top 9 + Otros)
+      const top9 = paretoList.slice(0, 9);
+      const restVal = paretoList.slice(9).reduce((s, x) => s + x.val, 0);
+      const pItems = [...top9];
+      if (restVal > 0) {
+        pItems.push({ name: `Otros (${paretoList.length - 9})`, val: restVal, cumPct: 100 });
+      }
+      const pLabels = pItems.map(x => x.name.length > 14 ? x.name.slice(0, 13) + '…' : x.name);
+
+      annualCommerceChartInstance = new Chart(ctxPareto, {
+        type: 'bar',
+        data: {
+          labels: pLabels,
+          datasets: [
+            {
+              type: 'bar',
+              label: 'Facturación Anual',
+              data: pItems.map(x => x.val),
+              backgroundColor: 'rgba(95, 6, 250, 0.78)',
+              borderRadius: 5,
+              yAxisID: 'y',
+              order: 2,
+              maxBarThickness: 36
+            },
+            {
+              type: 'line',
+              label: '% Acumulado',
+              data: pItems.map(x => Number(x.cumPct.toFixed(1))),
+              borderColor: '#f59e0b',
+              backgroundColor: '#f59e0b',
+              borderWidth: 2.5,
+              pointRadius: 3.5,
+              tension: 0.25,
+              yAxisID: 'y1',
+              order: 1
+            },
+            {
+              type: 'line',
+              label: 'Umbral 80%',
+              data: pItems.map(() => 80),
+              borderColor: '#ef4444',
+              borderWidth: 1.2,
+              borderDash: [5, 4],
+              pointRadius: 0,
+              yAxisID: 'y1',
+              order: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: { color: tickColor, boxWidth: 11, font: { family: 'Outfit, sans-serif', size: 11 } }
+            },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  if (ctx.dataset.yAxisID === 'y1') return `${ctx.dataset.label}: ${ctx.raw}%`;
+                  const fullName = pItems[ctx.dataIndex]?.name || ctx.label;
+                  return `${fullName}: ${window.formatCLP(ctx.raw || 0)}`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { color: tickColor, font: { family: 'Outfit, sans-serif', size: 10 } }
+            },
+            y: {
+              position: 'left',
+              beginAtZero: true,
+              grid: { color: gridColor },
+              ticks: {
+                color: tickColor,
+                font: { family: 'Outfit, sans-serif', size: 10 },
+                callback: (v) => formatCompactCLP(v)
+              }
+            },
+            y1: {
+              position: 'right',
+              min: 0,
+              max: 100,
+              grid: { drawOnChartArea: false },
+              ticks: {
+                color: '#f59e0b',
+                font: { family: 'Outfit, sans-serif', size: 10 },
+                callback: (v) => `${v}%`
+              }
+            }
+          }
+        }
+      });
+    }
+  }
+
+  // 3. Gráfico Dual Clientes Activos vs ARPU Mensual
+  const ctxArpu = document.getElementById('chart-annual-arpu');
+  if (ctxArpu) {
+    if (annualArpuChartInstance) annualArpuChartInstance.destroy();
+
+    annualArpuChartInstance = new Chart(ctxArpu, {
       type: 'bar',
       data: {
-        labels: monthsLabels,
+        labels: labels12,
         datasets: [
           {
-            label: 'Fulfillment',
-            data: fulfDataset,
-            backgroundColor: '#3b82f6',
-            borderRadius: 4
+            type: 'bar',
+            label: 'Cuentas Activas',
+            data: monthsMatrix.map(m => m.activeClients),
+            backgroundColor: monthsMatrix.map(m => m.isForecast ? 'rgba(14, 165, 233, 0.28)' : 'rgba(14, 165, 233, 0.75)'),
+            borderRadius: 5,
+            yAxisID: 'yClients',
+            order: 2,
+            maxBarThickness: 30
           },
           {
-            label: 'Envíame',
-            data: envDataset,
-            backgroundColor: '#10b981',
-            borderRadius: 4
+            type: 'line',
+            label: 'Ticket Medio (ARPU)',
+            data: monthsMatrix.map(m => m.arpu > 0 ? m.arpu : null),
+            borderColor: '#8b5cf6',
+            backgroundColor: '#8b5cf6',
+            borderWidth: 2.5,
+            pointRadius: 3.5,
+            tension: 0.3,
+            spanGaps: true,
+            yAxisID: 'yArpu',
+            order: 1
           }
         ]
       },
@@ -77723,306 +84932,201 @@ window.updateDashboardYearView = function() {
         plugins: {
           legend: {
             position: 'top',
-            labels: { color: '#94a3b8', font: { family: 'Outfit, sans-serif' } }
+            labels: { color: tickColor, boxWidth: 11, font: { family: 'Outfit, sans-serif', size: 11 } }
           },
           tooltip: {
             callbacks: {
-              label: function(context) {
-                return context.dataset.label + ': ' + window.formatCLP(context.raw);
+              label: (ctx) => {
+                if (ctx.dataset.yAxisID === 'yClients') return `Cuentas activas: ${ctx.raw || 0}`;
+                return `ARPU mensual: ${window.formatCLP(ctx.raw || 0)}`;
               }
             }
           }
         },
         scales: {
           x: {
-            stacked: true,
             grid: { display: false },
-            ticks: { color: '#94a3b8' }
+            ticks: { color: tickColor, font: { family: 'Outfit, sans-serif', size: 11 } }
           },
-          y: {
-            stacked: true,
-            grid: { color: 'rgba(148, 163, 184, 0.1)' },
+          yClients: {
+            position: 'left',
+            beginAtZero: true,
+            grid: { color: gridColor },
             ticks: {
-              color: '#94a3b8',
-              callback: function(value) {
-                return window.formatCLP(value);
-              }
-            }
-          }
-        }
-      }
-    });
-  }
-
-  const ctxCommerce = document.getElementById('chart-annual-commerce');
-  if (ctxCommerce) {
-    if (annualCommerceChartInstance) {
-      annualCommerceChartInstance.destroy();
-    }
-
-    const sortedCommerces = Object.entries(commerceBillingMap)
-      .sort((a, b) => b[1] - a[1]);
-
-    const topCommerces = sortedCommerces.slice(0, 8);
-    const otherCommercesSum = sortedCommerces.slice(8).reduce((sum, item) => sum + item[1], 0);
-
-    const labels = topCommerces.map(item => item[0]);
-    const data = topCommerces.map(item => item[1]);
-
-    if (otherCommercesSum > 0) {
-      labels.push('Otros');
-      data.push(otherCommercesSum);
-    }
-
-    const colors = [
-      '#3b82f6', '#10b981', '#f59e0b', '#ef4444', 
-      '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', 
-      '#64748b'
-    ];
-
-    annualCommerceChartInstance = new Chart(ctxCommerce, {
-      type: 'doughnut',
-      data: {
-        labels: labels,
-        datasets: [{
-          data: data,
-          backgroundColor: colors.slice(0, labels.length),
-          borderWidth: 1,
-          borderColor: 'var(--color-surface)'
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            position: 'right',
-            labels: { 
-              color: '#94a3b8', 
-              font: { family: 'Outfit, sans-serif', size: 11 } 
+              color: tickColor,
+              precision: 0,
+              font: { family: 'Outfit, sans-serif', size: 10 }
             }
           },
-          tooltip: {
-            callbacks: {
-              label: function(context) {
-                const val = context.raw;
-                const pct = annualTotalFact > 0 ? ((val / annualTotalFact) * 100).toFixed(1) : 0;
-                return context.label + ': ' + window.formatCLP(val) + ' (' + pct + '%)';
-              }
+          yArpu: {
+            position: 'right',
+            beginAtZero: true,
+            grid: { drawOnChartArea: false },
+            ticks: {
+              color: '#8b5cf6',
+              font: { family: 'Outfit, sans-serif', size: 10 },
+              callback: (v) => formatCompactCLP(v)
             }
           }
         }
       }
     });
   }
-};
+}
+
+function renderAnnualFinancialMatrixTable(monthsMatrix, totals) {
+  const tbody = document.getElementById('ed-annual-matrix-tbody');
+  const tfoot = document.getElementById('ed-annual-matrix-tfoot');
+  if (!tbody || !tfoot) return;
+
+  tbody.innerHTML = monthsMatrix.map(m => {
+    let badgeHtml = `<span class="ed-badge neutral">Sin apertura</span>`;
+    if (m.isForecast) badgeHtml = `<span class="ed-badge violet"><i class="ri-sparkling-line"></i> Proyectado</span>`;
+    else if (m.periodStatus === 'activo') badgeHtml = `<span class="ed-badge sky">En Curso</span>`;
+    else if (m.periodStatus === 'en_proceso') badgeHtml = `<span class="ed-badge warn">En Proceso</span>`;
+    else if (m.hasRealPeriod) badgeHtml = `<span class="ed-badge up">Cerrado</span>`;
+
+    const rowCls = m.isForecast ? 'forecast-row' : (m.periodId ? 'real-row' : '');
+    const rowClick = (!m.isForecast && m.periodId) ? `onclick="window.jumpToDashboardPeriod('${m.periodId}')"` : '';
+
+    const momHtml = m.fact <= 0 || Math.abs(m.momPct) < 0.05
+      ? `<span style="color: var(--color-text-muted);">—</span>`
+      : `<span style="font-weight: 700; color: ${m.momPct >= 0 ? 'var(--color-success)' : 'var(--color-danger)'};">${m.momPct >= 0 ? '+' : ''}${m.momPct.toFixed(1)}%</span>`;
+
+    return `
+      <tr class="${rowCls}" ${rowClick}>
+        <td style="font-weight: 700;">${escapeDashHtml(m.fullLabel)}</td>
+        <td>${badgeHtml}</td>
+        <td style="text-align: center; font-weight: 600;">${m.activeClients > 0 ? m.activeClients : '—'}</td>
+        <td style="text-align: right;">${m.fact > 0 || m.fulf > 0 ? window.formatCLP(m.fulf) : '—'}</td>
+        <td style="text-align: right;">${m.fact > 0 || m.env > 0 ? window.formatCLP(m.env) : '—'}</td>
+        <td style="text-align: right; font-weight: 800; color: ${m.isForecast ? 'var(--color-primary)' : 'var(--color-text-main)'};">
+          ${m.fact > 0 ? window.formatCLP(m.fact) : '—'}
+        </td>
+        <td style="text-align: right; font-weight: 600; color: var(--color-success);">
+          ${m.isForecast || !m.hasRealPeriod ? '—' : window.formatCLP(m.rec)}
+        </td>
+        <td style="text-align: center; font-weight: 700;">
+          ${m.isForecast || !m.hasRealPeriod || m.fact <= 0 ? '—' : `${m.recPct}%`}
+        </td>
+        <td style="text-align: right; font-weight: 600; color: ${m.pend > 0 ? '#d97706' : 'var(--color-text-muted)'};">
+          ${m.isForecast || !m.hasRealPeriod ? '—' : window.formatCLP(m.pend)}
+        </td>
+        <td style="text-align: right;">${momHtml}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const totalProjFulf = monthsMatrix.reduce((s, m) => s + m.fulf, 0);
+  const totalProjEnv = monthsMatrix.reduce((s, m) => s + m.env, 0);
+
+  tfoot.innerHTML = `
+    <tr style="background: var(--color-bg); font-weight: 700;">
+      <td colspan="3" style="padding: 0.75rem;">SUBTOTAL CONTABILIZADO REAL (YTD)</td>
+      <td style="text-align: right; padding: 0.75rem;">${window.formatCLP(totals.ytdRealFulf)}</td>
+      <td style="text-align: right; padding: 0.75rem;">${window.formatCLP(totals.ytdRealEnv)}</td>
+      <td style="text-align: right; padding: 0.75rem; font-weight: 800;">${window.formatCLP(totals.ytdRealFact)}</td>
+      <td style="text-align: right; padding: 0.75rem; color: var(--color-success);">${window.formatCLP(totals.ytdRealRec)}</td>
+      <td style="text-align: center; padding: 0.75rem;">${totals.annualRecPct}%</td>
+      <td style="text-align: right; padding: 0.75rem;">${window.formatCLP(totals.ytdRealPend)}</td>
+      <td style="text-align: right; padding: 0.75rem; color: var(--color-success);">${parseFloat(totals.cmgrPctStr) >= 0 ? '+' : ''}${totals.cmgrPctStr}% CMGR</td>
+    </tr>
+    ${totals.forecastCount > 0 ? `
+      <tr style="background: rgba(95, 6, 250, 0.08); font-weight: 800;">
+        <td colspan="3" style="padding: 0.8rem 0.75rem; color: var(--color-primary);">
+          <i class="ri-rocket-2-line"></i> TOTAL CIERRE PROYECTADO ANUAL (+${totals.forecastCount} mes(es) Forecast)
+        </td>
+        <td style="text-align: right; padding: 0.8rem 0.75rem;">${window.formatCLP(totalProjFulf)}</td>
+        <td style="text-align: right; padding: 0.8rem 0.75rem;">${window.formatCLP(totalProjEnv)}</td>
+        <td style="text-align: right; padding: 0.8rem 0.75rem; color: var(--color-primary); font-size: 0.92rem;">${window.formatCLP(totals.projectedYearClose)}</td>
+        <td colspan="4" style="text-align: right; padding: 0.8rem 0.75rem; font-size: 0.76rem; font-weight: 600; color: var(--color-text-muted);">
+          Proyección calculada según escenario activo
+        </td>
+      </tr>
+    ` : ''}
+  `;
+}
 
 window.showDashboardAnnualMetricDetail = function(metricType, year) {
-  const yearPeriods = cachedDashboardPeriods.filter(p => {
-    let pY = p.period_year;
-    if (!pY) {
-      const parts = (p.name || '').split(' ');
-      pY = parts[1] ? parseInt(parts[1], 10) : 0;
-    }
-    return pY === year;
-  });
+  const st = getExecDashboardState();
+  st.modalServiceFilter = 'all';
+  st.modalSearchQuery = '';
 
-  const periodIds = yearPeriods.map(p => p.id);
-  const yearRecords = cachedDashboardRecords.filter(r => periodIds.includes(r.period_id));
-  
+  const yearPeriods = (cachedDashboardPeriods || []).filter(p => parseDashboardPeriodYM(p).year === year);
+  const periodNameMap = {};
+  yearPeriods.forEach(p => { periodNameMap[p.id] = p.name; });
+  const periodIds = new Set(yearPeriods.map(p => p.id));
+  const yearRecords = (cachedDashboardRecords || []).filter(r => periodIds.has(r.period_id));
+
   const modal = document.getElementById('dashboard-detail-modal');
   const modalTitle = document.getElementById('d-modal-title');
   const modalBody = document.getElementById('d-modal-body-content');
-  
   if (!modal || !modalTitle || !modalBody) return;
-  
-  let titleText = '';
-  let tableRows = '';
-  let filterBarHtml = '';
-  
-  const periodNameMap = {};
-  yearPeriods.forEach(p => {
-    periodNameMap[p.id] = p.name;
-  });
 
-  if (metricType === 'fulf_fact') {
-    titleText = `Detalle de Facturación Fulfillment Anual (${year})`;
-    tableRows = yearRecords.map(r => `
-      <tr>
-        <td><strong>${r.comercio}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${periodNameMap[r.period_id] || ''}</span></td>
-        <td style="font-weight: 600;">${window.formatCLP(r.total_fulfillment)}</td>
-        <td>${r.fecha_limite ? new Date(r.fecha_limite + 'T00:00:00').toLocaleDateString() : '-'}</td>
-        <td><span class="client-badge ${getStatusClass(r.pago_fulfillment)}">${r.pago_fulfillment}</span></td>
-      </tr>
-    `).join('');
-  } else if (metricType === 'env_fact') {
-    titleText = `Detalle de Facturación Envíame Anual (${year})`;
-    tableRows = yearRecords.map(r => `
-      <tr>
-        <td><strong>${r.comercio}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${periodNameMap[r.period_id] || ''}</span></td>
-        <td style="font-weight: 600;">${window.formatCLP(r.enviame)}</td>
-        <td>${r.fecha_limite_enviame ? new Date(r.fecha_limite_enviame + 'T00:00:00').toLocaleDateString() : '-'}</td>
-        <td><span class="client-badge ${getStatusClass(r.pago_enviame)}">${r.pago_enviame}</span></td>
-      </tr>
-    `).join('');
+  const taxSuffix = st.taxMode === 'net' ? 'Neto s/IVA' : 'Bruto c/IVA';
+  let titleText = `Detalle Anual ${year} (${taxSuffix})`;
+  const items = [];
+
+  const pushItem = (r, serviceLabel, rawAmount, rawTotalRef, dueDate, statusStr, agingInfo = null) => {
+    items.push({
+      recordId: r.id,
+      periodId: r.period_id,
+      periodLabel: periodNameMap[r.period_id] || '',
+      commerce: r.comercio || 'Comercio',
+      service: serviceLabel,
+      serviceKey: serviceLabel === 'Fulfillment' ? 'fulfillment' : 'enviame',
+      amount: applyDashTax(rawAmount),
+      totalRef: rawTotalRef !== null ? applyDashTax(rawTotalRef) : null,
+      dueDate,
+      status: statusStr || 'Por solicitar',
+      agingLabel: agingInfo ? agingInfo.label : ''
+    });
+  };
+
+  if (metricType === 'all_fact' || metricType === 'fulf_fact' || metricType === 'env_fact') {
+    titleText = `Facturación Anual Acumulada (${year}) — ${taxSuffix}`;
+    yearRecords.forEach(r => {
+      if ((metricType === 'all_fact' || metricType === 'fulf_fact') && (r.total_fulfillment || 0) > 0) {
+        pushItem(r, 'Fulfillment', r.total_fulfillment, null, r.fecha_limite, r.pago_fulfillment);
+      }
+      if ((metricType === 'all_fact' || metricType === 'env_fact') && (r.enviame || 0) > 0) {
+        pushItem(r, 'Envíame', r.enviame, null, r.fecha_limite_enviame, r.pago_enviame);
+      }
+    });
   } else if (metricType === 'received') {
-    titleText = `Detalle de Pagos Recibidos Anual (${year})`;
-    const list = [];
+    titleText = `Pagos Recibidos Anual (${year}) — ${taxSuffix}`;
     yearRecords.forEach(r => {
       if ((r.abono_fulfillment || 0) > 0) {
-        list.push({ recordId: r.id, periodId: r.period_id, commerce: r.comercio, service: 'Fulfillment', amount: r.abono_fulfillment, total: r.total_fulfillment, status: r.pago_fulfillment, dueDate: r.fecha_limite });
+        pushItem(r, 'Fulfillment', r.abono_fulfillment, r.total_fulfillment, r.fecha_limite, r.pago_fulfillment);
       }
       if ((r.abono_enviame || 0) > 0) {
-        list.push({ recordId: r.id, periodId: r.period_id, commerce: r.comercio, service: 'Envíame', amount: r.abono_enviame, total: r.enviame, status: r.pago_enviame, dueDate: r.fecha_limite_enviame });
+        pushItem(r, 'Envíame', r.abono_enviame, r.enviame, r.fecha_limite_enviame, r.pago_enviame);
       }
     });
-
-    filterBarHtml = `
-      <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
-        <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin: 0;">
-          <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
-          <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
-          <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
-        </div>
-        <div id="modal-metric-total-summary" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); background: var(--color-bg); padding: 0.35rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
-          Total: <span id="modal-metric-total-val" style="color: var(--color-primary);">-</span>
-        </div>
-      </div>
-    `;
-
-    tableRows = list.map(item => `
-      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}" data-amount="${item.amount}">
-        <td><strong>${item.commerce}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service} | ${periodNameMap[item.periodId] || ''}</span></td>
-        <td style="font-weight: 600; color: var(--color-success);">${window.formatCLP(item.amount)} <span style="font-weight: normal; font-size: 0.75rem; color: var(--color-text-muted);">de ${window.formatCLP(item.total)}</span></td>
-        <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
-        <td><span class="client-badge ${getStatusClass(item.status)}">${item.status}</span></td>
-      </tr>
-    `).join('');
   } else if (metricType === 'atrasado') {
-    titleText = `Detalle de Montos con Atraso Anual (${year})`;
-    
-    filterBarHtml = `
-      <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
-        <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin: 0;">
-          <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
-          <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
-          <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
-        </div>
-        <div id="modal-metric-total-summary" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); background: var(--color-bg); padding: 0.35rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
-          Total: <span id="modal-metric-total-val" style="color: var(--color-primary);">-</span>
-        </div>
-      </div>
-    `;
-
-    const list = [];
+    titleText = `Exposición a Morosidad Anual (${year}) — ${taxSuffix}`;
     yearRecords.forEach(r => {
-      const fPending = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
-      const ePending = (r.enviame || 0) - (r.abono_enviame || 0);
-      
-      if (r.pago_fulfillment === 'Atrasado' && fPending > 0) {
-        list.push({ recordId: r.id, periodId: r.period_id, commerce: r.comercio, service: 'Fulfillment', amount: fPending, dueDate: r.fecha_limite, status: r.pago_fulfillment });
-      }
-      if (r.pago_enviame === 'Atrasado' && ePending > 0) {
-        list.push({ recordId: r.id, periodId: r.period_id, commerce: r.comercio, service: 'Envíame', amount: ePending, dueDate: r.fecha_limite_enviame, status: r.pago_enviame });
-      }
+      const pf = Math.max(0, (r.total_fulfillment || 0) - (r.abono_fulfillment || 0));
+      const pe = Math.max(0, (r.enviame || 0) - (r.abono_enviame || 0));
+      const agF = classifyDashServiceAging(pf, r.pago_fulfillment, r.fecha_limite);
+      const agE = classifyDashServiceAging(pe, r.pago_enviame, r.fecha_limite_enviame);
+      if (agF.isOverdue) pushItem(r, 'Fulfillment', pf, r.total_fulfillment, r.fecha_limite, r.pago_fulfillment, agF);
+      if (agE.isOverdue) pushItem(r, 'Envíame', pe, r.enviame, r.fecha_limite_enviame, r.pago_enviame, agE);
     });
-    
-    tableRows = list.map(item => `
-      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}" data-amount="${item.amount}">
-        <td>
-          <strong>${item.commerce}</strong><br>
-          <span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service} | ${periodNameMap[item.periodId] || ''}</span>
-        </td>
-        <td style="color: var(--color-danger); font-weight: 600;">${window.formatCLP(item.amount)}</td>
-        <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
-        <td><span class="client-badge ${getStatusClass(item.status)}">${item.status}</span></td>
-        <td style="vertical-align: middle; text-align: center;">
-          <div style="display: inline-flex; gap: 0.25rem;">
-            <button class="btn btn-outline btn-sm" onclick="window.openCommerceEmailHistoryModal('${item.recordId}', '${item.commerce.replace(/'/g, "\\'")}', '${item.periodId}')" title="Ver Historial de Correos" style="padding: 0.2rem 0.4rem; height: 28px; line-height: 1;">
-              <i class="ri-history-line" style="font-size: 0.9rem;"></i>
-            </button>
-            <button class="btn btn-outline btn-sm" onclick="window.openSendBillingEmailModal('${item.recordId}', '${item.commerce.replace(/'/g, "\\'")}', '${item.periodId}')" title="Enviar Correo Manual" style="padding: 0.2rem 0.4rem; border-color: var(--color-primary); color: var(--color-primary); height: 28px; line-height: 1;">
-              <i class="ri-mail-send-line" style="font-size: 0.9rem;"></i>
-            </button>
-          </div>
-        </td>
-      </tr>
-    `).join('');
   } else if (metricType === 'proximo') {
-    titleText = `Detalle de Montos Próximos a Vencer Anual (${year})`;
-    
-    filterBarHtml = `
-      <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
-        <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin: 0;">
-          <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
-          <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
-          <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
-        </div>
-        <div id="modal-metric-total-summary" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); background: var(--color-bg); padding: 0.35rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
-          Total: <span id="modal-metric-total-val" style="color: var(--color-primary);">-</span>
-        </div>
-      </div>
-    `;
-
-    const list = [];
+    titleText = `Saldos Vigentes en Plazo Anual (${year}) — ${taxSuffix}`;
     yearRecords.forEach(r => {
-      const fPending = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
-      const ePending = (r.enviame || 0) - (r.abono_enviame || 0);
-      
-      if (r.pago_fulfillment !== 'Recibido' && r.pago_fulfillment !== 'abono' && r.pago_fulfillment !== 'aprobado' && r.pago_fulfillment !== 'Sin movimientos' && r.pago_fulfillment !== 'Atrasado' && fPending > 0) {
-        list.push({ periodId: r.period_id, commerce: r.comercio, service: 'Fulfillment', amount: fPending, dueDate: r.fecha_limite, status: r.pago_fulfillment });
-      }
-      if (r.pago_enviame !== 'Recibido' && r.pago_enviame !== 'abono' && r.pago_enviame !== 'aprobado' && r.pago_enviame !== 'Sin movimientos' && r.pago_enviame !== 'Atrasado' && ePending > 0) {
-        list.push({ periodId: r.period_id, commerce: r.comercio, service: 'Envíame', amount: ePending, dueDate: r.fecha_limite_enviame, status: r.pago_enviame });
-      }
+      const pf = Math.max(0, (r.total_fulfillment || 0) - (r.abono_fulfillment || 0));
+      const pe = Math.max(0, (r.enviame || 0) - (r.abono_enviame || 0));
+      const agF = classifyDashServiceAging(pf, r.pago_fulfillment, r.fecha_limite);
+      const agE = classifyDashServiceAging(pe, r.pago_enviame, r.fecha_limite_enviame);
+      if (agF.isPending && !agF.isOverdue) pushItem(r, 'Fulfillment', pf, r.total_fulfillment, r.fecha_limite, r.pago_fulfillment, agF);
+      if (agE.isPending && !agE.isOverdue) pushItem(r, 'Envíame', pe, r.enviame, r.fecha_limite_enviame, r.pago_enviame, agE);
     });
-    
-    tableRows = list.map(item => `
-      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}" data-amount="${item.amount}">
-        <td><strong>${item.commerce}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service} | ${periodNameMap[item.periodId] || ''}</span></td>
-        <td style="color: var(--color-warning); font-weight: 600;">${window.formatCLP(item.amount)}</td>
-        <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
-        <td><span class="client-badge ${getStatusClass(item.status)}">${item.status}</span></td>
-      </tr>
-    `).join('');
   }
-  
-  modalTitle.textContent = titleText;
-  
-  if (!tableRows) {
-    modalBody.innerHTML = `
-      <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
-        No hay registros para esta métrica en este año.
-      </div>
-    `;
-  } else {
-    const hasActions = (metricType === 'atrasado');
-    modalBody.innerHTML = `
-      ${filterBarHtml}
-      <div class="table-responsive">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Comercio</th>
-              <th>Monto</th>
-              <th>Fecha Vencimiento</th>
-              <th>Estado</th>
-              ${hasActions ? '<th style="text-align: center;">Notificaciones</th>' : ''}
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRows}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-  
-  modal.classList.add('active');
-  
-  if (tableRows && (metricType === 'atrasado' || metricType === 'proximo' || metricType === 'received')) {
-    window.filterModalMetricService('all');
-  }
+
+  items.sort((a, b) => b.amount - a.amount);
+  renderDashboardDetailModalTable(modalTitle, modalBody, modal, titleText, items);
 };
 
 // ==========================================
@@ -84017,9 +91121,12 @@ window.openAdminBillingObservationModal = async function(recordId, commerceName,
           showSavingBadge(true);
           setTimeout(() => showSavingBadge(false), 800);
 
-          const body = document.getElementById(`records-body-${periodId}`);
+          const body = document.getElementById(`records-body-${periodId}`) || document.getElementById(`period-body-${periodId}`);
           if (body) {
             await loadBillingRecords(periodId, body);
+          }
+          if (document.getElementById('d-commerce-select') && typeof window.refreshCommerceViewData === 'function') {
+            await window.refreshCommerceViewData(true);
           }
 
           // Recargar también la pestaña de apelaciones y su contador si existe
@@ -85190,6 +92297,7 @@ window.editWmsOrderShippingDetails = async function(orderId) {
               .limit(1);
 
             if (activeCheck && activeCheck.length > 0) {
+              const pickerMeta = window.buildPickerOrderMeta ? window.buildPickerOrderMeta(order) : null;
               await pickerSupabase
                 .from('active_orders')
                 .update({
@@ -85199,7 +92307,12 @@ window.editWmsOrderShippingDetails = async function(orderId) {
                   contact_data_s: (formValues.address || '').slice(0, 255),
                   contact_data_t: (formValues.city || '').slice(0, 255),
                   contact_data_u: (formValues.complement || '').slice(0, 255),
-                  observation: (newObservation || '').slice(0, 1000)
+                  observation: (newObservation || '').slice(0, 1000),
+                  ...(pickerMeta ? {
+                    coverage: pickerMeta.coverage,
+                    order_tags: pickerMeta.order_tags,
+                    order_sla: pickerMeta.order_sla
+                  } : {})
                 })
                 .eq('order_number', orderNumber);
               console.log(`✅ Datos de despacho y notas sincronizados en Picker active_orders para ${orderNumber}`);
@@ -87177,6 +94290,9 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
   // Actualizar directamente en active_orders sin borrar ni agregar observaciones de [MODIFICADO]
   const forceItemsUpdate = Boolean(options && options.itemsChanged);
   if (!forceItemsUpdate) {
+    const pickerMeta = window.buildPickerOrderMeta
+      ? window.buildPickerOrderMeta({ ...order, operador: finalOperator })
+      : null;
     const updatePayload = {
       operator: String(finalOperator || '').slice(0, 100),
       tracking: String(finalTrack || '').slice(0, 255),
@@ -87184,7 +94300,16 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
       sucursal: String(order.sucursal_pickeo || 'Sucursal Virtual (Hub)').slice(0, 100),
       contact_data_s: String(order.shipping_address || '').slice(0, 255),
       contact_data_t: String(order.shipping_city || '').slice(0, 255),
-      contact_data_u: String(order.shipping_complement || '').slice(0, 255)
+      contact_data_u: String(order.shipping_complement || '').slice(0, 255),
+      ...(pickerMeta ? {
+        platform: pickerMeta.platform,
+        platform_logo: pickerMeta.platform_logo,
+        shipping_method: pickerMeta.shipping_method,
+        payment_status: pickerMeta.payment_status,
+        coverage: pickerMeta.coverage,
+        order_tags: pickerMeta.order_tags,
+        order_sla: pickerMeta.order_sla
+      } : {})
     };
 
     const { error: updErr } = await pickerSupabase
@@ -87228,7 +94353,7 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
     try {
       const { data: freshItems } = await supabase
         .from('order_items')
-        .select('quantity, product_id, warehouse_id, tag, is_gift, campaign_id, is_picking_request, products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2)')
+        .select('quantity, product_id, warehouse_id, tag, is_gift, campaign_id, is_picking_request, products(id, comercio, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2, woocommerce_product_id, woocommerce_variation_id, tiendanube_product_id, tiendanube_variant_id, jumpseller_product_id, jumpseller_variant_id, raw_paris_data, raw_falabella_data, raw_jumpseller_data, raw_tiendanube_data, raw_woocommerce_data, raw_meli_data, raw_ripley_data)')
         .eq('order_id', order.id);
       if (freshItems && freshItems.length > 0) {
         items = freshItems;
@@ -87308,6 +94433,13 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
     ? window.buildPickerObservation(order, cleanExistingObs, prContextForObs) 
     : (cleanExistingObs || order.observation || '');
 
+  const syncedImgMapProp = window.loadSyncedProductImagesMapForOrder
+    ? await window.loadSyncedProductImagesMapForOrder(physicalItems, order.comercio)
+    : null;
+  const propPickerMeta = window.buildPickerOrderMeta
+    ? window.buildPickerOrderMeta({ ...order, operador: finalOperator })
+    : { platform: 'Manual', platform_logo: 'img/stocka.cap.png', shipping_method: '', payment_status: 'PAGADO', coverage: null, order_tags: [], order_sla: 'Sin info' };
+
   for (const item of physicalItems) {
     const prod = item.products || {};
     const opt = prod.options || {};
@@ -87341,6 +94473,14 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
       }
     }
 
+    const resolvedImg = window.resolveProductImageForPicker
+      ? window.resolveProductImageForPicker(prod, order, syncedImgMapProp)
+      : (prod.image_url || '');
+    if (resolvedImg && prod.id && !prod.image_url) {
+      supabase.from('products').update({ image_url: resolvedImg }).eq('id', prod.id).then(() => {}).catch(() => {});
+      prod.image_url = resolvedImg;
+    }
+
     payloads.push({
       sucursal: ((order.sucursal_pickeo === 'Matriz Ñuñoa' ? 'Sucursal Ñuñoa' : order.sucursal_pickeo) || 'Sucursal Virtual (Hub)').slice(0, 100),
       order_number: String(orderNumber).slice(0, 100),
@@ -87365,7 +94505,7 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
       contact_data_s: (order.shipping_address || '').slice(0, 255),
       contact_data_t: (order.shipping_city || '').slice(0, 255),
       contact_data_u: (order.shipping_complement || '').slice(0, 255),
-      extra_col_v: (prod.image_url || '').slice(0, 500),
+      extra_col_v: (resolvedImg || '').slice(0, 500),
       comercio: (order.comercio || 'MAGIC MAKEUP').slice(0, 100),
       picking_match_strict: commerceStrict || prod.picking_match_strict || false,
       created_by: 'Sistema WMS',
@@ -87373,7 +94513,14 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
       picking_requests_json: finalPickingReqJson,
       picking_requests_confirmed: finalPickingReqConfirmed,
       picking_requests_operator: finalPickingReqOp,
-      picking_requests_confirmed_at: finalPickingReqAt
+      picking_requests_confirmed_at: finalPickingReqAt,
+      platform: propPickerMeta.platform,
+      platform_logo: propPickerMeta.platform_logo,
+      shipping_method: propPickerMeta.shipping_method,
+      payment_status: propPickerMeta.payment_status,
+      coverage: propPickerMeta.coverage,
+      order_tags: propPickerMeta.order_tags,
+      order_sla: propPickerMeta.order_sla
     });
   }
 
@@ -87456,7 +94603,7 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
     try {
       const { data: freshOrder } = await supabase
         .from('orders')
-        .select('id, external_order_number, tracking_number, operador, courier, agenda, sucursal_pickeo, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, raw_lightdata_data, raw_shopify_data, raw_meli_data, raw_woocommerce_data, raw_jumpseller_data, raw_tiendanube_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_walmart_data, cantidad, item, sku, shipping_method')
+        .select('id, external_order_number, external_platform, origen, status, payment_status, categoria_entrega, comercio, tracking_number, operador, courier, agenda, sucursal_pickeo, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, raw_lightdata_data, raw_shopify_data, raw_meli_data, raw_woocommerce_data, raw_jumpseller_data, raw_tiendanube_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_walmart_data, cantidad, item, sku, shipping_method')
         .eq('id', order.id)
         .maybeSingle();
       if (freshOrder) {
@@ -87644,7 +94791,7 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
     try {
       const { data: freshItems } = await supabase
         .from('order_items')
-        .select('quantity, product_id, warehouse_id, tag, is_gift, campaign_id, is_picking_request, products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2)')
+        .select('quantity, product_id, warehouse_id, tag, is_gift, campaign_id, is_picking_request, products(id, comercio, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2, woocommerce_product_id, woocommerce_variation_id, tiendanube_product_id, tiendanube_variant_id, jumpseller_product_id, jumpseller_variant_id, raw_paris_data, raw_falabella_data, raw_jumpseller_data, raw_tiendanube_data, raw_woocommerce_data, raw_meli_data, raw_ripley_data)')
         .eq('order_id', order.id);
       if (freshItems && freshItems.length > 0) {
         items = freshItems;
@@ -87720,6 +94867,13 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
     return (obs ? `${pickingTag} | ${obs}` : pickingTag).slice(0, 1000);
   };
 
+  const syncedImgMapSend = window.loadSyncedProductImagesMapForOrder
+    ? await window.loadSyncedProductImagesMapForOrder(physicalItems, order.comercio)
+    : null;
+  const sendPickerMeta = window.buildPickerOrderMeta
+    ? window.buildPickerOrderMeta({ ...order, operador: cleanOperator })
+    : { platform: 'Manual', platform_logo: 'img/stocka.cap.png', shipping_method: '', payment_status: 'PAGADO', coverage: null, order_tags: [], order_sla: 'Sin info' };
+
   await pickerSupabase
     .from('active_orders')
     .delete()
@@ -87758,6 +94912,14 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
       }
     }
 
+    const resolvedImg = window.resolveProductImageForPicker
+      ? window.resolveProductImageForPicker(prod, order, syncedImgMapSend)
+      : (prod.image_url || '');
+    if (resolvedImg && prod.id && !prod.image_url) {
+      supabase.from('products').update({ image_url: resolvedImg }).eq('id', prod.id).then(() => {}).catch(() => {});
+      prod.image_url = resolvedImg;
+    }
+
     payloads.push({
       sucursal: ((order.sucursal_pickeo === 'Matriz Ñuñoa' ? 'Sucursal Ñuñoa' : order.sucursal_pickeo) || 'Sucursal Virtual (Hub)').slice(0, 100),
       order_number: String(orderNumber).slice(0, 100),
@@ -87782,7 +94944,7 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
       contact_data_s: (order.shipping_address || '').slice(0, 255),
       contact_data_t: (order.shipping_city || '').slice(0, 255),
       contact_data_u: (order.shipping_complement || '').slice(0, 255),
-      extra_col_v: (prod.image_url || '').slice(0, 500),
+      extra_col_v: (resolvedImg || '').slice(0, 500),
       comercio: (order.comercio || 'MAGIC MAKEUP').slice(0, 100),
       picking_match_strict: commerceStrict || prod.picking_match_strict || false,
       created_by: 'Sistema WMS',
@@ -87790,12 +94952,22 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
       picking_requests_json: finalPickingReqJson,
       picking_requests_confirmed: finalPickingReqConfirmed,
       picking_requests_operator: finalPickingReqOperator,
-      picking_requests_confirmed_at: finalPickingReqConfirmedAt
+      picking_requests_confirmed_at: finalPickingReqConfirmedAt,
+      platform: sendPickerMeta.platform,
+      platform_logo: sendPickerMeta.platform_logo,
+      shipping_method: sendPickerMeta.shipping_method,
+      payment_status: sendPickerMeta.payment_status,
+      coverage: sendPickerMeta.coverage,
+      order_tags: sendPickerMeta.order_tags,
+      order_sla: sendPickerMeta.order_sla
     });
   }
 
   // Fallback si la orden no tiene order_items pero tiene información de item/sku en cabecera
   if (payloads.length === 0 && (order.sku || order.item)) {
+    const fallbackImg = window.resolveProductImageForPicker
+      ? window.resolveProductImageForPicker({ sku: order.sku }, order, syncedImgMapSend)
+      : '';
     payloads.push({
       sucursal: ((order.sucursal_pickeo === 'Matriz Ñuñoa' ? 'Sucursal Ñuñoa' : order.sucursal_pickeo) || 'Sucursal Virtual (Hub)').slice(0, 100),
       order_number: String(orderNumber).slice(0, 100),
@@ -87820,7 +94992,7 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
       contact_data_s: (order.shipping_address || '').slice(0, 255),
       contact_data_t: (order.shipping_city || '').slice(0, 255),
       contact_data_u: (order.shipping_complement || '').slice(0, 255),
-      extra_col_v: '',
+      extra_col_v: (fallbackImg || '').slice(0, 500),
       comercio: (order.comercio || 'MAGIC MAKEUP').slice(0, 100),
       picking_match_strict: commerceStrict || false,
       created_by: 'Sistema WMS',
@@ -87828,7 +95000,14 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
       picking_requests_json: finalPickingReqJson,
       picking_requests_confirmed: finalPickingReqConfirmed,
       picking_requests_operator: finalPickingReqOperator,
-      picking_requests_confirmed_at: finalPickingReqConfirmedAt
+      picking_requests_confirmed_at: finalPickingReqConfirmedAt,
+      platform: sendPickerMeta.platform,
+      platform_logo: sendPickerMeta.platform_logo,
+      shipping_method: sendPickerMeta.shipping_method,
+      payment_status: sendPickerMeta.payment_status,
+      coverage: sendPickerMeta.coverage,
+      order_tags: sendPickerMeta.order_tags,
+      order_sla: sendPickerMeta.order_sla
     });
   }
 
@@ -88209,23 +95388,12 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
     }
   }
 
-  // Si el catálogo aún no está cargado en caché, precargarlo en segundo plano y refrescar la tabla
+  // Si el catálogo aún no está cargado en caché, precargarlo en segundo plano de forma deduplicada
   if (dec && dec.comercio && (!window.adminCatalogProductsCache || window.adminCatalogProductsCache.length === 0)) {
-    if (!window._loadingAdminCatalogForDec) {
-      window._loadingAdminCatalogForDec = true;
-      (async () => {
-        try {
-          const prods = await window.fetchAllSupabaseRows('products', 'sku, name, volumen, largo, ancho, alto, price, barcode, barcode_wms, color, talla, variable_1, variable_2, options', q => q.eq('comercio', dec.comercio).order('name'));
-          window.adminCatalogProductsCache = prods || [];
-          window._loadingAdminCatalogForDec = false;
-          if (document.getElementById('manage-dec-products-tbody')) {
-            window.renderManageDeclarationProducts(dec, activeStatus);
-          }
-        } catch (err) {
-          console.warn('Error fallback catalog cache in renderManageDeclarationProducts:', err);
-          window._loadingAdminCatalogForDec = false;
-        }
-      })();
+    if (typeof window.loadFullCommerceCatalogInBackground === 'function') {
+      window.loadFullCommerceCatalogInBackground(dec.comercio, (prods) => {
+        window.adminCatalogProductsCache = prods || [];
+      });
     }
   }
 
@@ -91589,7 +98757,7 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
           });
         }
 
-        if (isDeliveredPickerStatus(meta.status) && o.estado_wms !== 'Despachado') {
+        if (isDeliveredPickerStatus(meta.status) && o.estado_wms !== 'Entregado') {
           ordersToDespachado.push({ order: o, meta });
         } else if (!isDeliveredPickerStatus(meta.status) && o.estado_wms === 'En preparación') {
           ordersToPickeado.push({ order: o, meta });
@@ -91625,9 +98793,10 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
         });
       }
 
-      // 2. Procesar pedidos marcados como 'Retirado' / 'ENTREGADO' -> pasan automáticamente a 'Despachado'
+      // 2. Procesar pedidos marcados como 'Retirado' / 'ENTREGADO' -> pasan automáticamente a 'Entregado' (Finalizado)
       if (ordersToDespachado.length > 0) {
         const ids = ordersToDespachado.map(x => x.order.id);
+        const nowIso = new Date().toISOString();
         const pickupOrderKeys = [];
         ordersToDespachado.forEach(({ order: o }) => {
           if (o.external_order_number) {
@@ -91638,10 +98807,24 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
 
         for (let i = 0; i < ids.length; i += updateChunkSize) {
           const chunkIds = ids.slice(i, i + updateChunkSize);
-          const { error: wmsErr } = await supabase
+          let { error: wmsErr } = await supabase
             .from('orders')
-            .update({ estado_wms: 'Despachado', status: 'despachado', stock_descontado: true })
+            .update({
+              estado_wms: 'Entregado',
+              status: 'retirado',
+              stock_descontado: true,
+              delivered_at: nowIso,
+              closed_at: nowIso,
+              closed_by_automation: 'auto-pickup-retirado-to-entregado'
+            })
             .in('id', chunkIds);
+          if (wmsErr) {
+            const fb = await supabase
+              .from('orders')
+              .update({ estado_wms: 'Entregado', status: 'retirado', stock_descontado: true })
+              .in('id', chunkIds);
+            wmsErr = fb.error;
+          }
           if (wmsErr) throw wmsErr;
         }
 
@@ -91654,15 +98837,23 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
             .catch(() => {});
         }
 
-        ordersToDespachado.forEach(({ order: o }) => {
-          o.estado_wms = 'Despachado';
-          o.status = 'despachado';
+        ordersToDespachado.forEach(({ order: o, meta }) => {
+          o.estado_wms = 'Entregado';
+          o.status = 'retirado';
           o.stock_descontado = true;
-          delete o._wmsTags;
-          delete o._wmsSearchIndex;
+          o.delivered_at = nowIso;
+          o.closed_at = nowIso;
+          if (meta?.status) o.picker_status = meta.status;
+          if (meta?.operator) o.picker_operator = meta.operator;
+          if (typeof window.clearSingleOrderWmsCache === 'function') {
+            window.clearSingleOrderWmsCache(o);
+          } else {
+            delete o._wmsTags;
+            delete o._wmsSearchIndex;
+          }
           syncedShopifyIds.push(o.id);
           if (typeof window.refreshAgendasOrderCell === 'function') {
-            window.refreshAgendasOrderCell(o.id, 'estado_wms', 'Despachado');
+            window.refreshAgendasOrderCell(o.id, 'estado_wms', 'Entregado');
           }
         });
       }
@@ -91676,8 +98867,8 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
 
         if (ordersToDespachado.length > 0 && ordersToPickeado.length === 0) {
           const orderNames = ordersToDespachado.map(x => x.order.external_order_number || x.order.id).slice(0, 3).join(', ') + (ordersToDespachado.length > 3 ? ' y otros' : '');
-          const notifTitle = `¡${ordersToDespachado.length} pedido(s) retirado(s) en Picker!`;
-          const notifHtml = `<div style="font-size: 0.825rem; margin-top: 0.25rem; color: var(--color-text-muted);">Pedidos: <strong>${orderNames}</strong> cambiados automáticamente a 'Despachado'.</div>`;
+          const notifTitle = `¡${ordersToDespachado.length} pedido(s) retirado(s) y finalizado(s)!`;
+          const notifHtml = `<div style="font-size: 0.825rem; margin-top: 0.25rem; color: var(--color-text-muted);">Pedidos: <strong>${orderNames}</strong> cerrados automáticamente en 'Entregado'.</div>`;
           if (typeof window.showStockaNotification === 'function') {
             window.showStockaNotification({
               type: 'success',
@@ -91690,7 +98881,7 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
           const allUpdatedOrders = [...ordersToPickeado.map(x => x.order), ...ordersToDespachado.map(x => x.order)];
           const orderNames = allUpdatedOrders.map(o => o.external_order_number || o.id).slice(0, 3).join(', ') + (allUpdatedOrders.length > 3 ? ' y otros' : '');
           const notifTitle = `¡${totalUpdated} pedido(s) sincronizados desde el Picker!`;
-          const notifHtml = `<div style="font-size: 0.825rem; margin-top: 0.25rem; color: var(--color-text-muted);">Pedidos: <strong>${orderNames}</strong> actualizados (${ordersToPickeado.length} Pickeado, ${ordersToDespachado.length} Despachado).</div>`;
+          const notifHtml = `<div style="font-size: 0.825rem; margin-top: 0.25rem; color: var(--color-text-muted);">Pedidos: <strong>${orderNames}</strong> actualizados (${ordersToPickeado.length} Pickeado, ${ordersToDespachado.length} Entregado).</div>`;
           if (typeof window.showStockaNotification === 'function') {
             window.showStockaNotification({
               type: 'success',
@@ -93214,7 +100405,12 @@ window.openBillingEmailGalleryModal = function() {
   document.body.appendChild(galleryModal);
 };
 
-window.openSendBillingEmailModal = async function(recordId, commerceName, periodId) {
+window.openSendBillingEmailModal = async function(recordId, commerceName, periodId, options = {}) {
+  const defaultEmailType = options.defaultEmailType || 'billing_summary';
+  const defaultServiceType = options.defaultServiceType || '';
+  const fallbackCustomEmail = options.fallbackEmail || '';
+  const isInvoiceModalMode = defaultEmailType === 'invoice_uploaded';
+
   let modal = document.getElementById('modal-send-billing-email');
   if (modal) modal.remove();
   
@@ -93225,7 +100421,7 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
   modal.innerHTML = `
     <div class="modal-content" id="send-billing-email-modal-content" style="max-width: 1180px; width: 96vw; transition: max-width 0.22s ease, width 0.22s ease;">
       <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;">
-        <h3 style="margin: 0; display: flex; align-items: center;"><i class="ri-mail-send-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Enviar Desglose por Email</h3>
+        <h3 style="margin: 0; display: flex; align-items: center;"><i class="ri-mail-send-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> ${isInvoiceModalMode ? 'Enviar Factura Oficial por Email al Seller' : 'Enviar Desglose por Email'}</h3>
         <div style="display: flex; align-items: center; gap: 0.5rem;">
           <button type="button" id="btn-toggle-email-preview-header" onclick="window.toggleBillingEmailPreviewPanel()" style="display: none; align-items: center; gap: 0.35rem; padding: 0.32rem 0.65rem; font-size: 0.76rem; font-weight: 700; border-radius: 6px; border: 1px solid #93c5fd; background: #eff6ff; color: #1d4ed8; cursor: pointer;">
             <i class="ri-eye-off-line"></i> Ocultar Vista Previa
@@ -93263,7 +100459,7 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
         .select('email, full_name, comercio, role'),
       supabase
         .from('comercios_adicional_config')
-        .select('comercio, contacto, email_colaborador')
+        .select('*')
         .ilike('comercio', commerceName)
         .maybeSingle(),
       supabase
@@ -93318,9 +100514,19 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
       });
     }
 
-    // c) Colaboradores y contacto adicional en comercios_adicional_config
+    // c) Colaboradores, facturación SII y contacto adicional en comercios_adicional_config
     if (addConfRes && addConfRes.data) {
       const ac = addConfRes.data;
+      if (ac.email_facturacion) {
+        String(ac.email_facturacion).split(/[,;\s]+/).forEach(em => {
+          addCommerceSuggestion(em, 'Facturación SII', 'DTE');
+        });
+      }
+      if (ac.rep_legal_email) {
+        String(ac.rep_legal_email).split(/[,;\s]+/).forEach(em => {
+          addCommerceSuggestion(em, ac.rep_legal_nombre || 'Rep. Legal', 'Legal');
+        });
+      }
       if (ac.email_colaborador) {
         String(ac.email_colaborador).split(/[,;\s]+/).forEach(em => {
           addCommerceSuggestion(em, 'Colaborador', 'Equipo');
@@ -93382,33 +100588,17 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
     // Determinar qué servicios pre-seleccionar
     const hasFulf = (rec.total_fulfillment || 0) > 0;
     const hasEnv = (rec.enviame || 0) > 0;
-    let serviceSelectHtml = '';
-    
-    if (hasFulf && hasEnv) {
-      serviceSelectHtml = `
-        <select id="email-service-type" class="form-input" style="width: 100%;" onchange="window.updateBillingEmailLivePreview()">
-          <option value="both" selected>Ambos Servicios (Fulfillment y Envíame)</option>
-          <option value="fulfillment">Solo Fulfillment</option>
-          <option value="enviame">Solo Envíame</option>
-        </select>
-      `;
-    } else if (hasEnv) {
-      serviceSelectHtml = `
-        <select id="email-service-type" class="form-input" style="width: 100%;" onchange="window.updateBillingEmailLivePreview()">
-          <option value="enviame" selected>Solo Envíame</option>
-          <option value="fulfillment">Solo Fulfillment</option>
-          <option value="both">Ambos Servicios (Fulfillment y Envíame)</option>
-        </select>
-      `;
-    } else {
-      serviceSelectHtml = `
-        <select id="email-service-type" class="form-input" style="width: 100%;" onchange="window.updateBillingEmailLivePreview()">
-          <option value="fulfillment" selected>Solo Fulfillment</option>
-          <option value="enviame">Solo Envíame</option>
-          <option value="both">Ambos Servicios (Fulfillment y Envíame)</option>
-        </select>
-      `;
-    }
+    const resolvedDefaultSvc = defaultServiceType || ((hasFulf && hasEnv) ? 'both' : (hasEnv ? 'enviame' : 'fulfillment'));
+    const autoPrefillCustomTo = (!contacts || contacts.length === 0)
+      ? (fallbackCustomEmail || addConfRes?.data?.email_facturacion || addConfRes?.data?.rep_legal_email || commerceCcSuggestions[0]?.email || '')
+      : '';
+    const serviceSelectHtml = `
+      <select id="email-service-type" class="form-input" style="width: 100%;" onchange="window.updateBillingEmailLivePreview()">
+        <option value="both" ${resolvedDefaultSvc === 'both' ? 'selected' : ''}>Ambos Servicios (Fulfillment y Envíame)</option>
+        <option value="fulfillment" ${resolvedDefaultSvc === 'fulfillment' ? 'selected' : ''}>Solo Fulfillment</option>
+        <option value="enviame" ${resolvedDefaultSvc === 'enviame' ? 'selected' : ''}>Solo Envíame</option>
+      </select>
+    `;
     
     bodyEl.innerHTML = `
       <div style="display: flex; gap: 1.25rem; align-items: stretch; flex-wrap: wrap;">
@@ -93426,7 +100616,7 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
             <!-- Custom Email Input (Para) -->
             <div style="display: flex; gap: 0.35rem; align-items: center; margin-bottom: 0.4rem;">
               <span style="font-size: 0.7rem; font-weight: 700; color: #475569; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 4px; padding: 0.2rem 0.45rem; min-width: 44px; text-align: center;" title="Destinatario principal adicional (Para)">Para +</span>
-              <input type="text" id="email-recipient-custom" class="form-input" placeholder="Escribir correo(s) adicional(es) separados por coma..." oninput="window.updateBillingEmailLivePreview()" style="flex-grow: 1; font-size: 0.8rem; margin: 0; padding: 0.35rem 0.5rem; height: 32px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main);">
+              <input type="text" id="email-recipient-custom" value="${autoPrefillCustomTo.replace(/"/g, '&quot;')}" class="form-input" placeholder="Escribir correo(s) adicional(es) separados por coma..." oninput="window.updateBillingEmailLivePreview()" style="flex-grow: 1; font-size: 0.8rem; margin: 0; padding: 0.35rem 0.5rem; height: 32px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main);">
             </div>
             <!-- CC Email Input (Con Copia) -->
             <div style="display: flex; gap: 0.35rem; align-items: center;">
@@ -93455,13 +100645,13 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
               </div>
             </div>
             <select id="email-type-select" class="form-input" style="width: 100%;" onchange="window.updateBillingEmailLivePreview()">
-              <option value="billing_summary" selected>Desglose / Resumen de Facturación</option>
-              <option value="payment_reminder">Recordatorio de Vencimiento Próximo (Aviso preventivo amable)</option>
-              <option value="invoice_uploaded">Notificación de Factura Cargada</option>
-              <option value="payment_overdue_manual">Aviso de Plazo de Pago Vencido</option>
-              <option value="suspension_warning">Alerta de Corte de Servicio (Aviso de suspensión)</option>
-              <option value="service_paused">Notificación Formal de Servicio Pausado (Corte efectivo)</option>
-              <option value="service_restored">Confirmación de Re-activación del Servicio</option>
+              <option value="billing_summary" ${defaultEmailType === 'billing_summary' ? 'selected' : ''}>Desglose / Resumen de Facturación</option>
+              <option value="payment_reminder" ${defaultEmailType === 'payment_reminder' ? 'selected' : ''}>Recordatorio de Vencimiento Próximo (Aviso preventivo amable)</option>
+              <option value="invoice_uploaded" ${defaultEmailType === 'invoice_uploaded' ? 'selected' : ''}>Notificación de Factura Cargada</option>
+              <option value="payment_overdue_manual" ${defaultEmailType === 'payment_overdue_manual' ? 'selected' : ''}>Aviso de Plazo de Pago Vencido</option>
+              <option value="suspension_warning" ${defaultEmailType === 'suspension_warning' ? 'selected' : ''}>Alerta de Corte de Servicio (Aviso de suspensión)</option>
+              <option value="service_paused" ${defaultEmailType === 'service_paused' ? 'selected' : ''}>Notificación Formal de Servicio Pausado (Corte efectivo)</option>
+              <option value="service_restored" ${defaultEmailType === 'service_restored' ? 'selected' : ''}>Confirmación de Re-activación del Servicio</option>
             </select>
 
             <!-- Mini-resumen en vivo del correo seleccionado -->
@@ -93694,9 +100884,16 @@ window.executeSendBillingEmail = async function(recordId, periodId, e) {
     });
     
     // Recargar tabla de facturación inmediatamente para mostrar el estado actualizado
+    const periodBody = periodId ? document.getElementById(`period-body-${periodId}`) : null;
+    if (periodBody) {
+      loadBillingRecords(periodId, periodBody);
+    }
     const tabReportsContent = document.getElementById('tab-reports-content');
-    if (tabReportsContent && periodId) {
+    if (!periodBody && tabReportsContent && periodId && tabReportsContent.offsetParent !== null) {
       loadBillingRecords(periodId, tabReportsContent);
+    }
+    if (document.getElementById('d-commerce-select') && typeof window.refreshCommerceViewData === 'function') {
+      window.refreshCommerceViewData(true);
     }
     
   } catch (err) {
@@ -93838,6 +101035,9 @@ window.updateBulkActionBar = function(periodId) {
             </select>
           </div>
         ` }
+        <button type="button" class="btn-lioren-1click" onclick="window.bulkEmitFromControlFacturas && window.bulkEmitFromControlFacturas('${periodId}')" style="height: 30px; padding: 0 0.75rem; font-size: 0.75rem;" title="Emitir masivamente en Lioren SII las facturas de los comercios seleccionados">
+          <i class="ri-flashlight-fill"></i> Emitir Facturas Lioren (${selectedCount})
+        </button>
         <button class="btn btn-primary btn-sm" onclick="window.applyBulkStatusUpdates('${periodId}')" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; margin: 0; font-weight: 600;">
           <i class="ri-check-line"></i> Aplicar Cambios
         </button>
@@ -95807,7 +103007,7 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
       }
     }
 
-    const prevManualEdits = (targetOrder?.raw_shopify_data?.wms_manual_edits) || {};
+    const prevManualEdits = rawKeys.reduce((acc, k) => acc || targetOrder?.[k]?.wms_manual_edits, null) || {};
     const mergedDeleted = Array.from(new Set([...(prevManualEdits.deleted_skus || []), ...deletedSkusList]))
       .filter(s => !addedSkusList.includes(s));
     const mergedAdded = Array.from(new Set([...(prevManualEdits.added_skus || []), ...addedSkusList]))
@@ -116570,9 +123770,11 @@ if (document.readyState === 'loading') {
 
 // ====== LOGISTICA INVERSA (ADMINISTRADOR) ======
 let adminReturnsCurrentPage = 1;
-const adminReturnsPageSize = 50;
+let adminReturnsPageSize = 50;
+let adminReturnsActiveDatePreset = 'all';
 window.adminRlCatalogProducts = [];
 window.activeConfirmRlRecord = null;
+window.cachedRlCommercesList = [];
 
 const SANTIAGO_COMUNAS = [
   'Cerrillos', 'Cerro Navia', 'Conchalí', 'El Bosque', 'Estación Central',
@@ -116585,29 +123787,265 @@ const SANTIAGO_COMUNAS = [
   'Colina'
 ];
 
+// Helper para obtener todos los comercios disponibles (profiles + reverse_logistics)
+window.fetchAllReverseLogisticsCommerces = async function(forceRefresh = false) {
+  if (!forceRefresh && Array.isArray(window.cachedRlCommercesList) && window.cachedRlCommercesList.length > 0) {
+    return window.cachedRlCommercesList;
+  }
+  const mapByUpper = new Map();
+  const addCommerceName = (raw) => {
+    if (!raw) return;
+    String(raw).split(',').forEach(part => {
+      const c = part.trim();
+      if (!c) return;
+      const lower = c.toLowerCase();
+      if (lower === 'no asignado' || lower === 'all' || lower === 'n/a') return;
+      const upper = c.toUpperCase();
+      if (!mapByUpper.has(upper)) {
+        mapByUpper.set(upper, c);
+      }
+    });
+  };
+
+  try {
+    const [{ data: profiles }, { data: rlRows }] = await Promise.all([
+      supabase.from('profiles').select('comercio').neq('role', 'admin'),
+      supabase.from('reverse_logistics').select('comercio').limit(2000)
+    ]);
+    const inactiveSet = typeof window.fetchInactiveMerchantsSet === 'function'
+      ? await window.fetchInactiveMerchantsSet()
+      : new Set();
+
+    (profiles || []).forEach(p => {
+      if (p.comercio) {
+        p.comercio.split(',').forEach(c => {
+          const trimmed = c.trim();
+          if (trimmed && !inactiveSet.has(trimmed.toUpperCase())) {
+            addCommerceName(trimmed);
+          }
+        });
+      }
+    });
+    (rlRows || []).forEach(r => {
+      if (r.comercio) addCommerceName(r.comercio);
+    });
+  } catch (err) {
+    console.warn('Error cargando comercios para Logística Inversa:', err);
+  }
+
+  window.cachedRlCommercesList = Array.from(mapByUpper.values()).sort((a, b) => a.localeCompare(b, 'es'));
+  return window.cachedRlCommercesList;
+};
+
+window.populateAdminReturnsCommerceFilter = async function() {
+  const sel = document.getElementById('filter-ret-commerce');
+  if (!sel) return;
+  const currentVal = sel.value;
+  const list = await window.fetchAllReverseLogisticsCommerces();
+  const escape = window.escapeHtml || (s => s);
+  sel.innerHTML = `<option value="">Todos los Comercios (${list.length})</option>` +
+    list.map(c => `<option value="${escape(c)}">${escape(c)}</option>`).join('');
+  if (currentVal && list.some(c => c.toLowerCase() === currentVal.toLowerCase())) {
+    const match = list.find(c => c.toLowerCase() === currentVal.toLowerCase());
+    sel.value = match;
+  }
+};
+
+window.applyAdminReturnsDatePreset = function(preset) {
+  adminReturnsActiveDatePreset = preset;
+  const fromEl = document.getElementById('filter-ret-date-from');
+  const toEl = document.getElementById('filter-ret-date-to');
+  const monthEl = document.getElementById('filter-ret-month');
+
+  const toLocalYMD = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const now = new Date();
+  let startStr = '';
+  let endStr = '';
+  let monthVal = '';
+
+  if (preset === 'today') {
+    startStr = toLocalYMD(now);
+    endStr = toLocalYMD(now);
+  } else if (preset === 'yesterday') {
+    const yest = new Date(now);
+    yest.setDate(now.getDate() - 1);
+    startStr = toLocalYMD(yest);
+    endStr = toLocalYMD(yest);
+  } else if (preset === '7d') {
+    const d7 = new Date(now);
+    d7.setDate(now.getDate() - 6);
+    startStr = toLocalYMD(d7);
+    endStr = toLocalYMD(now);
+  } else if (preset === '30d') {
+    const d30 = new Date(now);
+    d30.setDate(now.getDate() - 29);
+    startStr = toLocalYMD(d30);
+    endStr = toLocalYMD(now);
+  } else if (preset === 'this_month') {
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    startStr = toLocalYMD(firstDay);
+    endStr = toLocalYMD(lastDay);
+    monthVal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  } else if (preset === 'last_month') {
+    const firstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+    startStr = toLocalYMD(firstDay);
+    endStr = toLocalYMD(lastDay);
+    monthVal = `${firstDay.getFullYear()}-${String(firstDay.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  if (fromEl) fromEl.value = startStr;
+  if (toEl) toEl.value = endStr;
+  if (monthEl) monthEl.value = monthVal;
+
+  updateAdminReturnsDatePresetButtonsUI();
+  adminReturnsCurrentPage = 1;
+  fetchAndRenderAdminReturnsData();
+};
+
+function updateAdminReturnsDatePresetButtonsUI() {
+  document.querySelectorAll('.ret-date-preset-btn').forEach(btn => {
+    const p = btn.getAttribute('data-preset');
+    const isActive = p === adminReturnsActiveDatePreset;
+    btn.style.background = isActive ? 'var(--color-primary)' : 'var(--color-surface)';
+    btn.style.color = isActive ? '#ffffff' : 'var(--color-text-muted)';
+    btn.style.borderColor = isActive ? 'var(--color-primary)' : 'var(--color-border)';
+    btn.style.fontWeight = isActive ? '700' : '600';
+  });
+}
+
+window.clearAdminReturnsFilters = function() {
+  const ids = ['filter-ret-commerce', 'filter-ret-type', 'filter-ret-status', 'filter-ret-delivery-mode', 'filter-ret-search', 'filter-ret-month', 'filter-ret-date-from', 'filter-ret-date-to'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  adminReturnsActiveDatePreset = 'all';
+  updateAdminReturnsDatePresetButtonsUI();
+  adminReturnsCurrentPage = 1;
+  fetchAndRenderAdminReturnsData();
+};
+
+window.filterAdminReturnsByKpi = function(kpiType) {
+  const typeEl = document.getElementById('filter-ret-type');
+  const statusEl = document.getElementById('filter-ret-status');
+  if (kpiType === 'all') {
+    if (typeEl) typeEl.value = '';
+    if (statusEl) statusEl.value = '';
+  } else if (kpiType === 'CAMBIO') {
+    if (typeEl) typeEl.value = typeEl.value === 'CAMBIO' ? '' : 'CAMBIO';
+  } else if (kpiType === 'DEVOLUCION') {
+    if (typeEl) typeEl.value = typeEl.value === 'DEVOLUCION' ? '' : 'DEVOLUCION';
+  } else if (kpiType === 'pendiente') {
+    if (statusEl) statusEl.value = statusEl.value === 'pendiente' ? '' : 'pendiente';
+  } else if (kpiType === 'procesado') {
+    if (statusEl) statusEl.value = statusEl.value === 'procesado' ? '' : 'procesado';
+  }
+  adminReturnsCurrentPage = 1;
+  fetchAndRenderAdminReturnsData();
+};
+
+window.filterAdminReturnsByCommerce = function(commerceName) {
+  if (!commerceName) return;
+  const sel = document.getElementById('filter-ret-commerce');
+  if (!sel) return;
+  const exists = Array.from(sel.options).find(o => o.value.toLowerCase() === String(commerceName).toLowerCase());
+  if (exists) {
+    sel.value = sel.value === exists.value ? '' : exists.value;
+  } else {
+    const opt = document.createElement('option');
+    opt.value = commerceName;
+    opt.textContent = commerceName;
+    sel.appendChild(opt);
+    sel.value = commerceName;
+  }
+  adminReturnsCurrentPage = 1;
+  fetchAndRenderAdminReturnsData();
+};
+
+window.buildRlProductsSummaryHtml = function(r) {
+  const escape = window.escapeHtml || (s => s);
+  if (!r.productos || !Array.isArray(r.productos) || r.productos.length === 0) {
+    return `<span style="color: var(--color-text-muted); font-size: 0.78rem; font-style: italic;">Sin detalle de ítems</span>`;
+  }
+
+  const lines = [];
+  r.productos.forEach(p => {
+    if (p.producto_devuelto) {
+      const qtyDev = p.qty_devuelto !== undefined && p.qty_devuelto > 0 ? p.qty_devuelto : (p.cantidad || 1);
+      const retStock = p.regresar_a_inventario !== false;
+      const stockChip = retStock
+        ? `<span style="font-size: 0.65rem; background: #d1fae5; color: #047857; padding: 1px 5px; border-radius: 4px; font-weight: 700; margin-left: 4px;" title="Retorna a Stock Físico">Stock</span>`
+        : `<span style="font-size: 0.65rem; background: #fee2e2; color: #b91c1c; padding: 1px 5px; border-radius: 4px; font-weight: 700; margin-left: 4px;" title="No retorna a Stock / Merma">Merma</span>`;
+      lines.push(`
+        <div style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.78rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px;" title="Ingresa: ${escape(qtyDev + 'x ' + p.producto_devuelto)}${p.comentario ? ' (' + escape(p.comentario) + ')' : ''}">
+          <span style="color: #ef4444; font-weight: 700; flex-shrink: 0;">⬅️ ${qtyDev}x</span>
+          <span style="color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis;">${escape(p.producto_devuelto)}</span>
+          ${stockChip}
+        </div>
+      `);
+    }
+    if (p.producto_reemplazo) {
+      const qtyRep = p.qty_reemplazo !== undefined && p.qty_reemplazo > 0 ? p.qty_reemplazo : (p.cantidad || 1);
+      lines.push(`
+        <div style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.78rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px;" title="Sale Reemplazo: ${escape(qtyRep + 'x ' + p.producto_reemplazo)}">
+          <span style="color: #10b981; font-weight: 700; flex-shrink: 0;">➡️ ${qtyRep}x</span>
+          <span style="color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis;">${escape(p.producto_reemplazo)}</span>
+        </div>
+      `);
+    }
+  });
+
+  if (lines.length === 0) {
+    return `<span style="color: var(--color-text-muted); font-size: 0.78rem; font-style: italic;">Sin detalle de ítems</span>`;
+  }
+
+  const visible = lines.slice(0, 2).join('');
+  const extra = lines.length > 2
+    ? `<div style="font-size: 0.7rem; color: var(--color-primary); font-weight: 600; margin-top: 2px;">+${lines.length - 2} línea(s) más...</div>`
+    : '';
+  return `<div style="display: flex; flex-direction: column; gap: 2px;">${visible}${extra}</div>`;
+};
+
 window.renderAdminReturns = async function() {
   const content = document.getElementById('app-content');
-  
+  adminReturnsActiveDatePreset = 'all';
+
   content.innerHTML = `
-    <div style="margin-bottom: 2rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end;">
+    <!-- Header y Acciones Principales -->
+    <div style="margin-bottom: 1.25rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: center;">
       <div>
-        <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6; margin: 0;">
-          Gestión centralizada de cambios y devoluciones registrados en el WMS.
+        <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.2rem;">
+          <h2 style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin: 0; display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-arrow-go-back-line" style="color: var(--color-primary);"></i> Centro de Control · Logística Inversa
+          </h2>
+          <span id="admin-ret-header-badge" class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); font-weight: 700; font-size: 0.78rem; padding: 0.25rem 0.65rem; border-radius: 99px;">Cargando...</span>
+        </div>
+        <p style="color: var(--color-text-muted); font-size: 0.9rem; max-width: 800px; line-height: 1.45; margin: 0;">
+          Gestión centralizada de cambios, devoluciones, comprobantes de sucursal y edición de movimientos en el WMS.
         </p>
       </div>
       <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-        <!-- Pedidos de logística inversa -->
-        <button id="btn-admin-quick-branch-receipt" onclick="window.openQuickBranchExchangeReceiptModal()" class="btn btn-primary" style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; display: flex; align-items: center; gap: 0.35rem; font-weight: 700; box-shadow: 0 3px 8px rgba(79, 70, 229, 0.25);" title="Crear o imprimir rápidamente un Comprobante de Cambio o Recepción realizado en Sucursal Ñuñoa (ej: GLS28151)"><i class="ri-file-list-3-line"></i> Comprobante Sucursal</button>
+        <button id="btn-admin-quick-branch-receipt" onclick="window.openQuickBranchExchangeReceiptModal()" class="btn btn-primary" style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; display: flex; align-items: center; gap: 0.35rem; font-weight: 700; box-shadow: 0 3px 8px rgba(79, 70, 229, 0.25);" title="Crear o imprimir rápidamente un Comprobante de Cambio o Recepción realizado en Sucursal Ñuñoa (ej: GLS28151)">
+          <i class="ri-file-list-3-line"></i> Comprobante Sucursal
+        </button>
         <button id="btn-admin-create-order-return" class="btn btn-primary" style="background-color: var(--color-danger, #ef4444); color: white; display: flex; align-items: center; gap: 0.25rem; font-weight: 600;" title="Crear pedido de devolución con destinatario, courier y orden WMS">
           <i class="ri-shopping-bag-3-line"></i> Pedido Devolución
         </button>
         <button id="btn-admin-create-order-exchange" class="btn btn-primary" style="background-color: var(--color-success, #10b981); color: white; display: flex; align-items: center; gap: 0.25rem; font-weight: 600;" title="Crear pedido de cambio con destinatario, courier y orden WMS">
           <i class="ri-repeat-2-line"></i> Pedido Cambio
         </button>
-        <button id="btn-admin-export-csv" class="btn btn-outline" style="background-color: transparent; color: #10b981; border-color: #10b981;">
+        <button id="btn-admin-export-csv" class="btn btn-outline" style="background-color: transparent; color: #10b981; border-color: #10b981; font-weight: 600;">
           <i class="ri-file-text-line" style="margin-right: 0.25rem;"></i> CSV
         </button>
-        <button id="btn-admin-export-excel" class="btn btn-outline" style="background-color: transparent; color: #059669; border-color: #059669;">
+        <button id="btn-admin-export-excel" class="btn btn-outline" style="background-color: transparent; color: #059669; border-color: #059669; font-weight: 600;">
           <i class="ri-file-excel-2-line" style="margin-right: 0.25rem;"></i> Excel
         </button>
         <button id="btn-admin-delete-selected" class="btn" style="display: none; align-items: center; gap: 0.25rem; font-weight: 600; background-color: var(--color-danger, #ef4444); color: white; border: none; padding: 0.5rem 0.85rem;" title="Eliminar registros seleccionados">
@@ -116616,47 +124054,194 @@ window.renderAdminReturns = async function() {
       </div>
     </div>
 
-    <!-- Filtros -->
-    <div class="card" style="margin-bottom: 1.5rem;">
-      <div class="card-body" style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;">
-        <div class="form-group" style="flex: 1; min-width: 170px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Tipo de Movimiento</label>
-          <select id="filter-ret-type" class="form-input">
-            <option value="">Todos los Tipos</option>
-            <optgroup label="Pedidos">
-              <option value="PEDIDO_CAMBIO">Pedido Cambio</option>
-              <option value="PEDIDO_DEVOLUCION">Pedido Devolución</option>
-            </optgroup>
-            <optgroup label="Movimientos en Bodega">
-              <option value="MOV_CAMBIO">Cambio (Movimiento)</option>
-              <option value="MOV_DEVOLUCION">Devolución (Movimiento)</option>
-            </optgroup>
-            <optgroup label="General">
-              <option value="CAMBIO">Todos los Cambios</option>
-              <option value="DEVOLUCION">Todas las Devoluciones</option>
-            </optgroup>
-          </select>
+    <!-- Tarjetas KPI de Resumen Operativo (Interactivas) -->
+    <div id="admin-returns-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(195px, 1fr)); gap: 0.85rem; margin-bottom: 1.25rem;">
+      <div id="ret-kpi-all" onclick="window.filterAdminReturnsByKpi('all')" class="card" style="cursor: pointer; padding: 0.9rem 1.1rem; border-left: 4px solid var(--color-primary); transition: all 0.2s; margin: 0;" title="Clic para mostrar todos los movimientos">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div>
+            <span style="font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted);">Total Movimientos</span>
+            <div id="ret-kpi-total-val" style="font-size: 1.55rem; font-weight: 800; color: var(--color-text-main); line-height: 1.2; margin-top: 0.15rem;">0</div>
+          </div>
+          <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(59, 130, 246, 0.1); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+            <i class="ri-stack-line"></i>
+          </div>
         </div>
-        <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Estado</label>
-          <select id="filter-ret-status" class="form-input">
-            <option value="">Todos</option>
-            <option value="pendiente">Pendientes</option>
-            <option value="procesado">Procesados</option>
-          </select>
+        <div id="ret-kpi-total-sub" style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.35rem;">0 unidades movilizadas</div>
+      </div>
+
+      <div id="ret-kpi-cambio" onclick="window.filterAdminReturnsByKpi('CAMBIO')" class="card" style="cursor: pointer; padding: 0.9rem 1.1rem; border-left: 4px solid #10b981; transition: all 0.2s; margin: 0;" title="Clic para filtrar por Cambios">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div>
+            <span style="font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted);">Cambios</span>
+            <div id="ret-kpi-cambio-val" style="font-size: 1.55rem; font-weight: 800; color: #059669; line-height: 1.2; margin-top: 0.15rem;">0</div>
+          </div>
+          <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(16, 185, 129, 0.12); color: #059669; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+            <i class="ri-repeat-2-line"></i>
+          </div>
         </div>
-        <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Buscador General</label>
-          <input type="text" id="filter-ret-search" class="form-input" placeholder="Buscar por pedido, comercio, transporte, cliente...">
+        <div id="ret-kpi-cambio-sub" style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.35rem;">Pedidos y sucursal</div>
+      </div>
+
+      <div id="ret-kpi-devolucion" onclick="window.filterAdminReturnsByKpi('DEVOLUCION')" class="card" style="cursor: pointer; padding: 0.9rem 1.1rem; border-left: 4px solid #ef4444; transition: all 0.2s; margin: 0;" title="Clic para filtrar por Devoluciones">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div>
+            <span style="font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted);">Devoluciones</span>
+            <div id="ret-kpi-dev-val" style="font-size: 1.55rem; font-weight: 800; color: #dc2626; line-height: 1.2; margin-top: 0.15rem;">0</div>
+          </div>
+          <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(239, 68, 68, 0.12); color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+            <i class="ri-shopping-bag-3-line"></i>
+          </div>
         </div>
-        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Desde Fecha</label>
-          <input type="date" id="filter-ret-date-from" class="form-input">
+        <div id="ret-kpi-dev-sub" style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.35rem;">Retornos a bodega</div>
+      </div>
+
+      <div id="ret-kpi-pendiente" onclick="window.filterAdminReturnsByKpi('pendiente')" class="card" style="cursor: pointer; padding: 0.9rem 1.1rem; border-left: 4px solid #f59e0b; transition: all 0.2s; margin: 0;" title="Clic para filtrar Pendientes por Confirmar">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div>
+            <span style="font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted);">Pendientes</span>
+            <div id="ret-kpi-pend-val" style="font-size: 1.55rem; font-weight: 800; color: #d97706; line-height: 1.2; margin-top: 0.15rem;">0</div>
+          </div>
+          <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(245, 158, 11, 0.14); color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+            <i class="ri-time-line"></i>
+          </div>
         </div>
-        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
-          <label class="form-label" style="font-size: 0.8rem;">Hasta Fecha</label>
-          <input type="date" id="filter-ret-date-to" class="form-input">
+        <div id="ret-kpi-pend-sub" style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.35rem;">Por recepcionar / confirmar</div>
+      </div>
+
+      <div id="ret-kpi-procesado" onclick="window.filterAdminReturnsByKpi('procesado')" class="card" style="cursor: pointer; padding: 0.9rem 1.1rem; border-left: 4px solid #6366f1; transition: all 0.2s; margin: 0;" title="Clic para filtrar Confirmados / Procesados">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div>
+            <span style="font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted);">Confirmados</span>
+            <div id="ret-kpi-proc-val" style="font-size: 1.55rem; font-weight: 800; color: #4f46e5; line-height: 1.2; margin-top: 0.15rem;">0</div>
+          </div>
+          <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(99, 102, 241, 0.12); color: #4f46e5; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+            <i class="ri-checkbox-circle-line"></i>
+          </div>
         </div>
+        <div id="ret-kpi-proc-sub" style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.35rem;">Procesados en inventario</div>
+      </div>
+    </div>
+
+    <!-- Panel de Filtros Avanzados -->
+    <div class="card" style="margin-bottom: 1.25rem;">
+      <div class="card-body" style="padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.9rem;">
+        
+        <!-- Fila 1: Comercio, Tipo, Estado, Modalidad, Buscador -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 0.85rem; align-items: end;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-store-2-line" style="color: var(--color-primary);"></i> Comercio
+            </label>
+            <select id="filter-ret-commerce" class="form-input" style="font-weight: 600;">
+              <option value="">Todos los Comercios</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-arrow-left-right-line" style="color: var(--color-primary);"></i> Tipo de Movimiento
+            </label>
+            <select id="filter-ret-type" class="form-input">
+              <option value="">Todos los Tipos</option>
+              <optgroup label="Pedidos con Orden WMS">
+                <option value="PEDIDO_CAMBIO">Pedido Cambio</option>
+                <option value="PEDIDO_DEVOLUCION">Pedido Devolución</option>
+              </optgroup>
+              <optgroup label="Movimientos en Bodega / Sucursal">
+                <option value="MOV_CAMBIO">Cambio (Movimiento)</option>
+                <option value="MOV_DEVOLUCION">Devolución (Movimiento)</option>
+              </optgroup>
+              <optgroup label="General">
+                <option value="CAMBIO">Todos los Cambios</option>
+                <option value="DEVOLUCION">Todas las Devoluciones</option>
+              </optgroup>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-checkbox-circle-line" style="color: var(--color-primary);"></i> Estado
+            </label>
+            <select id="filter-ret-status" class="form-input">
+              <option value="">Todos los Estados</option>
+              <option value="pendiente">⏳ Pendientes</option>
+              <option value="procesado">✅ Confirmados / Procesados</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-truck-line" style="color: var(--color-primary);"></i> Modalidad / Entrega
+            </label>
+            <select id="filter-ret-delivery-mode" class="form-input">
+              <option value="">Todas las Modalidades</option>
+              <option value="sucursal">🏬 Sucursal / Punto Físico Ñuñoa</option>
+              <option value="domicilio_rm">🚚 Domicilio RM</option>
+              <option value="regiones">📦 Envío a Regiones</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0; grid-column: span 1;">
+            <label class="form-label" style="font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-search-line" style="color: var(--color-primary);"></i> Buscador General
+            </label>
+            <input type="text" id="filter-ret-search" class="form-input" placeholder="Pedido (GLS28151), cliente, SKU, tracking...">
+          </div>
+        </div>
+
+        <!-- Fila 2: Filtros de Fechas (Atajos Rápidos + Mes + Rango Desde/Hasta) y Acciones de Filtro -->
+        <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end; justify-content: space-between; padding-top: 0.75rem; border-top: 1px dashed var(--color-border);">
+          <div style="display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: flex-end;">
+            <div>
+              <label class="form-label" style="font-size: 0.74rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 0.3rem; display: block;">
+                <i class="ri-calendar-event-line"></i> Periodo Rápido
+              </label>
+              <div style="display: flex; flex-wrap: wrap; gap: 0.3rem;">
+                <button type="button" class="btn btn-outline ret-date-preset-btn" data-preset="all" onclick="window.applyAdminReturnsDatePreset('all')" style="padding: 0.35rem 0.65rem; font-size: 0.76rem; border-radius: 6px; background: var(--color-primary); color: #fff; border-color: var(--color-primary); font-weight: 700;">Todo</button>
+                <button type="button" class="btn btn-outline ret-date-preset-btn" data-preset="today" onclick="window.applyAdminReturnsDatePreset('today')" style="padding: 0.35rem 0.65rem; font-size: 0.76rem; border-radius: 6px;">Hoy</button>
+                <button type="button" class="btn btn-outline ret-date-preset-btn" data-preset="yesterday" onclick="window.applyAdminReturnsDatePreset('yesterday')" style="padding: 0.35rem 0.65rem; font-size: 0.76rem; border-radius: 6px;">Ayer</button>
+                <button type="button" class="btn btn-outline ret-date-preset-btn" data-preset="7d" onclick="window.applyAdminReturnsDatePreset('7d')" style="padding: 0.35rem 0.65rem; font-size: 0.76rem; border-radius: 6px;">7 Días</button>
+                <button type="button" class="btn btn-outline ret-date-preset-btn" data-preset="30d" onclick="window.applyAdminReturnsDatePreset('30d')" style="padding: 0.35rem 0.65rem; font-size: 0.76rem; border-radius: 6px;">30 Días</button>
+                <button type="button" class="btn btn-outline ret-date-preset-btn" data-preset="this_month" onclick="window.applyAdminReturnsDatePreset('this_month')" style="padding: 0.35rem 0.65rem; font-size: 0.76rem; border-radius: 6px;">Este Mes</button>
+                <button type="button" class="btn btn-outline ret-date-preset-btn" data-preset="last_month" onclick="window.applyAdminReturnsDatePreset('last_month')" style="padding: 0.35rem 0.65rem; font-size: 0.76rem; border-radius: 6px;">Mes Anterior</button>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0; min-width: 145px;">
+              <label class="form-label" style="font-size: 0.74rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 0.25rem;">Mes Específico</label>
+              <input type="month" id="filter-ret-month" class="form-input" style="height: 34px; padding: 0.25rem 0.5rem; font-size: 0.82rem;">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0; min-width: 135px;">
+              <label class="form-label" style="font-size: 0.74rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 0.25rem;">Desde Fecha</label>
+              <input type="date" id="filter-ret-date-from" class="form-input" style="height: 34px; padding: 0.25rem 0.5rem; font-size: 0.82rem;">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0; min-width: 135px;">
+              <label class="form-label" style="font-size: 0.74rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 0.25rem;">Hasta Fecha</label>
+              <input type="date" id="filter-ret-date-to" class="form-input" style="height: 34px; padding: 0.25rem 0.5rem; font-size: 0.82rem;">
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.45rem; align-items: center;">
+            <div class="form-group" style="margin-bottom: 0; display: flex; align-items: center; gap: 0.35rem;">
+              <label style="font-size: 0.75rem; color: var(--color-text-muted); white-space: nowrap;">Mostrar:</label>
+              <select id="filter-ret-page-size" class="form-input" style="height: 34px; padding: 0.2rem 0.45rem; font-size: 0.8rem; width: auto;">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+                <option value="200">200</option>
+              </select>
+            </div>
+            <button type="button" id="btn-ret-clear-filters" onclick="window.clearAdminReturnsFilters()" class="btn btn-outline" style="height: 34px; padding: 0 0.75rem; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.3rem;" title="Restablecer todos los filtros">
+              <i class="ri-filter-off-line"></i> Limpiar Filtros
+            </button>
+            <button type="button" id="btn-ret-refresh" onclick="window.fetchAndRenderAdminReturnsData()" class="btn btn-outline" style="height: 34px; padding: 0 0.7rem; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-primary); border-color: var(--color-primary);" title="Actualizar tabla">
+              <i class="ri-refresh-line"></i>
+            </button>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -116666,41 +124251,46 @@ window.renderAdminReturns = async function() {
         <table class="data-table">
           <thead>
             <tr>
-              <th style="width: 40px; text-align: center;">
+              <th style="width: 36px; text-align: center;">
                 <input type="checkbox" id="ret-select-all" style="cursor: pointer; width: 16px; height: 16px;" title="Seleccionar todos">
               </th>
               <th>Fecha y Hora</th>
               <th>Tipo</th>
               <th>Comercio</th>
-              <th>Ref. Pedido</th>
+              <th>Ref. Pedido / Cliente</th>
+              <th>Productos (Ingresa / Sale)</th>
               <th>Transporte</th>
               <th>Sucursal</th>
               <th>Ref. Transporte</th>
               <th>Estado</th>
-              <th>Cant.</th>
+              <th style="text-align: center;">Cant.</th>
               <th>Acciones</th>
             </tr>
           </thead>
           <tbody id="admin-returns-tbody">
-            <tr><td colspan="11" class="text-center" style="padding: 2rem;">Cargando...</td></tr>
+            <tr><td colspan="12" class="text-center" style="padding: 2rem;">Cargando...</td></tr>
           </tbody>
         </table>
       </div>
-      <div class="card-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem;">
+      <div class="card-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; flex-wrap: wrap; gap: 0.5rem;">
         <div id="admin-returns-pagination-info" style="font-size: 0.875rem; color: var(--color-text-muted);">
           Mostrando 0 registros
         </div>
-        <div style="display: flex; gap: 0.5rem;">
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
           <button id="btn-admin-ret-prev" class="btn btn-outline" style="padding: 0.25rem 0.75rem;" disabled>Anterior</button>
+          <span id="admin-returns-page-indicator" style="font-size: 0.82rem; font-weight: 600; color: var(--color-text-main); padding: 0 0.4rem;">Página 1</span>
           <button id="btn-admin-ret-next" class="btn btn-outline" style="padding: 0.25rem 0.75rem;" disabled>Siguiente</button>
         </div>
       </div>
     </div>
   `;
 
+  // Poblar selector de comercios en segundo plano
+  window.populateAdminReturnsCommerceFilter();
+
   // Listeners de Filtros
-  const filters = ['filter-ret-type', 'filter-ret-status', 'filter-ret-date-from', 'filter-ret-date-to'];
-  filters.forEach(id => {
+  const filterIds = ['filter-ret-commerce', 'filter-ret-type', 'filter-ret-status', 'filter-ret-delivery-mode'];
+  filterIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) {
       el.addEventListener('change', () => {
@@ -116710,6 +124300,53 @@ window.renderAdminReturns = async function() {
     }
   });
 
+  const dateIds = ['filter-ret-date-from', 'filter-ret-date-to'];
+  dateIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('change', () => {
+        adminReturnsActiveDatePreset = 'custom';
+        const monthEl = document.getElementById('filter-ret-month');
+        if (monthEl) monthEl.value = '';
+        updateAdminReturnsDatePresetButtonsUI();
+        adminReturnsCurrentPage = 1;
+        fetchAndRenderAdminReturnsData();
+      });
+    }
+  });
+
+  const monthEl = document.getElementById('filter-ret-month');
+  if (monthEl) {
+    monthEl.addEventListener('change', () => {
+      const val = monthEl.value;
+      const fromEl = document.getElementById('filter-ret-date-from');
+      const toEl = document.getElementById('filter-ret-date-to');
+      if (val && /^\d{4}-\d{2}$/.test(val)) {
+        const [y, m] = val.split('-').map(Number);
+        const lastDay = new Date(y, m, 0).getDate();
+        if (fromEl) fromEl.value = `${val}-01`;
+        if (toEl) toEl.value = `${val}-${String(lastDay).padStart(2, '0')}`;
+        adminReturnsActiveDatePreset = 'month';
+      } else {
+        if (fromEl) fromEl.value = '';
+        if (toEl) toEl.value = '';
+        adminReturnsActiveDatePreset = 'all';
+      }
+      updateAdminReturnsDatePresetButtonsUI();
+      adminReturnsCurrentPage = 1;
+      fetchAndRenderAdminReturnsData();
+    });
+  }
+
+  const pageSizeEl = document.getElementById('filter-ret-page-size');
+  if (pageSizeEl) {
+    pageSizeEl.addEventListener('change', () => {
+      adminReturnsPageSize = parseInt(pageSizeEl.value, 10) || 50;
+      adminReturnsCurrentPage = 1;
+      fetchAndRenderAdminReturnsData();
+    });
+  }
+
   let searchTimeout;
   const searchInput = document.getElementById('filter-ret-search');
   if (searchInput) {
@@ -116718,7 +124355,7 @@ window.renderAdminReturns = async function() {
       searchTimeout = setTimeout(() => {
         adminReturnsCurrentPage = 1;
         fetchAndRenderAdminReturnsData();
-      }, 400);
+      }, 350);
     });
   }
 
@@ -116741,8 +124378,8 @@ window.renderAdminReturns = async function() {
     });
   }
 
-  // Botones de Registro (4 Opciones: Movimientos y Pedidos)
-    document.getElementById('btn-admin-create-order-return').addEventListener('click', () => window.openAdminReverseLogisticsOrderModal('DEVOLUCION'));
+  // Botones de Registro
+  document.getElementById('btn-admin-create-order-return').addEventListener('click', () => window.openAdminReverseLogisticsOrderModal('DEVOLUCION'));
   document.getElementById('btn-admin-create-order-exchange').addEventListener('click', () => window.openAdminReverseLogisticsOrderModal('CAMBIO'));
 
   // Exportar
@@ -116760,12 +124397,18 @@ window.renderAdminReturns = async function() {
   await fetchAndRenderAdminReturnsData();
 };
 
-function buildAdminReturnsQuery(query) {
-  const fType = document.getElementById('filter-ret-type').value;
-  const fStatus = document.getElementById('filter-ret-status').value;
-  const fSearch = document.getElementById('filter-ret-search').value.trim();
-  const fFrom = document.getElementById('filter-ret-date-from').value;
-  const fTo = document.getElementById('filter-ret-date-to').value;
+function buildAdminReturnsQuery(query, options = {}) {
+  const fCommerce = document.getElementById('filter-ret-commerce')?.value || '';
+  const fType = options.ignoreType ? '' : (document.getElementById('filter-ret-type')?.value || '');
+  const fStatus = options.ignoreStatus ? '' : (document.getElementById('filter-ret-status')?.value || '');
+  const fDeliveryMode = document.getElementById('filter-ret-delivery-mode')?.value || '';
+  const fSearch = options.ignoreSearch ? '' : (document.getElementById('filter-ret-search')?.value || '').trim();
+  const fFrom = document.getElementById('filter-ret-date-from')?.value || '';
+  const fTo = document.getElementById('filter-ret-date-to')?.value || '';
+
+  if (fCommerce) {
+    query = query.ilike('comercio', fCommerce);
+  }
 
   if (fType === 'PEDIDO_CAMBIO') {
     query = query.eq('tipo_movimiento', 'CAMBIO').not('wms_order_id', 'is', null);
@@ -116786,26 +124429,86 @@ function buildAdminReturnsQuery(query) {
   } else if (fStatus) {
     query = query.eq('status', fStatus);
   }
-  if (fSearch) {
-    query = query.or(`referencia_pedido.ilike.%${fSearch}%,comercio.ilike.%${fSearch}%,transporte.ilike.%${fSearch}%,referencia_transporte.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%,customer_name.ilike.%${fSearch}%`);
+
+  if (fDeliveryMode === 'sucursal') {
+    query = query.ilike('transporte', '%Sucursal%');
+  } else if (fDeliveryMode === 'domicilio_rm') {
+    query = query.ilike('transporte', '%Domicilio%');
+  } else if (fDeliveryMode === 'regiones') {
+    query = query.ilike('transporte', '%Region%');
   }
-  if (fFrom) query = query.gte('created_at', fFrom + 'T00:00:00.000Z');
-  if (fTo) query = query.lte('created_at', fTo + 'T23:59:59.999Z');
+
+  if (fSearch) {
+    query = query.or(`referencia_pedido.ilike.%${fSearch}%,comercio.ilike.%${fSearch}%,transporte.ilike.%${fSearch}%,referencia_transporte.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%,customer_name.ilike.%${fSearch}%,comentarios.ilike.%${fSearch}%`);
+  }
+
+  if (fFrom) {
+    const localStart = new Date(`${fFrom}T00:00:00`);
+    query = query.gte('created_at', isNaN(localStart.getTime()) ? `${fFrom}T00:00:00.000Z` : localStart.toISOString());
+  }
+  if (fTo) {
+    const localEnd = new Date(`${fTo}T23:59:59.999`);
+    query = query.lte('created_at', isNaN(localEnd.getTime()) ? `${fTo}T23:59:59.999Z` : localEnd.toISOString());
+  }
 
   return query;
 }
 
-async function fetchAndRenderAdminReturnsData() {
+async function updateAdminReturnsKpis() {
+  try {
+    let kpiQuery = supabase.from('reverse_logistics').select('id, tipo_movimiento, status, cantidad_total, wms_order_id, customer_name');
+    kpiQuery = buildAdminReturnsQuery(kpiQuery, { ignoreType: true, ignoreStatus: true });
+    const { data: rows, error } = await kpiQuery;
+    if (error || !rows) return;
+
+    const totalMovs = rows.length;
+    let totalUnits = 0;
+    let countCambios = 0;
+    let countDevs = 0;
+    let countPend = 0;
+    let countProc = 0;
+
+    rows.forEach(r => {
+      totalUnits += Number(r.cantidad_total) || 0;
+      if (r.tipo_movimiento === 'CAMBIO') countCambios++;
+      else countDevs++;
+
+      const st = (r.status || 'pendiente').toLowerCase();
+      if (st === 'procesado' || st === 'confirmado') countProc++;
+      else countPend++;
+    });
+
+    const setElText = (id, txt) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = txt;
+    };
+
+    setElText('ret-kpi-total-val', totalMovs.toLocaleString('es-CL'));
+    setElText('ret-kpi-total-sub', `${totalUnits.toLocaleString('es-CL')} unidades movilizadas`);
+    setElText('ret-kpi-cambio-val', countCambios.toLocaleString('es-CL'));
+    setElText('ret-kpi-dev-val', countDevs.toLocaleString('es-CL'));
+    setElText('ret-kpi-pend-val', countPend.toLocaleString('es-CL'));
+    setElText('ret-kpi-proc-val', countProc.toLocaleString('es-CL'));
+    setElText('admin-ret-header-badge', `${totalMovs} movimiento${totalMovs === 1 ? '' : 's'}`);
+  } catch (e) {
+    console.warn('Error actualizando KPIs de Logística Inversa:', e);
+  }
+}
+
+window.fetchAndRenderAdminReturnsData = async function() {
   const tbody = document.getElementById('admin-returns-tbody');
   const btnPrev = document.getElementById('btn-admin-ret-prev');
   const btnNext = document.getElementById('btn-admin-ret-next');
   const info = document.getElementById('admin-returns-pagination-info');
+  const pageInd = document.getElementById('admin-returns-page-indicator');
 
   if (!tbody) return;
 
-  tbody.innerHTML = '<tr><td colspan="11" class="text-center" style="padding: 2rem;">Cargando...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="12" class="text-center" style="padding: 2rem;">Cargando movimientos...</td></tr>';
   if (btnPrev) btnPrev.disabled = true;
   if (btnNext) btnNext.disabled = true;
+
+  updateAdminReturnsKpis();
 
   try {
     let query = supabase.from('reverse_logistics').select('*', { count: 'exact' });
@@ -116816,16 +124519,34 @@ async function fetchAndRenderAdminReturnsData() {
 
     query = query.order('created_at', { ascending: false }).range(from, to);
 
-    const { data: returns, error, count } = await query;
+    let { data: returns, error, count } = await query;
     if (error) throw error;
 
+    // Fallback: si el usuario buscó un SKU o nombre de producto dentro del JSONB 'productos' y no hubo coincidencias en columnas de texto
+    const fSearch = (document.getElementById('filter-ret-search')?.value || '').trim().toLowerCase();
+    if (fSearch && (!returns || returns.length === 0)) {
+      let fallbackQuery = supabase.from('reverse_logistics').select('*').order('created_at', { ascending: false }).limit(500);
+      fallbackQuery = buildAdminReturnsQuery(fallbackQuery, { ignoreSearch: true });
+      const { data: allCandidates } = await fallbackQuery;
+      if (allCandidates && allCandidates.length > 0) {
+        const matched = allCandidates.filter(r => {
+          const prodStr = JSON.stringify(r.productos || []).toLowerCase();
+          return prodStr.includes(fSearch);
+        });
+        count = matched.length;
+        returns = matched.slice(from, to + 1);
+      }
+    }
+
+    const escape = window.escapeHtml || (s => s);
     let html = '';
     if (!returns || returns.length === 0) {
-      html = '<tr><td colspan="11" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay registros encontrados.</td></tr>';
+      html = '<tr><td colspan="12" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);"><i class="ri-inbox-archive-line" style="font-size: 1.8rem; display: block; margin-bottom: 0.4rem; opacity: 0.5;"></i>No hay movimientos que coincidan con los filtros seleccionados.</td></tr>';
     } else {
       returns.forEach(r => {
         const d = new Date(r.created_at);
-        const dateStr = d.toLocaleDateString() + ' ' + d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+        const datePart = d.toLocaleDateString('es-CL');
+        const timePart = d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
         
         const isOrder = Boolean(r.wms_order_id || r.customer_name);
         let typeBadge = '';
@@ -116846,14 +124567,14 @@ async function fetchAndRenderAdminReturnsData() {
         let safeData = '{}';
         try { safeData = encodeURIComponent(JSON.stringify(r)); } catch(e){}
 
-        const statusVal = r.status || 'pendiente';
+        const statusVal = (r.status || 'pendiente').toLowerCase();
         let statusBadge = '';
         let confirmAction = '';
         
         if (statusVal === 'pendiente') {
           statusBadge = `<span class="badge" style="background-color: #fef3c7; color: #d97706; border: 1px solid #fde68a;"><i class="ri-time-line"></i> Pendiente</span>`;
           confirmAction = `
-            <button class="btn btn-primary" onclick="window.openConfirmReturnModal('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: var(--color-primary); color: white; display: inline-flex; align-items: center; gap: 0.25rem; font-weight:600;">
+            <button class="btn btn-primary" onclick="window.openConfirmReturnModal('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.78rem; background: var(--color-primary); color: white; display: inline-flex; align-items: center; gap: 0.25rem; font-weight:600;" title="Confirmar recepción y procesar en inventario">
               <i class="ri-checkbox-circle-line"></i> Confirmar
             </button>
           `;
@@ -116861,29 +124582,50 @@ async function fetchAndRenderAdminReturnsData() {
           statusBadge = `<span class="badge" style="background-color: #d1fae5; color: #059669; border: 1px solid #a7f3d0;"><i class="ri-check-line"></i> Confirmado</span>`;
         }
 
+        const customerSub = r.customer_name
+          ? `<div style="font-size: 0.74rem; color: var(--color-text-muted); margin-top: 0.2rem; display: flex; align-items: center; gap: 0.2rem; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escape(r.customer_name)}${r.customer_phone ? ' · ' + escape(r.customer_phone) : ''}"><i class="ri-user-3-line"></i> ${escape(r.customer_name)}</div>`
+          : '';
+
+        const productsSummaryHtml = window.buildRlProductsSummaryHtml(r);
+        const commerceSafe = escape(r.comercio || 'N/A').replace(/'/g, "\\'");
+
         html += `
           <tr style="transition: background-color 0.2s;" data-ret-id="${r.id}">
-            <td style="text-align: center; width: 40px;">
+            <td style="text-align: center; width: 36px;">
               <input type="checkbox" class="ret-row-select" value="${r.id}" data-record='${safeData}' style="cursor: pointer; width: 16px; height: 16px;">
             </td>
-            <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
+            <td style="white-space: nowrap;">
+              <div style="font-weight: 600; font-size: 0.84rem; color: var(--color-text-main);"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${datePart} <span style="color: var(--color-text-muted); font-weight: 500;">${timePart}</span></div>
+              ${r.creado_por ? `<div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 1px; max-width: 140px; overflow: hidden; text-overflow: ellipsis;" title="Registrado por: ${escape(r.creado_por)}"><i class="ri-user-star-line"></i> ${escape(r.creado_por)}</div>` : ''}
+            </td>
             <td>${typeBadge}</td>
-            <td><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${r.comercio || 'N/A'}</td>
-            <td><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${r.referencia_pedido}</span></td>
-            <td><i class="ri-truck-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${r.transporte || 'N/A'}</td>
-            <td><i class="ri-map-pin-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${r.sucursal || 'N/A'}</td>
-            <td><span style="font-family: monospace; font-size: 0.85rem; color: var(--color-text-muted);">${r.referencia_transporte || 'N/A'}</span></td>
-            <td>${statusBadge}</td>
-            <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${r.cantidad_total}</strong></td>
             <td>
-              <div style="display: flex; gap: 0.35rem; align-items: center;">
-                <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.25rem;"></i> Detalle</button>
-                <button class="btn btn-outline" onclick="window.openQuickBranchExchangeReceiptModal('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: #6366f1; color: #4f46e5; background: rgba(99, 102, 241, 0.06); font-weight: 600;" title="Generar Comprobante de Cambio / Recepción en Sucursal (PDF / Impresión / Ticket 80mm)"><i class="ri-file-list-3-line"></i> Comprobante</button>
+              <span onclick="window.filterAdminReturnsByCommerce('${commerceSafe}')" style="cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; color: var(--color-text-main); padding: 0.2rem 0.45rem; border-radius: 6px; background: var(--color-bg); border: 1px solid var(--color-border); font-size: 0.82rem;" title="Clic para filtrar por ${escape(r.comercio || '')}">
+                <i class="ri-store-2-line" style="color: var(--color-primary);"></i>${escape(r.comercio || 'N/A')}
+              </span>
+            </td>
+            <td>
+              <span style="font-family: monospace; font-size: 0.88rem; font-weight: 700; background: var(--color-bg); padding: 0.2rem 0.45rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.4px; display: inline-block;">${escape(r.referencia_pedido || 'N/A')}</span>
+              ${customerSub}
+            </td>
+            <td>${productsSummaryHtml}</td>
+            <td style="font-size: 0.82rem;"><i class="ri-truck-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${escape(r.transporte || 'N/A')}</td>
+            <td style="font-size: 0.82rem;"><i class="ri-map-pin-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${escape(r.sucursal || 'N/A')}</td>
+            <td><span style="font-family: monospace; font-size: 0.82rem; color: var(--color-text-muted);">${escape(r.referencia_transporte || 'N/A')}</span></td>
+            <td>${statusBadge}</td>
+            <td style="text-align: center;"><strong style="color: var(--color-text-main); font-size: 1rem;">${r.cantidad_total || 0}</strong></td>
+            <td>
+              <div style="display: flex; gap: 0.3rem; align-items: center; flex-wrap: nowrap;">
+                <button class="btn btn-outline" onclick="window.openEditReverseLogisticsModal('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.78rem; border-color: #f59e0b; color: #d97706; background: rgba(245, 158, 11, 0.07); font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;" title="Editar este movimiento (productos, comercio, cliente, transporte, estado)">
+                  <i class="ri-edit-line"></i> Editar
+                </button>
+                <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.78rem; border-color: var(--color-border); background: var(--color-surface);" title="Ver ficha completa del movimiento"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.2rem;"></i> Detalle</button>
+                <button class="btn btn-outline" onclick="window.openQuickBranchExchangeReceiptModal('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.78rem; border-color: #6366f1; color: #4f46e5; background: rgba(99, 102, 241, 0.06); font-weight: 600;" title="Generar Comprobante de Cambio / Recepción en Sucursal (PDF / Impresión / Ticket 80mm)"><i class="ri-file-list-3-line"></i> Comprobante</button>
                 ${r.tipo_movimiento === 'CAMBIO' ? `
-                  <button class="btn btn-outline" onclick="window.printSingleExchangeLabel('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-success, #10b981); color: var(--color-success, #10b981); background: var(--color-surface);" title="Imprimir Etiqueta de Cambio"><i class="ri-printer-line"></i> Etiqueta</button>
+                  <button class="btn btn-outline" onclick="window.printSingleExchangeLabel('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.78rem; border-color: var(--color-success, #10b981); color: var(--color-success, #10b981); background: var(--color-surface);" title="Imprimir Etiqueta de Cambio"><i class="ri-printer-line"></i></button>
                 ` : ''}
                 ${confirmAction}
-                <button class="btn btn-outline" onclick="window.deleteAdminReturnRecord('${r.id}', '${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-danger, #ef4444); color: var(--color-danger, #ef4444); background: var(--color-surface);" title="Eliminar registro">
+                <button class="btn btn-outline" onclick="window.deleteAdminReturnRecord('${r.id}', '${safeData}')" style="padding: 0.25rem 0.45rem; font-size: 0.78rem; border-color: var(--color-danger, #ef4444); color: var(--color-danger, #ef4444); background: var(--color-surface);" title="Eliminar registro">
                   <i class="ri-delete-bin-line"></i>
                 </button>
               </div>
@@ -116926,17 +124668,21 @@ async function fetchAndRenderAdminReturnsData() {
     }
     
     // Update pagination
-    const currentEnd = Math.min(from + adminReturnsPageSize, count || 0);
-    if (info) info.textContent = `Mostrando ${count === 0 ? 0 : from + 1} a ${currentEnd} de ${count || 0} registros`;
+    const totalCount = count || 0;
+    const currentEnd = Math.min(from + adminReturnsPageSize, totalCount);
+    const totalPages = Math.max(1, Math.ceil(totalCount / adminReturnsPageSize));
+    if (info) info.textContent = `Mostrando ${totalCount === 0 ? 0 : from + 1} a ${currentEnd} de ${totalCount} registros`;
+    if (pageInd) pageInd.textContent = `Página ${adminReturnsCurrentPage} de ${totalPages}`;
     
     if (btnPrev) btnPrev.disabled = adminReturnsCurrentPage <= 1;
-    if (btnNext) btnNext.disabled = currentEnd >= (count || 0);
+    if (btnNext) btnNext.disabled = currentEnd >= totalCount;
 
   } catch (err) {
     console.error('Error:', err);
-    tbody.innerHTML = `<tr><td colspan="11" class="text-center text-danger" style="padding: 2rem;">Error: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="12" class="text-center text-danger" style="padding: 2rem;">Error: ${err.message}</td></tr>`;
   }
-}
+};
+const fetchAndRenderAdminReturnsData = window.fetchAndRenderAdminReturnsData;
 
 async function exportAdminReturnsData(format) {
   try {
@@ -116953,7 +124699,7 @@ async function exportAdminReturnsData(format) {
 
     const rows = data.map(r => {
       const d = new Date(r.created_at);
-      const dateStr = d.toLocaleDateString() + ' ' + d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+      const dateStr = d.toLocaleDateString('es-CL') + ' ' + d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
       
       let productosStr = '';
       if (r.productos && Array.isArray(r.productos)) {
@@ -116978,6 +124724,8 @@ async function exportAdminReturnsData(format) {
         'Cantidad': r.cantidad_total,
         'Creado Por': r.creado_por,
         'Cliente': r.customer_name || '-',
+        'Email Cliente': r.customer_email || '-',
+        'Teléfono Cliente': r.customer_phone || '-',
         'Dirección': r.shipping_address || '-',
         'Comuna': r.shipping_city || '-',
         'Comentarios': r.comentarios,
@@ -118180,6 +125928,7 @@ const updateRloRegionalCouriers = window.updateRloRegionalCouriers;
 window.loadRloCatalog = async function(commerceName) {
   const form = document.getElementById('form-reverse-logistics-order');
   if (form) form.dataset.currentCommerce = commerceName;
+  window.rloLoadedCommerce = commerceName || '';
 
   window.rloCatalogProducts = [];
   window.rloCatalogTallas = [];
@@ -118300,12 +126049,18 @@ window.loadRloCatalog = async function(commerceName) {
 };
 
 // MODAL SELECTOR DE PRODUCTOS CON FILTRO DE VARIANTES (TALLA, COLOR, VAR1, VAR2) Y NOMBRE COMPLETO
-window.openRloProductPicker = function(direction, targetRow) {
-  const commerce = document.getElementById('rlo-select-commerce') ? document.getElementById('rlo-select-commerce').value : '';
+window.openRloProductPicker = async function(direction, targetRow, customOptions = null) {
+  let commerce = '';
+  if (customOptions && customOptions.commerce) {
+    commerce = customOptions.commerce;
+  } else {
+    commerce = document.getElementById('rlo-select-commerce') ? document.getElementById('rlo-select-commerce').value : '';
+  }
+
   if (!commerce) {
     Swal.fire({
       title: 'Comercio no seleccionado',
-      text: 'Por favor, selecciona primero el comercio en el Paso 1 para cargar su catálogo de productos.',
+      text: 'Por favor, selecciona primero el comercio para cargar su catálogo de productos.',
       icon: 'info',
       confirmButtonText: 'Entendido',
       confirmButtonColor: 'var(--color-primary)'
@@ -118313,8 +126068,13 @@ window.openRloProductPicker = function(direction, targetRow) {
     return;
   }
 
+  if (window.rloLoadedCommerce !== commerce || !Array.isArray(window.rloCatalogProducts) || window.rloCatalogProducts.length === 0) {
+    await window.loadRloCatalog(commerce);
+  }
+
   window.rloPickerState.direction = direction;
   window.rloPickerState.targetRow = targetRow;
+  window.rloPickerState.onSelect = (customOptions && typeof customOptions.onSelect === 'function') ? customOptions.onSelect : null;
   window.rloPickerState.activeTalla = '';
   window.rloPickerState.activeColor = '';
   window.rloPickerState.activeVar1 = '';
@@ -118437,7 +126197,10 @@ window.openRloProductPicker = function(direction, targetRow) {
   window.renderRloPickerProducts();
 
   const pickerModal = document.getElementById('modal-rlo-product-picker');
-  if (pickerModal) pickerModal.classList.add('active');
+  if (pickerModal) {
+    pickerModal.style.zIndex = '1350';
+    pickerModal.classList.add('active');
+  }
 
   setTimeout(() => {
     if (searchInput) searchInput.focus();
@@ -118554,7 +126317,9 @@ window.selectRloPickerProduct = async function(productId) {
     if (!res.isConfirmed) return;
   }
 
-  if (window.rloPickerState.targetRow) {
+  if (typeof window.rloPickerState.onSelect === 'function') {
+    window.rloPickerState.onSelect(product, window.rloPickerState.targetRow, window.rloPickerState.direction);
+  } else if (window.rloPickerState.targetRow) {
     window.setRloRowProduct(window.rloPickerState.targetRow, product, window.rloPickerState.direction);
   }
 
@@ -120518,8 +128283,12 @@ window.openReturnsDetail = function(dataStr) {
         footer.style.display = 'flex';
         footer.style.gap = '0.75rem';
         footer.style.justifyContent = 'space-between';
+        footer.style.flexWrap = 'wrap';
         footer.innerHTML = `
-          <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-outline" id="btn-modal-edit-return" style="border-color: #d97706; color: #d97706; background: rgba(245, 158, 11, 0.08); display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;">
+              <i class="ri-edit-2-line"></i> Editar Movimiento
+            </button>
             <button class="btn btn-outline" id="btn-modal-branch-receipt" style="border-color: #4f46e5; color: #4f46e5; background: rgba(79, 70, 229, 0.06); display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;"><i class="ri-file-list-3-line"></i> Comprobante Sucursal (PDF / Imprimir)</button>
             <button class="btn btn-outline" id="btn-modal-delete-return" style="border-color: var(--color-danger, #ef4444); color: var(--color-danger, #ef4444); display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
               <i class="ri-delete-bin-line"></i> Eliminar Registro
@@ -120534,6 +128303,12 @@ window.openReturnsDetail = function(dataStr) {
         `;
         modal.querySelector('#btn-close-generic-info')?.addEventListener('click', () => modal.remove());
         modal.querySelector('#btn-ok-generic-info')?.addEventListener('click', () => modal.remove());
+        modal.querySelector('#btn-modal-edit-return')?.addEventListener('click', () => {
+          modal.remove();
+          if (typeof window.openEditReverseLogisticsModal === 'function') {
+            window.openEditReverseLogisticsModal(data);
+          }
+        });
         modal.querySelector('#btn-modal-branch-receipt')?.addEventListener('click', () => { modal.remove(); if (typeof window.openQuickBranchExchangeReceiptModal === 'function') window.openQuickBranchExchangeReceiptModal(data); });
         modal.querySelector('#btn-modal-delete-return')?.addEventListener('click', () => {
           modal.remove();
@@ -120600,6 +128375,1036 @@ window.showInfoModal = function(title, contentHtml) {
   modal.addEventListener('click', (e) => {
     if (e.target === modal) closeModal();
   });
+};
+
+// =========================================================
+// HERRAMIENTA PARA EDITAR MOVIMIENTOS DE LOGÍSTICA INVERSA
+// =========================================================
+
+function parseRlProductString(rawStr) {
+  if (!rawStr || typeof rawStr !== 'string') return { sku: '', name: '' };
+  const trimmed = rawStr.trim();
+  const bracketMatch = trimmed.match(/^\[([^\]]+)\]\s*(.*)$/);
+  if (bracketMatch) {
+    return { sku: bracketMatch[1].trim(), name: (bracketMatch[2] || bracketMatch[1]).trim() };
+  }
+  const dashMatch = trimmed.match(/^([A-Za-z0-9_./-]+)\s+-\s+(.+)$/);
+  if (dashMatch) {
+    return { sku: dashMatch[1].trim(), name: dashMatch[2].trim() };
+  }
+  return { sku: '', name: trimmed };
+}
+
+function toLocalDatetimeInputValue(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return '';
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+window.openEditReverseLogisticsModal = async function(dataOrId) {
+  try {
+    let initialData = null;
+    if (typeof dataOrId === 'string') {
+      try {
+        initialData = JSON.parse(decodeURIComponent(dataOrId));
+      } catch (_e) {
+        initialData = { id: dataOrId };
+      }
+    } else if (dataOrId && typeof dataOrId === 'object') {
+      initialData = { ...dataOrId };
+    }
+
+    if (!initialData || !initialData.id) {
+      if (typeof Swal !== 'undefined') {
+        Swal.fire('Error', 'No se pudo identificar el movimiento a editar.', 'error');
+      } else {
+        alert('No se pudo identificar el movimiento a editar.');
+      }
+      return;
+    }
+
+    // Fetch latest row from DB if possible
+    let record = initialData;
+    try {
+      const { data: freshRow, error } = await window.supabaseClient
+        .from('reverse_logistics')
+        .select('*')
+        .eq('id', initialData.id)
+        .maybeSingle();
+      if (!error && freshRow) {
+        record = freshRow;
+      }
+    } catch (fetchErr) {
+      console.warn('Usando datos en memoria para editar movimiento:', fetchErr);
+    }
+
+    const existingModal = document.getElementById('modal-edit-reverse-logistics');
+    if (existingModal) existingModal.remove();
+
+    const commerces = typeof window.fetchAllReverseLogisticsCommerces === 'function'
+      ? await window.fetchAllReverseLogisticsCommerces()
+      : [];
+    const currentCommerce = (record.comercio || '').trim();
+    if (currentCommerce && !commerces.some(c => c.toLowerCase() === currentCommerce.toLowerCase())) {
+      commerces.unshift(currentCommerce);
+    }
+
+    // Parse products into incoming and outgoing lists
+    const incomingList = [];
+    const outgoingList = [];
+    const rawProds = Array.isArray(record.productos) ? record.productos : [];
+    rawProds.forEach(p => {
+      if (p.producto_devuelto) {
+        const parsed = parseRlProductString(p.producto_devuelto);
+        const qty = p.qty_devuelto !== undefined ? Number(p.qty_devuelto) : (Number(p.cantidad) || 1);
+        incomingList.push({
+          id: p.id_devuelto || '',
+          sku: parsed.sku,
+          name: parsed.name,
+          qty: qty > 0 ? qty : 1,
+          returnToStock: p.regresar_a_inventario !== false,
+          comment: p.comentario || ''
+        });
+      }
+      if (p.producto_reemplazo) {
+        const parsed = parseRlProductString(p.producto_reemplazo);
+        const qty = p.qty_reemplazo !== undefined ? Number(p.qty_reemplazo) : (Number(p.cantidad) || 1);
+        outgoingList.push({
+          id: p.id_reemplazo || '',
+          sku: parsed.sku,
+          name: parsed.name,
+          qty: qty > 0 ? qty : 1,
+          comment: (!p.producto_devuelto && p.comentario) ? p.comentario : ''
+        });
+      }
+    });
+
+    if (incomingList.length === 0) {
+      incomingList.push({ id: '', sku: '', name: '', qty: 1, returnToStock: true, comment: '' });
+    }
+    if (outgoingList.length === 0 && record.tipo_movimiento === 'CAMBIO') {
+      outgoingList.push({ id: '', sku: '', name: '', qty: 1, comment: '' });
+    }
+
+    const esc = (str) => String(str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const commerceOptionsHtml = [
+      `<option value="">-- Seleccionar Comercio --</option>`,
+      ...commerces.map(c => `<option value="${esc(c)}" ${c.toLowerCase() === currentCommerce.toLowerCase() ? 'selected' : ''}>${esc(c)}</option>`)
+    ].join('');
+
+    const dtValue = toLocalDatetimeInputValue(record.created_at);
+    const modoEntrega = record.modo_entrega || (
+      (record.transporte || '').toLowerCase().includes('sucursal') ? 'sucursal' :
+      ((record.transporte || '').toLowerCase().includes('domicilio') ? 'domicilio_rm' :
+      ((record.transporte || '').toLowerCase().includes('region') ? 'regiones' : ''))
+    );
+
+    const modal = document.createElement('div');
+    modal.id = 'modal-edit-reverse-logistics';
+    modal.className = 'modal-overlay';
+    modal.style.zIndex = '1250';
+
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 980px; width: 96%; max-height: 92vh; display: flex; flex-direction: column; padding: 0; border-radius: var(--radius-lg); overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.3);">
+        <!-- Header -->
+        <div class="modal-header" style="padding: 1.15rem 1.5rem; background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(79, 70, 229, 0.08)); border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(245, 158, 11, 0.18); color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 1.3rem;">
+              <i class="ri-edit-2-line"></i>
+            </div>
+            <div>
+              <h3 style="margin: 0; font-size: 1.15rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                Editar Movimiento de Logística Inversa
+                <span style="font-family: monospace; font-size: 0.8rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.15rem 0.5rem; border-radius: 6px; color: var(--color-primary);">${esc(record.referencia_pedido || record.id.substring(0, 8))}</span>
+              </h3>
+              <p style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">Modifica comercio, fechas, estado, transporte, destinatario o productos del movimiento.</p>
+            </div>
+          </div>
+          <button class="modal-close" id="btn-close-erl-modal" style="font-size: 1.5rem;">&times;</button>
+        </div>
+
+        <!-- Body -->
+        <div class="modal-body" style="padding: 1.25rem 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
+          <datalist id="erl-catalog-datalist"></datalist>
+          <datalist id="erl-transporte-list">
+            <option value="Sucursal / Punto Físico Ñuñoa"></option>
+            <option value="Domicilio RM"></option>
+            <option value="Envío a Regiones"></option>
+            <option value="Blue Express"></option>
+            <option value="Starken"></option>
+            <option value="Chilexpress"></option>
+            <option value="Correos de Chile"></option>
+            <option value="Welivery"></option>
+            <option value="Motopartner"></option>
+            <option value="Retiro Personal"></option>
+          </datalist>
+          <datalist id="erl-sucursal-list">
+            <option value="Ñuñoa"></option>
+            <option value="Providencia"></option>
+            <option value="Las Condes"></option>
+            <option value="Vitacura"></option>
+            <option value="Santiago Centro"></option>
+            <option value="La Florida"></option>
+            <option value="Maipú"></option>
+            <option value="Puente Alto"></option>
+            <option value="Bodega Central"></option>
+          </datalist>
+
+          <!-- 1. Datos Generales -->
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.1rem 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.9rem; padding-bottom: 0.55rem; border-bottom: 1px solid var(--color-border);">
+              <h4 style="margin: 0; font-size: 0.92rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-file-list-3-line" style="color: var(--color-primary);"></i> 1. Datos Generales del Movimiento
+              </h4>
+              <span style="font-size: 0.74rem; color: var(--color-text-muted); font-family: monospace;">ID: ${esc(record.id)}</span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(195px, 1fr)); gap: 0.9rem; align-items: end;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Comercio / Tienda *</label>
+                <select id="erl-comercio" class="form-input" style="height: 38px; font-size: 0.85rem; width: 100%; box-sizing: border-box; font-weight: 600;">
+                  ${commerceOptionsHtml}
+                </select>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Tipo de Movimiento *</label>
+                <select id="erl-tipo" class="form-input" style="height: 38px; font-size: 0.85rem; font-weight: 600; width: 100%; box-sizing: border-box;">
+                  <option value="CAMBIO" ${record.tipo_movimiento === 'CAMBIO' ? 'selected' : ''}>🔄 CAMBIO (Ingresa y Sale)</option>
+                  <option value="DEVOLUCION" ${record.tipo_movimiento === 'DEVOLUCION' ? 'selected' : ''}>↩️ DEVOLUCIÓN (Solo Ingresa)</option>
+                </select>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Estado *</label>
+                <select id="erl-status" class="form-input" style="height: 38px; font-size: 0.85rem; font-weight: 600; width: 100%; box-sizing: border-box;">
+                  <option value="pendiente" ${(record.status || 'pendiente') === 'pendiente' ? 'selected' : ''}>⏳ Pendiente</option>
+                  <option value="procesado" ${record.status === 'procesado' ? 'selected' : ''}>✅ Confirmado / Procesado</option>
+                </select>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Ref. Pedido Original *</label>
+                <div style="display: flex; gap: 0.35rem; align-items: center;">
+                  <input type="text" id="erl-ref-pedido" class="form-input" value="${esc(record.referencia_pedido || '')}" placeholder="Ej: #1045 o GLS28151" style="height: 38px; font-size: 0.85rem; font-family: monospace; font-weight: 700; width: 100%; box-sizing: border-box;">
+                  <button type="button" class="btn btn-outline" id="btn-erl-lookup-order" title="Buscar datos del cliente desde el pedido original en WMS" style="height: 38px; padding: 0 0.7rem; font-size: 0.85rem; flex-shrink: 0;">
+                    <i class="ri-search-line"></i>
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Fecha y Hora Registro</label>
+                <input type="datetime-local" id="erl-created-at" class="form-input" value="${esc(dtValue)}" style="height: 38px; font-size: 0.83rem; width: 100%; box-sizing: border-box;">
+              </div>
+            </div>
+
+            <div id="erl-status-stock-notice" style="display: none; margin-top: 0.85rem; padding: 0.65rem 0.9rem; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+              <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: #065f46; font-weight: 600; cursor: pointer; margin: 0;">
+                <input type="checkbox" id="erl-apply-inventory-on-confirm" checked style="width: 16px; height: 16px; accent-color: #10b981;">
+                <span>Aplicar ajuste de stock en inventario al cambiar estado a <strong>Confirmado / Procesado</strong></span>
+              </label>
+              <span style="font-size: 0.75rem; color: #047857;">Sumará los productos devueltos marcados como "Suma Stock" y descontará reemplazos.</span>
+            </div>
+          </div>
+
+          <!-- 2. Transporte, Modalidad y Sucursal -->
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.1rem 1.25rem;">
+            <h4 style="margin: 0 0 0.9rem 0; padding-bottom: 0.55rem; border-bottom: 1px solid var(--color-border); font-size: 0.92rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-truck-line" style="color: var(--color-primary);"></i> 2. Transporte, Modalidad y Sucursal
+            </h4>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(195px, 1fr)); gap: 0.9rem; align-items: end;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Modalidad de Entrega</label>
+                <select id="erl-modo-entrega" class="form-input" style="height: 38px; font-size: 0.85rem; width: 100%; box-sizing: border-box;">
+                  <option value="" ${!modoEntrega ? 'selected' : ''}>General / Otro</option>
+                  <option value="sucursal" ${modoEntrega === 'sucursal' ? 'selected' : ''}>🏪 Sucursal / Punto Físico Ñuñoa</option>
+                  <option value="domicilio_rm" ${modoEntrega === 'domicilio_rm' ? 'selected' : ''}>🏠 Domicilio RM</option>
+                  <option value="regiones" ${modoEntrega === 'regiones' ? 'selected' : ''}>✈️ Envío a Regiones</option>
+                </select>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Transporte / Courier</label>
+                <input type="text" id="erl-transporte" list="erl-transporte-list" class="form-input" value="${esc(record.transporte || '')}" placeholder="Ej: Sucursal / Punto Físico Ñuñoa, Starken..." style="height: 38px; font-size: 0.85rem; width: 100%; box-sizing: border-box;">
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Sucursal / Comuna Destino</label>
+                <input type="text" id="erl-sucursal" list="erl-sucursal-list" class="form-input" value="${esc(record.sucursal || '')}" placeholder="Ej: Providencia, Ñuñoa..." style="height: 38px; font-size: 0.85rem; width: 100%; box-sizing: border-box;">
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Ref. Transporte / Tracking</label>
+                <input type="text" id="erl-ref-transporte" class="form-input" value="${esc(record.referencia_transporte || '')}" placeholder="Código de seguimiento o N/A" style="height: 38px; font-size: 0.85rem; font-family: monospace; width: 100%; box-sizing: border-box;">
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Responsable de Pago</label>
+                <select id="erl-responsable-pago" class="form-input" style="height: 38px; font-size: 0.85rem; width: 100%; box-sizing: border-box;">
+                  <option value="comercio" ${(record.responsable_pago || 'comercio') === 'comercio' ? 'selected' : ''}>Comercio / Tienda</option>
+                  <option value="usuario_final" ${record.responsable_pago === 'usuario_final' ? 'selected' : ''}>Usuario Final / Cliente</option>
+                </select>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Costo Envío Neto ($ CLP)</label>
+                <input type="number" id="erl-costo-envio" class="form-input" value="${Number(record.costo_envio || 0)}" min="0" step="100" style="height: 38px; font-size: 0.85rem; width: 100%; box-sizing: border-box;">
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. Datos del Cliente / Destinatario -->
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.1rem 1.25rem;">
+            <h4 style="margin: 0 0 0.9rem 0; padding-bottom: 0.55rem; border-bottom: 1px solid var(--color-border); font-size: 0.92rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-user-smile-line" style="color: var(--color-primary);"></i> 3. Datos del Cliente / Destinatario
+            </h4>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(195px, 1fr)); gap: 0.9rem; align-items: end;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Nombre Completo</label>
+                <input type="text" id="erl-customer-name" class="form-input" value="${esc(record.customer_name || '')}" placeholder="Nombre y Apellido" style="height: 38px; font-size: 0.85rem; width: 100%; box-sizing: border-box;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Correo Electrónico</label>
+                <input type="email" id="erl-customer-email" class="form-input" value="${esc(record.customer_email || '')}" placeholder="cliente@correo.cl" style="height: 38px; font-size: 0.85rem; width: 100%; box-sizing: border-box;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Teléfono</label>
+                <input type="text" id="erl-customer-phone" class="form-input" value="${esc(record.customer_phone || '')}" placeholder="+56 9 ..." style="height: 38px; font-size: 0.85rem; width: 100%; box-sizing: border-box;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Comuna / Ciudad</label>
+                <input type="text" id="erl-shipping-city" list="erl-sucursal-list" class="form-input" value="${esc(record.shipping_city || '')}" placeholder="Comuna o Ciudad" style="height: 38px; font-size: 0.85rem; width: 100%; box-sizing: border-box;">
+              </div>
+              <div class="form-group" style="margin: 0; grid-column: span 2;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Dirección (Calle y Número)</label>
+                <input type="text" id="erl-shipping-address" class="form-input" value="${esc(record.shipping_address || '')}" placeholder="Av. Providencia 1234" style="height: 38px; font-size: 0.85rem; width: 100%; box-sizing: border-box;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Dpto / Casa / Complemento</label>
+                <input type="text" id="erl-shipping-complement" class="form-input" value="${esc(record.shipping_complement || '')}" placeholder="Dpto 402, Torre B..." style="height: 38px; font-size: 0.85rem; width: 100%; box-sizing: border-box;">
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. Productos que Ingresan (Devueltos) -->
+          <div style="background: rgba(239, 68, 68, 0.03); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: var(--radius-md); padding: 1.1rem 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; padding-bottom: 0.55rem; border-bottom: 1px solid rgba(239, 68, 68, 0.2);">
+              <div>
+                <h4 style="margin: 0; font-size: 0.92rem; font-weight: 700; color: #b91c1c; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-arrow-left-down-line"></i> 4. Productos que Ingresan (Devueltos por el Cliente)
+                </h4>
+                <span style="font-size: 0.76rem; color: var(--color-text-muted);">Indica los productos que vuelven a bodega y si deben sumar al stock disponible.</span>
+              </div>
+              <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
+                <button type="button" class="btn btn-outline" id="btn-erl-pick-incoming-catalog" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; border-color: #ef4444; color: #dc2626; background: var(--color-surface); display: inline-flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-apps-2-line"></i> Buscar en Catálogo
+                </button>
+                <button type="button" class="btn btn-outline" id="btn-erl-add-incoming-row" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; background: var(--color-surface); display: inline-flex; align-items: center; gap: 0.3rem;">
+                  <i class="ri-add-line"></i> Agregar Fila
+                </button>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 72px 175px minmax(200px, 1fr) 120px 185px 38px; gap: 0.5rem; padding: 0 0.6rem 0.35rem 0.6rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted);">
+              <span style="text-align: center;">Cant.</span>
+              <span>SKU / Catálogo</span>
+              <span>Nombre / Descripción del Producto</span>
+              <span>¿Retorna Stock?</span>
+              <span>Motivo / Comentario</span>
+              <span></span>
+            </div>
+            <div id="erl-incoming-rows" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+          </div>
+
+          <!-- 5. Productos que Salen (Reemplazo) -->
+          <div id="erl-outgoing-section" style="background: rgba(16, 185, 129, 0.03); border: 1px solid rgba(16, 185, 129, 0.28); border-radius: var(--radius-md); padding: 1.1rem 1.25rem; ${record.tipo_movimiento === 'DEVOLUCION' && outgoingList.length === 0 ? 'display: none;' : ''}">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; padding-bottom: 0.55rem; border-bottom: 1px solid rgba(16, 185, 129, 0.2);">
+              <div>
+                <h4 style="margin: 0; font-size: 0.92rem; font-weight: 700; color: #047857; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-arrow-right-up-line"></i> 5. Productos que Salen (Reemplazo a Entregar / Enviar)
+                </h4>
+                <span style="font-size: 0.76rem; color: var(--color-text-muted);">Productos que se despachan al cliente en caso de Cambio.</span>
+              </div>
+              <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
+                <button type="button" class="btn btn-outline" id="btn-erl-copy-from-incoming" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; border-color: #0284c7; color: #0284c7; background: var(--color-surface); display: inline-flex; align-items: center; gap: 0.35rem;" title="Copia los mismos SKUs y cantidades de la sección de devueltos (cambio 1 a 1)">
+                  <i class="ri-file-copy-line"></i> Copiar 1 a 1 desde Devueltos
+                </button>
+                <button type="button" class="btn btn-outline" id="btn-erl-pick-outgoing-catalog" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; border-color: #10b981; color: #059669; background: var(--color-surface); display: inline-flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-apps-2-line"></i> Buscar en Catálogo
+                </button>
+                <button type="button" class="btn btn-outline" id="btn-erl-add-outgoing-row" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; background: var(--color-surface); display: inline-flex; align-items: center; gap: 0.3rem;">
+                  <i class="ri-add-line"></i> Agregar Fila
+                </button>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 72px 175px minmax(200px, 1fr) 190px 38px; gap: 0.5rem; padding: 0 0.6rem 0.35rem 0.6rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted);">
+              <span style="text-align: center;">Cant.</span>
+              <span>SKU / Catálogo</span>
+              <span>Nombre / Descripción del Producto de Reemplazo</span>
+              <span>Comentario Opcional</span>
+              <span></span>
+            </div>
+            <div id="erl-outgoing-rows" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+          </div>
+
+          <!-- 6. Observaciones y Sincronización -->
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.1rem 1.25rem;">
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 0.9rem; align-items: start;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Observaciones / Comentarios Generales</label>
+                <textarea id="erl-comentarios" class="form-input" rows="2" placeholder="Motivo del cambio/devolución, notas para bodega..." style="font-size: 0.85rem; width: 100%; box-sizing: border-box; resize: vertical;">${esc(record.comentarios || '')}</textarea>
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; font-weight: 700; margin-bottom: 0.3rem;">Registrado Por</label>
+                <input type="text" id="erl-creado-por" class="form-input" value="${esc(record.creado_por || '')}" placeholder="Correo o nombre de usuario" style="height: 38px; font-size: 0.85rem; width: 100%; box-sizing: border-box;">
+              </div>
+            </div>
+
+            ${record.wms_order_id ? `
+            <div style="margin-top: 0.85rem; padding: 0.65rem 0.9rem; background: rgba(79, 70, 229, 0.06); border: 1px solid rgba(79, 70, 229, 0.25); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+              <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: var(--color-text-main); font-weight: 600; cursor: pointer; margin: 0;">
+                <input type="checkbox" id="erl-sync-wms-order" checked style="width: 16px; height: 16px; accent-color: var(--color-primary);">
+                <span>Sincronizar cambios con la Orden WMS vinculada (<code>${esc(record.wms_order_id.substring(0, 8))}...</code>)</span>
+              </label>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted);">Actualiza destinatario, courier, tracking, notas e ítems del pedido WMS.</span>
+            </div>` : ''}
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="modal-footer" style="padding: 1rem 1.5rem; background: var(--color-surface); border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <button type="button" class="btn btn-outline" id="btn-erl-open-receipt" style="border-color: #4f46e5; color: #4f46e5; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+              <i class="ri-file-list-3-line"></i> Ver Comprobante Sucursal
+            </button>
+          </div>
+          <div style="display: flex; gap: 0.65rem; align-items: center;">
+            <button type="button" class="btn btn-outline" id="btn-cancel-erl-modal">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="btn-save-erl-modal" style="background: linear-gradient(135deg, #f59e0b, #d97706); border-color: #d97706; font-weight: 700; min-width: 185px; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+              <i class="ri-save-3-line"></i> Guardar Cambios
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+    setTimeout(() => modal.classList.add('active'), 10);
+
+    const closeModal = () => {
+      modal.classList.remove('active');
+      setTimeout(() => modal.remove(), 250);
+    };
+
+    modal.querySelector('#btn-close-erl-modal')?.addEventListener('click', closeModal);
+    modal.querySelector('#btn-cancel-erl-modal')?.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    // Load catalog for selected commerce and populate datalist
+    const refreshCatalogDatalist = async (commerceName) => {
+      if (typeof window.loadRloCatalog === 'function' && commerceName) {
+        await window.loadRloCatalog(commerceName);
+      }
+      const dl = modal.querySelector('#erl-catalog-datalist');
+      if (!dl) return;
+      const cat = window.rloState?.catalog || [];
+      dl.innerHTML = cat.map(p => `<option value="${esc(p.sku || p.title)}">${esc(p.title)} (Stock: ${p.stock})</option>`).join('');
+    };
+
+    await refreshCatalogDatalist(currentCommerce);
+
+    modal.querySelector('#erl-comercio')?.addEventListener('change', async (e) => {
+      await refreshCatalogDatalist(e.target.value);
+    });
+
+    // Show/hide outgoing section based on tipo_movimiento
+    const tipoSelect = modal.querySelector('#erl-tipo');
+    const outgoingSection = modal.querySelector('#erl-outgoing-section');
+    tipoSelect?.addEventListener('change', () => {
+      if (tipoSelect.value === 'CAMBIO') {
+        if (outgoingSection) outgoingSection.style.display = 'block';
+        const outContainer = modal.querySelector('#erl-outgoing-rows');
+        if (outContainer && outContainer.children.length === 0) {
+          addOutgoingRow({ id: '', sku: '', name: '', qty: 1, comment: '' });
+        }
+      } else {
+        if (outgoingSection) outgoingSection.style.display = 'none';
+      }
+    });
+
+    // Show stock notice if status changed from pendiente to procesado
+    const statusSelect = modal.querySelector('#erl-status');
+    const stockNotice = modal.querySelector('#erl-status-stock-notice');
+    const originalStatus = record.status || 'pendiente';
+    const updateStatusNotice = () => {
+      if (!stockNotice) return;
+      if (originalStatus === 'pendiente' && statusSelect.value === 'procesado') {
+        stockNotice.style.display = 'flex';
+      } else {
+        stockNotice.style.display = 'none';
+      }
+    };
+    statusSelect?.addEventListener('change', updateStatusNotice);
+    updateStatusNotice();
+
+    // Auto-fill transporte when modo_entrega changes if transporte is empty or standard
+    const modoEntregaSelect = modal.querySelector('#erl-modo-entrega');
+    const transporteInput = modal.querySelector('#erl-transporte');
+    const sucursalInput = modal.querySelector('#erl-sucursal');
+    modoEntregaSelect?.addEventListener('change', () => {
+      const val = modoEntregaSelect.value;
+      const curT = (transporteInput?.value || '').trim();
+      const isStandard = !curT || ['Sucursal / Punto Físico Ñuñoa', 'Domicilio RM', 'Envío a Regiones'].includes(curT);
+      if (val === 'sucursal') {
+        if (isStandard && transporteInput) transporteInput.value = 'Sucursal / Punto Físico Ñuñoa';
+        if (sucursalInput && !sucursalInput.value.trim()) sucursalInput.value = 'Ñuñoa';
+      } else if (val === 'domicilio_rm') {
+        if (isStandard && transporteInput) transporteInput.value = 'Domicilio RM';
+      } else if (val === 'regiones') {
+        if (isStandard && transporteInput) transporteInput.value = 'Envío a Regiones';
+      }
+    });
+
+    // Lookup order button
+    modal.querySelector('#btn-erl-lookup-order')?.addEventListener('click', async () => {
+      const refVal = (modal.querySelector('#erl-ref-pedido')?.value || '').trim();
+      if (!refVal) {
+        if (typeof window.showToast === 'function') window.showToast('Ingresa una referencia de pedido para buscar.', 'warning');
+        return;
+      }
+      const cleanRef = refVal.replace(/^#/, '').trim();
+      try {
+        const { data: ordersFound } = await window.supabaseClient
+          .from('orders')
+          .select('*')
+          .or(`order_number.ilike.%${cleanRef}%,external_order_id.ilike.%${cleanRef}%`)
+          .limit(1);
+        const ord = ordersFound && ordersFound[0];
+        if (!ord) {
+          if (typeof window.showToast === 'function') window.showToast('No se encontró un pedido con esa referencia en el WMS.', 'warning');
+          return;
+        }
+        const raw = ord.raw_data || {};
+        const shipping = raw.shipping_address || {};
+        if (ord.customer_name) modal.querySelector('#erl-customer-name').value = ord.customer_name;
+        if (ord.customer_email || raw.email) modal.querySelector('#erl-customer-email').value = ord.customer_email || raw.email || '';
+        if (ord.customer_phone || shipping.phone) modal.querySelector('#erl-customer-phone').value = ord.customer_phone || shipping.phone || '';
+        if (ord.shipping_city || ord.commune || shipping.city) {
+          modal.querySelector('#erl-shipping-city').value = ord.shipping_city || ord.commune || shipping.city || '';
+          if (!modal.querySelector('#erl-sucursal').value.trim()) {
+            modal.querySelector('#erl-sucursal').value = ord.shipping_city || ord.commune || shipping.city || '';
+          }
+        }
+        if (ord.shipping_address || ord.address || shipping.address1) {
+          modal.querySelector('#erl-shipping-address').value = ord.shipping_address || ord.address || shipping.address1 || '';
+        }
+        if (shipping.address2) {
+          modal.querySelector('#erl-shipping-complement').value = shipping.address2;
+        }
+        if (ord.commerce_name && !modal.querySelector('#erl-comercio').value) {
+          modal.querySelector('#erl-comercio').value = ord.commerce_name;
+          await refreshCatalogDatalist(ord.commerce_name);
+        }
+        if (typeof window.showToast === 'function') window.showToast('Datos del cliente cargados desde el pedido original.', 'success');
+      } catch (err) {
+        console.warn('Error buscando pedido original:', err);
+      }
+    });
+
+    // Helper to build an incoming product row
+    const incomingContainer = modal.querySelector('#erl-incoming-rows');
+    const outgoingContainer = modal.querySelector('#erl-outgoing-rows');
+
+    const bindSkuAutoMatch = (rowEl) => {
+      const skuInput = rowEl.querySelector('.erl-row-sku');
+      const nameInput = rowEl.querySelector('.erl-row-name');
+      if (!skuInput || !nameInput) return;
+      skuInput.addEventListener('input', () => {
+        const val = skuInput.value.trim().toLowerCase();
+        const cat = window.rloState?.catalog || [];
+        const match = cat.find(p => (p.sku && p.sku.toLowerCase() === val) || (p.title && p.title.toLowerCase() === val));
+        if (match) {
+          skuInput.value = match.sku || '';
+          nameInput.value = match.title || '';
+          rowEl.dataset.productId = match.id || '';
+        }
+      });
+    };
+
+    const addIncomingRow = (item = { id: '', sku: '', name: '', qty: 1, returnToStock: true, comment: '' }) => {
+      const row = document.createElement('div');
+      row.className = 'erl-incoming-row';
+      row.dataset.productId = item.id || '';
+      row.style.cssText = 'display: grid; grid-template-columns: 72px 175px minmax(200px, 1fr) 120px 185px 38px; gap: 0.5rem; align-items: center; background: var(--color-surface); padding: 0.5rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);';
+      row.innerHTML = `
+        <div style="min-width: 0;">
+          <input type="number" class="form-input erl-row-qty" value="${Number(item.qty) || 1}" min="1" title="Cantidad" style="height: 36px; width: 100%; box-sizing: border-box; font-size: 0.85rem; text-align: center; font-weight: 700; padding: 0.2rem 0.35rem;">
+        </div>
+        <div style="display: flex; gap: 0.25rem; min-width: 0;">
+          <input type="text" class="form-input erl-row-sku" list="erl-catalog-datalist" value="${esc(item.sku)}" placeholder="SKU" style="height: 36px; width: 100%; min-width: 0; box-sizing: border-box; font-size: 0.8rem; font-family: monospace; font-weight: 600; padding: 0.2rem 0.45rem;">
+          <button type="button" class="btn btn-outline erl-btn-row-catalog" title="Elegir desde el catálogo" style="height: 36px; padding: 0 0.5rem; font-size: 0.85rem; flex-shrink: 0;">
+            <i class="ri-search-eye-line"></i>
+          </button>
+        </div>
+        <div style="min-width: 0;">
+          <input type="text" class="form-input erl-row-name" value="${esc(item.name)}" placeholder="Nombre / Descripción del producto devuelto *" style="height: 36px; width: 100%; min-width: 0; box-sizing: border-box; font-size: 0.84rem; padding: 0.2rem 0.55rem;">
+        </div>
+        <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; font-weight: 600; cursor: pointer; margin: 0; user-select: none; color: var(--color-text-main); background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); height: 36px; padding: 0 0.55rem; border-radius: var(--radius-sm); box-sizing: border-box;" title="Si está marcado, al confirmar el movimiento este ítem sumará al stock disponible en WMS">
+          <input type="checkbox" class="erl-row-stock" ${item.returnToStock !== false ? 'checked' : ''} style="width: 15px; height: 15px; accent-color: #10b981; flex-shrink: 0;">
+          <span style="white-space: nowrap;">Suma Stock</span>
+        </label>
+        <div style="min-width: 0;">
+          <input type="text" class="form-input erl-row-comment" value="${esc(item.comment)}" placeholder="Motivo / Nota ítem" style="height: 36px; width: 100%; min-width: 0; box-sizing: border-box; font-size: 0.8rem; padding: 0.2rem 0.5rem;">
+        </div>
+        <button type="button" class="btn btn-outline erl-btn-remove-row" title="Quitar fila" style="height: 36px; width: 36px; padding: 0; color: #ef4444; border-color: rgba(239,68,68,0.3); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+          <i class="ri-delete-bin-line"></i>
+        </button>
+      `;
+
+      bindSkuAutoMatch(row);
+
+      row.querySelector('.erl-btn-row-catalog')?.addEventListener('click', () => {
+        const comm = modal.querySelector('#erl-comercio')?.value || currentCommerce;
+        if (typeof window.openRloProductPicker === 'function') {
+          window.openRloProductPicker(1, {
+            commerce: comm,
+            onSelect: (prod) => {
+              row.dataset.productId = prod.id || '';
+              row.querySelector('.erl-row-sku').value = prod.sku || '';
+              row.querySelector('.erl-row-name').value = prod.name || '';
+            }
+          });
+        }
+      });
+
+      row.querySelector('.erl-btn-remove-row')?.addEventListener('click', () => {
+        row.remove();
+      });
+
+      incomingContainer.appendChild(row);
+    };
+
+    const addOutgoingRow = (item = { id: '', sku: '', name: '', qty: 1, comment: '' }) => {
+      const row = document.createElement('div');
+      row.className = 'erl-outgoing-row';
+      row.dataset.productId = item.id || '';
+      row.style.cssText = 'display: grid; grid-template-columns: 72px 175px minmax(200px, 1fr) 190px 38px; gap: 0.5rem; align-items: center; background: var(--color-surface); padding: 0.5rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);';
+      row.innerHTML = `
+        <div style="min-width: 0;">
+          <input type="number" class="form-input erl-row-qty" value="${Number(item.qty) || 1}" min="1" title="Cantidad" style="height: 36px; width: 100%; box-sizing: border-box; font-size: 0.85rem; text-align: center; font-weight: 700; padding: 0.2rem 0.35rem;">
+        </div>
+        <div style="display: flex; gap: 0.25rem; min-width: 0;">
+          <input type="text" class="form-input erl-row-sku" list="erl-catalog-datalist" value="${esc(item.sku)}" placeholder="SKU" style="height: 36px; width: 100%; min-width: 0; box-sizing: border-box; font-size: 0.8rem; font-family: monospace; font-weight: 600; padding: 0.2rem 0.45rem;">
+          <button type="button" class="btn btn-outline erl-btn-row-catalog" title="Elegir desde el catálogo" style="height: 36px; padding: 0 0.5rem; font-size: 0.85rem; flex-shrink: 0;">
+            <i class="ri-search-eye-line"></i>
+          </button>
+        </div>
+        <div style="min-width: 0;">
+          <input type="text" class="form-input erl-row-name" value="${esc(item.name)}" placeholder="Nombre / Descripción del producto de reemplazo *" style="height: 36px; width: 100%; min-width: 0; box-sizing: border-box; font-size: 0.84rem; padding: 0.2rem 0.55rem;">
+        </div>
+        <div style="min-width: 0;">
+          <input type="text" class="form-input erl-row-comment" value="${esc(item.comment)}" placeholder="Comentario opcional" style="height: 36px; width: 100%; min-width: 0; box-sizing: border-box; font-size: 0.8rem; padding: 0.2rem 0.5rem;">
+        </div>
+        <button type="button" class="btn btn-outline erl-btn-remove-row" title="Quitar fila" style="height: 36px; width: 36px; padding: 0; color: #ef4444; border-color: rgba(239,68,68,0.3); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+          <i class="ri-delete-bin-line"></i>
+        </button>
+      `;
+
+      bindSkuAutoMatch(row);
+
+      row.querySelector('.erl-btn-row-catalog')?.addEventListener('click', () => {
+        const comm = modal.querySelector('#erl-comercio')?.value || currentCommerce;
+        if (typeof window.openRloProductPicker === 'function') {
+          window.openRloProductPicker(2, {
+            commerce: comm,
+            onSelect: (prod) => {
+              row.dataset.productId = prod.id || '';
+              row.querySelector('.erl-row-sku').value = prod.sku || '';
+              row.querySelector('.erl-row-name').value = prod.name || '';
+            }
+          });
+        }
+      });
+
+      row.querySelector('.erl-btn-remove-row')?.addEventListener('click', () => {
+        row.remove();
+      });
+
+      outgoingContainer.appendChild(row);
+    };
+
+    // Populate initial rows
+    incomingList.forEach(item => addIncomingRow(item));
+    outgoingList.forEach(item => addOutgoingRow(item));
+
+    // Bind section buttons
+    modal.querySelector('#btn-erl-add-incoming-row')?.addEventListener('click', () => addIncomingRow());
+    modal.querySelector('#btn-erl-add-outgoing-row')?.addEventListener('click', () => addOutgoingRow());
+
+    modal.querySelector('#btn-erl-pick-incoming-catalog')?.addEventListener('click', () => {
+      const comm = modal.querySelector('#erl-comercio')?.value || currentCommerce;
+      if (typeof window.openRloProductPicker === 'function') {
+        window.openRloProductPicker(1, {
+          commerce: comm,
+          onSelect: (prod) => {
+            // If first row is empty, fill it; otherwise append
+            const rows = Array.from(incomingContainer.querySelectorAll('.erl-incoming-row'));
+            const emptyRow = rows.find(r => !r.querySelector('.erl-row-name').value.trim() && !r.querySelector('.erl-row-sku').value.trim());
+            if (emptyRow) {
+              emptyRow.dataset.productId = prod.id || '';
+              emptyRow.querySelector('.erl-row-sku').value = prod.sku || '';
+              emptyRow.querySelector('.erl-row-name').value = prod.name || '';
+            } else {
+              addIncomingRow({ id: prod.id || '', sku: prod.sku || '', name: prod.name || '', qty: 1, returnToStock: true, comment: '' });
+            }
+          }
+        });
+      }
+    });
+
+    modal.querySelector('#btn-erl-pick-outgoing-catalog')?.addEventListener('click', () => {
+      const comm = modal.querySelector('#erl-comercio')?.value || currentCommerce;
+      if (typeof window.openRloProductPicker === 'function') {
+        window.openRloProductPicker(2, {
+          commerce: comm,
+          onSelect: (prod) => {
+            const rows = Array.from(outgoingContainer.querySelectorAll('.erl-outgoing-row'));
+            const emptyRow = rows.find(r => !r.querySelector('.erl-row-name').value.trim() && !r.querySelector('.erl-row-sku').value.trim());
+            if (emptyRow) {
+              emptyRow.dataset.productId = prod.id || '';
+              emptyRow.querySelector('.erl-row-sku').value = prod.sku || '';
+              emptyRow.querySelector('.erl-row-name').value = prod.name || '';
+            } else {
+              addOutgoingRow({ id: prod.id || '', sku: prod.sku || '', name: prod.name || '', qty: 1, comment: '' });
+            }
+          }
+        });
+      }
+    });
+
+    modal.querySelector('#btn-erl-copy-from-incoming')?.addEventListener('click', () => {
+      const incRows = Array.from(incomingContainer.querySelectorAll('.erl-incoming-row'));
+      outgoingContainer.innerHTML = '';
+      incRows.forEach(r => {
+        const sku = r.querySelector('.erl-row-sku')?.value.trim() || '';
+        const name = r.querySelector('.erl-row-name')?.value.trim() || '';
+        const qty = parseInt(r.querySelector('.erl-row-qty')?.value, 10) || 1;
+        if (sku || name) {
+          addOutgoingRow({
+            id: r.dataset.productId || '',
+            sku,
+            name,
+            qty,
+            comment: 'Cambio 1 a 1'
+          });
+        }
+      });
+      if (outgoingContainer.children.length === 0) {
+        addOutgoingRow();
+      }
+      if (typeof window.showToast === 'function') {
+        window.showToast('Productos copiados 1 a 1 a la salida de reemplazo.', 'info');
+      }
+    });
+
+    // Branch receipt shortcut
+    modal.querySelector('#btn-erl-open-receipt')?.addEventListener('click', () => {
+      closeModal();
+      if (typeof window.openQuickBranchExchangeReceiptModal === 'function') {
+        window.openQuickBranchExchangeReceiptModal(record);
+      }
+    });
+
+    // Save handler
+    modal.querySelector('#btn-save-erl-modal')?.addEventListener('click', async () => {
+      const btnSave = modal.querySelector('#btn-save-erl-modal');
+      const comercio = (modal.querySelector('#erl-comercio')?.value || '').trim();
+      const tipo = modal.querySelector('#erl-tipo')?.value || 'DEVOLUCION';
+      const newStatus = modal.querySelector('#erl-status')?.value || 'pendiente';
+      const refPedido = (modal.querySelector('#erl-ref-pedido')?.value || '').trim();
+      const createdAtVal = modal.querySelector('#erl-created-at')?.value || '';
+      const modoEntregaVal = modal.querySelector('#erl-modo-entrega')?.value || null;
+      const transporte = (modal.querySelector('#erl-transporte')?.value || '').trim() || 'No especificado';
+      const sucursal = (modal.querySelector('#erl-sucursal')?.value || '').trim() || 'Bodega Central';
+      const refTransporte = (modal.querySelector('#erl-ref-transporte')?.value || '').trim() || 'N/A';
+      const responsablePago = modal.querySelector('#erl-responsable-pago')?.value || 'comercio';
+      const costoEnvio = Number(modal.querySelector('#erl-costo-envio')?.value || 0);
+
+      const customerName = (modal.querySelector('#erl-customer-name')?.value || '').trim();
+      const customerEmail = (modal.querySelector('#erl-customer-email')?.value || '').trim();
+      const customerPhone = (modal.querySelector('#erl-customer-phone')?.value || '').trim();
+      const shippingCity = (modal.querySelector('#erl-shipping-city')?.value || '').trim();
+      const shippingAddress = (modal.querySelector('#erl-shipping-address')?.value || '').trim();
+      const shippingComplement = (modal.querySelector('#erl-shipping-complement')?.value || '').trim();
+
+      const comentarios = (modal.querySelector('#erl-comentarios')?.value || '').trim();
+      const creadoPor = (modal.querySelector('#erl-creado-por')?.value || '').trim();
+
+      if (!comercio) {
+        if (typeof Swal !== 'undefined') Swal.fire('Campo requerido', 'Por favor selecciona el comercio.', 'warning');
+        return;
+      }
+      if (!refPedido) {
+        if (typeof Swal !== 'undefined') Swal.fire('Campo requerido', 'Por favor ingresa la Referencia del Pedido.', 'warning');
+        return;
+      }
+
+      // Collect incoming products
+      const incomingProducts = [];
+      incomingContainer.querySelectorAll('.erl-incoming-row').forEach(r => {
+        const sku = (r.querySelector('.erl-row-sku')?.value || '').trim();
+        const name = (r.querySelector('.erl-row-name')?.value || '').trim();
+        const qty = Math.max(1, parseInt(r.querySelector('.erl-row-qty')?.value, 10) || 1);
+        const returnToStock = Boolean(r.querySelector('.erl-row-stock')?.checked);
+        const comment = (r.querySelector('.erl-row-comment')?.value || '').trim();
+        if (sku || name) {
+          incomingProducts.push({
+            id: r.dataset.productId || null,
+            sku,
+            name: name || sku,
+            qty,
+            returnToStock,
+            comment
+          });
+        }
+      });
+
+      // Collect outgoing products (if CAMBIO or rows exist)
+      const outgoingProducts = [];
+      if (tipo === 'CAMBIO') {
+        outgoingContainer.querySelectorAll('.erl-outgoing-row').forEach(r => {
+          const sku = (r.querySelector('.erl-row-sku')?.value || '').trim();
+          const name = (r.querySelector('.erl-row-name')?.value || '').trim();
+          const qty = Math.max(1, parseInt(r.querySelector('.erl-row-qty')?.value, 10) || 1);
+          const comment = (r.querySelector('.erl-row-comment')?.value || '').trim();
+          if (sku || name) {
+            outgoingProducts.push({
+              id: r.dataset.productId || null,
+              sku,
+              name: name || sku,
+              qty,
+              comment
+            });
+          }
+        });
+      }
+
+      if (incomingProducts.length === 0 && outgoingProducts.length === 0) {
+        if (typeof Swal !== 'undefined') Swal.fire('Sin productos', 'Debes mantener al menos un producto en el movimiento.', 'warning');
+        return;
+      }
+
+      const maxLen = Math.max(incomingProducts.length, outgoingProducts.length);
+      const productosPayload = [];
+      for (let i = 0; i < maxLen; i++) {
+        const inc = incomingProducts[i];
+        const out = outgoingProducts[i];
+        const incStr = inc ? (inc.sku ? `[${inc.sku}] ${inc.name}` : inc.name) : null;
+        const outStr = out ? (out.sku ? `[${out.sku}] ${out.name}` : out.name) : null;
+        productosPayload.push({
+          producto_devuelto: incStr,
+          id_devuelto: inc ? inc.id : null,
+          qty_devuelto: inc ? inc.qty : 0,
+          regresar_a_inventario: inc ? inc.returnToStock : false,
+          producto_reemplazo: outStr,
+          id_reemplazo: out ? out.id : null,
+          qty_reemplazo: out ? out.qty : 0,
+          cantidad: (inc ? inc.qty : 0) + (out ? out.qty : 0),
+          comentario: (inc && inc.comment) ? inc.comment : ((out && out.comment) ? out.comment : '')
+        });
+      }
+
+      const totalIncomingQty = incomingProducts.reduce((acc, p) => acc + p.qty, 0);
+      const totalOutgoingQty = outgoingProducts.reduce((acc, p) => acc + p.qty, 0);
+      const cantidadTotal = tipo === 'CAMBIO' ? Math.max(totalIncomingQty, totalOutgoingQty) : totalIncomingQty;
+
+      const updatePayload = {
+        comercio,
+        tipo_movimiento: tipo,
+        status: newStatus,
+        referencia_pedido: refPedido,
+        modo_entrega: modoEntregaVal,
+        transporte,
+        sucursal,
+        referencia_transporte: refTransporte,
+        responsable_pago: responsablePago,
+        costo_envio: costoEnvio,
+        customer_name: customerName || null,
+        customer_email: customerEmail || null,
+        customer_phone: customerPhone || null,
+        shipping_city: shippingCity || null,
+        shipping_address: shippingAddress || null,
+        shipping_complement: shippingComplement || null,
+        productos: productosPayload,
+        cantidad_total: cantidadTotal,
+        comentarios,
+        creado_por: creadoPor
+      };
+
+      if (createdAtVal) {
+        const parsedDate = new Date(createdAtVal);
+        if (!isNaN(parsedDate.getTime())) {
+          updatePayload.created_at = parsedDate.toISOString();
+        }
+      }
+
+      try {
+        btnSave.disabled = true;
+        btnSave.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
+
+        const { error: updateErr } = await window.supabaseClient
+          .from('reverse_logistics')
+          .update(updatePayload)
+          .eq('id', record.id);
+
+        if (updateErr) throw updateErr;
+
+        // Optional inventory adjustment if status transitioned from pendiente -> procesado
+        const shouldApplyInventory = Boolean(modal.querySelector('#erl-apply-inventory-on-confirm')?.checked);
+        if (originalStatus === 'pendiente' && newStatus === 'procesado' && shouldApplyInventory) {
+          for (const p of productosPayload) {
+            if (p.id_devuelto && p.regresar_a_inventario && p.qty_devuelto > 0) {
+              const { data: prodData } = await window.supabaseClient
+                .from('products')
+                .select('stock, title')
+                .eq('id', p.id_devuelto)
+                .maybeSingle();
+              if (prodData) {
+                const newStock = (Number(prodData.stock) || 0) + Number(p.qty_devuelto);
+                await window.supabaseClient.from('products').update({ stock: newStock }).eq('id', p.id_devuelto);
+                await window.supabaseClient.from('inventory_logs').insert([{
+                  product_id: p.id_devuelto,
+                  product_title: prodData.title || p.producto_devuelto,
+                  commerce_name: comercio,
+                  user_email: creadoPor || 'Admin WMS',
+                  change_type: 'devolucion_logistica_inversa',
+                  quantity_change: Number(p.qty_devuelto),
+                  new_stock: newStock,
+                  reason: `Confirmado en edición de Logística Inversa (Ref: ${refPedido})`
+                }]);
+              }
+            }
+            if (tipo === 'CAMBIO' && p.id_reemplazo && p.qty_reemplazo > 0) {
+              const { data: prodRep } = await window.supabaseClient
+                .from('products')
+                .select('stock, title')
+                .eq('id', p.id_reemplazo)
+                .maybeSingle();
+              if (prodRep) {
+                const newStockRep = Math.max(0, (Number(prodRep.stock) || 0) - Number(p.qty_reemplazo));
+                await window.supabaseClient.from('products').update({ stock: newStockRep }).eq('id', p.id_reemplazo);
+                await window.supabaseClient.from('inventory_logs').insert([{
+                  product_id: p.id_reemplazo,
+                  product_title: prodRep.title || p.producto_reemplazo,
+                  commerce_name: comercio,
+                  user_email: creadoPor || 'Admin WMS',
+                  change_type: 'cambio_logistica_inversa',
+                  quantity_change: -Number(p.qty_reemplazo),
+                  new_stock: newStockRep,
+                  reason: `Salida por Cambio confirmado en edición (Ref: ${refPedido})`
+                }]);
+              }
+            }
+          }
+        }
+
+        // Optional sync with linked WMS order
+        const syncWmsOrder = Boolean(modal.querySelector('#erl-sync-wms-order')?.checked);
+        if (record.wms_order_id && syncWmsOrder) {
+          try {
+            const noteText = typeof window.buildReverseLogisticsOrderNote === 'function'
+              ? window.buildReverseLogisticsOrderNote({
+                  type: tipo,
+                  refPedido,
+                  incomingProducts,
+                  outgoingProducts,
+                  comments: comentarios,
+                  courier: transporte,
+                  tracking: refTransporte,
+                  responsablePago
+                })
+              : `[LOGÍSTICA INVERSA - ${tipo}] Ref: ${refPedido}. ${comentarios}`;
+
+            const orderUpdatePayload = {
+              commerce_name: comercio,
+              customer_name: customerName || record.customer_name || 'Cliente Logística Inversa',
+              customer_email: customerEmail || null,
+              customer_phone: customerPhone || null,
+              shipping_address: shippingAddress || sucursal,
+              address: shippingAddress || sucursal,
+              shipping_city: shippingCity || sucursal,
+              commune: shippingCity || sucursal,
+              courier: transporte,
+              tracking_number: refTransporte !== 'N/A' ? refTransporte : null,
+              notes: noteText
+            };
+
+            await window.supabaseClient
+              .from('orders')
+              .update(orderUpdatePayload)
+              .eq('id', record.wms_order_id);
+
+            // Sync order_items if replacement products exist
+            if (tipo === 'CAMBIO' && outgoingProducts.length > 0) {
+              await window.supabaseClient.from('order_items').delete().eq('order_id', record.wms_order_id);
+              const newOrderItems = outgoingProducts.map(p => ({
+                order_id: record.wms_order_id,
+                product_id: p.id || null,
+                title: p.name,
+                sku: p.sku || 'SIN-SKU',
+                quantity: p.qty,
+                price: 0
+              }));
+              await window.supabaseClient.from('order_items').insert(newOrderItems);
+            }
+          } catch (syncErr) {
+            console.warn('Advertencia sincronizando orden WMS vinculada:', syncErr);
+          }
+        }
+
+        closeModal();
+        if (typeof window.showToast === 'function') {
+          window.showToast('Movimiento de logística inversa actualizado correctamente.', 'success');
+        } else if (typeof Swal !== 'undefined') {
+          Swal.fire('¡Actualizado!', 'El movimiento ha sido actualizado exitosamente.', 'success');
+        }
+
+        if (typeof fetchAndRenderAdminReturnsData === 'function') {
+          await fetchAndRenderAdminReturnsData();
+        }
+        if (typeof fetchAndRenderReturnsData === 'function') {
+          await fetchAndRenderReturnsData();
+        }
+        if (typeof fetchOrders === 'function') {
+          fetchOrders();
+        }
+      } catch (saveErr) {
+        console.error('Error guardando edición de logística inversa:', saveErr);
+        if (typeof Swal !== 'undefined') {
+          Swal.fire('Error', 'No se pudo actualizar el movimiento: ' + (saveErr.message || saveErr), 'error');
+        } else {
+          alert('Error al guardar cambios: ' + (saveErr.message || saveErr));
+        }
+      } finally {
+        btnSave.disabled = false;
+        btnSave.innerHTML = '<i class="ri-save-3-line"></i> Guardar Cambios';
+      }
+    });
+
+  } catch (err) {
+    console.error('Error abriendo editor de logística inversa:', err);
+    if (typeof Swal !== 'undefined') {
+      Swal.fire('Error', 'No se pudo abrir el editor: ' + err.message, 'error');
+    }
+  }
 };
 
 // ==========================================
@@ -123371,12 +132176,12 @@ window.parseLocalDatetimeInputToISO = function(localStr) {
 
 window.doesAdminOrderStatusApplyPicking = function(estadoWms) {
   const st = (estadoWms || 'En procesamiento').trim();
-  return st === 'En preparación' || st === 'Pickeado' || st === 'Despachado' || st === 'Incidencia';
+  return st === 'En preparación' || st === 'Pickeado' || st === 'Despachado' || st === 'Entregado' || st === 'Incidencia';
 };
 
 window.isAdminOrderPickingRequired = function(estadoWms) {
   const st = (estadoWms || 'En procesamiento').trim();
-  return st === 'En preparación' || st === 'Pickeado' || st === 'Despachado';
+  return st === 'En preparación' || st === 'Pickeado' || st === 'Despachado' || st === 'Entregado';
 };
 
 window.adminOrderOperationalState = {
@@ -123724,6 +132529,9 @@ window.openCreateOrderModal = async function() {
   if (notesInput) notesInput.value = '';
   const notesSummary = document.getElementById('order-cust-notes-summary');
   if (notesSummary) notesSummary.value = '';
+  if (typeof window.resetManualOrderNumberFeedback === 'function') {
+    window.resetManualOrderNumberFeedback();
+  }
 
   const dropdownListEl = document.getElementById('order-product-dropdown-list');
   if (dropdownListEl) {
@@ -123778,6 +132586,9 @@ window.openCreateOrderModal = async function() {
       window.orderUseVolumetricWeightMode = false;
       window.renderAdminNewOrderItemsTable();
       window.loadAdminNewOrderProducts(this.value);
+      if (typeof window.triggerManualOrderNumberLiveCheck === 'function') {
+        window.triggerManualOrderNumberLiveCheck('admin', true);
+      }
     };
   }
 
@@ -124871,16 +133682,47 @@ window.initAdminWizardOrder = function() {
   const btnPrev = document.getElementById('btn-wizard-prev');
 
   if (btnNext) {
-    btnNext.onclick = function() {
-      if (window.validateAdminWizardStep(window.currentAdminWizardStep)) {
-        window.currentAdminWizardStep++;
-        window.updateAdminWizardUI();
-        if (window.currentAdminWizardStep === 3) {
-          window.calculateAdminShippingQuote();
-          window.syncAdminOrderOperationalUI();
-        } else if (window.currentAdminWizardStep === 4) {
-          window.populateAdminWizardSummary();
+    btnNext.onclick = async function() {
+      if (!window.validateAdminWizardStep(window.currentAdminWizardStep)) return;
+
+      if (window.currentAdminWizardStep === 3 && typeof window.checkManualOrderNumberAvailability === 'function') {
+        const isAutoNum = document.getElementById('order-number-auto')?.checked;
+        const rawOrderNum = document.getElementById('order-cust-external-id')?.value.trim() || '';
+        if (!isAutoNum && rawOrderNum) {
+          const commerceVal = document.getElementById('order-select-commerce')?.value?.trim() || 'STOCKA';
+          const prevHtml = btnNext.innerHTML;
+          btnNext.disabled = true;
+          btnNext.innerHTML = '<i class="ri-loader-4-line spin"></i> Verificando N°...';
+          try {
+            const dupCheck = await window.checkManualOrderNumberAvailability(rawOrderNum, commerceVal, { mode: 'admin' });
+            if (dupCheck.isDuplicate && typeof window.promptDuplicateOrderNumberResolution === 'function') {
+              btnNext.disabled = false;
+              btnNext.innerHTML = prevHtml;
+              const resolution = await window.promptDuplicateOrderNumberResolution(dupCheck, {
+                mode: 'admin',
+                stage: 'wizard'
+              });
+              if (!resolution || resolution.action === 'cancel') {
+                return;
+              }
+            }
+          } finally {
+            btnNext.disabled = false;
+            btnNext.innerHTML = prevHtml;
+          }
         }
+      }
+
+      window.currentAdminWizardStep++;
+      window.updateAdminWizardUI();
+      if (window.currentAdminWizardStep === 3) {
+        window.calculateAdminShippingQuote();
+        window.syncAdminOrderOperationalUI();
+        if (typeof window.triggerManualOrderNumberLiveCheck === 'function') {
+          window.triggerManualOrderNumberLiveCheck('admin', true);
+        }
+      } else if (window.currentAdminWizardStep === 4) {
+        window.populateAdminWizardSummary();
       }
     };
   }
@@ -125027,9 +133869,25 @@ window.initAdminWizardOrder = function() {
   if (autoOrderNumCheckbox && extOrderIdInput) {
     autoOrderNumCheckbox.onchange = function() {
       extOrderIdInput.style.display = this.checked ? 'none' : 'block';
-      if (!this.checked) extOrderIdInput.focus();
+      if (this.checked) {
+        if (typeof window.resetManualOrderNumberFeedback === 'function') {
+          window.resetManualOrderNumberFeedback();
+        }
+      } else {
+        extOrderIdInput.focus();
+        if (extOrderIdInput.value.trim() && typeof window.triggerManualOrderNumberLiveCheck === 'function') {
+          window.triggerManualOrderNumberLiveCheck('admin', true);
+        }
+      }
     };
     extOrderIdInput.style.display = autoOrderNumCheckbox.checked ? 'none' : 'block';
+  }
+
+  if (typeof window.setupManualOrderNumberLiveValidation === 'function') {
+    window.setupManualOrderNumberLiveValidation(
+      'admin',
+      () => document.getElementById('order-select-commerce')?.value?.trim() || 'STOCKA'
+    );
   }
 
   const cityInput = document.getElementById('order-cust-city');
@@ -126454,27 +135312,51 @@ setTimeout(() => {
 
     const totalValue = items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
 
-    const isAutoNumber = document.getElementById('order-number-auto')?.checked;
-    let customOrderNumber = document.getElementById('order-cust-external-id')?.value.trim();
+    let usedAutoNumber = Boolean(document.getElementById('order-number-auto')?.checked);
+    let customOrderNumber = document.getElementById('order-cust-external-id')?.value.trim() || '';
     let finalOrderNumber = customOrderNumber;
 
-    if (isAutoNumber || !customOrderNumber) {
-      let siglaComercio = '';
-      try {
-        const { data: cfg } = await supabase
-          .from('v_comercios_config')
-          .select('sigla')
-          .eq('nombre', selectedCommerce)
-          .maybeSingle();
-        if (cfg && cfg.sigla) {
-          siglaComercio = cfg.sigla.trim().toUpperCase();
+    if (usedAutoNumber || !customOrderNumber) {
+      usedAutoNumber = true;
+      if (typeof window.generateUniqueAutoManualOrderNumber === 'function') {
+        finalOrderNumber = await window.generateUniqueAutoManualOrderNumber(selectedCommerce, { mode: 'admin' });
+      } else {
+        let siglaComercio = '';
+        try {
+          const { data: cfg } = await supabase
+            .from('v_comercios_config')
+            .select('sigla')
+            .eq('nombre', selectedCommerce)
+            .maybeSingle();
+          if (cfg && cfg.sigla) {
+            siglaComercio = cfg.sigla.trim().toUpperCase();
+          }
+        } catch (err) {
+          console.warn('Aviso obteniendo sigla:', err);
         }
-      } catch (err) {
-        console.warn('Aviso obteniendo sigla:', err);
+        const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+        finalOrderNumber = siglaComercio ? `${siglaComercio}#MANUAL-${randomSuffix}` : `#MANUAL-${randomSuffix}`;
       }
-
-      const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-      finalOrderNumber = siglaComercio ? `${siglaComercio}#MANUAL-${randomSuffix}` : `#MANUAL-${randomSuffix}`;
+    } else if (typeof window.checkManualOrderNumberAvailability === 'function') {
+      const dupCheck = await window.checkManualOrderNumberAvailability(customOrderNumber, selectedCommerce, { mode: 'admin' });
+      if (dupCheck.isDuplicate) {
+        const resolution = typeof window.promptDuplicateOrderNumberResolution === 'function'
+          ? await window.promptDuplicateOrderNumberResolution(dupCheck, { mode: 'admin', stage: 'submit' })
+          : { action: 'cancel' };
+        if (!resolution || resolution.action === 'cancel') {
+          if (btnSubmit) {
+            btnSubmit.disabled = false;
+            btnSubmit.innerHTML = 'Confirmar Pedido <i class="ri-check-line"></i>';
+          }
+          return;
+        }
+        if (resolution.action === 'auto') {
+          usedAutoNumber = true;
+          finalOrderNumber = await window.generateUniqueAutoManualOrderNumber(selectedCommerce, { mode: 'admin' });
+        } else if (resolution.action === 'replace' && resolution.value) {
+          finalOrderNumber = resolution.value;
+        }
+      }
     }
 
     const shippingType = document.querySelector('input[name="order-shipping-type"]:checked')?.value || 'domicilio';
@@ -126597,7 +135479,7 @@ setTimeout(() => {
       finalSucursalPickeo = null;
     }
 
-    if ((selectedEstadoWms === 'En preparación' || selectedEstadoWms === 'Pickeado' || selectedEstadoWms === 'Despachado') && !finalAgenda) {
+    if ((selectedEstadoWms === 'En preparación' || selectedEstadoWms === 'Pickeado' || selectedEstadoWms === 'Despachado' || selectedEstadoWms === 'Entregado') && !finalAgenda) {
       finalAgenda = 'PROCESADO MANUAL';
     }
 
@@ -126606,6 +135488,7 @@ setTimeout(() => {
       'En preparación': 'en preparación',
       'Pickeado': 'preparado',
       'Despachado': 'despachado',
+      'Entregado': selectedCategoria === 'RETIRO' ? 'retirado' : 'entregado',
       'Incidencia': 'para procesar',
       'Cancelado': 'cancelado',
       'Archivado': 'para procesar'
@@ -126744,17 +135627,30 @@ setTimeout(() => {
       };
 
       let insertedOrder = null;
-      const insertResult = await supabase
-        .from('orders')
-        .insert([orderDataPayload])
-        .select()
-        .single();
+      const isDuplicateOrderInsertError = (err) => Boolean(err && (
+        String(err.code || '') === '23505' ||
+        /unique_orders_comercio_clean_number|duplicate key value/i.test(`${err.message || ''} ${err.details || ''}`)
+      ));
 
-      if (insertResult.error) {
-        const isColumnError = insertResult.error.message && (
-          insertResult.error.message.includes('shipping_cost') || 
-          insertResult.error.message.includes('shipping_cost_tax') ||
-          insertResult.error.message.includes('fecha_procesamiento')
+      for (let insertAttempt = 0; insertAttempt < 4; insertAttempt++) {
+        orderDataPayload.external_order_number = finalOrderNumber;
+
+        const insertResult = await supabase
+          .from('orders')
+          .insert([orderDataPayload])
+          .select()
+          .single();
+
+        let attemptError = insertResult.error;
+        if (!attemptError) {
+          insertedOrder = insertResult.data;
+          break;
+        }
+
+        const isColumnError = attemptError.message && (
+          attemptError.message.includes('shipping_cost') ||
+          attemptError.message.includes('shipping_cost_tax') ||
+          attemptError.message.includes('fecha_procesamiento')
         );
         if (isColumnError) {
           const fallbackPayload = { ...orderDataPayload };
@@ -126769,13 +135665,49 @@ setTimeout(() => {
             .select()
             .single();
 
-          if (fallbackResult.error) throw fallbackResult.error;
-          insertedOrder = fallbackResult.data;
-        } else {
-          throw insertResult.error;
+          if (!fallbackResult.error) {
+            insertedOrder = fallbackResult.data;
+            break;
+          }
+          attemptError = fallbackResult.error;
         }
-      } else {
-        insertedOrder = insertResult.data;
+
+        if (isDuplicateOrderInsertError(attemptError) && insertAttempt < 3) {
+          if (usedAutoNumber && typeof window.generateUniqueAutoManualOrderNumber === 'function') {
+            finalOrderNumber = await window.generateUniqueAutoManualOrderNumber(selectedCommerce, { mode: 'admin' });
+            continue;
+          }
+          if (typeof window.promptDuplicateOrderNumberResolution === 'function') {
+            const freshDup = typeof window.checkManualOrderNumberAvailability === 'function'
+              ? await window.checkManualOrderNumberAvailability(finalOrderNumber, selectedCommerce, { mode: 'admin' })
+              : null;
+            const dupPayload = (freshDup && freshDup.isDuplicate) ? freshDup : {
+              isDuplicate: true,
+              commerce: selectedCommerce,
+              rawInput: finalOrderNumber,
+              conflictingOrder: freshDup?.conflictingOrder || { external_order_number: finalOrderNumber },
+              suggestions: freshDup?.suggestions || []
+            };
+            const resolution = await window.promptDuplicateOrderNumberResolution(dupPayload, {
+              mode: 'admin',
+              stage: 'submit'
+            });
+            if (!resolution || resolution.action === 'cancel') {
+              return;
+            }
+            if (resolution.action === 'auto' && typeof window.generateUniqueAutoManualOrderNumber === 'function') {
+              usedAutoNumber = true;
+              finalOrderNumber = await window.generateUniqueAutoManualOrderNumber(selectedCommerce, { mode: 'admin' });
+              continue;
+            }
+            if (resolution.action === 'replace' && resolution.value) {
+              finalOrderNumber = resolution.value;
+              continue;
+            }
+          }
+        }
+
+        throw attemptError;
       }
 
       if (insertedOrder) {
@@ -127002,6 +135934,9 @@ setTimeout(() => {
       // 5. Cerrar modal y limpiar
       document.getElementById('modal-order')?.classList.remove('active');
       e.target.reset();
+      if (typeof window.resetManualOrderNumberFeedback === 'function') {
+        window.resetManualOrderNumberFeedback();
+      }
       const notesEl = document.getElementById('order-cust-notes');
       if (notesEl) notesEl.value = '';
       const notesSumEl = document.getElementById('order-cust-notes-summary');
@@ -127079,6 +136014,102 @@ setTimeout(() => {
 
 window.AUTOMATIONS_CATALOG = [
   {
+    id: 'auto-transport-in-transit-to-despachado',
+    title: 'Transporte → WMS: Pedido con Etiqueta "En Tránsito" pasa automáticamente a Despachado',
+    category: 'stock_couriers',
+    categoryLabel: 'Inventario & Logística',
+    badgeColor: '#0284c7',
+    badgeBg: 'rgba(2, 132, 199, 0.12)',
+    icon: 'ri-truck-fill',
+    mode: 'Trigger SQL Tiempo Real + Sync Couriers',
+    status: 'active',
+    canToggleInDb: true,
+    trigger: 'El envío asociado al pedido cambia su estado de transporte normalizado a `EN TRÁNSITO` (movimiento físico confirmado en Envíame, BlueX, Starken, LightData/ALPHA u Optiroute).',
+    condition: 'El pedido no es de categoría `RETIRO` y se encuentra en `En procesamiento`, `En preparación` o `Pickeado`.',
+    action: 'Cambia automáticamente `estado_wms` a `Despachado` (descontando stock físico de forma idempotente; si faltaba stock levanta incidencia de cuadratura sin frenar el avance), limpia `active_orders` en Picker y registra auditoría.',
+    techSource: 'Trigger `trg_on_unified_shipment_status_change` + `sync_to_picker.js` + `sync_*.js`'
+  },
+  {
+    id: 'auto-dispatch-delivered-to-entregado',
+    title: 'Despacho → WMS: Envío Entregado cierra el pedido en ENTREGADO (Snapshot Inmutable)',
+    category: 'stock_couriers',
+    categoryLabel: 'Inventario & Logística',
+    badgeColor: '#059669',
+    badgeBg: 'rgba(5, 150, 105, 0.14)',
+    icon: 'ri-verified-badge-fill',
+    mode: 'Trigger SQL Tiempo Real + Cierre Definitivo',
+    status: 'active',
+    canToggleInDb: true,
+    trigger: 'El despacho del pedido confirma estado `ENTREGADO` real al destinatario (excluyendo devoluciones, rechazos o entregas en origen).',
+    condition: 'El pedido no se encuentra ya en `Entregado`, `Cancelado` ni `Archivado`.',
+    action: 'Cambia `estado_wms` a `Entregado` (Finalizado), sella `closed_snapshot` 360° con tracking, receptor, GPS, historial, picking e ítems, propaga a pedidos secundarios consolidados y detiene toda consulta futura a APIs externas.',
+    techSource: 'Trigger `trg_on_unified_shipment_status_change` + `zz_seal_order_closed_snapshot`'
+  },
+  {
+    id: 'auto-pickup-retirado-to-entregado',
+    title: 'Retiro en Sucursal → WMS: Pedido Retirado pasa automáticamente a ENTREGADO',
+    category: 'picker_wms',
+    categoryLabel: 'Picker ↔ WMS',
+    badgeColor: '#059669',
+    badgeBg: 'rgba(5, 150, 105, 0.14)',
+    icon: 'ri-hand-coin-line',
+    mode: 'Trigger SQL + Polling Picker 30s / Worker',
+    status: 'active',
+    canToggleInDb: true,
+    trigger: 'El retiro del pedido se marca como `Retirado` en App Picker (`history_logs` / `active_orders`) o como `ENTREGADO` en Punto de Retiro (`store_pickups` / `sucursal_pickups`).',
+    condition: 'El pedido no está en `Cancelado` ni `Archivado`.',
+    action: 'Cambia automáticamente el pedido en WMS a `estado_wms = "Entregado"` (`status = "retirado"`), rebaja stock físico si aún no se había descontado, sella PIN/receptor/hora en `closed_snapshot` y cierra el pedido en Shopify.',
+    techSource: 'Trigger `trg_auto_store_pickup_to_entregado` + `sync_to_picker.js` + `js/admin.js`'
+  },
+  {
+    id: 'auto-pos-sale-to-entregado',
+    title: 'Shop Point (POS) → WMS: Venta Presencial en Bodega nace cerrada en ENTREGADO',
+    category: 'stock_couriers',
+    categoryLabel: 'Inventario & Logística',
+    badgeColor: '#0d9488',
+    badgeBg: 'rgba(13, 148, 136, 0.12)',
+    icon: 'ri-store-3-line',
+    mode: 'Trigger SQL Instantáneo al Crear',
+    status: 'active',
+    canToggleInDb: true,
+    trigger: 'Se registra una venta presencial con categoría `SHOP POINT (POS)` u origen `Punto de Venta`.',
+    condition: 'Venta confirmada presencialmente en módulo POS Sucursal Ñuñoa.',
+    action: 'Asigna `estado_wms = "Entregado"` de inmediato, descuenta stock físico de Matriz Ñuñoa y sella su `closed_snapshot` presencial sin seguimiento posterior.',
+    techSource: 'Trigger `aa_enforce_delivered_immutability_and_auto_close` + `js/pos_admin.js`'
+  },
+  {
+    id: 'auto-marketplace-delivered-to-entregado',
+    title: 'Marketplaces & Shopify → WMS: Entrega Confirmada (Delivered) pasa a ENTREGADO',
+    category: 'wms_shopify',
+    categoryLabel: 'WMS ↔ Canales',
+    badgeColor: '#059669',
+    badgeBg: 'rgba(5, 150, 105, 0.12)',
+    icon: 'ri-shopping-bag-3-fill',
+    mode: 'Trigger SQL + Sync Marketplaces',
+    status: 'active',
+    canToggleInDb: true,
+    trigger: 'Mercado Libre, Falabella, Paris, Ripley, Walmart o Shopify Fulfillment confirman estado de entrega `delivered`.',
+    condition: 'El pedido no está en `Entregado`, `Cancelado` ni `Archivado` (y no es hijo de split sin envío propio).',
+    action: 'Cambia `estado_wms` a `Entregado`, sella `closed_snapshot` con datos del canal y excluye el pedido de futuras re-sincronizaciones externas.',
+    techSource: 'Trigger `aa_enforce_delivered_immutability_and_auto_close` + `sync_meli/falabella/paris/ripley/walmart.js`'
+  },
+  {
+    id: 'auto-reverse-logistics-to-entregado',
+    title: 'Logística Inversa → WMS: Recepción Procesada en Bodega cierra orden LI en ENTREGADO',
+    category: 'stock_couriers',
+    categoryLabel: 'Inventario & Logística',
+    badgeColor: '#7c3aed',
+    badgeBg: 'rgba(124, 58, 237, 0.12)',
+    icon: 'ri-arrow-go-back-line',
+    mode: 'Trigger SQL Tiempo Real',
+    status: 'active',
+    canToggleInDb: true,
+    trigger: 'Un registro en `reverse_logistics` cambia a estado `procesado` al recepcionarse físicamente en bodega.',
+    condition: 'Existe orden WMS vinculada (`wms_order_id` o folio `LI-...`).',
+    action: 'Reingresa de forma idempotente las unidades devueltas a `inventory` (movimiento `in`) y cierra la orden de Logística Inversa en `estado_wms = "Entregado"`.',
+    techSource: 'Trigger `trg_auto_reverse_logistics_to_entregado`'
+  },
+  {
     id: 'auto-picker-to-pickeado',
     title: 'Picker → WMS: Pedido Completado pasa a Pickeado',
     category: 'picker_wms',
@@ -127088,25 +136119,11 @@ window.AUTOMATIONS_CATALOG = [
     icon: 'ri-checkbox-circle-line',
     mode: 'Tiempo Real (Polling 30s + Worker)',
     status: 'active',
+    canToggleInDb: true,
     trigger: 'Operario finaliza el armado del pedido en App Picker (`history_logs.estado` o `active_orders.sheet_status` en `Completado`, `Completado-Asistido` o `Listo para retiro`).',
     condition: 'El pedido se encuentra en estado `En preparación` en Stocka WMS.',
-    action: 'Cambia automáticamente el pedido en WMS a `estado_wms = "Pickeado"` (`status = "preparado"`), asigna el operario de picking y guarda la etiqueta escaneada.',
+    action: 'Cambia automáticamente el pedido en WMS a `estado_wms = "Pickeado"`, respalda `picker_history_snapshot` localmente en WMS y guarda operario + etiqueta escaneada.',
     techSource: 'js/admin.js (`window.syncPickerStatusToWms`) & `sync_to_picker.js`'
-  },
-  {
-    id: 'auto-picker-retirado-to-despachado',
-    title: 'Picker → WMS: Pedido Retirado pasa automáticamente a Despachado',
-    category: 'picker_wms',
-    categoryLabel: 'Picker ↔ WMS',
-    badgeColor: '#059669',
-    badgeBg: 'rgba(5, 150, 105, 0.12)',
-    icon: 'ri-hand-coin-line',
-    mode: 'Tiempo Real (Polling 30s + Worker)',
-    status: 'active',
-    trigger: 'El pedido se marca como `Retirado` en App Picker (`history_logs` / `active_orders`) o como `ENTREGADO` en Punto de Retiro (`sucursal_pickups`).',
-    condition: 'El pedido está en `En preparación` o `Pickeado` en Stocka WMS.',
-    action: 'Cambia automáticamente el pedido en WMS a `estado_wms = "Despachado"` (`status = "despachado"`, `stock_descontado = true`), actualiza `store_pickups` a `ENTREGADO` y dispara el cierre del pedido en Shopify.',
-    techSource: 'js/admin.js (`window.syncPickerStatusToWms`) & `sync_to_picker.js` (`syncPickedRetiroOrdersToDespachado`)'
   },
   {
     id: 'auto-shopify-ready-for-pickup',
@@ -127118,9 +136135,10 @@ window.AUTOMATIONS_CATALOG = [
     icon: 'ri-store-2-line',
     mode: 'Trigger SQL + Edge Function Tiempo Real',
     status: 'active',
+    canToggleInDb: true,
     trigger: 'Un pedido con `agenda = "RETIRO"` o `categoria_entrega = "RETIRO"` cambia a `estado_wms = "Pickeado"` en WMS.',
     condition: 'El comercio tiene activa la sincronización inversa (`sync_tracking_enabled = true`) y estados intermedios (`sync_intermediate_statuses = true`).',
-    action: 'Encola `set_ready_for_pickup`, ejecuta la mutación GraphQL nativa de Shopify `fulfillmentOrderLineItemsPreparedForPickup` (cambiando el estado en Shopify a "Listo para retirar" y enviando aviso de retiro al comprador si el comercio usa Retiro en Tienda nativo) y añade el tag `Stocka: Listo para Retiro`.',
+    action: 'Encola `set_ready_for_pickup`, ejecuta la mutación GraphQL nativa de Shopify `fulfillmentOrderLineItemsPreparedForPickup` y añade el tag `Stocka: Listo para Retiro`.',
     techSource: 'Trigger `trg_enqueue_shopify_fulfillment` + Edge Function `shopify-fulfillment-sync`'
   },
   {
@@ -127133,6 +136151,7 @@ window.AUTOMATIONS_CATALOG = [
     icon: 'ri-loader-4-line',
     mode: 'Trigger SQL + Edge Function Tiempo Real',
     status: 'active',
+    canToggleInDb: true,
     trigger: 'Un pedido cambia a `estado_wms = "En preparación"` en Stocka WMS.',
     condition: 'El comercio tiene `sync_tracking_enabled = true` y `sync_intermediate_statuses = true`.',
     action: 'Encola `set_in_progress`, ejecuta la mutación nativa de Shopify `fulfillmentOrderReportProgress` ("En curso") y añade la etiqueta `Stocka: En Preparación`.',
@@ -127140,7 +136159,7 @@ window.AUTOMATIONS_CATALOG = [
   },
   {
     id: 'auto-shopify-create-fulfillment',
-    title: 'WMS → Shopify: Pedido Pickeado / Despachado → Preparado (Fulfilled) + Tracking',
+    title: 'WMS → Shopify: Pedido Pickeado / Despachado / Entregado → Preparado (Fulfilled) + Tracking',
     category: 'wms_shopify',
     categoryLabel: 'WMS ↔ Shopify',
     badgeColor: '#16a34a',
@@ -127148,9 +136167,10 @@ window.AUTOMATIONS_CATALOG = [
     icon: 'ri-checkbox-circle-line',
     mode: 'Trigger SQL + Edge Function Tiempo Real',
     status: 'active',
-    trigger: 'Un pedido de Distribución cambia a `Pickeado` o `Despachado` (o un pedido de Retiro pasa a `Despachado`).',
+    canToggleInDb: true,
+    trigger: 'Un pedido de Distribución cambia a `Pickeado`, `Despachado` o `Entregado` (o un pedido de Retiro pasa a `Entregado`).',
     condition: 'El comercio tiene `sync_tracking_enabled = true` y permisos `write_merchant_managed_fulfillment_orders`.',
-    action: 'Encola `create_fulfillment`. Marca el pedido como **Preparado** (`fulfilled`) en Shopify cuando se termina de pickear (sin enviar correo vacío si aún no tiene tracking definitivo) y adjunta/actualiza el tracking al despachar.',
+    action: 'Encola `create_fulfillment`. Marca el pedido como **Preparado** (`fulfilled`) en Shopify y adjunta/actualiza el tracking.',
     techSource: 'Trigger `trg_enqueue_shopify_fulfillment` + Edge Function `shopify-fulfillment-sync`'
   },
   {
@@ -127163,14 +136183,15 @@ window.AUTOMATIONS_CATALOG = [
     icon: 'ri-truck-line',
     mode: 'Triggers de Transporte + Reconciliación WMS',
     status: 'active',
-    trigger: 'El estado de transporte del paquete cambia a `EN TRÁNSITO` (`in_transit` / `en ruta`) o `ENTREGADO` (`delivered` / `entregado`) en couriers o WMS.',
+    canToggleInDb: true,
+    trigger: 'El estado de transporte del paquete cambia a `EN TRÁNSITO` o `ENTREGADO` en couriers o WMS.',
     condition: 'El comercio tiene `sync_tracking_enabled = true`.',
-    action: 'Encola `set_in_transit` o `set_delivered` y publica el `FulfillmentEvent` oficial en Shopify (`status: "in_transit"` o `"delivered"`), actualizando el estado de entrega del pedido en Shopify a **En tránsito** o **Entregado**.',
+    action: 'Encola `set_in_transit` o `set_delivered` y publica el `FulfillmentEvent` oficial en Shopify (`status: "in_transit"` o `"delivered"`).',
     techSource: 'Triggers `trg_shopify_shipment_status_*` + Edge Function `shopify-fulfillment-sync`'
   },
   {
     id: 'auto-shopify-update-tracking',
-    title: 'WMS → Shopify: Actualización Automática de Tracking en Pedidos ya Despachados',
+    title: 'WMS → Shopify: Actualización Automática de Tracking en Pedidos Despachados',
     category: 'wms_shopify',
     categoryLabel: 'WMS ↔ Shopify',
     badgeColor: '#d97706',
@@ -127178,14 +136199,15 @@ window.AUTOMATIONS_CATALOG = [
     icon: 'ri-refresh-line',
     mode: 'Trigger SQL + Edge Function Tiempo Real',
     status: 'active',
-    trigger: 'Se modifica `tracking_number`, `tracking_url` o `courier` en un pedido que ya se encuentra en estado `Despachado`.',
-    condition: 'El comercio tiene `sync_tracking_enabled = true`.',
+    canToggleInDb: false,
+    trigger: 'Se modifica `tracking_number`, `tracking_url` o `courier` en un pedido que se encuentra en estado `Despachado`.',
+    condition: 'El comercio tiene `sync_tracking_enabled = true` y el pedido aún no está cerrado en `Entregado`.',
     action: 'Encola `update_tracking` y actualiza el número/link de seguimiento directamente en el Fulfillment de Shopify.',
     techSource: 'Trigger `trg_enqueue_shopify_fulfillment` + Edge Function `shopify-fulfillment-sync`'
   },
   {
     id: 'auto-wms-to-picker-sync',
-    title: 'WMS → Picker: Inyección de Pedidos En Preparación, PIN de Retiro y Filtro Sin Tracking',
+    title: 'WMS → Picker: Inyección de Pedidos En Preparación, PIN de Retiro y Limpieza de Cerrados',
     category: 'picker_wms',
     categoryLabel: 'Picker ↔ WMS',
     badgeColor: '#9333ea',
@@ -127193,25 +136215,27 @@ window.AUTOMATIONS_CATALOG = [
     icon: 'ri-barcode-box-line',
     mode: 'Worker Continuo + Acciones WMS',
     status: 'active',
-    trigger: 'Un pedido pasa a `En preparación` en Stocka WMS.',
-    condition: 'Si es courier externo, verifica que tenga `tracking_number` asignado para evitar enviar pedidos sin etiqueta al operario. Si es `RETIRO`, no exige tracking.',
-    action: 'Inserta los ítems y ubicaciones físicas de bodega en `active_orders` de Picker; si es `RETIRO`, genera automáticamente el registro y PIN en `store_pickups` (WMS) y `sucursal_pickups` (Picker).',
+    canToggleInDb: true,
+    trigger: 'Un pedido pasa a `En preparación` (inyección) o avanza a `Despachado` / `Entregado` (limpieza automática).',
+    condition: 'Si es courier externo exige `tracking_number`; si el pedido ya salió o se entregó, se depura de `active_orders`.',
+    action: 'Inserta ítems y ubicaciones en `active_orders` de Picker, genera PIN en `store_pickups` y limpia órdenes cerradas para evitar doble preparación.',
     techSource: '`sync_to_picker.js` & `js/admin.js`'
   },
   {
     id: 'auto-wms-stock-deduction',
-    title: 'WMS → Inventario: Descuento y Reintegro Automático de Stock por Estado',
+    title: 'WMS → Inventario: Descuento Idempotente de Stock y Cuadratura Post-Despacho',
     category: 'stock_couriers',
     categoryLabel: 'Inventario & Logística',
     badgeColor: '#0d9488',
     badgeBg: 'rgba(13, 148, 136, 0.12)',
     icon: 'ri-archive-drawer-line',
-    mode: 'Tiempo Real en Cambio de Estado',
+    mode: 'Trigger SQL Transaccional',
     status: 'active',
-    trigger: 'Cambio de `estado_wms` a `Pickeado` / `Despachado` o reversa a `Pendiente` / `Cancelado` / `Devolución`.',
-    condition: 'Evalúa la bandera `stock_descontado` del pedido para evitar dobles descuentos.',
-    action: 'Descuenta o reintegra automáticamente las unidades físicas en la bodega asignada y registra la auditoría en `inventory_movements`.',
-    techSource: 'js/admin.js (`updateWmsOrderField`, `applyBulkWmsStatus`, `deductOrderStock`)'
+    canToggleInDb: true,
+    trigger: 'Cambio de `estado_wms` entre `En procesamiento`, `En preparación`/`Pickeado`, `Despachado`/`Entregado` y `Cancelado`/`Archivado`.',
+    condition: 'Evalúa elegibilidad de stock e idempotencia estricta por `order_id` en `movements` para impedir doble descuento entre `Despachado` y `Entregado`.',
+    action: 'Mueve unidades entre `committed_quantity`, `reserved_quantity` y rebaja definitiva de `quantity`. Si un envío físico avanza sin stock suficiente, descuenta hasta 0 y abre incidencia de cuadratura post-despacho.',
+    techSource: 'Trigger `on_order_stock_change` (`handle_order_status_change`)'
   }
 ];
 
@@ -127225,13 +136249,27 @@ window.renderAutomationsAdmin = async function() {
     <div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem;">
       <div style="display: flex; align-items: center; justify-content: center; padding: 3rem; color: var(--color-text-muted);">
         <i class="ri-loader-4-line ri-spin" style="font-size: 1.8rem; margin-right: 0.75rem; color: var(--color-primary);"></i>
-        <span>Cargando estado en vivo de automatizaciones, integraciones y cola de eventos...</span>
+        <span>Cargando estado en vivo de automatizaciones, reglas SQL, bitácora WMS y cola de eventos...</span>
       </div>
     </div>
   `;
 
   try {
-    const [integrationsRes, queueRecentRes, queueStatsRes] = await Promise.all([
+    const safeRulesPromise = supabase
+      .from('automation_rules')
+      .select('id, is_enabled, executions_count, last_executed_at, updated_at')
+      .then(r => (r.error ? [] : (r.data || [])))
+      .catch(() => []);
+
+    const safeExecLogsPromise = supabase
+      .from('automation_execution_logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(35)
+      .then(r => (r.error ? [] : (r.data || [])))
+      .catch(() => []);
+
+    const [integrationsRes, queueRecentRes, queueStatsRes, dbRules, recentWmsLogs] = await Promise.all([
       supabase
         .from('merchant_integrations')
         .select('id, merchant_id, comercio, platform, shop_url, is_active, sync_tracking_enabled, sync_intermediate_statuses, notify_customer_on_fulfillment, granted_scopes')
@@ -127245,12 +136283,25 @@ window.renderAutomationsAdmin = async function() {
         .limit(25),
       supabase
         .from('shopify_fulfillment_queue')
-        .select('status')
+        .select('status'),
+      safeRulesPromise,
+      safeExecLogsPromise
     ]);
 
     const integrations = integrationsRes.data || [];
     const recentQueue = queueRecentRes.data || [];
     const allQueueStatuses = queueStatsRes.data || [];
+
+    const rulesById = {};
+    (dbRules || []).forEach(r => {
+      if (r && r.id) rulesById[r.id] = r;
+    });
+
+    const totalWmsExecutions = (dbRules || []).reduce((acc, r) => acc + (Number(r.executions_count) || 0), 0);
+    const enabledRulesCount = window.AUTOMATIONS_CATALOG.filter(c => {
+      const dbRow = rulesById[c.id];
+      return dbRow ? dbRow.is_enabled !== false : true;
+    }).length;
 
     const activeSyncStoresCount = integrations.filter(i => i.sync_tracking_enabled === true).length;
     const completedCount = allQueueStatuses.filter(q => q.status === 'completed').length;
@@ -127261,8 +136312,13 @@ window.renderAutomationsAdmin = async function() {
     window._automationsCache = {
       integrations,
       recentQueue,
+      rulesById,
+      recentWmsLogs: recentWmsLogs || [],
+      hasRulesTable: Array.isArray(dbRules) && dbRules.length > 0,
       stats: {
         totalAutomations: window.AUTOMATIONS_CATALOG.length,
+        enabledRulesCount,
+        totalWmsExecutions,
         activeSyncStoresCount,
         totalShopifyStores: integrations.length,
         completedCount,
@@ -127289,18 +136345,32 @@ window.drawAutomationsAdminView = function() {
   const appContent = document.getElementById('app-content');
   if (!appContent || !window._automationsCache) return;
 
-  const { integrations, recentQueue, stats } = window._automationsCache;
+  const { integrations, recentQueue, rulesById = {}, recentWmsLogs = [], hasRulesTable, stats } = window._automationsCache;
   const selectedCat = window.automationsSelectedCategory || 'all';
   const searchVal = (window.automationsSearchQuery || '').trim().toLowerCase();
 
   const filteredCatalog = window.AUTOMATIONS_CATALOG.filter(item => {
     if (selectedCat !== 'all' && item.category !== selectedCat) return false;
     if (searchVal) {
-      const hay = `${item.title} ${item.trigger} ${item.condition} ${item.action} ${item.techSource}`.toLowerCase();
+      const hay = `${item.id} ${item.title} ${item.trigger} ${item.condition} ${item.action} ${item.techSource}`.toLowerCase();
       return hay.includes(searchVal);
     }
     return true;
   });
+
+  const wmsStatusPill = (st) => {
+    const s = String(st || '-');
+    if (s === 'Entregado') {
+      return `<span style="background: rgba(5, 150, 105, 0.16); color: #047857; border: 1px solid rgba(5, 150, 105, 0.35); padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 800;"><i class="ri-verified-badge-fill"></i> ENTREGADO</span>`;
+    }
+    if (s === 'Despachado') {
+      return `<span style="background: rgba(2, 132, 199, 0.14); color: #0369a1; padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 700;">Despachado</span>`;
+    }
+    if (s === 'Pickeado') {
+      return `<span style="background: rgba(124, 58, 237, 0.13); color: #6d28d9; padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 700;">Pickeado</span>`;
+    }
+    return `<span style="background: #f1f5f9; color: #475569; padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 600;">${window.escapeHtml ? window.escapeHtml(s) : s}</span>`;
+  };
 
   const actionTypeBadge = (actionType) => {
     if (actionType === 'set_ready_for_pickup') {
@@ -127340,23 +136410,26 @@ window.drawAutomationsAdminView = function() {
   appContent.innerHTML = `
     <div style="padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1.5rem;">
       <!-- Cabecera y Acciones Manuales -->
-      <div class="card" style="padding: 1.35rem 1.5rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; border-left: 4px solid #7c3aed;">
+      <div class="card" style="padding: 1.35rem 1.5rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; border-left: 4px solid #059669;">
         <div>
-          <div style="display: flex; align-items: center; gap: 0.6rem;">
-            <i class="ri-robot-2-line" style="font-size: 1.5rem; color: #7c3aed;"></i>
+          <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+            <i class="ri-robot-2-line" style="font-size: 1.5rem; color: #059669;"></i>
             <h2 style="margin: 0; font-size: 1.2rem; font-weight: 800; color: var(--color-text);">Centro de Automatizaciones Activas</h2>
-            <span style="background: rgba(22, 163, 74, 0.14); color: #15803d; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 700;">● Motor Activo</span>
+            <span style="background: rgba(22, 163, 74, 0.14); color: #15803d; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 700;">● Motor Activo (${stats.enabledRulesCount}/${stats.totalAutomations})</span>
           </div>
           <p style="margin: 0.35rem 0 0 0; font-size: 0.86rem; color: var(--color-text-muted);">
-            Visualiza, consulta y controla todas las reglas automáticas que conectan <strong>App Picker</strong>, <strong>Stocka WMS</strong> y <strong>Shopify</strong> en tiempo real.
+            Control en vivo de reglas automáticas para transición a <strong>Despachado</strong> (En Tránsito), cierre definitivo en <strong>ENTREGADO</strong> (Snapshot 360° en BD), <strong>App Picker</strong> y <strong>Shopify</strong>.
           </p>
         </div>
         <div style="display: flex; flex-wrap: wrap; gap: 0.6rem;">
+          <button class="btn btn-primary" onclick="window.runReconcileTransportAutomationsNow()" style="background: #059669; border-color: #059669; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-verified-badge-line"></i> Conciliar Tránsito y Entregas Ahora
+          </button>
           <button class="btn btn-outline" onclick="window.runManualPickerSyncFromAutomations()" style="font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.4rem;">
             <i class="ri-loop-left-line"></i> Sincronizar Picker → WMS Ahora
           </button>
-          <button class="btn btn-primary" onclick="window.runManualShopifyQueueFromAutomations()" style="font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.4rem;">
-            <i class="ri-flashlight-line"></i> Procesar Cola Shopify Ahora
+          <button class="btn btn-outline" onclick="window.runManualShopifyQueueFromAutomations()" style="font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-flashlight-line"></i> Procesar Cola Shopify
           </button>
           <button class="btn btn-outline" onclick="window.renderAutomationsAdmin()" style="font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.35rem;">
             <i class="ri-refresh-line"></i> Actualizar
@@ -127365,14 +136438,24 @@ window.drawAutomationsAdminView = function() {
       </div>
 
       <!-- Tarjetas KPI -->
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 1rem;">
         <div class="card" style="padding: 1.1rem 1.25rem; display: flex; align-items: center; gap: 1rem;">
           <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(124, 58, 237, 0.12); color: #7c3aed; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
             <i class="ri-cpu-line"></i>
           </div>
           <div>
             <div style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600;">Reglas Automatizadas</div>
-            <div style="font-size: 1.45rem; font-weight: 800; color: var(--color-text);">${stats.totalAutomations} <span style="font-size: 0.8rem; color: #16a34a; font-weight: 600;">Activas</span></div>
+            <div style="font-size: 1.45rem; font-weight: 800; color: var(--color-text);">${stats.enabledRulesCount} <span style="font-size: 0.8rem; color: #16a34a; font-weight: 600;">/ ${stats.totalAutomations} Activas</span></div>
+          </div>
+        </div>
+
+        <div class="card" style="padding: 1.1rem 1.25rem; display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(5, 150, 105, 0.14); color: #059669; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
+            <i class="ri-verified-badge-fill"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600;">Transiciones WMS Automáticas</div>
+            <div style="font-size: 1.45rem; font-weight: 800; color: #059669;">${stats.totalWmsExecutions.toLocaleString('es-CL')}</div>
           </div>
         </div>
 
@@ -127410,12 +136493,12 @@ window.drawAutomationsAdminView = function() {
         </div>
       </div>
 
-      <!-- Filtros y Catálogo de Reglas de Automatización -->
+      <!-- 1. Filtros y Catálogo de Reglas de Automatización -->
       <div class="card" style="padding: 1.35rem 1.5rem;">
         <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.2rem;">
           <div>
             <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--color-text);">1. Reglas y Flujos Automatizados del Sistema</h3>
-            <p style="margin: 0.2rem 0 0 0; font-size: 0.82rem; color: var(--color-text-muted);">Consulta cómo opera cada automatización: qué evento la dispara, bajo qué condición se ejecuta y qué acción realiza.</p>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.82rem; color: var(--color-text-muted);">Activa o pausa reglas en tiempo real y consulta sus disparadores, condiciones, acciones y contador de ejecuciones.</p>
           </div>
           <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;">
             <input
@@ -127426,15 +136509,23 @@ window.drawAutomationsAdminView = function() {
               style="padding: 0.45rem 0.75rem; border: 1px solid var(--color-border); border-radius: 8px; font-size: 0.82rem; min-width: 210px;"
             />
             <button class="btn ${selectedCat === 'all' ? 'btn-primary' : 'btn-outline'}" onclick="window.automationsSelectedCategory='all'; window.drawAutomationsAdminView();" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;">Todas (${window.AUTOMATIONS_CATALOG.length})</button>
-            <button class="btn ${selectedCat === 'picker_wms' ? 'btn-primary' : 'btn-outline'}" onclick="window.automationsSelectedCategory='picker_wms'; window.drawAutomationsAdminView();" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;">Picker ↔ WMS</button>
-            <button class="btn ${selectedCat === 'wms_shopify' ? 'btn-primary' : 'btn-outline'}" onclick="window.automationsSelectedCategory='wms_shopify'; window.drawAutomationsAdminView();" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;">WMS ↔ Shopify</button>
-            <button class="btn ${selectedCat === 'stock_couriers' ? 'btn-primary' : 'btn-outline'}" onclick="window.automationsSelectedCategory='stock_couriers'; window.drawAutomationsAdminView();" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;">Inventario & Logística</button>
+            <button class="btn ${selectedCat === 'stock_couriers' ? 'btn-primary' : 'btn-outline'}" onclick="window.automationsSelectedCategory='stock_couriers'; window.drawAutomationsAdminView();" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;">Transporte, Cierre & Stock</button>
+            <button class="btn ${selectedCat === 'picker_wms' ? 'btn-primary' : 'btn-outline'}" onclick="window.automationsSelectedCategory='picker_wms'; window.drawAutomationsAdminView();" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;">Picker & Retiros</button>
+            <button class="btn ${selectedCat === 'wms_shopify' ? 'btn-primary' : 'btn-outline'}" onclick="window.automationsSelectedCategory='wms_shopify'; window.drawAutomationsAdminView();" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;">WMS ↔ Canales / Shopify</button>
           </div>
         </div>
 
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 1rem;">
-          ${filteredCatalog.map(rule => `
-            <div style="border: 1px solid var(--color-border); border-radius: 12px; padding: 1.15rem; background: var(--color-surface); display: flex; flex-direction: column; gap: 0.75rem; position: relative;">
+          ${filteredCatalog.map(rule => {
+            const dbRule = rulesById[rule.id];
+            const isEnabled = dbRule ? dbRule.is_enabled !== false : true;
+            const execCount = dbRule ? (Number(dbRule.executions_count) || 0) : 0;
+            const lastExecStr = dbRule && dbRule.last_executed_at
+              ? new Date(dbRule.last_executed_at).toLocaleString('es-CL')
+              : null;
+
+            return `
+            <div style="border: 1px solid ${isEnabled ? 'var(--color-border)' : 'rgba(245, 158, 11, 0.45)'}; border-radius: 12px; padding: 1.15rem; background: var(--color-surface); display: flex; flex-direction: column; gap: 0.75rem; position: relative; opacity: ${isEnabled ? '1' : '0.78'};">
               <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem;">
                 <div style="display: flex; align-items: center; gap: 0.65rem;">
                   <div style="width: 38px; height: 38px; border-radius: 10px; background: ${rule.badgeBg}; color: ${rule.badgeColor}; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0;">
@@ -127442,13 +136533,26 @@ window.drawAutomationsAdminView = function() {
                   </div>
                   <div>
                     <div style="font-weight: 800; font-size: 0.93rem; color: var(--color-text); line-height: 1.25;">${rule.title}</div>
-                    <div style="display: flex; align-items: center; gap: 0.45rem; margin-top: 0.25rem;">
+                    <div style="display: flex; align-items: center; gap: 0.45rem; margin-top: 0.25rem; flex-wrap: wrap;">
                       <span style="background: ${rule.badgeBg}; color: ${rule.badgeColor}; padding: 1px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700;">${rule.categoryLabel}</span>
                       <span style="font-size: 0.72rem; color: var(--color-text-muted);"><i class="ri-time-line"></i> ${rule.mode}</span>
                     </div>
                   </div>
                 </div>
-                <span style="background: rgba(22, 163, 74, 0.14); color: #15803d; padding: 2px 9px; border-radius: 999px; font-size: 0.7rem; font-weight: 800; white-space: nowrap;">ACTIVA</span>
+                <div style="display: flex; align-items: center; gap: 0.45rem; flex-shrink: 0;">
+                  <span style="background: ${isEnabled ? 'rgba(22, 163, 74, 0.14)' : 'rgba(245, 158, 11, 0.16)'}; color: ${isEnabled ? '#15803d' : '#b45309'}; padding: 2px 9px; border-radius: 999px; font-size: 0.7rem; font-weight: 800; white-space: nowrap;">
+                    ${isEnabled ? 'ACTIVA' : 'PAUSADA'}
+                  </span>
+                  ${hasRulesTable && rule.canToggleInDb ? `
+                    <input
+                      type="checkbox"
+                      ${isEnabled ? 'checked' : ''}
+                      title="${isEnabled ? 'Pausar automatización' : 'Activar automatización'}"
+                      onchange="window.toggleWmsAutomationRule('${rule.id}', this.checked)"
+                      style="width: 17px; height: 17px; cursor: pointer; accent-color: #059669;"
+                    />
+                  ` : ''}
+                </div>
               </div>
 
               <div style="background: rgba(148, 163, 184, 0.07); border-radius: 8px; padding: 0.75rem 0.85rem; font-size: 0.81rem; display: flex; flex-direction: column; gap: 0.45rem;">
@@ -127457,18 +136561,80 @@ window.drawAutomationsAdminView = function() {
                 <div><strong style="color: #16a34a;">✅ Acción Automática:</strong> <span style="color: var(--color-text);">${rule.action}</span></div>
               </div>
 
-              <div style="font-size: 0.73rem; color: var(--color-text-muted); display: flex; align-items: center; justify-content: space-between; border-top: 1px dashed var(--color-border); padding-top: 0.5rem;">
+              <div style="font-size: 0.73rem; color: var(--color-text-muted); display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; border-top: 1px dashed var(--color-border); padding-top: 0.5rem;">
                 <span><i class="ri-code-s-slash-line"></i> Motor: <code>${rule.techSource}</code></span>
+                ${dbRule ? `
+                  <span style="font-weight: 700; color: ${execCount > 0 ? '#059669' : 'var(--color-text-muted)'};">
+                    <i class="ri-pulse-line"></i> ${execCount.toLocaleString('es-CL')} ejec.${lastExecStr ? ` · Última: ${lastExecStr}` : ''}
+                  </span>
+                ` : ''}
               </div>
             </div>
-          `).join('')}
+          `;
+          }).join('')}
         </div>
       </div>
 
-      <!-- Configuración de Automatización Shopify por Comercio -->
+      <!-- 2. Bitácora en Vivo de Transiciones Automáticas WMS -->
+      <div class="card" style="padding: 1.35rem 1.5rem;">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem;">
+          <div>
+            <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--color-text);">2. Bitácora en Vivo de Transiciones Automáticas WMS (Despachado & ENTREGADO)</h3>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.82rem; color: var(--color-text-muted);">
+              Últimas 35 transiciones automáticas ejecutadas por estado de transporte ("En tránsito" → Despachado, "Entregado" → ENTREGADO), Retiros en Sucursal, POS, Marketplaces y Logística Inversa.
+            </p>
+          </div>
+        </div>
+
+        <div style="overflow-x: auto;">
+          <table class="table" style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--color-border); text-align: left;">
+                <th style="padding: 0.6rem;">Fecha</th>
+                <th style="padding: 0.6rem;">Comercio</th>
+                <th style="padding: 0.6rem;">Pedido</th>
+                <th style="padding: 0.6rem;">Transición WMS</th>
+                <th style="padding: 0.6rem;">Regla / Fuente</th>
+                <th style="padding: 0.6rem;">Detalle Operativo</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${recentWmsLogs.length === 0 ? `
+                <tr><td colspan="6" style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">Aún no se registran transiciones automáticas recientes en la bitácora WMS.</td></tr>
+              ` : recentWmsLogs.map(log => {
+                const dt = log.created_at ? new Date(log.created_at).toLocaleString('es-CL') : '-';
+                const orderLabel = log.external_order_number || (log.order_id ? String(log.order_id).slice(0, 8) : '-');
+                return `
+                  <tr style="border-bottom: 1px solid var(--color-border);">
+                    <td style="padding: 0.6rem; white-space: nowrap; color: var(--color-text-muted);">${dt}</td>
+                    <td style="padding: 0.6rem; font-weight: 700;">${window.escapeHtml ? window.escapeHtml(log.comercio || '-') : (log.comercio || '-')}</td>
+                    <td style="padding: 0.6rem; font-family: monospace; font-weight: 700;">
+                      ${log.order_id
+                        ? `<a href="?order=${encodeURIComponent(log.order_id)}" onclick="if(window.openOrderInNewTab){window.openOrderInNewTab('${log.order_id}', true); return false;}" target="_blank" style="color: var(--color-primary); text-decoration: none;">${window.escapeHtml ? window.escapeHtml(orderLabel) : orderLabel} <i class="ri-external-link-line" style="font-size: 0.72rem;"></i></a>`
+                        : (window.escapeHtml ? window.escapeHtml(orderLabel) : orderLabel)}
+                    </td>
+                    <td style="padding: 0.6rem; white-space: nowrap;">
+                      ${wmsStatusPill(log.previous_wms_status)} <span style="color: var(--color-text-muted); margin: 0 4px;">→</span> ${wmsStatusPill(log.new_wms_status)}
+                    </td>
+                    <td style="padding: 0.6rem;">
+                      <code style="font-size: 0.73rem;">${window.escapeHtml ? window.escapeHtml(log.rule_id || log.trigger_source || '-') : (log.rule_id || '-')}</code>
+                    </td>
+                    <td style="padding: 0.6rem; max-width: 340px;">
+                      <span style="color: var(--color-text);">${window.escapeHtml ? window.escapeHtml(log.trigger_detail || '-') : (log.trigger_detail || '-')}</span>
+                      ${log.stock_shortage_incident ? `<span style="margin-left: 6px; background: rgba(245, 158, 11, 0.18); color: #b45309; padding: 1px 6px; border-radius: 999px; font-size: 0.7rem; font-weight: 700;">⚠️ Alerta Cuadratura Stock</span>` : ''}
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 3. Configuración de Automatización Shopify por Comercio -->
       <div class="card" style="padding: 1.35rem 1.5rem;">
         <div style="margin-bottom: 1rem;">
-          <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--color-text);">2. Estado de Automatización Bidireccional por Comercio (Shopify)</h3>
+          <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--color-text);">3. Estado de Automatización Bidireccional por Comercio (Shopify)</h3>
           <p style="margin: 0.2rem 0 0 0; font-size: 0.82rem; color: var(--color-text-muted);">
             Activa o desactiva rápidamente qué comercios envían estados de preparación, "Listo para retirar", número de seguimiento y notificaciones automáticas a Shopify.
           </p>
@@ -127529,11 +136695,11 @@ window.drawAutomationsAdminView = function() {
         </div>
       </div>
 
-      <!-- Historial en Vivo de Cola de Automatización Shopify -->
+      <!-- 4. Historial en Vivo de Cola de Automatización Shopify -->
       <div class="card" style="padding: 1.35rem 1.5rem;">
         <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem;">
           <div>
-            <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--color-text);">3. Registro en Vivo de Ejecuciones (Cola de Sincronización Shopify)</h3>
+            <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--color-text);">4. Registro en Vivo de Ejecuciones (Cola de Sincronización Shopify)</h3>
             <p style="margin: 0.2rem 0 0 0; font-size: 0.82rem; color: var(--color-text-muted);">Últimos 25 eventos disparados automáticamente por cambios de estado en Stocka WMS.</p>
           </div>
         </div>
@@ -127584,6 +136750,80 @@ window.drawAutomationsAdminView = function() {
       </div>
     </div>
   `;
+};
+
+window.toggleWmsAutomationRule = async function(ruleId, isEnabled) {
+  try {
+    const { error } = await supabase
+      .from('automation_rules')
+      .update({ is_enabled: Boolean(isEnabled), updated_at: new Date().toISOString() })
+      .eq('id', ruleId);
+
+    if (error) throw error;
+
+    if (window._automationsCache && window._automationsCache.rulesById) {
+      if (!window._automationsCache.rulesById[ruleId]) {
+        window._automationsCache.rulesById[ruleId] = { id: ruleId, executions_count: 0 };
+      }
+      window._automationsCache.rulesById[ruleId].is_enabled = Boolean(isEnabled);
+      window._automationsCache.stats.enabledRulesCount = window.AUTOMATIONS_CATALOG.filter(c => {
+        const dbRow = window._automationsCache.rulesById[c.id];
+        return dbRow ? dbRow.is_enabled !== false : true;
+      }).length;
+    }
+
+    window.drawAutomationsAdminView();
+
+    const toast = Swal.mixin({
+      toast: true,
+      position: 'top-end',
+      showConfirmButton: false,
+      timer: 2500
+    });
+    toast.fire({
+      icon: 'success',
+      title: isEnabled ? 'Automatización activada' : 'Automatización pausada'
+    });
+  } catch (err) {
+    Swal.fire('Error', 'No se pudo cambiar el estado de la regla: ' + err.message, 'error');
+    window.renderAutomationsAdmin();
+  }
+};
+
+window.runReconcileTransportAutomationsNow = async function() {
+  try {
+    Swal.fire({
+      title: 'Conciliando Tránsito, Retiros y Entregas...',
+      text: 'Evaluando envíos en tránsito (→ Despachado) y entregas/retiros completados (→ ENTREGADO con Snapshot 360°)...',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading()
+    });
+
+    const { data, error } = await supabase.rpc('reconcile_wms_transport_automations', { p_limit: 500 });
+    if (error) throw error;
+
+    const toDesp = Number(data?.moved_to_despachado) || 0;
+    const toEntr = Number(data?.moved_to_entregado) || 0;
+
+    await Swal.fire({
+      icon: 'success',
+      title: 'Conciliación Automática Completada',
+      html: `
+        <div style="font-size: 0.88rem; line-height: 1.55; text-align: left;">
+          <div>🚚 Avanzados a <strong>Despachado</strong> (En Tránsito): <strong>${toDesp}</strong> pedido(s)</div>
+          <div>✅ Cerrados en <strong>ENTREGADO</strong> (Snapshot sellado en BD): <strong>${toEntr}</strong> pedido(s)</div>
+        </div>
+      `,
+      confirmButtonColor: '#059669'
+    });
+
+    if ((toDesp > 0 || toEntr > 0) && typeof window.refreshWmsOrders === 'function') {
+      window.refreshWmsOrders(true);
+    }
+    window.renderAutomationsAdmin();
+  } catch (err) {
+    Swal.fire('Error', 'No se pudo ejecutar la conciliación: ' + err.message, 'error');
+  }
 };
 
 window.toggleAutomationMerchantFlag = async function(integrationId, field, value) {
@@ -127903,7 +137143,7 @@ window.getShopifyActionCatalog = function(order = null) {
       color: '#059669',
       validFrom: ['in_transit', 'fulfilled', 'in_progress'],
       targetShopifyStatus: 'delivered',
-      suggestedWmsStatus: 'Despachado',
+      suggestedWmsStatus: 'Entregado',
       needsTracking: false,
       needsHoldReason: false,
       description: 'Registra el evento oficial de envío "Entregado" (FulfillmentEvent delivered) en Shopify.'
@@ -128027,6 +137267,15 @@ window.onShopifyControlActionChange = function(actionValue, isBulk = false) {
 };
 
 window.verifyLiveShopifyOrderStatus = async function(orderId, reopenModal = true) {
+  const existingOrd = (window.loadedOrders || []).find(o => String(o.id) === String(orderId));
+  if (existingOrd && existingOrd.estado_wms === 'Entregado') {
+    Swal.fire(
+      'Pedido Finalizado (ENTREGADO)',
+      'Este pedido ya se encuentra cerrado e inmutable en estado ENTREGADO, por lo que no realiza nuevas consultas externas a Shopify.',
+      'info'
+    );
+    return;
+  }
   const btn = document.getElementById('btn-verify-live-shopify-status');
   if (btn) {
     btn.disabled = true;
@@ -128286,6 +137535,7 @@ window.openShopifyStatusControlModal = async function(orderId, opts = {}) {
             <option value="En preparación" ${defaultCatalogItem.suggestedWmsStatus === 'En preparación' ? 'selected' : ''}>En preparación</option>
             <option value="Pickeado" ${defaultCatalogItem.suggestedWmsStatus === 'Pickeado' ? 'selected' : ''}>Pickeado</option>
             <option value="Despachado" ${defaultCatalogItem.suggestedWmsStatus === 'Despachado' ? 'selected' : ''}>Despachado</option>
+            <option value="Entregado" ${defaultCatalogItem.suggestedWmsStatus === 'Entregado' ? 'selected' : ''}>Entregado (Finalizado)</option>
             <option value="Incidencia" ${defaultCatalogItem.suggestedWmsStatus === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
           </select>
         </div>
@@ -128573,6 +137823,7 @@ window.openBulkShopifyStatusModal = async function() {
             <option value="En preparación">En preparación</option>
             <option value="Pickeado">Pickeado</option>
             <option value="Despachado" selected>Despachado</option>
+            <option value="Entregado">Entregado (Finalizado)</option>
             <option value="Incidencia">Incidencia</option>
           </select>
         </div>
@@ -128598,12 +137849,13 @@ window.openBulkShopifyStatusModal = async function() {
   if (formValues.action === '__verify_live__') {
     Swal.fire({
       title: `Verificando ${shopifyOrders.length} pedidos en Shopify...`,
-      html: 'Consultando estado real en vivo desde Shopify API...',
+      html: 'Consultando estado real en vivo desde Shopify API (omitiendo cerrados en ENTREGADO)...',
       allowOutsideClick: false,
       didOpen: () => Swal.showLoading()
     });
     let checked = 0;
     for (const ord of shopifyOrders) {
+      if (ord.estado_wms === 'Entregado') continue;
       try {
         const { data } = await supabase.functions.invoke('shopify-fulfillment-sync', {
           body: { mode: 'fetch_live_status', order_id: ord.id }

@@ -215,18 +215,33 @@ async function syncMerchantTiendanube(integration) {
     return;
   }
 
-  // B. Obtener bodega por defecto para el cliente
+  // B. Obtener bodega por defecto para el cliente (priorizando comercios_adicional_config)
   let warehouseId = null;
-  const { data: whRel } = await supabase
-    .from('merchants_warehouses')
-    .select('warehouse_id')
-    .eq('merchant_id', integration.merchant_id)
-    .limit(1)
-    .maybeSingle();
+  if (integration.comercio) {
+    const { data: adicCfg } = await supabase
+      .from('comercios_adicional_config')
+      .select('default_warehouse_id')
+      .eq('comercio', integration.comercio)
+      .maybeSingle();
+    if (adicCfg?.default_warehouse_id) {
+      warehouseId = adicCfg.default_warehouse_id;
+    }
+  }
 
-  if (whRel) {
-    warehouseId = whRel.warehouse_id;
-  } else {
+  if (!warehouseId && integration.merchant_id) {
+    const { data: whRel } = await supabase
+      .from('merchants_warehouses')
+      .select('warehouse_id')
+      .eq('merchant_id', integration.merchant_id)
+      .limit(1)
+      .maybeSingle();
+
+    if (whRel?.warehouse_id) {
+      warehouseId = whRel.warehouse_id;
+    }
+  }
+
+  if (!warehouseId) {
     // Buscar la primera bodega disponible como fallback
     const { data: defaultWh } = await supabase.from('warehouses').select('id').limit(1).maybeSingle();
     if (defaultWh) {
@@ -411,6 +426,19 @@ async function syncProducts(integration, storeId, headers) {
       }
       console.log(`📥 Se han sincronizado ${productsToUpsert.length} variantes de Tiendanube en synced_products.`);
 
+      // Rellenar image_url en productos existentes del catálogo maestro (products) que aún no tengan foto
+      if (integration.comercio) {
+        for (const item of masterVariantsData) {
+          if (!item.image_url) continue;
+          await supabase
+            .from('products')
+            .update({ image_url: item.image_url })
+            .eq('comercio', integration.comercio)
+            .ilike('sku', item.sku)
+            .or('image_url.is.null,image_url.eq.');
+        }
+      }
+
       // Verificar si Tiendanube es la plataforma principal del comercio (o única activa) para auto-crear nuevos productos en el catálogo maestro (products)
       let shouldAutoCreateInMaster = true;
       try {
@@ -575,10 +603,18 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
     
     if (equivalences) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          skuMap[clean] = e.master_sku.trim();
+          skuMap[clean.toUpperCase()] = e.master_sku.trim();
+        }
       });
       equivalences.filter(e => e.platform === 'Tiendanube').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          skuMap[clean] = e.master_sku.trim();
+          skuMap[clean.toUpperCase()] = e.master_sku.trim();
+        }
       });
     }
   } catch (err) {
@@ -635,7 +671,6 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
 
       const isDelivered = order.shipping_status === 'delivered';
       const isCancelled = statusName === 'cancelled' || ['voided', 'refunded'].includes(paymentStatus);
-      const isActive = !isDelivered && !isCancelled;
 
       // Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
@@ -643,18 +678,26 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
         .select('id, status, estado_wms, raw_tiendanube_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
         .eq('comercio', integration.comercio)
         .in('external_order_number', [orderNumber, finalOrderNumber])
+        .limit(1)
         .maybeSingle();
 
       // Mapear campos planos de la orden
       const itemNames = [];
       const itemQuantities = {};
+      const itemDetailsBySku = {};
       
-      for (const item of order.products) {
+      for (const item of (order.products || [])) {
         let sku = item.sku || `TN-${item.product_id}${item.variant_id ? '-' + item.variant_id : ''}`;
-        sku = sku.trim().replace(/\s+/g, '');
+        sku = String(sku).trim().replace(/\s+/g, '');
         // Aplicar equivalencia de SKU
-        let mappedSku = skuMap[sku] || sku;
-        itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity);
+        const mappedSku = skuMap[sku] || skuMap[sku.toUpperCase()] || sku;
+        const qty = Number(item.quantity || 0);
+        if (qty <= 0) continue;
+
+        itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + qty;
+        if (!itemDetailsBySku[mappedSku]) {
+          itemDetailsBySku[mappedSku] = item;
+        }
 
         const name = extractTiendanubeName(item.name, 'Producto');
         if (name && !itemNames.includes(name)) {
@@ -700,22 +743,29 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
       };
 
       let localOrderId = null;
-      let shouldInsertItems = false;
+      let shouldReconcileItems = false;
 
       if (existingOrder) {
+        if (existingOrder.estado_wms === 'Entregado') {
+          continue;
+        }
         const existingRaw = existingOrder.raw_tiendanube_data || {};
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
+        const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
+        const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+        const isProtectedState = estadosWmsProtegidos.includes(currentWmsState);
+
         const orderDataToUpdate = { ...orderDataToSave };
 
-        if (isWmsItemsEdited) {
+        if (isWmsItemsEdited || isProtectedState) {
           delete orderDataToUpdate.sku;
           delete orderDataToUpdate.item;
           delete orderDataToUpdate.cantidad;
           delete orderDataToUpdate.total_value;
         }
 
-        if (isWmsShippingEdited) {
+        if (isWmsShippingEdited || isProtectedState) {
           delete orderDataToUpdate.customer_name;
           delete orderDataToUpdate.customer_email;
           delete orderDataToUpdate.customer_phone;
@@ -726,6 +776,8 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
 
         orderDataToUpdate.raw_tiendanube_data = {
           ...order,
+          ...(existingRaw.line_items ? { line_items: existingRaw.line_items } : {}),
+          ...(existingRaw.wms_manual_edits ? { wms_manual_edits: existingRaw.wms_manual_edits } : {}),
           ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
           ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
           ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
@@ -733,10 +785,8 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
 
         // Si el pedido se canceló, actualizar estado en WMS (protegiendo estados operacionales avanzados)
         if (isCancelled && existingOrder.status !== 'cancelado') {
-          const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
-          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
           const cancelUpdate = { ...orderDataToUpdate, status: 'cancelado' };
-          if (!estadosWmsProtegidos.includes(currentWmsState)) {
+          if (!isProtectedState) {
             cancelUpdate.estado_wms = 'Cancelado';
           }
           await supabase
@@ -754,16 +804,22 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
         }
         localOrderId = existingOrder.id;
 
-        // Validar si ya tiene ítems guardados (Healer/Auto-recuperación solo si no fue editado en WMS)
+        // Reconciliación / auto-sanación de ítems:
+        // - Si el pedido está activo en 'En procesamiento' y no fue editado manualmente en WMS, reconciliar cantidades y eliminar duplicados.
+        // - Si está en estado protegido o cancelado, solo insertar si quedó vacío sin ningún ítem.
         if (!isWmsItemsEdited) {
-          const { data: existingItems, error: itemsCheckErr } = await supabase
-            .from('order_items')
-            .select('id')
-            .eq('order_id', localOrderId);
+          if (!isCancelled && !isProtectedState) {
+            shouldReconcileItems = true;
+          } else {
+            const { data: existingItems, error: itemsCheckErr } = await supabase
+              .from('order_items')
+              .select('id')
+              .eq('order_id', localOrderId);
 
-          if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
-            console.log(`ℹ️ Pedido existente ${finalOrderNumber} no tiene ítems registrados. Se ingresarán.`);
-            shouldInsertItems = true;
+            if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
+              console.log(`ℹ️ Pedido existente ${finalOrderNumber} no tiene ítems registrados. Se ingresarán.`);
+              shouldReconcileItems = true;
+            }
           }
         }
       } else {
@@ -792,29 +848,43 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
 
         console.log(`📥 Insertado nuevo pedido local ${finalOrderNumber} con status "${initialStatus}" / estado_wms "${initialEstadoWms}"`);
         localOrderId = newOrder.id;
-        shouldInsertItems = true;
+        shouldReconcileItems = true;
       }
 
-      // Registrar ítems en order_items
-      if (localOrderId && shouldInsertItems) {
+      // Reconciliar de forma idempotente y segura ante concurrencia los ítems en order_items
+      if (localOrderId && shouldReconcileItems) {
+        const expectedQuantities = new Map();
+
         for (const [sku, qty] of Object.entries(itemQuantities)) {
+          const itemDetail = itemDetailsBySku[sku];
+          const itemImageUrl = itemDetail?.image?.src || (typeof itemDetail?.image === 'string' ? itemDetail.image : null);
+
           // Buscar producto en la base de datos por comercio y sku
           let { data: product } = await supabase
             .from('products')
-            .select('id')
+            .select('id, is_pack, image_url')
             .eq('sku', sku)
             .eq('comercio', integration.comercio)
+            .limit(1)
             .maybeSingle();
 
           if (!product) {
-            // Mapeo inverso para obtener datos originales del item y crearlo
-            const itemDetail = order.products.find(item => {
-              let itemSku = item.sku || `TN-${item.product_id}${item.variant_id ? '-' + item.variant_id : ''}`;
-              let cleanItemSku = itemSku.trim().replace(/\s+/g, '');
-              let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
-              return mappedItemSku === sku;
-            });
+            const { data: ilikeProd } = await supabase
+              .from('products')
+              .select('id, is_pack, image_url')
+              .eq('comercio', integration.comercio)
+              .ilike('sku', sku)
+              .limit(1)
+              .maybeSingle();
+            if (ilikeProd) product = ilikeProd;
+          }
 
+          if (product && !product.image_url && itemImageUrl) {
+            await supabase.from('products').update({ image_url: itemImageUrl }).eq('id', product.id);
+            product.image_url = itemImageUrl;
+          }
+
+          if (!product) {
             const pName = extractTiendanubeName(itemDetail?.name, 'Producto Tiendanube ' + sku);
             const productPrice = Number(itemDetail?.price || 0);
 
@@ -826,36 +896,146 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
                 sku: sku,
                 name: pName,
                 price: productPrice,
+                image_url: itemImageUrl,
                 description: 'Creado automáticamente desde integración de Tiendanube (al procesar pedido)'
               }])
-              .select('id')
+              .select('id, is_pack, image_url')
               .single();
 
             if (!prodErr && newProd) {
               console.log(`   * Creado automáticamente producto para SKU: ${sku} ("${pName}")`);
               product = newProd;
             } else {
-              console.error(`   ❌ Error al crear producto para SKU ${sku}:`, prodErr?.message);
+              const { data: retryProd } = await supabase
+                .from('products')
+                .select('id, is_pack')
+                .eq('comercio', integration.comercio)
+                .ilike('sku', sku)
+                .limit(1)
+                .maybeSingle();
+              if (retryProd) {
+                product = retryProd;
+              } else {
+                console.error(`   ❌ Error al crear producto para SKU ${sku}:`, prodErr?.message);
+              }
             }
           }
 
           if (product) {
+            if (product.is_pack) {
+              const { data: packMembers } = await supabase
+                .from('product_pack_items')
+                .select('member_product_id, quantity')
+                .eq('pack_product_id', product.id);
+
+              if (packMembers && packMembers.length > 0) {
+                for (const pm of packMembers) {
+                  const cur = expectedQuantities.get(pm.member_product_id) || 0;
+                  expectedQuantities.set(pm.member_product_id, cur + Number(pm.quantity || 1) * Number(qty));
+                }
+              } else {
+                const cur = expectedQuantities.get(product.id) || 0;
+                expectedQuantities.set(product.id, cur + Number(qty));
+              }
+            } else {
+              const cur = expectedQuantities.get(product.id) || 0;
+              expectedQuantities.set(product.id, cur + Number(qty));
+            }
+          } else {
+            console.warn(`   ⚠️ SKU ${sku} no encontrado en base de datos. No se pudo registrar en la orden.`);
+          }
+        }
+
+        const { data: existingItems } = await supabase
+          .from('order_items')
+          .select('id, product_id, quantity, warehouse_id, is_gift, campaign_id, tag')
+          .eq('order_id', localOrderId);
+
+        const existingByProduct = new Map();
+        for (const item of (existingItems || [])) {
+          if (item.is_gift || item.campaign_id || item.tag === 'Campaña' || item.tag === 'Eliminado') continue;
+          if (!existingByProduct.has(item.product_id)) {
+            existingByProduct.set(item.product_id, []);
+          }
+          existingByProduct.get(item.product_id).push(item);
+        }
+
+        for (const [prodId, expQty] of expectedQuantities.entries()) {
+          const rows = existingByProduct.get(prodId) || [];
+
+          if (rows.length > 0) {
+            const primaryRow = rows[0];
+            const targetWh = primaryRow.warehouse_id || warehouseId;
+            if (Number(primaryRow.quantity) !== expQty || (!primaryRow.warehouse_id && warehouseId)) {
+              const prevQty = primaryRow.quantity;
+              await supabase
+                .from('order_items')
+                .update({ quantity: expQty, warehouse_id: targetWh })
+                .eq('id', primaryRow.id);
+              if (Number(prevQty) !== expQty) {
+                console.log(`   🔧 Corregida cantidad de ítem product_id ${prodId}: ${prevQty} -> ${expQty}`);
+              }
+            }
+            if (rows.length > 1) {
+              for (let k = 1; k < rows.length; k++) {
+                await supabase.from('order_items').delete().eq('id', rows[k].id);
+                console.log(`   🧹 Eliminada fila duplicada de order_items (${rows[k].id}) para product_id ${prodId}`);
+              }
+            }
+          } else {
             const { error: itemErr } = await supabase
               .from('order_items')
               .insert([{
                 order_id: localOrderId,
-                product_id: product.id,
+                product_id: prodId,
                 warehouse_id: warehouseId,
-                quantity: qty
+                quantity: expQty
               }]);
 
             if (itemErr) {
-              console.error(`   ❌ Error al registrar ítem SKU ${sku}:`, itemErr.message);
+              console.error(`   ❌ Error al registrar ítem product_id ${prodId}:`, itemErr.message);
             } else {
-              console.log(`   + Registrado ítem: SKU ${sku} x ${qty}`);
+              console.log(`   + Registrado ítem product_id ${prodId} x ${expQty}`);
+            }
+          }
+        }
+
+        // Eliminar ítems regulares que ya no existan en la orden de Tiendanube
+        for (const [prodId, rows] of existingByProduct.entries()) {
+          if (!expectedQuantities.has(prodId)) {
+            for (const r of rows) {
+              await supabase.from('order_items').delete().eq('id', r.id);
+              console.log(`   ➖ Eliminado ítem removido en Tiendanube (${r.id})`);
+            }
+          }
+        }
+
+        // Verificación post-escritura ante concurrencia simultánea con webhook y trigger expand_pack_order_items()
+        const { data: postRows } = await supabase
+          .from('order_items')
+          .select('id, product_id, quantity, is_gift, campaign_id, tag')
+          .eq('order_id', localOrderId);
+
+        const postByProduct = new Map();
+        for (const r of (postRows || [])) {
+          if (r.is_gift || r.campaign_id || r.tag === 'Campaña' || r.tag === 'Eliminado') continue;
+          if (!postByProduct.has(r.product_id)) postByProduct.set(r.product_id, []);
+          postByProduct.get(r.product_id).push(r);
+        }
+
+        for (const [prodId, rows] of postByProduct.entries()) {
+          const expQty = expectedQuantities.get(prodId);
+          if (expQty === undefined) {
+            for (const r of rows) {
+              await supabase.from('order_items').delete().eq('id', r.id);
             }
           } else {
-            console.warn(`   ⚠️ SKU ${sku} no encontrado en base de datos. No se pudo registrar en la orden.`);
+            if (Number(rows[0].quantity) !== expQty) {
+              await supabase.from('order_items').update({ quantity: expQty }).eq('id', rows[0].id);
+            }
+            for (let k = 1; k < rows.length; k++) {
+              await supabase.from('order_items').delete().eq('id', rows[k].id);
+            }
           }
         }
       }

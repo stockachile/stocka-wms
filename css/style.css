@@ -3685,7 +3685,7 @@ html[data-theme="dark"] .stat-card-purple { background-color: rgba(192, 132, 252
   }
   .ticket-detail-layout {
     display: grid;
-    grid-template-columns: 1fr 300px;
+    grid-template-columns: 1fr 350px;
     gap: 1.5rem;
   }
 }
@@ -3739,14 +3739,16 @@ html[data-theme="dark"] .stat-card-purple { background-color: rgba(192, 132, 252
   box-shadow: var(--shadow-sm);
 }
 
-.chat-bubble.client {
+.chat-bubble.client,
+.chat-bubble.own-party {
   align-self: flex-end;
   background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
   color: #ffffff;
   border-bottom-right-radius: var(--radius-sm);
 }
 
-.chat-bubble.admin {
+.chat-bubble.admin,
+.chat-bubble.other-party {
   align-self: flex-start;
   background-color: var(--color-surface);
   color: var(--color-text-main);
@@ -3755,11 +3757,20 @@ html[data-theme="dark"] .stat-card-purple { background-color: rgba(192, 132, 252
 }
 
 .chat-bubble.internal {
-  align-self: flex-start;
-  background-color: rgba(245, 158, 11, 0.08);
+  align-self: flex-end;
+  background-color: rgba(245, 158, 11, 0.12);
   color: var(--color-text-main);
   border: 1px dashed var(--color-warning);
-  border-bottom-left-radius: var(--radius-sm);
+  border-bottom-right-radius: var(--radius-sm);
+}
+
+.chat-bubble.system-financial {
+  align-self: center;
+  max-width: 90%;
+  width: 100%;
+  background-color: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
 }
 
 .chat-meta {
@@ -3770,9 +3781,19 @@ html[data-theme="dark"] .stat-card-purple { background-color: rgba(192, 132, 252
   gap: 0.5rem;
 }
 
-.chat-bubble.client .chat-meta {
-  color: rgba(255, 255, 255, 0.8);
+.chat-bubble.client .chat-meta,
+.chat-bubble.own-party .chat-meta {
+  color: rgba(255, 255, 255, 0.82);
   justify-content: flex-end;
+}
+
+@keyframes ticket-sla-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.ticket-sla-pulse {
+  animation: ticket-sla-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 .chat-bubble.internal .chat-meta {

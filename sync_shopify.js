@@ -409,6 +409,9 @@ async function syncOrders(integration) {
 
       let orderId;
       if (existingOrder) {
+        if (existingOrder.estado_wms === 'Entregado') {
+          continue;
+        }
         const existingRaw = existingOrder.raw_shopify_data || {};
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
@@ -949,6 +952,26 @@ async function syncProducts(integration) {
         if (upsertErr) throw upsertErr;
       }
       console.log(`Se han sincronizado ${productsToUpsert.length} variantes en synced_products.`);
+
+      if (integration.comercio) {
+        const { data: missingImgProds } = await supabase
+          .from('products')
+          .select('id, sku')
+          .eq('comercio', integration.comercio)
+          .or('image_url.is.null,image_url.eq.');
+        if (missingImgProds && missingImgProds.length > 0) {
+          const imgMap = new Map();
+          productsToUpsert.forEach(sp => {
+            if (sp.sku && sp.image_url) imgMap.set(String(sp.sku).trim().toUpperCase(), sp.image_url);
+          });
+          for (const mp of missingImgProds) {
+            const foundUrl = imgMap.get(String(mp.sku || '').trim().toUpperCase());
+            if (foundUrl) {
+              await supabase.from('products').update({ image_url: foundUrl }).eq('id', mp.id);
+            }
+          }
+        }
+      }
     }
 
   } catch (error) {

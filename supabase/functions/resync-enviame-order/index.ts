@@ -140,7 +140,7 @@ serve(async (req) => {
     if (orderId) {
       const rawOrderStr = String(orderId).trim();
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawOrderStr);
-      let q = supabase.from("orders").select("id, external_order_number, tracking_number, courier, operador, label_url, enviame_delivery_id, comercio");
+      let q = supabase.from("orders").select("id, estado_wms, external_order_number, tracking_number, courier, operador, label_url, enviame_delivery_id, comercio");
       if (isUuid) {
         q = q.eq("id", rawOrderStr);
       } else {
@@ -158,6 +158,15 @@ serve(async (req) => {
       if (oList && oList.length > 0) {
         targetOrder = oList[0];
       }
+    }
+
+    if (targetOrder && String(targetOrder.estado_wms || "").trim() === "Entregado") {
+      return new Response(JSON.stringify({
+        error: "Este pedido ya se encuentra finalizado en estado 'Entregado' con su historial sellado en base de datos; no requiere nuevas consultas externas."
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
     }
 
     if (!isServiceOrAdmin) {

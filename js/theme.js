@@ -385,8 +385,9 @@ document.addEventListener('DOMContentLoaded', () => {
           const li = document.createElement('li');
           li.className = 'sidebar-fav-li';
           li.setAttribute('data-fav-li-view', view);
+          const favTitleAttr = view === 'declarations_admin' ? '' : `title="${label}"`;
           li.innerHTML = `
-            <a href="#" class="sidebar-fav-item ${isActive ? 'active' : ''}" data-fav-view="${view}" title="${label}">
+            <a href="#" class="sidebar-fav-item ${isActive ? 'active' : ''}" data-fav-view="${view}" ${favTitleAttr}>
               <i class="${iconClass} fav-item-icon"></i>
               <span class="fav-text">${label}</span>
               <span class="menu-badge fav-item-badge" style="display: none;">0</span>
@@ -579,6 +580,305 @@ document.addEventListener('DOMContentLoaded', () => {
         renderFavorites(true);
         syncFlyoutActiveAndBadges();
       };
+
+      // =========================================================================
+      // Popover Desglose Resumen Hover para "Ingresos de Stock" (Menú Admin)
+      // =========================================================================
+      if (role === 'admin') {
+        let inboundPopover = document.getElementById('inbound-stock-hover-popover');
+        if (!inboundPopover) {
+          inboundPopover = document.createElement('div');
+          inboundPopover.id = 'inbound-stock-hover-popover';
+          inboundPopover.className = 'inbound-hover-popover';
+          inboundPopover.setAttribute('role', 'tooltip');
+          inboundPopover.setAttribute('aria-hidden', 'true');
+          document.body.appendChild(inboundPopover);
+        }
+
+        let activeInboundAnchor = null;
+        let keptFlyoutGroup = null;
+        let showInboundTimer = null;
+        let hideInboundTimer = null;
+
+        const escapeHtmlAttr = (str) => String(str ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+
+        const renderInboundPopoverHtml = () => {
+          const summary = window._inboundDeclarationsSummary;
+          if (!summary || !summary.loaded) {
+            inboundPopover.innerHTML = `
+              <div class="inbound-pop-loading">
+                <i class="ri-loader-4-line ri-spin"></i>
+                <span>Cargando desglose de ingresos...</span>
+              </div>
+            `;
+            return;
+          }
+
+          const totalCount = Number(summary.totalCount) || 0;
+          const totalUnits = Number(summary.totalUnits) || 0;
+          const totalVol = Number(summary.totalVolume) || 0;
+          const parallelCount = Number(summary.parallelCount) || 0;
+          const stages = Array.isArray(summary.stages) ? summary.stages : [];
+
+          const metaText = totalCount > 0
+            ? `${totalUnits.toLocaleString('es-CL')} uds declaradas${totalVol > 0 ? ` · ${totalVol.toFixed(1).replace('.', ',')} m³` : ''}`
+            : 'Recepción al día';
+
+          const barHtml = totalCount > 0
+            ? `<div class="inbound-pop-bar">
+                ${stages
+                  .filter(s => s.count > 0)
+                  .map(s => `<span class="inbound-pop-bar-seg" style="width: ${Math.max(4, s.pct).toFixed(1)}%; background: ${s.dotColor};" title="${escapeHtmlAttr(s.label)}: ${s.count}"></span>`)
+                  .join('')}
+              </div>`
+            : '';
+
+          const bodyHtml = totalCount === 0
+            ? `<div class="inbound-pop-empty">
+                <i class="ri-checkbox-circle-fill"></i>
+                <span>Sin ingresos pendientes por recepcionar.</span>
+              </div>`
+            : `<div class="inbound-pop-list">
+                ${stages.map(s => {
+                  const isZero = !s.count || s.count <= 0;
+                  const unitsHtml = !isZero && s.units > 0
+                    ? `<span class="inbound-pop-units">${Number(s.units).toLocaleString('es-CL')} uds</span>`
+                    : '';
+                  const pillStyle = !isZero
+                    ? `background: ${s.pillBg}; color: ${s.color}; border-color: ${s.dotColor}45;`
+                    : '';
+                  return `
+                    <button type="button" class="inbound-pop-row ${isZero ? 'is-empty' : ''}" data-stage-tab="${escapeHtmlAttr(s.tabId)}">
+                      <span class="inbound-pop-row-left">
+                        <span class="inbound-pop-dot" style="background: ${s.dotColor}; box-shadow: ${!isZero ? `0 0 7px ${s.dotColor}85` : 'none'};"></span>
+                        <i class="${escapeHtmlAttr(s.icon)} inbound-pop-row-icon" style="color: ${s.color};"></i>
+                        <span class="inbound-pop-row-labels">
+                          <span class="inbound-pop-row-name">${escapeHtmlAttr(s.label)}</span>
+                          <span class="inbound-pop-row-sub">${escapeHtmlAttr(s.sublabel)}</span>
+                        </span>
+                      </span>
+                      <span class="inbound-pop-row-right">
+                        ${unitsHtml}
+                        <span class="inbound-pop-count" style="${pillStyle}">${s.count}</span>
+                      </span>
+                    </button>
+                  `;
+                }).join('')}
+              </div>`;
+
+          const parallelHtml = parallelCount > 0
+            ? `<button type="button" class="inbound-pop-parallel" data-stage-tab="parallel_count">
+                <span><i class="ri-refresh-line"></i> Conteo en paralelo activo</span>
+                <span class="inbound-pop-parallel-badge">${parallelCount}</span>
+              </button>`
+            : '';
+
+          inboundPopover.innerHTML = `
+            <button type="button" class="inbound-pop-header" data-stage-tab="pending">
+              <span class="inbound-pop-header-left">
+                <span class="inbound-pop-icon"><i class="ri-inbox-archive-line"></i></span>
+                <span class="inbound-pop-title-stack">
+                  <span class="inbound-pop-title">Ingresos Pendientes</span>
+                  <span class="inbound-pop-meta">${metaText}</span>
+                </span>
+              </span>
+              <span class="inbound-pop-total ${totalCount === 0 ? 'is-zero' : ''}">${totalCount === 0 ? 'Al día ✓' : totalCount}</span>
+            </button>
+            ${barHtml}
+            ${bodyHtml}
+            ${parallelHtml}
+            ${totalCount > 0 ? `
+              <div class="inbound-pop-footer">
+                <span>Clic en una etapa para filtrar directo</span>
+                <i class="ri-arrow-right-up-line"></i>
+              </div>
+            ` : ''}
+          `;
+        };
+
+        const positionInboundPopover = (anchor) => {
+          if (!anchor || !document.body.contains(anchor)) return;
+          const flyoutPanel = anchor.closest('.sidebar-flyout-panel');
+          const refEl = flyoutPanel || sidebar;
+          const refRect = refEl.getBoundingClientRect();
+          const anchorRect = anchor.getBoundingClientRect();
+
+          const popWidth = inboundPopover.offsetWidth || 296;
+          const popHeight = inboundPopover.offsetHeight || 260;
+
+          let left = Math.round(refRect.right + 8);
+          if (left + popWidth > window.innerWidth - 12) {
+            left = Math.max(12, window.innerWidth - popWidth - 12);
+          }
+
+          const clampedTop = Math.round(
+            Math.max(12, Math.min(anchorRect.top - 12, window.innerHeight - popHeight - 12))
+          );
+
+          const anchorMidY = anchorRect.top + anchorRect.height / 2;
+          const arrowTop = Math.max(18, Math.min(popHeight - 18, Math.round(anchorMidY - clampedTop)));
+
+          inboundPopover.style.left = `${left}px`;
+          inboundPopover.style.top = `${clampedTop}px`;
+          inboundPopover.style.setProperty('--inbound-arrow-top', `${arrowTop}px`);
+        };
+
+        const clearFlyoutSubhoverKeep = () => {
+          if (keptFlyoutGroup) {
+            keptFlyoutGroup.classList.remove('flyout-subhover-keep');
+            keptFlyoutGroup = null;
+          }
+        };
+
+        const hideInboundPopover = (alsoCloseFlyouts = false) => {
+          if (showInboundTimer) {
+            clearTimeout(showInboundTimer);
+            showInboundTimer = null;
+          }
+          if (hideInboundTimer) {
+            clearTimeout(hideInboundTimer);
+            hideInboundTimer = null;
+          }
+          inboundPopover.classList.remove('is-visible');
+          inboundPopover.setAttribute('aria-hidden', 'true');
+          activeInboundAnchor = null;
+          clearFlyoutSubhoverKeep();
+          if (alsoCloseFlyouts) {
+            flyoutGroups.forEach(g => g.classList.remove('flyout-open', 'flyout-subhover-keep'));
+          }
+        };
+
+        const showInboundPopover = (anchor) => {
+          if (window.innerWidth <= 768 || !anchor || !document.body.contains(anchor)) return;
+          activeInboundAnchor = anchor;
+
+          if ((!window._inboundDeclarationsSummary || !window._inboundDeclarationsSummary.loaded) &&
+              typeof window.refreshDeclarationsBreakdownBadge === 'function') {
+            window.refreshDeclarationsBreakdownBadge();
+          }
+
+          renderInboundPopoverHtml();
+          positionInboundPopover(anchor);
+          inboundPopover.classList.add('is-visible');
+          inboundPopover.setAttribute('aria-hidden', 'false');
+        };
+
+        sidebar.addEventListener('mouseover', (e) => {
+          if (window.innerWidth <= 768) return;
+          const match = e.target.closest('.sidebar-fav-item[data-fav-view="declarations_admin"], .nav-item[data-view="declarations_admin"]');
+          if (match) {
+            if (hideInboundTimer) {
+              clearTimeout(hideInboundTimer);
+              hideInboundTimer = null;
+            }
+            if (activeInboundAnchor === match && inboundPopover.classList.contains('is-visible')) {
+              return;
+            }
+            if (showInboundTimer) clearTimeout(showInboundTimer);
+            showInboundTimer = setTimeout(() => showInboundPopover(match), 95);
+            return;
+          }
+
+          // Si pasa a otro ítem distinto del menú lateral, ocultar sin demora excesiva
+          if (e.target.closest('.sidebar-fav-item, .nav-item, .sidebar-group-trigger, .fav-unpin-btn')) {
+            if (showInboundTimer) {
+              clearTimeout(showInboundTimer);
+              showInboundTimer = null;
+            }
+            if (inboundPopover.classList.contains('is-visible')) {
+              if (hideInboundTimer) clearTimeout(hideInboundTimer);
+              hideInboundTimer = setTimeout(() => hideInboundPopover(false), 65);
+            }
+          }
+        });
+
+        sidebar.addEventListener('mouseout', (e) => {
+          if (!activeInboundAnchor) {
+            if (showInboundTimer && !e.relatedTarget?.closest?.('.sidebar-fav-item[data-fav-view="declarations_admin"], .nav-item[data-view="declarations_admin"]')) {
+              clearTimeout(showInboundTimer);
+              showInboundTimer = null;
+            }
+            return;
+          }
+          const rel = e.relatedTarget;
+          if (rel && (activeInboundAnchor.contains(rel) || inboundPopover.contains(rel))) {
+            return;
+          }
+          if (showInboundTimer) {
+            clearTimeout(showInboundTimer);
+            showInboundTimer = null;
+          }
+          if (hideInboundTimer) clearTimeout(hideInboundTimer);
+          hideInboundTimer = setTimeout(() => hideInboundPopover(false), 175);
+        });
+
+        sidebar.addEventListener('click', () => {
+          hideInboundPopover(false);
+        });
+
+        inboundPopover.addEventListener('mouseenter', () => {
+          if (hideInboundTimer) {
+            clearTimeout(hideInboundTimer);
+            hideInboundTimer = null;
+          }
+          if (activeInboundAnchor) {
+            const parentGroup = activeInboundAnchor.closest('.sidebar-flyout-group');
+            if (parentGroup) {
+              clearFlyoutSubhoverKeep();
+              keptFlyoutGroup = parentGroup;
+              keptFlyoutGroup.classList.add('flyout-subhover-keep');
+            }
+          }
+        });
+
+        inboundPopover.addEventListener('mouseleave', (e) => {
+          const rel = e.relatedTarget;
+          if (rel && activeInboundAnchor && activeInboundAnchor.contains(rel)) {
+            clearFlyoutSubhoverKeep();
+            return;
+          }
+          if (hideInboundTimer) clearTimeout(hideInboundTimer);
+          hideInboundTimer = setTimeout(() => hideInboundPopover(false), 130);
+        });
+
+        inboundPopover.addEventListener('click', (e) => {
+          const stageBtn = e.target.closest('[data-stage-tab]');
+          if (!stageBtn) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const tabId = stageBtn.getAttribute('data-stage-tab') || 'pending';
+          hideInboundPopover(true);
+          closeMenu();
+          if (typeof window.navigateToDeclarationsStage === 'function') {
+            window.navigateToDeclarationsStage(tabId);
+          } else {
+            const canonical = sidebar.querySelector('.nav-item[data-view="declarations_admin"]');
+            if (canonical) canonical.click();
+          }
+        });
+
+        window.addEventListener('stocka:declarations-breakdown-updated', () => {
+          if (inboundPopover.classList.contains('is-visible') && activeInboundAnchor) {
+            renderInboundPopoverHtml();
+            positionInboundPopover(activeInboundAnchor);
+          }
+        });
+
+        window.addEventListener('resize', () => hideInboundPopover(false), { passive: true });
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && inboundPopover.classList.contains('is-visible')) {
+            hideInboundPopover(false);
+          }
+        });
+        const sidebarNavScroll = sidebar.querySelector('.sidebar-nav');
+        if (sidebarNavScroll) {
+          sidebarNavScroll.addEventListener('scroll', () => hideInboundPopover(false), { passive: true });
+        }
+      }
     }
   }
 
@@ -2335,28 +2635,74 @@ document.addEventListener('DOMContentLoaded', () => {
   initClientHeaderV2();
 });
 
+window._ufMemoryCache = window._ufMemoryCache || {};
+window._ufInFlightPromises = window._ufInFlightPromises || {};
+
+window.getFallbackUfValue = function() {
+  try {
+    const todayCached = JSON.parse(localStorage.getItem('stocka-uf') || 'null');
+    if (todayCached && todayCached.numericValue) return parseFloat(todayCached.numericValue);
+    const backupVal = localStorage.getItem('stocka-last-uf-backup');
+    if (backupVal) return parseFloat(backupVal);
+  } catch (_) {}
+  return 37500;
+};
+
 window.getUfValueForDate = async function(dateStr) {
   // dateStr format: DD-MM-YYYY
+  if (!dateStr) return window.getFallbackUfValue();
+
+  if (window._ufMemoryCache[dateStr]) {
+    return window._ufMemoryCache[dateStr];
+  }
+
   const cacheKey = `stocka-uf-${dateStr}`;
-  const cached = localStorage.getItem(cacheKey);
-  if (cached) {
-    return parseFloat(cached);
-  }
-
   try {
-    const res = await fetch(`https://mindicador.cl/api/uf/${dateStr}`);
-    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-    const data = await res.json();
-    if (data && data.serie && data.serie[0]) {
-      const val = parseFloat(data.serie[0].valor);
-      localStorage.setItem(cacheKey, val.toString());
-      return val;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const parsed = parseFloat(cached);
+      if (!isNaN(parsed) && parsed > 0) {
+        window._ufMemoryCache[dateStr] = parsed;
+        return parsed;
+      }
     }
-  } catch (err) {
-    console.error(`Error fetching UF for date ${dateStr}:`, err);
+  } catch (_) {}
+
+  if (window._ufInFlightPromises[dateStr]) {
+    return window._ufInFlightPromises[dateStr];
   }
 
-  const todayCached = JSON.parse(localStorage.getItem('stocka-uf') || 'null');
-  const backupVal = localStorage.getItem('stocka-last-uf-backup');
-  return (todayCached && todayCached.numericValue) || (backupVal ? parseFloat(backupVal) : 37500);
+  const fetchPromise = (async () => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1500);
+      const res = await fetch(`https://mindicador.cl/api/uf/${dateStr}`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      const data = await res.json();
+      if (data && data.serie && data.serie[0] && data.serie[0].valor) {
+        const val = parseFloat(data.serie[0].valor);
+        if (!isNaN(val) && val > 0) {
+          try { localStorage.setItem(cacheKey, val.toString()); } catch (_) {}
+          window._ufMemoryCache[dateStr] = val;
+          return val;
+        }
+      }
+    } catch (err) {
+      // Timeout o fecha sin serie publicada: usar valor de respaldo en memoria para no re-bloquear
+    }
+
+    const fallback = window.getFallbackUfValue();
+    window._ufMemoryCache[dateStr] = fallback;
+    return fallback;
+  })();
+
+  window._ufInFlightPromises[dateStr] = fetchPromise;
+  try {
+    return await fetchPromise;
+  } finally {
+    delete window._ufInFlightPromises[dateStr];
+  }
 };

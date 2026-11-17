@@ -201,6 +201,14 @@ serve(async (req) => {
 
     // Validar estado WMS
     const currentWms = (order.estado_wms || "").trim();
+    if (currentWms === "Entregado") {
+      return new Response(JSON.stringify({
+        error: "Este pedido ya está finalizado en estado 'Entregado' con su trazabilidad sellada en base de datos. No requiere ni admite nuevas consultas externas salvo reapertura autorizada por Administración."
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     if (currentWms !== "En procesamiento") {
       return new Response(JSON.stringify({
         error: `El pedido se encuentra actualmente en estado '${currentWms}'. Para admitir y procesar los cambios de Shopify, debe devolver el pedido a 'En procesamiento' antes de sincronizar.`

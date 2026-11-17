@@ -376,6 +376,19 @@ async function syncProducts(integration, headers) {
         }
       }
       console.log(`📥 Total de ${productsToUpsert.length} variantes/productos sincronizados en synced_products para ${integration.comercio}.`);
+
+      // Rellenar image_url en productos existentes del catálogo maestro (products) que aún no tengan foto
+      if (integration.comercio) {
+        for (const sp of productsToUpsert) {
+          if (!sp.image_url) continue;
+          await supabase
+            .from('products')
+            .update({ image_url: sp.image_url })
+            .eq('comercio', integration.comercio)
+            .ilike('sku', sp.sku)
+            .or('image_url.is.null,image_url.eq.');
+        }
+      }
     }
   } catch (error) {
     console.error(`❌ Error sincronizando productos para ${integration.shop_url}:`, error.message);
@@ -635,6 +648,9 @@ async function syncOrders(integration, headers, warehouseId) {
       let existingItemsToReconcile = null;
 
       if (existingOrder) {
+        if (existingOrder.estado_wms === 'Entregado') {
+          continue;
+        }
         const existingRaw = existingOrder.raw_jumpseller_data || {};
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
@@ -761,24 +777,30 @@ async function syncOrders(integration, headers, warehouseId) {
         const expectedQuantities = new Map();
 
         for (const [sku, qty] of Object.entries(itemQuantities)) {
+          // Buscar detalle del item original usando mapeo inverso
+          const itemDetail = (o.products || []).find(op => {
+            const prodIdRef = op.product_id || op.id;
+            let opSku = op.sku || (prodIdRef ? `JS-${prodIdRef}${op.variant_id ? '-' + op.variant_id : ''}` : 'Sin-SKU');
+            let cleanItemSku = opSku.trim().replace(/\s+/g, '');
+            let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+            return mappedItemSku === sku;
+          });
+          const itemImageUrl = (typeof itemDetail?.image === 'string' ? itemDetail.image : itemDetail?.image?.url) || null;
+
           // Buscar producto en la base de datos
           let { data: product } = await supabase
             .from('products')
-            .select('id, is_pack')
+            .select('id, is_pack, image_url')
             .eq('sku', sku)
             .eq('comercio', integration.comercio)
             .maybeSingle();
 
-          if (!product) {
-            // Buscar detalle del item original usando mapeo inverso
-            const itemDetail = (o.products || []).find(op => {
-              const prodIdRef = op.product_id || op.id;
-              let opSku = op.sku || (prodIdRef ? `JS-${prodIdRef}${op.variant_id ? '-' + op.variant_id : ''}` : 'Sin-SKU');
-              let cleanItemSku = opSku.trim().replace(/\s+/g, '');
-              let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
-              return mappedItemSku === sku;
-            });
+          if (product && !product.image_url && itemImageUrl) {
+            await supabase.from('products').update({ image_url: itemImageUrl }).eq('id', product.id);
+            product.image_url = itemImageUrl;
+          }
 
+          if (!product) {
             // Auto-crear producto faltante en WMS
             const productName = itemDetail?.name || 'Producto Jumpseller ' + sku;
             const productPrice = Number(itemDetail?.price || 0);
@@ -791,9 +813,10 @@ async function syncOrders(integration, headers, warehouseId) {
                 sku: sku,
                 name: productName,
                 price: productPrice,
+                image_url: itemImageUrl,
                 description: 'Creado automáticamente desde integración de Jumpseller (al procesar pedido)'
               }])
-              .select('id, is_pack')
+              .select('id, is_pack, image_url')
               .single();
 
             if (!prodErr && newProd) {

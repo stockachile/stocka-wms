@@ -119,7 +119,9 @@ export const billingState = {
   storeBreakdown: [],
   activeConglomerateStoreFilter: null,
   commerceObservations: [],
-  activeObservationsFilter: 'all'
+  activeObservationsFilter: 'all',
+  commerceExtraCharges: [],
+  activeExtraChargesFilter: 'all'
 };
 
 // Inyectar estilos visuales avanzados del Gestor de Facturación
@@ -695,6 +697,11 @@ export function injectBillingGeneratorStyles() {
       background: #dcfce7;
       color: #15803d;
       border: 1px solid #bbf7d0;
+    }
+    .bg-wms-entregado {
+      background: #d1fae5;
+      color: #065f46;
+      border: 1px solid #6ee7b7;
     }
     .bg-wms-pickeado {
       background: #e0f2fe;
@@ -4306,6 +4313,11 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
                             <i class="ri-question-answer-line"></i> Apelación${a.linkedObservationPeriod ? ` (${escapeHtml(a.linkedObservationPeriod)})` : ''}
                           </span>
                         ` : ''}
+                        ${(a.isExtraChargeAdjustment || a.linkedExtraChargeId) ? `
+                          <span style="background: #fef3c7; color: #b45309; border: 1px solid #fde68a; font-size: 0.67rem; font-weight: 800; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Incorporado desde Saldos Adicionales">
+                            <i class="ri-coins-line"></i> Saldo Adicional${a.linkedExtraChargeStore ? ` · ${escapeHtml(a.linkedExtraChargeStore)}` : ''}
+                          </span>
+                        ` : ''}
                       </div>
                       <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${escapeHtml(a.notes || '')}</div>
                     </div>
@@ -4332,8 +4344,8 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
                   <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                     <div>
                       <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                        <span style="background: ${ab.isPosAbono || ab.id === 'abono_pos_sales' ? '#059669' : ((ab.isObservationAbono || ab.linkedObservationKey) ? '#5f06fa' : '#10b981')}; color: #ffffff; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; display: inline-flex; align-items: center; gap: 3px;">
-                          <i class="${ab.isPosAbono || ab.id === 'abono_pos_sales' ? 'ri-store-3-line' : ((ab.isObservationAbono || ab.linkedObservationKey) ? 'ri-question-answer-line' : 'ri-hand-coin-line')}"></i> ${ab.isPosAbono || ab.id === 'abono_pos_sales' ? 'Abono Ventas POS' : ((ab.isObservationAbono || ab.linkedObservationKey) ? `Saldo por Apelación${ab.linkedObservationPeriod ? ` (${escapeHtml(ab.linkedObservationPeriod)})` : ''}` : 'Abono')}
+                        <span style="background: ${ab.isPosAbono || ab.id === 'abono_pos_sales' ? '#059669' : ((ab.isObservationAbono || ab.linkedObservationKey) ? '#5f06fa' : ((ab.isExtraChargeAbono || ab.linkedExtraChargeId) ? '#d97706' : '#10b981'))}; color: #ffffff; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; display: inline-flex; align-items: center; gap: 3px;">
+                          <i class="${ab.isPosAbono || ab.id === 'abono_pos_sales' ? 'ri-store-3-line' : ((ab.isObservationAbono || ab.linkedObservationKey) ? 'ri-question-answer-line' : ((ab.isExtraChargeAbono || ab.linkedExtraChargeId) ? 'ri-coins-line' : 'ri-hand-coin-line'))}"></i> ${ab.isPosAbono || ab.id === 'abono_pos_sales' ? 'Abono Ventas POS' : ((ab.isObservationAbono || ab.linkedObservationKey) ? `Saldo por Apelación${ab.linkedObservationPeriod ? ` (${escapeHtml(ab.linkedObservationPeriod)})` : ''}` : ((ab.isExtraChargeAbono || ab.linkedExtraChargeId) ? 'Saldo Adicional a Favor' : 'Abono'))}
                         </span>
                         <strong style="color: #0f172a; font-size: 0.85rem;">${escapeHtml(ab.reference || 'Abono a cuenta')}</strong>
                         ${ab.voucher ? `<span style="font-size: 0.72rem; color: #047857; background: rgba(16, 185, 129, 0.12); padding: 1px 6px; border-radius: 4px; font-weight: 600;">${escapeHtml(ab.voucher)}</span>` : ''}
@@ -7175,6 +7187,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
       <!-- Banner de Alerta de Apelaciones / Observaciones de Facturación sin Respuesta -->
       <div id="bg-commerce-observations-alert-banner" style="display: none; margin-bottom: 0.65rem;"></div>
 
+      <!-- Banner Automático de Saldos Adicionales del Comercio -->
+      <div id="bg-commerce-extra-charges-alert-banner" style="display: none; margin-bottom: 0.65rem;"></div>
+
       <!-- Banner de Conglomerado Dinámico -->
       <div id="bg-conglomerate-banner-container"></div>
 
@@ -7208,9 +7223,17 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
             <i class="ri-question-answer-line"></i> Apelaciones / Observaciones
             <span id="bg-observations-nav-badge" style="display: none; background: #ef4444; color: #ffffff; font-size: 0.68rem; padding: 1px 6px; border-radius: 10px; font-weight: 800; margin-left: 2px;">0</span>
           </button>
+          <button class="bg-subnav-btn" id="bg-tab-btn-extra-charges" onclick="window.switchBgSubTab('extra-charges')" title="Detectar automáticamente saldos adicionales (cargos o descuentos) del comercio y asignarlos a un periodo de facturación">
+            <i class="ri-coins-line"></i> Saldos Adicionales
+            <span id="bg-extra-charges-nav-badge" style="display: none; background: #d97706; color: #ffffff; font-size: 0.68rem; padding: 1px 6px; border-radius: 10px; font-weight: 800; margin-left: 2px;">0</span>
+          </button>
         </div>
 
         <div id="bg-register-top-actions" style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.switchBgSubTab('extra-charges')" style="height: 29px; padding: 0 0.6rem; font-size: 0.73rem; border-radius: 6px; font-weight: 700; border-color: rgba(217, 119, 6, 0.55); color: #b45309; background: rgba(245, 158, 11, 0.08); display: inline-flex; align-items: center; gap: 4px;" title="Ver y asignar Saldos Adicionales del comercio a un periodo de facturación">
+            <i class="ri-coins-line" style="color: #d97706;"></i> Saldos Adic.
+            <span id="bg-extra-charges-toolbar-badge" style="display: none; background: #d97706; color: #ffffff; font-size: 0.65rem; padding: 0 5px; border-radius: 999px; font-weight: 900;">0</span>
+          </button>
           <button type="button" class="btn btn-outline btn-sm" onclick="window.openAddCustomColumnModal()" style="height: 29px; padding: 0 0.6rem; font-size: 0.73rem; border-radius: 6px; font-weight: 700; border-color: rgba(234, 88, 12, 0.45); color: #c2410c; background: rgba(234, 88, 12, 0.06); display: inline-flex; align-items: center; gap: 3px;" title="Añadir columna de cobro personalizada (Recargo por unidad o global por pedido) que se suma a Preparación">
             <i class="ri-layout-column-line" style="color: #ea580c;"></i> + Columna Recargo
           </button>
@@ -7411,6 +7434,10 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
             <span style="color: var(--color-text-muted); font-size: 0.75rem; font-weight: 500;">(Puedes agregar/eliminar insumos, editar fechas y datos fiscales)</span>
           </div>
           <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.switchBgSubTab('extra-charges')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 6px; border-color: rgba(217, 119, 6, 0.55); color: #b45309; background: rgba(245, 158, 11, 0.08);" title="Revisar saldos adicionales del comercio y asignarlos al periodo o desglose">
+              <i class="ri-coins-line" style="color: #d97706;"></i> Saldos Adicionales
+              <span id="bg-extra-charges-desglose-badge" style="display: none; background: #d97706; color: #ffffff; font-size: 0.66rem; padding: 0 6px; border-radius: 999px; font-weight: 900;">0</span>
+            </button>
             <button type="button" class="btn btn-outline btn-sm" onclick="window.addNewManualSupplyRow()" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; border-radius: 6px;">
               <i class="ri-box-3-line" style="color: #5f06fa;"></i> + Insumo / Caja
             </button>
@@ -7448,6 +7475,13 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
       <div id="bg-content-observations" style="display: none;">
         <div id="bg-observations-container">
           <!-- Renderizado dinámico de Apelaciones y Observaciones -->
+        </div>
+      </div>
+
+      <!-- Contenedor 6: Apartado de Saldos Adicionales del Comercio -->
+      <div id="bg-content-extra-charges" style="display: none;">
+        <div id="bg-extra-charges-container">
+          <!-- Renderizado dinámico de Saldos Adicionales -->
         </div>
       </div>
       </div>
@@ -7623,6 +7657,7 @@ export function renderGeneratorEmptyCommerceState() {
   billingState.paymentStatus = 'Por solicitar';
   billingState.loadedFromSnapshot = false;
   billingState.commerceObservations = [];
+  billingState.commerceExtraCharges = [];
 
   if (typeof renderLockStatusBannerAndSyncToolbarUI === 'function') {
     renderLockStatusBannerAndSyncToolbarUI();
@@ -7637,6 +7672,16 @@ export function renderGeneratorEmptyCommerceState() {
   if (obsNavBadge) {
     obsNavBadge.style.display = 'none';
   }
+
+  const extraAlertBanner = document.getElementById('bg-commerce-extra-charges-alert-banner');
+  if (extraAlertBanner) {
+    extraAlertBanner.style.display = 'none';
+    extraAlertBanner.innerHTML = '';
+  }
+  ['bg-extra-charges-nav-badge', 'bg-extra-charges-toolbar-badge', 'bg-extra-charges-desglose-badge'].forEach(bId => {
+    const bEl = document.getElementById(bId);
+    if (bEl) bEl.style.display = 'none';
+  });
 
   const congBanner = document.getElementById('bg-conglomerate-banner-container');
   if (congBanner) congBanner.innerHTML = '';
@@ -7695,6 +7740,9 @@ export function renderGeneratorEmptyCommerceState() {
 
   const obsCont = document.getElementById('bg-observations-container');
   if (obsCont) obsCont.innerHTML = emptySectionHTML;
+
+  const extraCont = document.getElementById('bg-extra-charges-container');
+  if (extraCont) extraCont.innerHTML = emptySectionHTML;
 }
 
 // Alternar entre la Vista Resumen del Periodo y el Generador de Desgloses
@@ -7765,8 +7813,11 @@ window.switchBgMainMode = async function(mode = 'overview', commerceName = null,
 
   if (needsRecalc) {
     await executeCalculationFromUI();
-  } else if (typeof loadAndRenderCommerceObservationsUI === 'function') {
-    await loadAndRenderCommerceObservationsUI();
+  } else {
+    await Promise.all([
+      typeof loadAndRenderCommerceObservationsUI === 'function' ? loadAndRenderCommerceObservationsUI() : Promise.resolve(),
+      typeof loadAndRenderCommerceExtraChargesUI === 'function' ? loadAndRenderCommerceExtraChargesUI() : Promise.resolve()
+    ]);
   }
 };
 
@@ -7842,17 +7893,22 @@ export async function loadAndRenderPeriodOverview(options = {}) {
       return allOrders;
     };
 
-    const [recordsRes, periodOrders, obsRecordsRes] = await Promise.all([
+    const [recordsRes, periodOrders, obsRecordsRes, extraChargesRes] = await Promise.all([
       supabase.from('billing_records').select('*').eq('period_id', periodId).order('comercio', { ascending: true }),
       fetchOrdersByPeriod(),
       supabase
         .from('billing_records')
         .select('id, comercio, period_id, client_observation, observation_status, admin_response, observation_updated_at, client_observation_enviame, observation_status_enviame, admin_response_enviame, observation_updated_at_enviame, updated_at, billing_periods(name)')
-        .or('client_observation.not.is.null,client_observation_enviame.not.is.null,observation_status.eq.pendiente,observation_status_enviame.eq.pendiente')
+        .or('client_observation.not.is.null,client_observation_enviame.not.is.null,observation_status.eq.pendiente,observation_status_enviame.eq.pendiente'),
+      supabase
+        .from('extra_billing_charges')
+        .select('*')
+        .order('fecha', { ascending: false })
     ]);
 
     const records = recordsRes.data || [];
     const obsRecords = obsRecordsRes?.data || [];
+    const allExtraChargesList = extraChargesRes?.data || [];
 
     // Normalizador de nombre de comercio hacia cuenta de facturación (holding si aplica)
     const normalizeToBillingEntity = (rawName) => {
@@ -7928,23 +7984,59 @@ export async function loadAndRenderPeriodOverview(options = {}) {
       }
     });
 
-    // Sincronizar indicadores 🚨 en el selector <select id="bg-select-commerce">
+    // Mapear saldos adicionales (extra_billing_charges) pendientes y asignados al periodo por comercio o holding
+    const pendingExtraByEntity = {};
+    const periodAssignedExtraByEntity = {};
+    const entityDisplayNameFromExtra = {};
+    let totalPendingExtraCharges = 0;
+
+    allExtraChargesList.forEach(ch => {
+      const entityName = normalizeToBillingEntity(ch.comercio);
+      const entityKey = entityName.toUpperCase();
+      if (!entityKey) return;
+      if (!entityDisplayNameFromExtra[entityKey]) entityDisplayNameFromExtra[entityKey] = entityName;
+
+      if (ch.status === 'pendiente') {
+        if (!pendingExtraByEntity[entityKey]) pendingExtraByEntity[entityKey] = [];
+        pendingExtraByEntity[entityKey].push(ch);
+        totalPendingExtraCharges++;
+      } else if (ch.status === 'cobrado' && String(ch.periodo_id || '') === String(periodId || '')) {
+        if (!periodAssignedExtraByEntity[entityKey]) periodAssignedExtraByEntity[entityKey] = [];
+        periodAssignedExtraByEntity[entityKey].push(ch);
+      }
+    });
+
+    // Sincronizar indicadores 🚨 y 💰 en el selector <select id="bg-select-commerce">
     const genCommSelect = document.getElementById('bg-select-commerce');
     if (genCommSelect) {
       Array.from(genCommSelect.options).forEach(opt => {
         const val = String(opt.value || '').trim();
         if (!val) return;
         if (!opt.getAttribute('data-base-label')) {
-          opt.setAttribute('data-base-label', opt.textContent.replace(/^🚨\s*/, '').replace(/\s*·\s*\d+\s*apelaci[oó]n.*$/i, '').trim());
+          opt.setAttribute(
+            'data-base-label',
+            opt.textContent
+              .replace(/^(?:🚨|💰)\s*/, '')
+              .replace(/\s*·\s*\d+\s*apelaci[oó]n.*$/i, '')
+              .replace(/\s*·\s*\d+\s*saldo.*$/i, '')
+              .trim()
+          );
         }
         const baseLabel = opt.getAttribute('data-base-label') || opt.textContent;
         const entityKey = normalizeToBillingEntity(val).toUpperCase();
         const unansList = unansweredObsByEntity[entityKey] || unansweredObsByEntity[val.toUpperCase()] || [];
+        const pendExtraList = pendingExtraByEntity[entityKey] || pendingExtraByEntity[val.toUpperCase()] || [];
+        const suffixes = [];
+        let prefix = '';
         if (unansList.length > 0) {
-          opt.textContent = `🚨 ${baseLabel} · ${unansList.length} apelación${unansList.length === 1 ? '' : 'es'} sin resp.`;
-        } else {
-          opt.textContent = baseLabel;
+          prefix = '🚨 ';
+          suffixes.push(`${unansList.length} apelación${unansList.length === 1 ? '' : 'es'} sin resp.`);
         }
+        if (pendExtraList.length > 0) {
+          if (!prefix) prefix = '💰 ';
+          suffixes.push(`${pendExtraList.length} saldo${pendExtraList.length === 1 ? '' : 's'} adic.`);
+        }
+        opt.textContent = suffixes.length > 0 ? `${prefix}${baseLabel} · ${suffixes.join(' · ')}` : baseLabel;
       });
     }
 
@@ -8009,6 +8101,17 @@ export async function loadAndRenderPeriodOverview(options = {}) {
         });
       }
     });
+    Object.keys(pendingExtraByEntity).forEach(entityKey => {
+      if (!entityMap.has(entityKey)) {
+        const disp = entityDisplayNameFromExtra[entityKey] || entityKey;
+        entityMap.set(entityKey, {
+          key: entityKey,
+          comercio: disp,
+          rawComercioRecord: disp,
+          record: null
+        });
+      }
+    });
 
     // Construir lista enriquecida de ítems del periodo
     const items = Array.from(entityMap.values()).map(entry => {
@@ -8019,6 +8122,10 @@ export async function loadAndRenderPeriodOverview(options = {}) {
       const unansweredObservationsList = unansweredObsByEntity[entityKey] || [];
       const unansweredObservationsCount = unansweredObservationsList.length;
       const totalObservationsCount = totalObsByEntity[entityKey] || 0;
+      const pendingExtraChargesList = pendingExtraByEntity[entityKey] || [];
+      const pendingExtraChargesCount = pendingExtraChargesList.length;
+      const periodAssignedExtraChargesList = periodAssignedExtraByEntity[entityKey] || [];
+      const periodAssignedExtraChargesCount = periodAssignedExtraChargesList.length;
 
       // Verificar si es un holding/conglomerado
       const congMatch = canonicalDisplayList.find(cg => String(cg.name).trim().toUpperCase() === entityKey);
@@ -8074,6 +8181,7 @@ export async function loadAndRenderPeriodOverview(options = {}) {
         rawDesglose,
         rawPago,
         rawFactura,
+        numFactura: r?.num_factura || null,
         totalFulfillment,
         abonoFulfillment,
         saldoFulfillment,
@@ -8082,7 +8190,11 @@ export async function loadAndRenderPeriodOverview(options = {}) {
         lastNotifiedAt: r?.last_notified_at || null,
         unansweredObservationsCount,
         unansweredObservationsList,
-        totalObservationsCount
+        totalObservationsCount,
+        pendingExtraChargesList,
+        pendingExtraChargesCount,
+        periodAssignedExtraChargesList,
+        periodAssignedExtraChargesCount
       };
     });
 
@@ -8110,6 +8222,7 @@ export async function loadAndRenderPeriodOverview(options = {}) {
     const pendingWithOrdersItems = pendingItems.filter(i => i.ordersCount > 0);
     const exemptItems = items.filter(i => i.statusCategory === 'exempt');
     const withUnansweredObsItems = items.filter(i => (i.unansweredObservationsCount || 0) > 0);
+    const withPendingExtraItems = items.filter(i => (i.pendingExtraChargesCount || 0) > 0);
 
     const totalGrossAll = items.reduce((acc, i) => acc + i.totalFulfillment, 0);
     const totalNetAll = Math.round(totalGrossAll / 1.19);
@@ -8146,6 +8259,8 @@ export async function loadAndRenderPeriodOverview(options = {}) {
       exemptItems,
       withUnansweredObsItems,
       totalUnansweredObservations,
+      withPendingExtraItems,
+      totalPendingExtraCharges,
       totalGrossAll,
       totalNetAll,
       totalGrossIssued,
@@ -8187,6 +8302,7 @@ window.loadAndRenderPeriodOverview = loadAndRenderPeriodOverview;
 
 window.bgOverviewActiveFilter = 'all'; // 'all' | 'pending' | 'draft' | 'issued' | 'exempt'
 window.bgOverviewSearchQuery = '';
+window.bgOverviewSelectedRecordIds = window.bgOverviewSelectedRecordIds || new Set();
 
 export function renderPeriodOverviewDOM() {
   const bodyEl = document.getElementById('bg-period-overview-body');
@@ -8206,6 +8322,7 @@ export function renderPeriodOverviewDOM() {
     if (activeFilter === 'issued' && item.statusCategory !== 'issued') return false;
     if (activeFilter === 'exempt' && item.statusCategory !== 'exempt') return false;
     if (activeFilter === 'observations' && (item.unansweredObservationsCount || 0) === 0) return false;
+    if (activeFilter === 'extra-charges' && (item.pendingExtraChargesCount || 0) === 0) return false;
     if (searchQuery) {
       const matchName = item.comercio.toLowerCase().includes(searchQuery);
       const matchChild = (item.conglomerateChildren || []).some(c => String(c).toLowerCase().includes(searchQuery));
@@ -8279,6 +8396,69 @@ export function renderPeriodOverviewDOM() {
                       style="background: ${activeFilter === 'observations' ? '#991b1b' : '#dc2626'}; color: #ffffff; border: none; font-weight: 800; font-size: 0.74rem; padding: 0.45rem 0.85rem; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;">
                 <i class="ri-filter-3-line"></i>
                 <span>${activeFilter === 'observations' ? 'Mostrar Todos los Comercios' : `Filtrar Comercios con Apelación (${st.withUnansweredObsItems.length})`}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ` : ''}
+
+      ${(st.withPendingExtraItems && st.withPendingExtraItems.length > 0) ? `
+        <!-- Banner Global Automático: Saldos Adicionales Pendientes de Asignar -->
+        <div style="background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); border: 1.5px solid #f59e0b; border-left: 5px solid #d97706; border-radius: 11px; padding: 0.85rem 1.15rem; margin-bottom: 1.15rem; box-shadow: 0 3px 10px rgba(245, 158, 11, 0.14);">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem;">
+            <div style="flex: 1; min-width: 280px;">
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.35rem;">
+                <span style="background: #d97706; color: #ffffff; font-size: 0.7rem; font-weight: 900; padding: 2px 8px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px; text-transform: uppercase; letter-spacing: 0.3px;">
+                  <i class="ri-coins-fill"></i> Saldos Adicionales Detectados
+                </span>
+                <strong style="font-size: 0.9rem; color: #92400e;">
+                  Se identificaron ${st.totalPendingExtraCharges} saldo(s) adicional(es) pendiente(s) en ${st.withPendingExtraItems.length} comercio(s)
+                </strong>
+              </div>
+              <div style="font-size: 0.78rem; color: #78350f; margin-bottom: 0.55rem;">
+                Haz clic en un comercio para abrir sus Saldos Adicionales en el Gestor, o usa el rayo <strong>⚡ Asignar</strong> para asignarlos directamente a <strong>${escapeHtml(st.periodName)}</strong> (u otro periodo) desde aquí:
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 0.45rem;">
+                ${st.withPendingExtraItems.map(it => {
+                  const list = it.pendingExtraChargesList || [];
+                  const tooltip = list
+                    .map(c => `[${c.tipo === 'descuento' ? 'Descuento' : 'Cargo'}] ${c.detalle}: ${c.tipo === 'descuento' ? '-' : '+'}${formatCLP(c.monto)} (${c.iva_tipo === 'iva_incluido' ? 'IVA incl.' : '+ IVA'})`)
+                    .join(' | ');
+                  const netDiffPreview = list.reduce((acc, c) => {
+                    const m = Math.abs(Math.round(Number(c.monto) || 0));
+                    return acc + (c.tipo === 'descuento' ? -m : m);
+                  }, 0);
+                  const signStr = netDiffPreview >= 0 ? `+${formatCLP(netDiffPreview)}` : `-${formatCLP(Math.abs(netDiffPreview))}`;
+                  return `
+                    <div style="display: inline-flex; align-items: stretch; border-radius: 8px; overflow: hidden; border: 1.5px solid #fcd34d; background: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                      <button type="button"
+                              onclick="window.openBillingGeneratorFromOverview('${escapeHtml(it.comercio)}', '${escapeHtml(st.periodId)}', 'extra-charges')"
+                              title="${escapeHtml(tooltip)}"
+                              style="background: #ffffff; border: none; color: #92400e; padding: 4px 9px; font-size: 0.75rem; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                        <i class="ri-coins-line" style="color: #d97706;"></i>
+                        <span>${it.isConglomerate ? '🏢 ' : ''}${escapeHtml(it.comercio)}</span>
+                        <span style="background: #fef3c7; color: #b45309; padding: 1px 6px; border-radius: 999px; font-size: 0.68rem; font-weight: 900;">
+                          ${it.pendingExtraChargesCount} pend. (${signStr})
+                        </span>
+                      </button>
+                      <button type="button"
+                              onclick="window.openOverviewExtraChargesQuickModal('${escapeHtml(it.comercio)}', '${escapeHtml(st.periodId)}')"
+                              title="Asignar rápidamente estos saldos adicionales a un periodo de facturación"
+                              style="background: #f59e0b; color: #ffffff; border: none; border-left: 1px solid #fcd34d; padding: 4px 8px; font-size: 0.72rem; font-weight: 900; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                        <i class="ri-flashlight-fill"></i> Asignar
+                      </button>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+            <div>
+              <button type="button"
+                      onclick="window.setBgOverviewFilter('${activeFilter === 'extra-charges' ? 'all' : 'extra-charges'}')"
+                      class="btn btn-sm"
+                      style="background: ${activeFilter === 'extra-charges' ? '#92400e' : '#d97706'}; color: #ffffff; border: none; font-weight: 800; font-size: 0.74rem; padding: 0.45rem 0.85rem; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;">
+                <i class="ri-filter-3-line"></i>
+                <span>${activeFilter === 'extra-charges' ? 'Mostrar Todos los Comercios' : `Filtrar con Saldo Adic. (${st.withPendingExtraItems.length})`}</span>
               </button>
             </div>
           </div>
@@ -8402,6 +8582,13 @@ export function renderPeriodOverviewDOM() {
                           🚨 ${item.unansweredObservationsCount} apelación${item.unansweredObservationsCount === 1 ? '' : 'es'}
                         </span>
                       ` : ''}
+                      ${(item.pendingExtraChargesCount || 0) > 0 ? `
+                        <span onclick="event.stopPropagation(); window.openOverviewExtraChargesQuickModal('${escapeHtml(item.comercio)}', '${escapeHtml(st.periodId)}')"
+                              title="Tiene ${item.pendingExtraChargesCount} saldo(s) adicional(es) pendiente(s) de asignar. Haz clic para asignar periodo."
+                              style="font-size: 0.66rem; font-weight: 900; padding: 1px 6px; border-radius: 999px; background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                          💰 ${item.pendingExtraChargesCount} saldo${item.pendingExtraChargesCount === 1 ? '' : 's'} adic.
+                        </span>
+                      ` : ''}
                     </div>
                     ${childBadges ? `
                       <div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(childBadges)}">
@@ -8450,6 +8637,29 @@ export function renderPeriodOverviewDOM() {
           </div>
 
           <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            ${window.bgOverviewSelectedRecordIds.size > 0 ? `
+              <button type="button"
+                      onclick="window.bulkEmitBgOverviewDesgloses()"
+                      class="btn btn-sm"
+                      style="background: linear-gradient(135deg, #6d28d9, #4f46e5); color: #ffffff; border: none; font-weight: 800; font-size: 0.76rem; height: 36px; padding: 0 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 8px rgba(109, 40, 217, 0.28); cursor: pointer;">
+                <i class="ri-flashlight-fill"></i>
+                <span>Emitir Facturas en Lioren (${window.bgOverviewSelectedRecordIds.size})</span>
+              </button>
+              <button type="button"
+                      onclick="window.clearBgOverviewSelection()"
+                      class="btn btn-outline btn-sm"
+                      style="height: 36px; font-size: 0.75rem; border-radius: 8px;">
+                Limpiar
+              </button>
+            ` : `
+              <button type="button"
+                      onclick="window.selectBillableBgOverviewDesgloses()"
+                      class="btn btn-outline btn-sm"
+                      style="height: 36px; font-size: 0.75rem; font-weight: 700; border-radius: 8px; border-color: rgba(109, 40, 217, 0.35); color: #6d28d9; display: inline-flex; align-items: center; gap: 4px;"
+                      title="Seleccionar todos los desgloses publicados/creados con monto > $0 que aún no tienen factura emitida">
+                <i class="ri-checkbox-multiple-line"></i> Seleccionar Desgloses sin Factura
+              </button>
+            `}
             <div style="position: relative;">
               <input type="text" id="bg-overview-search-input" class="form-input" placeholder="Buscar comercio o marca..." value="${escapeHtml(window.bgOverviewSearchQuery || '')}" oninput="window.setBgOverviewSearch(this.value)" style="height: 36px; font-size: 0.8rem; margin: 0; width: 220px; padding-left: 2rem; border-radius: 8px;">
               <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
@@ -8480,13 +8690,23 @@ export function renderPeriodOverviewDOM() {
           <button type="button" class="bg-quick-filter-btn ${activeFilter === 'observations' ? 'active' : ''}" onclick="window.setBgOverviewFilter('observations')" style="${(st.withUnansweredObsItems?.length || 0) > 0 ? 'border-color: #fca5a5; background: #fef2f2; color: #b91c1c; font-weight: 800;' : ''}">
             🚨 Con Apelación sin Respuesta (${(st.withUnansweredObsItems || []).length})
           </button>
+          <button type="button" class="bg-quick-filter-btn ${activeFilter === 'extra-charges' ? 'active' : ''}" onclick="window.setBgOverviewFilter('extra-charges')" style="${(st.withPendingExtraItems?.length || 0) > 0 ? 'border-color: #fcd34d; background: #fffbeb; color: #b45309; font-weight: 800;' : ''}">
+            💰 Con Saldo Adic. Pendiente (${(st.withPendingExtraItems || []).length})
+          </button>
         </div>
 
         <div class="bg-excel-table-container" style="max-height: 540px;">
           <table class="bg-excel-table">
             <thead>
               <tr>
-                <th style="width: 45px; text-align: center;">#</th>
+                <th style="width: 38px; text-align: center;">
+                  <input type="checkbox"
+                         ${filteredTableItems.some(i => i.recordId && i.totalFulfillment > 0 && !i.numFactura) && filteredTableItems.filter(i => i.recordId && i.totalFulfillment > 0 && !i.numFactura).every(i => window.bgOverviewSelectedRecordIds.has(String(i.recordId))) ? 'checked' : ''}
+                         onchange="window.toggleAllBgOverviewSelect(this.checked)"
+                         title="Seleccionar todos los desgloses facturables visibles"
+                         style="width: 15px; height: 15px; accent-color: #6d28d9; cursor: pointer;">
+                </th>
+                <th style="width: 42px; text-align: center;">#</th>
                 <th style="min-width: 210px;">Comercio / Holding</th>
                 <th style="width: 110px; text-align: center;">Pedidos Periodo</th>
                 <th style="width: 165px; text-align: center;">Estado Desglose</th>
@@ -8495,13 +8715,13 @@ export function renderPeriodOverviewDOM() {
                 <th style="width: 135px; text-align: right;">Saldo a Pagar</th>
                 <th style="width: 150px; text-align: center;">Pago / Factura</th>
                 <th style="width: 145px; text-align: center;">Última Gestión</th>
-                <th style="width: 205px; text-align: right;">Acciones</th>
+                <th style="width: 250px; text-align: right;">Acciones</th>
               </tr>
             </thead>
             <tbody>
               ${filteredTableItems.length === 0 ? `
                 <tr>
-                  <td colspan="10" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
+                  <td colspan="11" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
                     No se encontraron comercios que coincidan con el filtro seleccionado.
                   </td>
                 </tr>
@@ -8512,9 +8732,18 @@ export function renderPeriodOverviewDOM() {
                 const notifiedStr = item.lastNotifiedAt
                   ? new Date(item.lastNotifiedAt).toLocaleString('es-CL', { day: '2-digit', month: '2-digit' })
                   : null;
+                const isRowSelected = item.recordId && window.bgOverviewSelectedRecordIds.has(String(item.recordId));
 
                 return `
-                  <tr>
+                  <tr style="${isRowSelected ? 'background: rgba(109, 40, 217, 0.06);' : ''}">
+                    <td style="text-align: center;">
+                      ${item.recordId && item.totalFulfillment > 0 && !item.numFactura ? `
+                        <input type="checkbox"
+                               ${isRowSelected ? 'checked' : ''}
+                               onchange="window.toggleBgOverviewRowSelect('${escapeHtml(String(item.recordId))}', this.checked)"
+                               style="width: 15px; height: 15px; accent-color: #6d28d9; cursor: pointer;">
+                      ` : ''}
+                    </td>
                     <td style="text-align: center; color: #64748b; font-weight: 700;">${idx + 1}</td>
                     <td>
                       <div style="font-weight: 800; color: var(--color-text-main); font-size: 0.85rem; display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
@@ -8539,6 +8768,22 @@ export function renderPeriodOverviewDOM() {
                             <i class="ri-question-answer-line"></i> ${item.totalObservationsCount} obs.
                           </button>
                         ` : '')}
+                        ${(item.pendingExtraChargesCount || 0) > 0 ? `
+                          <button type="button"
+                                  onclick="window.openOverviewExtraChargesQuickModal('${escapeHtml(item.comercio)}', '${escapeHtml(st.periodId)}')"
+                                  title="Asignar ${item.pendingExtraChargesCount} saldo(s) adicional(es) pendiente(s) de ${escapeHtml(item.comercio)} a un periodo de facturación"
+                                  style="background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; font-size: 0.67rem; font-weight: 900; padding: 2px 7px; border-radius: 999px; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                            <i class="ri-coins-fill" style="color: #d97706;"></i> ${item.pendingExtraChargesCount} saldo${item.pendingExtraChargesCount === 1 ? '' : 's'} adic. pend.
+                          </button>
+                        ` : ''}
+                        ${(item.periodAssignedExtraChargesCount || 0) > 0 ? `
+                          <button type="button"
+                                  onclick="window.openBillingGeneratorFromOverview('${escapeHtml(item.comercio)}', '${escapeHtml(st.periodId)}', 'extra-charges')"
+                                  title="${item.periodAssignedExtraChargesCount} saldo(s) adicional(es) asignado(s) a ${escapeHtml(st.periodName)}"
+                                  style="background: #ecfdf5; color: #047857; border: 1px solid #6ee7b7; font-size: 0.66rem; font-weight: 800; padding: 1px 6px; border-radius: 999px; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                            <i class="ri-checkbox-circle-line"></i> ${item.periodAssignedExtraChargesCount} saldo adic. aplicado
+                          </button>
+                        ` : ''}
                       </div>
                     </td>
                     <td style="text-align: center;">
@@ -8560,7 +8805,9 @@ export function renderPeriodOverviewDOM() {
                     </td>
                     <td style="text-align: center; font-size: 0.72rem;">
                       <div style="font-weight: 700; color: var(--color-text-main);">${escapeHtml(item.rawPago)}</div>
-                      <div style="color: var(--color-text-muted); font-size: 0.68rem;">Fact: ${escapeHtml(item.rawFactura)}</div>
+                      <div style="color: ${item.numFactura ? '#059669' : 'var(--color-text-muted)'}; font-weight: ${item.numFactura ? '800' : '400'}; font-size: 0.68rem;">
+                        ${item.numFactura ? `Folio #${escapeHtml(String(item.numFactura))}` : `Fact: ${escapeHtml(item.rawFactura)}`}
+                      </div>
                     </td>
                     <td style="text-align: center; font-size: 0.72rem; color: var(--color-text-muted);">
                       <div>${updatedStr}</div>
@@ -8568,6 +8815,15 @@ export function renderPeriodOverviewDOM() {
                     </td>
                     <td style="text-align: right;">
                       <div style="display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px;">
+                        ${item.recordId && item.totalFulfillment > 0 && !item.numFactura ? `
+                          <button type="button"
+                                  onclick="window.quickEmitLiorenInvoice && window.quickEmitLiorenInvoice('${escapeHtml(String(item.recordId))}', 'fulfillment', this)"
+                                  class="btn-lioren-1click compact"
+                                  style="height: 29px; padding: 0 8px; font-size: 0.72rem;"
+                                  title="⚡ Emitir Factura Electrónica Fulfillment en 1 solo click (Lioren SII)">
+                            <i class="ri-flashlight-fill"></i> 1-Click
+                          </button>
+                        ` : ''}
                         ${item.recordId && (item.statusCategory === 'issued' || item.statusCategory === 'draft') ? `
                           <button type="button"
                                   onclick="window.openClientInteractiveBillingModal('${escapeHtml(item.recordId)}', 'desglose')"
@@ -8583,7 +8839,7 @@ export function renderPeriodOverviewDOM() {
                                 style="height: 29px; padding: 0 10px; font-size: 0.73rem; font-weight: 700; border-radius: 6px; background: ${item.statusCategory === 'pending' ? '#5f06fa' : (item.statusCategory === 'draft' ? '#7c3aed' : '#0f172a')}; border-color: transparent; display: inline-flex; align-items: center; gap: 4px;"
                                 title="Abrir este comercio en el Generador de Desgloses">
                           <i class="${item.statusCategory === 'pending' ? 'ri-calculator-line' : 'ri-edit-2-line'}"></i>
-                          <span>${item.statusCategory === 'pending' ? 'Generar' : 'Abrir en Gestor'}</span>
+                          <span>${item.statusCategory === 'pending' ? 'Generar' : 'Gestor'}</span>
                         </button>
                       </div>
                     </td>
@@ -8594,7 +8850,7 @@ export function renderPeriodOverviewDOM() {
             ${filteredTableItems.length > 0 ? `
               <tfoot>
                 <tr style="background: rgba(95, 6, 250, 0.06); font-weight: 800; border-top: 2px solid #cbd5e1;">
-                  <td colspan="2" style="padding: 0.65rem 0.75rem; text-align: right; color: var(--color-text-main);">TOTALES (${filteredTableItems.length} comercios):</td>
+                  <td colspan="3" style="padding: 0.65rem 0.75rem; text-align: right; color: var(--color-text-main);">TOTALES (${filteredTableItems.length} comercios):</td>
                   <td style="text-align: center; color: #5f06fa; font-size: 0.88rem;">${filteredOrdersSum.toLocaleString('es-CL')}</td>
                   <td></td>
                   <td style="text-align: right; color: #5f06fa; font-size: 0.9rem;">${formatCLP(filteredGrossSum)}</td>
@@ -8616,6 +8872,60 @@ window.setBgOverviewFilter = function(filter) {
   renderPeriodOverviewDOM();
 };
 
+window.toggleBgOverviewRowSelect = function(recordId, checked) {
+  if (checked) window.bgOverviewSelectedRecordIds.add(String(recordId));
+  else window.bgOverviewSelectedRecordIds.delete(String(recordId));
+  renderPeriodOverviewDOM();
+};
+
+window.toggleAllBgOverviewSelect = function(checked) {
+  const st = window.__bgOverviewLastState;
+  if (!st) return;
+  const activeFilter = window.bgOverviewActiveFilter || 'all';
+  const searchQuery = String(window.bgOverviewSearchQuery || '').trim().toLowerCase();
+  st.items.forEach(item => {
+    if (activeFilter === 'pending' && item.statusCategory !== 'pending') return;
+    if (activeFilter === 'draft' && item.statusCategory !== 'draft') return;
+    if (activeFilter === 'issued' && item.statusCategory !== 'issued') return;
+    if (activeFilter === 'exempt' && item.statusCategory !== 'exempt') return;
+    if (searchQuery) {
+      const m1 = item.comercio.toLowerCase().includes(searchQuery);
+      const m2 = (item.conglomerateChildren || []).some(c => String(c).toLowerCase().includes(searchQuery));
+      if (!m1 && !m2) return;
+    }
+    if (item.recordId && item.totalFulfillment > 0 && !item.numFactura) {
+      if (checked) window.bgOverviewSelectedRecordIds.add(String(item.recordId));
+      else window.bgOverviewSelectedRecordIds.delete(String(item.recordId));
+    }
+  });
+  renderPeriodOverviewDOM();
+};
+
+window.selectBillableBgOverviewDesgloses = function() {
+  const st = window.__bgOverviewLastState;
+  if (!st) return;
+  st.items.forEach(item => {
+    if (item.recordId && item.totalFulfillment > 0 && !item.numFactura && (item.statusCategory === 'issued' || item.statusCategory === 'draft')) {
+      window.bgOverviewSelectedRecordIds.add(String(item.recordId));
+    }
+  });
+  renderPeriodOverviewDOM();
+};
+
+window.clearBgOverviewSelection = function() {
+  window.bgOverviewSelectedRecordIds.clear();
+  renderPeriodOverviewDOM();
+};
+
+window.bulkEmitBgOverviewDesgloses = function() {
+  const ids = [...window.bgOverviewSelectedRecordIds];
+  if (ids.length === 0) return;
+  const items = ids.map(recordId => ({ recordId, serviceType: 'fulfillment' }));
+  if (typeof window.openBulkLiorenEmitModal === 'function') {
+    window.openBulkLiorenEmitModal(items);
+  }
+};
+
 window.setBgOverviewSearch = function(query) {
   window.bgOverviewSearchQuery = query || '';
   renderPeriodOverviewDOM();
@@ -8629,7 +8939,7 @@ window.setBgOverviewSearch = function(query) {
 
 // Función para alternar sub-pestañas
 window.switchBgSubTab = function(tabKey) {
-  const tabs = ['register', 'desglose', 'analytics', 'checklist', 'observations'];
+  const tabs = ['register', 'desglose', 'analytics', 'checklist', 'observations', 'extra-charges'];
   tabs.forEach(t => {
     const btn = document.getElementById(`bg-tab-btn-${t}`);
     const content = document.getElementById(`bg-content-${t}`);
@@ -8649,7 +8959,7 @@ window.switchBgSubTab = function(tabKey) {
     regActions.style.display = (tabKey === 'register' && !billingState.isLocked) ? 'flex' : 'none';
   }
 
-  if (!billingState.currentCommerce && (tabKey === 'desglose' || tabKey === 'analytics' || tabKey === 'observations')) {
+  if (!billingState.currentCommerce && (tabKey === 'desglose' || tabKey === 'analytics' || tabKey === 'observations' || tabKey === 'extra-charges')) {
     renderGeneratorEmptyCommerceState();
     return;
   }
@@ -8669,6 +8979,13 @@ window.switchBgSubTab = function(tabKey) {
     }
     if (typeof loadAndRenderCommerceObservationsUI === 'function') {
       loadAndRenderCommerceObservationsUI();
+    }
+  } else if (tabKey === 'extra-charges') {
+    if (typeof renderCommerceExtraChargesSectionUI === 'function') {
+      renderCommerceExtraChargesSectionUI();
+    }
+    if (typeof loadAndRenderCommerceExtraChargesUI === 'function') {
+      loadAndRenderCommerceExtraChargesUI();
     }
   }
 };
@@ -8884,10 +9201,11 @@ export async function executeCalculationFromUI(overrides = {}) {
       }
     }
 
-    // Cargar y mostrar Alerta + Apartado de Apelaciones / Observaciones del Comercio
-    if (typeof loadAndRenderCommerceObservationsUI === 'function') {
-      await loadAndRenderCommerceObservationsUI();
-    }
+    // Cargar y mostrar Alerta + Apartado de Apelaciones / Observaciones y Saldos Adicionales del Comercio
+    await Promise.all([
+      typeof loadAndRenderCommerceObservationsUI === 'function' ? loadAndRenderCommerceObservationsUI() : Promise.resolve(),
+      typeof loadAndRenderCommerceExtraChargesUI === 'function' ? loadAndRenderCommerceExtraChargesUI() : Promise.resolve()
+    ]);
   } catch (err) {
     console.error('Error calculando facturación desde UI:', err);
     if (ordersTbody) {
@@ -9265,7 +9583,10 @@ export function getWmsStatusBadgeHTML(status) {
   let cls = 'bg-wms-default';
   let icon = 'ri-record-circle-line';
 
-  if (lower.includes('despachado') || lower.includes('entregado')) {
+  if (lower.includes('entregado')) {
+    cls = 'bg-wms-entregado';
+    icon = 'ri-verified-badge-fill';
+  } else if (lower.includes('despachado')) {
     cls = 'bg-wms-despachado';
     icon = 'ri-truck-line';
   } else if (lower.includes('pickeado')) {
@@ -10529,6 +10850,14 @@ function recalculateFromCurrentState() {
   if (obsSubTab && obsSubTab.style.display !== 'none' && typeof renderCommerceObservationsSectionUI === 'function') {
     renderCommerceObservationsSectionUI();
   }
+
+  if (typeof renderCommerceExtraChargesBannerUI === 'function') {
+    renderCommerceExtraChargesBannerUI();
+  }
+  const extraSubTab = document.getElementById('bg-content-extra-charges');
+  if (extraSubTab && extraSubTab.style.display !== 'none' && typeof renderCommerceExtraChargesSectionUI === 'function') {
+    renderCommerceExtraChargesSectionUI();
+  }
 }
 
 // =========================================================================
@@ -11623,22 +11952,51 @@ window.deleteManualAdjustmentItem = function(adjIdOrIdx) {
   if (idx === -1) return;
 
   const item = b.adjustments[idx];
+  const extraIdMatch = item.linkedExtraChargeId || (String(item.notes || '').match(/\[EXTRA:([^\]]+)\]/)?.[1] || '');
+
   Swal.fire({
     title: '¿Eliminar ajuste comercial?',
-    html: `¿Estás seguro de eliminar el ajuste <strong>${escapeHtml(item.concept || 'Ajuste comercial')}</strong> (${formatCLP(item.amount)})?`,
+    html: `
+      <div style="text-align: left; font-size: 0.9rem; color: #334155;">
+        ¿Estás seguro de eliminar el ajuste <strong>${escapeHtml(item.concept || 'Ajuste comercial')}</strong> (${formatCLP(item.amount)})?
+        ${extraIdMatch ? `
+          <div style="margin-top: 0.75rem; padding: 0.65rem 0.85rem; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; font-size: 0.8rem; color: #92400e;">
+            <label style="display: flex; align-items: flex-start; gap: 7px; cursor: pointer; font-weight: 700;">
+              <input type="checkbox" id="swal-revert-extra-charge-adj" checked style="margin-top: 2px; width: 15px; height: 15px; accent-color: #d97706;">
+              <span>Devolver también este Saldo Adicional a estado <strong>"Pendiente"</strong> (desvincular del periodo) para poder asignarlo después</span>
+            </label>
+          </div>
+        ` : ''}
+      </div>
+    `,
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#dc2626',
     cancelButtonColor: '#64748b',
     confirmButtonText: '<i class="ri-delete-bin-line"></i> Sí, eliminar',
-    cancelButtonText: 'Cancelar'
-  }).then((result) => {
+    cancelButtonText: 'Cancelar',
+    preConfirm: () => {
+      const shouldRevertExtra = Boolean(document.getElementById('swal-revert-extra-charge-adj')?.checked);
+      return { shouldRevertExtra };
+    }
+  }).then(async (result) => {
     if (result.isConfirmed) {
       b.adjustments.splice(idx, 1);
       b.isSaved = false;
       b.adjustmentsSessionKey = `${b.currentPeriodId}_${b.currentCommerce}`;
 
       recalculateFromCurrentState();
+
+      if (extraIdMatch && result.value?.shouldRevertExtra) {
+        try {
+          await supabase.from('extra_billing_charges').update({ status: 'pendiente', periodo_id: null }).eq('id', extraIdMatch);
+          if (typeof loadAndRenderCommerceExtraChargesUI === 'function') await loadAndRenderCommerceExtraChargesUI();
+          if (typeof loadAndRenderPeriodOverview === 'function') loadAndRenderPeriodOverview({ silentBadgeOnly: true });
+          if (typeof window.updatePendingExtraChargesBadge === 'function') window.updatePendingExtraChargesBadge();
+        } catch (errRev) {
+          console.warn('Error revirtiendo saldo adicional tras eliminar ajuste:', errRev);
+        }
+      }
 
       Swal.fire({
         toast: true,
@@ -11840,6 +12198,7 @@ window.deleteManualAbonoItem = function(abonoIdOrIdx) {
   if (idx === -1) return;
 
   const ab = b.abonos[idx];
+  const extraIdMatch = ab.linkedExtraChargeId || (String(ab.notes || '').match(/\[EXTRA:([^\]]+)\]/)?.[1] || '');
   Swal.fire({
     title: '¿Eliminar abono registrado?',
     html: `
@@ -11848,6 +12207,14 @@ window.deleteManualAbonoItem = function(abonoIdOrIdx) {
         <div style="margin-top: 0.75rem; padding: 0.6rem 0.85rem; background: #fee2e2; border: 1px solid #fca5a5; border-radius: 6px; font-size: 0.8rem; color: #991b1b;">
           El saldo a pagar por el cliente volverá a incrementarse en <strong>${formatCLP(ab.amount)}</strong>.
         </div>
+        ${extraIdMatch ? `
+          <div style="margin-top: 0.65rem; padding: 0.65rem 0.85rem; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; font-size: 0.8rem; color: #92400e;">
+            <label style="display: flex; align-items: flex-start; gap: 7px; cursor: pointer; font-weight: 700;">
+              <input type="checkbox" id="swal-revert-extra-charge-abono" checked style="margin-top: 2px; width: 15px; height: 15px; accent-color: #d97706;">
+              <span>Devolver también este Saldo Adicional a estado <strong>"Pendiente"</strong> (desvincular del periodo) para poder asignarlo después</span>
+            </label>
+          </div>
+        ` : ''}
       </div>
     `,
     icon: 'warning',
@@ -11855,8 +12222,12 @@ window.deleteManualAbonoItem = function(abonoIdOrIdx) {
     confirmButtonColor: '#dc2626',
     cancelButtonColor: '#64748b',
     confirmButtonText: '<i class="ri-delete-bin-line"></i> Sí, eliminar abono',
-    cancelButtonText: 'Cancelar'
-  }).then((result) => {
+    cancelButtonText: 'Cancelar',
+    preConfirm: () => {
+      const shouldRevertExtra = Boolean(document.getElementById('swal-revert-extra-charge-abono')?.checked);
+      return { shouldRevertExtra };
+    }
+  }).then(async (result) => {
     if (result.isConfirmed) {
       if (ab.id === 'abono_pos_sales' || ab.isPosAbono) {
         b.posAbonoExcludedManually = true;
@@ -11871,6 +12242,17 @@ window.deleteManualAbonoItem = function(abonoIdOrIdx) {
       } catch (e) {}
 
       recalculateFromCurrentState();
+
+      if (extraIdMatch && result.value?.shouldRevertExtra) {
+        try {
+          await supabase.from('extra_billing_charges').update({ status: 'pendiente', periodo_id: null }).eq('id', extraIdMatch);
+          if (typeof loadAndRenderCommerceExtraChargesUI === 'function') await loadAndRenderCommerceExtraChargesUI();
+          if (typeof loadAndRenderPeriodOverview === 'function') loadAndRenderPeriodOverview({ silentBadgeOnly: true });
+          if (typeof window.updatePendingExtraChargesBadge === 'function') window.updatePendingExtraChargesBadge();
+        } catch (errRev) {
+          console.warn('Error revirtiendo saldo adicional tras eliminar abono:', errRev);
+        }
+      }
 
       Swal.fire({
         toast: true,
@@ -17400,6 +17782,1763 @@ window.openReplyObservationFromGeneratorModal = async function(obsKey) {
   } catch (err) {
     console.error('Error guardando respuesta de observación:', err);
     Swal.fire('Error', 'No se pudo actualizar la observación: ' + (err.message || err), 'error');
+  }
+};
+
+// ============================================================================
+// DETECCIÓN AUTOMÁTICA Y ASIGNACIÓN DE SALDOS ADICIONALES (extra_billing_charges)
+// ============================================================================
+
+export function computeExtraChargeAmounts(charge) {
+  const rawAmount = Math.abs(Math.round(Number(charge?.monto) || 0));
+  const isDiscount = String(charge?.tipo || '').toLowerCase() === 'descuento';
+  const isIvaIncluido = String(charge?.iva_tipo || '').toLowerCase() === 'iva_incluido';
+  const netAmount = isIvaIncluido ? Math.round(rawAmount / 1.19) : rawAmount;
+  const grossAmount = isIvaIncluido ? rawAmount : Math.round(rawAmount * 1.19);
+  const ivaAmount = Math.max(0, grossAmount - netAmount);
+  const defaultApplyMode = isDiscount
+    ? (isIvaIncluido ? 'abono' : 'adj_discount')
+    : 'adj_charge';
+
+  return {
+    rawAmount,
+    isDiscount,
+    isIvaIncluido,
+    netAmount,
+    grossAmount,
+    ivaAmount,
+    defaultApplyMode
+  };
+}
+
+export function getExtraChargeAppliedEntriesInCurrentPeriod(chargeId) {
+  const b = billingState;
+  const idStr = String(chargeId || '').trim();
+  const tagMarker = `[EXTRA:${idStr}]`;
+
+  const matchedAbonos = (Array.isArray(b.abonos) ? b.abonos : []).filter(ab => {
+    if (!ab) return false;
+    if (ab.linkedExtraChargeId && String(ab.linkedExtraChargeId) === idStr) return true;
+    const txt = `${ab.reference || ''} ${ab.notes || ''} ${ab.voucher || ''}`;
+    return Boolean(idStr && txt.includes(tagMarker));
+  });
+
+  const matchedAdjustments = (Array.isArray(b.adjustments) ? b.adjustments : []).filter(adj => {
+    if (!adj) return false;
+    if (adj.linkedExtraChargeId && String(adj.linkedExtraChargeId) === idStr) return true;
+    const txt = `${adj.concept || ''} ${adj.notes || ''}`;
+    return Boolean(idStr && txt.includes(tagMarker));
+  });
+
+  const totalAbonoApplied = matchedAbonos.reduce((acc, a) => acc + (Math.abs(Math.round(Number(a.amount))) || 0), 0);
+  const totalAdjustmentNetApplied = matchedAdjustments.reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0);
+  const totalAdjustmentGrossApplied = Math.round(totalAdjustmentNetApplied * 1.19);
+
+  return {
+    isApplied: matchedAbonos.length > 0 || matchedAdjustments.length > 0,
+    matchedAbonos,
+    matchedAdjustments,
+    totalAbonoApplied,
+    totalAdjustmentNetApplied,
+    totalAdjustmentGrossApplied
+  };
+}
+
+function removeExtraChargeEntriesFromCurrentBillingState(chargeId, triggerRecalc = true) {
+  const b = billingState;
+  const idStr = String(chargeId || '').trim();
+  if (!idStr) return false;
+  const tagMarker = `[EXTRA:${idStr}]`;
+  let removed = false;
+
+  if (Array.isArray(b.abonos)) {
+    const prevLen = b.abonos.length;
+    b.abonos = b.abonos.filter(ab => {
+      if (!ab) return false;
+      if (ab.linkedExtraChargeId && String(ab.linkedExtraChargeId) === idStr) return false;
+      const txt = `${ab.reference || ''} ${ab.notes || ''} ${ab.voucher || ''}`;
+      return !txt.includes(tagMarker);
+    });
+    if (b.abonos.length !== prevLen) {
+      removed = true;
+      b.abonosSessionKey = `${b.currentPeriodId}_${b.currentCommerce}`;
+      try {
+        localStorage.setItem(`stocka_billing_abonos_${b.currentPeriodId}_${b.currentCommerce}`, JSON.stringify(b.abonos));
+      } catch (e) {}
+    }
+  }
+
+  if (Array.isArray(b.adjustments)) {
+    const prevLen = b.adjustments.length;
+    b.adjustments = b.adjustments.filter(adj => {
+      if (!adj) return false;
+      if (adj.linkedExtraChargeId && String(adj.linkedExtraChargeId) === idStr) return false;
+      const txt = `${adj.concept || ''} ${adj.notes || ''}`;
+      return !txt.includes(tagMarker);
+    });
+    if (b.adjustments.length !== prevLen) {
+      removed = true;
+      b.adjustmentsSessionKey = `${b.currentPeriodId}_${b.currentCommerce}`;
+    }
+  }
+
+  if (removed) {
+    b.isSaved = false;
+    if (triggerRecalc) {
+      recalculateFromCurrentState();
+    }
+  }
+  return removed;
+}
+
+function injectExtraChargeIntoBillingState(charge, opts = {}) {
+  const b = billingState;
+  if (!charge || !charge.id) return false;
+
+  // Evitar doble aplicación del mismo saldo adicional en el mismo desglose
+  removeExtraChargeEntriesFromCurrentBillingState(charge.id, false);
+
+  const calc = computeExtraChargeAmounts(charge);
+  const mode = opts.mode || calc.defaultApplyMode;
+  const isDifferentChildStore = String(charge.comercio || '').trim().toUpperCase() !== String(b.currentCommerce || '').trim().toUpperCase();
+  const storeSuffix = isDifferentChildStore && charge.comercio ? ` (${charge.comercio})` : '';
+  const defaultConcept = `${charge.detalle || (calc.isDiscount ? 'Descuento adicional' : 'Cargo adicional')}${storeSuffix}`;
+  const concept = String(opts.concept || defaultConcept).trim() || defaultConcept;
+  const dateStr = charge.fecha || new Date().toISOString().split('T')[0];
+  const tagNote = `[EXTRA:${charge.id}] Saldo adicional (${dateStr})${storeSuffix} · Orig: ${formatCLP(calc.rawAmount)} ${calc.isIvaIncluido ? 'IVA incl.' : '+ IVA'}`;
+
+  if (mode === 'abono') {
+    const abonoAmount = opts.customAmount ? Math.abs(Math.round(Number(opts.customAmount))) : calc.grossAmount;
+    if (!Array.isArray(b.abonos)) b.abonos = [];
+    b.abonos.push({
+      id: `abono_extra_${charge.id}`,
+      amount: abonoAmount,
+      date: dateStr,
+      voucher: 'SALDO-ADIC',
+      reference: concept,
+      notes: tagNote,
+      isExtraChargeAbono: true,
+      linkedExtraChargeId: String(charge.id),
+      linkedExtraChargeStore: isDifferentChildStore ? charge.comercio : ''
+    });
+    b.abonosSessionKey = `${b.currentPeriodId}_${b.currentCommerce}`;
+    try {
+      localStorage.setItem(`stocka_billing_abonos_${b.currentPeriodId}_${b.currentCommerce}`, JSON.stringify(b.abonos));
+    } catch (e) {}
+  } else {
+    const rawNet = opts.customAmount ? Math.abs(Math.round(Number(opts.customAmount))) : calc.netAmount;
+    const signedNet = mode === 'adj_discount' ? -rawNet : rawNet;
+    if (!Array.isArray(b.adjustments)) b.adjustments = [];
+    b.adjustments.push({
+      id: `adj_extra_${charge.id}`,
+      concept,
+      amount: signedNet,
+      notes: tagNote,
+      isExtraChargeAdjustment: true,
+      linkedExtraChargeId: String(charge.id),
+      linkedExtraChargeStore: isDifferentChildStore ? charge.comercio : ''
+    });
+    b.adjustmentsSessionKey = `${b.currentPeriodId}_${b.currentCommerce}`;
+  }
+
+  b.isSaved = false;
+  return true;
+}
+
+async function getAvailableBillingPeriodsForExtraCharges() {
+  const metaPeriods = window.__bgOverviewMeta?.periods;
+  if (Array.isArray(metaPeriods) && metaPeriods.length > 0) {
+    return metaPeriods;
+  }
+
+  const selectEl = document.getElementById('bg-select-period') || document.getElementById('bg-overview-select-period');
+  if (selectEl && selectEl.options.length > 0) {
+    const parsed = Array.from(selectEl.options)
+      .filter(o => o.value)
+      .map(o => ({
+        id: o.value,
+        name: o.getAttribute('data-name') || o.textContent.replace(/\s*\(Activo\)\s*$/i, '').trim()
+      }));
+    if (parsed.length > 0) return parsed;
+  }
+
+  try {
+    const { data } = await supabase
+      .from('billing_periods')
+      .select('id, name, is_active')
+      .order('created_at', { ascending: false });
+    return data || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function syncExternalExtraChargesViews() {
+  if (typeof window.updatePendingExtraChargesBadge === 'function') {
+    window.updatePendingExtraChargesBadge();
+  }
+  if (typeof window.refreshExtraChargesTabIfMounted === 'function') {
+    window.refreshExtraChargesTabIfMounted();
+  }
+  if (typeof loadAndRenderPeriodOverview === 'function') {
+    const overviewWrapper = document.getElementById('bg-period-overview-wrapper');
+    const isOverviewVisible = overviewWrapper && overviewWrapper.style.display !== 'none';
+    loadAndRenderPeriodOverview({ silentBadgeOnly: !isOverviewVisible });
+  }
+}
+
+export async function fetchCommerceExtraBillingCharges(commerceName) {
+  const rawName = String(commerceName || '').trim();
+  const cleanName = rawName.replace(/\s*\([^)]*\)\s*$/, '').trim() || rawName;
+  if (!cleanName) return [];
+
+  try {
+    let groupNames = [];
+    try {
+      groupNames = await resolveCommerceGroup(cleanName);
+    } catch (eGrp) {
+      groupNames = [cleanName];
+    }
+
+    const extraChildren = Array.isArray(billingState.conglomerateChildren) ? billingState.conglomerateChildren : [];
+    const targetUpperSet = new Set(
+      [rawName, cleanName, ...(Array.isArray(groupNames) ? groupNames : []), ...extraChildren]
+        .map(n => String(n || '').replace(/\s*\([^)]*\)\s*$/, '').trim().toUpperCase())
+        .filter(Boolean)
+    );
+
+    if (cleanName.toUpperCase().includes('BIG BANG') || targetUpperSet.has('BIG BANG')) {
+      ['BIG BANG', 'BIG BANG SPA', 'BACK IN TIME', 'DORMILONES', 'RELAJARTE'].forEach(s => targetUpperSet.add(s));
+    }
+    if (cleanName.toUpperCase().includes('SILVER FOX') || targetUpperSet.has('SILVER FOX')) {
+      ['SILVER FOX', 'SILVER FOX SPA', 'AURA', 'MODUS', 'HYGGE', 'FORTE MAX', 'MENPRIME'].forEach(s => targetUpperSet.add(s));
+    }
+
+    const [chargesRes, periodsList] = await Promise.all([
+      supabase.from('extra_billing_charges').select('*').order('fecha', { ascending: false }),
+      getAvailableBillingPeriodsForExtraCharges()
+    ]);
+
+    if (chargesRes.error || !chargesRes.data) {
+      if (chargesRes.error) console.warn('Aviso consultando extra_billing_charges:', chargesRes.error);
+      return [];
+    }
+
+    const periodMap = new Map((periodsList || []).map(p => [String(p.id), p.name]));
+    const currentPeriodIdStr = String(billingState.currentPeriodId || '');
+
+    const matched = chargesRes.data
+      .filter(c => {
+        const recComm = String(c.comercio || '').replace(/\s*\([^)]*\)\s*$/, '').trim().toUpperCase();
+        if (!recComm) return false;
+        if (targetUpperSet.has(recComm)) return true;
+        for (const tName of targetUpperSet) {
+          if (recComm.includes(tName) || tName.includes(recComm)) return true;
+        }
+        return false;
+      })
+      .map(c => {
+        const isPending = c.status === 'pendiente';
+        const assignedPeriodId = c.periodo_id ? String(c.periodo_id) : '';
+        const assignedPeriodName = assignedPeriodId ? (periodMap.get(assignedPeriodId) || 'Periodo asignado') : '';
+        const isAssignedToCurrentPeriod = !isPending && Boolean(currentPeriodIdStr && assignedPeriodId === currentPeriodIdStr);
+        return {
+          ...c,
+          isPending,
+          assignedPeriodId,
+          assignedPeriodName,
+          isAssignedToCurrentPeriod,
+          calc: computeExtraChargeAmounts(c)
+        };
+      });
+
+    matched.sort((a, bItem) => {
+      if (a.isPending !== bItem.isPending) return a.isPending ? -1 : 1;
+      if (a.isAssignedToCurrentPeriod !== bItem.isAssignedToCurrentPeriod) return a.isAssignedToCurrentPeriod ? -1 : 1;
+      const tA = a.fecha ? new Date(a.fecha + 'T00:00:00').getTime() : 0;
+      const tB = bItem.fecha ? new Date(bItem.fecha + 'T00:00:00').getTime() : 0;
+      return tB - tA;
+    });
+
+    return matched;
+  } catch (err) {
+    console.warn('Error consultando saldos adicionales en Gestor:', err);
+    return [];
+  }
+}
+
+export async function loadAndRenderCommerceExtraChargesUI(showToastOnRefresh = false) {
+  const b = billingState;
+  if (!b.currentCommerce) {
+    b.commerceExtraCharges = [];
+    renderCommerceExtraChargesBannerUI();
+    return;
+  }
+
+  const charges = await fetchCommerceExtraBillingCharges(b.currentCommerce);
+  b.commerceExtraCharges = charges;
+
+  // Si venimos de asignar y abrir un periodo desde el Resumen o cambio de periodo, auto-incorporar al desglose si no está bloqueado
+  if (Array.isArray(window.__pendingAutoIncorporateExtraChargeIds) && window.__pendingAutoIncorporateExtraChargeIds.length > 0 && !b.isLocked) {
+    const pendingIdsSet = new Set(window.__pendingAutoIncorporateExtraChargeIds.map(String));
+    window.__pendingAutoIncorporateExtraChargeIds = [];
+    let injectedCount = 0;
+    charges.forEach(ch => {
+      if (pendingIdsSet.has(String(ch.id)) && ch.isAssignedToCurrentPeriod) {
+        const applied = getExtraChargeAppliedEntriesInCurrentPeriod(ch.id);
+        if (!applied.isApplied) {
+          injectExtraChargeIntoBillingState(ch);
+          injectedCount++;
+        }
+      }
+    });
+    if (injectedCount > 0) {
+      recalculateFromCurrentState();
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'success',
+          title: `${injectedCount} saldo(s) adicional(es) incorporado(s) al desglose`,
+          text: `Recuerda hacer clic en Guardar o Confirmar y Publicar en ${b.currentPeriodName || 'este periodo'}.`,
+          showConfirmButton: false,
+          timer: 4000
+        });
+      }
+    }
+  }
+
+  renderCommerceExtraChargesBannerUI();
+
+  const extraContainer = document.getElementById('bg-extra-charges-container');
+  if (extraContainer) {
+    renderCommerceExtraChargesSectionUI();
+  }
+
+  if (showToastOnRefresh && typeof Swal !== 'undefined') {
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: `Saldos adicionales sincronizados (${charges.length})`,
+      showConfirmButton: false,
+      timer: 2000
+    });
+  }
+}
+window.loadAndRenderCommerceExtraChargesUI = loadAndRenderCommerceExtraChargesUI;
+
+export function renderCommerceExtraChargesBannerUI() {
+  const b = billingState;
+  const banner = document.getElementById('bg-commerce-extra-charges-alert-banner');
+  const navBadge = document.getElementById('bg-extra-charges-nav-badge');
+  const toolbarBadge = document.getElementById('bg-extra-charges-toolbar-badge');
+  const desgloseBadge = document.getElementById('bg-extra-charges-desglose-badge');
+  const charges = Array.isArray(b.commerceExtraCharges) ? b.commerceExtraCharges : [];
+
+  if (!b.currentCommerce) {
+    if (banner) {
+      banner.style.display = 'none';
+      banner.innerHTML = '';
+    }
+    [navBadge, toolbarBadge, desgloseBadge].forEach(el => {
+      if (el) el.style.display = 'none';
+    });
+    return;
+  }
+
+  const pendingList = charges.filter(c => c.isPending);
+  const assignedCurrentList = charges.filter(c => c.isAssignedToCurrentPeriod);
+  const assignedNotInDesgloseList = assignedCurrentList.filter(c => !getExtraChargeAppliedEntriesInCurrentPeriod(c.id).isApplied);
+  const assignedInDesgloseList = assignedCurrentList.filter(c => getExtraChargeAppliedEntriesInCurrentPeriod(c.id).isApplied);
+
+  const actionableCount = pendingList.length + assignedNotInDesgloseList.length;
+
+  // Actualizar badges de navegación y barras de herramientas
+  if (navBadge) {
+    if (actionableCount > 0) {
+      navBadge.style.display = 'inline-block';
+      navBadge.style.background = '#d97706';
+      navBadge.style.color = '#ffffff';
+      navBadge.textContent = String(actionableCount);
+    } else if (assignedInDesgloseList.length > 0) {
+      navBadge.style.display = 'inline-block';
+      navBadge.style.background = '#10b981';
+      navBadge.style.color = '#ffffff';
+      navBadge.textContent = String(assignedInDesgloseList.length);
+    } else if (charges.length > 0) {
+      navBadge.style.display = 'inline-block';
+      navBadge.style.background = 'rgba(95, 6, 250, 0.14)';
+      navBadge.style.color = '#5f06fa';
+      navBadge.textContent = String(charges.length);
+    } else {
+      navBadge.style.display = 'none';
+    }
+  }
+
+  [toolbarBadge, desgloseBadge].forEach(el => {
+    if (!el) return;
+    if (actionableCount > 0) {
+      el.style.display = 'inline-block';
+      el.style.background = '#d97706';
+      el.textContent = String(actionableCount);
+    } else if (assignedInDesgloseList.length > 0) {
+      el.style.display = 'inline-block';
+      el.style.background = '#10b981';
+      el.textContent = String(assignedInDesgloseList.length);
+    } else {
+      el.style.display = 'none';
+    }
+  });
+
+  if (!banner) return;
+
+  if (actionableCount === 0 && assignedInDesgloseList.length === 0) {
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+    return;
+  }
+
+  if (actionableCount > 0) {
+    const previewSource = pendingList.length > 0 ? pendingList : assignedNotInDesgloseList;
+    const previewHtml = previewSource.slice(0, 3).map(c => {
+      const calc = c.calc || computeExtraChargeAmounts(c);
+      const isDiffStore = String(c.comercio || '').trim().toUpperCase() !== String(b.currentCommerce || '').trim().toUpperCase();
+      return `
+        <div style="background: rgba(255,255,255,0.92); border: 1px solid #fcd34d; border-radius: 7px; padding: 0.38rem 0.65rem; font-size: 0.76rem; color: #451a03; display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+          <div style="min-width: 0; flex: 1; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+            <span style="font-size: 0.66rem; font-weight: 900; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; background: ${calc.isDiscount ? '#dcfce7' : '#fee2e2'}; color: ${calc.isDiscount ? '#15803d' : '#dc2626'};">
+              ${calc.isDiscount ? 'Descuento / A Favor' : 'Cargo Extra'}
+            </span>
+            ${isDiffStore ? `<span style="font-size: 0.66rem; font-weight: 800; background: #ede9fe; color: #5b21b6; padding: 1px 5px; border-radius: 4px;">${escapeHtml(c.comercio)}</span>` : ''}
+            <strong style="color: #1e293b;">${escapeHtml(c.detalle || 'Saldo adicional')}</strong>
+            <span style="color: #78350f; font-weight: 800;">
+              ${calc.isDiscount ? '-' : '+'}${formatCLP(calc.rawAmount)}
+              <span style="font-weight: 600; font-size: 0.68rem; color: #92400e;">(${calc.isIvaIncluido ? 'IVA incl.' : '+ IVA'})</span>
+            </span>
+            ${!c.isPending ? `<span style="font-size: 0.66rem; font-weight: 800; background: #dbeafe; color: #1d4ed8; padding: 1px 6px; border-radius: 999px;">Asignado a ${escapeHtml(b.currentPeriodName)} · Falta sumar al desglose</span>` : ''}
+          </div>
+          <div style="display: inline-flex; gap: 4px; align-items: center; flex-shrink: 0;">
+            <button type="button"
+                    onclick="window.openAssignExtraChargeInGeneratorModal('${escapeHtml(c.id)}')"
+                    style="background: #d97706; color: #ffffff; border: none; border-radius: 5px; padding: 3px 9px; font-size: 0.71rem; font-weight: 800; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;">
+              <i class="ri-calendar-check-line"></i> ${c.isPending ? 'Asignar a Periodo' : 'Incorporar al Desglose'}
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    banner.style.display = 'block';
+    banner.innerHTML = `
+      <div style="background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); border: 1.5px solid #f59e0b; border-left: 5px solid #d97706; border-radius: 10px; padding: 0.7rem 0.95rem; box-shadow: 0 3px 10px rgba(245, 158, 11, 0.12);">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.45rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span style="background: #d97706; color: #ffffff; padding: 0.2rem 0.6rem; border-radius: 999px; font-weight: 900; font-size: 0.7rem; display: inline-flex; align-items: center; gap: 4px; text-transform: uppercase;">
+              <i class="ri-coins-fill"></i> Saldos Adicionales Detectados (${actionableCount})
+            </span>
+            <strong style="font-size: 0.84rem; color: #92400e;">
+              ${pendingList.length > 0
+                ? `${escapeHtml(b.currentCommerce)} tiene ${pendingList.length} saldo(s) adicional(es) pendiente(s) de asignar a un periodo`
+                : `${escapeHtml(b.currentCommerce)} tiene ${assignedNotInDesgloseList.length} saldo(s) asignado(s) a ${escapeHtml(b.currentPeriodName)} aún no sumado(s) al desglose`}
+            </strong>
+          </div>
+          <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
+            ${(!b.isLocked && pendingList.length > 0) ? `
+              <button type="button"
+                      onclick="window.applyAllPendingExtraChargesToCurrentPeriod()"
+                      style="background: #059669; color: #ffffff; border: none; font-weight: 800; font-size: 0.73rem; padding: 0.34rem 0.75rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 1px 3px rgba(5, 150, 105, 0.25);">
+                <i class="ri-flashlight-fill"></i> Aplicar ${pendingList.length === 1 ? 'Pendiente' : `los ${pendingList.length} Pendientes`} en ${escapeHtml(b.currentPeriodName || 'este periodo')}
+              </button>
+            ` : ''}
+            ${(!b.isLocked && assignedNotInDesgloseList.length > 0) ? `
+              <button type="button"
+                      onclick="window.incorporateAssignedExtraChargesIntoCurrentDesglose()"
+                      style="background: #2563eb; color: #ffffff; border: none; font-weight: 800; font-size: 0.73rem; padding: 0.34rem 0.75rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                <i class="ri-add-circle-fill"></i> Incorporar ${assignedNotInDesgloseList.length} al Desglose
+              </button>
+            ` : ''}
+            <button type="button"
+                    onclick="window.switchBgSubTab('extra-charges')"
+                    style="background: #ffffff; color: #92400e; border: 1px solid #f59e0b; font-weight: 800; font-size: 0.73rem; padding: 0.34rem 0.75rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+              <i class="ri-coins-line"></i> Ver Saldos Adicionales (${charges.length})
+            </button>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+          ${previewHtml}
+          ${previewSource.length > 3 ? `
+            <div style="font-size: 0.72rem; color: #92400e; font-weight: 700; text-align: right;">
+              + ${previewSource.length - 3} saldo(s) adicional(es) más en la pestaña "Saldos Adicionales"...
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  // Todos los saldos adicionales de este periodo ya están aplicados e incorporados en el desglose
+  banner.style.display = 'block';
+  banner.innerHTML = `
+    <div style="background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%); border: 1px solid #6ee7b7; border-left: 4px solid #10b981; border-radius: 9px; padding: 0.48rem 0.9rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+      <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.78rem; color: #065f46;">
+        <i class="ri-checkbox-circle-fill" style="color: #10b981; font-size: 1rem;"></i>
+        <strong>${assignedInDesgloseList.length} Saldo(s) Adicional(es) asignado(s) e incorporado(s) en ${escapeHtml(b.currentPeriodName || 'este periodo')}.</strong>
+      </div>
+      <button type="button"
+              onclick="window.switchBgSubTab('extra-charges')"
+              style="background: #ffffff; color: #047857; border: 1px solid #6ee7b7; font-weight: 800; font-size: 0.72rem; padding: 2px 9px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+        <i class="ri-coins-line"></i> Gestionar Saldos (${charges.length})
+      </button>
+    </div>
+  `;
+}
+window.renderCommerceExtraChargesBannerUI = renderCommerceExtraChargesBannerUI;
+
+window.setBgExtraChargesFilter = function(filterKey) {
+  billingState.activeExtraChargesFilter = filterKey || 'all';
+  renderCommerceExtraChargesSectionUI();
+};
+
+export async function renderCommerceExtraChargesSectionUI() {
+  const container = document.getElementById('bg-extra-charges-container');
+  if (!container) return;
+
+  const b = billingState;
+  if (!b.currentCommerce) {
+    renderGeneratorEmptyCommerceState();
+    return;
+  }
+
+  const allCharges = Array.isArray(b.commerceExtraCharges) ? b.commerceExtraCharges : [];
+  const periods = await getAvailableBillingPeriodsForExtraCharges();
+  const activeFilter = b.activeExtraChargesFilter || 'all';
+
+  const pendingCharges = allCharges.filter(c => c.isPending);
+  const currentPeriodCharges = allCharges.filter(c => c.isAssignedToCurrentPeriod);
+  const otherPeriodCharges = allCharges.filter(c => !c.isPending && !c.isAssignedToCurrentPeriod);
+
+  const pendingCargosGross = pendingCharges
+    .filter(c => !c.calc?.isDiscount)
+    .reduce((acc, c) => acc + (c.calc?.grossAmount || 0), 0);
+  const pendingDescuentosGross = pendingCharges
+    .filter(c => c.calc?.isDiscount)
+    .reduce((acc, c) => acc + (c.calc?.grossAmount || 0), 0);
+
+  const filteredList = allCharges.filter(c => {
+    if (activeFilter === 'pending') return c.isPending;
+    if (activeFilter === 'current') return c.isAssignedToCurrentPeriod;
+    if (activeFilter === 'other') return !c.isPending && !c.isAssignedToCurrentPeriod;
+    return true;
+  });
+
+  const periodOptionsForInline = periods.map(p => {
+    const isCurr = String(p.id) === String(b.currentPeriodId || '');
+    return `<option value="${escapeHtml(p.id)}" ${isCurr ? 'selected' : ''}>${escapeHtml(p.name)}${isCurr ? ' (Periodo Actual)' : ''}</option>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="bg-card-container" style="margin-bottom: 1.5rem;">
+      <!-- Encabezado y Acciones Rápidas -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; padding-bottom: 0.85rem; border-bottom: 1px solid var(--color-border);">
+        <div>
+          <h4 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-coins-fill" style="color: #d97706; font-size: 1.25rem;"></i>
+            <span>Saldos Adicionales — ${escapeHtml(b.currentCommerce)}</span>
+          </h4>
+          <p style="margin: 0.25rem 0 0 0; font-size: 0.79rem; color: var(--color-text-muted);">
+            Identificación automática de cobros extraordinarios y descuentos registrados para este comercio${b.isConglomerate ? ' y sus tiendas asociadas' : ''}. Asígnalos a <strong>${escapeHtml(b.currentPeriodName || 'cualquier periodo')}</strong> e incorpóralos directamente al desglose.
+          </p>
+        </div>
+        <div style="display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.loadAndRenderCommerceExtraChargesUI(true)" style="border-radius: 7px; font-weight: 700;">
+            <i class="ri-refresh-line"></i> Actualizar
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.openQuickCreateExtraChargeFromGeneratorModal()" style="border-radius: 7px; font-weight: 700; border-color: #5f06fa; color: #5f06fa;">
+            <i class="ri-add-circle-line"></i> + Nuevo Saldo Adicional
+          </button>
+          ${(!b.isLocked && pendingCharges.length > 0) ? `
+            <button type="button" class="btn btn-primary btn-sm" onclick="window.applyAllPendingExtraChargesToCurrentPeriod()" style="border-radius: 7px; font-weight: 800; background: #059669; border-color: #059669;">
+              <i class="ri-flashlight-fill"></i> Aplicar Pendientes (${pendingCharges.length}) a ${escapeHtml(b.currentPeriodName || 'Periodo Actual')}
+            </button>
+          ` : ''}
+          <button type="button" class="btn btn-primary btn-sm" onclick="window.switchBgSubTab('desglose')" style="border-radius: 7px; font-weight: 700; background: #5f06fa; border-color: #5f06fa;">
+            <i class="ri-file-list-3-line"></i> Ir al Desglose Oficial
+          </button>
+        </div>
+      </div>
+
+      <!-- Resumen KPI de Saldos Adicionales del Comercio -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;">
+        <div style="background: ${pendingCharges.length > 0 ? '#fffbeb' : 'var(--color-bg)'}; border: 1px solid ${pendingCharges.length > 0 ? '#fcd34d' : 'var(--color-border)'}; border-left: 4px solid #d97706; border-radius: 9px; padding: 0.65rem 0.85rem;">
+          <div style="font-size: 0.7rem; font-weight: 800; color: #92400e; text-transform: uppercase;">Pendientes de Asignar</div>
+          <div style="font-size: 1.25rem; font-weight: 900; color: ${pendingCharges.length > 0 ? '#b45309' : 'var(--color-text-main)'}; margin-top: 2px;">${pendingCharges.length}</div>
+          <div style="font-size: 0.71rem; color: #78350f;">Sin periodo de facturación asignado</div>
+        </div>
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-left: 4px solid #ef4444; border-radius: 9px; padding: 0.65rem 0.85rem;">
+          <div style="font-size: 0.7rem; font-weight: 800; color: var(--color-text-muted); text-transform: uppercase;">Cargos Extra Pendientes</div>
+          <div style="font-size: 1.2rem; font-weight: 900; color: ${pendingCargosGross > 0 ? '#dc2626' : 'var(--color-text-muted)'}; margin-top: 2px;">+${formatCLP(pendingCargosGross)}</div>
+          <div style="font-size: 0.71rem; color: var(--color-text-muted);">Total estimado IVA incluido</div>
+        </div>
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-left: 4px solid #10b981; border-radius: 9px; padding: 0.65rem 0.85rem;">
+          <div style="font-size: 0.7rem; font-weight: 800; color: var(--color-text-muted); text-transform: uppercase;">Saldos a Favor Pendientes</div>
+          <div style="font-size: 1.2rem; font-weight: 900; color: ${pendingDescuentosGross > 0 ? '#059669' : 'var(--color-text-muted)'}; margin-top: 2px;">-${formatCLP(pendingDescuentosGross)}</div>
+          <div style="font-size: 0.71rem; color: var(--color-text-muted);">Total estimado IVA incluido</div>
+        </div>
+        <div style="background: ${currentPeriodCharges.length > 0 ? '#ecfdf5' : 'var(--color-bg)'}; border: 1px solid ${currentPeriodCharges.length > 0 ? '#6ee7b7' : 'var(--color-border)'}; border-left: 4px solid #059669; border-radius: 9px; padding: 0.65rem 0.85rem;">
+          <div style="font-size: 0.7rem; font-weight: 800; color: #065f46; text-transform: uppercase;">Asignados a ${escapeHtml(b.currentPeriodName || 'Este Periodo')}</div>
+          <div style="font-size: 1.25rem; font-weight: 900; color: #059669; margin-top: 2px;">${currentPeriodCharges.length}</div>
+          <div style="font-size: 0.71rem; color: #047857;">Histórico otros periodos: ${otherPeriodCharges.length}</div>
+        </div>
+      </div>
+
+      <!-- Filtros Rápidos -->
+      <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; background: var(--color-bg); padding: 0.45rem 0.7rem; border-radius: 8px; border: 1px solid var(--color-border);">
+        <button type="button" class="bg-quick-filter-btn ${activeFilter === 'all' ? 'active' : ''}" onclick="window.setBgExtraChargesFilter('all')">
+          Todos (${allCharges.length})
+        </button>
+        <button type="button" class="bg-quick-filter-btn ${activeFilter === 'pending' ? 'active' : ''}" onclick="window.setBgExtraChargesFilter('pending')" style="${pendingCharges.length > 0 ? 'border-color: #fcd34d; color: #b45309; font-weight: 800;' : ''}">
+          ⏳ Pendientes de Asignar (${pendingCharges.length})
+        </button>
+        <button type="button" class="bg-quick-filter-btn ${activeFilter === 'current' ? 'active' : ''}" onclick="window.setBgExtraChargesFilter('current')">
+          📌 Asignados a ${escapeHtml(b.currentPeriodName || 'Este Periodo')} (${currentPeriodCharges.length})
+        </button>
+        <button type="button" class="bg-quick-filter-btn ${activeFilter === 'other' ? 'active' : ''}" onclick="window.setBgExtraChargesFilter('other')">
+          📁 Otros Periodos (${otherPeriodCharges.length})
+        </button>
+      </div>
+
+      <!-- Listado de Tarjetas de Saldos Adicionales -->
+      ${filteredList.length === 0 ? `
+        <div style="text-align: center; padding: 2.75rem 1.5rem; background: var(--color-bg); border: 1px dashed var(--color-border); border-radius: 10px; color: var(--color-text-muted);">
+          <i class="ri-coins-line" style="font-size: 2.1rem; color: #94a3b8; display: block; margin-bottom: 0.45rem;"></i>
+          <strong style="color: var(--color-text-main); font-size: 0.92rem;">
+            ${allCharges.length === 0
+              ? `No existen saldos adicionales registrados para ${escapeHtml(b.currentCommerce)}`
+              : 'No hay saldos adicionales en este filtro'}
+          </strong>
+          <div style="font-size: 0.78rem; margin-top: 0.25rem;">
+            Puedes registrar un nuevo cobro extraordinario o descuento con el botón <strong>"+ Nuevo Saldo Adicional"</strong>.
+          </div>
+        </div>
+      ` : `
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+          ${filteredList.map(c => {
+            const calc = c.calc || computeExtraChargeAmounts(c);
+            const appliedInfo = getExtraChargeAppliedEntriesInCurrentPeriod(c.id);
+            const dateFormatted = c.fecha ? new Date(c.fecha + 'T00:00:00').toLocaleDateString('es-CL') : '—';
+            const isDiffStore = String(c.comercio || '').trim().toUpperCase() !== String(b.currentCommerce || '').trim().toUpperCase();
+
+            return `
+              <div style="border-radius: 10px; border: 1.5px solid ${c.isPending ? '#fcd34d' : (c.isAssignedToCurrentPeriod ? '#6ee7b7' : 'var(--color-border)')}; border-left: 5px solid ${c.isPending ? '#d97706' : (c.isAssignedToCurrentPeriod ? '#10b981' : '#94a3b8')}; background: ${c.isPending ? 'rgba(254, 243, 199, 0.22)' : 'var(--color-surface)'}; padding: 0.85rem 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.85rem; flex-wrap: wrap;">
+                  <!-- Detalle e Importes -->
+                  <div style="flex: 1; min-width: 260px;">
+                    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 0.35rem;">
+                      <span style="font-size: 0.7rem; font-weight: 900; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; background: ${calc.isDiscount ? '#dcfce7' : '#fee2e2'}; color: ${calc.isDiscount ? '#15803d' : '#dc2626'}; border: 1px solid ${calc.isDiscount ? '#bbf7d0' : '#fecaca'};">
+                        ${calc.isDiscount ? '💰 Descuento / Saldo a Favor' : '➕ Cargo Extraordinario'}
+                      </span>
+                      <span style="font-size: 0.7rem; font-weight: 800; padding: 2px 8px; border-radius: 999px; background: ${c.isPending ? '#fef3c7' : '#dcfce7'}; color: ${c.isPending ? '#b45309' : '#15803d'};">
+                        ${c.isPending ? '⏳ Pendiente de Asignar' : `✅ Asignado a ${escapeHtml(c.assignedPeriodName || 'Periodo')}`}
+                      </span>
+                      ${isDiffStore ? `
+                        <span style="font-size: 0.7rem; font-weight: 800; background: #ede9fe; color: #5b21b6; padding: 2px 7px; border-radius: 6px;">
+                          <i class="ri-store-2-line"></i> ${escapeHtml(c.comercio)}
+                        </span>
+                      ` : ''}
+                      <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600;">
+                        <i class="ri-calendar-line"></i> ${escapeHtml(dateFormatted)}
+                      </span>
+                    </div>
+
+                    <div style="font-size: 0.92rem; font-weight: 800; color: var(--color-text-main); margin-bottom: 0.3rem;">
+                      ${escapeHtml(c.detalle || 'Saldo adicional')}
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; font-size: 0.78rem;">
+                      <div>
+                        <span style="color: var(--color-text-muted);">Monto registrado:</span>
+                        <strong style="font-size: 0.92rem; color: ${calc.isDiscount ? '#059669' : '#dc2626'}; margin-left: 3px;">
+                          ${calc.isDiscount ? '-' : '+'}${formatCLP(calc.rawAmount)}
+                        </strong>
+                        <span style="font-size: 0.7rem; font-weight: 700; color: #64748b;">(${calc.isIvaIncluido ? 'IVA Incluido' : '+ IVA Neto'})</span>
+                      </div>
+                      <span style="color: #cbd5e1;">|</span>
+                      <div style="color: #475569; font-size: 0.74rem;">
+                        Equivalencia contable: <strong>Neto ${formatCLP(calc.netAmount)}</strong> + IVA ${formatCLP(calc.ivaAmount)} = <strong>Total ${formatCLP(calc.grossAmount)}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Controles de Asignación Directa de Periodo y Gestión -->
+                  <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.45rem;">
+                    ${c.isPending ? `
+                      <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap; justify-content: flex-end; background: #ffffff; padding: 4px 6px; border-radius: 8px; border: 1px solid #cbd5e1;">
+                        <select id="bg-inline-extra-period-${escapeHtml(c.id)}" class="form-input" style="margin: 0; height: 30px; font-size: 0.75rem; font-weight: 700; padding: 0 0.5rem; min-width: 175px; border-radius: 6px;" title="Seleccionar periodo de facturación destino">
+                          ${periodOptionsForInline}
+                        </select>
+                        <button type="button"
+                                onclick="window.quickAssignExtraChargeInline('${escapeHtml(c.id)}')"
+                                class="btn btn-sm btn-primary"
+                                style="height: 30px; padding: 0 10px; font-size: 0.74rem; font-weight: 800; background: #059669; border-color: #059669; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;"
+                                title="Asignar al periodo seleccionado e incorporar al desglose">
+                          <i class="ri-check-double-line"></i> Asignar y Aplicar
+                        </button>
+                        <button type="button"
+                                onclick="window.openAssignExtraChargeInGeneratorModal('${escapeHtml(c.id)}')"
+                                class="btn btn-sm btn-outline"
+                                style="height: 30px; padding: 0 8px; font-size: 0.73rem; font-weight: 700; border-radius: 6px; border-color: #5f06fa; color: #5f06fa;"
+                                title="Elegir modo contable detallado (Abono vs Base Neta) y previsualizar impacto">
+                          <i class="ri-equalizer-line"></i> Opciones...
+                        </button>
+                      </div>
+                    ` : `
+                      <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap; justify-content: flex-end;">
+                        ${(c.isAssignedToCurrentPeriod && !appliedInfo.isApplied && !b.isLocked) ? `
+                          <button type="button"
+                                  onclick="window.openAssignExtraChargeInGeneratorModal('${escapeHtml(c.id)}')"
+                                  class="btn btn-sm btn-primary"
+                                  style="height: 29px; padding: 0 10px; font-size: 0.73rem; font-weight: 800; background: #2563eb; border-color: #2563eb; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">
+                            <i class="ri-add-circle-line"></i> Incorporar al Desglose
+                          </button>
+                        ` : ''}
+                        <button type="button"
+                                onclick="window.openAssignExtraChargeInGeneratorModal('${escapeHtml(c.id)}')"
+                                class="btn btn-sm btn-outline"
+                                style="height: 29px; padding: 0 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border-color: #cbd5e1; color: #334155;"
+                                title="Cambiar el periodo asignado o modo de aplicación">
+                          <i class="ri-arrow-left-right-line"></i> Cambiar Periodo
+                        </button>
+                        <button type="button"
+                                onclick="window.revertExtraChargeFromGenerator('${escapeHtml(c.id)}')"
+                                class="btn btn-sm btn-outline"
+                                style="height: 29px; padding: 0 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border-color: #fcd34d; color: #b45309; background: #fffbeb;"
+                                title="Desvincular del periodo y devolver a Pendiente">
+                          <i class="ri-history-line"></i> Revertir a Pendiente
+                        </button>
+                      </div>
+                    `}
+
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                      <button type="button"
+                              onclick="window.openEditExtraChargeFromGeneratorModal('${escapeHtml(c.id)}')"
+                              style="background: transparent; border: 1px solid #cbd5e1; color: #475569; border-radius: 5px; padding: 2px 7px; font-size: 0.7rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                        <i class="ri-pencil-line"></i> Editar
+                      </button>
+                      <button type="button"
+                              onclick="window.deleteExtraChargeFromGenerator('${escapeHtml(c.id)}')"
+                              style="background: transparent; border: 1px solid #fecaca; color: #dc2626; border-radius: 5px; padding: 2px 7px; font-size: 0.7rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                        <i class="ri-delete-bin-line"></i> Eliminar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Pie de estado en el Desglose Oficial actual -->
+                ${appliedInfo.isApplied ? `
+                  <div style="margin-top: 0.65rem; background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 8px; padding: 0.45rem 0.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 0.76rem; color: #065f46;">
+                      <i class="ri-checkbox-circle-fill" style="color: #059669; font-size: 0.95rem;"></i>
+                      <strong>Incorporado en el desglose de ${escapeHtml(b.currentPeriodName)}:</strong>
+                      ${appliedInfo.matchedAbonos.map(ab => `
+                        <span style="background: #ffffff; border: 1px solid #6ee7b7; padding: 1px 7px; border-radius: 5px; font-weight: 800; color: #047857;">
+                          Abono directo: -${formatCLP(ab.amount)}
+                        </span>
+                      `).join('')}
+                      ${appliedInfo.matchedAdjustments.map(adj => `
+                        <span style="background: #ffffff; border: 1px solid #c4b5fd; padding: 1px 7px; border-radius: 5px; font-weight: 800; color: #5b21b6;">
+                          Ajuste Neto: ${adj.amount >= 0 ? '+' : ''}${formatCLP(adj.amount)} (${adj.amount >= 0 ? '+' : ''}${formatCLP(Math.round(adj.amount * 1.19))} c/IVA)
+                        </span>
+                      `).join('')}
+                    </div>
+                    <button type="button" onclick="window.switchBgSubTab('desglose')" style="background: #059669; color: #ffffff; border: none; border-radius: 6px; padding: 3px 9px; font-size: 0.71rem; font-weight: 700; cursor: pointer;">
+                      Ver en Desglose Oficial →
+                    </button>
+                  </div>
+                ` : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `}
+    </div>
+  `;
+}
+window.renderCommerceExtraChargesSectionUI = renderCommerceExtraChargesSectionUI;
+
+// Asignación rápida en 1 clic desde el selector inline de una tarjeta
+window.quickAssignExtraChargeInline = async function(chargeId) {
+  const b = billingState;
+  const charges = Array.isArray(b.commerceExtraCharges) ? b.commerceExtraCharges : [];
+  const charge = charges.find(c => String(c.id) === String(chargeId));
+  if (!charge) return;
+
+  const selectEl = document.getElementById(`bg-inline-extra-period-${chargeId}`);
+  const targetPeriodId = selectEl?.value || b.currentPeriodId;
+  if (!targetPeriodId) {
+    if (typeof Swal !== 'undefined') Swal.fire('Aviso', 'Selecciona un periodo de facturación destino.', 'warning');
+    return;
+  }
+
+  const isTargetCurrent = String(targetPeriodId) === String(b.currentPeriodId);
+  if (isTargetCurrent && b.isLocked) {
+    // Si el periodo actual está bloqueado, abrir el modal completo para informar o permitir cambiar de periodo
+    window.openAssignExtraChargeInGeneratorModal(chargeId);
+    return;
+  }
+
+  if (!isTargetCurrent) {
+    // Si eligió un periodo distinto al abierto actualmente, preguntar si también quiere abrir ese periodo e incorporarlo al desglose
+    const periods = await getAvailableBillingPeriodsForExtraCharges();
+    const pObj = periods.find(p => String(p.id) === String(targetPeriodId));
+    const targetPeriodName = pObj?.name || 'el periodo seleccionado';
+
+    const res = await Swal.fire({
+      title: `Asignar a ${escapeHtml(targetPeriodName)}`,
+      html: `
+        <div style="text-align: left; font-size: 0.88rem; color: #334155; line-height: 1.45;">
+          Vas a asignar <strong>${escapeHtml(charge.detalle)}</strong> (${charge.calc?.isDiscount ? '-' : '+'}${formatCLP(charge.monto)}) al periodo <strong>${escapeHtml(targetPeriodName)}</strong>.
+          <div style="margin-top: 0.75rem; padding: 0.65rem 0.85rem; background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px;">
+            <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-weight: 700; color: #4c1d95; font-size: 0.82rem;">
+              <input type="checkbox" id="swal-switch-and-inject-extra" checked style="margin-top: 2px; width: 15px; height: 15px; accent-color: #5f06fa;">
+              <span>Cambiar el Gestor a <strong>${escapeHtml(targetPeriodName)}</strong> e incorporar automáticamente el monto a su Desglose Oficial ahora</span>
+            </label>
+          </div>
+        </div>
+      `,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonColor: '#059669',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: '<i class="ri-check-line"></i> Confirmar Asignación',
+      cancelButtonText: 'Cancelar',
+      preConfirm: () => ({
+        switchAndInject: Boolean(document.getElementById('swal-switch-and-inject-extra')?.checked)
+      })
+    });
+
+    if (!res.isConfirmed) return;
+
+    try {
+      const { error } = await supabase
+        .from('extra_billing_charges')
+        .update({ status: 'cobrado', periodo_id: targetPeriodId })
+        .eq('id', charge.id);
+      if (error) throw error;
+
+      // Si estaba en el desglose del periodo actual, quitarlo
+      removeExtraChargeEntriesFromCurrentBillingState(charge.id, true);
+
+      if (res.value?.switchAndInject) {
+        window.__pendingAutoIncorporateExtraChargeIds = [String(charge.id)];
+        const genPeriodSelect = document.getElementById('bg-select-period');
+        const ovPeriodSelect = document.getElementById('bg-overview-select-period');
+        if (genPeriodSelect) genPeriodSelect.value = targetPeriodId;
+        if (ovPeriodSelect) ovPeriodSelect.value = targetPeriodId;
+        await executeCalculationFromUI();
+      } else {
+        await loadAndRenderCommerceExtraChargesUI();
+      }
+      syncExternalExtraChargesViews();
+    } catch (err) {
+      console.error('Error asignando saldo adicional a otro periodo:', err);
+      Swal.fire('Error', 'No se pudo asignar el saldo adicional: ' + (err.message || err), 'error');
+    }
+    return;
+  }
+
+  // Asignación directa al periodo actual abierto en el Generador
+  try {
+    const { error } = await supabase
+      .from('extra_billing_charges')
+      .update({ status: 'cobrado', periodo_id: targetPeriodId })
+      .eq('id', charge.id);
+    if (error) throw error;
+
+    injectExtraChargeIntoBillingState(charge);
+    recalculateFromCurrentState();
+    await loadAndRenderCommerceExtraChargesUI();
+    syncExternalExtraChargesViews();
+
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `Saldo asignado e incorporado a ${b.currentPeriodName}`,
+        text: 'Recuerda Guardar o Confirmar y Publicar el desglose.',
+        showConfirmButton: false,
+        timer: 3500
+      });
+    }
+  } catch (err) {
+    console.error('Error en asignación rápida de saldo adicional:', err);
+    Swal.fire('Error', 'No se pudo asignar el saldo adicional: ' + (err.message || err), 'error');
+  }
+};
+
+// Modal detallado para asignar un Saldo Adicional a cualquier periodo y elegir su tratamiento contable
+window.openAssignExtraChargeInGeneratorModal = async function(chargeId) {
+  const b = billingState;
+  const charges = Array.isArray(b.commerceExtraCharges) ? b.commerceExtraCharges : [];
+  let charge = charges.find(c => String(c.id) === String(chargeId));
+
+  if (!charge) {
+    try {
+      const { data } = await supabase.from('extra_billing_charges').select('*').eq('id', chargeId).single();
+      if (data) {
+        charge = { ...data, calc: computeExtraChargeAmounts(data) };
+      }
+    } catch (e) {}
+  }
+  if (!charge) {
+    if (typeof Swal !== 'undefined') Swal.fire('Aviso', 'No se encontró el saldo adicional seleccionado.', 'warning');
+    return;
+  }
+
+  const periods = await getAvailableBillingPeriodsForExtraCharges();
+  const calc = charge.calc || computeExtraChargeAmounts(charge);
+  const defaultPeriodId = charge.periodo_id || b.currentPeriodId || (periods[0]?.id || '');
+  const currentTotalToPay = Math.round(Number(b.totals?.totalToPay) || 0);
+  const isDiffStore = String(charge.comercio || '').trim().toUpperCase() !== String(b.currentCommerce || '').trim().toUpperCase();
+  const defaultConcept = `${charge.detalle || (calc.isDiscount ? 'Descuento adicional' : 'Cargo adicional')}${isDiffStore && charge.comercio ? ` (${charge.comercio})` : ''}`;
+
+  const periodOptionsHtml = periods.map(p => {
+    const isSelected = String(p.id) === String(defaultPeriodId);
+    const isCurrentOpen = String(p.id) === String(b.currentPeriodId);
+    return `<option value="${escapeHtml(p.id)}" ${isSelected ? 'selected' : ''}>${escapeHtml(p.name)}${isCurrentOpen ? ' — (Abierto en Gestor)' : ''}</option>`;
+  }).join('');
+
+  const { value: modalValues } = await Swal.fire({
+    title: `<div style="display:flex;align-items:center;justify-content:center;gap:0.45rem;font-size:1.06rem;"><i class="ri-coins-fill" style="color:#d97706;"></i><span>Asignar Saldo Adicional a Periodo</span></div>`,
+    width: '620px',
+    html: `
+      <div style="text-align: left; font-size: 0.86rem; color: #1e293b;">
+        <!-- Resumen del Saldo Adicional -->
+        <div style="background: ${calc.isDiscount ? '#ecfdf5' : '#fffbeb'}; border: 1px solid ${calc.isDiscount ? '#6ee7b7' : '#fcd34d'}; border-left: 4px solid ${calc.isDiscount ? '#10b981' : '#d97706'}; border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 0.9rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px;">
+            <span style="font-size: 0.72rem; font-weight: 900; color: ${calc.isDiscount ? '#047857' : '#b45309'}; text-transform: uppercase;">
+              ${calc.isDiscount ? '💰 Descuento / Saldo a Favor' : '➕ Cargo Extraordinario'} · ${escapeHtml(charge.comercio)}
+            </span>
+            <span style="font-size: 0.86rem; font-weight: 900; color: ${calc.isDiscount ? '#059669' : '#dc2626'};">
+              ${calc.isDiscount ? '-' : '+'}${formatCLP(calc.rawAmount)} <span style="font-size: 0.7rem; font-weight: 700; color: #64748b;">(${calc.isIvaIncluido ? 'IVA Incluido' : '+ IVA Neto'})</span>
+            </span>
+          </div>
+          <div style="font-size: 0.83rem; font-weight: 700; color: #1e293b;">${escapeHtml(charge.detalle || '')}</div>
+          <div style="font-size: 0.73rem; color: #64748b; margin-top: 3px;">
+            Equivalencia: <strong>Neto ${formatCLP(calc.netAmount)}</strong> + IVA ${formatCLP(calc.ivaAmount)} = <strong>Total ${formatCLP(calc.grossAmount)}</strong>
+          </div>
+        </div>
+
+        <!-- 1. Selección de Periodo Destino -->
+        <label style="font-size: 0.74rem; font-weight: 800; color: #334155; display: block; margin-bottom: 0.3rem; text-transform: uppercase;">
+          1. Periodo de Facturación al que se asignará:
+        </label>
+        <select id="swal-extra-target-period" class="form-input" style="margin: 0 0 0.85rem 0; width: 100%; height: 40px; font-size: 0.88rem; font-weight: 800; border-color: #94a3b8; border-radius: 8px;">
+          ${periodOptionsHtml}
+        </select>
+
+        <!-- 2. Opciones para el Periodo Actual Abierto -->
+        <div id="swal-extra-current-period-box">
+          ${b.isLocked ? `
+            <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 0.75rem; font-size: 0.79rem; color: #991b1b;">
+              <i class="ri-lock-line"></i> El periodo actual (<strong>${escapeHtml(b.currentPeriodName)}</strong>) está bloqueado/publicado. Se registrará la asignación en la base de datos; si necesitas sumar la línea al desglose, usa <strong>"Reabrir para Rectificar"</strong> primero.
+            </div>
+          ` : `
+            <label style="display: flex; align-items: center; gap: 7px; font-weight: 800; font-size: 0.8rem; color: #065f46; cursor: pointer; margin-bottom: 0.6rem; background: #ecfdf5; border: 1px solid #6ee7b7; padding: 0.5rem 0.75rem; border-radius: 8px;">
+              <input type="checkbox" id="swal-extra-inject-desglose" checked style="width: 16px; height: 16px; accent-color: #059669;">
+              <span>Incorporar automáticamente este monto en el Desglose Oficial de ${escapeHtml(b.currentPeriodName)}</span>
+            </label>
+
+            <div id="swal-extra-mode-options-wrap">
+              <label style="font-size: 0.73rem; font-weight: 800; color: #334155; display: block; margin-bottom: 0.35rem; text-transform: uppercase;">
+                2. Modo de Aplicación Contable en el Desglose:
+              </label>
+              <div style="display: grid; grid-template-columns: 1fr; gap: 0.45rem; margin-bottom: 0.75rem;">
+                ${calc.isDiscount ? `
+                  <label id="swal-extra-card-abono" style="display: flex; align-items: flex-start; gap: 8px; padding: 0.55rem 0.75rem; border-radius: 8px; border: 2px solid ${calc.defaultApplyMode === 'abono' ? '#10b981' : '#cbd5e1'}; background: ${calc.defaultApplyMode === 'abono' ? '#ecfdf5' : '#ffffff'}; cursor: pointer;">
+                    <input type="radio" name="swal-extra-apply-mode" value="abono" ${calc.defaultApplyMode === 'abono' ? 'checked' : ''} style="margin-top: 3px; accent-color: #059669;">
+                    <div>
+                      <div style="font-weight: 800; font-size: 0.82rem; color: #065f46;">💰 Saldo a Favor / Abono directo al Monto a Pagar (-${formatCLP(calc.grossAmount)})</div>
+                      <div style="font-size: 0.72rem; color: #047857;">Descuenta <strong>${formatCLP(calc.grossAmount)}</strong> directamente del saldo final a pagar sin modificar la base neta facturable.</div>
+                    </div>
+                  </label>
+                  <label id="swal-extra-card-adj-discount" style="display: flex; align-items: flex-start; gap: 8px; padding: 0.55rem 0.75rem; border-radius: 8px; border: 2px solid ${calc.defaultApplyMode === 'adj_discount' ? '#5f06fa' : '#cbd5e1'}; background: ${calc.defaultApplyMode === 'adj_discount' ? '#f5f3ff' : '#ffffff'}; cursor: pointer;">
+                    <input type="radio" name="swal-extra-apply-mode" value="adj_discount" ${calc.defaultApplyMode === 'adj_discount' ? 'checked' : ''} style="margin-top: 3px; accent-color: #5f06fa;">
+                    <div>
+                      <div style="font-weight: 800; font-size: 0.82rem; color: #1e293b;">🏷️ Descuento Comercial en Base Neta (-${formatCLP(calc.netAmount)} Neto / -${formatCLP(calc.grossAmount)} c/IVA)</div>
+                      <div style="font-size: 0.72rem; color: #64748b;">Reduce la base imponible neta de la factura del mes en ${formatCLP(calc.netAmount)} (+ IVA).</div>
+                    </div>
+                  </label>
+                ` : `
+                  <label id="swal-extra-card-adj-charge" style="display: flex; align-items: flex-start; gap: 8px; padding: 0.55rem 0.75rem; border-radius: 8px; border: 2px solid #ea580c; background: #fff7ed; cursor: pointer;">
+                    <input type="radio" name="swal-extra-apply-mode" value="adj_charge" checked style="margin-top: 3px; accent-color: #ea580c;">
+                    <div>
+                      <div style="font-weight: 800; font-size: 0.82rem; color: #9a3412;">➕ Cargo Adicional en Base Neta (+${formatCLP(calc.netAmount)} Neto + IVA = +${formatCLP(calc.grossAmount)})</div>
+                      <div style="font-size: 0.72rem; color: #7c2d12;">Suma una línea en el Desglose Oficial por <strong>${formatCLP(calc.netAmount)} Neto</strong> (+ 19% IVA = ${formatCLP(calc.grossAmount)}).</div>
+                    </div>
+                  </label>
+                `}
+              </div>
+
+              <label style="font-size: 0.73rem; font-weight: 800; color: #334155; display: block; margin-bottom: 0.25rem;">
+                GLOSA / CONCEPTO EN EL DESGLOSE OFICIAL:
+              </label>
+              <input id="swal-extra-concept" type="text" class="form-input" style="margin: 0 0 0.75rem 0; width: 100%; height: 38px; font-size: 0.84rem; font-weight: 600;" value="${escapeHtml(defaultConcept)}">
+
+              <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.55rem 0.85rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; font-size: 0.78rem;">
+                <div>
+                  <span style="color: #64748b;">Saldo actual ${escapeHtml(b.currentPeriodName)}:</span>
+                  <strong style="color: #334155; margin-left: 4px;">${formatCLP(currentTotalToPay)}</strong>
+                </div>
+                <div>
+                  <span style="color: #64748b;">Nuevo Saldo proyectado:</span>
+                  <strong id="swal-extra-projected-balance" style="color: #5f06fa; font-size: 0.92rem; font-weight: 900; margin-left: 4px;">${formatCLP(currentTotalToPay)}</strong>
+                </div>
+              </div>
+            </div>
+          `}
+        </div>
+
+        <!-- 3. Opciones cuando elige un periodo distinto al abierto -->
+        <div id="swal-extra-other-period-box" style="display: none; background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 0.7rem 0.85rem;">
+          <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-weight: 700; color: #4c1d95; font-size: 0.8rem;">
+            <input type="checkbox" id="swal-extra-switch-period-now" checked style="margin-top: 2px; width: 15px; height: 15px; accent-color: #5f06fa;">
+            <span>Cambiar el Gestor al periodo seleccionado e incorporar automáticamente este saldo a su Desglose Oficial ahora</span>
+          </label>
+          <div style="font-size: 0.72rem; color: #6d28d9; margin-top: 4px; padding-left: 23px;">
+            Si desmarcas esta opción, el saldo quedará marcado como aplicado a ese periodo en la base de datos sin cambiar tu pantalla actual.
+          </div>
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonColor: '#059669',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: '<i class="ri-check-double-line"></i> Guardar y Aplicar',
+    cancelButtonText: 'Cancelar',
+    didOpen: () => {
+      const periodSel = document.getElementById('swal-extra-target-period');
+      const currentBox = document.getElementById('swal-extra-current-period-box');
+      const otherBox = document.getElementById('swal-extra-other-period-box');
+      const injectChk = document.getElementById('swal-extra-inject-desglose');
+      const modeWrap = document.getElementById('swal-extra-mode-options-wrap');
+      const projLbl = document.getElementById('swal-extra-projected-balance');
+      const cardAbono = document.getElementById('swal-extra-card-abono');
+      const cardAdjDisc = document.getElementById('swal-extra-card-adj-discount');
+
+      const updateUI = () => {
+        const isCurrent = String(periodSel?.value || '') === String(b.currentPeriodId || '');
+        if (currentBox) currentBox.style.display = isCurrent ? 'block' : 'none';
+        if (otherBox) otherBox.style.display = isCurrent ? 'none' : 'block';
+
+        if (isCurrent && modeWrap && injectChk) {
+          modeWrap.style.display = injectChk.checked ? 'block' : 'none';
+        }
+
+        const mode = document.querySelector('input[name="swal-extra-apply-mode"]:checked')?.value || calc.defaultApplyMode;
+        if (cardAbono) {
+          cardAbono.style.borderColor = mode === 'abono' ? '#10b981' : '#cbd5e1';
+          cardAbono.style.background = mode === 'abono' ? '#ecfdf5' : '#ffffff';
+        }
+        if (cardAdjDisc) {
+          cardAdjDisc.style.borderColor = mode === 'adj_discount' ? '#5f06fa' : '#cbd5e1';
+          cardAdjDisc.style.background = mode === 'adj_discount' ? '#f5f3ff' : '#ffffff';
+        }
+
+        if (projLbl) {
+          if (mode === 'abono' || mode === 'adj_discount') {
+            const nextVal = Math.max(0, currentTotalToPay - calc.grossAmount);
+            projLbl.textContent = `${formatCLP(nextVal)} (-${formatCLP(calc.grossAmount)})`;
+            projLbl.style.color = '#059669';
+          } else {
+            const nextVal = currentTotalToPay + calc.grossAmount;
+            projLbl.textContent = `${formatCLP(nextVal)} (+${formatCLP(calc.grossAmount)})`;
+            projLbl.style.color = '#ea580c';
+          }
+        }
+      };
+
+      periodSel?.addEventListener('change', updateUI);
+      injectChk?.addEventListener('change', updateUI);
+      document.querySelectorAll('input[name="swal-extra-apply-mode"]').forEach(r => r.addEventListener('change', updateUI));
+      updateUI();
+    },
+    preConfirm: () => {
+      const targetPeriodId = document.getElementById('swal-extra-target-period')?.value;
+      if (!targetPeriodId) {
+        Swal.showValidationMessage('Selecciona un periodo de facturación.');
+        return false;
+      }
+      const isCurrent = String(targetPeriodId) === String(b.currentPeriodId || '');
+      const shouldInject = isCurrent && !b.isLocked && Boolean(document.getElementById('swal-extra-inject-desglose')?.checked);
+      const mode = document.querySelector('input[name="swal-extra-apply-mode"]:checked')?.value || calc.defaultApplyMode;
+      const concept = document.getElementById('swal-extra-concept')?.value?.trim() || defaultConcept;
+      const switchPeriodNow = !isCurrent && Boolean(document.getElementById('swal-extra-switch-period-now')?.checked);
+      return { targetPeriodId, isCurrent, shouldInject, mode, concept, switchPeriodNow };
+    }
+  });
+
+  if (!modalValues) return;
+
+  try {
+    const { error } = await supabase
+      .from('extra_billing_charges')
+      .update({
+        status: 'cobrado',
+        periodo_id: modalValues.targetPeriodId
+      })
+      .eq('id', charge.id);
+    if (error) throw error;
+
+    if (modalValues.isCurrent) {
+      if (modalValues.shouldInject) {
+        injectExtraChargeIntoBillingState(charge, {
+          mode: modalValues.mode,
+          concept: modalValues.concept
+        });
+        recalculateFromCurrentState();
+      }
+      await loadAndRenderCommerceExtraChargesUI();
+      syncExternalExtraChargesViews();
+
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: modalValues.shouldInject ? 'Saldo asignado e incorporado al desglose' : 'Saldo asignado al periodo',
+        text: modalValues.shouldInject ? `Aplicado en ${b.currentPeriodName}. Recuerda Guardar / Publicar.` : '',
+        showConfirmButton: false,
+        timer: 3500
+      });
+    } else {
+      // Si estaba incorporado en el periodo anterior abierto, limpiarlo de allí
+      removeExtraChargeEntriesFromCurrentBillingState(charge.id, true);
+
+      if (modalValues.switchPeriodNow) {
+        window.__pendingAutoIncorporateExtraChargeIds = [String(charge.id)];
+        const genPeriodSelect = document.getElementById('bg-select-period');
+        const ovPeriodSelect = document.getElementById('bg-overview-select-period');
+        if (genPeriodSelect) genPeriodSelect.value = modalValues.targetPeriodId;
+        if (ovPeriodSelect) ovPeriodSelect.value = modalValues.targetPeriodId;
+        await executeCalculationFromUI();
+      } else {
+        await loadAndRenderCommerceExtraChargesUI();
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'success',
+          title: 'Saldo adicional asignado al periodo seleccionado',
+          showConfirmButton: false,
+          timer: 2800
+        });
+      }
+      syncExternalExtraChargesViews();
+    }
+  } catch (err) {
+    console.error('Error guardando asignación de saldo adicional:', err);
+    Swal.fire('Error', 'No se pudo asignar el saldo adicional: ' + (err.message || err), 'error');
+  }
+};
+
+// Aplicar en 1 clic TODOS los saldos adicionales pendientes al periodo abierto actualmente en el Generador
+window.applyAllPendingExtraChargesToCurrentPeriod = async function() {
+  if (guardBillingLocked('incorporar saldos adicionales en un periodo cerrado')) return;
+  const b = billingState;
+  if (!b.currentCommerce || !b.currentPeriodId) return;
+
+  const pendingList = (Array.isArray(b.commerceExtraCharges) ? b.commerceExtraCharges : []).filter(c => c.isPending);
+  if (pendingList.length === 0) {
+    if (typeof Swal !== 'undefined') Swal.fire('Al día', 'No hay saldos adicionales pendientes por asignar.', 'info');
+    return;
+  }
+
+  const summaryRowsHtml = pendingList.map(c => {
+    const calc = c.calc || computeExtraChargeAmounts(c);
+    return `
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px dashed #e2e8f0; font-size: 0.8rem;">
+        <div>
+          <span style="font-weight: 800; color: ${calc.isDiscount ? '#059669' : '#dc2626'};">[${calc.isDiscount ? 'Descuento' : 'Cargo'}]</span>
+          <strong style="color: #1e293b;">${escapeHtml(c.detalle)}</strong>
+        </div>
+        <strong style="color: ${calc.isDiscount ? '#059669' : '#dc2626'}; white-space: nowrap;">
+          ${calc.isDiscount ? '-' : '+'}${formatCLP(calc.grossAmount)} <span style="font-size: 0.68rem; color: #64748b;">c/IVA</span>
+        </strong>
+      </div>
+    `;
+  }).join('');
+
+  const confirmRes = await Swal.fire({
+    title: `Aplicar ${pendingList.length} Saldo(s) a ${escapeHtml(b.currentPeriodName)}`,
+    html: `
+      <div style="text-align: left; font-size: 0.86rem; color: #334155;">
+        <p style="margin-top: 0; margin-bottom: 0.65rem;">
+          Se asignarán al periodo <strong>${escapeHtml(b.currentPeriodName)}</strong> y se incorporarán automáticamente al <strong>Desglose Oficial</strong>:
+        </p>
+        <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.55rem 0.8rem; max-height: 190px; overflow-y: auto; margin-bottom: 0.65rem;">
+          ${summaryRowsHtml}
+        </div>
+        <div style="font-size: 0.76rem; color: #64748b;">
+          Los cargos se ingresan en la base neta (+ IVA) y los descuentos según su configuración de IVA.
+        </div>
+      </div>
+    `,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonColor: '#059669',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: `<i class="ri-check-double-line"></i> Aplicar Todo en ${escapeHtml(b.currentPeriodName)}`,
+    cancelButtonText: 'Cancelar'
+  });
+
+  if (!confirmRes.isConfirmed) return;
+
+  try {
+    const ids = pendingList.map(c => c.id);
+    const { error } = await supabase
+      .from('extra_billing_charges')
+      .update({ status: 'cobrado', periodo_id: b.currentPeriodId })
+      .in('id', ids);
+    if (error) throw error;
+
+    pendingList.forEach(ch => injectExtraChargeIntoBillingState(ch));
+    recalculateFromCurrentState();
+    await loadAndRenderCommerceExtraChargesUI();
+    syncExternalExtraChargesViews();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: `${pendingList.length} saldo(s) aplicado(s) en ${b.currentPeriodName}`,
+      text: 'Recuerda hacer clic en Guardar o Confirmar y Publicar.',
+      showConfirmButton: false,
+      timer: 3800
+    });
+  } catch (err) {
+    console.error('Error aplicando saldos pendientes en bloque:', err);
+    Swal.fire('Error', 'No se pudieron aplicar los saldos adicionales: ' + (err.message || err), 'error');
+  }
+};
+
+// Incorporar en 1 clic los saldos ya asignados al periodo actual en BD pero aún no sumados en las líneas del desglose
+window.incorporateAssignedExtraChargesIntoCurrentDesglose = async function() {
+  if (guardBillingLocked('incorporar saldos adicionales en un periodo cerrado')) return;
+  const b = billingState;
+  const list = (Array.isArray(b.commerceExtraCharges) ? b.commerceExtraCharges : [])
+    .filter(c => c.isAssignedToCurrentPeriod && !getExtraChargeAppliedEntriesInCurrentPeriod(c.id).isApplied);
+
+  if (list.length === 0) return;
+
+  list.forEach(ch => injectExtraChargeIntoBillingState(ch));
+  recalculateFromCurrentState();
+  await loadAndRenderCommerceExtraChargesUI();
+
+  if (typeof Swal !== 'undefined') {
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: `${list.length} saldo(s) incorporado(s) al desglose`,
+      text: `Sumado(s) a ${b.currentPeriodName}. Recuerda Guardar / Publicar.`,
+      showConfirmButton: false,
+      timer: 3500
+    });
+  }
+};
+
+// Revertir un Saldo Adicional a Pendiente desde el Gestor (y quitarlo del desglose si estaba aplicado)
+window.revertExtraChargeFromGenerator = async function(chargeId) {
+  const b = billingState;
+  const charge = (Array.isArray(b.commerceExtraCharges) ? b.commerceExtraCharges : []).find(c => String(c.id) === String(chargeId));
+  const applied = getExtraChargeAppliedEntriesInCurrentPeriod(chargeId);
+
+  if (applied.isApplied && b.isLocked) {
+    guardBillingLocked('quitar un saldo adicional de un desglose cerrado');
+    return;
+  }
+
+  const confirmRes = await Swal.fire({
+    title: '¿Revertir saldo a Pendiente?',
+    html: `
+      <div style="text-align: left; font-size: 0.88rem; color: #334155;">
+        El registro <strong>${escapeHtml(charge?.detalle || 'Saldo adicional')}</strong> se desvinculará del periodo y volverá a quedar disponible como <strong>Pendiente</strong>.
+        ${applied.isApplied ? `
+          <div style="margin-top: 0.65rem; padding: 0.55rem 0.8rem; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 7px; font-size: 0.79rem; color: #92400e;">
+            También se retirará automáticamente de las líneas del desglose actual (<strong>${escapeHtml(b.currentPeriodName)}</strong>).
+          </div>
+        ` : ''}
+      </div>
+    `,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#d97706',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: '<i class="ri-history-line"></i> Sí, devolver a Pendiente',
+    cancelButtonText: 'Cancelar'
+  });
+
+  if (!confirmRes.isConfirmed) return;
+
+  try {
+    const { error } = await supabase
+      .from('extra_billing_charges')
+      .update({ status: 'pendiente', periodo_id: null })
+      .eq('id', chargeId);
+    if (error) throw error;
+
+    removeExtraChargeEntriesFromCurrentBillingState(chargeId, true);
+    await loadAndRenderCommerceExtraChargesUI();
+    syncExternalExtraChargesViews();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Saldo devuelto a Pendiente',
+      showConfirmButton: false,
+      timer: 2500
+    });
+  } catch (err) {
+    console.error('Error revirtiendo saldo adicional:', err);
+    Swal.fire('Error', 'No se pudo revertir el saldo adicional: ' + (err.message || err), 'error');
+  }
+};
+
+// Crear un nuevo Saldo Adicional directamente desde el Gestor de Facturación (con opción de asignar e incorporar al instante)
+window.openQuickCreateExtraChargeFromGeneratorModal = async function() {
+  const b = billingState;
+  if (!b.currentCommerce) return;
+
+  const periods = await getAvailableBillingPeriodsForExtraCharges();
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  // Si es un conglomerado, permitir elegir la cuenta matriz o una tienda hija
+  const storeCandidates = [b.currentCommerce, ...(Array.isArray(b.conglomerateChildren) ? b.conglomerateChildren : [])]
+    .filter((v, i, arr) => v && arr.indexOf(v) === i);
+
+  const periodOptsHtml = `
+    <option value="">⏳ Dejar como Pendiente (sin asignar aún)</option>
+    ${periods.map(p => {
+      const isCurr = String(p.id) === String(b.currentPeriodId || '');
+      return `<option value="${escapeHtml(p.id)}" ${isCurr && !b.isLocked ? 'selected' : ''}>📌 Asignar a ${escapeHtml(p.name)}${isCurr ? ' (Periodo Actual)' : ''}</option>`;
+    }).join('')}
+  `;
+
+  const { value: formVals } = await Swal.fire({
+    title: `<div style="display:flex;align-items:center;justify-content:center;gap:0.45rem;font-size:1.05rem;"><i class="ri-add-circle-fill" style="color:#5f06fa;"></i><span>Registrar Nuevo Saldo Adicional</span></div>`,
+    width: '540px',
+    html: `
+      <div style="text-align: left; font-size: 0.85rem; color: #1e293b;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+          <div>
+            <label style="font-size: 0.73rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem;">COMERCIO:</label>
+            ${storeCandidates.length > 1 ? `
+              <select id="swal-new-extra-comercio" class="form-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.84rem; font-weight: 700;">
+                ${storeCandidates.map(sc => `<option value="${escapeHtml(sc)}">${escapeHtml(sc)}</option>`).join('')}
+              </select>
+            ` : `
+              <input id="swal-new-extra-comercio" type="text" class="form-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.84rem; font-weight: 700; background: #f8fafc;" value="${escapeHtml(b.currentCommerce)}" readonly>
+            `}
+          </div>
+          <div>
+            <label style="font-size: 0.73rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem;">FECHA:</label>
+            <input id="swal-new-extra-fecha" type="date" class="form-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.84rem;" value="${todayStr}">
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+          <div>
+            <label style="font-size: 0.73rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem;">TIPO DE SALDO:</label>
+            <select id="swal-new-extra-tipo" class="form-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.84rem; font-weight: 700;">
+              <option value="cargo" selected>➕ Cargo (Cobro Extraordinario)</option>
+              <option value="descuento">💰 Descuento (Saldo a Favor)</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size: 0.73rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem;">TIPO DE IVA:</label>
+            <select id="swal-new-extra-iva" class="form-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.84rem; font-weight: 700;">
+              <option value="mas_iva" selected>Más IVA (Neto)</option>
+              <option value="iva_incluido">IVA Incluido</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 0.75rem; margin-bottom: 0.85rem;">
+          <div>
+            <label style="font-size: 0.73rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem;">MONTO ($ CLP):</label>
+            <input id="swal-new-extra-monto" type="number" class="form-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.92rem; font-weight: 800;" placeholder="Ej: 15000" min="1">
+          </div>
+          <div>
+            <label style="font-size: 0.73rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem;">DETALLE / CONCEPTO:</label>
+            <input id="swal-new-extra-detalle" type="text" class="form-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.84rem;" placeholder="Ej: Sobredimensión pallets / Error picking">
+          </div>
+        </div>
+
+        <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.65rem 0.8rem;">
+          <label style="font-size: 0.73rem; font-weight: 800; color: #334155; display: block; margin-bottom: 0.3rem; text-transform: uppercase;">
+            ASIGNACIÓN DE PERIODO:
+          </label>
+          <select id="swal-new-extra-period" class="form-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.84rem; font-weight: 700;">
+            ${periodOptsHtml}
+          </select>
+          <div style="font-size: 0.72rem; color: #64748b; margin-top: 4px;">
+            Si eliges el periodo actual (${escapeHtml(b.currentPeriodName)}), también se incorporará automáticamente al Desglose Oficial.
+          </div>
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonColor: '#5f06fa',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: '<i class="ri-save-line"></i> Guardar Saldo',
+    cancelButtonText: 'Cancelar',
+    preConfirm: () => {
+      const comercio = document.getElementById('swal-new-extra-comercio')?.value?.trim();
+      const fecha = document.getElementById('swal-new-extra-fecha')?.value;
+      const tipo = document.getElementById('swal-new-extra-tipo')?.value || 'cargo';
+      const iva_tipo = document.getElementById('swal-new-extra-iva')?.value || 'mas_iva';
+      const monto = Math.abs(parseInt(document.getElementById('swal-new-extra-monto')?.value, 10) || 0);
+      const detalle = document.getElementById('swal-new-extra-detalle')?.value?.trim() || '';
+      const periodo_id = document.getElementById('swal-new-extra-period')?.value || null;
+
+      if (!comercio || !fecha) {
+        Swal.showValidationMessage('Completa el comercio y la fecha.');
+        return false;
+      }
+      if (!monto || monto <= 0) {
+        Swal.showValidationMessage('Ingresa un monto válido mayor a $0.');
+        return false;
+      }
+      if (!detalle) {
+        Swal.showValidationMessage('Ingresa el detalle o concepto del saldo adicional.');
+        return false;
+      }
+      return { comercio, fecha, tipo, iva_tipo, monto, detalle, periodo_id };
+    }
+  });
+
+  if (!formVals) return;
+
+  try {
+    const isAssigningNow = Boolean(formVals.periodo_id);
+    const insertPayload = {
+      comercio: formVals.comercio,
+      fecha: formVals.fecha,
+      tipo: formVals.tipo,
+      detalle: formVals.detalle,
+      monto: formVals.monto,
+      iva_tipo: formVals.iva_tipo,
+      status: isAssigningNow ? 'cobrado' : 'pendiente',
+      periodo_id: isAssigningNow ? formVals.periodo_id : null
+    };
+
+    const { data: created, error } = await supabase
+      .from('extra_billing_charges')
+      .insert(insertPayload)
+      .select('*')
+      .single();
+    if (error) throw error;
+
+    if (isAssigningNow && String(formVals.periodo_id) === String(b.currentPeriodId) && !b.isLocked && created) {
+      injectExtraChargeIntoBillingState(created);
+      recalculateFromCurrentState();
+    }
+
+    await loadAndRenderCommerceExtraChargesUI();
+    syncExternalExtraChargesViews();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: isAssigningNow ? 'Saldo registrado y asignado al periodo' : 'Saldo adicional registrado como Pendiente',
+      showConfirmButton: false,
+      timer: 3000
+    });
+  } catch (err) {
+    console.error('Error registrando saldo adicional desde Gestor:', err);
+    Swal.fire('Error', 'No se pudo registrar el saldo adicional: ' + (err.message || err), 'error');
+  }
+};
+
+// Editar un Saldo Adicional desde el Gestor y sincronizar su línea en el desglose si ya estaba aplicado
+window.openEditExtraChargeFromGeneratorModal = async function(chargeId) {
+  const b = billingState;
+  const charge = (Array.isArray(b.commerceExtraCharges) ? b.commerceExtraCharges : []).find(c => String(c.id) === String(chargeId));
+  if (!charge) return;
+
+  const { value: updVals } = await Swal.fire({
+    title: `<div style="display:flex;align-items:center;justify-content:center;gap:0.45rem;font-size:1.05rem;"><i class="ri-pencil-line" style="color:#5f06fa;"></i><span>Editar Saldo Adicional</span></div>`,
+    width: '500px',
+    html: `
+      <div style="text-align: left; font-size: 0.85rem; color: #1e293b;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+          <div>
+            <label style="font-size: 0.73rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem;">TIPO DE SALDO:</label>
+            <select id="swal-edit-extra-tipo" class="form-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.84rem; font-weight: 700;">
+              <option value="cargo" ${charge.tipo !== 'descuento' ? 'selected' : ''}>➕ Cargo Extraordinario</option>
+              <option value="descuento" ${charge.tipo === 'descuento' ? 'selected' : ''}>💰 Descuento / Saldo a Favor</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size: 0.73rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem;">FECHA:</label>
+            <input id="swal-edit-extra-fecha" type="date" class="form-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.84rem;" value="${escapeHtml(charge.fecha || '')}">
+          </div>
+        </div>
+        <div style="margin-bottom: 0.75rem;">
+          <label style="font-size: 0.73rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem;">DETALLE / CONCEPTO:</label>
+          <input id="swal-edit-extra-detalle" type="text" class="form-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.84rem;" value="${escapeHtml(charge.detalle || '')}">
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div>
+            <label style="font-size: 0.73rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem;">MONTO ($ CLP):</label>
+            <input id="swal-edit-extra-monto" type="number" class="form-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.92rem; font-weight: 800;" value="${charge.monto || 0}" min="1">
+          </div>
+          <div>
+            <label style="font-size: 0.73rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem;">TIPO DE IVA:</label>
+            <select id="swal-edit-extra-iva" class="form-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.84rem; font-weight: 700;">
+              <option value="mas_iva" ${charge.iva_tipo !== 'iva_incluido' ? 'selected' : ''}>Más IVA (Neto)</option>
+              <option value="iva_incluido" ${charge.iva_tipo === 'iva_incluido' ? 'selected' : ''}>IVA Incluido</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonColor: '#5f06fa',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: '<i class="ri-save-line"></i> Guardar Cambios',
+    cancelButtonText: 'Cancelar',
+    preConfirm: () => {
+      const tipo = document.getElementById('swal-edit-extra-tipo')?.value || 'cargo';
+      const fecha = document.getElementById('swal-edit-extra-fecha')?.value;
+      const detalle = document.getElementById('swal-edit-extra-detalle')?.value?.trim() || '';
+      const monto = Math.abs(parseInt(document.getElementById('swal-edit-extra-monto')?.value, 10) || 0);
+      const iva_tipo = document.getElementById('swal-edit-extra-iva')?.value || 'mas_iva';
+      if (!fecha || !detalle || monto <= 0) {
+        Swal.showValidationMessage('Completa fecha, detalle y un monto mayor a $0.');
+        return false;
+      }
+      return { tipo, fecha, detalle, monto, iva_tipo };
+    }
+  });
+
+  if (!updVals) return;
+
+  try {
+    const { data: updated, error } = await supabase
+      .from('extra_billing_charges')
+      .update(updVals)
+      .eq('id', chargeId)
+      .select('*')
+      .single();
+    if (error) throw error;
+
+    const applied = getExtraChargeAppliedEntriesInCurrentPeriod(chargeId);
+    if (applied.isApplied && !b.isLocked && updated) {
+      const prevMode = applied.matchedAbonos.length > 0
+        ? 'abono'
+        : (updated.tipo === 'descuento' ? 'adj_discount' : 'adj_charge');
+      injectExtraChargeIntoBillingState(updated, { mode: prevMode });
+      recalculateFromCurrentState();
+    }
+
+    await loadAndRenderCommerceExtraChargesUI();
+    syncExternalExtraChargesViews();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Saldo adicional actualizado',
+      showConfirmButton: false,
+      timer: 2500
+    });
+  } catch (err) {
+    console.error('Error editando saldo adicional:', err);
+    Swal.fire('Error', 'No se pudo actualizar el saldo adicional: ' + (err.message || err), 'error');
+  }
+};
+
+// Eliminar permanentemente un Saldo Adicional desde el Gestor
+window.deleteExtraChargeFromGenerator = async function(chargeId) {
+  const b = billingState;
+  const charge = (Array.isArray(b.commerceExtraCharges) ? b.commerceExtraCharges : []).find(c => String(c.id) === String(chargeId));
+  const applied = getExtraChargeAppliedEntriesInCurrentPeriod(chargeId);
+
+  if (applied.isApplied && b.isLocked) {
+    guardBillingLocked('eliminar un saldo adicional incorporado en un periodo cerrado');
+    return;
+  }
+
+  const res = await Swal.fire({
+    title: '¿Eliminar registro permanentemente?',
+    html: `Se eliminará de Saldos Adicionales el registro <strong>${escapeHtml(charge?.detalle || '')}</strong>${applied.isApplied ? ' y también se quitará del desglose actual' : ''}.`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#dc2626',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: '<i class="ri-delete-bin-line"></i> Sí, eliminar',
+    cancelButtonText: 'Cancelar'
+  });
+
+  if (!res.isConfirmed) return;
+
+  try {
+    const { error } = await supabase.from('extra_billing_charges').delete().eq('id', chargeId);
+    if (error) throw error;
+
+    removeExtraChargeEntriesFromCurrentBillingState(chargeId, true);
+    await loadAndRenderCommerceExtraChargesUI();
+    syncExternalExtraChargesViews();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Saldo adicional eliminado',
+      showConfirmButton: false,
+      timer: 2500
+    });
+  } catch (err) {
+    console.error('Error eliminando saldo adicional:', err);
+    Swal.fire('Error', 'No se pudo eliminar el registro: ' + (err.message || err), 'error');
+  }
+};
+
+// Modal rápido para asignar Saldos Adicionales directamente desde la Vista "Resumen del Periodo"
+window.openOverviewExtraChargesQuickModal = async function(commerceName, defaultPeriodId = null) {
+  const cleanComm = String(commerceName || '').trim();
+  if (!cleanComm) return;
+
+  const [charges, periods] = await Promise.all([
+    fetchCommerceExtraBillingCharges(cleanComm),
+    getAvailableBillingPeriodsForExtraCharges()
+  ]);
+
+  const pendingList = charges.filter(c => c.isPending);
+  if (pendingList.length === 0) {
+    window.openBillingGeneratorFromOverview(cleanComm, defaultPeriodId, 'extra-charges');
+    return;
+  }
+
+  const selectedPeriodId = defaultPeriodId || document.getElementById('bg-overview-select-period')?.value || periods[0]?.id || '';
+  const periodOptionsHtml = periods.map(p => {
+    const isSel = String(p.id) === String(selectedPeriodId);
+    return `<option value="${escapeHtml(p.id)}" ${isSel ? 'selected' : ''}>${escapeHtml(p.name)}</option>`;
+  }).join('');
+
+  const itemsCheckHtml = pendingList.map(c => {
+    const calc = c.calc || computeExtraChargeAmounts(c);
+    const dateFmt = c.fecha ? new Date(c.fecha + 'T00:00:00').toLocaleDateString('es-CL') : '';
+    const isDiff = String(c.comercio || '').trim().toUpperCase() !== cleanComm.toUpperCase();
+    return `
+      <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0.55rem 0.7rem; border-radius: 8px; border: 1px solid #e2e8f0; background: #ffffff; cursor: pointer;">
+        <div style="display: flex; align-items: flex-start; gap: 8px; min-width: 0;">
+          <input type="checkbox" class="swal-ov-extra-chk" value="${escapeHtml(c.id)}" checked style="margin-top: 3px; width: 15px; height: 15px; accent-color: #d97706;">
+          <div style="min-width: 0;">
+            <div style="font-weight: 800; font-size: 0.82rem; color: #1e293b;">
+              <span style="color: ${calc.isDiscount ? '#059669' : '#dc2626'};">[${calc.isDiscount ? 'Descuento' : 'Cargo'}]</span>
+              ${isDiff ? `<span style="color:#5f06fa;">(${escapeHtml(c.comercio)})</span> ` : ''}${escapeHtml(c.detalle)}
+            </div>
+            <div style="font-size: 0.71rem; color: #64748b;">Fecha: ${escapeHtml(dateFmt)} · ${calc.isIvaIncluido ? 'IVA Incluido' : '+ IVA Neto'}</div>
+          </div>
+        </div>
+        <strong style="font-size: 0.85rem; color: ${calc.isDiscount ? '#059669' : '#dc2626'}; white-space: nowrap;">
+          ${calc.isDiscount ? '-' : '+'}${formatCLP(calc.rawAmount)}
+        </strong>
+      </label>
+    `;
+  }).join('');
+
+  const { value: ovResult } = await Swal.fire({
+    title: `<div style="display:flex;align-items:center;justify-content:center;gap:0.45rem;font-size:1.05rem;"><i class="ri-coins-fill" style="color:#d97706;"></i><span>Saldos Adicionales — ${escapeHtml(cleanComm)}</span></div>`,
+    width: '580px',
+    html: `
+      <div style="text-align: left; font-size: 0.85rem; color: #1e293b;">
+        <p style="margin-top: 0; margin-bottom: 0.6rem; color: #475569; font-size: 0.8rem;">
+          Selecciona los saldos adicionales pendientes que deseas asignar y el periodo de facturación destino:
+        </p>
+
+        <div style="display: flex; flex-direction: column; gap: 0.45rem; max-height: 220px; overflow-y: auto; padding: 0.45rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 0.85rem;">
+          ${itemsCheckHtml}
+        </div>
+
+        <label style="font-size: 0.73rem; font-weight: 800; color: #334155; display: block; margin-bottom: 0.3rem; text-transform: uppercase;">
+          PERIODO DE FACTURACIÓN DESTINO:
+        </label>
+        <select id="swal-ov-extra-period" class="form-input" style="margin: 0 0 0.75rem 0; width: 100%; height: 40px; font-size: 0.88rem; font-weight: 800;">
+          ${periodOptionsHtml}
+        </select>
+
+        <div style="background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 8px; padding: 0.6rem 0.8rem;">
+          <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-weight: 800; color: #065f46; font-size: 0.8rem;">
+            <input type="checkbox" id="swal-ov-open-and-inject" checked style="margin-top: 2px; width: 15px; height: 15px; accent-color: #059669;">
+            <span>Abrir ahora el desglose de <strong>${escapeHtml(cleanComm)}</strong> en ese periodo e incorporar los montos automáticamente</span>
+          </label>
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    showDenyButton: true,
+    confirmButtonColor: '#059669',
+    denyButtonColor: '#5f06fa',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: '<i class="ri-check-double-line"></i> Asignar al Periodo',
+    denyButtonText: '<i class="ri-external-link-line"></i> Ver en Gestor',
+    cancelButtonText: 'Cancelar',
+    preConfirm: () => {
+      const checkedIds = Array.from(document.querySelectorAll('.swal-ov-extra-chk:checked')).map(el => el.value);
+      const targetPeriodId = document.getElementById('swal-ov-extra-period')?.value;
+      const openAndInject = Boolean(document.getElementById('swal-ov-open-and-inject')?.checked);
+      if (checkedIds.length === 0) {
+        Swal.showValidationMessage('Selecciona al menos un saldo adicional.');
+        return false;
+      }
+      if (!targetPeriodId) {
+        Swal.showValidationMessage('Selecciona un periodo destino.');
+        return false;
+      }
+      return { checkedIds, targetPeriodId, openAndInject };
+    }
+  });
+
+  if (ovResult === false) {
+    // Botón Deny: "Ver en Gestor"
+    window.openBillingGeneratorFromOverview(cleanComm, selectedPeriodId, 'extra-charges');
+    return;
+  }
+  if (!ovResult) return;
+
+  try {
+    const { error } = await supabase
+      .from('extra_billing_charges')
+      .update({ status: 'cobrado', periodo_id: ovResult.targetPeriodId })
+      .in('id', ovResult.checkedIds);
+    if (error) throw error;
+
+    if (ovResult.openAndInject) {
+      window.__pendingAutoIncorporateExtraChargeIds = ovResult.checkedIds.map(String);
+      await window.openBillingGeneratorFromOverview(cleanComm, ovResult.targetPeriodId, 'desglose');
+    } else {
+      await loadAndRenderPeriodOverview();
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `${ovResult.checkedIds.length} saldo(s) asignado(s) al periodo`,
+        showConfirmButton: false,
+        timer: 3000
+      });
+    }
+    if (typeof window.updatePendingExtraChargesBadge === 'function') {
+      window.updatePendingExtraChargesBadge();
+    }
+  } catch (err) {
+    console.error('Error asignando saldos desde Resumen del Periodo:', err);
+    Swal.fire('Error', 'No se pudieron asignar los saldos adicionales: ' + (err.message || err), 'error');
   }
 };
 

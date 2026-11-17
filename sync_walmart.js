@@ -78,7 +78,10 @@ function mapWalmartStatus(walmartStatus) {
   if (s === 'cancelled' || s === 'canceled') {
     return 'cancelado';
   }
-  if (s === 'shipped' || s === 'delivered') {
+  if (s === 'delivered') {
+    return 'entregado';
+  }
+  if (s === 'shipped') {
     return 'despachado';
   }
   if (s === 'acknowledged' || s === 'created') {
@@ -576,7 +579,9 @@ async function syncMerchantOrders(integration) {
       let finalWalmartStatus = 'Created';
       if (lineStatuses.includes('Cancelled')) {
         finalWalmartStatus = 'Cancelled';
-      } else if (lineStatuses.every(s => s === 'Shipped' || s === 'Delivered')) {
+      } else if (lineStatuses.length > 0 && lineStatuses.every(s => s === 'Delivered')) {
+        finalWalmartStatus = 'Delivered';
+      } else if (lineStatuses.length > 0 && lineStatuses.every(s => s === 'Shipped' || s === 'Delivered')) {
         finalWalmartStatus = 'Shipped';
       } else if (lineStatuses.includes('Acknowledged') || lineStatuses.includes('Created')) {
         finalWalmartStatus = 'Acknowledged';
@@ -584,7 +589,30 @@ async function syncMerchantOrders(integration) {
 
       const isCancelled = finalWalmartStatus === 'Cancelled';
       const targetStatus = mapWalmartStatus(finalWalmartStatus);
-      const shippingMethod = order.shippingInfo?.methodCode || 'Standard';
+      const baseWalmartMethod = order.shippingInfo?.methodCode || 'Standard';
+      let shippingMethod = baseWalmartMethod;
+      const estShipRaw = order.shippingInfo?.estimatedShipDate || order.shippingInfo?.estimatedDeliveryDate;
+      if (estShipRaw) {
+        try {
+          const estDate = new Date(typeof estShipRaw === 'number' || /^\d+$/.test(String(estShipRaw)) ? Number(estShipRaw) : estShipRaw);
+          if (!isNaN(estDate.getTime())) {
+            const parts = new Intl.DateTimeFormat('es-CL', {
+              timeZone: 'America/Santiago',
+              day: '2-digit', month: '2-digit', year: '2-digit',
+              hour: '2-digit', minute: '2-digit', hour12: false
+            }).formatToParts(estDate);
+            const dd = parts.find(p => p.type === 'day')?.value;
+            const mm = parts.find(p => p.type === 'month')?.value;
+            const yy = parts.find(p => p.type === 'year')?.value;
+            const hh = parts.find(p => p.type === 'hour')?.value;
+            const mi = parts.find(p => p.type === 'minute')?.value;
+            if (dd && mm && yy) {
+              const timePart = (hh && mi && (hh !== '00' || mi !== '00')) ? ` ${hh}:${mi}` : '';
+              shippingMethod = `${baseWalmartMethod} (Límite: ${dd}/${mm}/${yy}${timePart})`;
+            }
+          }
+        } catch (_) {}
+      }
 
       let orderNumber = orderId.trim();
 
@@ -614,6 +642,9 @@ async function syncMerchantOrders(integration) {
       let shouldInsertItems = false;
 
       if (existingOrder) {
+        if (existingOrder.estado_wms === 'Entregado') {
+          continue;
+        }
         localOrderId = existingOrder.id;
         const existingRaw = existingOrder.raw_walmart_data || {};
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
@@ -649,7 +680,12 @@ async function syncMerchantOrders(integration) {
           };
           
           const terminalStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
-          if (!terminalStatuses.includes(existingOrder.status)) {
+          const existingWmsLow = (existingOrder.estado_wms || '').trim().toLowerCase();
+          if (targetStatus === 'entregado' && !['entregado', 'cancelado', 'archivado'].includes(existingWmsLow)) {
+            updatePayload.status = 'entregado';
+            updatePayload.estado_wms = 'Entregado';
+            updatePayload.closed_by_automation = 'auto-marketplace-delivered-to-entregado';
+          } else if (!terminalStatuses.includes(existingOrder.status)) {
             updatePayload.status = targetStatus;
           }
 
@@ -910,11 +946,16 @@ async function syncMerchantProducts(integration) {
       const sku = String(itemDetail.sku || '').trim().replace(/\s+/g, '');
       if (!sku) continue;
 
+      const imageUrl = itemDetail.mainImageUrl
+        || itemDetail.images?.[0]?.url
+        || (itemDetail.itemId ? `https://images.lider.cl/wmtcl?source=url[file:/product/${itemDetail.itemId}a.jpg]&sink` : null);
+
       const productDataToSave = {
         comercio: integration.comercio,
         platform: 'Walmart',
         sku: sku,
-        name: itemDetail.productName || 'Producto Walmart'
+        name: itemDetail.productName || 'Producto Walmart',
+        image_url: imageUrl
       };
 
       try {
@@ -926,6 +967,15 @@ async function syncMerchantProducts(integration) {
           console.error(`   ❌ Error al sincronizar SKU ${sku} en synced_products:`, error.message);
         } else {
           console.log(`   📥 Sincronizado SKU ${sku} en synced_products`);
+        }
+
+        if (imageUrl && integration.comercio) {
+          await supabase
+            .from('products')
+            .update({ image_url: imageUrl })
+            .eq('comercio', integration.comercio)
+            .ilike('sku', sku)
+            .or('image_url.is.null,image_url.eq.');
         }
       } catch (err) {
         console.error(`   ❌ Error general al procesar SKU ${sku}:`, err.message);

@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { sendWhatsAppMessage, sendWhatsAppDocument } = require('./whatsapp_client');
 const { generatePickupLabelPDF } = require('./label_pdf_service');
+const { buildPickerOrderMeta, resolveProductImageForPicker } = require('./picker_order_meta');
 
 // Cargar variables de entorno
 const envPath = path.join(__dirname, '../.env');
@@ -257,7 +258,17 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
       payment_status,
       origen,
       external_platform,
+      status,
+      courier,
       raw_shopify_data,
+      raw_woocommerce_data,
+      raw_tiendanube_data,
+      raw_jumpseller_data,
+      raw_meli_data,
+      raw_falabella_data,
+      raw_paris_data,
+      raw_walmart_data,
+      raw_ripley_data,
       estado_wms,
       agenda,
       operador,
@@ -273,9 +284,10 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
         campaign_id,
         is_picking_request,
         products (
-          id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms,
+          id, comercio, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms,
           send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker,
-          color, talla, variable_1, variable_2
+          color, talla, variable_1, variable_2,
+          raw_paris_data, raw_falabella_data, raw_jumpseller_data, raw_tiendanube_data, raw_woocommerce_data, raw_meli_data, raw_ripley_data
         )
       )
     `)
@@ -574,6 +586,8 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
   const pickingTagStr = pendingReqTexts.length > 0 ? `🚨 [SOLICITUD PICKING: ${pendingReqTexts.join('; ')}]` : '';
   const finalObsText = (pickingTagStr ? (baseObsText ? `${pickingTagStr} | ${baseObsText}` : pickingTagStr) : baseObsText).slice(0, 1000);
 
+  const orderMeta = buildPickerOrderMeta({ ...order, agenda: 'RETIRO', categoria_entrega: 'RETIRO', operador: 'SUCURSAL ÑUÑOA' });
+
   pickableItems.forEach(oi => {
     const prod = oi.products || {};
     const opt = prod.options || {};
@@ -581,6 +595,7 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
     const tallaVal = prod.talla || opt.talla || opt.size || null;
     const mangaVal = prod.variable_1 || opt.var1 || opt.manga || null;
     const cuelloVal = prod.variable_2 || opt.var2 || opt.cuello || null;
+    const resolvedImg = resolveProductImageForPicker(prod, order);
 
     pickerPayloads.push({
       sucursal: 'Sucursal Ñuñoa',
@@ -607,13 +622,20 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
       contact_data_s: order.shipping_address || '',
       contact_data_t: order.shipping_city || '',
       contact_data_u: order.shipping_complement || '',
-      extra_col_v: prod.image_url || '',
+      extra_col_v: resolvedImg || '',
       comercio: order.comercio || 'STOCKA',
       created_by: 'Stox Bot (AutoPickup)',
       picking_match_strict: prod.picking_match_strict || false,
       has_picking_requests: hasPickingReqs,
       picking_requests_json: hasPickingReqs ? prItems : null,
-      picking_requests_confirmed: pickingReqsConfirmed
+      picking_requests_confirmed: pickingReqsConfirmed,
+      platform: orderMeta.platform,
+      platform_logo: orderMeta.platform_logo,
+      shipping_method: orderMeta.shipping_method,
+      payment_status: orderMeta.payment_status,
+      coverage: orderMeta.coverage,
+      order_tags: orderMeta.order_tags,
+      order_sla: orderMeta.order_sla
     });
   });
 

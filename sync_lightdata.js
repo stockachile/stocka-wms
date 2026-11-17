@@ -358,7 +358,7 @@ async function syncLightData() {
         const candidateFilters = candidates.map(c => `"${c}"`).join(',');
         let orderQuery = supabase
           .from('orders')
-          .select('id, status, external_order_number, tracking_number, courier, operador, lightdata_status, raw_lightdata_data, comercio, categoria_entrega, agenda')
+          .select('id, status, estado_wms, external_order_number, tracking_number, courier, operador, lightdata_status, raw_lightdata_data, comercio, categoria_entrega, agenda')
           .or(`external_order_number.in.(${candidateFilters}),tracking_number.in.(${candidateFilters})`);
 
         // Solo filtrar por comercio en orders si resolvedComercio no es la cuenta genérica "Stocka 1" / "Stocka CL"
@@ -371,6 +371,9 @@ async function syncLightData() {
         if (dbOrders && dbOrders.length > 0) {
           matchingOrdersCount++;
           for (const dbOrder of dbOrders) {
+            if (dbOrder.estado_wms === 'Entregado') {
+              continue;
+            }
             if (String(dbOrder.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') {
               continue;
             }

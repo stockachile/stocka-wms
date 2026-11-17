@@ -614,6 +614,7 @@ async function handleOrderNotification(orderId: string, integration: any, access
           let meliItemId = null;
           let meliVariationId = null;
 
+          let meliImageUrl: string | null = null;
           if (itemDetail) {
             name = itemDetail.title;
             price = itemDetail.price;
@@ -632,6 +633,8 @@ async function handleOrderNotification(orderId: string, integration: any, access
                     barcode = gtinAttr.value_name;
                   }
                 }
+                const rawPic = rawItemData.pictures?.[0]?.secure_url || rawItemData.secure_thumbnail || rawItemData.thumbnail || null;
+                if (rawPic) meliImageUrl = String(rawPic).replace(/^http:\/\//i, 'https://');
               }
             } catch (e) {
               console.error(`Error al buscar barcode para ${sku}:`, e.message);
@@ -647,6 +650,7 @@ async function handleOrderNotification(orderId: string, integration: any, access
               name: name,
               barcode: barcode,
               price: price,
+              image_url: meliImageUrl,
               description: 'Creado automáticamente desde integración de MercadoLibre',
               meli_item_id: meliItemId,
               meli_variation_id: meliVariationId,
@@ -714,6 +718,9 @@ async function handleItemNotification(itemId: string, integration: any, accessTo
     });
   }
 
+  const mainMeliImgRaw = itemDetail.pictures?.[0]?.secure_url || itemDetail.secure_thumbnail || itemDetail.thumbnail || null;
+  const mainMeliImg = mainMeliImgRaw ? String(mainMeliImgRaw).replace(/^http:\/\//i, 'https://') : null;
+
   if (itemDetail.variations && itemDetail.variations.length > 0) {
     for (const variation of itemDetail.variations) {
       const rawSku = getMeliSku(variation, variation.id.toString());
@@ -728,8 +735,15 @@ async function handleItemNotification(itemId: string, integration: any, accessTo
 
       const barcode = getBarcodeFromAttributes(variation.attributes, cleanSku);
       const price = variation.price || itemDetail.price || 0;
+      let varImg = mainMeliImg;
+      if (Array.isArray(variation.picture_ids) && variation.picture_ids.length > 0 && Array.isArray(itemDetail.pictures)) {
+        const matchedPic = itemDetail.pictures.find((p: any) => p.id === variation.picture_ids[0]);
+        if (matchedPic?.secure_url || matchedPic?.url) {
+          varImg = String(matchedPic.secure_url || matchedPic.url).replace(/^http:\/\//i, 'https://');
+        }
+      }
 
-      const productDataToUpsert = {
+      const productDataToUpsert: Record<string, any> = {
         merchant_id: integration.merchant_id,
         comercio: integration.comercio,
         sku: mappedSku,
@@ -741,6 +755,7 @@ async function handleItemNotification(itemId: string, integration: any, accessTo
         meli_variation_id: variation.id.toString(),
         raw_meli_data: { ...variation, base_item_title: itemDetail.title, base_item_id: itemDetail.id }
       };
+      if (varImg) productDataToUpsert.image_url = varImg;
 
       await supabase
         .from("products")
@@ -754,7 +769,7 @@ async function handleItemNotification(itemId: string, integration: any, accessTo
     const barcode = getBarcodeFromAttributes(itemDetail.attributes, cleanSku);
     const price = itemDetail.price || 0;
 
-    const productDataToUpsert = {
+    const productDataToUpsert: Record<string, any> = {
       merchant_id: integration.merchant_id,
       comercio: integration.comercio,
       sku: mappedSku,
@@ -766,6 +781,7 @@ async function handleItemNotification(itemId: string, integration: any, accessTo
       meli_variation_id: null,
       raw_meli_data: itemDetail
     };
+    if (mainMeliImg) productDataToUpsert.image_url = mainMeliImg;
 
     await supabase
       .from("products")

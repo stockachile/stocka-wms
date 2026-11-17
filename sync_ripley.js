@@ -368,6 +368,9 @@ async function syncMerchantOrders(integration) {
       let shouldInsertItems = false;
 
       if (existingOrder) {
+        if (existingOrder.estado_wms === 'Entregado') {
+          continue;
+        }
         const existingRaw = existingOrder.raw_ripley_data || {};
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
@@ -411,11 +414,16 @@ async function syncMerchantOrders(integration) {
             .update(cancelUpdate)
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${finalOrderId} cancelado en Ripley. Actualizado en el WMS (estado_wms: ${cancelUpdate.estado_wms || existingOrder.estado_wms}).`);
+        } else if (isDelivered && !['entregado', 'cancelado', 'archivado'].includes((existingOrder.estado_wms || '').trim().toLowerCase())) {
+          orderDataToUpdate.status = 'entregado';
+          orderDataToUpdate.estado_wms = 'Entregado';
+          orderDataToUpdate.closed_by_automation = 'auto-marketplace-delivered-to-entregado';
+          await supabase
+            .from('orders')
+            .update(orderDataToUpdate)
+            .eq('id', existingOrder.id);
+          console.log(`🏁 Pedido local ${finalOrderId} cerrado en Entregado (Ripley).`);
         } else if (!isTerminalWMS) {
-          // Actualizar datos del pedido manteniendo el estado WMS actual o transicionando a despachado
-          if (isDelivered) {
-            orderDataToUpdate.status = 'despachado';
-          }
           await supabase
             .from('orders')
             .update(orderDataToUpdate)
@@ -467,10 +475,23 @@ async function syncMerchantOrders(integration) {
 
       if (localOrderId && shouldInsertItems) {
         for (const [sku, qty] of Object.entries(itemQuantities)) {
+          const orderItemDetail = allLines.find(item => {
+            let itemSku = item.offer_sku || item.product_sku;
+            if (!itemSku) return false;
+            let cleanItemSku = itemSku.replace(/\s+/g, '');
+            let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+            return mappedItemSku === sku;
+          });
+          let itemImageUrl = orderItemDetail?.product_medias?.[0]?.media_url || orderItemDetail?.image_url || null;
+          if (itemImageUrl && itemImageUrl.startsWith('/')) {
+            const originHost = baseUrl.replace(/\/api\/?$/, '');
+            itemImageUrl = `${originHost}${itemImageUrl}`;
+          }
+
           // Buscar producto por SKU en la base de datos
           let { data: product } = await supabase
             .from('products')
-            .select('id, comercio')
+            .select('id, comercio, image_url')
             .eq('comercio', integration.comercio)
             .eq('sku', sku)
             .maybeSingle();
@@ -483,16 +504,12 @@ async function syncMerchantOrders(integration) {
             product.comercio = integration.comercio;
           }
 
+          if (product && !product.image_url && itemImageUrl) {
+            await supabase.from('products').update({ image_url: itemImageUrl }).eq('id', product.id);
+            product.image_url = itemImageUrl;
+          }
+
           if (!product) {
-            // Auto-crear producto faltante
-            const orderItemDetail = allLines.find(item => {
-              let itemSku = item.offer_sku || item.product_sku;
-              if (!itemSku) return false;
-              let cleanItemSku = itemSku.replace(/\s+/g, '');
-              let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
-              return mappedItemSku === sku;
-            });
-            
             const productName = orderItemDetail?.product_title || 'Producto Ripley ' + sku;
             const productPrice = Number(orderItemDetail?.price || 0);
 
@@ -504,10 +521,11 @@ async function syncMerchantOrders(integration) {
                 sku: sku,
                 name: productName,
                 price: productPrice,
+                image_url: itemImageUrl,
                 description: 'Creado automáticamente desde integración de Ripley (Mirakl)',
                 raw_ripley_data: orderItemDetail
               }])
-              .select('id')
+              .select('id, image_url')
               .single();
 
             if (!prodErr && newProd) {
