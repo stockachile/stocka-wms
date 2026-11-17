@@ -459,17 +459,29 @@ import supabase from './supabase.js';
    * Generates a Code128 vector barcode SVG and returns its HTML string.
    * Utilizes JsBarcode.
    */
+  const _barcodeSvgCache = new Map();
+  const MAX_BARCODE_SVG_CACHE = 500;
+
   window.generateBarcodeSVG = function (value, withText, size) {
     if (!value) return `<div style="color:var(--color-danger);font-size:0.75rem;">Sin código</div>`;
-    
+
+    if (typeof JsBarcode === 'undefined') {
+      return `<div style="font-size:0.75rem;padding:0.5rem;border:1px dashed var(--color-border);text-align:center;">JsBarcode no cargado</div>`;
+    }
+
+    const cacheKey = `${value}|${Boolean(withText)}|${size || ''}`;
+    if (_barcodeSvgCache.has(cacheKey)) {
+      return _barcodeSvgCache.get(cacheKey);
+    }
+
     // Create a temporary SVG element in memory
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    
+
     // Adjust scale, height, and margins based on label dimensions
     let barcodeWidth = 1.3;
     let barcodeHeight = 40;
     let fontSize = 10;
-    
+
     if (size === '5x2.5') {
       barcodeWidth = 1.1;
       barcodeHeight = 28;
@@ -483,12 +495,8 @@ import supabase from './supabase.js';
       barcodeHeight = 110;
       fontSize = 14;
     }
-    
+
     try {
-      if (typeof JsBarcode === 'undefined') {
-        return `<div style="font-size:0.75rem;padding:0.5rem;border:1px dashed var(--color-border);text-align:center;">JsBarcode no cargado</div>`;
-      }
-      
       JsBarcode(svg, value, {
         format: "CODE128",
         width: barcodeWidth,
@@ -499,12 +507,95 @@ import supabase from './supabase.js';
         textMargin: 3,
         margin: 0
       });
-      return svg.outerHTML;
+      const rendered = svg.outerHTML;
+      if (_barcodeSvgCache.size >= MAX_BARCODE_SVG_CACHE) {
+        const oldestKey = _barcodeSvgCache.keys().next().value;
+        _barcodeSvgCache.delete(oldestKey);
+      }
+      _barcodeSvgCache.set(cacheKey, rendered);
+      return rendered;
     } catch (err) {
       console.error("Error rendering barcode with JsBarcode:", err);
       return `<div style="color:var(--color-danger);font-size:0.75rem;">Código incompatible</div>`;
     }
   };
+
+  /**
+   * Dispatches compiled HTML to a clean offscreen iframe and triggers the native print dialog
+   * without premature iframe destruction (which stalls Chrome Print Preview) or slow network waits.
+   */
+  function dispatchHtmlToPrintIframe(htmlContent, iframeId = 'wms-print-labels-iframe') {
+    const prevIframe = document.getElementById(iframeId);
+    if (prevIframe) {
+      if (prevIframe._wmsCleanupTimer) clearTimeout(prevIframe._wmsCleanupTimer);
+      prevIframe.remove();
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.id = iframeId;
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:none;visibility:hidden;pointer-events:none;z-index:-9999;';
+    document.body.appendChild(iframe);
+
+    const printWindow = iframe.contentWindow;
+    const frameDoc = (printWindow && printWindow.document) || iframe.contentDocument;
+    frameDoc.open();
+    frameDoc.write(htmlContent);
+    frameDoc.close();
+
+    let printed = false;
+    const cleanupIframe = () => {
+      if (iframe._wmsCleanupTimer) {
+        clearTimeout(iframe._wmsCleanupTimer);
+        iframe._wmsCleanupTimer = null;
+      }
+      if (iframe.isConnected) {
+        iframe.remove();
+      }
+    };
+
+    const proceedToPrint = () => {
+      if (printed) return;
+      printed = true;
+      // Wait 1 animation frame so any closing modal backdrop clears before native print dialog opens
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          try {
+            if (!iframe.isConnected || !iframe.contentWindow) return;
+            iframe.contentWindow.addEventListener('afterprint', cleanupIframe, { once: true });
+            // Fallback cleanup after 2 minutes (never 1s, which breaks async Chrome Print Preview)
+            iframe._wmsCleanupTimer = setTimeout(cleanupIframe, 120000);
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+          } catch (err) {
+            console.error('Failed to open native print dialog:', err);
+            cleanupIframe();
+            if (typeof Swal !== 'undefined') {
+              Swal.fire('Error', 'No se pudo abrir el cuadro de impresión nativo del navegador.', 'error');
+            }
+          }
+        }, 16);
+      });
+    };
+
+    const pendingImages = Array.from(frameDoc.images || []).filter(img => !img.complete);
+    if (pendingImages.length === 0) {
+      proceedToPrint();
+    } else {
+      let settledCount = 0;
+      const safetyTimer = setTimeout(proceedToPrint, 350);
+      const onImgDone = () => {
+        settledCount++;
+        if (settledCount >= pendingImages.length) {
+          clearTimeout(safetyTimer);
+          proceedToPrint();
+        }
+      };
+      pendingImages.forEach(img => {
+        img.addEventListener('load', onImgDone, { once: true });
+        img.addEventListener('error', onImgDone, { once: true });
+      });
+    }
+  }
 
   /**
    * Renders the bulk label generator panel in #app-content
@@ -654,9 +745,6 @@ import supabase from './supabase.js';
       </div>
     `;
 
-    // Ensure we have catalog products cached for the selected commerce
-    await ensureCatalogProducts();
-
     // Reset local queue
     printQueue = [];
 
@@ -665,24 +753,29 @@ import supabase from './supabase.js';
     const assignedComercios = (window.currentCompany || '').split(',').map(c => c.trim()).filter(Boolean);
     const activeCommerce = isAdmin ? window.activeAdminComercio : (window.activeIntegrationCommerce || assignedComercios[0] || '');
 
-    // Fetch commerce variant configuration and check if commerce has active products with variants
-    commerceVariantConfig = await loadCommerceVariantConfig(activeCommerce);
-    hasCommerceVariants = checkCommerceHasVariants(localCatalogProducts, commerceVariantConfig);
-
-    // Fetch stock declarations/incomes for this commerce
+    // Fetch catalog products, variant config, and lightweight stock declarations concurrently (excluding heavy file_base64)
     let declarations = [];
-    try {
-      const { data, error } = await supabase
-        .from('stock_declarations')
-        .select('*, warehouses (name)')
-        .eq('comercio', activeCommerce)
-        .order('created_at', { ascending: false });
-      
-      if (!error) {
-        declarations = data || [];
-      }
-    } catch (err) {
-      console.error("Error loading declarations for labels:", err);
+    const [, loadedVariantCfg, declResult] = await Promise.all([
+      ensureCatalogProducts(),
+      loadCommerceVariantConfig(activeCommerce),
+      activeCommerce
+        ? supabase
+            .from('stock_declarations')
+            .select('id, title, created_at, status, quantity_declared, quantity_received, warehouses (name)')
+            .eq('comercio', activeCommerce)
+            .order('created_at', { ascending: false })
+            .then(res => res)
+            .catch(err => {
+              console.error("Error loading declarations for labels:", err);
+              return { data: [], error: err };
+            })
+        : Promise.resolve({ data: [], error: null })
+    ]);
+
+    commerceVariantConfig = loadedVariantCfg;
+    hasCommerceVariants = checkCommerceHasVariants(localCatalogProducts, commerceVariantConfig);
+    if (declResult && !declResult.error) {
+      declarations = declResult.data || [];
     }
 
     // Render tabbed layout
@@ -5147,40 +5240,7 @@ import supabase from './supabase.js';
       </html>
     `;
 
-    // Deploy hidden print Frame
-    const iframe = document.createElement('iframe');
-    iframe.id = 'wms-print-labels-iframe';
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = 'none';
-    iframe.style.zIndex = '-9999';
-    document.body.appendChild(iframe);
-
-    // Ingress content
-    const frameDoc = iframe.contentWindow.document || iframe.contentDocument;
-    frameDoc.open();
-    frameDoc.write(htmlContent);
-    frameDoc.close();
-
-    // Trigger printing dialog
-    setTimeout(() => {
-      try {
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-      } catch (err) {
-        console.error("Failed to open native print dialog:", err);
-        Swal.fire('Error', 'No se pudo abrir el cuadro de impresión nativo del navegador.', 'error');
-      } finally {
-        // Clean up document body from hidden elements
-        setTimeout(() => {
-          const element = document.getElementById('wms-print-labels-iframe');
-          if (element) element.remove();
-        }, 1000);
-      }
-    }, 500);
+    dispatchHtmlToPrintIframe(htmlContent, 'wms-print-labels-iframe');
   };
 
   /**
@@ -5297,39 +5357,7 @@ import supabase from './supabase.js';
       </html>
     `;
 
-    // Deploy hidden print Frame
-    const iframe = document.createElement('iframe');
-    iframe.id = 'wms-print-fragile-iframe';
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = 'none';
-    iframe.style.zIndex = '-9999';
-    document.body.appendChild(iframe);
-
-    // Ingress content
-    const frameDoc = iframe.contentWindow.document || iframe.contentDocument;
-    frameDoc.open();
-    frameDoc.write(htmlContent);
-    frameDoc.close();
-
-    // Trigger printing dialog
-    setTimeout(() => {
-      try {
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-      } catch (err) {
-        console.error("Failed to open native print dialog for fragile labels:", err);
-        Swal.fire('Error', 'No se pudo abrir el cuadro de impresión nativo del navegador.', 'error');
-      } finally {
-        setTimeout(() => {
-          const element = document.getElementById('wms-print-fragile-iframe');
-          if (element) element.remove();
-        }, 1000);
-      }
-    }, 400);
+    dispatchHtmlToPrintIframe(htmlContent, 'wms-print-fragile-iframe');
   };
 
   /**
@@ -5681,39 +5709,7 @@ import supabase from './supabase.js';
       </html>
     `;
 
-    // Deploy hidden print Frame
-    const iframe = document.createElement('iframe');
-    iframe.id = 'wms-print-expiry-iframe';
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = 'none';
-    iframe.style.zIndex = '-9999';
-    document.body.appendChild(iframe);
-
-    // Ingress content
-    const frameDoc = iframe.contentWindow.document || iframe.contentDocument;
-    frameDoc.open();
-    frameDoc.write(htmlContent);
-    frameDoc.close();
-
-    // Trigger printing dialog
-    setTimeout(() => {
-      try {
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-      } catch (err) {
-        console.error("Failed to open native print dialog for expiry labels:", err);
-        Swal.fire('Error', 'No se pudo abrir el cuadro de impresión nativo del navegador.', 'error');
-      } finally {
-        setTimeout(() => {
-          const element = document.getElementById('wms-print-expiry-iframe');
-          if (element) element.remove();
-        }, 1000);
-      }
-    }, 400);
+    dispatchHtmlToPrintIframe(htmlContent, 'wms-print-expiry-iframe');
   };
 
   /**
@@ -6019,39 +6015,7 @@ import supabase from './supabase.js';
       </html>
     `;
 
-    // Deploy hidden print Frame
-    const iframe = document.createElement('iframe');
-    iframe.id = 'wms-print-exchange-iframe';
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = 'none';
-    iframe.style.zIndex = '-9999';
-    document.body.appendChild(iframe);
-
-    // Ingress content
-    const frameDoc = iframe.contentWindow.document || iframe.contentDocument;
-    frameDoc.open();
-    frameDoc.write(htmlContent);
-    frameDoc.close();
-
-    // Trigger printing dialog
-    setTimeout(() => {
-      try {
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-      } catch (err) {
-        console.error("Failed to open native print dialog for exchange labels:", err);
-        Swal.fire('Error', 'No se pudo abrir el cuadro de impresión nativo del navegador.', 'error');
-      } finally {
-        setTimeout(() => {
-          const element = document.getElementById('wms-print-exchange-iframe');
-          if (element) element.remove();
-        }, 1000);
-      }
-    }, 450);
+    dispatchHtmlToPrintIframe(htmlContent, 'wms-print-exchange-iframe');
   };
 
   /**
@@ -6300,55 +6264,52 @@ import supabase from './supabase.js';
     return text.toString().replace(/[&<>"']/g, function (m) { return map[m]; });
   }
 
-  window.showShippingLabelModal = async function(orderId) {
-    if (typeof Swal === 'undefined') {
-      alert("Error: SweetAlert2 no está cargado.");
-      return;
-    }
+  const SHIPPING_LABEL_ORDER_SELECT = `
+    id,
+    external_order_number,
+    comercio,
+    customer_name,
+    customer_phone,
+    shipping_address,
+    shipping_complement,
+    shipping_city,
+    shipping_method,
+    courier,
+    operador,
+    sku,
+    item,
+    cantidad,
+    raw_shopify_data,
+    order_items (
+      quantity,
+      products (
+        id,
+        sku,
+        name
+      )
+    )
+  `.replace(/\s+/g, ' ').trim();
 
-    Swal.fire({
-      title: 'Cargando datos del pedido...',
-      text: 'Por favor, espere mientras obtenemos los detalles del pedido.',
-      allowOutsideClick: false,
-      showConfirmButton: false,
-      didOpen: () => {
-        Swal.showLoading();
+  function buildInMemoryOrdersLookupMap() {
+    const map = new Map();
+    const sources = [window.loadedOrders, window.clientLoadedOrders];
+    for (let s = 0; s < sources.length; s++) {
+      const arr = sources[s];
+      if (!Array.isArray(arr)) continue;
+      for (let i = 0; i < arr.length; i++) {
+        const o = arr[i];
+        if (o && o.id !== undefined && o.id !== null) {
+          const key = String(o.id);
+          if (!map.has(key) || Array.isArray(o.order_items)) {
+            map.set(key, o);
+          }
+        }
       }
-    });
-
-    let order = null;
-    try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select(`
-          *,
-          order_items (
-            quantity,
-            products (
-              id,
-              sku,
-              name,
-              price
-            )
-          )
-        `)
-        .eq('id', orderId)
-        .single();
-       
-      if (error) throw error;
-      order = data;
-    } catch (err) {
-      console.error("Error fetching order:", err);
-      Swal.fire('Error', 'No se pudo cargar la información del pedido: ' + err.message, 'error');
-      return;
     }
+    return map;
+  }
 
-    if (!order) {
-      Swal.fire('Error', 'Pedido no encontrado.', 'error');
-      return;
-    }
-
-    // Determine fallback values for customer details
+  function resolveOrderCustomerDetails(order) {
     let displayName = order.customer_name;
     if (!displayName || displayName === 'No registrado' || displayName.trim() === '') {
       if (order.raw_shopify_data) {
@@ -6370,10 +6331,138 @@ import supabase from './supabase.js';
       if (!displayPhone || displayPhone.trim() === '') displayPhone = 'No registrado';
     }
 
+    return { displayName, displayPhone };
+  }
+
+  /**
+   * Resolves orders for Stocka shipping labels in O(1) from memory when already loaded,
+   * falling back to a lightweight, batched, timeout-protected Supabase query only for missing IDs.
+   */
+  async function fetchOrdersForBulkShippingLabels(customIds, loadingTitle = 'Cargando datos...', opts = {}) {
+    if (typeof Swal === 'undefined') {
+      alert("Error: SweetAlert2 no está cargado.");
+      return null;
+    }
+
+    const rawIds = customIds !== undefined && customIds !== null
+      ? (Array.isArray(customIds) ? customIds : [customIds])
+      : Array.from(window.wmsSelectedOrderIds || []);
+    const orderIds = rawIds.map(id => String(id || '').trim()).filter(Boolean);
+
+    if (orderIds.length === 0) {
+      Swal.fire('Atención', 'No hay pedidos seleccionados.', 'warning');
+      return null;
+    }
+
+    // 1. Instant O(1) lookup from already hydrated orders in memory (0ms, 0 network requests)
+    const memMap = buildInMemoryOrdersLookupMap();
+    const resolvedById = new Map();
+    const missingIds = [];
+
+    for (let i = 0; i < orderIds.length; i++) {
+      const id = orderIds[i];
+      const cached = memMap.get(id);
+      if (cached && Array.isArray(cached.order_items)) {
+        resolvedById.set(id, cached);
+      } else {
+        missingIds.push(id);
+      }
+    }
+
+    if (missingIds.length === 0) {
+      return orderIds.map(id => resolvedById.get(id)).filter(Boolean);
+    }
+
+    // 2. Fallback network fetch ONLY for missing IDs using lightweight columns (excludes label_base64 & snapshots)
+    let openedLoadingModal = false;
+    Swal.fire({
+      title: loadingTitle,
+      text: missingIds.length === 1
+        ? 'Obteniendo detalles del pedido...'
+        : `Obteniendo detalles de ${missingIds.length} pedido(s)...`,
+      allowOutsideClick: false,
+      showConfirmButton: false,
+      showClass: { popup: '' },
+      hideClass: { popup: '' },
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+    openedLoadingModal = true;
+
+    try {
+      const chunkSize = 80;
+      const chunks = [];
+      for (let i = 0; i < missingIds.length; i += chunkSize) {
+        chunks.push(missingIds.slice(i, i + chunkSize));
+      }
+
+      const fetchPromise = Promise.all(
+        chunks.map(chunk =>
+          supabase
+            .from('orders')
+            .select(SHIPPING_LABEL_ORDER_SELECT)
+            .in('id', chunk)
+            .then(({ data, error }) => {
+              if (error) throw error;
+              return data || [];
+            })
+        )
+      );
+
+      let timeoutId = null;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error('La consulta tardó demasiado tiempo. Verifique su conexión e intente nuevamente.'));
+        }, 15000);
+      });
+
+      const batchResults = await Promise.race([fetchPromise, timeoutPromise]);
+      if (timeoutId) clearTimeout(timeoutId);
+
+      batchResults.flat().forEach(row => {
+        if (row && row.id !== undefined && row.id !== null) {
+          resolvedById.set(String(row.id), row);
+        }
+      });
+
+      const finalOrders = orderIds
+        .map(id => resolvedById.get(id) || memMap.get(id))
+        .filter(Boolean);
+
+      if (finalOrders.length === 0) {
+        Swal.fire('Error', 'No se encontraron los pedidos.', 'error');
+        return null;
+      }
+
+      if (openedLoadingModal && opts.closeLoadingModal !== false) {
+        Swal.close();
+      }
+      return finalOrders;
+    } catch (err) {
+      console.error("Error fetching orders for shipping labels:", err);
+      Swal.fire('Error', 'No se pudieron cargar los pedidos: ' + (err && err.message ? err.message : String(err)), 'error');
+      return null;
+    }
+  }
+
+  window.showShippingLabelModal = async function(orderId) {
+    if (typeof Swal === 'undefined') {
+      alert("Error: SweetAlert2 no está cargado.");
+      return;
+    }
+
+    const orders = await fetchOrdersForBulkShippingLabels([orderId], 'Cargando datos del pedido...', { closeLoadingModal: false });
+    if (!orders || orders.length === 0) return;
+    const order = orders[0];
+
+    const { displayName, displayPhone } = resolveOrderCustomerDetails(order);
+    const cleanOrderRef = String(order.external_order_number || String(order.id || '').split('-')[0]).replace(/^#+/, '');
+
     const modalHtml = `
       <div style="text-align: left; font-family: 'Inter', sans-serif;">
         <p style="margin-bottom: 1rem; font-size: 0.9rem; color: var(--color-text-muted);">
-          Genera una etiqueta de despacho personalizada para el pedido <strong>#${order.external_order_number || order.id.split('-')[0]}</strong>.
+          Genera una etiqueta de despacho personalizada para el pedido <strong>#${escapeHtml(cleanOrderRef)}</strong>.
         </p>
         
         <div class="form-group" style="margin-bottom: 1rem;">
@@ -6419,6 +6508,7 @@ import supabase from './supabase.js';
       denyButtonText: '<i class="ri-download-2-line" style="margin-right:0.25rem;"></i> Descargar PDF',
       cancelButtonText: 'Cancelar',
       denyButtonColor: '#059669',
+      hideClass: { popup: '' },
       customClass: {
         confirmButton: 'btn btn-primary',
         denyButton: 'btn btn-primary',
@@ -6437,63 +6527,9 @@ import supabase from './supabase.js';
     });
   };
 
-  async function fetchOrdersForBulkShippingLabels(customIds, loadingTitle = 'Cargando datos...') {
-    if (typeof Swal === 'undefined') {
-      alert("Error: SweetAlert2 no está cargado.");
-      return null;
-    }
-
-    const orderIds = customIds || Array.from(window.wmsSelectedOrderIds || []);
-    if (orderIds.length === 0) {
-      Swal.fire('Atención', 'No hay pedidos seleccionados.', 'warning');
-      return null;
-    }
-
-    Swal.fire({
-      title: loadingTitle,
-      text: `Por favor, espere mientras obtenemos los detalles de los ${orderIds.length} pedidos.`,
-      allowOutsideClick: false,
-      showConfirmButton: false,
-      didOpen: () => {
-        Swal.showLoading();
-      }
-    });
-
-    try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select(`
-          *,
-          order_items (
-            quantity,
-            products (
-              id,
-              sku,
-              name,
-              price
-            )
-          )
-        `)
-        .in('id', orderIds);
-
-      if (error) throw error;
-      const orders = data || [];
-      if (orders.length === 0) {
-        Swal.fire('Error', 'No se encontraron los pedidos.', 'error');
-        return null;
-      }
-      return orders;
-    } catch (err) {
-      console.error("Error fetching orders:", err);
-      Swal.fire('Error', 'No se pudieron cargar los pedidos: ' + err.message, 'error');
-      return null;
-    }
-  }
-
   window.quickPrintBulkShippingLabels = async function(customIds, options = {}) {
     const orders = await fetchOrdersForBulkShippingLabels(customIds, 'Preparando impresión rápida...');
     if (!orders) return;
-    if (typeof Swal !== 'undefined') Swal.close();
     window.printBulkCustomShippingLabels(orders, {
       size: options.size || '10x15',
       courier: options.courier || '',
@@ -6514,7 +6550,7 @@ import supabase from './supabase.js';
   };
 
   window.showBulkShippingLabelModal = async function(customIds) {
-    const orders = await fetchOrdersForBulkShippingLabels(customIds, 'Cargando datos...');
+    const orders = await fetchOrdersForBulkShippingLabels(customIds, 'Cargando datos...', { closeLoadingModal: false });
     if (!orders) return;
 
     const modalHtml = `
@@ -6567,6 +6603,7 @@ import supabase from './supabase.js';
       denyButtonText: '<i class="ri-download-2-line" style="margin-right:0.25rem;"></i> Descargar PDF',
       cancelButtonText: 'Cancelar',
       denyButtonColor: '#059669',
+      hideClass: { popup: '' },
       customClass: {
         confirmButton: 'btn btn-primary',
         denyButton: 'btn btn-primary',
@@ -6585,555 +6622,38 @@ import supabase from './supabase.js';
     });
   };
 
-  window.printCustomShippingLabel = function (order, displayName, displayPhone, options) {
-    const selectedSize = options.size || '10x15';
-    
-    // Generate barcode SVG for the external order number (fallback to id), ignoring special characters like #
-    const rawCode = String(order.external_order_number || order.id);
-    const codeVal = rawCode.replace(/[^a-zA-Z0-9]/g, '') || rawCode;
-    // Generate barcode with JsBarcode
-    const barcodeSVG = window.generateBarcodeSVG(codeVal, true, selectedSize);
-
-    let labelContentHTML = '';
-    const courierVal = options.courier || order.courier || 'POR DEFINIR';
-
-    if (selectedSize === '10x15') {
-      labelContentHTML = `
-        <div class="label-page size-10x15">
-          <!-- Cabecera -->
-          <div class="header-section">
-            <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" class="logo-img" alt="STOCKA">
-            <div class="title-container">
-              <div class="main-title">ETIQUETA DE DESPACHO</div>
-              <div class="sub-title">STOCKA LOGÍSTICA WMS</div>
-            </div>
-          </div>
-
-          ${options.headComment ? `<div class="head-comment-box">${escapeHtml(options.headComment)}</div>` : ''}
-
-          <!-- Datos de Envío / Courier -->
-          <div class="shipping-info-grid">
-            <div class="info-block">
-              <span class="block-title">COURIER / OPERADOR</span>
-              <span class="block-value highlighted-courier">${escapeHtml(courierVal)}</span>
-            </div>
-            <div class="info-block">
-              <span class="block-title">MÉTODO DE ENVÍO</span>
-              <span class="block-value">${escapeHtml(order.shipping_method || 'ESTÁNDAR')}</span>
-            </div>
-          </div>
-
-          <!-- Destinatario -->
-          <div class="destinatario-section">
-            <div class="section-title">DESTINATARIO</div>
-            <div class="dest-name">${escapeHtml(displayName)}</div>
-            <div class="dest-address">${escapeHtml(order.shipping_address || 'Sin dirección')} ${order.shipping_complement ? `, ${escapeHtml(order.shipping_complement)}` : ''}</div>
-            <div class="dest-city-commune">${escapeHtml(order.shipping_city || 'Sin comuna')}</div>
-            <div class="dest-contact">Teléfono: ${escapeHtml(displayPhone)}</div>
-          </div>
-
-          <!-- Remitente y Pedido -->
-          <div class="origin-grid">
-            <div class="info-block">
-              <span class="block-title">REMITENTE (TIENDA)</span>
-              <span class="block-value">${escapeHtml(order.comercio || 'STOCKA CLIENTE')}</span>
-            </div>
-            <div class="info-block">
-              <span class="block-title">REFERENCIA PEDIDO</span>
-              <span class="block-value">#${escapeHtml(order.external_order_number || order.id.split('-')[0])}</span>
-            </div>
-          </div>
-
-          <!-- Barcode de Referencia -->
-          <div class="barcode-wrapper">
-            ${barcodeSVG}
-          </div>
-
-          <!-- Detalle de Productos -->
-          <div class="items-section">
-            <div class="section-title">DETALLE DE PRODUCTOS (PICKING & PACKING)</div>
-            <table class="items-table">
-              <thead>
-                <tr>
-                  <th style="width: 25%; text-align: left;">SKU</th>
-                  <th style="width: 60%; text-align: left;">Producto</th>
-                  <th style="width: 15%; text-align: center;">Cant</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${order.order_items && order.order_items.length > 0 ? order.order_items.map(oi => `
-                  <tr>
-                    <td style="font-family: monospace; font-weight: bold;">${escapeHtml(oi.products?.sku || 'Sin SKU')}</td>
-                    <td style="font-size: 9px; line-height: 1.1;">${escapeHtml(oi.products?.name || 'Sin nombre')}</td>
-                    <td style="text-align: center; font-weight: bold; font-size: 11px;">${oi.quantity || 1}</td>
-                  </tr>
-                `).join('') : `
-                  <tr>
-                    <td style="font-family: monospace; font-weight: bold;">${escapeHtml(order.sku || 'Sin SKU')}</td>
-                    <td style="font-size: 9px; line-height: 1.1;">${escapeHtml(order.item || 'Sin nombre')}</td>
-                    <td style="text-align: center; font-weight: bold; font-size: 11px;">${order.cantidad || 1}</td>
-                  </tr>
-                `}
-              </tbody>
-            </table>
-          </div>
-
-          ${options.footComment ? `<div class="foot-comment-box">${escapeHtml(options.footComment)}</div>` : ''}
-
-          <!-- Pie de Página -->
-          <div class="footer-section">
-            <span>Preparado y despachado desde Centro de Distribución STOCKA</span>
-          </div>
-        </div>
-      `;
-    } else {
-      // 5x5 cm square format
-      labelContentHTML = `
-        <div class="label-page size-5x5">
-          <div class="compact-header">
-            <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" style="height: 14px; object-fit: contain;">
-            <span style="font-size: 7px; font-weight: 800; color: #000; letter-spacing: 0.3px;">DESPACHO</span>
-          </div>
-
-          ${options.headComment ? `<div class="compact-comment">${escapeHtml(options.headComment)}</div>` : ''}
-
-          <div class="compact-destinatario">
-            <div style="font-size: 9px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(displayName)}</div>
-            <div style="font-size: 7px; line-height: 1.1; max-height: 22px; overflow: hidden;">
-              ${escapeHtml(order.shipping_address || 'Sin dir.')}
-            </div>
-            <div style="font-size: 8px; font-weight: bold; margin-top: 1px;">
-              ${escapeHtml(order.shipping_city || 'Sin comuna')}
-            </div>
-            <div style="font-size: 7px;">Tel: ${escapeHtml(displayPhone)}</div>
-          </div>
-
-          <div class="compact-order-info" style="display: flex; justify-content: space-between; font-size: 7px; border-top: 1px dashed #333; padding-top: 1px; margin-top: 2px;">
-            <span>REF: #${escapeHtml(order.external_order_number || order.id.split('-')[0])}</span>
-            <span style="font-weight: bold;">${escapeHtml(courierVal)}</span>
-          </div>
-
-          <!-- Barcode de Referencia -->
-          <div class="compact-barcode-wrapper" style="margin: 2px 0;">
-            ${barcodeSVG}
-          </div>
-
-          ${options.footComment ? `<div class="compact-comment foot">${escapeHtml(options.footComment)}</div>` : ''}
-
-          <div class="compact-footer" style="font-size: 6px; text-align: center; color: #555; margin-top: auto;">
-            STOCKA LOGÍSTICA WMS
-          </div>
-        </div>
-      `;
-    }
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Imprimir Etiqueta Stocka - WMS</title>
-        <style>
-          /* Core Print Styles */
-          html, body {
-            margin: 0;
-            padding: 0;
-            background: #fff;
-            color: #000;
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            -webkit-print-color-adjust: exact;
-          }
-          
-          .label-page {
-            box-sizing: border-box;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            position: relative;
-            background: #fff;
-            page-break-after: always;
-          }
-
-          .label-page:last-child {
-            page-break-after: avoid;
-          }
-
-          /* Size: 10x15 cm */
-          .size-10x15 {
-            width: 10cm;
-            height: 15cm;
-            padding: 0.6cm 0.6cm;
-            border: 1px solid #000;
-          }
-          
-          @media print {
-            .size-10x15, .size-5x5 {
-              border: none !important;
-            }
-          }
-
-          .size-10x15 .header-section {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border-bottom: 2px solid #000;
-            padding-bottom: 6px;
-            margin-bottom: 8px;
-          }
-
-          .size-10x15 .logo-img {
-            height: 24px;
-            max-width: 100px;
-            object-fit: contain;
-          }
-
-          .size-10x15 .title-container {
-            text-align: right;
-          }
-
-          .size-10x15 .main-title {
-            font-size: 14px;
-            font-weight: 900;
-            letter-spacing: 0.5px;
-          }
-
-          .size-10x15 .sub-title {
-            font-size: 9px;
-            color: #444;
-            font-weight: 600;
-          }
-
-          .head-comment-box {
-            background: #000;
-            color: #fff;
-            text-align: center;
-            font-weight: 800;
-            font-size: 11px;
-            padding: 4px;
-            border-radius: 2px;
-            margin-bottom: 8px;
-            text-transform: uppercase;
-          }
-
-          .foot-comment-box {
-            border: 2px dashed #000;
-            text-align: center;
-            font-weight: 700;
-            font-size: 10px;
-            padding: 4px;
-            margin-top: 6px;
-            margin-bottom: 6px;
-            text-transform: uppercase;
-          }
-
-          .shipping-info-grid, .origin-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            border: 1px solid #000;
-            margin-bottom: 8px;
-          }
-
-          .info-block {
-            padding: 4px 6px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-          }
-
-          .info-block:first-child {
-            border-right: 1px solid #000;
-          }
-
-          .block-title {
-            font-size: 7px;
-            font-weight: bold;
-            color: #555;
-            text-transform: uppercase;
-            margin-bottom: 2px;
-          }
-
-          .block-value {
-            font-size: 10px;
-            font-weight: bold;
-          }
-
-          .highlighted-courier {
-            font-size: 13px !important;
-            font-weight: 900 !important;
-          }
-
-          .destinatario-section {
-            border: 2px solid #000;
-            padding: 8px 10px;
-            margin-bottom: 8px;
-            background: #fdfdfd;
-          }
-
-          .section-title {
-            font-size: 8px;
-            font-weight: bold;
-            color: #000;
-            border-bottom: 1px solid #000;
-            padding-bottom: 2px;
-            margin-bottom: 4px;
-            letter-spacing: 0.3px;
-          }
-
-          .dest-name {
-            font-size: 14px;
-            font-weight: 800;
-            margin-bottom: 2px;
-          }
-
-          .dest-address {
-            font-size: 11px;
-            line-height: 1.2;
-            margin-bottom: 2px;
-          }
-
-          .dest-city-commune {
-            font-size: 13px;
-            font-weight: 900;
-            text-transform: uppercase;
-            margin-bottom: 2px;
-          }
-
-          .dest-contact {
-            font-size: 10px;
-            font-weight: 600;
-          }
-
-          .barcode-wrapper {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 8px 0;
-            border: 1px solid #000;
-            margin-bottom: 8px;
-          }
-
-          .barcode-wrapper svg {
-            max-width: 100%;
-            height: auto;
-          }
-
-          .items-section {
-            border: 1px solid #000;
-            padding: 6px;
-            flex-grow: 1;
-            display: flex;
-            flex-direction: column;
-          }
-
-          .items-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 10px;
-          }
-
-          .items-table th {
-            font-size: 8px;
-            color: #333;
-            border-bottom: 1px solid #000;
-            padding: 2px 4px;
-          }
-
-          .items-table td {
-            border-bottom: 1px dashed #ccc;
-            padding: 3px 4px;
-            vertical-align: middle;
-          }
-
-          .items-table tr:last-child td {
-            border-bottom: none;
-          }
-
-          .footer-section {
-            border-top: 1px solid #000;
-            padding-top: 4px;
-            margin-top: 8px;
-            font-size: 8px;
-            text-align: center;
-            font-weight: 600;
-            color: #444;
-          }
-
-          /* Size: 5x5 cm */
-          .size-5x5 {
-            width: 5cm;
-            height: 5cm;
-            padding: 0.35cm 0.35cm;
-            border: 1px dashed #000;
-            display: flex;
-            flex-direction: column;
-          }
-
-          .compact-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border-bottom: 1px solid #000;
-            padding-bottom: 2px;
-            margin-bottom: 2px;
-          }
-
-          .compact-comment {
-            background: #000;
-            color: #fff;
-            text-align: center;
-            font-weight: bold;
-            font-size: 7px;
-            padding: 2px;
-            border-radius: 1px;
-            text-transform: uppercase;
-            margin: 1px 0;
-          }
-
-          .compact-comment.foot {
-            background: transparent;
-            color: #000;
-            border: 1px dashed #000;
-          }
-
-          .compact-destinatario {
-            text-align: left;
-            margin-bottom: 2px;
-          }
-
-          .compact-barcode-wrapper {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-          }
-
-          .compact-barcode-wrapper svg {
-            max-width: 100%;
-            height: auto;
-          }
-
-          /* CSS Page margin and size rules based on selection */
-          @page {
-            size: ${selectedSize === '5x5' ? '5cm 5cm' : '10cm 15cm'};
-            margin: 0;
-          }
-        </style>
-      </head>
-      <body>
-        ${labelContentHTML}
-      </body>
-      </html>
-    `;
-
-    // Deploy hidden print Frame
-    const iframe = document.createElement('iframe');
-    iframe.id = 'wms-print-labels-iframe';
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = 'none';
-    iframe.style.zIndex = '-9999';
-    document.body.appendChild(iframe);
-
-    // Ingress content
-    const frameDoc = iframe.contentWindow.document || iframe.contentDocument;
-    frameDoc.open();
-    frameDoc.write(htmlContent);
-    frameDoc.close();
-
-    // Trigger printing dialog after loaded
-    const printWindow = iframe.contentWindow;
-    const images = printWindow.document.getElementsByTagName('img');
-    let loadedImages = 0;
-    const totalImages = images.length;
-
-    const proceedToPrint = () => {
-      try {
-        printWindow.focus();
-        printWindow.print();
-      } catch (err) {
-        console.error("Failed to open native print dialog:", err);
-        Swal.fire('Error', 'No se pudo abrir el cuadro de impresión nativo.', 'error');
-      } finally {
-        setTimeout(() => {
-          iframe.remove();
-        }, 1000);
-      }
-    };
-
-    if (totalImages === 0) {
-      setTimeout(proceedToPrint, 500);
-    } else {
-      let printed = false;
-      // Safety timeout of 1.5 seconds in case image fails to load
-      const safetyTimeout = setTimeout(() => {
-        if (!printed) {
-          printed = true;
-          proceedToPrint();
-        }
-      }, 1500);
-
-      Array.from(images).forEach(img => {
-        if (img.complete) {
-          loadedImages++;
-          if (loadedImages === totalImages && !printed) {
-            clearTimeout(safetyTimeout);
-            printed = true;
-            setTimeout(proceedToPrint, 300);
-          }
-        } else {
-          img.onload = img.onerror = () => {
-            loadedImages++;
-            if (loadedImages === totalImages && !printed) {
-              clearTimeout(safetyTimeout);
-              printed = true;
-              setTimeout(proceedToPrint, 300);
-            }
-          };
-        }
-      });
-    }
+  window.printCustomShippingLabel = function (order, displayName, displayPhone, options = {}) {
+    if (!order) return;
+    const enrichedOrder = Object.assign({}, order);
+    if (displayName) enrichedOrder.customer_name = displayName;
+    if (displayPhone) enrichedOrder.customer_phone = displayPhone;
+    window.printBulkCustomShippingLabels([enrichedOrder], options);
   };
 
-  window.printBulkCustomShippingLabels = function (orders, options) {
+  window.printBulkCustomShippingLabels = function (orders, options = {}) {
+    if (!orders || orders.length === 0) return;
+
     const selectedSize = options.size || '10x15';
+    const logoSrc = (window._wmsCachedStockaLogoPdf && window._wmsCachedStockaLogoPdf.dataUrl)
+      ? window._wmsCachedStockaLogoPdf.dataUrl
+      : './assets/logo.png';
     let labelPagesHTML = '';
 
     orders.forEach(order => {
-      // Determine fallback values for customer details
-      let displayName = order.customer_name;
-      if (!displayName || displayName === 'No registrado' || displayName.trim() === '') {
-        if (order.raw_shopify_data) {
-          const raw = order.raw_shopify_data;
-          const billing = raw.billing_address;
-          const cust = raw.customer;
-          if (billing) displayName = `${billing.first_name || ''} ${billing.last_name || ''}`.trim();
-          else if (cust) displayName = `${cust.first_name || ''} ${cust.last_name || ''}`.trim();
-        }
-        if (!displayName || displayName.trim() === '') displayName = 'No registrado';
-      }
+      const { displayName, displayPhone } = resolveOrderCustomerDetails(order);
 
-      let displayPhone = order.customer_phone;
-      if (!displayPhone || displayPhone === 'No registrado' || displayPhone.trim() === '') {
-        if (order.raw_shopify_data) {
-          const raw = order.raw_shopify_data;
-          displayPhone = raw.shipping_address?.phone || raw.billing_address?.phone || raw.customer?.phone || '';
-        }
-        if (!displayPhone || displayPhone.trim() === '') displayPhone = 'No registrado';
-      }
-
-      const rawCode = String(order.external_order_number || order.id);
-      const codeVal = rawCode.replace(/[^a-zA-Z0-9]/g, '') || rawCode;
+      const rawCode = String(order.external_order_number || order.id || '');
+      const codeVal = rawCode.replace(/[^a-zA-Z0-9]/g, '') || rawCode || 'STOCKA';
       const barcodeSVG = window.generateBarcodeSVG(codeVal, true, selectedSize);
       const courierVal = options.courier || order.courier || 'POR DEFINIR';
+      const cleanRef = String(order.external_order_number || String(order.id || '').split('-')[0]).replace(/^#+/, '');
 
       if (selectedSize === '10x15') {
         labelPagesHTML += `
           <div class="label-page size-10x15">
             <!-- Cabecera -->
             <div class="header-section">
-              <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" class="logo-img" alt="STOCKA">
+              <img src="${logoSrc}" class="logo-img" alt="STOCKA">
               <div class="title-container">
                 <div class="main-title">ETIQUETA DE DESPACHO</div>
                 <div class="sub-title">STOCKA LOGÍSTICA WMS</div>
@@ -7171,7 +6691,7 @@ import supabase from './supabase.js';
               </div>
               <div class="info-block">
                 <span class="block-title">REFERENCIA PEDIDO</span>
-                <span class="block-value">#${escapeHtml(order.external_order_number || order.id.split('-')[0])}</span>
+                <span class="block-value">#${escapeHtml(cleanRef)}</span>
               </div>
             </div>
 
@@ -7222,7 +6742,7 @@ import supabase from './supabase.js';
         labelPagesHTML += `
           <div class="label-page size-5x5">
             <div class="compact-header">
-              <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" style="height: 14px; object-fit: contain;">
+              <img src="${logoSrc}" style="height: 14px; object-fit: contain;" alt="STOCKA">
               <span style="font-size: 7px; font-weight: 800; color: #000; letter-spacing: 0.3px;">DESPACHO</span>
             </div>
 
@@ -7240,7 +6760,7 @@ import supabase from './supabase.js';
             </div>
 
             <div class="compact-order-info" style="display: flex; justify-content: space-between; font-size: 7px; border-top: 1px dashed #333; padding-top: 1px; margin-top: 2px;">
-              <span>REF: #${escapeHtml(order.external_order_number || order.id.split('-')[0])}</span>
+              <span>REF: #${escapeHtml(cleanRef)}</span>
               <span style="font-weight: bold;">${escapeHtml(courierVal)}</span>
             </div>
 
@@ -7556,138 +7076,101 @@ import supabase from './supabase.js';
       </html>
     `;
 
-    // Deploy hidden print Frame
-    const iframe = document.createElement('iframe');
-    iframe.id = 'wms-print-labels-iframe';
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = 'none';
-    iframe.style.zIndex = '-9999';
-    document.body.appendChild(iframe);
-
-    // Ingress content
-    const frameDoc = iframe.contentWindow.document || iframe.contentDocument;
-    frameDoc.open();
-    frameDoc.write(htmlContent);
-    frameDoc.close();
-
-    // Trigger printing dialog after loaded
-    const printWindow = iframe.contentWindow;
-    const images = printWindow.document.getElementsByTagName('img');
-    let loadedImages = 0;
-    const totalImages = images.length;
-
-    const proceedToPrint = () => {
-      try {
-        printWindow.focus();
-        printWindow.print();
-      } catch (err) {
-        console.error("Failed to open native print dialog:", err);
-        Swal.fire('Error', 'No se pudo abrir el cuadro de impresión nativo.', 'error');
-      } finally {
-        setTimeout(() => {
-          iframe.remove();
-        }, 1000);
-      }
-    };
-
-    if (totalImages === 0) {
-      setTimeout(proceedToPrint, 500);
-    } else {
-      let printed = false;
-      // Safety timeout of 1.5 seconds in case image fails to load
-      const safetyTimeout = setTimeout(() => {
-        if (!printed) {
-          printed = true;
-          proceedToPrint();
-        }
-      }, 1500);
-
-      Array.from(images).forEach(img => {
-        if (img.complete) {
-          loadedImages++;
-          if (loadedImages === totalImages && !printed) {
-            clearTimeout(safetyTimeout);
-            printed = true;
-            setTimeout(proceedToPrint, 300);
-          }
-        } else {
-          img.onload = img.onerror = () => {
-            loadedImages++;
-            if (loadedImages === totalImages && !printed) {
-              clearTimeout(safetyTimeout);
-              printed = true;
-              setTimeout(proceedToPrint, 300);
-            }
-          };
-        }
-      });
-    }
+    dispatchHtmlToPrintIframe(htmlContent, 'wms-print-labels-iframe');
   };
 
   async function getStockaLogoForPdf() {
     if (window._wmsCachedStockaLogoPdf !== undefined) {
       return window._wmsCachedStockaLogoPdf;
     }
-    const urls = [
-      'assets/logo.png',
-      'https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093'
-    ];
-    for (const url of urls) {
-      const res = await new Promise(resolve => {
-        let settled = false;
-        const done = (val) => {
-          if (!settled) {
-            settled = true;
-            resolve(val);
-          }
-        };
-        const timer = setTimeout(() => done(null), 1000);
-        try {
-          const img = new Image();
-          if (/^https?:/i.test(url)) img.crossOrigin = 'anonymous';
-          img.onload = () => {
-            clearTimeout(timer);
-            try {
-              const w = img.naturalWidth || img.width || 200;
-              const h = img.naturalHeight || img.height || 60;
-              const c = document.createElement('canvas');
-              c.width = w;
-              c.height = h;
-              const ctx = c.getContext('2d');
-              ctx.drawImage(img, 0, 0, w, h);
-              done({ dataUrl: c.toDataURL('image/png'), width: w, height: h, ratio: w / Math.max(h, 1) });
-            } catch (_e) {
-              done(null);
+    if (window._wmsStockaLogoPromise) {
+      return window._wmsStockaLogoPromise;
+    }
+
+    window._wmsStockaLogoPromise = (async () => {
+      const urls = [
+        './assets/logo.png',
+        './img/newlogotransp.png',
+        'https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093'
+      ];
+      for (const url of urls) {
+        const isRemote = /^https?:/i.test(url);
+        const res = await new Promise(resolve => {
+          let settled = false;
+          const done = (val) => {
+            if (!settled) {
+              settled = true;
+              resolve(val);
             }
           };
-          img.onerror = () => {
+          const timer = setTimeout(() => done(null), isRemote ? 800 : 500);
+          try {
+            const img = new Image();
+            if (isRemote) img.crossOrigin = 'anonymous';
+            img.onload = () => {
+              clearTimeout(timer);
+              try {
+                const w = img.naturalWidth || img.width || 200;
+                const h = img.naturalHeight || img.height || 60;
+                const c = document.createElement('canvas');
+                c.width = w;
+                c.height = h;
+                const ctx = c.getContext('2d');
+                ctx.drawImage(img, 0, 0, w, h);
+                done({ dataUrl: c.toDataURL('image/png'), width: w, height: h, ratio: w / Math.max(h, 1) });
+              } catch (_e) {
+                done(null);
+              }
+            };
+            img.onerror = () => {
+              clearTimeout(timer);
+              done(null);
+            };
+            img.src = url;
+          } catch (_err) {
             clearTimeout(timer);
             done(null);
-          };
-          img.src = url;
-        } catch (_err) {
-          clearTimeout(timer);
-          done(null);
+          }
+        });
+        if (res && res.dataUrl) {
+          window._wmsCachedStockaLogoPdf = res;
+          window._wmsStockaLogoPromise = null;
+          return res;
         }
-      });
-      if (res && res.dataUrl) {
-        window._wmsCachedStockaLogoPdf = res;
-        return res;
       }
-    }
-    window._wmsCachedStockaLogoPdf = null;
-    return null;
+      window._wmsCachedStockaLogoPdf = null;
+      window._wmsStockaLogoPromise = null;
+      return null;
+    })();
+
+    return window._wmsStockaLogoPromise;
   }
+
+  // Pre-warm the Stocka logo asynchronously in idle time so printing & PDF generation have 0ms asset wait
+  if (typeof window !== 'undefined') {
+    const prewarmLogo = () => { getStockaLogoForPdf().catch(() => {}); };
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(prewarmLogo, { timeout: 1500 });
+    } else {
+      setTimeout(prewarmLogo, 200);
+    }
+  }
+
+  let _sharedPdfBarcodeCanvas = null;
+  const _barcodePngCache = new Map();
+  const MAX_BARCODE_PNG_CACHE = 300;
 
   function generateBarcodePngForPdf(codeVal, selectedSize) {
     try {
       if (typeof JsBarcode === 'undefined') return null;
-      const bcCanvas = document.createElement('canvas');
-      JsBarcode(bcCanvas, codeVal, {
+      const cacheKey = `${codeVal}|${selectedSize}`;
+      if (_barcodePngCache.has(cacheKey)) {
+        return _barcodePngCache.get(cacheKey);
+      }
+      if (!_sharedPdfBarcodeCanvas) {
+        _sharedPdfBarcodeCanvas = document.createElement('canvas');
+      }
+      JsBarcode(_sharedPdfBarcodeCanvas, codeVal, {
         format: 'CODE128',
         width: selectedSize === '5x5' ? 2 : 3,
         height: selectedSize === '5x5' ? 48 : 85,
@@ -7700,16 +7183,39 @@ import supabase from './supabase.js';
         background: '#ffffff',
         lineColor: '#000000'
       });
-      return {
-        dataUrl: bcCanvas.toDataURL('image/png'),
-        width: bcCanvas.width || 200,
-        height: bcCanvas.height || 80,
-        ratio: (bcCanvas.width || 200) / Math.max(bcCanvas.height || 80, 1)
+      const result = {
+        dataUrl: _sharedPdfBarcodeCanvas.toDataURL('image/png'),
+        width: _sharedPdfBarcodeCanvas.width || 200,
+        height: _sharedPdfBarcodeCanvas.height || 80,
+        ratio: (_sharedPdfBarcodeCanvas.width || 200) / Math.max(_sharedPdfBarcodeCanvas.height || 80, 1)
       };
+      if (_barcodePngCache.size >= MAX_BARCODE_PNG_CACHE) {
+        const firstKey = _barcodePngCache.keys().next().value;
+        _barcodePngCache.delete(firstKey);
+      }
+      _barcodePngCache.set(cacheKey, result);
+      return result;
     } catch (e) {
       console.warn('Fallback barcode PNG generation failed:', e);
       return null;
     }
+  }
+
+  /**
+   * Normalizes text for jsPDF built-in WinAnsiEncoding (ISO-8859-1) fonts (helvetica/courier)
+   * while keeping all Spanish accents intact and preventing broken glyphs or width miscalculations.
+   */
+  function sanitizePdfText(val) {
+    if (val === null || val === undefined) return '';
+    return String(val)
+      .replace(/[\u00A0\t\r\n]+/g, ' ')
+      .replace(/[\u2013\u2014\u2212]/g, '-')
+      .replace(/[\u2018\u2019\u00B4`]/g, "'")
+      .replace(/[\u201C\u201D]/g, '"')
+      .replace(/\u2026/g, '...')
+      .replace(/\u2022/g, '*')
+      .replace(/[^\x20-\xFF]/g, '')
+      .trim();
   }
 
   window.downloadBulkCustomShippingLabelsPDF = async function (orders, options = {}) {
@@ -7718,7 +7224,8 @@ import supabase from './supabase.js';
       return;
     }
 
-    if (typeof html2pdf === 'undefined' && typeof window.jspdf === 'undefined' && typeof window.jsPDF === 'undefined') {
+    const hasDirectJsPdf = (window.jspdf && typeof window.jspdf.jsPDF === 'function') || typeof window.jsPDF === 'function';
+    if (!hasDirectJsPdf && typeof html2pdf === 'undefined') {
       if (typeof Swal !== 'undefined') {
         Swal.fire('Aviso', 'El generador de PDF directo no está disponible. Se abrirá la ventana de impresión.', 'info');
       }
@@ -7730,85 +7237,97 @@ import supabase from './supabase.js';
     const widthMm = selectedSize === '5x5' ? 50 : 100;
     const heightMm = selectedSize === '5x5' ? 50 : 150;
 
-    if (typeof Swal !== 'undefined') {
+    // Only show blocking progress modal when batch is > 3 labels or assets/engine aren't pre-warmed yet
+    const isInstantReady = hasDirectJsPdf && window._wmsCachedStockaLogoPdf !== undefined && orders.length <= 3;
+    let openedProgressModal = false;
+
+    if (typeof Swal !== 'undefined' && !isInstantReady) {
       Swal.fire({
         title: 'Generando PDF de Etiquetas...',
         html: `Renderizando <strong id="wms-label-pdf-progress">1 de ${orders.length}</strong> etiqueta(s) Stocka...`,
         allowOutsideClick: false,
         showConfirmButton: false,
+        showClass: { popup: '' },
+        hideClass: { popup: '' },
         didOpen: () => {
           Swal.showLoading();
         }
       });
+      openedProgressModal = true;
     }
 
+    const closeActiveLoadingSwal = () => {
+      if (typeof Swal === 'undefined') return;
+      if (openedProgressModal || (typeof Swal.isLoading === 'function' && Swal.isLoading())) {
+        openedProgressModal = false;
+        Swal.close();
+      }
+    };
+
     try {
-      // Obtain a clean jsPDF instance without invoking html2canvas DOM cloning
+      // Obtain a clean jsPDF instance directly in <1ms (with safe html2pdf fallback)
       let pdf = null;
       if (window.jspdf && typeof window.jspdf.jsPDF === 'function') {
-        pdf = new window.jspdf.jsPDF({ unit: 'mm', format: [widthMm, heightMm], orientation: 'portrait' });
+        pdf = new window.jspdf.jsPDF({ unit: 'mm', format: [widthMm, heightMm], orientation: 'portrait', compress: true });
       } else if (typeof window.jsPDF === 'function') {
-        pdf = new window.jsPDF({ unit: 'mm', format: [widthMm, heightMm], orientation: 'portrait' });
+        pdf = new window.jsPDF({ unit: 'mm', format: [widthMm, heightMm], orientation: 'portrait', compress: true });
       } else {
         const tinyCanvas = document.createElement('canvas');
         tinyCanvas.width = 4;
         tinyCanvas.height = 4;
         const baseOpt = {
           margin: 0,
+          enableLinks: false,
           image: { type: 'jpeg', quality: 0.98 },
           jsPDF: { unit: 'mm', format: [widthMm, heightMm], orientation: 'portrait' }
         };
-        pdf = await html2pdf().set(baseOpt).from(tinyCanvas, 'canvas').toPdf().get('pdf');
+        let fbTimer = null;
+        pdf = await Promise.race([
+          html2pdf().set(baseOpt).from(tinyCanvas, 'canvas').toPdf().get('pdf'),
+          new Promise((_, reject) => {
+            fbTimer = setTimeout(() => reject(new Error('Tiempo agotado inicializando el motor PDF.')), 8000);
+          })
+        ]);
+        if (fbTimer) clearTimeout(fbTimer);
         pdf.addPage([widthMm, heightMm], 'portrait');
         pdf.deletePage(1);
       }
 
-      const logoData = await getStockaLogoForPdf();
+      const logoData = window._wmsCachedStockaLogoPdf !== undefined
+        ? window._wmsCachedStockaLogoPdf
+        : await getStockaLogoForPdf();
 
       const fitSingleLine = (doc, str, maxWidthMm) => {
-        const clean = String(str || '').trim();
+        const clean = sanitizePdfText(str);
         if (!clean) return '';
         const lines = doc.splitTextToSize(clean, maxWidthMm);
         return Array.isArray(lines) && lines.length > 0 ? lines[0] : clean;
       };
 
+      const progressEl = openedProgressModal ? document.getElementById('wms-label-pdf-progress') : null;
+
       for (let i = 0; i < orders.length; i++) {
         const order = orders[i];
-        const progressEl = document.getElementById('wms-label-pdf-progress');
-        if (progressEl) progressEl.textContent = `${i + 1} de ${orders.length}`;
+        if (progressEl && (i === 0 || (i + 1) % 5 === 0 || i === orders.length - 1)) {
+          progressEl.textContent = `${i + 1} de ${orders.length}`;
+        }
 
         if (i > 0) {
           pdf.addPage([widthMm, heightMm], 'portrait');
         }
 
-        let displayName = order.customer_name;
-        if (!displayName || displayName === 'No registrado' || displayName.trim() === '') {
-          if (order.raw_shopify_data) {
-            const raw = order.raw_shopify_data;
-            const billing = raw.billing_address;
-            const cust = raw.customer;
-            if (billing) displayName = `${billing.first_name || ''} ${billing.last_name || ''}`.trim();
-            else if (cust) displayName = `${cust.first_name || ''} ${cust.last_name || ''}`.trim();
-          }
-          if (!displayName || displayName.trim() === '') displayName = 'No registrado';
-        }
-
-        let displayPhone = order.customer_phone;
-        if (!displayPhone || displayPhone === 'No registrado' || displayPhone.trim() === '') {
-          if (order.raw_shopify_data) {
-            const raw = order.raw_shopify_data;
-            displayPhone = raw.shipping_address?.phone || raw.billing_address?.phone || raw.customer?.phone || '';
-          }
-          if (!displayPhone || displayPhone.trim() === '') displayPhone = 'No registrado';
-        }
+        const { displayName: rawDisplayName, displayPhone: rawDisplayPhone } = resolveOrderCustomerDetails(order);
+        const displayName = sanitizePdfText(rawDisplayName) || 'No registrado';
+        const displayPhone = sanitizePdfText(rawDisplayPhone) || 'No registrado';
 
         const rawCode = String(order.external_order_number || order.id || '');
-        const codeVal = rawCode.replace(/[^a-zA-Z0-9]/g, '') || rawCode || 'STOCKA';
+        const codeVal = rawCode.replace(/[^a-zA-Z0-9]/g, '') || sanitizePdfText(rawCode) || 'STOCKA';
         const barcodeImg = generateBarcodePngForPdf(codeVal, selectedSize);
-        const courierVal = String(options.courier || order.courier || 'POR DEFINIR').trim();
-        const refVal = `#${String(order.external_order_number || String(order.id || '').split('-')[0])}`;
-        const fullAddress = `${order.shipping_address || 'Sin dirección'}${order.shipping_complement ? `, ${order.shipping_complement}` : ''}`;
-        const cityVal = String(order.shipping_city || 'Sin comuna').toUpperCase();
+        const courierVal = sanitizePdfText(options.courier || order.courier || 'POR DEFINIR') || 'POR DEFINIR';
+        const cleanRef = sanitizePdfText(String(order.external_order_number || String(order.id || '').split('-')[0]).replace(/^#+/, ''));
+        const refVal = `#${cleanRef}`;
+        const fullAddress = sanitizePdfText(`${order.shipping_address || 'Sin dirección'}${order.shipping_complement ? `, ${order.shipping_complement}` : ''}`) || 'Sin dirección';
+        const cityVal = (sanitizePdfText(order.shipping_city || 'Sin comuna') || 'SIN COMUNA').toUpperCase();
 
         if (selectedSize === '10x15') {
           const xL = 6;
@@ -7888,7 +7407,7 @@ import supabase from './supabase.js';
           // 4. Destinatario section
           pdf.setFont('helvetica', 'bold');
           pdf.setFontSize(10);
-          const nameLines = pdf.splitTextToSize(String(displayName), cW - 6).slice(0, 2);
+          const nameLines = pdf.splitTextToSize(displayName, cW - 6).slice(0, 2);
           pdf.setFont('helvetica', 'normal');
           pdf.setFontSize(8.2);
           const addrLines = pdf.splitTextToSize(fullAddress, cW - 6).slice(0, 2);
@@ -8039,7 +7558,8 @@ import supabase from './supabase.js';
 
             pdf.setFont('helvetica', 'normal');
             pdf.setFontSize(6.6);
-            const prodLines = pdf.splitTextToSize(String(it.name || 'Sin nombre'), 51).slice(0, 2);
+            const cleanProdName = sanitizePdfText(it.name || 'Sin nombre') || 'Sin nombre';
+            const prodLines = pdf.splitTextToSize(cleanProdName, 51).slice(0, 2);
             pdf.text(prodLines, xL + 24, rowY);
 
             pdf.setFont('helvetica', 'bold');
@@ -8199,8 +7719,8 @@ import supabase from './supabase.js';
           pdf.text('STOCKA LOGÍSTICA WMS', 25, 47.2, { align: 'center' });
         }
 
-        // Yield briefly to keep UI responsive on large batches
-        if (orders.length > 1) {
+        // Yield periodically on large batches without incurring 4ms+ clamping on every single label
+        if (orders.length > 10 && (i + 1) % 10 === 0) {
           await new Promise(r => setTimeout(r, 0));
         }
       }
@@ -8211,6 +7731,9 @@ import supabase from './supabase.js';
         : `Etiquetas_Stocka_Masivas_${orders.length}_pedidos_${selectedSize}_${dateStr}.pdf`;
 
       pdf.save(filename);
+
+      // Explicitly close any loading modal BEFORE firing toast (StockaToast intercepts toast:true without closing modals)
+      closeActiveLoadingSwal();
 
       if (typeof Swal !== 'undefined') {
         Swal.fire({
@@ -8225,9 +7748,12 @@ import supabase from './supabase.js';
       }
     } catch (err) {
       console.error('Error generating shipping labels PDF:', err);
+      closeActiveLoadingSwal();
       if (typeof Swal !== 'undefined') {
         Swal.fire('Error', 'No se pudo generar el PDF de etiquetas: ' + (err && err.message ? err.message : String(err)), 'error');
       }
+    } finally {
+      closeActiveLoadingSwal();
     }
   };
 
