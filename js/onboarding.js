@@ -10,9 +10,12 @@ document.addEventListener('DOMContentLoaded', () => {
   let maxReachedSubStep = 1;
   const totalSubSteps = 4;
   
-  // Variables para conversión de cuenta Demo previa a cuenta oficial
+  // Variables para conversión de cuenta Demo o Solo Lectura (Observer) previa a cuenta oficial
   let isDemoConversion = false;
   let demoUserId = null;
+  let isExistingObserverSession = false;
+  let existingObserverUser = null;
+  let existingObserverProfile = null;
   
   // Elementos del DOM
   const form = document.getElementById('onboarding-form');
@@ -94,17 +97,108 @@ document.addEventListener('DOMContentLoaded', () => {
     console.warn("No se pudieron pre-cargar parámetros del cotizador:", e);
   }
 
-  // Pre-completar datos si el usuario ya inició sesión con una cuenta demo
+  // Pre-completar y vincular datos si el usuario ya inició sesión con una cuenta Solo Lectura (Observer) o Demo
   (async () => {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const user = sessionData?.session?.user;
-      if (user && user.email) {
+      if (!user || !user.email) return;
+
+      const headerBackBtn = document.getElementById('onboarding-header-back-btn');
+      if (headerBackBtn) {
+        headerBackBtn.href = './dashboard.html';
+        headerBackBtn.innerHTML = '<i class="ri-arrow-left-line"></i> Volver a mi Panel WMS';
+      }
+
+      const [profileRes, activeOnbRes] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('role, full_name, company_name, phone, contact_email, is_demo_user')
+          .eq('id', user.id)
+          .maybeSingle(),
+        supabase
+          .from('onboarding_requests')
+          .select('id, status')
+          .eq('user_id', user.id)
+          .in('status', ['pending', 'pending_contract', 'approved'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      ]);
+
+      const profile = profileRes?.data || null;
+      const activeOnb = activeOnbRes?.data || null;
+
+      if (activeOnb) {
+        const stepLabel = activeOnb.status === 'pending_contract'
+          ? 'Ya registraste tus datos comerciales. Solo falta descargar y subir tu contrato firmado en tu panel WMS.'
+          : 'Ya cuentas con una solicitud de Onboarding registrada para tu cuenta.';
+        showAlert(`${stepLabel} <a href="./dashboard.html" style="font-weight: 700; text-decoration: underline; margin-left: 0.35rem;">Ir a mi Panel WMS →</a>`, 'info');
+        return;
+      }
+
+      if (!profile || profile.role === 'observer') {
+        isExistingObserverSession = true;
+        existingObserverUser = user;
+        existingObserverProfile = profile;
+
         const emailInput = document.getElementById('email');
         const nameInput = document.getElementById('full_name');
-        if (emailInput && !emailInput.value) {
+        const phoneInput = document.getElementById('phone');
+        const razonInput = document.getElementById('razon_social');
+        const fantasiaInput = document.getElementById('nombre_fantasia');
+        const emailHint = document.getElementById('email-field-hint');
+        const pwdGroup = document.getElementById('password-form-group');
+        const pwdLinkedGroup = document.getElementById('password-linked-badge-group');
+        const panel1Desc = document.getElementById('panel-1-desc');
+        const sessionBanner = document.getElementById('existing-session-account-banner');
+
+        if (emailInput) {
           emailInput.value = user.email;
+          emailInput.readOnly = true;
+          emailInput.style.backgroundColor = 'var(--color-bg)';
+          emailInput.style.cursor = 'not-allowed';
         }
+        if (emailHint) {
+          emailHint.innerHTML = '<span style="color: var(--color-success); font-weight: 600;"><i class="ri-checkbox-circle-fill"></i> Vinculado a tu cuenta actual — conservaremos tu inicio de sesión.</span>';
+        }
+        if (pwdGroup) pwdGroup.style.display = 'none';
+        if (pwdLinkedGroup) pwdLinkedGroup.style.display = 'block';
+        if (panel1Desc) {
+          panel1Desc.textContent = 'Completa los datos del contacto principal de la operación para asociarlos a tu cuenta actual.';
+        }
+        if (sessionBanner) {
+          sessionBanner.style.display = 'flex';
+          sessionBanner.style.alignItems = 'center';
+          sessionBanner.style.gap = '0.65rem';
+          sessionBanner.innerHTML = `
+            <i class="ri-user-follow-fill" style="font-size: 1.35rem; color: var(--color-success); flex-shrink: 0;"></i>
+            <div>
+              <strong>Sesión activa detectada (${user.email}):</strong> Vincularás el alta de tu comercio directamente a tu cuenta existente sin tener que crear otro usuario.
+            </div>
+          `;
+        }
+
+        const candidateName = (profile?.full_name && profile.full_name !== 'Nuevo Usuario')
+          ? profile.full_name
+          : (user.user_metadata?.full_name || '');
+        if (nameInput && !nameInput.value && candidateName) {
+          nameInput.value = candidateName;
+        }
+        if (phoneInput && !phoneInput.value && profile?.phone) {
+          phoneInput.value = profile.phone;
+        }
+
+        const rawComp = (profile?.company_name || user.user_metadata?.company_name || '').trim();
+        const isGenericComp = !rawComp || /^demo\s*-/i.test(rawComp) || /^mi empresa\s+/i.test(rawComp);
+        if (!isGenericComp) {
+          if (razonInput && !razonInput.value) razonInput.value = rawComp;
+          if (fantasiaInput && !fantasiaInput.value) fantasiaInput.value = rawComp;
+        }
+      } else {
+        const emailInput = document.getElementById('email');
+        const nameInput = document.getElementById('full_name');
+        if (emailInput && !emailInput.value) emailInput.value = user.email;
         if (nameInput && !nameInput.value && user.user_metadata?.full_name) {
           nameInput.value = user.user_metadata.full_name;
         }
@@ -322,8 +416,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const email = document.getElementById('email').value.trim();
       const password = document.getElementById('password').value.trim();
       const phone = document.getElementById('phone').value.trim();
+      const isLinkedSession = isExistingObserverSession && existingObserverUser &&
+        email.toLowerCase() === (existingObserverUser.email || '').toLowerCase();
       
-      if (!name || !rut || !email || !password || !phone) {
+      if (!name || !rut || !email || (!isLinkedSession && !password) || !phone) {
         showAlert('Por favor, completa todos los campos obligatorios (*).');
         return false;
       }
@@ -339,7 +435,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return false;
       }
       
-      if (password.length < 8) {
+      if (!isLinkedSession && password.length < 8) {
         showAlert('La contraseña debe tener al menos 8 caracteres.');
         return false;
       }
@@ -723,8 +819,38 @@ document.addEventListener('DOMContentLoaded', () => {
       showLoader('Preparando cuenta de usuario...', 'Registrando tus credenciales en el portal.');
       
       let userId = null;
+      const isLinkedSession = isExistingObserverSession && existingObserverUser &&
+        email.toLowerCase() === (existingObserverUser.email || '').toLowerCase();
 
-      if (isDemoConversion) {
+      if (isLinkedSession) {
+        // Usuario autenticado desde su cuenta nueva de Solo Lectura (Observer) o Demo activa
+        userId = existingObserverUser.id;
+        try {
+          await supabase
+            .from('profiles')
+            .update({
+              full_name: name,
+              phone: phone,
+              contact_email: email
+            })
+            .eq('id', userId);
+        } catch (profUpdateErr) {
+          console.warn('Advertencia al sincronizar datos de contacto en perfil:', profUpdateErr);
+        }
+
+        if (existingObserverProfile?.is_demo_user === true) {
+          try {
+            await supabase.rpc('convert_demo_user_for_onboarding', {
+              p_email: email,
+              p_password: null,
+              p_full_name: name,
+              p_company_name: existingObserverProfile.company_name || razon
+            });
+          } catch (demoConvErr) {
+            console.warn('Advertencia al limpiar bandera demo en cuenta vinculada:', demoConvErr);
+          }
+        }
+      } else if (isDemoConversion) {
         // Conversión directa de cuenta Demo previa a Onboarding oficial
         try {
           const { data: convertedId, error: convertErr } = await supabase.rpc('convert_demo_user_for_onboarding', {
@@ -745,7 +871,7 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         }
       } else {
-        // Registro de usuario completamente nuevo
+        // Registro de usuario nuevo (o cuenta observer previa sin sesión iniciada)
         const { data: authData, error: authError } = await supabase.auth.signUp({
           email: email,
           password: password,
@@ -758,27 +884,51 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         if (authError) {
-          // Si el error indica que ya está registrado, intentar conversión automática si era demo
+          // Si el error indica que ya está registrado, intentar conversión automática o login si era observer/demo
           const errStr = (authError.message || '').toLowerCase();
           if (errStr.includes('already registered') || errStr.includes('already in use') || errStr.includes('unique')) {
-            try {
-              const { data: convertedId, error: convertErr } = await supabase.rpc('convert_demo_user_for_onboarding', {
-                p_email: email,
-                p_password: password,
-                p_full_name: name,
-                p_company_name: razon
-              });
-              if (!convertErr && convertedId) {
-                userId = convertedId;
-                isDemoConversion = true;
-              } else {
+            const { data: loginData } = await supabase.auth.signInWithPassword({ email, password });
+            if (loginData?.user) {
+              userId = loginData.user.id;
+            } else {
+              try {
+                const { data: convertedId, error: convertErr } = await supabase.rpc('convert_demo_user_for_onboarding', {
+                  p_email: email,
+                  p_password: password,
+                  p_full_name: name,
+                  p_company_name: razon
+                });
+                if (!convertErr && convertedId) {
+                  userId = convertedId;
+                  isDemoConversion = true;
+                } else {
+                  throw authError;
+                }
+              } catch (fallbackErr) {
                 throw authError;
               }
-            } catch (fallbackErr) {
-              throw authError;
             }
           } else {
             throw authError;
+          }
+        } else if (authData?.user && Array.isArray(authData.user.identities) && authData.user.identities.length === 0) {
+          // Cuando confirmación de email está activa, Supabase devuelve identities: [] para correos ya existentes
+          const { data: loginData } = await supabase.auth.signInWithPassword({ email, password });
+          if (loginData?.user) {
+            userId = loginData.user.id;
+          } else {
+            const { data: convertedId, error: convertErr } = await supabase.rpc('convert_demo_user_for_onboarding', {
+              p_email: email,
+              p_password: password,
+              p_full_name: name,
+              p_company_name: razon
+            });
+            if (!convertErr && convertedId) {
+              userId = convertedId;
+              isDemoConversion = true;
+            } else {
+              throw new Error('Este correo ya tiene una cuenta registrada. Inicia sesión primero en el portal WMS y realiza el Onboarding desde tu vista de solo lectura.');
+            }
           }
         } else {
           userId = authData.user ? authData.user.id : null;
@@ -795,11 +945,13 @@ document.addEventListener('DOMContentLoaded', () => {
         sessionStorage.removeItem('wms_demo_db_initialized');
       } catch (e) {}
 
-      // Iniciar sesión con sus credenciales reales
-      try {
-        await supabase.auth.signInWithPassword({ email, password });
-      } catch (e) {
-        console.warn('Sesión no auto-iniciada (posible confirmación pendiente):', e);
+      // Iniciar sesión con sus credenciales reales si no venía ya con sesión vinculada
+      if (!isLinkedSession && password) {
+        try {
+          await supabase.auth.signInWithPassword({ email, password });
+        } catch (e) {
+          console.warn('Sesión no auto-iniciada (posible confirmación pendiente):', e);
+        }
       }
       
       // 2. Crear solicitud de onboarding llamando a la RPC de Base de Datos
@@ -837,8 +989,27 @@ document.addEventListener('DOMContentLoaded', () => {
       
       if (rpcError) throw rpcError;
       
-      // 3. Éxito: Avanzar al paso 4
+      // 3. Éxito: Avanzar al paso 4 (adaptando mensaje si venía desde cuenta activa en solo lectura)
       hideLoader();
+      if (isLinkedSession) {
+        const s4Title = document.getElementById('step-4-title');
+        const s4Desc = document.getElementById('step-4-desc');
+        if (s4Title) s4Title.textContent = '¡Datos Comerciales Vinculados con Éxito!';
+        if (s4Desc) {
+          s4Desc.innerHTML = `
+            ¡Excelente! Tu solicitud de Onboarding ha quedado asociada directamente a tu cuenta actual (<strong>${email}</strong>).
+            <br><br>
+            <span style="color: var(--color-text-muted); font-size: 0.95rem;">
+              Como ya tienes tu sesión iniciada, <strong>no necesitas volver a confirmar tu correo electrónico</strong>.
+              <br><br>
+              Haz clic a continuación para volver a tu panel WMS y completar el <strong>Paso 2: Descarga y Firma de tu Contrato de Servicio Fulfillment 360</strong>.
+            </span>
+          `;
+        }
+        if (btnFinish) {
+          btnFinish.innerHTML = 'Continuar a Firma de Contrato en mi WMS <i class="ri-arrow-right-line"></i>';
+        }
+      }
       currentStep = 4;
       maxReachedStep = 4;
       updateStepper();
@@ -900,8 +1071,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Botón Finalizar
   if (btnFinish) {
     btnFinish.addEventListener('click', () => {
-      // Redirigir al portal, el cual verificará sesión
-      window.location.href = './index.html';
+      // Si ya tenía sesión activa desde su cuenta de solo lectura, ir directo al Dashboard (Firma de Contrato)
+      window.location.href = isExistingObserverSession ? './dashboard.html' : './index.html';
     });
   }
 });

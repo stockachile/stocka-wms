@@ -1906,6 +1906,9 @@ async function init() {
             if (typeof window.renderWorkspacePanel === 'function') {
               window.renderWorkspacePanel();
             }
+          } else if (view === 'observer_onboarding') {
+            viewTitle.textContent = 'Onboarding Fulfillment 360';
+            renderObserverOnboardingGuideView();
           }
         });
       });
@@ -1930,15 +1933,36 @@ async function init() {
             item.style.display = 'none';
             return;
           }
-          if (view === 'dashboard' || view === 'profile' || view === 'inbox') {
+          if (view === 'dashboard' || view === 'observer_onboarding' || view === 'profile' || view === 'inbox') {
             if (parentLi) parentLi.style.display = '';
             else item.style.display = '';
-            if (!firstVisibleItem) firstVisibleItem = item;
+            if (!firstVisibleItem && view === 'dashboard') firstVisibleItem = item;
           } else {
             if (parentLi) parentLi.style.display = 'none';
             else item.style.display = 'none';
           }
         });
+
+        // Ajustar elementos auxiliares del sidebar y header para cuentas nuevas de solo lectura
+        const quickTrackerLi = document.getElementById('sidebar-quick-tracker-li');
+        if (quickTrackerLi) quickTrackerLi.style.display = 'none';
+        const favBox = document.getElementById('sidebar-favorites-box');
+        if (favBox) favBox.style.display = 'none';
+        document.querySelectorAll('.sidebar-primary-list > .sidebar-section-label').forEach(lbl => {
+          lbl.style.display = 'none';
+        });
+        const storeSyncPill = document.querySelector('.client-store-sync-pill');
+        const storeSyncText = document.getElementById('client-store-sync-text');
+        if (storeSyncPill && storeSyncText) {
+          storeSyncText.textContent = 'Solo Lectura';
+          storeSyncPill.setAttribute('data-client-nav', 'observer_onboarding');
+          storeSyncPill.setAttribute('title', 'Cuenta en Modo Solo Lectura · Haz clic para iniciar o revisar tu Onboarding');
+          const dot = storeSyncPill.querySelector('.live-dot');
+          if (dot) {
+            dot.style.backgroundColor = '#f59e0b';
+            dot.style.boxShadow = '0 0 6px rgba(245, 158, 11, 0.7)';
+          }
+        }
       } else if (allowedModulesStr !== 'all' && allowedModulesStr !== null && allowedModulesStr !== '') {
         allowedModules = allowedModulesStr.split(',').map(m => m.trim());
         
@@ -1950,7 +1974,7 @@ async function init() {
           }
 
           const view = item.getAttribute('data-view');
-          if (view === 'workspace') {
+          if (view === 'workspace' || view === 'observer_onboarding') {
             if (parentLi) parentLi.style.display = 'none';
             item.style.display = 'none';
             return;
@@ -1972,9 +1996,10 @@ async function init() {
           }
         });
       } else {
-        // Por defecto, si es 'all' todos los ítems están permitidos (excepto workspace que está oculto para clientes)
+        // Por defecto, si es 'all' todos los ítems están permitidos (excepto workspace y observer_onboarding)
         navItems.forEach(item => {
-          if (item.getAttribute('data-view') === 'workspace') {
+          const view = item.getAttribute('data-view');
+          if (view === 'workspace' || view === 'observer_onboarding') {
             const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'none';
             item.style.display = 'none';
@@ -2460,10 +2485,15 @@ async function renderDashboard() {
         .from('onboarding_requests')
         .select('*')
         .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (error) throw error;
       if (!isStillOnDashboard()) return;
+
+      window._observerOnboardingRequest = request || null;
+      syncObserverSidebarOnboardingItem(request);
 
       if (request) {
         if (request.status === 'pending_contract') {
@@ -22958,9 +22988,37 @@ async function fetchAndRenderAssociatedOrder(pedidoRef, shipment) {
 function getObserverBanner() {
   let html = window.activeSystemBannerHtml || '';
   if (userRole === 'observer') {
+    const req = window._observerOnboardingRequest || null;
+    let ctaHtml = '';
+    if (!req) {
+      ctaHtml = `
+        <button type="button" class="observer-banner-cta-btn" onclick="window.navigateToObserverOnboarding()">
+          <i class="ri-rocket-2-fill"></i> ¿Tienda nueva? Realizar Onboarding <i class="ri-arrow-right-line"></i>
+        </button>
+      `;
+    } else if (req.status === 'pending_contract') {
+      ctaHtml = `
+        <button type="button" class="observer-banner-cta-btn" onclick="window.navigateToObserverOnboarding()">
+          <i class="ri-ball-pen-line"></i> Firmar Contrato Pendiente <i class="ri-arrow-right-line"></i>
+        </button>
+      `;
+    } else {
+      ctaHtml = `
+        <button type="button" class="observer-banner-cta-btn" onclick="window.navigateToObserverOnboarding()">
+          <i class="ri-time-line"></i> Ver Seguimiento de Alta <i class="ri-arrow-right-line"></i>
+        </button>
+      `;
+    }
+
     html += `
-      <div class="observer-banner" style="background-color: #fef3c7; color: #d97706; padding: 0.75rem 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; border: 1px solid #fde68a; font-size: 0.9rem;">
-        <span><i class="ri-error-warning-line"></i></span> <strong>Modo Observador:</strong> Tienes acceso de solo lectura. No puedes realizar acciones, crear pedidos/productos ni modificar integraciones.
+      <div class="observer-banner">
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex: 1; min-width: 240px;">
+          <i class="ri-eye-line" style="font-size: 1.2rem; flex-shrink: 0;"></i>
+          <div style="line-height: 1.4;">
+            <strong>Cuenta en Solo Lectura:</strong> ${!req ? 'Si <strong>ya eres cliente de Stocka</strong>, solamente debes esperar que habilitemos tus credenciales para configurar tu negocio. ¿Eres un comercio nuevo sin alta previa?' : 'Completa o revisa el avance de tu solicitud de alta comercial.'}
+          </div>
+        </div>
+        ${ctaHtml}
       </div>
     `;
   }
@@ -31754,6 +31812,7 @@ window.WMS_CLIENT_MODULES_CATALOG = [
   { key: 'tracking_widget', label: 'Portal de Tracking', icon: 'ri-radar-line', category: 'Servicios' },
   { key: 'billing', label: 'Facturación', icon: 'ri-bill-line', category: 'Sistema' },
   { key: 'integrations', label: 'Integraciones', icon: 'ri-plug-line', category: 'Sistema' },
+  { key: 'integrations_shopify', label: 'Integraciones → Shopify', icon: 'ri-shopping-bag-3-line', category: 'Sistema' },
   { key: 'incidencias', label: 'Incidencias', icon: 'ri-alert-line', category: 'Sistema' },
   { key: 'surveys', label: 'Encuestas & Feedback', icon: 'ri-survey-line', category: 'Sistema' },
   { key: 'tickets', label: 'Soporte y Tickets', icon: 'ri-customer-service-2-line', category: 'Sistema' },
@@ -31771,23 +31830,38 @@ window.WMS_FEATURE_CHANGE_TYPES = {
 
 window.isClientModuleAllowed = function(moduleKey) {
   if (!moduleKey || moduleKey === 'none' || moduleKey === 'general') return true;
+  const normalizedKey = moduleKey === 'integrations_shopify' ? 'integrations' : moduleKey;
   const roleToUse = typeof userRole !== 'undefined' ? userRole : 'client';
   if (roleToUse === 'admin') return true;
   if (roleToUse === 'observer') {
-    return ['dashboard', 'profile', 'inbox'].includes(moduleKey);
+    return ['dashboard', 'observer_onboarding', 'profile', 'inbox'].includes(normalizedKey);
   }
   const allowedStr = window.currentUserAllowedModules || 'all';
   if (allowedStr === 'all' || !allowedStr) return true;
   const list = String(allowedStr).split(',').map(m => m.trim()).filter(Boolean);
-  if (moduleKey === 'dashboard' && !list.includes('dashboard') && list.length > 5) return true;
-  return list.includes(moduleKey);
+  if (normalizedKey === 'dashboard' && !list.includes('dashboard') && list.length > 5) return true;
+  return list.includes(normalizedKey);
 };
 
 window.navigateToClientModule = function(moduleKey) {
   if (!moduleKey || moduleKey === 'none') return false;
-  const navItem = document.querySelector(`.nav-item[data-view="${moduleKey}"]`);
+  const viewKey = moduleKey === 'integrations_shopify' ? 'integrations' : moduleKey;
+  const navItem = document.querySelector(`.nav-item[data-view="${viewKey}"]`);
   if (navItem) {
     navItem.click();
+    if (moduleKey === 'integrations_shopify') {
+      let attempts = 0;
+      const openShopifyTabInterval = setInterval(() => {
+        attempts++;
+        const shopifyTabBtn = document.querySelector('.integration-tab[data-tab="tab-shopify"]');
+        if (shopifyTabBtn) {
+          shopifyTabBtn.click();
+          clearInterval(openShopifyTabInterval);
+        } else if (attempts >= 20) {
+          clearInterval(openShopifyTabInterval);
+        }
+      }, 150);
+    }
     const contentArea = document.querySelector('.content-area');
     if (contentArea) contentArea.scrollTo({ top: 0, behavior: 'smooth' });
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -53571,26 +53645,457 @@ async function updateClientBadges(userId, userComercio) {
 window.updateClientBadges = updateClientBadges;
 
 // =========================================================================
-// ONBOARDING CLIENT VIEW FUNCTIONS
+// ONBOARDING CLIENT VIEW FUNCTIONS (CUENTAS NUEVAS SOLO LECTURA)
 // =========================================================================
 
-function renderNoOnboardingState() {
-  const appContent = document.getElementById('app-content');
-  appContent.innerHTML = `
-    <div style="max-width: 600px; margin: 3rem auto; padding: 2.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); text-align: center;">
-      <div style="width: 72px; height: 72px; background: rgba(99, 102, 241, 0.1); color: var(--color-accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem auto; font-size: 2.2rem;">
-        <i class="ri-user-settings-line"></i>
+function syncObserverSidebarOnboardingItem(request) {
+  const li = document.getElementById('sidebar-observer-onboarding-li');
+  const labelEl = document.getElementById('sidebar-observer-onboarding-label');
+  const pillEl = document.getElementById('sidebar-observer-onboarding-pill');
+  const btnEl = document.getElementById('sidebar-observer-onboarding-btn');
+  if (!li) return;
+
+  if (userRole !== 'observer') {
+    li.style.display = 'none';
+    return;
+  }
+
+  li.style.display = '';
+  const iconEl = btnEl ? btnEl.querySelector('i.observer-onb-icon') : null;
+
+  if (!request) {
+    if (labelEl) labelEl.textContent = 'Realizar Onboarding';
+    if (pillEl) pillEl.textContent = 'Alta';
+    if (iconEl) iconEl.className = 'ri-rocket-2-fill observer-onb-icon';
+  } else if (request.status === 'pending_contract') {
+    if (labelEl) labelEl.textContent = 'Firmar Contrato';
+    if (pillEl) pillEl.textContent = 'Pendiente';
+    if (iconEl) iconEl.className = 'ri-ball-pen-fill observer-onb-icon';
+  } else if (request.status === 'rejected') {
+    if (labelEl) labelEl.textContent = 'Corregir Alta';
+    if (pillEl) pillEl.textContent = 'Revisar';
+    if (iconEl) iconEl.className = 'ri-error-warning-fill observer-onb-icon';
+  } else {
+    if (labelEl) labelEl.textContent = 'Estado Onboarding';
+    if (pillEl) pillEl.textContent = 'En curso';
+    if (iconEl) iconEl.className = 'ri-time-fill observer-onb-icon';
+  }
+}
+
+window.navigateToObserverOnboarding = function () {
+  const sidebarBtn = document.getElementById('sidebar-observer-onboarding-btn');
+  if (sidebarBtn && sidebarBtn.closest('li')?.style.display !== 'none') {
+    sidebarBtn.click();
+    return;
+  }
+  const dashBtn = document.querySelector('.sidebar .nav-item[data-view="dashboard"]');
+  if (dashBtn) dashBtn.click();
+};
+
+window.closePreOnboardingStepModal = function () {
+  const modal = document.getElementById('observer-pre-onboarding-modal');
+  if (modal) modal.remove();
+};
+
+window.openPreOnboardingStepModal = function () {
+  window.closePreOnboardingStepModal();
+  const userEmail = window.currentUserProfile?.email || window.currentClientUser?.email || '';
+  const modal = document.createElement('div');
+  modal.id = 'observer-pre-onboarding-modal';
+  modal.className = 'observer-pre-modal-backdrop';
+  modal.innerHTML = `
+    <div class="observer-pre-modal-card" role="dialog" aria-modal="true" aria-labelledby="pre-onb-modal-title">
+      <div style="position: relative; padding: 1.65rem 1.85rem; background: linear-gradient(125deg, #0f172a 0%, #1e1b4b 55%, #4c1d95 100%); color: #ffffff; border-radius: 20px 20px 0 0;">
+        <button type="button" onclick="window.closePreOnboardingStepModal()" aria-label="Cerrar" style="position: absolute; top: 1rem; right: 1rem; width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
+          <i class="ri-close-line"></i>
+        </button>
+        <div style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.28rem 0.72rem; border-radius: 999px; background: rgba(167, 139, 250, 0.22); border: 1px solid rgba(196, 181, 253, 0.4); color: #ddd6fe; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.75rem;">
+          <i class="ri-rocket-2-fill"></i> Guía Previa · Fulfillment 360
+        </div>
+        <h3 id="pre-onb-modal-title" style="color: #ffffff; font-size: 1.35rem; font-weight: 800; margin: 0 0 0.35rem 0;">
+          Así te conviertes en Comercio Asociado a Stocka
+        </h3>
+        <p style="color: rgba(226, 232, 240, 0.88); font-size: 0.86rem; line-height: 1.5; margin: 0;">
+          Antes de abrir el formulario, revisa las 5 etapas del proceso. Vincularemos todo directamente a tu cuenta actual${userEmail ? ` (<strong>${userEmail}</strong>)` : ''}.
+        </p>
       </div>
-      <h3 style="font-weight: 700; font-size: 1.4rem; color: var(--color-text-main); margin-bottom: 0.75rem;">¡Cuenta de Usuario Registrada!</h3>
-      <p style="color: var(--color-text-muted); font-size: 0.95rem; line-height: 1.6; margin-bottom: 2rem;">
-        Tu cuenta ha sido creada con éxito en el sistema WMS. <br><br>
-        Actualmente te encuentras en modo observador. Pronto nuestro equipo te dará los permisos necesarios y tus credenciales en el WMS para comenzar a operar.
-      </p>
-      <div style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: var(--radius-md); color: var(--color-accent); font-weight: 600; font-size: 0.9rem;">
-        <i class="ri-time-line"></i> Esperando asignación de permisos
+
+      <div style="padding: 1.5rem 1.85rem;">
+        <div style="display: flex; flex-direction: column; gap: 0.85rem; margin-bottom: 1.35rem;">
+          <div style="display: flex; align-items: flex-start; gap: 0.85rem;">
+            <div style="width: 30px; height: 30px; border-radius: 50%; background: rgba(94, 23, 235, 0.12); color: var(--color-accent); font-weight: 800; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">1</div>
+            <div style="font-size: 0.85rem; line-height: 1.45;">
+              <strong style="color: var(--color-text-main); display: block;">Formulario de Alta Comercial (~5 min)</strong>
+              <span style="color: var(--color-text-muted);">Ingresas datos de contacto, facturación (RUT empresa y representante legal), canales de venta, couriers preferidos e instrucciones de packaging.</span>
+            </div>
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 0.85rem;">
+            <div style="width: 30px; height: 30px; border-radius: 50%; background: rgba(37, 99, 235, 0.12); color: var(--color-primary); font-weight: 800; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">2</div>
+            <div style="font-size: 0.85rem; line-height: 1.45;">
+              <strong style="color: var(--color-text-main); display: block;">Descarga y Firma de Contrato en tu Panel</strong>
+              <span style="color: var(--color-text-muted);">Al enviar tus datos regresarás aquí mismo para descargar tu plantilla de contrato, firmarla y subirla en PDF junto a los anexos del servicio.</span>
+            </div>
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 0.85rem;">
+            <div style="width: 30px; height: 30px; border-radius: 50%; background: rgba(14, 165, 233, 0.12); color: #0284c7; font-weight: 800; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">3</div>
+            <div style="font-size: 0.85rem; line-height: 1.45;">
+              <strong style="color: var(--color-text-main); display: block;">Validación Comercial y Activación del WMS</strong>
+              <span style="color: var(--color-text-muted);">Nuestro equipo aprueba tu alta, crea tu sigla de bodega y convierte tu cuenta de <em>Solo Lectura</em> a <strong>Comercio Activo</strong> con acceso completo.</span>
+            </div>
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 0.85rem;">
+            <div style="width: 30px; height: 30px; border-radius: 50%; background: rgba(16, 185, 129, 0.12); color: #059669; font-weight: 800; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">4</div>
+            <div style="font-size: 0.85rem; line-height: 1.45;">
+              <strong style="color: var(--color-text-main); display: block;">Integración de Tiendas y Catálogo SKU</strong>
+              <span style="color: var(--color-text-muted);">Conectas Shopify, WooCommerce, Jumpseller, Mercado Libre, Falabella u otros marketplaces y sincronizas tus productos y códigos de barra.</span>
+            </div>
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 0.85rem;">
+            <div style="width: 30px; height: 30px; border-radius: 50%; background: rgba(245, 158, 11, 0.14); color: #d97706; font-weight: 800; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">5</div>
+            <div style="font-size: 0.85rem; line-height: 1.45;">
+              <strong style="color: var(--color-text-main); display: block;">Primer Ingreso de Stock y Despachos Activos</strong>
+              <span style="color: var(--color-text-muted);">Declaras tu mercadería en <em>Ingresos de Stock</em>, la recibimos en bodega y comenzamos a almacenar, preparar (pick &amp; pack) y despachar tus pedidos.</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="padding: 0.8rem 1rem; border-radius: 10px; background: var(--color-bg); border: 1px solid var(--color-border); font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1.35rem; display: flex; align-items: center; gap: 0.6rem;">
+          <i class="ri-lightbulb-flash-line" style="font-size: 1.15rem; color: var(--color-accent); flex-shrink: 0;"></i>
+          <span><strong>Ten a mano:</strong> RUT de la empresa, dirección de facturación y datos del representante legal.</span>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem; flex-wrap: wrap;">
+          <button type="button" class="btn btn-outline" onclick="window.closePreOnboardingStepModal()" style="padding: 0.65rem 1.15rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-main);">
+            Volver
+          </button>
+          <a href="./onboarding.html?from=observer" class="btn-observer-hero-primary" style="padding: 0.68rem 1.4rem; font-size: 0.88rem;">
+            <span>¡Entendido! Ir al Formulario de Onboarding</span>
+            <i class="ri-arrow-right-line"></i>
+          </a>
+        </div>
       </div>
     </div>
   `;
+
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) window.closePreOnboardingStepModal();
+  });
+  document.body.appendChild(modal);
+};
+
+function buildObserverOnboardingExperienceHtml({ includeAccountStatusCard = true } = {}) {
+  const prof = window.currentUserProfile || {};
+  const userEmail = prof.email || window.currentClientUser?.email || '';
+  const waExistingClientMsg = encodeURIComponent(
+    `Hola equipo Stocka, ya soy cliente y acabo de registrar mi cuenta en el WMS${userEmail ? ` con el correo ${userEmail}` : ''} para que me habiliten las credenciales de mi comercio.`
+  );
+
+  const existingClientBannerHtml = includeAccountStatusCard ? `
+    <!-- BANNER 1: YA ES CLIENTE STOCKA (ESPERANDO HABILITACIÓN DE CREDENCIALES) -->
+    <section class="observer-existing-client-banner" aria-label="Información para comercios que ya son clientes de Stocka">
+      <div class="observer-existing-client-content">
+        <span class="observer-existing-eyebrow">
+          <i class="ri-verified-badge-fill"></i> ¿Ya eres cliente de Stocka? · Cuenta Registrada
+        </span>
+        <h2 class="observer-existing-title">
+          Solamente debes esperar que se habiliten <span>tus credenciales</span> para configurar tu negocio
+        </h2>
+        <p class="observer-existing-desc">
+          ¡Tu cuenta fue creada con éxito! Si tu comercio <strong>ya contrató el servicio con Stocka</strong> (o eres parte de su equipo), <strong>no necesitas realizar el Onboarding</strong>: nuestro equipo vinculará tu tienda y habilitará tus credenciales muy pronto para que comiences a configurar tu negocio en el WMS.
+        </p>
+
+        <div class="observer-existing-footer">
+          <div class="observer-existing-wait-pill">
+            <span class="existing-pulse-dot"></span>
+            <span>Esperando habilitación de credenciales${userEmail ? ` · ${userEmail}` : ''}</span>
+          </div>
+          <a href="https://wa.me/56939247487?text=${waExistingClientMsg}" target="_blank" rel="noopener noreferrer" class="observer-existing-notify-link">
+            <i class="ri-whatsapp-line" style="color: #4ade80; font-size: 0.98rem;"></i>
+            <span>Avisar a mi ejecutivo que ya creé mi cuenta</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="observer-existing-visual">
+        <img src="./img/stocka_tour_welcome.jpg" alt="Bienvenido Cliente Stocka - Habilitación de credenciales WMS">
+        <div class="observer-onb-visual-badge" style="border-color: rgba(52, 211, 153, 0.45);">
+          <span class="dot-live"></span>
+          <span>Activación gestionada por el equipo Stocka</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="observer-scenario-divider">
+      <span><i class="ri-compass-discover-line" style="color: var(--color-accent);"></i> ¿Aún no eres cliente y te registraste sin haber hecho antes el Onboarding?</span>
+    </div>
+  ` : `
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding: 0.9rem 1.25rem; border-radius: 12px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.28); font-size: 0.84rem; color: var(--color-text-main);">
+      <div style="display: flex; align-items: center; gap: 0.6rem;">
+        <i class="ri-verified-badge-fill" style="font-size: 1.25rem; color: #10b981; flex-shrink: 0;"></i>
+        <span><strong>¿Ya eres cliente de Stocka?</strong> No necesitas completar este proceso; solamente debes esperar que nuestro equipo habilite tus credenciales para configurar tu negocio.</span>
+      </div>
+    </div>
+  `;
+
+  return `
+    <div class="observer-onb-wrapper">
+      ${existingClientBannerHtml}
+
+      <!-- BANNER HERO LLAMATIVO PARA INICIAR EL ONBOARDING -->
+      <section class="observer-onb-hero" aria-label="Iniciar Onboarding Stocka Fulfillment">
+        <div class="observer-onb-hero-content">
+          <span class="observer-onb-hero-eyebrow">
+            <i class="ri-sparkling-2-fill"></i> ¿Te registraste antes de dar de alta tu tienda?
+          </span>
+          <h2 class="observer-onb-hero-title">
+            Activa tu E-commerce como <span>Comercio Asociado</span> al Fulfillment de Stocka
+          </h2>
+          <p class="observer-onb-hero-desc">
+            Delega tu almacenamiento, preparación de pedidos (pick &amp; pack) y despachos a todo Chile. Revisa previamente el paso a paso de incorporación e inicia tu <strong>Onboarding Fulfillment 360</strong> usando tu cuenta actual.
+          </p>
+
+          <div class="observer-onb-hero-chips">
+            <span class="observer-onb-chip"><i class="ri-plug-2-line"></i> Shopify, Meli, Woo, Falabella y +</span>
+            <span class="observer-onb-chip"><i class="ri-box-3-line"></i> Bodegaje + Pick &amp; Pack</span>
+            <span class="observer-onb-chip"><i class="ri-truck-line"></i> Same Day &amp; Multicourier</span>
+          </div>
+
+          <div class="observer-onb-hero-actions">
+            <button type="button" class="btn-observer-hero-primary" onclick="window.openPreOnboardingStepModal()">
+              <i class="ri-rocket-2-fill" style="font-size: 1.1rem;"></i>
+              <span>Realizar Onboarding e Iniciar Proceso</span>
+            </button>
+            <button type="button" class="btn-observer-hero-secondary" onclick="document.getElementById('observer-step-by-step-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })">
+              <span>Ver Paso a Paso</span>
+              <i class="ri-arrow-down-line"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="observer-onb-hero-visual">
+          <img src="./img/onboarding/stocka_onboarding_banner.jpg" alt="Onboarding Stocka Fulfillment 360 - Almacenamiento, Pick & Pack y Despachos">
+          <div class="observer-onb-visual-badge">
+            <span class="dot-live"></span>
+            <span>Fulfillment 360° · Tu cuenta actual se vincula automáticamente</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- EXPLICACIÓN PREVIA: PASO A PASO PARA SER COMERCIO ASOCIADO -->
+      <section class="observer-steps-card" id="observer-step-by-step-section">
+        <div class="observer-steps-header">
+          <div>
+            <span style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.74rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-accent); margin-bottom: 0.35rem;">
+              <i class="ri-route-line"></i> Ruta de Incorporación Oficial
+            </span>
+            <h3 style="margin: 0; font-size: 1.32rem; font-weight: 800; color: var(--color-text-main);">
+              Paso a Paso para ser un Comercio Asociado al Fulfillment de Stocka
+            </h3>
+            <p style="margin: 0.3rem 0 0 0; font-size: 0.88rem; color: var(--color-text-muted);">
+              Conoce cada etapa antes de comenzar para que tu activación sea rápida, transparente y sin contratiempos.
+            </p>
+          </div>
+          <a href="./cotizaciones.html" target="_blank" class="btn btn-outline" style="padding: 0.5rem 0.95rem; font-size: 0.8rem; font-weight: 700; border-color: var(--color-border); color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.35rem; text-decoration: none;">
+            <i class="ri-calculator-line"></i> ¿Aún no cotizas? Ver Cotizador <i class="ri-external-link-line"></i>
+          </a>
+        </div>
+
+        <div class="observer-steps-grid">
+          <!-- PASO 1 -->
+          <div class="observer-step-item">
+            <div class="observer-step-top">
+              <div class="observer-step-icon" style="background: rgba(94, 23, 235, 0.12); color: #7c3aed;">
+                <i class="ri-file-list-3-fill"></i>
+              </div>
+              <span class="observer-step-num">Paso 01</span>
+            </div>
+            <h4 class="observer-step-title">Formulario de Onboarding</h4>
+            <p class="observer-step-desc">
+              Completas los datos de contacto, facturación, representante legal, canales de venta, couriers preferidos y cómo empacar tus pedidos.
+            </p>
+            <span class="observer-step-tag" style="background: rgba(94, 23, 235, 0.1); color: #7c3aed;">
+              <i class="ri-flashlight-fill"></i> ~5 min · Vincula tu cuenta
+            </span>
+          </div>
+
+          <!-- PASO 2 -->
+          <div class="observer-step-item">
+            <div class="observer-step-top">
+              <div class="observer-step-icon" style="background: rgba(37, 99, 235, 0.12); color: #2563eb;">
+                <i class="ri-ball-pen-fill"></i>
+              </div>
+              <span class="observer-step-num">Paso 02</span>
+            </div>
+            <h4 class="observer-step-title">Firma de Contrato y Anexos</h4>
+            <p class="observer-step-desc">
+              En este mismo portal descargarás la plantilla del Contrato Fulfillment 360 (PDF o Word), la firmas digital o físicamente y la subes en PDF.
+            </p>
+            <span class="observer-step-tag" style="background: rgba(37, 99, 235, 0.1); color: #2563eb;">
+              <i class="ri-file-shield-2-line"></i> Gestión 100% digital
+            </span>
+          </div>
+
+          <!-- PASO 3 -->
+          <div class="observer-step-item">
+            <div class="observer-step-top">
+              <div class="observer-step-icon" style="background: rgba(14, 165, 233, 0.12); color: #0284c7;">
+                <i class="ri-shield-check-fill"></i>
+              </div>
+              <span class="observer-step-num">Paso 03</span>
+            </div>
+            <h4 class="observer-step-title">Aprobación y Alta en Bodega</h4>
+            <p class="observer-step-desc">
+              Nuestro equipo valida tu documentación, asigna el código oficial de tu comercio y desbloquea tu cuenta de <em>Solo Lectura</em> a <strong>Seller Activo</strong>.
+            </p>
+            <span class="observer-step-tag" style="background: rgba(14, 165, 233, 0.1); color: #0284c7;">
+              <i class="ri-lock-unlock-line"></i> Acceso total al WMS
+            </span>
+          </div>
+
+          <!-- PASO 4 -->
+          <div class="observer-step-item">
+            <div class="observer-step-top">
+              <div class="observer-step-icon" style="background: rgba(16, 185, 129, 0.12); color: #059669;">
+                <i class="ri-plug-2-fill"></i>
+              </div>
+              <span class="observer-step-num">Paso 04</span>
+            </div>
+            <h4 class="observer-step-title">Integraciones y Catálogo SKU</h4>
+            <p class="observer-step-desc">
+              Con acompañamiento de tu Guía de Inicio y KAM, conectas Shopify, Woo, Jumpseller, Mercado Libre o Retail y sincronizas tus SKUs.
+            </p>
+            <span class="observer-step-tag" style="background: rgba(16, 185, 129, 0.1); color: #059669;">
+              <i class="ri-refresh-line"></i> Sincronización en vivo
+            </span>
+          </div>
+
+          <!-- PASO 5 -->
+          <div class="observer-step-item">
+            <div class="observer-step-top">
+              <div class="observer-step-icon" style="background: rgba(245, 158, 11, 0.14); color: #d97706;">
+                <i class="ri-truck-fill"></i>
+              </div>
+              <span class="observer-step-num">Paso 05</span>
+            </div>
+            <h4 class="observer-step-title">Ingreso de Stock y Despachos</h4>
+            <p class="observer-step-desc">
+              Declaras tu primera recepción en <em>Ingresos de Stock</em>, entregas tu mercadería en bodega ¡y comenzamos a almacenar y despachar tus ventas!
+            </p>
+            <span class="observer-step-tag" style="background: rgba(245, 158, 11, 0.12); color: #d97706;">
+              <i class="ri-checkbox-circle-line"></i> Operación activa
+            </span>
+          </div>
+        </div>
+
+        <!-- QUÉ NECESITAS TENER A MANO ANTES DE INICIAR -->
+        <div class="observer-prep-box">
+          <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; font-weight: 800; color: var(--color-text-main);">
+            <i class="ri-checkbox-multiple-line" style="color: var(--color-accent); font-size: 1.1rem;"></i>
+            ¿Qué datos te pediremos durante el Onboarding? Tenlos a mano:
+          </div>
+          <div class="observer-prep-grid">
+            <div class="observer-prep-item">
+              <i class="ri-building-4-line"></i>
+              <div>
+                <strong style="display: block; font-size: 0.83rem; color: var(--color-text-main);">1. Datos Tributarios de Empresa</strong>
+                <span style="font-size: 0.77rem; color: var(--color-text-muted);">Razón Social, RUT Empresa, Giro Comercial, dirección, comuna y correo de facturación.</span>
+              </div>
+            </div>
+            <div class="observer-prep-item">
+              <i class="ri-government-line"></i>
+              <div>
+                <strong style="display: block; font-size: 0.83rem; color: var(--color-text-main);">2. Representante Legal</strong>
+                <span style="font-size: 0.77rem; color: var(--color-text-muted);">Nombre completo, RUT, teléfono y correo electrónico de quien firmará el contrato de servicio.</span>
+              </div>
+            </div>
+            <div class="observer-prep-item">
+              <i class="ri-shopping-bag-3-line"></i>
+              <div>
+                <strong style="display: block; font-size: 0.83rem; color: var(--color-text-main);">3. Definición Operativa</strong>
+                <span style="font-size: 0.77rem; color: var(--color-text-muted);">Nombre de fantasía, plataformas/marketplaces donde vendes, couriers preferidos y tipo de empaque.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PIE DE ACCIÓN DIRECTA -->
+        <div class="observer-cta-footer">
+          <div style="flex: 1; min-width: 240px;">
+            <strong style="display: block; font-size: 0.96rem; color: var(--color-text-main); margin-bottom: 0.2rem;">
+              ¿Ya revisaste los pasos y estás listo para asociar tu comercio?
+            </strong>
+            <span style="font-size: 0.82rem; color: var(--color-text-muted);">
+              Al continuar usaremos tu sesión activa${userEmail ? ` (${userEmail})` : ''} para que no tengas que crear otra cuenta ni repetir tu contraseña.
+            </span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <a href="https://wa.me/56939247487?text=Hola%20Stocka,%20me%20registr%C3%A9%20en%20el%20WMS%20y%20tengo%20dudas%20antes%20de%20iniciar%20mi%20Onboarding" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="padding: 0.72rem 1.1rem; font-size: 0.83rem; font-weight: 700; border-color: #22c55e; color: #16a34a; display: inline-flex; align-items: center; gap: 0.4rem; text-decoration: none;">
+              <i class="ri-whatsapp-line" style="font-size: 1.05rem;"></i> Consultar por WhatsApp
+            </a>
+            <a href="./onboarding.html?from=observer" class="btn-observer-hero-primary" style="padding: 0.78rem 1.5rem; font-size: 0.9rem;">
+              <i class="ri-rocket-2-fill"></i>
+              <span>Iniciar mi Onboarding Ahora</span>
+              <i class="ri-arrow-right-line"></i>
+            </a>
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderNoOnboardingState() {
+  const appContent = document.getElementById('app-content');
+  if (!appContent) return;
+  appContent.innerHTML = buildObserverOnboardingExperienceHtml({ includeAccountStatusCard: true });
+}
+
+async function renderObserverOnboardingGuideView() {
+  const appContent = document.getElementById('app-content');
+  const viewTitle = document.getElementById('view-title');
+  if (!appContent) return;
+
+  if (userRole !== 'observer') {
+    renderDashboard();
+    return;
+  }
+
+  appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando información de Onboarding...</p>';
+
+  try {
+    let request = window._observerOnboardingRequest;
+    if (typeof request === 'undefined') {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.id) {
+        const { data } = await supabase
+          .from('onboarding_requests')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        request = data || null;
+        window._observerOnboardingRequest = request;
+      }
+    }
+
+    syncObserverSidebarOnboardingItem(request);
+
+    if (request) {
+      if (request.status === 'pending_contract') {
+        renderUploadContractView(request);
+      } else {
+        renderOnboardingStatus(request);
+      }
+      return;
+    }
+
+    if (viewTitle) viewTitle.textContent = 'Onboarding Fulfillment 360';
+    appContent.innerHTML = buildObserverOnboardingExperienceHtml({ includeAccountStatusCard: false });
+  } catch (err) {
+    console.error('Error al renderizar vista de Onboarding para observador:', err);
+    appContent.innerHTML = buildObserverOnboardingExperienceHtml({ includeAccountStatusCard: false });
+  }
 }
 
 async function renderUploadContractView(request) {

@@ -2217,11 +2217,16 @@ document.addEventListener('DOMContentLoaded', () => {
         bcGroupEl.textContent = 'Asistencia Seller';
         return;
       }
+      if (titleText === 'Onboarding Fulfillment 360' || titleText === 'Firma de Contrato' || titleText === 'Seguimiento de Alta') {
+        viewIconEl.className = 'ri-rocket-2-line';
+        bcGroupEl.textContent = 'Alta de Comercio';
+        return;
+      }
 
       if (activeNav) {
         const icon = activeNav.querySelector('i');
         if (icon && icon.className) {
-          viewIconEl.className = icon.className.replace('fav-item-icon', '').trim();
+          viewIconEl.className = icon.className.replace('fav-item-icon', '').replace('observer-onb-icon', '').trim();
         }
         const flyoutGroup = activeNav.closest('.sidebar-flyout-group');
         if (flyoutGroup) {

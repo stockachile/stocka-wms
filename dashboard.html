@@ -9,13 +9,13 @@
   <link rel="apple-touch-icon" href="./favicon.png">
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
   <link rel="stylesheet" href="./css/style.css?v=1.0.10">
-  <link rel="stylesheet" href="./css/layout.css?v=1.2.9">
+  <link rel="stylesheet" href="./css/layout.css?v=1.3.1">
   <link rel="stylesheet" href="./css/tour.css?v=1.0.0">
   <link rel="stylesheet" href="./css/workspace_panel.css?v=1.0.0">
   <link rel="stylesheet" href="./css/inventory_coverage.css?v=1.2.1">
   <!-- Quill Styles for Rich Content Rendering -->
   <link href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" rel="stylesheet">
-  <script src="./js/theme.js?v=1.2.7"></script>
+  <script src="./js/theme.js?v=1.2.8"></script>
 
   <!-- Immediate Shopify OAuth Detection (Enforces Shopify App Store Guideline 2.3.2) -->
   <script>
@@ -88,6 +88,14 @@
             <a href="#" class="nav-item active" data-view="dashboard">
               <i class="ri-dashboard-line"></i>
               <span class="nav-text">Dashboard</span>
+            </a>
+          </li>
+          <!-- Acceso Destacado para Cuentas Nuevas Solo Lectura: Realizar Onboarding -->
+          <li class="sidebar-observer-onboarding-li" id="sidebar-observer-onboarding-li" style="display: none;">
+            <a href="#" id="sidebar-observer-onboarding-btn" class="nav-item sidebar-observer-onboarding-btn" data-view="observer_onboarding" title="Conoce el paso a paso e inicia tu Onboarding para ser un comercio asociado a Stocka Fulfillment">
+              <i class="ri-rocket-2-fill observer-onb-icon"></i>
+              <span class="nav-text observer-onb-label" id="sidebar-observer-onboarding-label">Realizar Onboarding</span>
+              <span class="observer-onb-pill" id="sidebar-observer-onboarding-pill">Alta</span>
             </a>
           </li>
           <!-- Panel de Trabajo oculto temporalmente para Clientes (activo solo en Admin) -->
@@ -2078,7 +2086,7 @@
   <script type="module" src="./js/consolidate_orders.js?v=1.0.1"></script>
   <script type="module" src="./js/picking_requests.js?v=1.0.4"></script>
   <script type="module" src="./js/order_editor.js?v=1.0.1"></script>
-  <script type="module" src="./js/app.js?v=1.1.5"></script>
+  <script type="module" src="./js/app.js?v=1.1.7"></script>
   <script type="module" src="./js/inventory_coverage.js?v=1.2.2"></script>
   <script type="module" src="./js/tour.js?v=1.0.1"></script>
   <script type="module" src="./js/order_page.js?v=1.0.13"></script>

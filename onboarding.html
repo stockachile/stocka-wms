@@ -784,7 +784,7 @@
         <a href="./cotizaciones.html" class="btn btn-outline" style="padding: 0.45rem 0.85rem; font-size: 0.85rem; border-color: var(--color-accent); color: var(--color-accent); text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem;">
           <i class="ri-calculator-line"></i> Cotizador Online
         </a>
-        <a href="./index.html" class="btn btn-outline" style="padding: 0.45rem 1rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-main); text-decoration: none;">Volver al Login</a>
+        <a href="./index.html" id="onboarding-header-back-btn" class="btn btn-outline" style="padding: 0.45rem 1rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-main); text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem;">Volver al Login</a>
       </div>
     </header>
 
@@ -820,7 +820,9 @@
           <!-- PASO 1: CONTACTO Y CUENTA -->
           <div class="step-panel active" id="panel-1">
             <h2 class="step-title"><i class="ri-user-smile-line" style="color: var(--color-accent)"></i> Datos de Contacto y Cuenta</h2>
-            <p class="step-desc">Crea tu cuenta de acceso al portal y define el contacto principal de la operación.</p>
+            <p class="step-desc" id="panel-1-desc">Crea tu cuenta de acceso al portal y define el contacto principal de la operación.</p>
+
+            <div id="existing-session-account-banner" style="display: none; margin-bottom: 1.35rem; padding: 0.9rem 1.15rem; border-radius: var(--radius-md); background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.28); color: var(--color-text-main); font-size: 0.86rem; line-height: 1.45;"></div>
             
             <div class="form-grid-2">
               <div class="form-group">
@@ -837,11 +839,18 @@
               <div class="form-group">
                 <label for="email" class="form-label">Correo Electrónico <span style="color: var(--color-danger)">*</span></label>
                 <input type="email" id="email" class="form-input" placeholder="juan.perez@empresa.com" required>
-                <small class="form-hint" style="font-size: 0.75rem; color: var(--color-text-muted);">Este correo y la contraseña definida abajo serán tus credenciales de inicio de sesión.</small>
+                <small id="email-field-hint" class="form-hint" style="font-size: 0.75rem; color: var(--color-text-muted);">Este correo y la contraseña definida abajo serán tus credenciales de inicio de sesión.</small>
               </div>
-              <div class="form-group">
+              <div class="form-group" id="password-form-group">
                 <label for="password" class="form-label">Contraseña <span style="color: var(--color-danger)">*</span></label>
                 <input type="password" id="password" class="form-input" placeholder="Mínimo 8 caracteres" required minlength="8">
+              </div>
+              <div class="form-group" id="password-linked-badge-group" style="display: none;">
+                <label class="form-label">Credenciales de Acceso</label>
+                <div style="height: 44px; padding: 0 0.95rem; border-radius: var(--radius-md); background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); color: var(--color-success); font-size: 0.84rem; font-weight: 600; display: flex; align-items: center; gap: 0.45rem;">
+                  <i class="ri-shield-check-fill" style="font-size: 1.1rem;"></i>
+                  <span>Contraseña activa en tu cuenta actual</span>
+                </div>
               </div>
             </div>
 
@@ -1072,8 +1081,8 @@
               <i class="ri-checkbox-circle-fill"></i>
             </div>
             
-            <h2 class="step-title" style="justify-content: center; font-size: 1.8rem; margin-bottom: 0.75rem;">¡Registro Recibido con éxito!</h2>
-            <p class="step-desc" style="max-width: 550px; margin: 0 auto 2.5rem auto; font-size: 1.05rem; line-height: 1.5;">
+            <h2 class="step-title" id="step-4-title" style="justify-content: center; font-size: 1.8rem; margin-bottom: 0.75rem;">¡Registro Recibido con éxito!</h2>
+            <p class="step-desc" id="step-4-desc" style="max-width: 550px; margin: 0 auto 2.5rem auto; font-size: 1.05rem; line-height: 1.5;">
               ¡Excelente! Tus datos comerciales han sido registrados en nuestro sistema.
               <br><br>
               <span style="color: var(--color-text-muted); font-size: 0.95rem;">
@@ -1157,6 +1166,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- App Scripts -->
   <script type="module" src="./js/supabase.js"></script>
-  <script type="module" src="./js/onboarding.js"></script>
+  <script type="module" src="./js/onboarding.js?v=1.1.0"></script>
 </body>
 </html>
