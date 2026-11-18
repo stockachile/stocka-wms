@@ -4843,12 +4843,19 @@ window.savePosSale = async function(e) {
     const effectiveOrderPeriod = (selectedAbonoPeriodVal && selectedAbonoPeriodVal !== 'SIN_ABONO')
       ? selectedAbonoPeriodVal
       : window.derivePosPeriodFromDate(new Date());
+    const hasStockTracking = Boolean(window.posSelectedCommerceConfig?.inventario_seguimiento);
+    const posNowIso = new Date().toISOString();
 
     const orderPayload = {
       merchant_id: merchantId,
       comercio: commerce,
       status: 'entregado',
       estado_wms: 'Entregado',
+      closed_by_automation: 'auto-pos-sale-to-entregado',
+      stock_descontado: hasStockTracking,
+      stock_descontado_at: hasStockTracking ? posNowIso : null,
+      dispatched_at: posNowIso,
+      delivered_at: posNowIso,
       customer_name: customerName,
       customer_email: customerEmail || null,
       customer_phone: customerPhone || null,
@@ -5007,7 +5014,6 @@ window.savePosSale = async function(e) {
     }
 
     // 5. DESCUENTO DE STOCK Y MOVIMIENTOS (Si tiene seguimiento activo)
-    const hasStockTracking = Boolean(window.posSelectedCommerceConfig?.inventario_seguimiento);
     if (hasStockTracking) {
       console.log(`📦 Descontando inventario en ${SUCURSAL_NUNOA_NAME} para ${commerce}...`);
 
@@ -5083,7 +5089,7 @@ window.savePosSale = async function(e) {
             ${formatCLP(totalAmount)}
           </p>
           <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); font-size: 0.85rem; text-align: left; margin-bottom: 1rem; border: 1px solid var(--color-border);">
-            <div><strong>Pedido WMS:</strong> Generado con estado <em>Despachado</em>.</div>
+            <div><strong>Pedido WMS:</strong> Generado con estado <em>Entregado (Finalizado)</em>.</div>
             <div><strong>Inventario:</strong> ${hasStockTracking ? 'Stock descontado en Sucursal Ñuñoa.' : 'Sin seguimiento de stock físico.'}</div>
             <div><strong>Portal Cliente:</strong> Disponible en tiempo real para el comercio.</div>
           </div>
