@@ -2,8 +2,8 @@ name: Sync Blue Express to Supabase
 
 on:
   schedule:
-    # Se ejecuta cada 3 horas (UTC: 0, 3, 6, 9, 12, 15, 18, 21)
-    - cron: '0 */3 * * *'
+    # Se ejecuta cada 2 horas durante el día (08:00 a 22:00 hrs Chile -> UTC: 11, 13, 15, 17, 19, 21, 23, 01)
+    - cron: '0 1,11,13,15,17,19,21,23 * * *'
   workflow_dispatch:
     # Permite gatillar la sincronización manualmente desde GitHub Actions o desde el WMS
 

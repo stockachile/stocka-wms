@@ -11875,9 +11875,11 @@ window.getOrderForcedTrackingInfo = window.getOrderForcedTrackingInfo || functio
           tracking_number: trk,
           courier: ft.courier ? String(ft.courier).trim() : (order.courier ? String(order.courier).trim() : null),
           tracking_url: ft.tracking_url ? String(ft.tracking_url).trim() : (order.tracking_url ? String(order.tracking_url).trim() : null),
-          source_table: ft.source_table || null,
+          source_table: ft.source_table || (ft.sync_platform === 'bluex' ? 'bluex_envios' : (ft.sync_platform === 'starkenpro' ? 'starken_envios' : null)),
+          sync_platform: ft.sync_platform || null,
           status: ft.status || null,
           global_status: ft.global_status || null,
+          last_checked_at: ft.last_checked_at || null,
           updated_at: ft.updated_at || null
         };
       }

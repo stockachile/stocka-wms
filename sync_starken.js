@@ -187,6 +187,46 @@ async function syncStarkenPro() {
     }
   }
 
+  // Consultar pedidos activos con tracking fijado explícitamente para monitoreo Starken Pro
+  console.log('📌 Consultando trackings fijados con monitoreo Starken Pro en Supabase...');
+  const pinnedOrdersByTracking = new Map();
+  let totalPinnedOrders = 0;
+  try {
+    const { data: pinnedRows, error: pinnedErr } = await supabase
+      .from('orders')
+      .select('id, status, estado_wms, created_at, external_order_number, tracking_number, tracking_url, courier, starken_status, comercio, categoria_entrega, raw_shopify_data')
+      .in('estado_wms', ['En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia'])
+      .eq('raw_shopify_data->wms_forced_tracking->>sync_platform', 'starkenpro');
+
+    if (pinnedErr) {
+      console.warn('⚠️ Aviso consultando trackings fijados Starken Pro:', pinnedErr.message);
+    } else if (pinnedRows && pinnedRows.length > 0) {
+      const nowMs = Date.now();
+      for (const ord of pinnedRows) {
+        if (String(ord.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') continue;
+        const ft = ord.raw_shopify_data?.wms_forced_tracking;
+        if (!ft || !ft.active) continue;
+        const trk = String(ft?.tracking_number || ord.tracking_number || '').trim();
+        if (!trk) continue;
+        const key = trk.toUpperCase();
+        if (!pinnedOrdersByTracking.has(key)) pinnedOrdersByTracking.set(key, []);
+        pinnedOrdersByTracking.get(key).push(ord);
+        totalPinnedOrders++;
+
+        // Expandir ventana de fechas automáticamente si hay pedidos fijados más antiguos que daysBack
+        if (ord.created_at) {
+          const ageDays = Math.ceil((nowMs - new Date(ord.created_at).getTime()) / (1000 * 60 * 60 * 24));
+          if (ageDays + 15 > daysBack) {
+            daysBack = Math.min(120, ageDays + 15);
+          }
+        }
+      }
+    }
+    console.log(`📌 ${totalPinnedOrders} pedido(s) activo(s) con tracking fijado Starken Pro (${pinnedOrdersByTracking.size} guía(s) única(s)).`);
+  } catch (e) {
+    console.warn('⚠️ Excepción consultando trackings fijados Starken Pro:', e.message);
+  }
+
   const now = new Date();
   const startDateObj = new Date();
   startDateObj.setDate(now.getDate() - daysBack);
@@ -237,6 +277,7 @@ async function syncStarkenPro() {
   await page.setViewportSize({ width: 1280, height: 800 });
 
   let allShipments = [];
+  let querySucceeded = false;
 
   try {
     console.log(`🌐 Navegando a ${TARGET_URL}...`);
@@ -358,6 +399,7 @@ async function syncStarkenPro() {
     console.log('\n📥 Consultando despachos en la API de Starken Pro...');
 
     const seenOfs = new Set();
+    let successfulStatusQueries = 0;
 
     for (const statusName of statusesToQuery) {
       console.log(`🔍 Consultando estado: ${statusName}...`);
@@ -394,6 +436,7 @@ async function syncStarkenPro() {
         console.warn(`   ⚠️ Estado ${statusName}: ${queryResult.error}`);
         continue;
       }
+      successfulStatusQueries++;
 
       // La respuesta de resumen-data suele ser { data: [ ... ] } o un arreglo directo
       const rawList = Array.isArray(queryResult.data) ? queryResult.data : (queryResult.data?.data || queryResult.data?.response || []);
@@ -415,6 +458,10 @@ async function syncStarkenPro() {
       await page.waitForTimeout(400); // Pequeña pausa entre consultas
     }
 
+    if (successfulStatusQueries > 0) {
+      querySucceeded = true;
+    }
+
     console.log(`\n📊 Total de envíos recuperados desde Starken Pro: ${allShipments.length}`);
 
     // Actualizar storageState
@@ -426,8 +473,26 @@ async function syncStarkenPro() {
     await browser.close();
   }
 
+  const checkedAtIso = new Date().toISOString();
+  const foundPinnedOrderIds = new Set();
+
   if (allShipments.length === 0) {
     console.log('ℹ️ No se encontraron envíos generados en el rango de fechas consultado.');
+    if (querySucceeded && pinnedOrdersByTracking.size > 0) {
+      for (const [, ordList] of pinnedOrdersByTracking.entries()) {
+        for (const ord of ordList) {
+          const baseRaw = (ord.raw_shopify_data && typeof ord.raw_shopify_data === 'object') ? { ...ord.raw_shopify_data } : {};
+          if (baseRaw.wms_forced_tracking) {
+            baseRaw.wms_forced_tracking = {
+              ...baseRaw.wms_forced_tracking,
+              last_checked_at: checkedAtIso,
+              last_check_found: false
+            };
+            await supabase.from('orders').update({ raw_shopify_data: baseRaw }).eq('id', ord.id);
+          }
+        }
+      }
+    }
     return;
   }
 
@@ -440,7 +505,9 @@ async function syncStarkenPro() {
 
   const upsertStarkenList = [];
   const upsertUnificadosList = [];
+  const pendingStatusTransitions = [];
   let updatedOrdersCount = 0;
+  let updatedPinnedCount = 0;
 
   for (const item of allShipments) {
     const ofNumber = String(item.ODFLCODIGO || item.odflcodigo || item.orden_flete || item.OF || item.id || '').trim();
@@ -450,6 +517,9 @@ async function syncStarkenPro() {
     const status = item.ESTADO ? String(item.ESTADO).trim() : (item.estado || item._starkenQueryStatus || 'EMITIDO');
     const wmsStatus = mapStarkenStatusToWms(status);
     const globalStatus = getGlobalStatus(status);
+    const uiGlobalStatus = wmsStatus === 'entregado'
+      ? 'ENTREGADO'
+      : (globalStatus === 'DESPACHADO' ? 'EN TRÁNSITO' : globalStatus);
 
     let docNumber = item.NUMERO_DOCUMENTO ?? item.numero_documento ?? item.orderid ?? item.ORDERID_EMISION ?? null;
     if (docNumber === 0 || docNumber === '0') docNumber = null;
@@ -484,6 +554,40 @@ async function syncStarkenPro() {
       }
     }
 
+    // --- Vinculación con pedidos en la tabla orders ---
+    // Prioridad 1: Pedidos que fijaron explícitamente este tracking para monitoreo en Starken Pro
+    const pinnedMatches = pinnedOrdersByTracking.get(ofNumber.toUpperCase()) || [];
+    let matchedOrders = [...pinnedMatches];
+
+    // Prioridad 2: Búsqueda automática por candidatos (respetando si el pedido ya tiene OTRO tracking fijado)
+    if (matchedOrders.length === 0) {
+      const candidates = buildOrderCandidates(ofNumber, docNumber, observation, receiverName);
+      if (candidates.length > 0) {
+        const filterStr = candidates.map(c => `"${c}"`).join(',');
+        const { data: directOrders } = await supabase
+          .from('orders')
+          .select('id, status, estado_wms, external_order_number, tracking_number, tracking_url, courier, starken_status, comercio, categoria_entrega, raw_shopify_data')
+          .or(`tracking_number.in.(${filterStr}),external_order_number.in.(${filterStr})`);
+
+        if (directOrders && directOrders.length > 0) {
+          const validCandidate = directOrders.find(o => {
+            if (String(o.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') return false;
+            const ft = o.raw_shopify_data?.wms_forced_tracking;
+            if (ft && ft.active && ft.tracking_number && String(ft.tracking_number).trim().toUpperCase() !== ofNumber.toUpperCase()) {
+              return false; // No pisar un pedido que tiene otro tracking forzado distinto
+            }
+            return true;
+          });
+          if (validCandidate) matchedOrders.push(validCandidate);
+        }
+      }
+    }
+
+    const primaryOrder = matchedOrders[0] || null;
+    if (primaryOrder && primaryOrder.comercio) {
+      resolvedComercio = primaryOrder.comercio;
+    }
+
     // Registro para la tabla starken_envios
     const starkenRecord = {
       id: ofNumber,
@@ -508,35 +612,17 @@ async function syncStarkenPro() {
       fecha_recepcion_starken: receptionDate ? new Date(receptionDate).toISOString() : null,
       fecha_compromiso: commitmentDate ? new Date(commitmentDate).toISOString() : null,
       raw_data: item,
-      updated_at: new Date().toISOString()
+      updated_at: checkedAtIso
     };
     upsertStarkenList.push(starkenRecord);
 
-    // --- Vinculación con pedidos en la tabla orders ---
-    const candidates = buildOrderCandidates(ofNumber, docNumber, observation, receiverName);
-    let matchedOrder = null;
-
-    if (candidates.length > 0) {
-      const filterStr = candidates.map(c => `"${c}"`).join(',');
-      const { data: directOrders } = await supabase
-        .from('orders')
-        .select('id, status, estado_wms, external_order_number, tracking_number, tracking_url, courier, starken_status, comercio, categoria_entrega')
-        .or(`tracking_number.in.(${filterStr}),external_order_number.in.(${filterStr})`);
-
-      if (directOrders && directOrders.length > 0) {
-        matchedOrder = directOrders.find(o => String(o.categoria_entrega || '').toUpperCase().trim() !== 'RETIRO') || null;
-      }
-    }
-
-    // Si el pedido en WMS ya está cerrado definitivamente en 'Entregado', no realizar actualizaciones adicionales
-    if (matchedOrder && matchedOrder.estado_wms === 'Entregado') {
+    // Si el pedido primario ya está cerrado en 'Entregado' o es 'Listo para retiro' / RETIRO, continuar tras registrar starken_envios
+    const openMatchedOrders = matchedOrders.filter(o =>
+      !['Entregado', 'Listo para retiro'].includes(o.estado_wms) &&
+      String(o.categoria_entrega || '').toUpperCase().trim() !== 'RETIRO'
+    );
+    if (matchedOrders.length > 0 && openMatchedOrders.length === 0) {
       continue;
-    }
-
-    // Si se encontró la orden en el WMS, adoptar el comercio real de la orden
-    if (matchedOrder && matchedOrder.comercio) {
-      resolvedComercio = matchedOrder.comercio;
-      starkenRecord.comercio = matchedOrder.comercio;
     }
 
     // Registro para la tabla unificada de AutoTrack (envios_unificados)
@@ -555,55 +641,65 @@ async function syncStarkenPro() {
       telefono_destino: receiverPhone,
       direccion_destino: address,
       comuna_destino: commune,
-      pedido_referencia: matchedOrder?.external_order_number || docNumber || ofNumber,
-      created_at: emissionDate ? new Date(emissionDate).toISOString() : new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      pedido_referencia: primaryOrder?.external_order_number || docNumber || ofNumber,
+      created_at: emissionDate ? new Date(emissionDate).toISOString() : checkedAtIso,
+      updated_at: checkedAtIso
     };
     upsertUnificadosList.push(unificadoRecord);
 
-    // Actualizar pedido en WMS si hubo coincidencia (excluyendo Listo para retiro / RETIRO)
-    if (matchedOrder && matchedOrder.estado_wms !== 'Listo para retiro' && String(matchedOrder.categoria_entrega || '').toUpperCase().trim() !== 'RETIRO') {
-      const updatePayload = {
+    // Fase 1 en orders: guardar metadatos de Starken Pro y estado actualizado de wms_forced_tracking ANTES del cierre inmutable
+    for (const matchedOrder of openMatchedOrders) {
+      const isPinnedTarget = pinnedMatches.some(p => p.id === matchedOrder.id);
+      if (isPinnedTarget) {
+        foundPinnedOrderIds.add(matchedOrder.id);
+        console.log(`   📌 [Starken Pro Fijado] Pedido ${matchedOrder.external_order_number || matchedOrder.id} (${ofNumber}) -> Estado: ${status} (${uiGlobalStatus})`);
+      }
+
+      const metaPayload = {
         starken_status: status,
         raw_starken_data: starkenRecord
       };
 
       if (!matchedOrder.tracking_number) {
-        updatePayload.tracking_number = ofNumber;
+        metaPayload.tracking_number = ofNumber;
       }
       if (!matchedOrder.tracking_url) {
-        updatePayload.tracking_url = trackingUrl;
+        metaPayload.tracking_url = trackingUrl;
       }
       if (matchedOrder.courier !== 'STARKEN') {
-        updatePayload.courier = 'STARKEN';
+        metaPayload.courier = 'STARKEN';
       }
 
-      if (wmsStatus === 'entregado') {
-        if (!['Entregado', 'Cancelado', 'Archivado'].includes(matchedOrder.estado_wms)) {
-          updatePayload.status = 'entregado';
-          updatePayload.estado_wms = 'Entregado';
-          updatePayload.delivered_at = new Date().toISOString();
-          updatePayload.closed_at = new Date().toISOString();
-          updatePayload.closed_by_automation = 'auto-dispatch-delivered-to-entregado';
-        }
-      } else if (wmsStatus === 'en tránsito' || globalStatus === 'DESPACHADO') {
-        if (['para procesar', 'en preparación', 'preparado'].includes(matchedOrder.status)) {
-          updatePayload.status = 'despachado';
-        }
-        if (!['Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(matchedOrder.estado_wms)) {
-          updatePayload.estado_wms = 'Despachado';
-        }
+      const ft = matchedOrder.raw_shopify_data?.wms_forced_tracking;
+      if (ft && ft.active && String(ft.tracking_number || '').trim().toUpperCase() === ofNumber.toUpperCase()) {
+        metaPayload.raw_shopify_data = {
+          ...(matchedOrder.raw_shopify_data || {}),
+          wms_forced_tracking: {
+            ...ft,
+            source_table: 'starken_envios',
+            status: status,
+            global_status: uiGlobalStatus,
+            last_checked_at: checkedAtIso,
+            last_check_found: true,
+            updated_at: checkedAtIso
+          }
+        };
       }
 
-      const { error: updateError } = await supabase
+      const { error: metaErr } = await supabase
         .from('orders')
-        .update(updatePayload)
+        .update(metaPayload)
         .eq('id', matchedOrder.id);
 
-      if (!updateError) {
+      if (!metaErr) {
         updatedOrdersCount++;
+        if (isPinnedTarget) updatedPinnedCount++;
       } else {
-        console.warn(`⚠️ No se pudo actualizar orden ${matchedOrder.id}:`, updateError.message);
+        console.warn(`⚠️ No se pudo actualizar metadatos en orden ${matchedOrder.id}:`, metaErr.message);
+      }
+
+      if (wmsStatus === 'entregado' || wmsStatus === 'en tránsito' || globalStatus === 'DESPACHADO') {
+        pendingStatusTransitions.push({ order: matchedOrder, wmsStatus, globalStatus });
       }
     }
   }
@@ -651,10 +747,61 @@ async function syncStarkenPro() {
     }
   }
 
+  // --- Fase final: asegurar transición de estado_wms si el trigger no la había ejecutado aún ---
+  for (const item of pendingStatusTransitions) {
+    const { data: freshOrd } = await supabase
+      .from('orders')
+      .select('id, status, estado_wms, categoria_entrega')
+      .eq('id', item.order.id)
+      .maybeSingle();
+
+    if (!freshOrd || ['Entregado', 'Listo para retiro', 'Cancelado', 'Archivado'].includes(freshOrd.estado_wms) || String(freshOrd.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') continue;
+
+    const stPayload = {};
+    if (item.wmsStatus === 'entregado') {
+      stPayload.status = 'entregado';
+      stPayload.estado_wms = 'Entregado';
+      stPayload.delivered_at = checkedAtIso;
+      stPayload.closed_at = checkedAtIso;
+      stPayload.closed_by_automation = 'auto-dispatch-delivered-to-entregado';
+    } else if (item.wmsStatus === 'en tránsito' || item.globalStatus === 'DESPACHADO') {
+      if (['para procesar', 'en preparación', 'preparado'].includes(freshOrd.status)) {
+        stPayload.status = 'despachado';
+      }
+      if (freshOrd.estado_wms !== 'Despachado') {
+        stPayload.estado_wms = 'Despachado';
+      }
+    }
+
+    if (Object.keys(stPayload).length > 0) {
+      await supabase.from('orders').update(stPayload).eq('id', freshOrd.id);
+    }
+  }
+
+  // --- Sellar timestamp de revisión en pedidos fijados Starken Pro que aún no aparecen en despachos ---
+  if (querySucceeded && pinnedOrdersByTracking.size > 0) {
+    for (const [trkKey, ordList] of pinnedOrdersByTracking.entries()) {
+      for (const ord of ordList) {
+        if (foundPinnedOrderIds.has(ord.id)) continue;
+        console.log(`   ⏳ [Starken Pro Fijado] Pedido ${ord.external_order_number || ord.id} (${trkKey}) consultado, aún sin registro en Starken Pro.`);
+        const baseRaw = (ord.raw_shopify_data && typeof ord.raw_shopify_data === 'object') ? { ...ord.raw_shopify_data } : {};
+        if (baseRaw.wms_forced_tracking) {
+          baseRaw.wms_forced_tracking = {
+            ...baseRaw.wms_forced_tracking,
+            last_checked_at: checkedAtIso,
+            last_check_found: false
+          };
+          await supabase.from('orders').update({ raw_shopify_data: baseRaw }).eq('id', ord.id);
+        }
+      }
+    }
+  }
+
   console.log('\n====================================================');
   console.log('✅ Sincronización completada con éxito:');
   console.log(`- Envíos registrados en starken_envios: ${upsertedCount}`);
-  console.log(`- Pedidos vinculados y actualizados en WMS orders: ${updatedOrdersCount}`);
+  console.log(`- Envíos sincronizados en envios_unificados: ${unificadosCount}`);
+  console.log(`- Pedidos vinculados y actualizados en WMS orders: ${updatedOrdersCount} (fijados Starken Pro: ${updatedPinnedCount}/${totalPinnedOrders})`);
   console.log('====================================================\n');
 }
 

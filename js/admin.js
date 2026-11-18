@@ -12906,14 +12906,19 @@ async function renderAdminOrders() {
         if (src && typeof src === 'object' && src.wms_forced_tracking && src.wms_forced_tracking.active) {
           const trk = String(src.wms_forced_tracking.tracking_number || src.wms_forced_tracking.tracking || '').trim();
           if (trk && trk.toUpperCase() !== 'NO INFORMADO' && trk.toUpperCase() !== 'N/A' && trk !== '-' && trk.toLowerCase() !== 'null' && trk.toLowerCase() !== 'undefined') {
+            const sp = src.wms_forced_tracking.sync_platform || null;
             return {
               active: true,
               tracking_number: trk,
               courier: String(src.wms_forced_tracking.courier || order.courier || '').trim() || null,
               tracking_url: String(src.wms_forced_tracking.tracking_url || order.tracking_url || '').trim() || null,
-              source_table: src.wms_forced_tracking.source_table || null,
+              source_table: src.wms_forced_tracking.source_table || (sp === 'bluex' ? 'bluex_envios' : (sp === 'starkenpro' ? 'starken_envios' : null)),
+              sync_platform: sp,
+              auto_check_enabled: Boolean(src.wms_forced_tracking.auto_check_enabled || sp),
               status: src.wms_forced_tracking.status || null,
               global_status: src.wms_forced_tracking.global_status || null,
+              last_checked_at: src.wms_forced_tracking.last_checked_at || null,
+              last_check_found: src.wms_forced_tracking.last_check_found !== undefined ? src.wms_forced_tracking.last_check_found : null,
               updated_at: src.wms_forced_tracking.updated_at || null
             };
           }
@@ -13573,7 +13578,7 @@ async function renderAdminOrders() {
         const defaultStatusText = forcedInfo.status || (defaultGlob === 'ENTREGADO' ? 'Entregado' : (defaultGlob === 'EN TRÁNSITO' ? 'En tránsito' : 'Tracking fijado'));
         orderShipments.unshift({
           id: `forced:${order.id}:${forcedInfo.tracking_number}`,
-          source_table: forcedInfo.source_table || (isForcedAlpha ? 'lightdata_envios' : 'manual_forced'),
+          source_table: forcedInfo.source_table || (forcedInfo.sync_platform === 'bluex' ? 'bluex_envios' : (forcedInfo.sync_platform === 'starkenpro' ? 'starken_envios' : (isForcedAlpha ? 'lightdata_envios' : 'manual_forced'))),
           source_id: forcedInfo.tracking_number,
           tracking: forcedInfo.tracking_number,
           pedido_referencia: order.external_order_number || order.id,
@@ -94850,14 +94855,18 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
 
     // 0. Si hay un tracking forzado actualmente, incluirlo como primera opción
     if (forcedInfo?.active && forcedInfo.tracking_number) {
+      const forcedPlatLabel = forcedInfo.sync_platform === 'bluex'
+        ? '📌 Fijado · BlueX Auto'
+        : (forcedInfo.sync_platform === 'starkenpro' ? '📌 Fijado · Starken Pro Auto' : '📌 Fijado por Admin');
       detectedOptions.push({
         courier: forcedInfo.courier || order.courier || 'ALPHA',
         tracking: String(forcedInfo.tracking_number).trim(),
         tracking_url: forcedInfo.tracking_url || order.tracking_url || null,
-        source_table: forcedInfo.source_table || 'manual_forced',
-        source: '📌 Fijado por Admin',
+        source_table: forcedInfo.source_table || (forcedInfo.sync_platform === 'bluex' ? 'bluex_envios' : (forcedInfo.sync_platform === 'starkenpro' ? 'starken_envios' : 'manual_forced')),
+        source: forcedPlatLabel,
         status: forcedInfo.status || 'FIJADO',
         global_status: forcedInfo.global_status || 'SIN MOVIMIENTO',
+        sync_platform: forcedInfo.sync_platform || null,
         is_forced: true
       });
     }
@@ -95112,11 +95121,13 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
                 <button type="button" 
                         class="btn btn-outline btn-sm swal-track-opt-btn"
                         data-track="${opt.tracking.replace(/"/g, '&quot;')}"
+                        data-sync-platform="${opt.sync_platform || ''}"
                         onclick="
                           document.getElementById('swal-edit-courier').value='${cleanCourier}';
                           document.getElementById('swal-edit-tracking').value='${cleanTracking}';
                           if(document.getElementById('swal-edit-tracking-url')) document.getElementById('swal-edit-tracking-url').value='${cleanUrl}';
                           if(document.getElementById('swal-force-tracking')) document.getElementById('swal-force-tracking').checked=true;
+                          if(typeof window._swalSyncPlatformSelectOpt === 'function') window._swalSyncPlatformSelectOpt(this.getAttribute('data-sync-platform') || '');
                           document.querySelectorAll('.swal-track-opt-btn').forEach(b => { b.style.borderColor='var(--color-border)'; b.style.background='var(--color-surface)'; b.style.boxShadow='none'; });
                           this.style.borderColor='#4f46e5';
                           this.style.background='#eef2ff';
@@ -95129,6 +95140,8 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
                     <span style="font-family: monospace; font-weight: 700; color: #1e293b;">${opt.tracking}</span>
                     <span style="font-size:0.68rem; color: var(--color-text-muted);">(${opt.source})</span>
                     ${opt.is_forced ? '<span style="background:#fef3c7; color:#b45309; border:1px solid #fcd34d; font-size:0.6rem; font-weight:800; padding:0.05rem 0.3rem; border-radius:99px;">📌 FIJADO</span>' : ''}
+                    ${opt.sync_platform === 'bluex' ? '<span style="background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd; font-size:0.6rem; font-weight:800; padding:0.05rem 0.32rem; border-radius:99px;">🔄 BLUEX AUTO</span>' : ''}
+                    ${opt.sync_platform === 'starkenpro' ? '<span style="background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5; font-size:0.6rem; font-weight:800; padding:0.05rem 0.32rem; border-radius:99px;">🔄 STARKEN PRO AUTO</span>' : ''}
                   </span>
                   <span style="font-size: 0.65rem; background: ${badgeBg}; color: ${badgeColor}; padding: 0.12rem 0.4rem; border-radius: 99px; font-weight: 700; text-transform: uppercase; white-space: nowrap;">${opt.status}</span>
                 </button>
@@ -95145,12 +95158,33 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
       `;
     }
 
+    // Estado guardado de plataforma periódica (desmarcado por defecto salvo que ya haya sido guardado antes en este pedido)
+    const savedSyncPlatform = (forcedInfo?.active && (forcedInfo.sync_platform === 'bluex' || forcedInfo.sync_platform === 'starkenpro'))
+      ? forcedInfo.sync_platform
+      : '';
+    let lastCheckedHtml = '';
+    if (savedSyncPlatform && forcedInfo?.last_checked_at) {
+      const checkedDateStr = new Date(forcedInfo.last_checked_at).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      const platName = savedSyncPlatform === 'bluex' ? 'BlueX' : 'Starken Pro';
+      const foundText = forcedInfo.last_check_found === false
+        ? 'Aún sin registro en plataforma'
+        : `Estado: <strong>${forcedInfo.status || 'Registrado'}</strong>`;
+      lastCheckedHtml = `
+        <div style="margin-top: 0.45rem; padding: 0.32rem 0.55rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.71rem; color: #475569; display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-time-line" style="color: #6366f1;"></i>
+          <span>Última consulta en ${platName}: <strong>${checkedDateStr}</strong> · ${foundText}</span>
+        </div>
+      `;
+    }
+
+    let _runImmediateLiveSync = false;
+
     // Cerrar cargando y abrir modal
     Swal.close();
 
     const { value: formValues } = await Swal.fire({
       title: `Gestionar Trackings (${order.external_order_number || order.id.split('-')[0]})`,
-      width: '560px',
+      width: '580px',
       html: `
         <div style="text-align: left; font-size: 0.88rem;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; gap: 0.5rem; flex-wrap: wrap;">
@@ -95169,7 +95203,7 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
             </div>
             <div>
               <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.8rem;">N° Seguimiento (Tracking)</label>
-              <input id="swal-edit-tracking" class="swal2-input" type="text" value="${(currentTracking || '').replace(/"/g, '&quot;')}" oninput="if(this.value.trim() && document.getElementById('swal-force-tracking')) document.getElementById('swal-force-tracking').checked = true;" placeholder="Ej: 816900 o código manual" style="width: 100%; height: 38px; margin: 0; font-size: 0.85rem; font-family: monospace; font-weight: 700; box-sizing: border-box;">
+              <input id="swal-edit-tracking" class="swal2-input" type="text" value="${(currentTracking || '').replace(/"/g, '&quot;')}" placeholder="Ej: 816900 o código manual" style="width: 100%; height: 38px; margin: 0; font-size: 0.85rem; font-family: monospace; font-weight: 700; box-sizing: border-box;">
             </div>
           </div>
 
@@ -95185,6 +95219,40 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
               Al activarlo, este tracking prevalecerá de forma permanente en Torre de Control Admin, Portal Cliente, App Picker y Seguimiento Web público (ignorando etiquetas antiguas o canceladas).
             </div>
           </label>
+
+          <div style="margin-top: 0.65rem; padding: 0.65rem 0.75rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.45rem; flex-wrap: wrap;">
+              <span style="font-weight: 700; font-size: 0.79rem; color: #1e293b; display: inline-flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-refresh-line" style="color: #2563eb;"></i> Seguimiento periódico en plataforma (cada 2h en el día)
+              </span>
+              <button type="button" id="swal-btn-sync-courier-now" class="btn btn-outline" style="font-size: 0.71rem; padding: 0.18rem 0.5rem; border-color: #2563eb; color: #2563eb; background: #eff6ff; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.22rem; border-radius: 6px;">
+                <i class="ri-flashlight-line"></i> Consultar ahora
+              </button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+              <label id="swal-card-bluex" for="swal-platform-bluex" style="display: flex; align-items: center; gap: 0.45rem; padding: 0.48rem 0.6rem; background: ${savedSyncPlatform === 'bluex' ? '#eff6ff' : '#ffffff'}; border: 1.5px solid ${savedSyncPlatform === 'bluex' ? '#2563eb' : '#cbd5e1'}; border-radius: 7px; cursor: pointer; user-select: none; transition: all 0.15s;">
+                <input id="swal-platform-bluex" type="checkbox" ${savedSyncPlatform === 'bluex' ? 'checked' : ''} style="width: 15px; height: 15px; accent-color: #0032A0; cursor: pointer; flex-shrink: 0;">
+                <div style="line-height: 1.2;">
+                  <strong style="display: block; font-size: 0.78rem; color: #0032A0;">Envío BlueX</strong>
+                  <span style="font-size: 0.68rem; color: #64748b;">app.bluex.cl</span>
+                </div>
+              </label>
+
+              <label id="swal-card-starkenpro" for="swal-platform-starkenpro" style="display: flex; align-items: center; gap: 0.45rem; padding: 0.48rem 0.6rem; background: ${savedSyncPlatform === 'starkenpro' ? '#fef2f2' : '#ffffff'}; border: 1.5px solid ${savedSyncPlatform === 'starkenpro' ? '#dc2626' : '#cbd5e1'}; border-radius: 7px; cursor: pointer; user-select: none; transition: all 0.15s;">
+                <input id="swal-platform-starkenpro" type="checkbox" ${savedSyncPlatform === 'starkenpro' ? 'checked' : ''} style="width: 15px; height: 15px; accent-color: #dc2626; cursor: pointer; flex-shrink: 0;">
+                <div style="line-height: 1.2;">
+                  <strong style="display: block; font-size: 0.78rem; color: #b91c1c;">Envío Starken Pro</strong>
+                  <span style="font-size: 0.68rem; color: #64748b;">starkenpro.cl</span>
+                </div>
+              </label>
+            </div>
+
+            <div style="margin-top: 0.4rem; font-size: 0.7rem; color: #64748b; line-height: 1.3;">
+              Márcalo solo si la guía fue creada en nuestra cuenta de <strong>BlueX</strong> o <strong>Starken Pro</strong> para revisar su estado periódicamente con los accesos guardados.
+            </div>
+            ${lastCheckedHtml}
+          </div>
           
           ${optionsHtml}
         </div>
@@ -95193,32 +95261,162 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
       showCancelButton: true,
       confirmButtonText: '<i class="ri-save-line"></i> Guardar y Aplicar',
       cancelButtonText: 'Cancelar',
+      didOpen: () => {
+        const chkForce = document.getElementById('swal-force-tracking');
+        const chkBluex = document.getElementById('swal-platform-bluex');
+        const chkStarken = document.getElementById('swal-platform-starkenpro');
+        const cardBluex = document.getElementById('swal-card-bluex');
+        const cardStarken = document.getElementById('swal-card-starkenpro');
+        const inpCourier = document.getElementById('swal-edit-courier');
+        const inpTracking = document.getElementById('swal-edit-tracking');
+        const inpUrl = document.getElementById('swal-edit-tracking-url');
+        const btnSyncNow = document.getElementById('swal-btn-sync-courier-now');
+
+        const refreshPlatformVisuals = () => {
+          const bxOn = Boolean(chkBluex?.checked);
+          const skOn = Boolean(chkStarken?.checked);
+          if (cardBluex) {
+            cardBluex.style.background = bxOn ? '#eff6ff' : '#ffffff';
+            cardBluex.style.borderColor = bxOn ? '#2563eb' : '#cbd5e1';
+          }
+          if (cardStarken) {
+            cardStarken.style.background = skOn ? '#fef2f2' : '#ffffff';
+            cardStarken.style.borderColor = skOn ? '#dc2626' : '#cbd5e1';
+          }
+        };
+
+        const applyPlatformDefaults = (plat) => {
+          const trk = (inpTracking?.value || '').trim();
+          if (plat === 'bluex') {
+            if (chkForce) chkForce.checked = true;
+            if (inpCourier) inpCourier.value = 'BLUEXPRESS';
+            if (inpUrl && trk) inpUrl.value = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(trk)}`;
+          } else if (plat === 'starkenpro') {
+            if (chkForce) chkForce.checked = true;
+            if (inpCourier) inpCourier.value = 'STARKEN';
+            if (inpUrl && trk) inpUrl.value = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(trk)}`;
+          }
+          refreshPlatformVisuals();
+        };
+
+        window._swalSyncPlatformSelectOpt = (plat) => {
+          if (chkBluex) chkBluex.checked = (plat === 'bluex');
+          if (chkStarken) chkStarken.checked = (plat === 'starkenpro');
+          refreshPlatformVisuals();
+        };
+
+        if (chkBluex) {
+          chkBluex.addEventListener('change', () => {
+            Swal.resetValidationMessage();
+            if (chkBluex.checked) {
+              if (chkStarken) chkStarken.checked = false;
+              applyPlatformDefaults('bluex');
+            } else {
+              refreshPlatformVisuals();
+            }
+          });
+        }
+
+        if (chkStarken) {
+          chkStarken.addEventListener('change', () => {
+            Swal.resetValidationMessage();
+            if (chkStarken.checked) {
+              if (chkBluex) chkBluex.checked = false;
+              applyPlatformDefaults('starkenpro');
+            } else {
+              refreshPlatformVisuals();
+            }
+          });
+        }
+
+        if (chkForce) {
+          chkForce.addEventListener('change', () => {
+            if (!chkForce.checked) {
+              if (chkBluex) chkBluex.checked = false;
+              if (chkStarken) chkStarken.checked = false;
+              refreshPlatformVisuals();
+            }
+          });
+        }
+
+        if (inpTracking) {
+          inpTracking.addEventListener('input', () => {
+            const trk = inpTracking.value.trim();
+            if (trk && chkForce) chkForce.checked = true;
+            if (trk && chkBluex?.checked && inpUrl) {
+              inpUrl.value = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(trk)}`;
+            } else if (trk && chkStarken?.checked && inpUrl) {
+              inpUrl.value = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(trk)}`;
+            }
+          });
+        }
+
+        if (btnSyncNow) {
+          btnSyncNow.addEventListener('click', () => {
+            const trk = (inpTracking?.value || '').trim();
+            const bxOn = Boolean(chkBluex?.checked);
+            const skOn = Boolean(chkStarken?.checked);
+            if (!trk) {
+              Swal.showValidationMessage('Ingresa el N° de seguimiento antes de consultar la plataforma.');
+              return;
+            }
+            if (!bxOn && !skOn) {
+              Swal.showValidationMessage('Marca primero "Envío BlueX" o "Envío Starken Pro" para indicar en qué plataforma consultar.');
+              return;
+            }
+            if (chkForce) chkForce.checked = true;
+            _runImmediateLiveSync = true;
+            Swal.clickConfirm();
+          });
+        }
+      },
+      willClose: () => {
+        delete window._swalSyncPlatformSelectOpt;
+      },
       preConfirm: () => {
         const courierVal = document.getElementById('swal-edit-courier').value.trim() || null;
         const trackingVal = document.getElementById('swal-edit-tracking').value.trim() || null;
         const customUrlVal = document.getElementById('swal-edit-tracking-url')?.value.trim() || null;
-        const forceTracking = Boolean(document.getElementById('swal-force-tracking')?.checked && trackingVal);
+        const syncBluex = Boolean(document.getElementById('swal-platform-bluex')?.checked && trackingVal);
+        const syncStarken = Boolean(document.getElementById('swal-platform-starkenpro')?.checked && trackingVal);
+        const syncPlatform = syncBluex ? 'bluex' : (syncStarken ? 'starkenpro' : null);
+        const forceTracking = Boolean((document.getElementById('swal-force-tracking')?.checked || syncPlatform) && trackingVal);
         const matchedOpt = uniqueOptions.find(opt => String(opt.tracking).trim().toUpperCase() === String(trackingVal || '').toUpperCase());
 
+        let effectiveCourier = courierVal;
+        if (syncPlatform === 'bluex' && (!effectiveCourier || !effectiveCourier.toUpperCase().includes('BLUE'))) {
+          effectiveCourier = 'BLUEXPRESS';
+        } else if (syncPlatform === 'starkenpro' && (!effectiveCourier || !effectiveCourier.toUpperCase().includes('STARKEN'))) {
+          effectiveCourier = 'STARKEN';
+        }
+
         let finalUrl = customUrlVal || (matchedOpt ? matchedOpt.tracking_url : null);
-        if (!finalUrl && trackingVal) {
-          const cUp = String(courierVal || '').toUpperCase();
-          if (cUp === 'ALPHA' || cUp.includes('LIGHTDATA') || cUp === 'CARRIER EXTERNO') {
-            finalUrl = `https://alphagroup.lightdata.com.ar/tracking.php?token=${encodeURIComponent(trackingVal)}d54df4s8a88`;
-          } else if (cUp.includes('BLUE')) {
+        if (trackingVal) {
+          if (syncPlatform === 'bluex' && (!customUrlVal || !customUrlVal.includes('blue.cl'))) {
             finalUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(trackingVal)}`;
-          } else if (cUp.includes('STARKEN')) {
+          } else if (syncPlatform === 'starkenpro' && (!customUrlVal || !customUrlVal.includes('starken.cl'))) {
             finalUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(trackingVal)}`;
-          } else if (cUp.includes('CHILEXPRESS')) {
-            finalUrl = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(trackingVal)}`;
+          } else if (!finalUrl) {
+            const cUp = String(effectiveCourier || '').toUpperCase();
+            if (cUp === 'ALPHA' || cUp.includes('LIGHTDATA') || cUp === 'CARRIER EXTERNO') {
+              finalUrl = `https://alphagroup.lightdata.com.ar/tracking.php?token=${encodeURIComponent(trackingVal)}d54df4s8a88`;
+            } else if (cUp.includes('BLUE')) {
+              finalUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(trackingVal)}`;
+            } else if (cUp.includes('STARKEN')) {
+              finalUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(trackingVal)}`;
+            } else if (cUp.includes('CHILEXPRESS')) {
+              finalUrl = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(trackingVal)}`;
+            }
           }
         }
 
         return {
-          courier: courierVal,
+          courier: effectiveCourier,
           tracking: trackingVal,
           tracking_url: finalUrl,
           forceTracking,
+          syncPlatform,
+          runImmediateCheck: _runImmediateLiveSync,
           matchedOpt: matchedOpt || null
         };
       }
@@ -95242,25 +95440,98 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
       tracking_url: formValues.tracking_url || null
     };
 
+    // Si se marcó BlueX o Starken Pro, verificar al instante si la guía ya existe en bluex_envios / starken_envios
+    let existingPlatformRow = null;
+    if (formValues.forceTracking && formValues.tracking && (formValues.syncPlatform === 'bluex' || formValues.syncPlatform === 'starkenpro')) {
+      const targetTable = formValues.syncPlatform === 'bluex' ? 'bluex_envios' : 'starken_envios';
+      try {
+        const { data: platShip } = await supabase
+          .from(targetTable)
+          .select('*')
+          .eq('tracking', formValues.tracking)
+          .maybeSingle();
+        if (platShip) existingPlatformRow = platShip;
+      } catch (e) {}
+    }
+
     // Persistir configuración de tracking forzado en raw_shopify_data
     const baseRawShopify = (order.raw_shopify_data && typeof order.raw_shopify_data === 'object')
       ? Object.assign({}, order.raw_shopify_data)
       : {};
 
+    let resolvedForcedGlobalStatus = 'SIN MOVIMIENTO';
+
     if (formValues.forceTracking && formValues.tracking) {
       const mOpt = formValues.matchedOpt;
-      const isAlphaCourier = ['ALPHA', 'LIGHTDATA', 'CARRIER EXTERNO'].includes(String(normalizedCourier || '').toUpperCase().trim()) || mOpt?.source_table === 'lightdata_envios';
+      const isAlphaCourier = !formValues.syncPlatform && (['ALPHA', 'LIGHTDATA', 'CARRIER EXTERNO'].includes(String(normalizedCourier || '').toUpperCase().trim()) || mOpt?.source_table === 'lightdata_envios');
       const optStatusLower = String(mOpt?.status || '').toLowerCase();
       const isOptCancelled = optStatusLower.includes('cancel') || optStatusLower.includes('elimin') || optStatusLower.includes('anula');
+
+      let resolvedSourceTable = mOpt?.source_table || (isAlphaCourier ? 'lightdata_envios' : 'manual_forced');
+      let resolvedStatusText = (!isOptCancelled && mOpt?.status && mOpt.status !== 'FIJADO') ? mOpt.status : 'En preparación';
+      resolvedForcedGlobalStatus = (!isOptCancelled && mOpt?.global_status) ? mOpt.global_status : 'SIN MOVIMIENTO';
+
+      if (formValues.syncPlatform === 'bluex') {
+        resolvedSourceTable = 'bluex_envios';
+        if (existingPlatformRow?.status) {
+          resolvedStatusText = existingPlatformRow.status;
+          const up = String(existingPlatformRow.status).toUpperCase();
+          if ((up.includes('DELIVERED') || up.includes('ENTREGAD')) && !up.includes('NO ENTREGAD') && !up.includes('DEVUEL')) {
+            resolvedForcedGlobalStatus = 'ENTREGADO';
+          } else if (up.includes('TRANSIT') || up.includes('REPARTO') || up.includes('RUTA') || up.includes('OUT_FOR_DELIVERY') || up.includes('DISPONIBLE PARA RETIRO')) {
+            resolvedForcedGlobalStatus = 'EN TRÁNSITO';
+          } else if (up.includes('CANCEL') || up.includes('FAIL') || up.includes('INCIDENCIA')) {
+            resolvedForcedGlobalStatus = 'ALERTA';
+          } else {
+            resolvedForcedGlobalStatus = 'SIN MOVIMIENTO';
+          }
+          updatePayload.bluex_status = existingPlatformRow.status;
+          updatePayload.raw_bluex_data = existingPlatformRow;
+        } else if (mOpt?.source_table !== 'bluex_envios') {
+          resolvedStatusText = 'Pendiente consulta BlueX';
+          resolvedForcedGlobalStatus = 'SIN MOVIMIENTO';
+        }
+      } else if (formValues.syncPlatform === 'starkenpro') {
+        resolvedSourceTable = 'starken_envios';
+        if (existingPlatformRow?.status) {
+          resolvedStatusText = existingPlatformRow.status;
+          const up = String(existingPlatformRow.status).toUpperCase();
+          if ((up.includes('ENTREGAD') || up.includes('DELIVERED')) && !up.includes('NO ENTREGAD') && !up.includes('DEVUEL')) {
+            resolvedForcedGlobalStatus = 'ENTREGADO';
+          } else if (up.includes('TRANSIT') || up.includes('DESTINO') || up.includes('REPARTO') || up.includes('REDESTIN') || up.includes('RUTA')) {
+            resolvedForcedGlobalStatus = 'EN TRÁNSITO';
+          } else if (up.includes('EXCEPCION') || up.includes('CANCEL') || up.includes('FAIL') || up.includes('SINIESTRO')) {
+            resolvedForcedGlobalStatus = 'ALERTA';
+          } else {
+            resolvedForcedGlobalStatus = 'SIN MOVIMIENTO';
+          }
+          updatePayload.starken_status = existingPlatformRow.status;
+          updatePayload.raw_starken_data = existingPlatformRow;
+        } else if (mOpt?.source_table !== 'starken_envios') {
+          resolvedStatusText = 'Pendiente consulta Starken Pro';
+          resolvedForcedGlobalStatus = 'SIN MOVIMIENTO';
+        }
+      }
+
+      const prevFt = baseRawShopify.wms_forced_tracking;
+      const keepPrevCheckTs = Boolean(
+        prevFt &&
+        prevFt.sync_platform === formValues.syncPlatform &&
+        String(prevFt.tracking_number || '').trim().toUpperCase() === String(formValues.tracking).trim().toUpperCase()
+      );
 
       baseRawShopify.wms_forced_tracking = {
         active: true,
         tracking_number: formValues.tracking,
         courier: normalizedCourier || mOpt?.courier || 'ALPHA',
         tracking_url: formValues.tracking_url || null,
-        source_table: mOpt?.source_table || (isAlphaCourier ? 'lightdata_envios' : 'manual_forced'),
-        status: (!isOptCancelled && mOpt?.status && mOpt.status !== 'FIJADO') ? mOpt.status : 'En preparación',
-        global_status: (!isOptCancelled && mOpt?.global_status) ? mOpt.global_status : 'SIN MOVIMIENTO',
+        source_table: resolvedSourceTable,
+        sync_platform: formValues.syncPlatform || null,
+        auto_check_enabled: Boolean(formValues.syncPlatform),
+        status: resolvedStatusText,
+        global_status: resolvedForcedGlobalStatus,
+        last_checked_at: existingPlatformRow?.updated_at || (keepPrevCheckTs ? (prevFt.last_checked_at || null) : null),
+        last_check_found: existingPlatformRow ? true : (keepPrevCheckTs ? (prevFt.last_check_found ?? null) : null),
         updated_at: new Date().toISOString()
       };
 
@@ -95297,6 +95568,8 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     } else {
       baseRawShopify.wms_forced_tracking = {
         active: false,
+        sync_platform: null,
+        auto_check_enabled: false,
         updated_at: new Date().toISOString()
       };
     }
@@ -95309,6 +95582,21 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
       .eq('id', orderId);
 
     if (updateErr) throw updateErr;
+
+    // Si ya existía en bluex_envios / starken_envios, vincular envios_unificados de inmediato con este pedido
+    if (existingPlatformRow && formValues.syncPlatform && order.external_order_number) {
+      const srcTable = formValues.syncPlatform === 'bluex' ? 'bluex_envios' : 'starken_envios';
+      try {
+        await supabase
+          .from('envios_unificados')
+          .update({
+            pedido_referencia: order.external_order_number,
+            empresa_comercio_proveedor: order.comercio || existingPlatformRow.comercio || null,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', `${srcTable}:${formValues.tracking}`);
+      } catch (e) {}
+    }
 
     if (localOrder) {
       localOrder.courier = updatePayload.courier;
@@ -95346,12 +95634,170 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
       window.refreshAgendasOrderCell(orderId, 'courier', formValues.courier);
     }
 
-    Swal.fire('¡Éxito!', 'Courier y N° Seguimiento actualizados correctamente.', 'success');
     window.applyWmsFiltersAndRender();
+
+    // Caso A: El usuario presionó "Consultar ahora" -> Ejecutar sincronización en vivo con barra de progreso
+    if (formValues.runImmediateCheck && formValues.syncPlatform && formValues.tracking) {
+      await window.pollPinnedCourierSyncLive(orderId, order.external_order_number || order.id, formValues.tracking, formValues.syncPlatform);
+      return;
+    }
+
+    // Caso B: Guardado normal con BlueX o Starken Pro activado -> Disparar consulta silenciosa en segundo plano si aún no está entregado
+    if (formValues.syncPlatform && formValues.tracking && resolvedForcedGlobalStatus !== 'ENTREGADO') {
+      const edgePlatform = formValues.syncPlatform === 'bluex' ? 'BlueExpress' : 'StarkenPro';
+      if (typeof window.fetchWmsEdgeFunction === 'function') {
+        window.fetchWmsEdgeFunction('sync-integrations', {
+          method: 'POST',
+          body: JSON.stringify({ platform: edgePlatform })
+        }).catch(err => console.warn('[AutoSync Courier]', err?.message || err));
+      }
+    }
+
+    const platNameMsg = formValues.syncPlatform === 'bluex'
+      ? 'BlueX (app.bluex.cl)'
+      : (formValues.syncPlatform === 'starkenpro' ? 'Starken Pro (starkenpro.cl)' : null);
+
+    if (platNameMsg) {
+      const statusHint = existingPlatformRow?.status
+        ? `<br><span style="font-size:0.84rem; color:#065f46;">Estado actual detectado: <strong>${existingPlatformRow.status}</strong></span>`
+        : `<br><span style="font-size:0.82rem; color:#475569;">Se inició una consulta en segundo plano y se revisará automáticamente cada 2 horas durante el día.</span>`;
+      Swal.fire({
+        icon: 'success',
+        title: '¡Tracking fijado con monitoreo activo!',
+        html: `Guía <strong>${formValues.tracking}</strong> vinculada a <strong>${platNameMsg}</strong>.${statusHint}`
+      });
+    } else {
+      Swal.fire('¡Éxito!', 'Courier y N° Seguimiento actualizados correctamente.', 'success');
+    }
 
   } catch (err) {
     console.error(err);
     Swal.fire('Error', 'No se pudieron procesar los datos: ' + err.message, 'error');
+  }
+};
+
+// Consulta manual en vivo de un tracking fijado en BlueX o Starken Pro (vía Edge Function sync-integrations + GitHub Actions)
+window.pollPinnedCourierSyncLive = async function(orderId, orderLabel, trackingCode, syncPlatform) {
+  const isBluex = syncPlatform === 'bluex';
+  const platTitle = isBluex ? 'BlueX (app.bluex.cl)' : 'Starken Pro (starkenpro.cl)';
+  const edgePlatform = isBluex ? 'BlueExpress' : 'StarkenPro';
+  const targetTable = isBluex ? 'bluex_envios' : 'starken_envios';
+  const baselineMs = Date.now() - 2000;
+
+  Swal.fire({
+    title: `Consultando ${isBluex ? 'BlueX' : 'Starken Pro'}...`,
+    html: `
+      <div style="font-size: 0.88rem; line-height: 1.45;">
+        <p id="pinned-courier-sync-msg">Ingresando a <strong>${platTitle}</strong> con los accesos guardados para consultar el tracking <strong>${trackingCode}</strong>...</p>
+        <p style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.5rem;">Toma aprox. 25 a 50 segundos. El estado del pedido se actualizará automáticamente al finalizar.</p>
+      </div>
+    `,
+    allowOutsideClick: false,
+    showCancelButton: true,
+    cancelButtonText: 'Continuar en 2do plano',
+    didOpen: () => { Swal.showLoading(); }
+  });
+
+  try {
+    await window.fetchWmsEdgeFunction('sync-integrations', {
+      method: 'POST',
+      body: JSON.stringify({ platform: edgePlatform })
+    });
+
+    const maxAttempts = 13;
+    let foundStatus = null;
+    let checkCompletedNotFound = false;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (!Swal.isVisible()) break;
+      const msgEl = document.getElementById('pinned-courier-sync-msg');
+      if (msgEl) {
+        msgEl.innerHTML = `Consultando estado de la guía <strong>${trackingCode}</strong> en <strong>${platTitle}</strong>... <strong>(${attempt * 6}s)</strong>`;
+      }
+
+      await new Promise(r => setTimeout(r, 6000));
+      if (!Swal.isVisible()) break;
+
+      try {
+        const [{ data: ordRow }, { data: shipRow }] = await Promise.all([
+          supabase
+            .from('orders')
+            .select('id, status, estado_wms, courier, tracking_number, tracking_url, raw_shopify_data')
+            .eq('id', orderId)
+            .maybeSingle(),
+          supabase
+            .from(targetTable)
+            .select('tracking, status, updated_at')
+            .eq('tracking', trackingCode)
+            .maybeSingle()
+        ]);
+
+        const ft = ordRow?.raw_shopify_data?.wms_forced_tracking;
+        const checkedTs = ft?.last_checked_at ? new Date(ft.last_checked_at).getTime() : 0;
+        const shipTs = shipRow?.updated_at ? new Date(shipRow.updated_at).getTime() : 0;
+
+        if (shipRow?.status && shipTs >= baselineMs) {
+          foundStatus = shipRow.status;
+          if (ordRow) {
+            const loc = (window.loadedOrders || []).find(o => o.id === orderId);
+            if (loc) {
+              Object.assign(loc, ordRow);
+              delete loc._wmsTags;
+              delete loc._wmsShipmentGlobalStatus;
+              delete loc._clientShipmentStatus;
+            }
+          }
+          break;
+        }
+
+        if (checkedTs >= baselineMs) {
+          if (ft.last_check_found === false) {
+            checkCompletedNotFound = true;
+          } else if (ft.status) {
+            foundStatus = ft.status;
+          }
+          if (ordRow) {
+            const loc = (window.loadedOrders || []).find(o => o.id === orderId);
+            if (loc) {
+              Object.assign(loc, ordRow);
+              delete loc._wmsTags;
+              delete loc._wmsShipmentGlobalStatus;
+              delete loc._clientShipmentStatus;
+            }
+          }
+          break;
+        }
+      } catch (pollErr) {}
+    }
+
+    if (typeof window.applyWmsFiltersAndRender === 'function') {
+      window.applyWmsFiltersAndRender();
+    }
+
+    if (!Swal.isVisible()) return;
+
+    if (foundStatus) {
+      Swal.fire({
+        icon: 'success',
+        title: `Estado actualizado desde ${isBluex ? 'BlueX' : 'Starken Pro'}`,
+        html: `Pedido <strong>${orderLabel}</strong> · Guía <strong>${trackingCode}</strong><br><div style="margin-top:0.55rem; padding:0.45rem 0.75rem; background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; border-radius:8px; font-weight:700; display:inline-block;">${foundStatus}</div>`
+      });
+    } else if (checkCompletedNotFound) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Guía aún no registrada en plataforma',
+        html: `Se ingresó a <strong>${platTitle}</strong>, pero la guía <strong>${trackingCode}</strong> aún no figura en las emisiones.<br><br><span style="font-size:0.82rem; color:#475569;">Quedó programada para seguir consultándose automáticamente cada 2 horas.</span>`
+      });
+    } else {
+      Swal.fire({
+        icon: 'info',
+        title: 'Consulta en curso en segundo plano',
+        html: `El sincronizador en la nube sigue procesando <strong>${platTitle}</strong>. El estado del pedido <strong>${orderLabel}</strong> se reflejará automáticamente en unos segundos.`
+      });
+    }
+  } catch (err) {
+    console.error('[pollPinnedCourierSyncLive]', err);
+    Swal.fire('Error al consultar plataforma', err.message || 'No se pudo iniciar la sincronización.', 'error');
   }
 };
 

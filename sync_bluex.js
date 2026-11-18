@@ -169,6 +169,46 @@ async function syncBlueExpress() {
     }
   }
 
+  // Consultar pedidos activos con tracking fijado explícitamente para monitoreo BlueX
+  console.log('📌 Consultando trackings fijados con monitoreo BlueX en Supabase...');
+  const pinnedOrdersByTracking = new Map();
+  let totalPinnedOrders = 0;
+  try {
+    const { data: pinnedRows, error: pinnedErr } = await supabase
+      .from('orders')
+      .select('id, status, estado_wms, created_at, external_order_number, tracking_number, tracking_url, courier, bluex_status, comercio, categoria_entrega, raw_shopify_data')
+      .in('estado_wms', ['En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia'])
+      .eq('raw_shopify_data->wms_forced_tracking->>sync_platform', 'bluex');
+
+    if (pinnedErr) {
+      console.warn('⚠️ Aviso consultando trackings fijados BlueX:', pinnedErr.message);
+    } else if (pinnedRows && pinnedRows.length > 0) {
+      const nowMs = Date.now();
+      for (const ord of pinnedRows) {
+        if (String(ord.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') continue;
+        const ft = ord.raw_shopify_data?.wms_forced_tracking;
+        if (!ft || !ft.active) continue;
+        const trk = String(ft?.tracking_number || ord.tracking_number || '').trim();
+        if (!trk) continue;
+        const key = trk.toUpperCase();
+        if (!pinnedOrdersByTracking.has(key)) pinnedOrdersByTracking.set(key, []);
+        pinnedOrdersByTracking.get(key).push(ord);
+        totalPinnedOrders++;
+
+        // Expandir ventana de fechas automáticamente si hay pedidos fijados más antiguos que daysBack
+        if (ord.created_at) {
+          const ageDays = Math.ceil((nowMs - new Date(ord.created_at).getTime()) / (1000 * 60 * 60 * 24));
+          if (ageDays + 15 > daysBack) {
+            daysBack = Math.min(120, ageDays + 15);
+          }
+        }
+      }
+    }
+    console.log(`📌 ${totalPinnedOrders} pedido(s) activo(s) con tracking fijado BlueX (${pinnedOrdersByTracking.size} guía(s) única(s)).`);
+  } catch (e) {
+    console.warn('⚠️ Excepción consultando trackings fijados BlueX:', e.message);
+  }
+
   const now = new Date();
   const startDateObj = new Date();
   startDateObj.setDate(now.getDate() - daysBack);
@@ -219,32 +259,42 @@ async function syncBlueExpress() {
   await page.setViewportSize({ width: 1280, height: 800 });
 
   let allEmissions = [];
+  let querySucceeded = false;
 
   try {
     console.log(`🌐 Navegando a ${TARGET_URL}...`);
     await page.goto(TARGET_URL, { timeout: 45000, waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(4000);
 
     let currentUrl = page.url();
 
-    // Si redirige a login y tenemos credenciales en .env, intentar login automático
+    // Si redirige a login y tenemos credenciales en .env, intentar login automático (soporta flujo 1 y 2 pasos en login.blue.cl)
     if (currentUrl.includes('login.blue.cl') || currentUrl.includes('/login')) {
       console.log('🔐 Sesión no activa o expirada.');
       if (BLUEX_USERNAME && BLUEX_PASSWORD) {
         console.log(`🔑 Intentando autenticación con usuario: ${BLUEX_USERNAME}...`);
         try {
-          const emailInput = page.locator('input[type="email"], input[name="username"], input#username, input#email').first();
-          await emailInput.waitFor({ state: 'visible', timeout: 10000 });
+          const emailInput = page.locator('input[type="email"], input[name="username"], input#username, input#email, input[type="text"]').first();
+          await emailInput.waitFor({ state: 'visible', timeout: 20000 });
           await emailInput.fill(BLUEX_USERNAME);
 
           const passInput = page.locator('input[type="password"], input[name="password"], input#password').first();
-          await passInput.fill(BLUEX_PASSWORD);
-
-          const submitBtn = page.locator('button[type="submit"], button:has-text("Iniciar sesión"), button:has-text("Ingresar")').first();
-          await submitBtn.click();
+          if (await passInput.isVisible({ timeout: 2500 }).catch(() => false)) {
+            await passInput.fill(BLUEX_PASSWORD);
+            const submitBtn = page.locator('button[type="submit"], button:has-text("Iniciar sesión"), button:has-text("Ingresar"), button:has-text("Continuar")').first();
+            await submitBtn.click();
+          } else {
+            // Flujo de 2 pasos: primero enviar correo, luego contraseña
+            const nextBtn = page.locator('button[type="submit"], button:has-text("Continuar"), button:has-text("Siguiente"), button:has-text("Ingresar")').first();
+            await nextBtn.click();
+            await passInput.waitFor({ state: 'visible', timeout: 15000 });
+            await passInput.fill(BLUEX_PASSWORD);
+            const submitBtn = page.locator('button[type="submit"], button:has-text("Iniciar sesión"), button:has-text("Ingresar"), button:has-text("Continuar")').first();
+            await submitBtn.click();
+          }
 
           console.log('⏳ Esperando redirección al dashboard...');
-          await page.waitForURL('**/dashboard', { timeout: 30000 });
+          await page.waitForURL('**/dashboard**', { timeout: 35000 });
           await page.waitForTimeout(3000);
 
           await context.storageState({ path: STATE_FILE });
@@ -370,6 +420,7 @@ async function syncBlueExpress() {
     }
 
     console.log(`\n📊 Total de envíos recuperados desde Blue Express: ${allEmissions.length}`);
+    querySucceeded = true;
 
     // Si todo fue bien, actualizar bluex_state.json
     await context.storageState({ path: STATE_FILE });
@@ -380,8 +431,26 @@ async function syncBlueExpress() {
     await browser.close();
   }
 
+  const checkedAtIso = new Date().toISOString();
+  const foundPinnedOrderIds = new Set();
+
   if (allEmissions.length === 0) {
     console.log('ℹ️ No se encontraron envíos generados en el rango de fechas consultado.');
+    if (querySucceeded && pinnedOrdersByTracking.size > 0) {
+      for (const [, ordList] of pinnedOrdersByTracking.entries()) {
+        for (const ord of ordList) {
+          const baseRaw = (ord.raw_shopify_data && typeof ord.raw_shopify_data === 'object') ? { ...ord.raw_shopify_data } : {};
+          if (baseRaw.wms_forced_tracking) {
+            baseRaw.wms_forced_tracking = {
+              ...baseRaw.wms_forced_tracking,
+              last_checked_at: checkedAtIso,
+              last_check_found: false
+            };
+            await supabase.from('orders').update({ raw_shopify_data: baseRaw }).eq('id', ord.id);
+          }
+        }
+      }
+    }
     return;
   }
 
@@ -393,7 +462,10 @@ async function syncBlueExpress() {
   console.log('====================================================');
 
   const upsertBluexList = [];
+  const upsertUnificadosList = [];
+  const pendingStatusTransitions = [];
   let updatedOrdersCount = 0;
+  let updatedPinnedCount = 0;
 
   for (const item of allEmissions) {
     const osNumber = String(item.os || '').trim();
@@ -425,6 +497,58 @@ async function syncBlueExpress() {
       }
     }
 
+    // Determinar el estado global (AutoTrack) y estado detallado UI
+    let globalStatus = 'SIN MOVIMIENTO';
+    let uiGlobalStatus = 'SIN MOVIMIENTO';
+    const upperState = macroState.toUpperCase();
+    if (wmsStatus === 'entregado') {
+      globalStatus = 'DESPACHADO';
+      uiGlobalStatus = 'ENTREGADO';
+    } else if (upperState.includes('TRANSIT') || upperState.includes('DELIVER') || upperState.includes('OUT_FOR_DELIVERY') || upperState.includes('REPARTO') || upperState.includes('RUTA') || upperState.includes('ENTREGAD') || upperState.includes('DISPONIBLE PARA RETIRO')) {
+      globalStatus = 'DESPACHADO';
+      uiGlobalStatus = 'EN TRÁNSITO';
+    } else if (upperState.includes('PICKUP') || upperState.includes('PREPARATION') || upperState.includes('CREAD') || upperState.includes('EMITID')) {
+      globalStatus = 'SIN MOVIMIENTO';
+      uiGlobalStatus = 'SIN MOVIMIENTO';
+    } else if (upperState.includes('CANCEL') || upperState.includes('FAIL') || upperState.includes('INCIDENCIA') || upperState.includes('NO ENTREGAD')) {
+      globalStatus = 'ALERTA';
+      uiGlobalStatus = 'ALERTA';
+    }
+
+    // --- Vinculación con pedidos en la tabla orders ---
+    // Prioridad 1: Pedidos que fijaron explícitamente este tracking para monitoreo en BlueX
+    const pinnedMatches = pinnedOrdersByTracking.get(osNumber.toUpperCase()) || [];
+    let matchedOrders = [...pinnedMatches];
+
+    // Prioridad 2: Búsqueda automática por candidatos (respetando si el pedido ya tiene OTRO tracking fijado)
+    if (matchedOrders.length === 0) {
+      const candidates = buildOrderCandidates(osNumber, item.metadata?.reference || item.reference, receiverName);
+      if (candidates.length > 0) {
+        const filterStr = candidates.map(c => `"${c}"`).join(',');
+        const { data: directOrders } = await supabase
+          .from('orders')
+          .select('id, status, estado_wms, external_order_number, tracking_number, tracking_url, courier, bluex_status, comercio, categoria_entrega, raw_shopify_data')
+          .or(`tracking_number.in.(${filterStr}),external_order_number.in.(${filterStr})`);
+
+        if (directOrders && directOrders.length > 0) {
+          const validCandidate = directOrders.find(o => {
+            if (String(o.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') return false;
+            const ft = o.raw_shopify_data?.wms_forced_tracking;
+            if (ft && ft.active && ft.tracking_number && String(ft.tracking_number).trim().toUpperCase() !== osNumber.toUpperCase()) {
+              return false; // No pisar un pedido que tiene otro tracking forzado distinto
+            }
+            return true;
+          });
+          if (validCandidate) matchedOrders.push(validCandidate);
+        }
+      }
+    }
+
+    const primaryOrder = matchedOrders[0] || null;
+    if (primaryOrder && primaryOrder.comercio) {
+      resolvedComercio = primaryOrder.comercio;
+    }
+
     // Registro para la tabla bluex_envios
     const bluexRecord = {
       id: osNumber,
@@ -444,46 +568,17 @@ async function syncBlueExpress() {
       medio_pago: paymentMethod,
       fecha_creacion_bluex: dateStr ? new Date(dateStr).toISOString() : null,
       raw_data: item,
-      updated_at: new Date().toISOString()
+      updated_at: checkedAtIso
     };
     upsertBluexList.push(bluexRecord);
 
-    // --- Vinculación con pedidos en la tabla orders ---
-    const candidates = buildOrderCandidates(osNumber, item.metadata?.reference || item.reference, receiverName);
-    let matchedOrder = null;
-
-    if (candidates.length > 0) {
-      const filterStr = candidates.map(c => `"${c}"`).join(',');
-      const { data: directOrders } = await supabase
-        .from('orders')
-        .select('id, status, estado_wms, external_order_number, tracking_number, tracking_url, courier, bluex_status, comercio, categoria_entrega')
-        .or(`tracking_number.in.(${filterStr}),external_order_number.in.(${filterStr})`);
-
-      if (directOrders && directOrders.length > 0) {
-        matchedOrder = directOrders.find(o => String(o.categoria_entrega || '').toUpperCase().trim() !== 'RETIRO') || null;
-      }
-    }
-
-    // Si el pedido en WMS ya está cerrado definitivamente en 'Entregado', no realizar actualizaciones adicionales
-    if (matchedOrder && matchedOrder.estado_wms === 'Entregado') {
+    // Si el pedido primario ya está cerrado en 'Entregado' o es 'Listo para retiro' / RETIRO, continuar tras registrar bluex_envios
+    const openMatchedOrders = matchedOrders.filter(o =>
+      !['Entregado', 'Listo para retiro'].includes(o.estado_wms) &&
+      String(o.categoria_entrega || '').toUpperCase().trim() !== 'RETIRO'
+    );
+    if (matchedOrders.length > 0 && openMatchedOrders.length === 0) {
       continue;
-    }
-
-    // Si se encontró la orden en el WMS, adoptar el comercio real de la orden para que coincida en AutoTrack y filtros
-    if (matchedOrder && matchedOrder.comercio) {
-      resolvedComercio = matchedOrder.comercio;
-      bluexRecord.comercio = matchedOrder.comercio;
-    }
-
-    // Determinar el estado global (AutoTrack)
-    let globalStatus = 'SIN MOVIMIENTO';
-    const upperState = macroState.toUpperCase();
-    if (upperState.includes('TRANSIT') || upperState.includes('DELIVER') || upperState.includes('OUT_FOR_DELIVERY') || upperState.includes('REPARTO') || upperState.includes('RUTA') || upperState.includes('ENTREGAD')) {
-      globalStatus = 'DESPACHADO';
-    } else if (upperState.includes('PICKUP') || upperState.includes('PREPARATION') || upperState.includes('CREAD') || upperState.includes('EMITID')) {
-      globalStatus = 'SIN MOVIMIENTO';
-    } else if (upperState.includes('CANCEL') || upperState.includes('FAIL') || upperState.includes('INCIDENCIA')) {
-      globalStatus = 'ALERTA';
     }
 
     // Registro para la tabla unificada de AutoTrack
@@ -502,55 +597,65 @@ async function syncBlueExpress() {
       telefono_destino: receiverPhone,
       direccion_destino: address,
       comuna_destino: commune,
-      pedido_referencia: matchedOrder?.external_order_number || osNumber,
-      created_at: dateStr ? new Date(dateStr).toISOString() : new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      pedido_referencia: primaryOrder?.external_order_number || osNumber,
+      created_at: dateStr ? new Date(dateStr).toISOString() : checkedAtIso,
+      updated_at: checkedAtIso
     };
     upsertUnificadosList.push(unificadoRecord);
 
-    // Actualizar pedido en WMS si hubo coincidencia (excluyendo Listo para retiro / RETIRO)
-    if (matchedOrder && matchedOrder.estado_wms !== 'Listo para retiro' && String(matchedOrder.categoria_entrega || '').toUpperCase().trim() !== 'RETIRO') {
-      const updatePayload = {
+    // Fase 1 en orders: guardar metadatos de BlueX y estado actualizado de wms_forced_tracking ANTES del cierre inmutable
+    for (const matchedOrder of openMatchedOrders) {
+      const isPinnedTarget = pinnedMatches.some(p => p.id === matchedOrder.id);
+      if (isPinnedTarget) {
+        foundPinnedOrderIds.add(matchedOrder.id);
+        console.log(`   📌 [BlueX Fijado] Pedido ${matchedOrder.external_order_number || matchedOrder.id} (${osNumber}) -> Estado: ${macroState} (${uiGlobalStatus})`);
+      }
+
+      const metaPayload = {
         bluex_status: macroState,
         raw_bluex_data: bluexRecord
       };
 
       if (!matchedOrder.tracking_number) {
-        updatePayload.tracking_number = osNumber;
+        metaPayload.tracking_number = osNumber;
       }
       if (!matchedOrder.tracking_url) {
-        updatePayload.tracking_url = trackingUrl;
+        metaPayload.tracking_url = trackingUrl;
       }
       if (matchedOrder.courier !== 'BLUEXPRESS') {
-        updatePayload.courier = 'BLUEXPRESS';
+        metaPayload.courier = 'BLUEXPRESS';
       }
 
-      if (wmsStatus === 'entregado') {
-        if (!['Entregado', 'Cancelado', 'Archivado'].includes(matchedOrder.estado_wms)) {
-          updatePayload.status = 'entregado';
-          updatePayload.estado_wms = 'Entregado';
-          updatePayload.delivered_at = new Date().toISOString();
-          updatePayload.closed_at = new Date().toISOString();
-          updatePayload.closed_by_automation = 'auto-dispatch-delivered-to-entregado';
-        }
-      } else if (wmsStatus === 'en tránsito' || globalStatus === 'DESPACHADO') {
-        if (['para procesar', 'en preparación', 'preparado'].includes(matchedOrder.status)) {
-          updatePayload.status = 'despachado';
-        }
-        if (!['Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(matchedOrder.estado_wms)) {
-          updatePayload.estado_wms = 'Despachado';
-        }
+      const ft = matchedOrder.raw_shopify_data?.wms_forced_tracking;
+      if (ft && ft.active && String(ft.tracking_number || '').trim().toUpperCase() === osNumber.toUpperCase()) {
+        metaPayload.raw_shopify_data = {
+          ...(matchedOrder.raw_shopify_data || {}),
+          wms_forced_tracking: {
+            ...ft,
+            source_table: 'bluex_envios',
+            status: macroState,
+            global_status: uiGlobalStatus,
+            last_checked_at: checkedAtIso,
+            last_check_found: true,
+            updated_at: checkedAtIso
+          }
+        };
       }
 
-      const { error: updateError } = await supabase
+      const { error: metaErr } = await supabase
         .from('orders')
-        .update(updatePayload)
+        .update(metaPayload)
         .eq('id', matchedOrder.id);
 
-      if (!updateError) {
+      if (!metaErr) {
         updatedOrdersCount++;
+        if (isPinnedTarget) updatedPinnedCount++;
       } else {
-        console.warn(`⚠️ No se pudo actualizar orden ${matchedOrder.id}:`, updateError.message);
+        console.warn(`⚠️ No se pudo actualizar metadatos en orden ${matchedOrder.id}:`, metaErr.message);
+      }
+
+      if (wmsStatus === 'entregado' || wmsStatus === 'en tránsito' || globalStatus === 'DESPACHADO') {
+        pendingStatusTransitions.push({ order: matchedOrder, wmsStatus, globalStatus });
       }
     }
   }
@@ -598,10 +703,61 @@ async function syncBlueExpress() {
     }
   }
 
+  // --- Fase final: asegurar transición de estado_wms si el trigger no la había ejecutado aún ---
+  for (const item of pendingStatusTransitions) {
+    const { data: freshOrd } = await supabase
+      .from('orders')
+      .select('id, status, estado_wms, categoria_entrega')
+      .eq('id', item.order.id)
+      .maybeSingle();
+
+    if (!freshOrd || ['Entregado', 'Listo para retiro', 'Cancelado', 'Archivado'].includes(freshOrd.estado_wms) || String(freshOrd.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') continue;
+
+    const stPayload = {};
+    if (item.wmsStatus === 'entregado') {
+      stPayload.status = 'entregado';
+      stPayload.estado_wms = 'Entregado';
+      stPayload.delivered_at = checkedAtIso;
+      stPayload.closed_at = checkedAtIso;
+      stPayload.closed_by_automation = 'auto-dispatch-delivered-to-entregado';
+    } else if (item.wmsStatus === 'en tránsito' || item.globalStatus === 'DESPACHADO') {
+      if (['para procesar', 'en preparación', 'preparado'].includes(freshOrd.status)) {
+        stPayload.status = 'despachado';
+      }
+      if (freshOrd.estado_wms !== 'Despachado') {
+        stPayload.estado_wms = 'Despachado';
+      }
+    }
+
+    if (Object.keys(stPayload).length > 0) {
+      await supabase.from('orders').update(stPayload).eq('id', freshOrd.id);
+    }
+  }
+
+  // --- Sellar timestamp de revisión en pedidos fijados BlueX que aún no aparecen en las emisiones ---
+  if (querySucceeded && pinnedOrdersByTracking.size > 0) {
+    for (const [trkKey, ordList] of pinnedOrdersByTracking.entries()) {
+      for (const ord of ordList) {
+        if (foundPinnedOrderIds.has(ord.id)) continue;
+        console.log(`   ⏳ [BlueX Fijado] Pedido ${ord.external_order_number || ord.id} (${trkKey}) consultado, aún sin registro en emisiones BlueX.`);
+        const baseRaw = (ord.raw_shopify_data && typeof ord.raw_shopify_data === 'object') ? { ...ord.raw_shopify_data } : {};
+        if (baseRaw.wms_forced_tracking) {
+          baseRaw.wms_forced_tracking = {
+            ...baseRaw.wms_forced_tracking,
+            last_checked_at: checkedAtIso,
+            last_check_found: false
+          };
+          await supabase.from('orders').update({ raw_shopify_data: baseRaw }).eq('id', ord.id);
+        }
+      }
+    }
+  }
+
   console.log('\n====================================================');
   console.log('✅ Sincronización completada con éxito:');
   console.log(`- Envíos registrados en bluex_envios: ${upsertedCount}`);
-  console.log(`- Pedidos vinculados y actualizados en WMS orders: ${updatedOrdersCount}`);
+  console.log(`- Envíos sincronizados en envios_unificados: ${unificadosCount}`);
+  console.log(`- Pedidos vinculados y actualizados en WMS orders: ${updatedOrdersCount} (fijados BlueX: ${updatedPinnedCount}/${totalPinnedOrders})`);
   console.log('====================================================\n');
 }
 

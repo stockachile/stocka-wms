@@ -1,7 +1,7 @@
 const { exec } = require('child_process');
 const path = require('path');
 
-const INTERVAL_HOURS = 3;
+const INTERVAL_HOURS = 2;
 const INTERVAL_MS = INTERVAL_HOURS * 60 * 60 * 1000;
 
 function runSync() {
