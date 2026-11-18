@@ -661,6 +661,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // WMS Client Feature Slide Control Logic
   const slides = document.querySelectorAll('.auth-slide');
   const dots = document.querySelectorAll('.auth-slider-dot');
+  const tabs = document.querySelectorAll('.wms-console-tab');
   const consolePathEl = document.getElementById('wms-console-path');
   const slideCurrEl = document.getElementById('wms-slide-curr');
   const consoleWindow = document.querySelector('.wms-console-window');
@@ -668,12 +669,20 @@ document.addEventListener('DOMContentLoaded', () => {
   let slideInterval;
 
   function showSlide(index) {
-    if (!slides.length || !dots.length) return;
+    if (!slides.length) return;
     slides.forEach(s => s.classList.remove('active'));
     dots.forEach(d => d.classList.remove('active'));
+    tabs.forEach(t => {
+      t.classList.remove('active');
+      t.setAttribute('aria-selected', 'false');
+    });
     
     slides[index].classList.add('active');
     if (dots[index]) dots[index].classList.add('active');
+    if (tabs[index]) {
+      tabs[index].classList.add('active');
+      tabs[index].setAttribute('aria-selected', 'true');
+    }
 
     // Update Console path & slide counter
     if (consolePathEl && slides[index].dataset.path) {
@@ -695,7 +704,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function startSlideShow() {
     if (!slides.length) return;
     stopSlideShow();
-    slideInterval = setInterval(nextSlide, 5500);
+    slideInterval = setInterval(nextSlide, 6500);
   }
 
   function stopSlideShow() {
@@ -705,6 +714,16 @@ document.addEventListener('DOMContentLoaded', () => {
   if (dots.length) {
     dots.forEach((dot, index) => {
       dot.addEventListener('click', () => {
+        stopSlideShow();
+        showSlide(index);
+        startSlideShow();
+      });
+    });
+  }
+
+  if (tabs.length) {
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => {
         stopSlideShow();
         showSlide(index);
         startSlideShow();

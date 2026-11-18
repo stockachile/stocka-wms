@@ -547,6 +547,10 @@ const authProxy = new Proxy(actualSupabase.auth, {
     }
     if (prop === 'signOut') {
       return async () => {
+        try {
+          sessionStorage.removeItem('wms_admin_profile_v1');
+          localStorage.removeItem('wms_admin_profile_v1');
+        } catch (_) {}
         if (window.isDemoMode()) {
           sessionStorage.removeItem('wms_demo_mode');
           sessionStorage.removeItem('wms_demo_db_initialized');
@@ -1136,8 +1140,10 @@ window.loadShippingRatesFromSupabase = async function() {
   }
 };
 
-// Cargar tarifas de manera asíncrona no bloqueante
-window.loadShippingRatesFromSupabase();
+// Cargar tarifas de manera diferida para no competir con el arranque inicial de la vista
+setTimeout(() => {
+  window.loadShippingRatesFromSupabase();
+}, 3000);
 
 window.generatePackDiffSummary = function(prevItems, newItems) {
   const prevList = Array.isArray(prevItems) ? prevItems : [];

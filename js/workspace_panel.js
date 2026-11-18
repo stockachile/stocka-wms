@@ -3603,26 +3603,37 @@ async function initWorkspaceForCurrentUser() {
     const isClientPortal = !!document.querySelector('aside.sidebar[data-sidebar-role="client"]');
     if (isClientPortal) return;
 
-    const { data: { user } } = await supabase.auth.getUser();
+    // Reutilizar sesión y perfil ya resueltos por admin.js para evitar bloqueo de navigator.locks y doble query
+    let user = window.currentAdminUser || null;
+    if (!user) {
+      const { data: sessData } = await supabase.auth.getSession();
+      user = sessData?.session?.user || null;
+    }
     if (!user) return;
 
     wsState.userId = user.id;
     wsState.userEmail = user.email || '';
 
-    // Obtener datos del perfil (nombre, teléfono y rol)
-    try {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('full_name, company_name, phone, role')
-        .eq('id', user.id)
-        .maybeSingle();
+    const preloadedProfile = window.currentUserProfile || window.currentAdminProfile;
+    if (preloadedProfile && (!preloadedProfile.id || preloadedProfile.id === user.id)) {
+      wsState.userName = preloadedProfile.full_name || preloadedProfile.company_name || user.email || 'Usuario Stocka';
+      wsState.profilePhone = preloadedProfile.phone || '';
+      wsState.userRole = preloadedProfile.role || 'admin';
+    } else {
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name, company_name, phone, role')
+          .eq('id', user.id)
+          .maybeSingle();
 
-      if (profile) {
-        wsState.userName = profile.full_name || profile.company_name || user.email || 'Usuario Stocka';
-        wsState.profilePhone = profile.phone || '';
-        wsState.userRole = profile.role || 'admin';
-      }
-    } catch (_) {}
+        if (profile) {
+          wsState.userName = profile.full_name || profile.company_name || user.email || 'Usuario Stocka';
+          wsState.profilePhone = profile.phone || '';
+          wsState.userRole = profile.role || 'admin';
+        }
+      } catch (_) {}
+    }
 
     // Bloquear si el usuario no es admin
     if (wsState.userRole !== 'admin') return;
@@ -3638,8 +3649,8 @@ async function initWorkspaceForCurrentUser() {
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(initWorkspaceForCurrentUser, 350);
+    setTimeout(initWorkspaceForCurrentUser, 2200);
   });
 } else {
-  setTimeout(initWorkspaceForCurrentUser, 350);
+  setTimeout(initWorkspaceForCurrentUser, 2200);
 }

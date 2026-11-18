@@ -27,8 +27,12 @@ const PICKER_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdX
 
 let pickerClientInstance = null;
 function getPickerClient() {
+  if (window.pickerSupabase) return window.pickerSupabase;
   if (!pickerClientInstance && window.supabase && typeof window.supabase.createClient === 'function') {
-    pickerClientInstance = window.supabase.createClient(PICKER_SUPABASE_URL, PICKER_SUPABASE_KEY);
+    pickerClientInstance = window.supabase.createClient(PICKER_SUPABASE_URL, PICKER_SUPABASE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+    });
+    window.pickerSupabase = pickerClientInstance;
   }
   return pickerClientInstance;
 }

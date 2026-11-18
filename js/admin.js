@@ -8,7 +8,7 @@ import { renderOptirouteSupport } from './optiroute_support.js';
 import { renderIdentityQRAdmin } from './identity_qr.js';
 import { renderPricingConfigAdmin } from './pricing_admin.js';
 import { renderSurveysAdmin } from './surveys.js?v=1.0.2';
-import { renderInventoryCountAdmin } from './inventory_count.js?v=1.0.9';
+import { renderInventoryCountAdmin } from './inventory_count.js?v=1.0.10';
 import './manual_order_number_validator.js?v=1.0.0';
 
 window.renderSurveysAdmin = renderSurveysAdmin;
@@ -1410,10 +1410,11 @@ window.fetchPickerOperators = async function(ordersList) {
   ordersList = openOrdersList;
   if (ordersList.length === 0) return;
 
-  const client = window.supabase ? window.supabase.createClient(
+  const client = window.getPickerSupabaseClient ? window.getPickerSupabaseClient() : (window.supabase ? window.supabase.createClient(
     'https://hpomymtecmxujbjxqawu.supabase.co',
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ'
-  ) : null;
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ',
+    { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
+  ) : null);
   if (!client) return;
 
   const mapPickupStateToPickerStatus = (rawState) => {
@@ -1859,10 +1860,11 @@ window.openPickerOrderHistoryModal = async function(orderId) {
     return;
   }
 
-  const client = window.supabase ? window.supabase.createClient(
+  const client = window.getPickerSupabaseClient ? window.getPickerSupabaseClient() : (window.supabase ? window.supabase.createClient(
     'https://hpomymtecmxujbjxqawu.supabase.co',
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ'
-  ) : null;
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ',
+    { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
+  ) : null);
 
   if (!client) {
     Swal.fire({
@@ -2433,10 +2435,11 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
     btn.innerHTML = `<i class="ri-loader-4-line spin" style="display:inline-block; animation:spin 1s linear infinite;"></i>`;
   }
 
-  const client = window.supabase ? window.supabase.createClient(
+  const client = window.getPickerSupabaseClient ? window.getPickerSupabaseClient() : (window.supabase ? window.supabase.createClient(
     'https://hpomymtecmxujbjxqawu.supabase.co',
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ'
-  ) : null;
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ',
+    { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
+  ) : null);
 
   if (!client) {
     if (btn) { btn.disabled = false; btn.innerHTML = `<i class="ri-refresh-line"></i> Refrescar`; }
@@ -7908,65 +7911,157 @@ async function init() {
 
     console.log('DEBUG: Sesión activa encontrada para el usuario:', session.user?.email || 'Usuario');
 
-    console.log('DEBUG: Consultando perfil de administrador para ID:', session.user.id);
-    let { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('role, company_name, full_name, allowed_modules, comercio')
-      .eq('id', session.user.id)
-      .single();
-    
-    if (profileError) {
-      console.warn('DEBUG: Error al obtener perfil:', profileError);
-      // Si el error es por JWT expirado en PostgREST
-      if (profileError.message && (profileError.message.includes('JWT') || profileError.message.includes('expired') || profileError.code === 'PGRST301')) {
-        console.warn('DEBUG: Token JWT expirado confirmado en PostgREST. Redirigiendo a login...');
-        await supabase.auth.signOut().catch(() => {});
-        try {
-          localStorage.removeItem('sb-ejtjfaucnxbikrwjwwdu-auth-token');
-          sessionStorage.removeItem('sb-ejtjfaucnxbikrwjwwdu-auth-token');
-        } catch(e) {}
-        window.location.href = 'index.html?reason=session_expired';
-        return;
-      }
-    } else {
-      console.log('DEBUG: Perfil encontrado:', profile);
-    }
-
-    // Si otra pestaña inició sesión con una cuenta de cliente (ej. cliente.test@stocka.cl), intentar restaurar el respaldo de sesión Admin
-    if (!profile || profile.role !== 'admin') {
+    const saveCachedAdminProfile = (prof, usr) => {
+      if (!prof || !usr) return;
       try {
-        const backupRaw = sessionStorage.getItem('sb-wms-admin-session-backup') || localStorage.getItem('sb-wms-admin-session-backup');
-        if (backupRaw) {
-          const backupSess = JSON.parse(backupRaw);
-          if (backupSess?.access_token && backupSess?.refresh_token && backupSess?.user?.id !== session.user.id) {
-            console.log('DEBUG: Restaurando sesión de Administrador desde respaldo local...');
-            const { data: restored, error: restErr } = await supabase.auth.setSession({
-              access_token: backupSess.access_token,
-              refresh_token: backupSess.refresh_token
-            });
-            if (!restErr && restored?.session) {
-              session = restored.session;
-              const { data: adminProf } = await supabase
-                .from('profiles')
-                .select('role, company_name, full_name, allowed_modules, comercio')
-                .eq('id', session.user.id)
-                .single();
-              if (adminProf && adminProf.role === 'admin') {
-                profile = adminProf;
+        const displayName = prof?.full_name || usr.user_metadata?.full_name || prof?.company_name || usr.email;
+        const payload = JSON.stringify({
+          id: usr.id,
+          role: prof.role,
+          company_name: prof.company_name || null,
+          full_name: prof.full_name || null,
+          allowed_modules: prof.allowed_modules || 'all',
+          comercio: prof.comercio || null,
+          displayName,
+          cachedAt: Date.now()
+        });
+        sessionStorage.setItem('wms_admin_profile_v1', payload);
+        localStorage.setItem('wms_admin_profile_v1', payload);
+      } catch (_) {}
+    };
+
+    const ensureAdminModulesSynced = async (prof, userId) => {
+      if (!prof || !prof.allowed_modules || prof.allowed_modules === 'all') return prof;
+      let currentModules = prof.allowed_modules.split(',').map(m => m.trim());
+      let updated = false;
+      ['integrations', 'documentation_admin', 'inventory_admin', 'tickets_admin', 'inventory_count', 'transfers_admin', 'automations_admin'].forEach(mod => {
+        if (!currentModules.includes(mod)) {
+          currentModules.push(mod);
+          updated = true;
+        }
+      });
+      if (updated) {
+        const updatedStr = currentModules.filter(Boolean).join(',');
+        console.log('DEBUG: Auto-agregando módulos a la cuenta administrador:', updatedStr);
+        await supabase.from('profiles').update({ allowed_modules: updatedStr }).eq('id', userId);
+        prof.allowed_modules = updatedStr;
+      }
+      return prof;
+    };
+
+    // Fast-path: usar perfil Admin cacheado (<10 min) para renderizar sin bloqueo y revalidar en segundo plano
+    let profile = null;
+    try {
+      const rawCachedProf = sessionStorage.getItem('wms_admin_profile_v1');
+      if (rawCachedProf) {
+        const parsedProf = JSON.parse(rawCachedProf);
+        if (parsedProf && parsedProf.id === session.user.id && parsedProf.role === 'admin' && (Date.now() - (parsedProf.cachedAt || 0) < 600000)) {
+          profile = parsedProf;
+        }
+      }
+    } catch (_) {}
+
+    if (profile) {
+      // Revalidación silenciosa en segundo plano sin bloquear el renderizado inicial del Dashboard
+      (async () => {
+        try {
+          const { data: freshProf, error: freshErr } = await supabase
+            .from('profiles')
+            .select('role, company_name, full_name, allowed_modules, comercio')
+            .eq('id', session.user.id)
+            .single();
+          if (freshErr) {
+            if (freshErr.message && (freshErr.message.includes('JWT') || freshErr.message.includes('expired') || freshErr.code === 'PGRST301')) {
+              sessionStorage.removeItem('wms_admin_profile_v1');
+              localStorage.removeItem('wms_admin_profile_v1');
+              await supabase.auth.signOut().catch(() => {});
+              window.location.href = 'index.html?reason=session_expired';
+            }
+            return;
+          }
+          if (!freshProf || freshProf.role !== 'admin') {
+            sessionStorage.removeItem('wms_admin_profile_v1');
+            localStorage.removeItem('wms_admin_profile_v1');
+            window.location.href = 'dashboard.html';
+            return;
+          }
+          await ensureAdminModulesSynced(freshProf, session.user.id);
+          window.currentAdminProfile = freshProf;
+          saveCachedAdminProfile(freshProf, session.user);
+          if (userEmailSpan) {
+            const dn = freshProf?.full_name || session.user.user_metadata?.full_name || freshProf?.company_name || session.user.email;
+            userEmailSpan.textContent = `${dn} (ADMIN)`;
+          }
+        } catch (_) {}
+      })();
+    } else {
+      console.log('DEBUG: Consultando perfil de administrador para ID:', session.user.id);
+      let { data: fetchedProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role, company_name, full_name, allowed_modules, comercio')
+        .eq('id', session.user.id)
+        .single();
+      profile = fetchedProfile;
+      
+      if (profileError) {
+        console.warn('DEBUG: Error al obtener perfil:', profileError);
+        if (profileError.message && (profileError.message.includes('JWT') || profileError.message.includes('expired') || profileError.code === 'PGRST301')) {
+          console.warn('DEBUG: Token JWT expirado confirmado en PostgREST. Redirigiendo a login...');
+          await supabase.auth.signOut().catch(() => {});
+          try {
+            localStorage.removeItem('sb-ejtjfaucnxbikrwjwwdu-auth-token');
+            sessionStorage.removeItem('sb-ejtjfaucnxbikrwjwwdu-auth-token');
+            sessionStorage.removeItem('wms_admin_profile_v1');
+            localStorage.removeItem('wms_admin_profile_v1');
+          } catch(e) {}
+          window.location.href = 'index.html?reason=session_expired';
+          return;
+        }
+      } else {
+        console.log('DEBUG: Perfil encontrado:', profile);
+      }
+
+      // Si otra pestaña inició sesión con una cuenta de cliente, intentar restaurar el respaldo de sesión Admin
+      if (!profile || profile.role !== 'admin') {
+        try {
+          const backupRaw = sessionStorage.getItem('sb-wms-admin-session-backup') || localStorage.getItem('sb-wms-admin-session-backup');
+          if (backupRaw) {
+            const backupSess = JSON.parse(backupRaw);
+            if (backupSess?.access_token && backupSess?.refresh_token && backupSess?.user?.id !== session.user.id) {
+              console.log('DEBUG: Restaurando sesión de Administrador desde respaldo local...');
+              const { data: restored, error: restErr } = await supabase.auth.setSession({
+                access_token: backupSess.access_token,
+                refresh_token: backupSess.refresh_token
+              });
+              if (!restErr && restored?.session) {
+                session = restored.session;
+                const { data: adminProf } = await supabase
+                  .from('profiles')
+                  .select('role, company_name, full_name, allowed_modules, comercio')
+                  .eq('id', session.user.id)
+                  .single();
+                if (adminProf && adminProf.role === 'admin') {
+                  profile = adminProf;
+                }
               }
             }
           }
+        } catch (eRestore) {
+          console.warn('DEBUG: No se pudo restaurar respaldo de sesión Admin:', eRestore);
         }
-      } catch (eRestore) {
-        console.warn('DEBUG: No se pudo restaurar respaldo de sesión Admin:', eRestore);
       }
-    }
-    
-    if (!profile || profile.role !== 'admin') {
-      console.warn('DEBUG: Acceso denegado, no es administrador. Redirigiendo...');
-      alert("Acceso denegado. Se requieren permisos de Administrador.");
-      window.location.href = 'dashboard.html';
-      return;
+      
+      if (!profile || profile.role !== 'admin') {
+        console.warn('DEBUG: Acceso denegado, no es administrador. Redirigiendo...');
+        sessionStorage.removeItem('wms_admin_profile_v1');
+        localStorage.removeItem('wms_admin_profile_v1');
+        alert("Acceso denegado. Se requieren permisos de Administrador.");
+        window.location.href = 'dashboard.html';
+        return;
+      }
+
+      await ensureAdminModulesSynced(profile, session.user.id);
+      saveCachedAdminProfile(profile, session.user);
     }
 
     userRole = profile.role || 'admin';
@@ -7988,49 +8083,6 @@ async function init() {
       localStorage.setItem('sb-wms-admin-session-backup', serializedAdminSession);
     } catch (eBackup) {}
 
-    // Auto-update admin profile if missing integrations or documentation_admin
-    if (profile.allowed_modules && profile.allowed_modules !== 'all') {
-      let currentModules = profile.allowed_modules.split(',').map(m => m.trim());
-      let updated = false;
-      if (!currentModules.includes('integrations')) {
-        currentModules.push('integrations');
-        updated = true;
-      }
-      if (!currentModules.includes('documentation_admin')) {
-        currentModules.push('documentation_admin');
-        updated = true;
-      }
-      if (!currentModules.includes('inventory_admin')) {
-        currentModules.push('inventory_admin');
-        updated = true;
-      }
-      if (!currentModules.includes('tickets_admin')) {
-        currentModules.push('tickets_admin');
-        updated = true;
-      }
-      if (!currentModules.includes('inventory_count')) {
-        currentModules.push('inventory_count');
-        updated = true;
-      }
-      if (!currentModules.includes('transfers_admin')) {
-        currentModules.push('transfers_admin');
-        updated = true;
-      }
-      if (!currentModules.includes('automations_admin')) {
-        currentModules.push('automations_admin');
-        updated = true;
-      }
-      if (updated) {
-        const updatedStr = currentModules.filter(Boolean).join(',');
-        console.log('DEBUG: Auto-agregando módulos a la cuenta administrador:', updatedStr);
-        await supabase
-          .from('profiles')
-          .update({ allowed_modules: updatedStr })
-          .eq('id', session.user.id);
-        profile.allowed_modules = updatedStr;
-      }
-    }
-
     // Set user info
     const user = session.user;
     if (userEmailSpan) {
@@ -8038,14 +8090,12 @@ async function init() {
       userEmailSpan.textContent = `${displayName} (ADMIN)`;
     }
 
-    // Check billing suspension status for assigned commerce
+    // Check billing suspension & news popup en segundo plano para no retrasar renderizado inicial
     if (profile && profile.comercio) {
-      checkBillingSuspension(profile.comercio);
+      setTimeout(() => checkBillingSuspension(profile.comercio), 1200);
     }
-
-    // Check latest news popup for Admin
     if (typeof window.checkAdminNewsPopup === 'function') {
-      window.checkAdminNewsPopup(user.id);
+      setTimeout(() => window.checkAdminNewsPopup(user.id), 1500);
     }
     
     // Restaurar y configurar el estado colapsado del sidebar
@@ -8332,6 +8382,10 @@ async function init() {
     if (logoutBtn) {
       logoutBtn.addEventListener('click', async () => {
         console.log('DEBUG: Cerrando sesión...');
+        try {
+          sessionStorage.removeItem('wms_admin_profile_v1');
+          localStorage.removeItem('wms_admin_profile_v1');
+        } catch (_) {}
         await supabase.auth.signOut();
         window.location.href = 'index.html';
       });
@@ -8404,9 +8458,12 @@ function updateCategoryHeadersVisibility() {
     window.refreshSidebarFlyoutSystem();
   }
 
-  // Initial badge update and periodic refresh
-  window.updateAdminBadges();
-  setInterval(window.updateAdminBadges, 60000);
+  // Diferir conteos de badges laterales para priorizar la carga de la vista principal
+  if (!window._adminBadgesTimerInit) {
+    window._adminBadgesTimerInit = true;
+    setTimeout(() => window.updateAdminBadges(), 2500);
+    setInterval(window.updateAdminBadges, 60000);
+  }
 }
 
 window.computeAndSyncDeclarationsBreakdown = function(pendingRows = []) {
@@ -8787,10 +8844,12 @@ window.updateAdminBadges = async function() {
   }
 };
 
-// Ejecutar inicialización
+// Ejecutar inicialización prioritaria y diferir widget secundario de chat
 init();
 
-initChatWidget();
+setTimeout(() => {
+  try { initChatWidget(); } catch (e) {}
+}, 2000);
 
 const ALL_STATUSES = [
   'creado',
@@ -48556,7 +48615,7 @@ async function initNotifications(userId) {
     });
   }
 
-  fetchNotifications();
+  setTimeout(fetchNotifications, 1800);
   setInterval(fetchNotifications, 120000);
 }
 
@@ -48634,21 +48693,14 @@ async function renderAdminDashboard() {
     return;
   }
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = `
-    <p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: inline-block; animation: spin 1s linear infinite;"></i> Cargando dashboard...</p>
-  `;
 
   try {
-    // 1. Obtener la lista de comercios para el selector
-    const { data: comercios, error: comerciosErr } = await supabase
-      .from('v_comercios_config')
-      .select('nombre')
-      .order('nombre', { ascending: true });
+    const cachedComerciosEntry = typeof window.getDashboardCache === 'function'
+      ? window.getDashboardCache('admin_comercios_v1', 300000)
+      : null;
+    const initialComercios = Array.isArray(cachedComerciosEntry?.data) ? cachedComerciosEntry.data : [];
 
-    if (comerciosErr) throw comerciosErr;
-    if (window._suppressDashboardForOrderPage || window._activeSingleOrderPageId) return;
-
-    // 2. Renderizar contenedor base
+    // 1. Renderizar contenedor base de inmediato (0ms) sin bloquear por v_comercios_config
     appContent.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.35rem; background: var(--color-surface); padding: 1rem 1.35rem; border-radius: 12px; border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
         <div>
@@ -48669,7 +48721,7 @@ async function renderAdminDashboard() {
           <label style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-muted); white-space: nowrap; margin: 0;">Comercio:</label>
           <select id="admin-dashboard-commerce-select" class="form-input" style="width: 240px; margin: 0; height: 38px; padding: 0.375rem 0.75rem; border-radius: 8px; font-weight: 600;">
             <option value="">-- Todos los Comercios --</option>
-            ${(comercios || []).map(c => `<option value="${c.nombre}">${c.nombre}</option>`).join('')}
+            ${initialComercios.map(c => `<option value="${c.nombre}">${c.nombre}</option>`).join('')}
           </select>
         </div>
       </div>
@@ -48686,17 +48738,44 @@ async function renderAdminDashboard() {
       });
     }
 
+    const loadComerciosOptions = async (forceRefresh = false) => {
+      if (!forceRefresh && initialComercios.length > 0) return;
+      try {
+        const { data: comercios, error: comerciosErr } = await supabase
+          .from('v_comercios_config')
+          .select('nombre')
+          .order('nombre', { ascending: true });
+        if (!comerciosErr && Array.isArray(comercios)) {
+          if (typeof window.setDashboardCache === 'function') {
+            window.setDashboardCache('admin_comercios_v1', comercios);
+          }
+          const sel = document.getElementById('admin-dashboard-commerce-select');
+          if (sel) {
+            const currentVal = sel.value;
+            sel.innerHTML = `<option value="">-- Todos los Comercios --</option>` +
+              comercios.map(c => `<option value="${c.nombre}">${c.nombre}</option>`).join('');
+            if (currentVal) sel.value = currentVal;
+          }
+        }
+      } catch (e) {
+        console.warn('Aviso cargando selector de comercios:', e);
+      }
+    };
+
     const refreshBtn = document.getElementById('admin-refresh-dashboard-btn');
     if (refreshBtn) {
       refreshBtn.addEventListener('click', () => {
         const val = commerceSelect ? commerceSelect.value : '';
         const key = 'admin_dashboard_v4_' + (val || 'all');
         window.clearDashboardCache(key);
+        window.clearDashboardCache('admin_comercios_v1');
+        loadComerciosOptions(true);
         fetchAndRenderAdminMetrics(val);
       });
     }
 
-    // Inicializar el dashboard con todos los comercios
+    // Ejecutar población de comercios y métricas en paralelo
+    loadComerciosOptions(false);
     await fetchAndRenderAdminMetrics('');
 
   } catch (err) {
@@ -92898,8 +92977,15 @@ function initProductFormListeners() {
 const PICKER_SUPABASE_URL = 'https://hpomymtecmxujbjxqawu.supabase.co';
 const PICKER_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ';
 
-const pickerSupabase = window.supabase ? window.supabase.createClient(PICKER_SUPABASE_URL, PICKER_SUPABASE_ANON_KEY) : null;
-window.pickerSupabase = pickerSupabase;
+window.getPickerSupabaseClient = function() {
+  if (!window.pickerSupabase && window.supabase && typeof window.supabase.createClient === 'function') {
+    window.pickerSupabase = window.supabase.createClient(PICKER_SUPABASE_URL, PICKER_SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+    });
+  }
+  return window.pickerSupabase || null;
+};
+const pickerSupabase = window.getPickerSupabaseClient();
 
 window.editWmsOrderComuna = async function(orderId) {
   const order = window.loadedOrders ? window.loadedOrders.find(o => o.id === orderId) : null;
@@ -124856,15 +124942,15 @@ window.updateMeliMonitorUI = async function() {
   }
 };
 
-// Iniciar monitoreos cuando el DOM esté listo
+// Diferir monitoreos secundarios para no competir con la carga inicial del Dashboard
+const scheduleBackgroundMonitors = () => {
+  setTimeout(() => window.startWmsMonitorPolling(), 3500);
+  setTimeout(() => window.startMeliMonitorPolling(), 4500);
+};
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    window.startWmsMonitorPolling();
-    window.startMeliMonitorPolling();
-  });
+  document.addEventListener('DOMContentLoaded', scheduleBackgroundMonitors);
 } else {
-  window.startWmsMonitorPolling();
-  window.startMeliMonitorPolling();
+  scheduleBackgroundMonitors();
 }
 
 
