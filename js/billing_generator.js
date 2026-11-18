@@ -8354,120 +8354,172 @@ export function renderPeriodOverviewDOM() {
     return `<span style="display: inline-flex; align-items: center; gap: 4px; background: #fef3c7; color: #b45309; border: 1px solid #fde68a; font-size: 0.72rem; font-weight: 800; padding: 3px 8px; border-radius: 999px;"><i class="ri-time-line"></i> Por Generar</span>`;
   };
 
+  const hasObsAlerts = Array.isArray(st.withUnansweredObsItems) && st.withUnansweredObsItems.length > 0;
+  const hasExtraAlerts = Array.isArray(st.withPendingExtraItems) && st.withPendingExtraItems.length > 0;
+
+  let expandedAlert = window.bgOverviewExpandedAlert || null;
+  if (expandedAlert === 'observations' && !hasObsAlerts) expandedAlert = null;
+  if (expandedAlert === 'extra' && !hasExtraAlerts) expandedAlert = null;
+
+  const totalExtraNetBalance = hasExtraAlerts
+    ? st.withPendingExtraItems.reduce((sum, it) => {
+        return sum + (it.pendingExtraChargesList || []).reduce((acc, c) => {
+          const m = Math.abs(Math.round(Number(c.monto) || 0));
+          return acc + (c.tipo === 'descuento' ? -m : m);
+        }, 0);
+      }, 0)
+    : 0;
+  const totalExtraSignStr = totalExtraNetBalance >= 0
+    ? `+${formatCLP(totalExtraNetBalance)}`
+    : `-${formatCLP(Math.abs(totalExtraNetBalance))}`;
+
   bodyEl.innerHTML = `
     <div class="bg-overview-loaded-root">
-      ${(st.withUnansweredObsItems && st.withUnansweredObsItems.length > 0) ? `
-        <!-- Banner Global de Alerta: Apelaciones / Observaciones de Facturación sin Respuesta -->
-        <div style="background: linear-gradient(135deg, #fef2f2 0%, #fff1f2 100%); border: 1.5px solid #ef4444; border-left: 5px solid #dc2626; border-radius: 11px; padding: 0.85rem 1.15rem; margin-bottom: 1.15rem; box-shadow: 0 3px 10px rgba(239, 68, 68, 0.12);">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem;">
-            <div style="flex: 1; min-width: 280px;">
-              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.35rem;">
-                <span style="background: #dc2626; color: #ffffff; font-size: 0.7rem; font-weight: 900; padding: 2px 8px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px; text-transform: uppercase; letter-spacing: 0.3px;">
-                  <i class="ri-alarm-warning-fill"></i> Alerta de Apelaciones sin Respuesta
-                </span>
-                <strong style="font-size: 0.9rem; color: #991b1b;">
-                  Existen ${st.totalUnansweredObservations} observación(es) / apelación(es) pendiente(s) en ${st.withUnansweredObsItems.length} comercio(s)
-                </strong>
+      ${(hasObsAlerts || hasExtraAlerts) ? `
+        <!-- Resumen Compacto en Cards (Detalle oculto por defecto y desplegable bajo demanda) -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0.85rem; margin-bottom: ${expandedAlert ? '0.6rem' : '1.1rem'};">
+          ${hasObsAlerts ? `
+            <div style="background: var(--color-surface); border: 1px solid ${expandedAlert === 'observations' ? 'rgba(239, 68, 68, 0.5)' : 'var(--color-border)'}; border-left: 4px solid #ef4444; border-radius: 11px; padding: 0.7rem 0.95rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; box-shadow: 0 1px 4px rgba(15, 23, 42, 0.03);">
+              <div style="display: flex; align-items: center; gap: 0.65rem; min-width: 0;">
+                <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(239, 68, 68, 0.1); color: #dc2626; display: inline-flex; align-items: center; justify-content: center; font-size: 1.05rem; flex-shrink: 0;">
+                  <i class="ri-question-answer-line"></i>
+                </div>
+                <div style="min-width: 0;">
+                  <div style="font-size: 0.84rem; font-weight: 800; color: var(--color-text-main); line-height: 1.25;">
+                    ${st.totalUnansweredObservations} apelación${st.totalUnansweredObservations === 1 ? '' : 'es'} sin respuesta
+                  </div>
+                  <div style="font-size: 0.74rem; color: var(--color-text-muted);">
+                    En <strong>${st.withUnansweredObsItems.length}</strong> comercio${st.withUnansweredObsItems.length === 1 ? '' : 's'} pendiente${st.withUnansweredObsItems.length === 1 ? '' : 's'} de revisión
+                  </div>
+                </div>
               </div>
-              <div style="font-size: 0.78rem; color: #7f1d1d; margin-bottom: 0.55rem;">
-                Haz clic en cualquier comercio afectado para revisar sus observaciones y <strong>aplicarlas como saldo a favor o ajuste en el desglose del periodo en curso (${escapeHtml(st.periodName)})</strong>:
-              </div>
-              <div style="display: flex; flex-wrap: wrap; gap: 0.45rem;">
-                ${st.withUnansweredObsItems.map(it => {
-                  const firstObs = (it.unansweredObservationsList || [])[0];
-                  const tooltip = (it.unansweredObservationsList || [])
-                    .map(o => `[${o.periodName} · ${o.serviceLabel}] ${o.clientObservation}`)
-                    .join(' | ');
-                  return `
-                    <button type="button"
-                            onclick="window.openBillingGeneratorFromOverview('${escapeHtml(it.comercio)}', '${escapeHtml(st.periodId)}', 'observations')"
-                            title="${escapeHtml(tooltip)}"
-                            style="background: #ffffff; border: 1.5px solid #fca5a5; color: #b91c1c; border-radius: 8px; padding: 4px 10px; font-size: 0.75rem; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
-                      <i class="ri-question-answer-fill" style="color: #dc2626;"></i>
-                      <span>${it.isConglomerate ? '🏢 ' : ''}${escapeHtml(it.comercio)}</span>
-                      <span style="background: #fee2e2; color: #991b1b; padding: 1px 6px; border-radius: 999px; font-size: 0.68rem; font-weight: 900;">
-                        ${it.unansweredObservationsCount} sin resp.${firstObs ? ` (${escapeHtml(firstObs.periodName)})` : ''}
-                      </span>
-                      <i class="ri-arrow-right-up-line" style="font-size: 0.85rem;"></i>
-                    </button>
-                  `;
-                }).join('')}
+              <div style="display: inline-flex; align-items: center; gap: 0.4rem; flex-shrink: 0;">
+                <button type="button"
+                        onclick="window.setBgOverviewFilter('${activeFilter === 'observations' ? 'all' : 'observations'}')"
+                        style="background: ${activeFilter === 'observations' ? '#dc2626' : 'var(--color-bg)'}; color: ${activeFilter === 'observations' ? '#ffffff' : 'var(--color-text-main)'}; border: 1px solid ${activeFilter === 'observations' ? '#dc2626' : 'var(--color-border)'}; font-weight: 700; font-size: 0.73rem; padding: 0.32rem 0.65rem; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;">
+                  <i class="ri-filter-3-line" style="color: ${activeFilter === 'observations' ? '#ffffff' : '#dc2626'};"></i>
+                  <span>${activeFilter === 'observations' ? 'Quitar filtro' : 'Filtrar'}</span>
+                </button>
+                <button type="button"
+                        onclick="window.toggleBgOverviewAlertPanel('observations')"
+                        style="background: ${expandedAlert === 'observations' ? 'rgba(239, 68, 68, 0.1)' : 'var(--color-bg)'}; color: ${expandedAlert === 'observations' ? '#dc2626' : 'var(--color-text-main)'}; border: 1px solid ${expandedAlert === 'observations' ? 'rgba(239, 68, 68, 0.4)' : 'var(--color-border)'}; font-weight: 700; font-size: 0.73rem; padding: 0.32rem 0.68rem; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;">
+                  <span>${expandedAlert === 'observations' ? 'Ocultar' : `Ver comercios (${st.withUnansweredObsItems.length})`}</span>
+                  <i class="ri-arrow-${expandedAlert === 'observations' ? 'up' : 'down'}-s-line"></i>
+                </button>
               </div>
             </div>
-            <div>
-              <button type="button"
-                      onclick="window.setBgOverviewFilter('${activeFilter === 'observations' ? 'all' : 'observations'}')"
-                      class="btn btn-sm"
-                      style="background: ${activeFilter === 'observations' ? '#991b1b' : '#dc2626'}; color: #ffffff; border: none; font-weight: 800; font-size: 0.74rem; padding: 0.45rem 0.85rem; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;">
-                <i class="ri-filter-3-line"></i>
-                <span>${activeFilter === 'observations' ? 'Mostrar Todos los Comercios' : `Filtrar Comercios con Apelación (${st.withUnansweredObsItems.length})`}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      ` : ''}
+          ` : ''}
 
-      ${(st.withPendingExtraItems && st.withPendingExtraItems.length > 0) ? `
-        <!-- Banner Global Automático: Saldos Adicionales Pendientes de Asignar -->
-        <div style="background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); border: 1.5px solid #f59e0b; border-left: 5px solid #d97706; border-radius: 11px; padding: 0.85rem 1.15rem; margin-bottom: 1.15rem; box-shadow: 0 3px 10px rgba(245, 158, 11, 0.14);">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem;">
-            <div style="flex: 1; min-width: 280px;">
-              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.35rem;">
-                <span style="background: #d97706; color: #ffffff; font-size: 0.7rem; font-weight: 900; padding: 2px 8px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px; text-transform: uppercase; letter-spacing: 0.3px;">
-                  <i class="ri-coins-fill"></i> Saldos Adicionales Detectados
-                </span>
-                <strong style="font-size: 0.9rem; color: #92400e;">
-                  Se identificaron ${st.totalPendingExtraCharges} saldo(s) adicional(es) pendiente(s) en ${st.withPendingExtraItems.length} comercio(s)
-                </strong>
+          ${hasExtraAlerts ? `
+            <div style="background: var(--color-surface); border: 1px solid ${expandedAlert === 'extra' ? 'rgba(245, 158, 11, 0.55)' : 'var(--color-border)'}; border-left: 4px solid #f59e0b; border-radius: 11px; padding: 0.7rem 0.95rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; box-shadow: 0 1px 4px rgba(15, 23, 42, 0.03);">
+              <div style="display: flex; align-items: center; gap: 0.65rem; min-width: 0;">
+                <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(245, 158, 11, 0.12); color: #d97706; display: inline-flex; align-items: center; justify-content: center; font-size: 1.05rem; flex-shrink: 0;">
+                  <i class="ri-coins-line"></i>
+                </div>
+                <div style="min-width: 0;">
+                  <div style="font-size: 0.84rem; font-weight: 800; color: var(--color-text-main); line-height: 1.25;">
+                    ${st.totalPendingExtraCharges} saldo${st.totalPendingExtraCharges === 1 ? '' : 's'} adicional${st.totalPendingExtraCharges === 1 ? '' : 'es'} por asignar
+                  </div>
+                  <div style="font-size: 0.74rem; color: var(--color-text-muted);">
+                    En <strong>${st.withPendingExtraItems.length}</strong> comercio${st.withPendingExtraItems.length === 1 ? '' : 's'} · Balance neto <strong style="color: var(--color-text-main);">${totalExtraSignStr}</strong>
+                  </div>
+                </div>
               </div>
-              <div style="font-size: 0.78rem; color: #78350f; margin-bottom: 0.55rem;">
-                Haz clic en un comercio para abrir sus Saldos Adicionales en el Gestor, o usa el rayo <strong>⚡ Asignar</strong> para asignarlos directamente a <strong>${escapeHtml(st.periodName)}</strong> (u otro periodo) desde aquí:
-              </div>
-              <div style="display: flex; flex-wrap: wrap; gap: 0.45rem;">
-                ${st.withPendingExtraItems.map(it => {
-                  const list = it.pendingExtraChargesList || [];
-                  const tooltip = list
-                    .map(c => `[${c.tipo === 'descuento' ? 'Descuento' : 'Cargo'}] ${c.detalle}: ${c.tipo === 'descuento' ? '-' : '+'}${formatCLP(c.monto)} (${c.iva_tipo === 'iva_incluido' ? 'IVA incl.' : '+ IVA'})`)
-                    .join(' | ');
-                  const netDiffPreview = list.reduce((acc, c) => {
-                    const m = Math.abs(Math.round(Number(c.monto) || 0));
-                    return acc + (c.tipo === 'descuento' ? -m : m);
-                  }, 0);
-                  const signStr = netDiffPreview >= 0 ? `+${formatCLP(netDiffPreview)}` : `-${formatCLP(Math.abs(netDiffPreview))}`;
-                  return `
-                    <div style="display: inline-flex; align-items: stretch; border-radius: 8px; overflow: hidden; border: 1.5px solid #fcd34d; background: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
-                      <button type="button"
-                              onclick="window.openBillingGeneratorFromOverview('${escapeHtml(it.comercio)}', '${escapeHtml(st.periodId)}', 'extra-charges')"
-                              title="${escapeHtml(tooltip)}"
-                              style="background: #ffffff; border: none; color: #92400e; padding: 4px 9px; font-size: 0.75rem; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
-                        <i class="ri-coins-line" style="color: #d97706;"></i>
-                        <span>${it.isConglomerate ? '🏢 ' : ''}${escapeHtml(it.comercio)}</span>
-                        <span style="background: #fef3c7; color: #b45309; padding: 1px 6px; border-radius: 999px; font-size: 0.68rem; font-weight: 900;">
-                          ${it.pendingExtraChargesCount} pend. (${signStr})
-                        </span>
-                      </button>
-                      <button type="button"
-                              onclick="window.openOverviewExtraChargesQuickModal('${escapeHtml(it.comercio)}', '${escapeHtml(st.periodId)}')"
-                              title="Asignar rápidamente estos saldos adicionales a un periodo de facturación"
-                              style="background: #f59e0b; color: #ffffff; border: none; border-left: 1px solid #fcd34d; padding: 4px 8px; font-size: 0.72rem; font-weight: 900; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
-                        <i class="ri-flashlight-fill"></i> Asignar
-                      </button>
-                    </div>
-                  `;
-                }).join('')}
+              <div style="display: inline-flex; align-items: center; gap: 0.4rem; flex-shrink: 0;">
+                <button type="button"
+                        onclick="window.setBgOverviewFilter('${activeFilter === 'extra-charges' ? 'all' : 'extra-charges'}')"
+                        style="background: ${activeFilter === 'extra-charges' ? '#d97706' : 'var(--color-bg)'}; color: ${activeFilter === 'extra-charges' ? '#ffffff' : 'var(--color-text-main)'}; border: 1px solid ${activeFilter === 'extra-charges' ? '#d97706' : 'var(--color-border)'}; font-weight: 700; font-size: 0.73rem; padding: 0.32rem 0.65rem; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;">
+                  <i class="ri-filter-3-line" style="color: ${activeFilter === 'extra-charges' ? '#ffffff' : '#d97706'};"></i>
+                  <span>${activeFilter === 'extra-charges' ? 'Quitar filtro' : 'Filtrar'}</span>
+                </button>
+                <button type="button"
+                        onclick="window.toggleBgOverviewAlertPanel('extra')"
+                        style="background: ${expandedAlert === 'extra' ? 'rgba(245, 158, 11, 0.14)' : 'var(--color-bg)'}; color: ${expandedAlert === 'extra' ? '#b45309' : 'var(--color-text-main)'}; border: 1px solid ${expandedAlert === 'extra' ? 'rgba(245, 158, 11, 0.45)' : 'var(--color-border)'}; font-weight: 700; font-size: 0.73rem; padding: 0.32rem 0.68rem; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;">
+                  <span>${expandedAlert === 'extra' ? 'Ocultar' : `Ver y asignar (${st.withPendingExtraItems.length})`}</span>
+                  <i class="ri-arrow-${expandedAlert === 'extra' ? 'up' : 'down'}-s-line"></i>
+                </button>
               </div>
             </div>
-            <div>
-              <button type="button"
-                      onclick="window.setBgOverviewFilter('${activeFilter === 'extra-charges' ? 'all' : 'extra-charges'}')"
-                      class="btn btn-sm"
-                      style="background: ${activeFilter === 'extra-charges' ? '#92400e' : '#d97706'}; color: #ffffff; border: none; font-weight: 800; font-size: 0.74rem; padding: 0.45rem 0.85rem; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;">
-                <i class="ri-filter-3-line"></i>
-                <span>${activeFilter === 'extra-charges' ? 'Mostrar Todos los Comercios' : `Filtrar con Saldo Adic. (${st.withPendingExtraItems.length})`}</span>
-              </button>
+          ` : ''}
+        </div>
+
+        ${expandedAlert === 'observations' && hasObsAlerts ? `
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-top: 3px solid #ef4444; border-radius: 11px; padding: 0.85rem 1rem; margin-bottom: 1.1rem; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.65rem;">
+              <span style="font-size: 0.76rem; color: var(--color-text-muted);">
+                Selecciona un comercio para revisar sus observaciones o aplicarlas como saldo en <strong>${escapeHtml(st.periodName)}</strong>:
+              </span>
+              <button type="button" onclick="window.toggleBgOverviewAlertPanel(null)" style="background: transparent; border: none; color: var(--color-text-muted); font-size: 0.75rem; font-weight: 700; cursor: pointer;">Cerrar &times;</button>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); gap: 0.5rem; max-height: 210px; overflow-y: auto; padding-right: 2px;">
+              ${st.withUnansweredObsItems.map(it => {
+                const firstObs = (it.unansweredObservationsList || [])[0];
+                const tooltip = (it.unansweredObservationsList || [])
+                  .map(o => `[${o.periodName} · ${o.serviceLabel}] ${o.clientObservation}`)
+                  .join(' | ');
+                return `
+                  <button type="button"
+                          onclick="window.openBillingGeneratorFromOverview('${escapeHtml(it.comercio)}', '${escapeHtml(st.periodId)}', 'observations')"
+                          title="${escapeHtml(tooltip)}"
+                          style="background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main); border-radius: 8px; padding: 0.45rem 0.7rem; font-size: 0.76rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 6px; text-align: left;">
+                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                      ${it.isConglomerate ? '🏢 ' : ''}${escapeHtml(it.comercio)}
+                    </span>
+                    <span style="display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                      <span style="background: rgba(239, 68, 68, 0.12); color: #dc2626; padding: 1px 6px; border-radius: 999px; font-size: 0.68rem; font-weight: 800;">
+                        ${it.unansweredObservationsCount}${firstObs ? ` · ${escapeHtml(firstObs.periodName.split(' ')[0])}` : ''}
+                      </span>
+                      <i class="ri-arrow-right-up-line" style="color: var(--color-text-muted);"></i>
+                    </span>
+                  </button>
+                `;
+              }).join('')}
             </div>
           </div>
-        </div>
+        ` : ''}
+
+        ${expandedAlert === 'extra' && hasExtraAlerts ? `
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-top: 3px solid #f59e0b; border-radius: 11px; padding: 0.85rem 1rem; margin-bottom: 1.1rem; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.65rem;">
+              <span style="font-size: 0.76rem; color: var(--color-text-muted);">
+                Haz clic en un comercio para ver su pestaña de saldos, o usa <strong>⚡ Asignar</strong> para imputarlos directo a <strong>${escapeHtml(st.periodName)}</strong>:
+              </span>
+              <button type="button" onclick="window.toggleBgOverviewAlertPanel(null)" style="background: transparent; border: none; color: var(--color-text-muted); font-size: 0.75rem; font-weight: 700; cursor: pointer;">Cerrar &times;</button>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(255px, 1fr)); gap: 0.5rem; max-height: 210px; overflow-y: auto; padding-right: 2px;">
+              ${st.withPendingExtraItems.map(it => {
+                const list = it.pendingExtraChargesList || [];
+                const tooltip = list
+                  .map(c => `[${c.tipo === 'descuento' ? 'Descuento' : 'Cargo'}] ${c.detalle}: ${c.tipo === 'descuento' ? '-' : '+'}${formatCLP(c.monto)}`)
+                  .join(' | ');
+                const netDiffPreview = list.reduce((acc, c) => {
+                  const m = Math.abs(Math.round(Number(c.monto) || 0));
+                  return acc + (c.tipo === 'descuento' ? -m : m);
+                }, 0);
+                const signStr = netDiffPreview >= 0 ? `+${formatCLP(netDiffPreview)}` : `-${formatCLP(Math.abs(netDiffPreview))}`;
+                return `
+                  <div style="display: flex; align-items: stretch; justify-content: space-between; border-radius: 8px; overflow: hidden; border: 1px solid var(--color-border); background: var(--color-bg);">
+                    <button type="button"
+                            onclick="window.openBillingGeneratorFromOverview('${escapeHtml(it.comercio)}', '${escapeHtml(st.periodId)}', 'extra-charges')"
+                            title="${escapeHtml(tooltip)}"
+                            style="background: transparent; border: none; color: var(--color-text-main); padding: 0.45rem 0.65rem; font-size: 0.75rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 5px; flex: 1; min-width: 0; text-align: left;">
+                      <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${it.isConglomerate ? '🏢 ' : ''}${escapeHtml(it.comercio)}</span>
+                      <span style="background: rgba(245, 158, 11, 0.14); color: #b45309; padding: 1px 6px; border-radius: 999px; font-size: 0.67rem; font-weight: 800; flex-shrink: 0;">
+                        ${it.pendingExtraChargesCount} (${signStr})
+                      </span>
+                    </button>
+                    <button type="button"
+                            onclick="window.openOverviewExtraChargesQuickModal('${escapeHtml(it.comercio)}', '${escapeHtml(st.periodId)}')"
+                            title="Asignar rápidamente estos saldos adicionales a un periodo"
+                            style="background: rgba(245, 158, 11, 0.15); color: #b45309; border: none; border-left: 1px solid var(--color-border); padding: 0 0.65rem; font-size: 0.72rem; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;">
+                      <i class="ri-flashlight-fill" style="color: #d97706;"></i> Asignar
+                    </button>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        ` : ''}
       ` : ''}
 
       <!-- 1. Tarjeta de Progreso General del Periodo -->
@@ -8874,6 +8926,15 @@ export function renderPeriodOverviewDOM() {
 
 window.setBgOverviewFilter = function(filter) {
   window.bgOverviewActiveFilter = filter || 'all';
+  renderPeriodOverviewDOM();
+};
+
+window.toggleBgOverviewAlertPanel = function(panelKey) {
+  if (!panelKey || window.bgOverviewExpandedAlert === panelKey) {
+    window.bgOverviewExpandedAlert = null;
+  } else {
+    window.bgOverviewExpandedAlert = panelKey;
+  }
   renderPeriodOverviewDOM();
 };
 
@@ -16989,110 +17050,121 @@ export function renderCommerceObservationsBannerUI() {
     return;
   }
 
-  // Caso 1: Existen apelaciones / observaciones SIN RESPUESTA (Alerta prominente)
+  // Caso 1: Existen apelaciones / observaciones SIN RESPUESTA (Card compacta con detalle desplegable bajo demanda)
   if (unansweredCount > 0) {
+    const isExpanded = Boolean(b.obsBannerExpanded && b.obsBannerCommerceKey === b.currentCommerce);
     banner.style.display = 'block';
     banner.innerHTML = `
-      <div style="background: linear-gradient(135deg, #fef2f2 0%, #fff7ed 100%); border: 1.5px solid #ef4444; border-left: 5px solid #dc2626; border-radius: 10px; padding: 0.75rem 1rem; box-shadow: 0 3px 10px rgba(239, 68, 68, 0.12);">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.65rem; margin-bottom: 0.55rem;">
-          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-            <span style="background: #dc2626; color: #ffffff; font-size: 0.7rem; font-weight: 900; padding: 3px 9px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px; text-transform: uppercase; letter-spacing: 0.3px;">
-              <i class="ri-alarm-warning-fill"></i> Apelación / Observación sin Respuesta (${unansweredCount})
+      <div style="background: var(--color-surface); border: 1px solid ${isExpanded ? 'rgba(239, 68, 68, 0.45)' : 'var(--color-border)'}; border-left: 4px solid #ef4444; border-radius: 10px; padding: 0.55rem 0.9rem; box-shadow: 0 1px 4px rgba(15, 23, 42, 0.03);">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
+          <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
+            <span style="width: 26px; height: 26px; border-radius: 6px; background: rgba(239, 68, 68, 0.1); color: #dc2626; display: inline-flex; align-items: center; justify-content: center; font-size: 0.9rem;">
+              <i class="ri-question-answer-line"></i>
             </span>
-            <strong style="font-size: 0.86rem; color: #991b1b;">
-              ${escapeHtml(b.currentCommerce)} mantiene ${unansweredCount} observación(es) pendiente(s) de respuesta
+            <strong style="font-size: 0.82rem; color: var(--color-text-main);">
+              ${unansweredCount} apelación${unansweredCount === 1 ? '' : 'es'} sin respuesta en ${escapeHtml(b.currentCommerce)}
             </strong>
           </div>
-          <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <button type="button"
+                    onclick="window.toggleBgCommerceObsBanner()"
+                    style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); font-weight: 700; font-size: 0.72rem; padding: 0.28rem 0.65rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+              <span>${isExpanded ? 'Ocultar detalle' : 'Ver detalle'}</span>
+              <i class="ri-arrow-${isExpanded ? 'up' : 'down'}-s-line"></i>
+            </button>
             <button type="button"
                     onclick="window.switchBgSubTab('observations')"
-                    class="btn btn-sm"
-                    style="background: #ffffff; color: #b91c1c; border: 1px solid #fca5a5; font-weight: 800; font-size: 0.73rem; padding: 0.32rem 0.7rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
-              <i class="ri-question-answer-line"></i> Ver Apartado Completo (${totalCount})
+                    style="background: rgba(239, 68, 68, 0.1); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); font-weight: 800; font-size: 0.72rem; padding: 0.28rem 0.65rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+              <i class="ri-external-link-line"></i> Ir a Apelaciones (${totalCount})
             </button>
           </div>
         </div>
 
-        <div style="display: flex; flex-direction: column; gap: 0.45rem;">
-          ${unansweredList.map(obs => {
-            const appliedInfo = getObservationAppliedEntriesInCurrentPeriod(obs.key, obs);
-            const isSamePeriod = String(obs.periodId) === String(b.currentPeriodId) || String(obs.periodName).toUpperCase() === String(b.currentPeriodName).toUpperCase();
-            return `
-              <div style="background: rgba(255, 255, 255, 0.92); border: 1px solid #fecaca; border-radius: 8px; padding: 0.55rem 0.8rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.65rem;">
-                <div style="flex: 1; min-width: 240px;">
-                  <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 3px;">
-                    <span style="font-size: 0.68rem; font-weight: 800; padding: 1px 7px; border-radius: 4px; background: ${obs.service === 'enviame' ? '#e0f2fe' : '#ede9fe'}; color: ${obs.service === 'enviame' ? '#0369a1' : '#5b21b6'};">
-                      ${obs.service === 'enviame' ? '🚚 Envíame' : '📦 Fulfillment'}
-                    </span>
-                    <span style="font-size: 0.7rem; font-weight: 800; color: #334155; background: #f1f5f9; padding: 1px 7px; border-radius: 4px;">
-                      📅 Periodo Origen: ${escapeHtml(obs.periodName)}${isSamePeriod ? ' (Periodo Actual)' : ''}
-                    </span>
-                    ${obs.comercio && obs.comercio.toUpperCase() !== b.currentCommerce.toUpperCase() ? `
-                      <span style="font-size: 0.68rem; font-weight: 700; color: #5f06fa; background: rgba(95,6,250,0.08); padding: 1px 6px; border-radius: 4px;">
-                        🏪 ${escapeHtml(obs.comercio)}
+        ${isExpanded ? `
+          <div style="display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px dashed var(--color-border);">
+            ${unansweredList.map(obs => {
+              const appliedInfo = getObservationAppliedEntriesInCurrentPeriod(obs.key, obs);
+              const isSamePeriod = String(obs.periodId) === String(b.currentPeriodId) || String(obs.periodName).toUpperCase() === String(b.currentPeriodName).toUpperCase();
+              return `
+                <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
+                  <div style="flex: 1; min-width: 220px;">
+                    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 3px;">
+                      <span style="font-size: 0.68rem; font-weight: 800; padding: 1px 7px; border-radius: 4px; background: ${obs.service === 'enviame' ? 'rgba(14,165,233,0.12)' : 'rgba(95,6,250,0.1)'}; color: ${obs.service === 'enviame' ? '#0284c7' : '#5f06fa'};">
+                        ${obs.service === 'enviame' ? '🚚 Envíame' : '📦 Fulfillment'}
                       </span>
-                    ` : ''}
-                    ${appliedInfo.isApplied ? `
-                      <span style="font-size: 0.68rem; font-weight: 800; background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 1px 7px; border-radius: 999px; display: inline-flex; align-items: center; gap: 3px;">
-                        <i class="ri-checkbox-circle-fill"></i> Saldo ingresado en ${escapeHtml(b.currentPeriodName)} (${formatCLP(appliedInfo.totalAbonoApplied || Math.abs(appliedInfo.totalAdjustmentGrossApplied))})
+                      <span style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted);">
+                        ${escapeHtml(obs.periodName)}${isSamePeriod ? ' (Actual)' : ''}
                       </span>
-                    ` : ''}
+                      ${appliedInfo.isApplied ? `
+                        <span style="font-size: 0.68rem; font-weight: 800; background: rgba(16,185,129,0.12); color: #059669; padding: 1px 7px; border-radius: 999px;">
+                          ✓ Aplicado (${formatCLP(appliedInfo.totalAbonoApplied || Math.abs(appliedInfo.totalAdjustmentGrossApplied))})
+                        </span>
+                      ` : ''}
+                    </div>
+                    <div style="font-size: 0.78rem; color: var(--color-text-main); line-height: 1.35;">
+                      "${escapeHtml(obs.clientObservation || 'Observación pendiente de revisión')}"
+                    </div>
                   </div>
-                  <div style="font-size: 0.8rem; color: #1e293b; font-weight: 600; line-height: 1.35;">
-                    <span style="color: #dc2626; font-weight: 800;">Cliente dice:</span> "${escapeHtml(obs.clientObservation || 'Observación marcada pendiente de revisión')}"
-                  </div>
-                </div>
 
-                <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; flex-shrink: 0;">
-                  ${!b.isLocked ? `
+                  <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; flex-shrink: 0;">
+                    ${!b.isLocked ? `
+                      <button type="button"
+                              onclick="window.openApplyObservationToBillingModal('${escapeHtml(obs.key)}')"
+                              style="background: #059669; color: #ffffff; border: none; border-radius: 6px; padding: 0.32rem 0.65rem; font-size: 0.72rem; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                        <i class="ri-hand-coin-fill"></i> Ingresar Saldo
+                      </button>
+                    ` : ''}
                     <button type="button"
-                            onclick="window.openApplyObservationToBillingModal('${escapeHtml(obs.key)}')"
-                            style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #ffffff; border: none; border-radius: 6px; padding: 0.36rem 0.7rem; font-size: 0.73rem; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 5px rgba(16, 185, 129, 0.25);"
-                            title="Ingresar esta observación al desglose de ${escapeHtml(b.currentPeriodName)} como saldo a favor (abono) o ajuste comercial y responder al comercio">
-                      <i class="ri-hand-coin-fill"></i> Ingresar como Saldo a ${escapeHtml(b.currentPeriodName)}
+                            onclick="window.openReplyObservationFromGeneratorModal('${escapeHtml(obs.key)}')"
+                            style="background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.32rem 0.6rem; font-size: 0.72rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                      <i class="ri-reply-fill" style="color: #5f06fa;"></i> Responder
                     </button>
-                  ` : ''}
-                  <button type="button"
-                          onclick="window.openReplyObservationFromGeneratorModal('${escapeHtml(obs.key)}')"
-                          style="background: #ffffff; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0.35rem 0.65rem; font-size: 0.73rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;"
-                          title="Responder observación o cambiar su estado">
-                    <i class="ri-reply-fill" style="color: #5f06fa;"></i> Responder
-                  </button>
+                  </div>
                 </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
+              `;
+            }).join('')}
+          </div>
+        ` : ''}
       </div>
     `;
     return;
   }
 
-  // Caso 2: Todas las observaciones están respondidas, pero existen observaciones asociadas al comercio
+  // Caso 2: Todas las observaciones están respondidas -> mostrar solo si hay saldo aplicado en el periodo actual
   const appliedCount = obsList.filter(o => getObservationAppliedEntriesInCurrentPeriod(o.key, o).isApplied).length;
+  if (appliedCount === 0) {
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+    return;
+  }
+
   banner.style.display = 'block';
   banner.innerHTML = `
-    <div style="background: linear-gradient(135deg, #f8fafc 0%, #f5f3ff 100%); border: 1px solid #c4b5fd; border-left: 4px solid #5f06fa; border-radius: 9px; padding: 0.5rem 0.9rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
-      <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; font-size: 0.78rem; color: #334155;">
-        <span style="background: #ede9fe; color: #5b21b6; font-weight: 800; font-size: 0.69rem; padding: 2px 8px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px;">
-          <i class="ri-question-answer-line"></i> ${totalCount} Observación(es) Registrada(s)
-        </span>
-        <span>
-          Todas las apelaciones de <strong>${escapeHtml(b.currentCommerce)}</strong> tienen respuesta registrada.
-          ${appliedCount > 0 ? `<strong style="color: #059669;">(${appliedCount} ingresada(s) como saldo en ${escapeHtml(b.currentPeriodName)})</strong>` : 'Puedes consultarlas o ingresarlas como saldo al periodo en curso.'}
-        </span>
+    <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-left: 4px solid #10b981; border-radius: 9px; padding: 0.45rem 0.85rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+      <div style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.77rem; color: var(--color-text-main);">
+        <i class="ri-checkbox-circle-fill" style="color: #10b981;"></i>
+        <span><strong>${appliedCount}</strong> apelación${appliedCount === 1 ? '' : 'es'} ingresada${appliedCount === 1 ? '' : 's'} como saldo en <strong>${escapeHtml(b.currentPeriodName)}</strong></span>
       </div>
-      <div style="display: flex; align-items: center; gap: 0.4rem;">
-        <button type="button"
-                onclick="window.switchBgSubTab('observations')"
-                style="background: #ffffff; color: #5f06fa; border: 1px solid #c4b5fd; border-radius: 6px; padding: 3px 9px; font-size: 0.72rem; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
-          <i class="ri-eye-line"></i> Ver Observaciones e Ingresar Saldo
-        </button>
-      </div>
+      <button type="button"
+              onclick="window.switchBgSubTab('observations')"
+              style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: 6px; padding: 2px 8px; font-size: 0.71rem; font-weight: 700; cursor: pointer;">
+        Ver apelaciones (${totalCount})
+      </button>
     </div>
   `;
 }
 window.renderCommerceObservationsBannerUI = renderCommerceObservationsBannerUI;
+
+window.toggleBgCommerceObsBanner = function() {
+  const b = billingState;
+  if (b.obsBannerCommerceKey !== b.currentCommerce) {
+    b.obsBannerCommerceKey = b.currentCommerce;
+    b.obsBannerExpanded = true;
+  } else {
+    b.obsBannerExpanded = !b.obsBannerExpanded;
+  }
+  renderCommerceObservationsBannerUI();
+};
 
 window.setBgObservationsFilter = function(filterKey) {
   billingState.activeObservationsFilter = filterKey || 'all';
@@ -18208,79 +18280,84 @@ export function renderCommerceExtraChargesBannerUI() {
   }
 
   if (actionableCount > 0) {
+    const isExpanded = Boolean(b.extraBannerExpanded && b.extraBannerCommerceKey === b.currentCommerce);
     const previewSource = pendingList.length > 0 ? pendingList : assignedNotInDesgloseList;
-    const previewHtml = previewSource.slice(0, 3).map(c => {
+    const netDiff = previewSource.reduce((acc, c) => {
+      const calc = c.calc || computeExtraChargeAmounts(c);
+      return acc + (calc.isDiscount ? -calc.rawAmount : calc.rawAmount);
+    }, 0);
+    const netSignStr = netDiff >= 0 ? `+${formatCLP(netDiff)}` : `-${formatCLP(Math.abs(netDiff))}`;
+
+    const previewHtml = previewSource.map(c => {
       const calc = c.calc || computeExtraChargeAmounts(c);
       const isDiffStore = String(c.comercio || '').trim().toUpperCase() !== String(b.currentCommerce || '').trim().toUpperCase();
       return `
-        <div style="background: rgba(255,255,255,0.92); border: 1px solid #fcd34d; border-radius: 7px; padding: 0.38rem 0.65rem; font-size: 0.76rem; color: #451a03; display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 7px; padding: 0.42rem 0.7rem; font-size: 0.76rem; color: var(--color-text-main); display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
           <div style="min-width: 0; flex: 1; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-            <span style="font-size: 0.66rem; font-weight: 900; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; background: ${calc.isDiscount ? '#dcfce7' : '#fee2e2'}; color: ${calc.isDiscount ? '#15803d' : '#dc2626'};">
-              ${calc.isDiscount ? 'Descuento / A Favor' : 'Cargo Extra'}
+            <span style="font-size: 0.66rem; font-weight: 800; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; background: ${calc.isDiscount ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)'}; color: ${calc.isDiscount ? '#059669' : '#dc2626'};">
+              ${calc.isDiscount ? 'Descuento' : 'Cargo'}
             </span>
-            ${isDiffStore ? `<span style="font-size: 0.66rem; font-weight: 800; background: #ede9fe; color: #5b21b6; padding: 1px 5px; border-radius: 4px;">${escapeHtml(c.comercio)}</span>` : ''}
-            <strong style="color: #1e293b;">${escapeHtml(c.detalle || 'Saldo adicional')}</strong>
-            <span style="color: #78350f; font-weight: 800;">
+            ${isDiffStore ? `<span style="font-size: 0.66rem; font-weight: 800; background: rgba(95,6,250,0.1); color: #5f06fa; padding: 1px 5px; border-radius: 4px;">${escapeHtml(c.comercio)}</span>` : ''}
+            <strong>${escapeHtml(c.detalle || 'Saldo adicional')}</strong>
+            <span style="color: #b45309; font-weight: 800;">
               ${calc.isDiscount ? '-' : '+'}${formatCLP(calc.rawAmount)}
-              <span style="font-weight: 600; font-size: 0.68rem; color: #92400e;">(${calc.isIvaIncluido ? 'IVA incl.' : '+ IVA'})</span>
+              <span style="font-weight: 500; font-size: 0.68rem; color: var(--color-text-muted);">(${calc.isIvaIncluido ? 'IVA incl.' : '+ IVA'})</span>
             </span>
-            ${!c.isPending ? `<span style="font-size: 0.66rem; font-weight: 800; background: #dbeafe; color: #1d4ed8; padding: 1px 6px; border-radius: 999px;">Asignado a ${escapeHtml(b.currentPeriodName)} · Falta sumar al desglose</span>` : ''}
           </div>
-          <div style="display: inline-flex; gap: 4px; align-items: center; flex-shrink: 0;">
-            <button type="button"
-                    onclick="window.openAssignExtraChargeInGeneratorModal('${escapeHtml(c.id)}')"
-                    style="background: #d97706; color: #ffffff; border: none; border-radius: 5px; padding: 3px 9px; font-size: 0.71rem; font-weight: 800; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;">
-              <i class="ri-calendar-check-line"></i> ${c.isPending ? 'Asignar a Periodo' : 'Incorporar al Desglose'}
-            </button>
-          </div>
+          <button type="button"
+                  onclick="window.openAssignExtraChargeInGeneratorModal('${escapeHtml(c.id)}')"
+                  style="background: #d97706; color: #ffffff; border: none; border-radius: 5px; padding: 3px 9px; font-size: 0.71rem; font-weight: 800; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;">
+            <i class="ri-calendar-check-line"></i> ${c.isPending ? 'Asignar' : 'Incorporar'}
+          </button>
         </div>
       `;
     }).join('');
 
     banner.style.display = 'block';
     banner.innerHTML = `
-      <div style="background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); border: 1.5px solid #f59e0b; border-left: 5px solid #d97706; border-radius: 10px; padding: 0.7rem 0.95rem; box-shadow: 0 3px 10px rgba(245, 158, 11, 0.12);">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.45rem;">
-          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-            <span style="background: #d97706; color: #ffffff; padding: 0.2rem 0.6rem; border-radius: 999px; font-weight: 900; font-size: 0.7rem; display: inline-flex; align-items: center; gap: 4px; text-transform: uppercase;">
-              <i class="ri-coins-fill"></i> Saldos Adicionales Detectados (${actionableCount})
+      <div style="background: var(--color-surface); border: 1px solid ${isExpanded ? 'rgba(245, 158, 11, 0.5)' : 'var(--color-border)'}; border-left: 4px solid #f59e0b; border-radius: 10px; padding: 0.55rem 0.9rem; box-shadow: 0 1px 4px rgba(15, 23, 42, 0.03);">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
+          <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
+            <span style="width: 26px; height: 26px; border-radius: 6px; background: rgba(245, 158, 11, 0.12); color: #d97706; display: inline-flex; align-items: center; justify-content: center; font-size: 0.9rem;">
+              <i class="ri-coins-line"></i>
             </span>
-            <strong style="font-size: 0.84rem; color: #92400e;">
-              ${pendingList.length > 0
-                ? `${escapeHtml(b.currentCommerce)} tiene ${pendingList.length} saldo(s) adicional(es) pendiente(s) de asignar a un periodo`
-                : `${escapeHtml(b.currentCommerce)} tiene ${assignedNotInDesgloseList.length} saldo(s) asignado(s) a ${escapeHtml(b.currentPeriodName)} aún no sumado(s) al desglose`}
+            <strong style="font-size: 0.82rem; color: var(--color-text-main);">
+              ${actionableCount} saldo${actionableCount === 1 ? '' : 's'} adicional${actionableCount === 1 ? '' : 'es'} pendiente${actionableCount === 1 ? '' : 's'} (${netSignStr})
             </strong>
           </div>
           <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
             ${(!b.isLocked && pendingList.length > 0) ? `
               <button type="button"
                       onclick="window.applyAllPendingExtraChargesToCurrentPeriod()"
-                      style="background: #059669; color: #ffffff; border: none; font-weight: 800; font-size: 0.73rem; padding: 0.34rem 0.75rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 1px 3px rgba(5, 150, 105, 0.25);">
-                <i class="ri-flashlight-fill"></i> Aplicar ${pendingList.length === 1 ? 'Pendiente' : `los ${pendingList.length} Pendientes`} en ${escapeHtml(b.currentPeriodName || 'este periodo')}
+                      style="background: #059669; color: #ffffff; border: none; font-weight: 800; font-size: 0.72rem; padding: 0.28rem 0.68rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                <i class="ri-flashlight-fill"></i> Aplicar en ${escapeHtml(b.currentPeriodName || 'periodo')}
               </button>
             ` : ''}
             ${(!b.isLocked && assignedNotInDesgloseList.length > 0) ? `
               <button type="button"
                       onclick="window.incorporateAssignedExtraChargesIntoCurrentDesglose()"
-                      style="background: #2563eb; color: #ffffff; border: none; font-weight: 800; font-size: 0.73rem; padding: 0.34rem 0.75rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
-                <i class="ri-add-circle-fill"></i> Incorporar ${assignedNotInDesgloseList.length} al Desglose
+                      style="background: #2563eb; color: #ffffff; border: none; font-weight: 800; font-size: 0.72rem; padding: 0.28rem 0.68rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                <i class="ri-add-circle-fill"></i> Incorporar (${assignedNotInDesgloseList.length})
               </button>
             ` : ''}
             <button type="button"
+                    onclick="window.toggleBgCommerceExtraBanner()"
+                    style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); font-weight: 700; font-size: 0.72rem; padding: 0.28rem 0.65rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+              <span>${isExpanded ? 'Ocultar detalle' : 'Ver detalle'}</span>
+              <i class="ri-arrow-${isExpanded ? 'up' : 'down'}-s-line"></i>
+            </button>
+            <button type="button"
                     onclick="window.switchBgSubTab('extra-charges')"
-                    style="background: #ffffff; color: #92400e; border: 1px solid #f59e0b; font-weight: 800; font-size: 0.73rem; padding: 0.34rem 0.75rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
-              <i class="ri-coins-line"></i> Ver Saldos Adicionales (${charges.length})
+                    style="background: rgba(245, 158, 11, 0.12); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 800; font-size: 0.72rem; padding: 0.28rem 0.65rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+              <i class="ri-coins-line"></i> Pestaña (${charges.length})
             </button>
           </div>
         </div>
-        <div style="display: flex; flex-direction: column; gap: 0.35rem;">
-          ${previewHtml}
-          ${previewSource.length > 3 ? `
-            <div style="font-size: 0.72rem; color: #92400e; font-weight: 700; text-align: right;">
-              + ${previewSource.length - 3} saldo(s) adicional(es) más en la pestaña "Saldos Adicionales"...
-            </div>
-          ` : ''}
-        </div>
+        ${isExpanded ? `
+          <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px dashed var(--color-border); max-height: 190px; overflow-y: auto;">
+            ${previewHtml}
+          </div>
+        ` : ''}
       </div>
     `;
     return;
@@ -18289,20 +18366,31 @@ export function renderCommerceExtraChargesBannerUI() {
   // Todos los saldos adicionales de este periodo ya están aplicados e incorporados en el desglose
   banner.style.display = 'block';
   banner.innerHTML = `
-    <div style="background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%); border: 1px solid #6ee7b7; border-left: 4px solid #10b981; border-radius: 9px; padding: 0.48rem 0.9rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
-      <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.78rem; color: #065f46;">
-        <i class="ri-checkbox-circle-fill" style="color: #10b981; font-size: 1rem;"></i>
-        <strong>${assignedInDesgloseList.length} Saldo(s) Adicional(es) asignado(s) e incorporado(s) en ${escapeHtml(b.currentPeriodName || 'este periodo')}.</strong>
+    <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-left: 4px solid #10b981; border-radius: 9px; padding: 0.45rem 0.85rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+      <div style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.77rem; color: var(--color-text-main);">
+        <i class="ri-checkbox-circle-fill" style="color: #10b981;"></i>
+        <span><strong>${assignedInDesgloseList.length}</strong> saldo${assignedInDesgloseList.length === 1 ? '' : 's'} adicional${assignedInDesgloseList.length === 1 ? '' : 'es'} incorporado${assignedInDesgloseList.length === 1 ? '' : 's'} en <strong>${escapeHtml(b.currentPeriodName || 'este periodo')}</strong></span>
       </div>
       <button type="button"
               onclick="window.switchBgSubTab('extra-charges')"
-              style="background: #ffffff; color: #047857; border: 1px solid #6ee7b7; font-weight: 800; font-size: 0.72rem; padding: 2px 9px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
-        <i class="ri-coins-line"></i> Gestionar Saldos (${charges.length})
+              style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); font-weight: 700; font-size: 0.71rem; padding: 2px 8px; border-radius: 6px; cursor: pointer;">
+        Gestionar (${charges.length})
       </button>
     </div>
   `;
 }
 window.renderCommerceExtraChargesBannerUI = renderCommerceExtraChargesBannerUI;
+
+window.toggleBgCommerceExtraBanner = function() {
+  const b = billingState;
+  if (b.extraBannerCommerceKey !== b.currentCommerce) {
+    b.extraBannerCommerceKey = b.currentCommerce;
+    b.extraBannerExpanded = true;
+  } else {
+    b.extraBannerExpanded = !b.extraBannerExpanded;
+  }
+  renderCommerceExtraChargesBannerUI();
+};
 
 window.setBgExtraChargesFilter = function(filterKey) {
   billingState.activeExtraChargesFilter = filterKey || 'all';
