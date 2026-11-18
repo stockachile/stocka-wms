@@ -508,8 +508,8 @@ async function syncBlueExpress() {
     };
     upsertUnificadosList.push(unificadoRecord);
 
-    // Actualizar pedido en WMS si hubo coincidencia
-    if (matchedOrder) {
+    // Actualizar pedido en WMS si hubo coincidencia (excluyendo Listo para retiro / RETIRO)
+    if (matchedOrder && matchedOrder.estado_wms !== 'Listo para retiro' && String(matchedOrder.categoria_entrega || '').toUpperCase().trim() !== 'RETIRO') {
       const updatePayload = {
         bluex_status: macroState,
         raw_bluex_data: bluexRecord

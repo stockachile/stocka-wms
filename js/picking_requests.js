@@ -40,8 +40,8 @@ window.canCreatePickingRequest = function(order) {
   const estadoWms = normalizeStatus(order.estado_wms);
   const statusOrigen = normalizeStatus(order.status);
 
-  // Estados terminales o que ya salieron de la bodega
-  const terminalStatuses = ['despachado', 'entregado', 'retirado', 'cancelado', 'archivado', 'incidencia'];
+  // Estados terminales o que ya salieron de la bodega / están en mesón de retiro
+  const terminalStatuses = ['listo para retiro', 'despachado', 'entregado', 'retirado', 'cancelado', 'archivado', 'incidencia'];
   if (terminalStatuses.includes(estadoWms) || terminalStatuses.includes(statusOrigen)) {
     return {
       eligible: false,

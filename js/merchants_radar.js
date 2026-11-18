@@ -370,6 +370,7 @@ function aggregateOrdersSubset(ordersSubset, configuredPlatformsMap, openTickets
     'En procesamiento': 0,
     'En preparación': 0,
     'Pickeado': 0,
+    'Listo para retiro': 0,
     'Despachado': 0,
     'Entregado': 0,
     'Incidencia': 0,
@@ -409,8 +410,8 @@ function aggregateOrdersSubset(ordersSubset, configuredPlatformsMap, openTickets
     }
 
     const stLower = String(order.status || '').toLowerCase();
-    if (!['despachado', 'cancelado', 'entregado', 'retirado', 'archivado'].includes(stLower) &&
-        !['Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(wmsState)) {
+    if (!['despachado', 'listo para retiro', 'cancelado', 'entregado', 'retirado', 'archivado'].includes(stLower) &&
+        !['Listo para retiro', 'Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(wmsState)) {
       eligibleAgendasCount++;
     }
 
@@ -420,7 +421,7 @@ function aggregateOrdersSubset(ordersSubset, configuredPlatformsMap, openTickets
       }
 
       const tags = typeof window.getOrderTags === 'function' ? window.getOrderTags(order) : [];
-      const isDispatched = wmsState === 'Despachado' || wmsState === 'Entregado';
+      const isDispatched = wmsState === 'Despachado' || wmsState === 'Listo para retiro' || wmsState === 'Entregado';
 
       for (let t = 0; t < tags.length; t++) {
         const tag = tags[t];
@@ -449,7 +450,7 @@ function aggregateOrdersSubset(ordersSubset, configuredPlatformsMap, openTickets
 
   const activeOrdersCount = Math.max(0, totalOrders - states['Cancelado'] - states['Archivado']);
   const pendingOrders = states['En procesamiento'] + states['En preparación'];
-  const fulfilledOrders = states['Pickeado'] + states['Despachado'] + (states['Entregado'] || 0);
+  const fulfilledOrders = states['Pickeado'] + (states['Listo para retiro'] || 0) + states['Despachado'] + (states['Entregado'] || 0);
   const fulfillmentPct = activeOrdersCount > 0 ? Math.round((fulfilledOrders / activeOrdersCount) * 100) : (totalOrders > 0 ? 100 : 0);
 
   const incidentsList = [];
@@ -528,7 +529,7 @@ export function computeMerchantsRadarSummary() {
   const dateTo = dateToInput?.value || window.lastFetchedDateTo || '';
 
   const ordersInPeriod = allLoadedOrders.filter(order => {
-    if (!dateFrom && !dateTo) return !order._isOverdueBacklog;
+    if (!dateFrom && !dateTo) return !order._isOverdueBacklog && !order._isOlderReadyPickup;
     if (!order.created_at) return false;
     let orderDateStr = order._wmsDateStr;
     if (!orderDateStr) {
@@ -1042,7 +1043,7 @@ function renderRadarCardsGrid(merchants) {
         const d = m.displayed;
         const total = d.totalOrders;
         const pending = d.states['En procesamiento'] + d.states['En preparación'];
-        const picked = d.states['Pickeado'];
+        const picked = d.states['Pickeado'] + (d.states['Listo para retiro'] || 0);
         const dispatched = d.states['Despachado'] + (d.states['Entregado'] || 0);
 
         const pPend = total > 0 ? (pending / total) * 100 : 0;
@@ -1056,6 +1057,7 @@ function renderRadarCardsGrid(merchants) {
         const procCount = d.states['En procesamiento'];
         const prepCount = d.states['En preparación'];
         const pickCount = d.states['Pickeado'];
+        const retCount  = d.states['Listo para retiro'] || 0;
         const despCount = d.states['Despachado'];
         const entCount  = d.states['Entregado'] || 0;
         const incCount  = d.states['Incidencia'];
@@ -1146,6 +1148,12 @@ function renderRadarCardsGrid(merchants) {
                   <span class="radar-state-label">Pickeado</span>
                   <span class="radar-state-num ${pickCount === 0 ? 'is-zero' : ''}">${pickCount}</span>
                 </button>
+                ${retCount > 0 || activeStatus === 'Listo para retiro' ? `
+                <button type="button" class="radar-state-cell ${activeStatus === 'Listo para retiro' ? 'active' : ''}" onclick="window.toggleRadarCardStatus('${jsMerchantKey}', 'Listo para retiro')" title="Seleccionar estado: Listo para retiro en mesón (${retCount})">
+                  <span class="radar-state-label">Retiro</span>
+                  <span class="radar-state-num ${retCount === 0 ? 'is-zero' : ''}" style="${retCount > 0 ? 'color: #7c3aed;' : ''}">${retCount}</span>
+                </button>
+                ` : ''}
                 <button type="button" class="radar-state-cell ${activeStatus === 'Despachado' ? 'active' : ''}" onclick="window.toggleRadarCardStatus('${jsMerchantKey}', 'Despachado')" title="Seleccionar estado: Despachado (${despCount})">
                   <span class="radar-state-label">Despachado</span>
                   <span class="radar-state-num ${despCount === 0 ? 'is-zero' : ''}">${despCount}</span>
@@ -1218,6 +1226,7 @@ function renderRadarMatrixTable(merchants) {
               <th style="text-align: right;">Procesar</th>
               <th style="text-align: right;">Preparación</th>
               <th style="text-align: right;">Pickeado</th>
+              <th style="text-align: right;">Listo Retiro</th>
               <th style="text-align: right;">Despachado</th>
               <th style="text-align: right;">Entregado</th>
               <th style="text-align: right;">Incidencia</th>
@@ -1235,6 +1244,7 @@ function renderRadarMatrixTable(merchants) {
               const proc = d.states['En procesamiento'];
               const prep = d.states['En preparación'];
               const pick = d.states['Pickeado'];
+              const lret = d.states['Listo para retiro'] || 0;
               const desp = d.states['Despachado'];
               const ent  = d.states['Entregado'] || 0;
               const inc  = d.states['Incidencia'];
@@ -1263,6 +1273,7 @@ function renderRadarMatrixTable(merchants) {
                   <td style="text-align: right; ${proc === 0 ? 'color: var(--color-text-muted); opacity: 0.4;' : 'font-weight: 600;'}">${proc}</td>
                   <td style="text-align: right; ${prep === 0 ? 'color: var(--color-text-muted); opacity: 0.4;' : 'font-weight: 600;'}">${prep}</td>
                   <td style="text-align: right; ${pick === 0 ? 'color: var(--color-text-muted); opacity: 0.4;' : 'font-weight: 600;'}">${pick}</td>
+                  <td style="text-align: right; ${lret === 0 ? 'color: var(--color-text-muted); opacity: 0.4;' : 'color: #7c3aed; font-weight: 700;'}">${lret}</td>
                   <td style="text-align: right; ${desp === 0 ? 'color: var(--color-text-muted); opacity: 0.4;' : 'font-weight: 600;'}">${desp}</td>
                   <td style="text-align: right; ${ent === 0 ? 'color: var(--color-text-muted); opacity: 0.4;' : 'color: #059669; font-weight: 700;'}">${ent}</td>
                   <td style="text-align: right; ${inc === 0 ? 'color: var(--color-text-muted); opacity: 0.4;' : 'color: #dc2626; font-weight: 700;'}">${inc}</td>
@@ -1661,7 +1672,7 @@ window.radarDrillDownToAgendas = function(merchantName) {
 window.exportMerchantsRadarCsv = function() {
   const summary = computeMerchantsRadarSummary();
   const rows = [
-    ['Sigla', 'Comercio', 'Total Pedidos', 'En Procesamiento', 'En Preparacion', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado', '% Avance Despacho', 'Alertas por Revisar', 'Canales Activos']
+    ['Sigla', 'Comercio', 'Total Pedidos', 'En Procesamiento', 'En Preparacion', 'Pickeado', 'Listo para Retiro', 'Despachado', 'Entregado', 'Incidencia', 'Cancelado', '% Avance Despacho', 'Alertas por Revisar', 'Canales Activos']
   ];
 
   summary.visibleMerchants.forEach(m => {
@@ -1674,7 +1685,9 @@ window.exportMerchantsRadarCsv = function() {
       m.states['En procesamiento'],
       m.states['En preparación'],
       m.states['Pickeado'],
+      m.states['Listo para retiro'] || 0,
       m.states['Despachado'],
+      m.states['Entregado'] || 0,
       m.states['Incidencia'],
       m.states['Cancelado'],
       `${m.fulfillmentPct}%`,
@@ -1940,7 +1953,7 @@ window.renderRadarQuickSummaryModal = function(preserveSearchFocus = false) {
     document.body.appendChild(backdrop);
   }
 
-  const statesList = ['En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia'];
+  const statesList = ['En procesamiento', 'En preparación', 'Pickeado', 'Listo para retiro', 'Despachado', 'Entregado', 'Incidencia'];
 
   backdrop.innerHTML = `
     <div class="radar-modal-dialog">

@@ -457,13 +457,14 @@
 
     let orders = Array.from(orderMap.values());
 
-    // 4. Filtrar estrictamente excluyendo pedidos que ya estén despachados o entregados
+    // 4. Filtrar estrictamente excluyendo pedidos que ya estén despachados, listos para retiro o entregados
     orders = orders.filter(o => {
       if (o.global_status && ['DESPACHADO', 'ENTREGADO'].includes(o.global_status.toUpperCase())) return false;
+      if (String(o.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') return false;
       const wms = (o.estado_wms || '').toLowerCase().trim();
-      if (['despachado', 'entregado', 'cancelado', 'archivado'].includes(wms)) return false;
+      if (['listo para retiro', 'despachado', 'entregado', 'cancelado', 'archivado'].includes(wms)) return false;
       const st = (o.status || '').toLowerCase().trim();
-      if (st === 'despachado' || st === 'entregado' || st === 'retirado' || st === 'delivered' || st === 'cancelado' || st === 'cancelled') return false;
+      if (st === 'listo para retiro' || st === 'despachado' || st === 'entregado' || st === 'retirado' || st === 'delivered' || st === 'cancelado' || st === 'cancelled') return false;
       if (st.includes('despachad') || st.includes('entregad')) return false;
       return true;
     });

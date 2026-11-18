@@ -962,6 +962,12 @@
       if (norm.includes('preparacion')) {
         badgeCls = 'excel-badge-wms-preparacion';
         icon = 'ri-time-line';
+      } else if (norm.includes('listo para retiro')) {
+        badgeCls = 'excel-badge-wms-listo-retiro';
+        icon = 'ri-store-2-fill';
+      } else if (norm.includes('entregado') || norm.includes('retirado')) {
+        badgeCls = 'excel-badge-wms-entregado';
+        icon = 'ri-verified-badge-fill';
       } else if (norm.includes('pickeado') || norm.includes('preparado')) {
         badgeCls = 'excel-badge-wms-pickeado';
         icon = 'ri-checkbox-circle-line';
@@ -1667,19 +1673,34 @@
           window.editWmsOrderCourierAndTracking(orderId);
         } else if (action === 'estado_wms') {
           const currentVal = order?.estado_wms || order?.status || 'En preparación';
+          const isRetiroOrd = (typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+            ? window.getOrderEffectiveCategoriaEntrega(order)
+            : String(order?.categoria_entrega || '').toUpperCase().trim()) === 'RETIRO';
+          const statusOpts = isRetiroOrd
+            ? {
+                'En procesamiento': '⚙️ En procesamiento',
+                'En preparación': '📦 En preparación',
+                'Listo para retiro': '🏪 Listo para retiro',
+                'Entregado': '🏁 Entregado',
+                'Incidencia': '⚠️ Incidencia',
+                'Cancelado': '❌ Cancelado',
+                'Archivado': '📁 Archivado'
+              }
+            : {
+                'En procesamiento': '⚙️ En procesamiento',
+                'En preparación': '📦 En preparación',
+                'Pickeado': '✅ Pickeado',
+                'Despachado': '🚚 Despachado',
+                'Entregado': '🏁 Entregado',
+                'Incidencia': '⚠️ Incidencia',
+                'Cancelado': '❌ Cancelado',
+                'Archivado': '📁 Archivado'
+              };
           if (typeof Swal !== 'undefined') {
             Swal.fire({
               title: `Cambiar Estado WMS - Pedido #${orderNum}`,
               input: 'select',
-              inputOptions: {
-                'En preparación': '📦 En preparación',
-                'Pickeado': '✅ Pickeado',
-                'En procesamiento': '⚙️ En procesamiento',
-                'Despachado': '🚚 Despachado',
-                'Incidencia': '⚠️ Incidencia',
-                'Cancelado': '❌ Cancelado',
-                'Archivado': '📁 Archivado'
-              },
+              inputOptions: statusOpts,
               inputValue: currentVal,
               showCancelButton: true,
               confirmButtonText: 'Actualizar',
@@ -1997,7 +2018,13 @@
       title = 'Ruta Optiroute';
       icon = 'ri-route-line';
     } else if (isEstadoWms) {
-      configOptions = ['En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado', 'Archivado'];
+      const ordRef = (window.loadedOrders || []).find(o => String(o.id) === String(orderId));
+      const isRet = ordRef && (typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+        ? window.getOrderEffectiveCategoriaEntrega(ordRef)
+        : String(ordRef.categoria_entrega || '').toUpperCase().trim()) === 'RETIRO';
+      configOptions = isRet
+        ? ['En procesamiento', 'En preparación', 'Listo para retiro', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado']
+        : ['En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado'];
       title = 'Estado WMS';
       icon = 'ri-loader-4-line';
     } else if (isComuna) {
@@ -2066,6 +2093,14 @@
           optCls = 'excel-badge-wms-preparacion';
           optIco = 'ri-time-line';
           optDesc = 'Enviar a sistema Picker para preparación';
+        } else if (normOpt.includes('listo para retiro')) {
+          optCls = 'excel-badge-wms-listo-retiro';
+          optIco = 'ri-store-2-fill';
+          optDesc = 'Disponible en mesón de sucursal (descuenta stock físico)';
+        } else if (normOpt.includes('entregado')) {
+          optCls = 'excel-badge-wms-entregado';
+          optIco = 'ri-verified-badge-fill';
+          optDesc = 'Pedido finalizado y entregado al cliente';
         } else if (normOpt.includes('pickeado') || normOpt.includes('preparado')) {
           optCls = 'excel-badge-wms-pickeado';
           optIco = 'ri-checkbox-circle-line';

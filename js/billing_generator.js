@@ -708,6 +708,11 @@ export function injectBillingGeneratorStyles() {
       color: #0369a1;
       border: 1px solid #bae6fd;
     }
+    .bg-wms-listo-retiro {
+      background: #f5f3ff;
+      color: #6d28d9;
+      border: 1px solid #c4b5fd;
+    }
     .bg-wms-preparacion {
       background: #fef3c7;
       color: #b45309;
@@ -9586,6 +9591,9 @@ export function getWmsStatusBadgeHTML(status) {
   if (lower.includes('entregado')) {
     cls = 'bg-wms-entregado';
     icon = 'ri-verified-badge-fill';
+  } else if (lower.includes('listo para retiro')) {
+    cls = 'bg-wms-listo-retiro';
+    icon = 'ri-store-2-fill';
   } else if (lower.includes('despachado')) {
     cls = 'bg-wms-despachado';
     icon = 'ri-truck-line';

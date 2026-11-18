@@ -1165,18 +1165,18 @@ window.getPickerStatusForOrder = function(order) {
     };
   }
 
-  // Fallback cuando el pedido ya está en estado WMS 'Pickeado' (o 'Despachado' con operario registrado)
-  if (order.estado_wms === 'Pickeado' || (order.estado_wms === 'Despachado' && order.picker_operator)) {
+  // Fallback cuando el pedido ya está en estado WMS 'Pickeado' / 'Listo para retiro' (o 'Despachado'/'Entregado' con operario registrado)
+  if (order.estado_wms === 'Pickeado' || order.estado_wms === 'Listo para retiro' || ((order.estado_wms === 'Despachado' || order.estado_wms === 'Entregado') && order.picker_operator)) {
     const resolvedOp = order.picker_operator || window.pickerOperatorsMap[`ORDER_ID::${order.id}`] || window.pickerOperatorsMap[order.external_order_number || order.id] || null;
     return {
-      status: 'Completado',
+      status: order.estado_wms === 'Listo para retiro' ? 'Listo para retiro' : 'Completado',
       operator: resolvedOp,
       sucursal: order.sucursal_pickeo || null,
       comercio: comNorm || null,
       isActive: false,
       isCompleted: true,
       source: 'wms_pickeado_state',
-      updatedAt: order.picker_last_synced_at || order.stock_descontado_at || order.shopify_status_updated_at || null
+      updatedAt: order.ready_for_pickup_at || order.picker_last_synced_at || order.stock_descontado_at || order.shopify_status_updated_at || null
     };
   }
 
@@ -2094,9 +2094,9 @@ window.openPickerOrderHistoryModal = async function(orderId) {
       }
     }
 
-    // Si no hay datos en ninguna de las tres tablas del Picker, pero el pedido en WMS ya figura como Pickeado o tiene picker_status sincronizado
+    // Si no hay datos en ninguna de las tres tablas del Picker, pero el pedido en WMS ya figura como Pickeado / Listo para retiro o tiene picker_status sincronizado
     if (!hasActive && !hasLogs && !hasPickup) {
-      const hasWmsPickerState = order && (order.estado_wms === 'Pickeado' || order.picker_status || order.picker_operator || order.picker_scanned_label);
+      const hasWmsPickerState = order && (order.estado_wms === 'Pickeado' || order.estado_wms === 'Listo para retiro' || order.picker_status || order.picker_operator || order.picker_scanned_label);
       if (hasWmsPickerState) {
         const effSt = order.picker_status || 'Completado';
         const effOp = order.picker_operator || window.pickerOperatorsMap[`ORDER_ID::${order.id}`] || window.pickerOperatorsMap[order.external_order_number || order.id] || 'Consolidado / Sistema WMS';
@@ -2631,38 +2631,79 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
 
       const isRetirado = ['RETIRADO', 'ENTREGADO'].includes(String(resolvedStatus.status || '').trim().toUpperCase());
 
-      if (isRetirado && order && order.estado_wms !== 'Despachado' && order.estado_wms !== 'Cancelado') {
-        const { error: wmsErr } = await supabase
+      if (isRetirado && order && order.estado_wms !== 'Entregado' && order.estado_wms !== 'Cancelado') {
+        const nowIso = new Date().toISOString();
+        let { error: wmsErr } = await supabase
           .from('orders')
-          .update({ estado_wms: 'Despachado', status: 'despachado', stock_descontado: true })
+          .update({
+            estado_wms: 'Entregado',
+            status: 'retirado',
+            stock_descontado: true,
+            delivered_at: nowIso,
+            closed_at: nowIso,
+            closed_by_automation: 'auto-pickup-retirado-to-entregado'
+          })
           .eq('id', order.id);
 
+        if (wmsErr) {
+          const fb = await supabase
+            .from('orders')
+            .update({ estado_wms: 'Entregado', status: 'retirado', stock_descontado: true })
+            .eq('id', order.id);
+          wmsErr = fb.error;
+        }
+
         if (!wmsErr) {
-          order.estado_wms = 'Despachado';
-          order.status = 'despachado';
+          order.estado_wms = 'Entregado';
+          order.status = 'retirado';
           order.stock_descontado = true;
+          order.delivered_at = nowIso;
+          order.closed_at = nowIso;
           delete order._wmsTags;
           supabase.from('store_pickups').update({ estado_pedido: 'ENTREGADO' }).in('pedido', searchKeys).then(() => {}).catch(() => {});
           if (typeof window.refreshAgendasOrderCell === 'function') {
-            window.refreshAgendasOrderCell(order.id, 'estado_wms', 'Despachado');
+            window.refreshAgendasOrderCell(order.id, 'estado_wms', 'Entregado');
           }
           if (typeof window.triggerShopifyFulfillmentSync === 'function') {
             window.triggerShopifyFulfillmentSync([order.id]);
           }
         }
       } else if (resolvedStatus.isCompleted && order && order.estado_wms === 'En preparación') {
-        // Si fue completado en el Picker y en WMS estaba "En preparación", sincronizar a Pickeado
-        const { error: wmsErr } = await supabase
+        const effCat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+          ? window.getOrderEffectiveCategoriaEntrega(order)
+          : String(order.categoria_entrega || '').toUpperCase().trim();
+        const isRetiroOrder = effCat === 'RETIRO' || String(order.agenda || '').toUpperCase().trim() === 'RETIRO';
+        const targetWms = isRetiroOrder ? 'Listo para retiro' : 'Pickeado';
+        const targetStatus = isRetiroOrder ? 'listo para retiro' : 'preparado';
+        const nowIso = new Date().toISOString();
+        const updPayload = isRetiroOrder
+          ? { estado_wms: 'Listo para retiro', status: 'listo para retiro', stock_descontado: true, ready_for_pickup_at: nowIso }
+          : { estado_wms: 'Pickeado', status: 'preparado' };
+
+        let { error: wmsErr } = await supabase
           .from('orders')
-          .update({ estado_wms: 'Pickeado', status: 'preparado' })
+          .update(updPayload)
           .eq('id', order.id);
 
+        if (wmsErr && isRetiroOrder) {
+          const fb = await supabase
+            .from('orders')
+            .update({ estado_wms: 'Listo para retiro', status: 'listo para retiro', stock_descontado: true })
+            .eq('id', order.id);
+          wmsErr = fb.error;
+        }
+
         if (!wmsErr) {
-          order.estado_wms = 'Pickeado';
-          order.status = 'preparado';
+          order.estado_wms = targetWms;
+          order.status = targetStatus;
+          if (isRetiroOrder) {
+            order.stock_descontado = true;
+            order.ready_for_pickup_at = nowIso;
+            supabase.from('store_pickups').update({ estado_pedido: 'LISTO PARA RETIRO' }).in('pedido', searchKeys).then(() => {}).catch(() => {});
+          }
           delete order._wmsTags;
           if (typeof window.refreshAgendasOrderCell === 'function') {
-            window.refreshAgendasOrderCell(order.id, 'estado_wms', 'Pickeado');
+            window.refreshAgendasOrderCell(order.id, 'estado_wms', targetWms);
           }
           if (typeof window.triggerShopifyFulfillmentSync === 'function') {
             window.triggerShopifyFulfillmentSync([order.id]);
@@ -3243,6 +3284,23 @@ window.updateWmsOrderField = async function(orderId, field, value) {
 
     // Manejo especial en caliente de cambio de categoría
     if (field === 'categoria_entrega') {
+      if (order && order.estado_wms === 'Listo para retiro' && value !== 'RETIRO') {
+        const confirmSwitch = await Swal.fire({
+          icon: 'warning',
+          title: 'Pedido en Listo para Retiro',
+          html: `El estado <strong>Listo para retiro</strong> es exclusivo para pedidos con categoría <strong>RETIRO</strong> (el stock físico ya salió del inventario).<br><br>Si cambias la categoría a <strong>${window.escapeHtml(value)}</strong>, su estado WMS cambiará automáticamente a <strong>Despachado</strong> manteniendo su salida de stock sin doble descuento. ¿Deseas continuar?`,
+          showCancelButton: true,
+          confirmButtonText: 'Sí, cambiar a ' + value + ' (Despachado)',
+          cancelButtonText: 'Cancelar',
+          confirmButtonColor: '#0ea5e9'
+        });
+        if (!confirmSwitch.isConfirmed) {
+          applyWmsFiltersAndRender();
+          return;
+        }
+        updatePayload.estado_wms = 'Despachado';
+        updatePayload.status = 'despachado';
+      }
       if (value === 'RETIRO') {
         updatePayload.agenda = 'RETIRO';
         updatePayload.operador = 'SUCURSAL ÑUÑOA';
@@ -3255,6 +3313,11 @@ window.updateWmsOrderField = async function(orderId, field, value) {
         updatePayload.enviame_status = null;
         updatePayload.raw_lightdata_data = null;
         updatePayload.lightdata_status = null;
+        if (order && order.estado_wms === 'Pickeado') {
+          updatePayload.estado_wms = 'Listo para retiro';
+          updatePayload.status = 'listo para retiro';
+          updatePayload.stock_descontado = true;
+        }
       } else if (value === 'SHOP POINT (POS)' || value === 'SHOP POINT' || value === 'POS') {
         updatePayload.agenda = 'COMPRA EN BODEGA';
         updatePayload.operador = 'SUCURSAL ÑUÑOA';
@@ -7684,11 +7747,11 @@ window.shouldProcessOrderStockLocal = function(order, config, allOrdersList, che
   // A. Check if tracking is active
   if (!config.inventario_seguimiento) return false;
 
-  // B. Check if order state is terminal en WMS (solo estado_wms 'Despachado', 'Cancelado' o 'Archivado' es terminal)
+  // B. Check if order state is terminal en WMS (estado_wms 'Listo para retiro', 'Despachado', 'Entregado', 'Cancelado' o 'Archivado')
   // El estado de despacho/plataforma (order.status) NO influye en el control de inventario WMS.
   if (checkTerminal) {
     const orderWmsStatus = (order.estado_wms || '').toLowerCase().trim();
-    const terminalWmsStatuses = ['despachado', 'cancelado', 'archivado'];
+    const terminalWmsStatuses = ['listo para retiro', 'despachado', 'entregado', 'cancelado', 'archivado'];
     if (terminalWmsStatuses.includes(orderWmsStatus)) {
       return false;
     }
@@ -10156,6 +10219,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
         periodo_facturacion,
         stock_descontado,
         stock_descontado_at,
+        ready_for_pickup_at,
         order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, is_picking_request, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, length, width, height, volumen, weight))
       `.replace(/\s+/g, ' ').trim();
 
@@ -10204,7 +10268,11 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
 
         if (res.error) {
           const errMsg = String(res.error.message || '');
-          if (res.error.code === '42703' || errMsg.includes('closed_snapshot') || errMsg.includes('transport_status_normalized') || errMsg.includes('estado_ruta_optiroute') || errMsg.includes('picker_')) {
+          if (res.error.code === '42703' || errMsg.includes('ready_for_pickup_at') || errMsg.includes('closed_snapshot') || errMsg.includes('transport_status_normalized') || errMsg.includes('estado_ruta_optiroute') || errMsg.includes('picker_')) {
+            if (errMsg.includes('ready_for_pickup_at')) {
+              selectStr = selectStr.replace(/,?\s*ready_for_pickup_at/g, '');
+              continue;
+            }
             if (errMsg.includes('closed_snapshot') || errMsg.includes('picker_history_snapshot') || errMsg.includes('tracking_history') || errMsg.includes('transport_status_normalized') || errMsg.includes('delivered_at') || errMsg.includes('closed_at') || errMsg.includes('closed_by_automation') || errMsg.includes('dispatched_at')) {
               selectStr = selectStr
                 .replace(/,?\s*picker_history_snapshot/g, '')
@@ -10278,6 +10346,35 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
               overdueData.forEach(o => {
                 if (o && o.id && !existingIds.has(o.id) && window.isWmsOrderPaidForOverdue(o)) {
                   o._isOverdueBacklog = true;
+                  existingIds.add(o.id);
+                  allOrders.push(o);
+                }
+              });
+            }
+
+            // Consulta complementaria exclusiva para 'Listo para retiro' (hasta 90 días atrás):
+            // Carga retiros antiguos pendientes de retiro en su propia pestaña (con alerta de antigüedad en mesón),
+            // SIN mezclarlos en la barra operativa de Rezagados de bodega.
+            const lookback90ISO = new Date(fromDateMs - 90 * 24 * 60 * 60 * 1000).toISOString();
+            let readyPickupQ = supabase
+              .from('orders')
+              .select(selectStr)
+              .gte('created_at', lookback90ISO)
+              .lt('created_at', fromISO)
+              .eq('estado_wms', 'Listo para retiro')
+              .neq('status', 'cancelado');
+
+            if (merchantFilter) {
+              readyPickupQ = readyPickupQ.eq('comercio', merchantFilter);
+            }
+            readyPickupQ = readyPickupQ.order('created_at', { ascending: false }).limit(300);
+
+            const { data: readyPickupData, error: readyPickupErr } = await readyPickupQ;
+            if (!readyPickupErr && Array.isArray(readyPickupData) && readyPickupData.length > 0) {
+              const existingIds = new Set(allOrders.map(o => o.id));
+              readyPickupData.forEach(o => {
+                if (o && o.id && !existingIds.has(o.id)) {
+                  o._isOlderReadyPickup = true;
                   existingIds.add(o.id);
                   allOrders.push(o);
                 }
@@ -12721,7 +12818,7 @@ async function renderAdminOrders() {
       let overdemandDetails = [];
       let overdemandSkus = [];
 
-      const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado', 'cancelado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(order.estado_wms) || !!order.stock_descontado;
+      const isOrderTerminalOrShipped = ['despachado', 'listo para retiro', 'entregado', 'retirado', 'cancelado'].includes((order.status || '').toLowerCase()) || ['Listo para retiro', 'Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(order.estado_wms) || !!order.stock_descontado;
       if (shouldProcessStock && !isOrderTerminalOrShipped) {
         const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual && (!window.isOrderItemEliminated || !window.isOrderItemEliminated(order, item)));
         if (itemsToCheck.length > 0) {
@@ -15204,6 +15301,7 @@ window.getWmsOrderColumnValue = function(order, columnKey) {
 window.getWmsFilteredOrders = function(excludeColKey = null, forTab = null, options = null) {
   const orders = window.loadedOrders || [];
   const isOverdueMode = !!(options && options.overdueOnly);
+  const isOlderReadyPickupsMode = !!(options && options.olderReadyPickupsOnly);
 
   const searchInput = document.getElementById('search-orders');
   const merchantSelect = document.getElementById('filter-merchant');
@@ -15249,11 +15347,11 @@ window.getWmsFilteredOrders = function(excludeColKey = null, forTab = null, opti
     }
   }
 
-  // Calcular límite máximo de búsqueda hacia atrás (60 días antes de dateFrom) para rezagados
+  // Calcular límite máximo de búsqueda hacia atrás (60 días antes de dateFrom para rezagados; 90 días para Listo para retiro)
   let lookback60DateStr = '';
-  if (isOverdueMode && dateFrom) {
+  if ((isOverdueMode || isOlderReadyPickupsMode) && dateFrom) {
     const lbDate = new Date(dateFrom + 'T00:00:00');
-    lbDate.setDate(lbDate.getDate() - 60);
+    lbDate.setDate(lbDate.getDate() - (isOlderReadyPickupsMode ? 90 : 60));
     const lbY = lbDate.getFullYear();
     const lbM = String(lbDate.getMonth() + 1).padStart(2, '0');
     const lbD = String(lbDate.getDate()).padStart(2, '0');
@@ -15276,12 +15374,15 @@ window.getWmsFilteredOrders = function(excludeColKey = null, forTab = null, opti
   const drawerShippingStatus = drawerActive && window.wmsDrawerActiveFilters.shippingStatus ? window.wmsDrawerActiveFilters.shippingStatus.trim().toLowerCase() : '';
 
   return orders.filter(order => {
-    // 0. Validación temprana para modo rezagados (overdueOnly)
+    // 0. Validación temprana para modo rezagados (overdueOnly) o retiros antiguos en mesón (olderReadyPickupsOnly)
     if (isOverdueMode) {
       if (!overdueTargetStates.includes(order.estado_wms)) return false;
       if (typeof window.isWmsOrderPaidForOverdue === 'function' && !window.isWmsOrderPaidForOverdue(order)) {
         return false;
       }
+    }
+    if (isOlderReadyPickupsMode) {
+      if (!dateFrom || order.estado_wms !== 'Listo para retiro') return false;
     }
 
     // 1. Multiselección
@@ -15306,7 +15407,7 @@ window.getWmsFilteredOrders = function(excludeColKey = null, forTab = null, opti
     if (selectedExportStatus === 'pending' && order.shopify_exported) return false;
     if (selectedExportStatus === 'exported' && !order.shopify_exported) return false;
 
-    if (isOverdueMode) {
+    if (isOverdueMode || isOlderReadyPickupsMode) {
       if (!order.created_at) return false;
       let orderDateStr = order._wmsDateStr;
       if (!orderDateStr) {
@@ -15317,7 +15418,7 @@ window.getWmsFilteredOrders = function(excludeColKey = null, forTab = null, opti
         orderDateStr = `${year}-${month}-${day}`;
         order._wmsDateStr = orderDateStr;
       }
-      // En modo rezagados: estrictamente anterior a dateFrom y dentro de la ventana de 60 días
+      // Estrictamente anterior a dateFrom y dentro de la ventana de búsqueda
       if (orderDateStr >= dateFrom) return false;
       if (lookback60DateStr && orderDateStr < lookback60DateStr) return false;
     } else if (dateFrom || dateTo) {
@@ -15333,7 +15434,7 @@ window.getWmsFilteredOrders = function(excludeColKey = null, forTab = null, opti
       }
       if (dateFrom && orderDateStr < dateFrom) return false;
       if (dateTo && orderDateStr > dateTo) return false;
-    } else if (order._isOverdueBacklog) {
+    } else if (order._isOverdueBacklog || order._isOlderReadyPickup) {
       return false;
     }
 
@@ -15608,11 +15709,16 @@ window.applyWmsFiltersAndRender = function() {
 
   // 1. Obtener pedidos base excluyendo la columna estado_wms en un único pase de filtrado
   const baseOrders = window.getWmsFilteredOrders('estado_wms', 'Todos');
+  const dateFromForPickups = document.getElementById('filter-date-from')?.value || '';
+  const olderReadyPickupsForTab = dateFromForPickups
+    ? window.getWmsFilteredOrders('estado_wms', 'Listo para retiro', { olderReadyPickupsOnly: true })
+    : [];
   const tabCounts = {
     'Todos': baseOrders.length,
     'En procesamiento': 0,
     'En preparación': 0,
     'Pickeado': 0,
+    'Listo para retiro': 0,
     'Despachado': 0,
     'Entregado': 0,
     'Incidencia': 0,
@@ -15638,7 +15744,7 @@ window.applyWmsFiltersAndRender = function() {
   // Sincronizar badge y vista de Radar de Comercios cuando cambian los datos en memoria
   const radarTabBadge = document.getElementById('radar-tab-count');
   if (radarTabBadge && Array.isArray(window.loadedOrders)) {
-    const activeMerchantsSet = new Set(window.loadedOrders.filter(o => !o._isOverdueBacklog).map(o => o.comercio).filter(Boolean));
+    const activeMerchantsSet = new Set(window.loadedOrders.filter(o => !o._isOverdueBacklog && !o._isOlderReadyPickup).map(o => o.comercio).filter(Boolean));
     radarTabBadge.textContent = `${activeMerchantsSet.size} activos`;
   }
   if (window.wmsOrdersActiveSubView === 'merchants_radar' && typeof window.renderMerchantsRadar === 'function') {
@@ -15646,7 +15752,7 @@ window.applyWmsFiltersAndRender = function() {
   }
 
   const isSinRegFilterActive = selectedTag === 'Picker: Sin registro';
-  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado'];
+  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Listo para retiro', 'Despachado', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado'];
   const tabsHtml = tabs.map(tab => {
     const isActive = window.wmsActiveTab === tab;
     const count = tabCounts[tab] || 0;
@@ -15655,6 +15761,8 @@ window.applyWmsFiltersAndRender = function() {
       badgeClass = 'status-red';
     } else if (tab === 'Pickeado' || tab === 'Despachado' || tab === 'Entregado') {
       badgeClass = 'status-green';
+    } else if (tab === 'Listo para retiro') {
+      badgeClass = 'status-blue';
     } else if (tab === 'En preparación') {
       badgeClass = 'status-yellow';
     } else if (tab === 'En procesamiento') {
@@ -15666,21 +15774,34 @@ window.applyWmsFiltersAndRender = function() {
     const activeSpanStyle = `background: rgba(255,255,255,0.2); color: #ffffff; padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; border: none;`;
     const inactiveSpanStyle = tab === 'Entregado'
       ? `background: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 800;`
-      : `padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;`;
+      : (tab === 'Listo para retiro'
+          ? `background: #f5f3ff; color: #6d28d9; border: 1px solid #c4b5fd; padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 800;`
+          : `padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;`);
 
     const prepMissingAlertPillHtml = (tab === 'En preparación' && prepMissingPickerCount > 0)
       ? `<span onclick="event.stopPropagation(); window.togglePrepMissingPickerFilter(event);" style="background: ${isSinRegFilterActive ? '#dc2626' : '#fef2f2'}; color: ${isSinRegFilterActive ? '#ffffff' : '#dc2626'}; border: 1px solid ${isSinRegFilterActive ? '#b91c1c' : '#fca5a5'}; padding: 0.12rem 0.42rem; border-radius: 9999px; font-size: 0.68rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.2rem; box-shadow: 0 1px 3px rgba(220,38,38,0.22); cursor: pointer;" title="⚠️ Alerta: ${prepMissingPickerCount} pedido(s) en 'En preparación' tienen 'Picker: Sin registro' (no existen en la bodega física asignada). Clic para filtrarlos."><i class="ri-error-warning-fill" style="font-size: 0.75rem; color: ${isSinRegFilterActive ? '#ffffff' : '#dc2626'};"></i> ${prepMissingPickerCount} sin registro</span>`
       : '';
 
+    const olderReadyPickupsPillHtml = (tab === 'Listo para retiro' && olderReadyPickupsForTab.length > 0)
+      ? `<span style="background: ${isActive ? 'rgba(255,255,255,0.22)' : '#fffbeb'}; color: ${isActive ? '#ffffff' : '#b45309'}; border: 1px solid ${isActive ? 'rgba(255,255,255,0.4)' : '#fcd34d'}; padding: 0.1rem 0.4rem; border-radius: 9999px; font-size: 0.66rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.18rem;" title="${olderReadyPickupsForTab.length} pedido(s) en mesón de fechas anteriores pendientes de retiro por el cliente">+${olderReadyPickupsForTab.length} en mesón</span>`
+      : '';
+
     const tabLabelHtml = tab === 'Entregado'
       ? `<i class="ri-verified-badge-fill" style="color: ${isActive ? '#ffffff' : '#059669'}; font-size: 0.92rem;"></i> Entregado`
-      : tab;
+      : (tab === 'Listo para retiro'
+          ? `<i class="ri-store-2-fill" style="color: ${isActive ? '#ffffff' : '#7c3aed'}; font-size: 0.92rem;"></i> Listo para retiro`
+          : tab);
+
+    const activeBgColor = tab === 'Entregado' ? '#059669' : (tab === 'Listo para retiro' ? '#7c3aed' : 'var(--color-primary)');
+    const inactiveBorder = tab === 'En preparación' && prepMissingPickerCount > 0
+      ? '1.5px solid #fca5a5'
+      : (tab === 'Entregado' ? '1px solid #6ee7b7' : (tab === 'Listo para retiro' ? '1px solid #c4b5fd' : '1px solid var(--color-border)'));
 
     return `
-      <button onclick="window.setWmsTab('${tab}')" style="background: ${isActive ? (tab === 'Entregado' ? '#059669' : 'var(--color-primary)') : 'transparent'}; color: ${isActive ? '#ffffff' : 'var(--color-text-main)'}; border: ${isActive ? 'none' : (tab === 'En preparación' && prepMissingPickerCount > 0 ? '1.5px solid #fca5a5' : (tab === 'Entregado' ? '1px solid #6ee7b7' : '1px solid var(--color-border)'))}; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.825rem; cursor: pointer; display: flex; align-items: center; gap: 0.45rem; transition: all 0.2s;">
+      <button onclick="window.setWmsTab('${tab}')" style="background: ${isActive ? activeBgColor : 'transparent'}; color: ${isActive ? '#ffffff' : 'var(--color-text-main)'}; border: ${isActive ? 'none' : inactiveBorder}; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.825rem; cursor: pointer; display: flex; align-items: center; gap: 0.45rem; transition: all 0.2s;">
         ${tabLabelHtml}
-        <span class="${isActive || tab === 'Entregado' ? '' : badgeClass}" style="${isActive ? activeSpanStyle : inactiveSpanStyle}">${count}</span>
-        ${prepMissingAlertPillHtml}
+        <span class="${isActive || tab === 'Entregado' || tab === 'Listo para retiro' ? '' : badgeClass}" style="${isActive ? activeSpanStyle : inactiveSpanStyle}">${count}</span>
+        ${prepMissingAlertPillHtml}${olderReadyPickupsPillHtml}
       </button>
     `;
   }).join('');
@@ -15752,6 +15873,20 @@ window.applyWmsFiltersAndRender = function() {
     });
   }
   window.wmsLastOverdueOrders = overdueOrders;
+
+  // 2c. Pedidos antiguos en 'Listo para retiro' (solo en pestaña 'Listo para retiro', separados de Rezagados operativos)
+  let olderReadyPickupOrders = [];
+  if (dateFromVal && window.wmsActiveTab === 'Listo para retiro') {
+    olderReadyPickupOrders = estadoColFilterSet
+      ? olderReadyPickupsForTab.filter(o => estadoColFilterSet.has(o.estado_wms))
+      : [...olderReadyPickupsForTab];
+    olderReadyPickupOrders.sort((a, b) => {
+      const tA = new Date(a.ready_for_pickup_at || a.stock_descontado_at || a.created_at || 0).getTime();
+      const tB = new Date(b.ready_for_pickup_at || b.stock_descontado_at || b.created_at || 0).getTime();
+      return tA - tB; // Más antiguos primero para priorizar gestión de paquetes no retirados
+    });
+  }
+  window.wmsLastOlderReadyPickupOrders = olderReadyPickupOrders;
 
   // Renderizar banner informativo de filtro SLA activo
   const slaBannerContainer = document.getElementById('wms-active-sla-filter-container');
@@ -15922,7 +16057,7 @@ window.applyWmsFiltersAndRender = function() {
   const tbody = document.getElementById('orders-tbody');
   if (!tbody) return;
 
-  if (paginatedOrders.length === 0 && overdueOrders.length === 0) {
+  if (paginatedOrders.length === 0 && overdueOrders.length === 0 && olderReadyPickupOrders.length === 0) {
     tbody.innerHTML = `
       <tr>
         <td colspan="13" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
@@ -15940,7 +16075,8 @@ window.applyWmsFiltersAndRender = function() {
 
   const batchPickingOrderIds = [
     ...paginatedOrders.map(o => o.id),
-    ...(!window.wmsOverdueSectionCollapsed ? overdueOrders.map(o => o.id) : [])
+    ...(!window.wmsOverdueSectionCollapsed ? overdueOrders.map(o => o.id) : []),
+    ...olderReadyPickupOrders.map(o => o.id)
   ];
   if (window.loadBatchPickingRequests && batchPickingOrderIds.length > 0) {
     window.loadBatchPickingRequests(batchPickingOrderIds);
@@ -15956,6 +16092,15 @@ window.applyWmsFiltersAndRender = function() {
         </td>
       </tr>
     `;
+  } else if (paginatedOrders.length === 0 && olderReadyPickupOrders.length > 0) {
+    rowsHtml += `
+      <tr>
+        <td colspan="13" class="text-center" style="padding: 1.25rem 1rem; color: var(--color-text-muted); font-size: 0.84rem; background: var(--color-surface);">
+          <i class="ri-store-2-line" style="font-size: 1rem; vertical-align: middle; margin-right: 0.25rem; color: #7c3aed;"></i>
+          No hay retiros creados en el rango de fechas actual, pero hay <strong>${olderReadyPickupOrders.length}</strong> ${olderReadyPickupOrders.length === 1 ? 'paquete preparado en mesón' : 'paquetes preparados en mesón'} de fechas anteriores abajo.
+        </td>
+      </tr>
+    `;
   }
 
   window._wmsOrderDetailRenderers = new Map();
@@ -15968,7 +16113,7 @@ window.applyWmsFiltersAndRender = function() {
     const isInitiallyExpanded = !!(window.wmsExpandedOrderIds && window.wmsExpandedOrderIds.has(order.id));
     const rawShopify = order.raw_shopify_data;
     const isReturned = (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at)) && 
-                       ['Despachado', 'Pickeado', 'entregado', 'retirado'].includes(order.estado_wms);
+                       ['Listo para retiro', 'Despachado', 'Pickeado', 'entregado', 'retirado'].includes(order.estado_wms);
 
     // Obtener información de despacho unificada (incluye envíos de couriers y virtuales para marketplaces como Falabella / MercadoLibre)
     const shipInfo = window.getOrderShipmentGlobalStatus ? window.getOrderShipmentGlobalStatus(order) : null;
@@ -16124,7 +16269,7 @@ window.applyWmsFiltersAndRender = function() {
     const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
     const isStockTrackingActive = !!(config && config.inventario_seguimiento);
     const shouldProcessStock = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders) : isStockTrackingActive;
-    const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(order.estado_wms) || !!order.stock_descontado;
+    const isOrderTerminalOrShipped = ['despachado', 'listo para retiro', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Listo para retiro', 'Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(order.estado_wms) || !!order.stock_descontado;
 
     const stockAlert = window.checkOrderStockAlert ? window.checkOrderStockAlert(order) : { hasStockAlert: false, stockAlertDetails: [], hasOverdemandAlert: false, overdemandDetails: [], overdemandSkus: [] };
     const hasStockAlert = stockAlert.hasStockAlert;
@@ -17337,6 +17482,7 @@ window.applyWmsFiltersAndRender = function() {
     if (order.estado_wms === 'Incidencia' || order.estado_wms === 'Cancelado') wmsColor = '#ef4444'; // danger
     else if (order.estado_wms === 'Archivado') wmsColor = '#64748b'; // slate / gray
     else if (order.estado_wms === 'Entregado') wmsColor = '#059669'; // emerald seal
+    else if (order.estado_wms === 'Listo para retiro') wmsColor = '#7c3aed'; // violet pickup shelf
     else if (order.estado_wms === 'Pickeado' || order.estado_wms === 'Despachado') wmsColor = '#22c55e'; // success
     else if (order.estado_wms === 'En preparación') wmsColor = '#f59e0b'; // warning
 
@@ -17634,6 +17780,29 @@ window.applyWmsFiltersAndRender = function() {
           <i class="ri-history-line" style="font-size: 0.75rem;"></i> REZAGADO (${ageDays}d)
         </span>
       `;
+    } else if (order.estado_wms === 'Listo para retiro') {
+      const pickupBaseTs = order.ready_for_pickup_at || order.stock_descontado_at || order.picker_last_synced_at || order.created_at;
+      if (pickupBaseTs) {
+        const pickupDays = Math.max(0, Math.floor((Date.now() - new Date(pickupBaseTs).getTime()) / (1000 * 60 * 60 * 24)));
+        if (pickupDays >= 15) {
+          overdueAgeBadgeHtml = `
+            <span style="display: inline-flex; align-items: center; gap: 0.18rem; background: #fffbeb; color: #b45309; border: 1px solid #f59e0b; font-size: 0.65rem; font-weight: 800; padding: 0.08rem 0.38rem; border-radius: 4px; width: fit-content; margin-top: 0.1rem;" title="Paquete preparado en mesón hace ${pickupDays} días pendiente de retiro por el cliente">
+              <i class="ri-alarm-warning-fill" style="color: #d97706; font-size: 0.72rem;"></i> +${pickupDays}d sin retirar
+            </span>
+          `;
+          overdueRowBadgeHtml = `
+            <span class="badge" style="background-color: #fffbeb; color: #b45309; border: 1.5px solid #f59e0b; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.2px;" title="Lleva ${pickupDays} días en mesón de retiro sin ser retirado por el comprador">
+              <i class="ri-alarm-warning-fill" style="color: #d97706; font-size: 0.75rem;"></i> +${pickupDays} DÍAS SIN RETIRAR
+            </span>
+          `;
+        } else {
+          overdueRowBadgeHtml = `
+            <span class="badge" style="background-color: #f5f3ff; color: #6d28d9; border: 1px solid #c4b5fd; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.2px;" title="Paquete listo para retiro en sucursal (unidades físicas ya rebajadas de inventario)">
+              <i class="ri-store-2-fill" style="color: #7c3aed; font-size: 0.75rem;"></i> ${pickupDays === 0 ? 'EN MESÓN HOY' : `EN MESÓN (${pickupDays}d)`}
+            </span>
+          `;
+        }
+      }
     }
 
     const buildOrderDetailsInnerHtml = () => {
@@ -18092,8 +18261,9 @@ window.applyWmsFiltersAndRender = function() {
                 <select class="form-input wms-status-select" data-order-id="${order.id}" style="padding: 0.15rem 0.3rem; font-size: 0.74rem; width: 100%; min-width: 95px; font-weight: 700; border: 1.5px solid ${wmsColor}; color: ${wmsColor}; background: ${wmsColor}06; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; height: 24px; line-height: 1;">
                   <option value="En procesamiento" ${order.estado_wms === 'En procesamiento' ? 'selected' : ''}>En procesamiento</option>
                   <option value="En preparación" ${order.estado_wms === 'En preparación' ? 'selected' : ''}>En preparación</option>
-                  <option value="Pickeado" ${order.estado_wms === 'Pickeado' ? 'selected' : ''}>Pickeado</option>
-                  <option value="Despachado" ${order.estado_wms === 'Despachado' ? 'selected' : ''}>Despachado</option>
+                  ${(currentCategoria !== 'RETIRO' || order.estado_wms === 'Pickeado') ? `<option value="Pickeado" ${order.estado_wms === 'Pickeado' ? 'selected' : ''}>Pickeado</option>` : ''}
+                  ${(currentCategoria === 'RETIRO' || order.estado_wms === 'Listo para retiro') ? `<option value="Listo para retiro" ${order.estado_wms === 'Listo para retiro' ? 'selected' : ''}>Listo para retiro</option>` : ''}
+                  ${(currentCategoria !== 'RETIRO' || order.estado_wms === 'Despachado') ? `<option value="Despachado" ${order.estado_wms === 'Despachado' ? 'selected' : ''}>Despachado</option>` : ''}
                   <option value="Entregado" ${order.estado_wms === 'Entregado' ? 'selected' : ''}>Entregado</option>
                   <option value="Incidencia" ${order.estado_wms === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
                   <option value="Cancelado" ${order.estado_wms === 'Cancelado' ? 'selected' : ''}>Cancelado</option>
@@ -18128,6 +18298,23 @@ window.applyWmsFiltersAndRender = function() {
   };
 
   paginatedOrders.forEach(order => renderOrderRowItem(order, false));
+
+  if (olderReadyPickupOrders.length > 0) {
+    rowsHtml += `
+      <tr class="wms-older-pickups-divider-row">
+        <td colspan="13" style="padding: 0.6rem 1.1rem; background: linear-gradient(90deg, #f5f3ff 0%, #ede9fe 100%); border-top: 2px solid #8b5cf6; border-bottom: 1px solid #c4b5fd;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; color: #5b21b6; font-size: 0.8rem; font-weight: 800;">
+              <i class="ri-store-2-fill" style="font-size: 1rem; color: #7c3aed;"></i>
+              <span>Paquetes en Mesón de Fechas Anteriores Pendientes de Retiro (${olderReadyPickupOrders.length})</span>
+            </div>
+            <span style="font-size: 0.72rem; color: #6d28d9; font-weight: 600;">Ordenados del más antiguo al más reciente · Stock físico ya rebajado</span>
+          </div>
+        </td>
+      </tr>
+    `;
+    olderReadyPickupOrders.forEach(order => renderOrderRowItem(order, false));
+  }
 
   if (overdueOrders.length > 0 && typeof window.buildWmsOverdueDividerRowHtml === 'function') {
     rowsHtml += window.buildWmsOverdueDividerRowHtml(overdueOrders, dateFromVal);
@@ -19220,6 +19407,7 @@ function renderWmsBulkActionsBar() {
           <option value="En procesamiento">En procesamiento</option>
           <option value="En preparación">En preparación</option>
           <option value="Pickeado">Pickeado</option>
+          <option value="Listo para retiro">🏪 Listo para retiro (Solo RETIRO)</option>
           <option value="Despachado">Despachado</option>
           <option value="Entregado">🏁 Entregado (Finalizado)</option>
           <option value="Incidencia">Incidencia</option>
@@ -19714,6 +19902,207 @@ window.applyBulkWmsStatus = async function() {
           confirmButtonColor: '#059669'
         });
         return;
+      }
+    }
+  }
+
+  // Reglas masivas para 'Listo para retiro' y cancelación protegida con Logística Inversa
+  if (Array.isArray(window.loadedOrders)) {
+    const bulkSelectedOrders = window.loadedOrders.filter(o => ids.includes(o.id));
+    const getCat = (o) => typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+      ? window.getOrderEffectiveCategoriaEntrega(o)
+      : String(o?.categoria_entrega || '').toUpperCase().trim();
+
+    if (newStatus === 'Cancelado') {
+      const readyPickupOrders = bulkSelectedOrders.filter(o => o.estado_wms === 'Listo para retiro');
+      if (readyPickupOrders.length > 0) {
+        if (bulkSelectedOrders.length === 1) {
+          const singleRes = await window.handleCancelListoParaRetiroOrder(readyPickupOrders[0]);
+          if (singleRes && singleRes.cancelled) {
+            window.wmsSelectedOrderIds.delete(readyPickupOrders[0].id);
+            renderWmsBulkActionsBar();
+          }
+          return;
+        }
+
+        const missingRlOrders = [];
+        for (const rOrd of readyPickupOrders) {
+          const exRl = await window.findExistingReverseLogisticsForOrder(rOrd);
+          if (!exRl) missingRlOrders.push(rOrd);
+        }
+
+        if (missingRlOrders.length > 0) {
+          const otherCount = ids.length - readyPickupOrders.length;
+          const bulkRlModal = await Swal.fire({
+            icon: 'warning',
+            title: 'Pedidos en "Listo para retiro" en la selección',
+            width: '620px',
+            html: `
+              <div style="text-align: left; font-size: 0.86rem; display: flex; flex-direction: column; gap: 0.7rem;">
+                <div style="background: #f5f3ff; border: 1px solid #c4b5fd; border-left: 4px solid #7c3aed; padding: 0.65rem 0.85rem; border-radius: 6px; color: #4c1d95;">
+                  Hay <strong>${missingRlOrders.length}</strong> pedido(s) en <strong>Listo para retiro</strong> cuyo stock ya salió del inventario y requieren una <strong>Orden Formal de Logística Inversa (Devolución)</strong> para cancelarse.
+                </div>
+                <div>
+                  <label style="font-weight: 700; display: block; margin-bottom: 0.25rem; font-size: 0.82rem;">Motivo de Logística Inversa para los ${missingRlOrders.length} retiro(s):</label>
+                  <input id="swal-bulk-rl-comments" class="form-input" type="text" value="Anulación masiva de pedido en Listo para retiro (No retirado en sucursal)" style="width: 100%; font-size: 0.84rem;" />
+                </div>
+                <label style="display: flex; align-items: flex-start; gap: 0.55rem; background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 6px; padding: 0.55rem 0.75rem; cursor: pointer;">
+                  <input type="checkbox" id="swal-bulk-rl-restock-now" style="margin-top: 0.15rem; width: 16px; height: 16px; accent-color: #059669;">
+                  <span style="font-size: 0.78rem; color: #065f46;"><strong>Paquetes ya retirados del mesón y devueltos a estantería</strong> (marcar órdenes LI como Procesadas y reingresar stock ahora)</span>
+                </label>
+              </div>
+            `,
+            showCancelButton: true,
+            showDenyButton: otherCount > 0,
+            confirmButtonText: `Crear ${missingRlOrders.length} Orden(es) LI y Cancelar Todos`,
+            denyButtonText: `Omitir retiros y cancelar los otros ${otherCount}`,
+            cancelButtonText: 'Volver',
+            confirmButtonColor: '#7c3aed',
+            denyButtonColor: '#ef4444',
+            preConfirm: () => ({
+              comments: (document.getElementById('swal-bulk-rl-comments')?.value || '').trim() || 'Anulación en Listo para retiro',
+              isFinalizado: !!document.getElementById('swal-bulk-rl-restock-now')?.checked
+            })
+          });
+
+          if (bulkRlModal.isDenied && otherCount > 0) {
+            const skipIds = new Set(missingRlOrders.map(o => o.id));
+            ids = ids.filter(id => !skipIds.has(id));
+          } else if (bulkRlModal.isConfirmed && bulkRlModal.value) {
+            Swal.fire({
+              title: 'Generando Órdenes de Logística Inversa...',
+              html: `<div style="font-size:0.88rem; color:var(--color-text-muted);">Creando ${missingRlOrders.length} orden(es) de devolución antes de cancelar...</div>`,
+              allowOutsideClick: false,
+              showConfirmButton: false,
+              didOpen: () => Swal.showLoading()
+            });
+            try {
+              for (const rOrd of missingRlOrders) {
+                const { liOrder } = await window.createFormalReverseLogisticsForPickupCancel(rOrd, bulkRlModal.value);
+                if (liOrder && Array.isArray(window.loadedOrders) && !window.loadedOrders.some(o => o.id === liOrder.id)) {
+                  window.loadedOrders.unshift(liOrder);
+                }
+              }
+            } catch (rlBulkErr) {
+              console.error('[Bulk Cancel RL] Error:', rlBulkErr);
+              Swal.fire('Error generando Logística Inversa', rlBulkErr.message || String(rlBulkErr), 'error');
+              return;
+            }
+          } else {
+            return;
+          }
+        }
+        await window.syncPickupTablesStatus(readyPickupOrders.filter(o => ids.includes(o.id)), 'CANCELADO');
+      }
+    }
+
+    if (newStatus === 'Listo para retiro') {
+      const retiroOnly = bulkSelectedOrders.filter(o => getCat(o) === 'RETIRO');
+      const nonRetiroCount = bulkSelectedOrders.length - retiroOnly.length;
+      if (retiroOnly.length === 0) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Estado Exclusivo para Retiros',
+          html: `Ninguno de los pedidos seleccionados tiene categoría <strong>RETIRO</strong>.<br>El estado <strong>Listo para retiro</strong> es exclusivo para pedidos de retiro en sucursal.`,
+          confirmButtonColor: '#7c3aed'
+        });
+        return;
+      }
+      if (nonRetiroCount > 0) {
+        const confirmSub = await Swal.fire({
+          icon: 'info',
+          title: 'Filtrando solo pedidos RETIRO',
+          html: `Se pasarán a <strong>Listo para retiro</strong> los <strong>${retiroOnly.length}</strong> pedidos con categoría <strong>RETIRO</strong> (se omitirán ${nonRetiroCount} pedidos de otras categorías).`,
+          showCancelButton: true,
+          confirmButtonText: `Continuar con ${retiroOnly.length} retiro(s)`,
+          cancelButtonText: 'Cancelar',
+          confirmButtonColor: '#7c3aed'
+        });
+        if (!confirmSub.isConfirmed) return;
+      }
+
+      const valResult = await validateOrderStockForDispatch(retiroOnly);
+      if (!valResult || !valResult.isValid) {
+        if (typeof Swal.close === 'function') Swal.close();
+        applyWmsFiltersAndRender();
+        return;
+      }
+      const validOrders = valResult.proceedWithValidOnly ? valResult.validOrders : retiroOnly;
+      const validIds = validOrders.map(o => o.id);
+      if (validIds.length === 0) return;
+
+      Swal.fire({
+        title: 'Pasando retiros a Listo para retiro...',
+        html: `<div style="font-size:0.9rem; color:var(--color-text-muted);">Rebajando stock físico y habilitando mesón para ${validIds.length} pedido(s)...</div>`,
+        allowOutsideClick: false,
+        showConfirmButton: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      try {
+        const nowIso = new Date().toISOString();
+        for (let i = 0; i < validIds.length; i += 100) {
+          const chunk = validIds.slice(i, i + 100);
+          let { error } = await supabase
+            .from('orders')
+            .update({ estado_wms: 'Listo para retiro', status: 'listo para retiro', stock_descontado: true, ready_for_pickup_at: nowIso })
+            .in('id', chunk);
+          if (error && String(error.message || '').includes('ready_for_pickup_at')) {
+            const fb = await supabase
+              .from('orders')
+              .update({ estado_wms: 'Listo para retiro', status: 'listo para retiro', stock_descontado: true })
+              .in('id', chunk);
+            error = fb.error;
+          }
+          if (error) throw error;
+        }
+
+        await window.syncPickupTablesStatus(validOrders, 'LISTO PARA RETIRO');
+        try { await supabase.rpc('recalculate_committed_stock'); } catch (_) {}
+
+        validOrders.forEach(o => {
+          o.estado_wms = 'Listo para retiro';
+          o.status = 'listo para retiro';
+          o.stock_descontado = true;
+          o.ready_for_pickup_at = o.ready_for_pickup_at || nowIso;
+          if (typeof window.clearSingleOrderWmsCache === 'function') window.clearSingleOrderWmsCache(o);
+          else delete o._wmsTags;
+          window.wmsSelectedOrderIds.delete(o.id);
+          if (typeof window.refreshAgendasOrderCell === 'function') {
+            window.refreshAgendasOrderCell(o.id, 'estado_wms', 'Listo para retiro');
+          }
+        });
+
+        applyWmsFiltersAndRender();
+        window.triggerShopifyFulfillmentSync(validIds);
+        Swal.fire({
+          icon: 'success',
+          title: '🏪 ¡Listos para Retiro!',
+          text: `Se actualizaron ${validIds.length} pedido(s) a "Listo para retiro" y se descontó su stock físico.`,
+          timer: 2000,
+          showConfirmButton: false
+        });
+      } catch (err) {
+        console.error('[Bulk Listo para retiro] Error:', err);
+        Swal.fire('Error', 'No se pudieron actualizar los pedidos: ' + err.message, 'error');
+      }
+      return;
+    }
+
+    if (newStatus === 'Despachado') {
+      const retiroInDisp = bulkSelectedOrders.filter(o => getCat(o) === 'RETIRO');
+      if (retiroInDisp.length > 0) {
+        if (retiroInDisp.length === bulkSelectedOrders.length) {
+          Swal.fire({
+            icon: 'info',
+            title: 'Pedidos de Categoría RETIRO',
+            html: `Los pedidos con categoría <strong>RETIRO</strong> no usan <em>Despachado</em>.<br>Selecciona <strong>🏪 Listo para retiro</strong> (para dejarlos en mesón descontando stock) o <strong>🏁 Entregado</strong> (si ya fueron retirados).`,
+            confirmButtonColor: '#7c3aed'
+          });
+          return;
+        }
+        const skipRetIds = new Set(retiroInDisp.map(o => o.id));
+        ids = ids.filter(id => !skipRetIds.has(id));
       }
     }
   }
@@ -21699,8 +22088,8 @@ async function validateOrderStockForDispatch(ordersList) {
     const isStockTrackingActive = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders, false) : !!(config && config.inventario_seguimiento);
     if (!isStockTrackingActive) continue; // Omitir validación de stock si el comercio no realiza seguimiento o está fuera de rango de inicio
 
-    // Si el pedido ya tiene status terminal (despachado/entregado/retirado), estado_wms Despachado o stock_descontado = true, no requiere validación
-    const isAlreadyShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || order.estado_wms === 'Despachado' || !!order.stock_descontado;
+    // Si el pedido ya tiene status terminal (despachado/listo para retiro/entregado/retirado), estado_wms Despachado/Listo para retiro o stock_descontado = true, no requiere validación
+    const isAlreadyShipped = ['despachado', 'listo para retiro', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Listo para retiro', 'Entregado'].includes(order.estado_wms) || !!order.stock_descontado;
     if (isAlreadyShipped) {
       if (order.stock_descontado) ordersWithPriorMovement.add(order.id);
       continue;
@@ -21995,9 +22384,642 @@ async function validateOrderStockForDispatch(ordersList) {
   }
 }
 
+// =========================================================================
+// LOGÍSTICA INVERSA FORMAL OBLIGATORIA AL CANCELAR PEDIDOS EN 'LISTO PARA RETIRO'
+// =========================================================================
+window.findExistingReverseLogisticsForOrder = async function(order) {
+  if (!order) return null;
+  try {
+    if (order.id) {
+      const { data: byOrigin, error: errOrigin } = await supabase
+        .from('reverse_logistics')
+        .select('id, status, wms_order_id, referencia_pedido, tipo_movimiento, created_at')
+        .eq('origen_order_id', order.id)
+        .neq('status', 'rechazado')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!errOrigin && byOrigin) return byOrigin;
+    }
+
+    const rawRef = String(order.external_order_number || '').trim();
+    const cleanRef = rawRef.replace(/^#/, '');
+    if (cleanRef && order.comercio) {
+      const refCandidates = Array.from(new Set([rawRef, cleanRef, `#${cleanRef}`].filter(Boolean)));
+      const { data: byRef } = await supabase
+        .from('reverse_logistics')
+        .select('id, status, wms_order_id, referencia_pedido, tipo_movimiento, created_at')
+        .ilike('comercio', String(order.comercio).trim())
+        .in('referencia_pedido', refCandidates)
+        .neq('status', 'rechazado')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (byRef) return byRef;
+    }
+  } catch (e) {
+    console.warn('[RL Check] Error verificando orden de logística inversa existente:', e);
+  }
+  return null;
+};
+
+window.createFormalReverseLogisticsForPickupCancel = async function(order, opts = {}) {
+  const isFinalizado = !!opts.isFinalizado;
+  const userComment = (opts.comments || '').trim() || 'Anulación de pedido en Listo para retiro (No retirado en sucursal)';
+
+  let itemsList = Array.isArray(order.order_items) && order.order_items.length > 0 ? order.order_items : null;
+  if (!itemsList) {
+    const { data: dbItems } = await supabase
+      .from('order_items')
+      .select('id, product_id, warehouse_id, quantity, products (id, sku, name, is_virtual)')
+      .eq('order_id', order.id);
+    itemsList = dbItems || [];
+  }
+
+  const activeItems = itemsList.filter(it => !window.isOrderItemEliminated || !window.isOrderItemEliminated(order, it));
+  const targetSucursal = (order.sucursal_pickeo && order.sucursal_pickeo !== 'Sucursal Virtual (Hub)')
+    ? order.sucursal_pickeo
+    : 'Sucursal Ñuñoa';
+  const fallbackWhId = (typeof getWarehouseIdFromSucursal === 'function' ? getWarehouseIdFromSucursal(targetSucursal) : null)
+    || '973da888-8a63-4790-a08f-919e1af41a93';
+
+  const incomingProducts = activeItems.map(it => {
+    const sku = it.products?.sku || order.sku || 'S/SKU';
+    const name = it.products?.name || order.item || 'Producto';
+    const qty = Math.max(1, Number(it.quantity) || 1);
+    const whId = (it.warehouse_id && it.warehouse_id !== 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09') ? it.warehouse_id : fallbackWhId;
+    return {
+      product_id: it.product_id || null,
+      warehouse_id: whId,
+      is_virtual: !!it.products?.is_virtual,
+      sku,
+      name,
+      cantidad: qty,
+      regresar_a_inventario: true
+    };
+  });
+
+  if (incomingProducts.length === 0) {
+    incomingProducts.push({
+      product_id: null,
+      warehouse_id: fallbackWhId,
+      is_virtual: false,
+      sku: order.sku || 'S/SKU',
+      name: order.item || 'Paquete Retiro',
+      cantidad: Math.max(1, Number(order.cantidad) || 1),
+      regresar_a_inventario: true
+    });
+  }
+
+  const totalQty = incomingProducts.reduce((sum, p) => sum + p.cantidad, 0);
+  const productosPayload = incomingProducts.map(p => ({
+    product_id: p.product_id,
+    id_devuelto: p.product_id,
+    sku: p.sku,
+    name: p.name,
+    producto_devuelto: `[${p.sku}] ${p.name}`,
+    cantidad: p.cantidad,
+    qty_devuelto: p.cantidad,
+    regresar_a_inventario: true,
+    return_to_stock: true
+  }));
+
+  const creatorMetaRl = typeof window.getCurrentCreatorAuditMetadata === 'function'
+    ? await window.getCurrentCreatorAuditMetadata()
+    : {};
+  const createdByStr = creatorMetaRl.created_by_email || creatorMetaRl.created_by_name || 'Administrador WMS';
+
+  const rawRef = String(order.external_order_number || order.id || '').trim();
+  const cleanRef = rawRef.replace(/^#/, '') || 'RET';
+
+  const rlPayload = {
+    tipo_movimiento: 'DEVOLUCION',
+    comercio: order.comercio,
+    transporte: targetSucursal,
+    referencia_pedido: rawRef || cleanRef,
+    referencia_transporte: 'RETIRO EN MESÓN',
+    productos: productosPayload,
+    cantidad_total: totalQty,
+    comentarios: (isFinalizado ? '[Concretado en Bodega] ' : '') + userComment,
+    sucursal: targetSucursal,
+    creado_por: createdByStr,
+    status: 'pendiente',
+    customer_name: order.customer_name || 'Cliente Retiro',
+    customer_email: order.customer_email || null,
+    customer_phone: order.customer_phone || null,
+    shipping_address: order.shipping_address || targetSucursal,
+    shipping_city: order.shipping_city || 'Ñuñoa',
+    shipping_complement: order.shipping_complement || null,
+    responsable_pago: 'comercio',
+    modo_entrega: 'sucursal',
+    costo_envio: 0,
+    origen_order_id: order.id
+  };
+
+  let { data: insertedRl, error: rlErr } = await supabase
+    .from('reverse_logistics')
+    .insert([rlPayload])
+    .select()
+    .single();
+
+  if (rlErr && String(rlErr.message || '').includes('origen_order_id')) {
+    const fbPayload = { ...rlPayload };
+    delete fbPayload.origen_order_id;
+    const fbRes = await supabase.from('reverse_logistics').insert([fbPayload]).select().single();
+    insertedRl = fbRes.data;
+    rlErr = fbRes.error;
+  }
+  if (rlErr) throw rlErr;
+
+  let merchantId = order.merchant_id || null;
+  if (!merchantId && typeof resolveMerchantId === 'function') {
+    merchantId = await resolveMerchantId(order.comercio);
+  }
+
+  const refBase = cleanRef.startsWith('LI-') ? cleanRef.substring(3) : cleanRef;
+  const liOrderNumber = `LI-${refBase}-${String(insertedRl.id).substring(0, 4).toUpperCase()}`;
+  const wmsSkus = incomingProducts.map(i => i.sku).filter(Boolean).join(', ');
+  const wmsNames = incomingProducts.map(i => i.name).filter(Boolean).join(', ');
+
+  const liOrderPayload = {
+    merchant_id: merchantId,
+    comercio: order.comercio,
+    status: 'para procesar',
+    estado_wms: 'En procesamiento',
+    categoria_entrega: 'LOGÍSTICA INVERSA',
+    sucursal_pickeo: targetSucursal,
+    stock_descontado: false,
+    customer_name: order.customer_name || 'Cliente Retiro',
+    customer_email: order.customer_email || null,
+    customer_phone: order.customer_phone || null,
+    shipping_address: order.shipping_address || targetSucursal,
+    shipping_city: order.shipping_city || 'Ñuñoa',
+    shipping_complement: order.shipping_complement || null,
+    shipping_method: `Retiro no concretado en ${targetSucursal} (Logística Inversa - DEVOLUCION${isFinalizado ? ' [Finalizado]' : ''})`,
+    operador: targetSucursal,
+    courier: targetSucursal,
+    origen: 'Logística Inversa',
+    external_platform: 'Logística Inversa',
+    external_order_number: liOrderNumber,
+    cantidad: totalQty,
+    sku: wmsSkus,
+    item: wmsNames,
+    total_value: 0,
+    raw_shopify_data: {
+      note: userComment,
+      is_reverse_logistics: true,
+      rl_id: insertedRl.id,
+      rl_type: 'DEVOLUCION',
+      rl_reference: rawRef || cleanRef,
+      origen_order_id: order.id,
+      situacion_movimiento: 'ANULACION_LISTO_PARA_RETIRO',
+      no_stock_deduction: true,
+      ...creatorMetaRl,
+      incoming_products: incomingProducts.map(p => ({
+        sku: p.sku,
+        name: p.name,
+        cantidad: p.cantidad,
+        regresar_a_inventario: true
+      }))
+    }
+  };
+
+  const { data: insertedLiOrder, error: liOrdErr } = await supabase
+    .from('orders')
+    .insert([liOrderPayload])
+    .select()
+    .single();
+  if (liOrdErr) throw liOrdErr;
+
+  const liItemsPayload = incomingProducts
+    .filter(p => p.product_id)
+    .map(p => ({
+      order_id: insertedLiOrder.id,
+      product_id: p.product_id,
+      warehouse_id: p.warehouse_id,
+      quantity: p.cantidad
+    }));
+
+  if (liItemsPayload.length > 0) {
+    const { error: liItemsErr } = await supabase.from('order_items').insert(liItemsPayload);
+    if (liItemsErr) throw liItemsErr;
+  }
+
+  // Vincular wms_order_id (y si se marcó recepcionado en bodega ahora, pasar a 'procesado' para que el trigger reingrese stock)
+  const rlLinkUpdate = { wms_order_id: insertedLiOrder.id };
+  if (isFinalizado) {
+    rlLinkUpdate.status = 'procesado';
+  }
+  await supabase
+    .from('reverse_logistics')
+    .update(rlLinkUpdate)
+    .eq('id', insertedRl.id);
+
+  // Fallback idempotente por si el trigger SQL trg_auto_reverse_logistics_to_entregado aún no está desplegado
+  if (isFinalizado) {
+    const { data: existingInMovs } = await supabase
+      .from('movements')
+      .select('id, product_id')
+      .eq('order_id', insertedLiOrder.id)
+      .eq('type', 'in');
+    const alreadyRestockedIds = new Set((existingInMovs || []).map(m => m.product_id));
+
+    for (const inc of incomingProducts) {
+      if (!inc.product_id || inc.is_virtual || alreadyRestockedIds.has(inc.product_id)) continue;
+      const { data: invRec } = await supabase
+        .from('inventory')
+        .select('id, quantity')
+        .eq('product_id', inc.product_id)
+        .eq('warehouse_id', inc.warehouse_id)
+        .maybeSingle();
+      if (invRec) {
+        await supabase
+          .from('inventory')
+          .update({ quantity: (Number(invRec.quantity) || 0) + inc.cantidad })
+          .eq('id', invRec.id);
+      } else {
+        await supabase
+          .from('inventory')
+          .insert([{ product_id: inc.product_id, warehouse_id: inc.warehouse_id, quantity: inc.cantidad }]);
+      }
+      await supabase
+        .from('movements')
+        .insert([{
+          product_id: inc.product_id,
+          warehouse_id: inc.warehouse_id,
+          type: 'in',
+          quantity: inc.cantidad,
+          order_id: insertedLiOrder.id,
+          reference_doc: `Devolución Anulación Retiro [${rawRef || liOrderNumber}]`
+        }]);
+    }
+
+    await supabase
+      .from('orders')
+      .update({
+        estado_wms: 'Entregado',
+        status: 'entregado',
+        stock_descontado: true,
+        delivered_at: new Date().toISOString(),
+        closed_at: new Date().toISOString()
+      })
+      .eq('id', insertedLiOrder.id);
+    insertedLiOrder.estado_wms = 'Entregado';
+    insertedLiOrder.status = 'entregado';
+  }
+
+  return { rl: insertedRl, liOrder: insertedLiOrder, liOrderNumber };
+};
+
+window.syncPickupTablesStatus = async function(ordersArr, newPickupState) {
+  if (!Array.isArray(ordersArr) || ordersArr.length === 0) return;
+  const keys = new Set();
+  ordersArr.forEach(o => {
+    const raw = String(o.external_order_number || '').trim();
+    if (raw) {
+      const clean = raw.replace(/^#/, '');
+      keys.add(raw);
+      keys.add(clean);
+      keys.add(`#${clean}`);
+    }
+  });
+  const keyList = Array.from(keys);
+  if (keyList.length === 0) return;
+
+  try {
+    await supabase.from('store_pickups').update({ estado_pedido: newPickupState }).in('pedido', keyList);
+  } catch (_) {}
+  try {
+    if (typeof pickerSupabase !== 'undefined' && pickerSupabase) {
+      await pickerSupabase.from('sucursal_pickups').update({ estado_pedido: newPickupState }).in('pedido', keyList);
+    }
+  } catch (_) {}
+};
+
+window.handleCancelListoParaRetiroOrder = async function(order, opts = {}) {
+  if (!order) return { cancelled: false };
+  const esc = typeof window.escapeHtml === 'function' ? window.escapeHtml : (s => String(s || ''));
+  const orderLabel = order.external_order_number || order.id;
+
+  const existingRl = await window.findExistingReverseLogisticsForOrder(order);
+  if (existingRl) {
+    const confirmExisting = await Swal.fire({
+      icon: 'question',
+      title: 'Orden de Logística Inversa Verificada',
+      html: `
+        <div style="text-align: left; font-size: 0.88rem; line-height: 1.45;">
+          <p style="margin-bottom: 0.65rem;">El pedido <strong>${esc(orderLabel)}</strong> ya cuenta con una Orden de Logística Inversa vinculada (Estado: <strong style="text-transform: uppercase; color: #7c3aed;">${esc(existingRl.status || 'registrada')}</strong>).</p>
+          <p style="margin: 0; color: var(--color-text-muted);">¿Deseas confirmar la cancelación del pedido en WMS y retirarlo del mesón?</p>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'Sí, cancelar pedido',
+      cancelButtonText: 'Volver',
+      confirmButtonColor: '#ef4444'
+    });
+    if (!confirmExisting.isConfirmed) {
+      if (typeof window.applyWmsFiltersAndRender === 'function') window.applyWmsFiltersAndRender();
+      return { cancelled: false };
+    }
+
+    const { error } = await supabase
+      .from('orders')
+      .update({ estado_wms: 'Cancelado', status: 'cancelado' })
+      .eq('id', order.id);
+    if (error) {
+      Swal.fire('Error', 'No se pudo cancelar el pedido: ' + error.message, 'error');
+      if (typeof window.applyWmsFiltersAndRender === 'function') window.applyWmsFiltersAndRender();
+      return { cancelled: false };
+    }
+
+    await window.syncPickupTablesStatus([order], 'CANCELADO');
+    order.estado_wms = 'Cancelado';
+    order.status = 'cancelado';
+    if (typeof window.clearSingleOrderWmsCache === 'function') window.clearSingleOrderWmsCache(order);
+    if (typeof window.applyWmsFiltersAndRender === 'function') window.applyWmsFiltersAndRender();
+    if (typeof window.refreshAgendasOrderCell === 'function') window.refreshAgendasOrderCell(order.id, 'estado_wms', 'Cancelado');
+    Swal.fire({ icon: 'success', title: 'Pedido Cancelado', text: `El pedido ${orderLabel} fue cancelado con su respaldo de Logística Inversa.`, timer: 1800, showConfirmButton: false });
+    return { cancelled: true, rl: existingRl };
+  }
+
+  const itemsPreview = (order.order_items || []).length > 0
+    ? order.order_items.map(it => `<li style="margin-bottom: 0.2rem;"><strong>${esc(it.products?.sku || 'S/SKU')}</strong> — ${esc(it.products?.name || 'Producto')} <span style="font-weight: 700; color: #7c3aed;">(x${it.quantity})</span></li>`).join('')
+    : `<li><strong>${esc(order.sku || 'S/SKU')}</strong> — ${esc(order.item || 'Paquete')} <span style="font-weight: 700; color: #7c3aed;">(x${order.cantidad || 1})</span></li>`;
+
+  const targetSucursal = (order.sucursal_pickeo && order.sucursal_pickeo !== 'Sucursal Virtual (Hub)') ? order.sucursal_pickeo : 'Sucursal Ñuñoa';
+
+  const modalRes = await Swal.fire({
+    title: 'Orden de Logística Inversa Requerida',
+    width: '620px',
+    html: `
+      <div style="text-align: left; font-size: 0.86rem; display: flex; flex-direction: column; gap: 0.75rem;">
+        <div style="background: #f5f3ff; border: 1px solid #c4b5fd; border-left: 4px solid #7c3aed; padding: 0.7rem 0.85rem; border-radius: 6px; color: #4c1d95; line-height: 1.42;">
+          <div style="font-weight: 800; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem; font-size: 0.9rem;">
+            <i class="ri-store-2-fill" style="color: #7c3aed; font-size: 1.05rem;"></i> Pedido en "Listo para retiro" (Stock ya descontado)
+          </div>
+          Las unidades del pedido <strong>${esc(orderLabel)}</strong> (<strong>${esc(order.comercio || '')}</strong>) ya salieron del inventario físico al quedar disponibles en mesón.<br>
+          Para cancelarlo es obligatorio generar una <strong>Orden Formal de Logística Inversa (Devolución)</strong> que respalde el reingreso de las unidades.
+        </div>
+
+        <div style="background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: 6px; padding: 0.6rem 0.8rem;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--color-text-muted); margin-bottom: 0.35rem;">
+            <span><strong>Sucursal Retorno:</strong> ${esc(targetSucursal)}</span>
+            <span><strong>Cliente:</strong> ${esc(order.customer_name || 'Cliente Retiro')}</span>
+          </div>
+          <div style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.2rem;">Unidades a retornar a bodega:</div>
+          <ul style="margin: 0; padding-left: 1.15rem; font-size: 0.8rem; max-height: 110px; overflow-y: auto; color: var(--color-text-main);">
+            ${itemsPreview}
+          </ul>
+        </div>
+
+        <div>
+          <label style="font-weight: 700; display: block; margin-bottom: 0.25rem; font-size: 0.82rem;">Motivo / Comentario de Logística Inversa <span style="color: #dc2626;">*</span></label>
+          <input id="swal-rl-cancel-comments" class="form-input" type="text" value="Anulación de pedido en Listo para retiro (No retirado en sucursal)" style="width: 100%; font-size: 0.84rem;" />
+        </div>
+
+        <div style="background: #ecfdf5; border: 1.5px solid #6ee7b7; border-radius: 8px; padding: 0.65rem 0.8rem;">
+          <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; margin: 0; user-select: none;">
+            <input type="checkbox" id="swal-rl-cancel-restock-now" style="margin-top: 0.18rem; width: 17px; height: 17px; accent-color: #059669; cursor: pointer;">
+            <div>
+              <span style="font-weight: 800; font-size: 0.83rem; color: #065f46; display: block;">
+                El paquete ya fue retirado del mesón y devuelto físicamente a estantería
+              </span>
+              <span style="font-size: 0.74rem; color: #047857; line-height: 1.32; display: block; margin-top: 0.15rem;">
+                Si marcas esta casilla, la orden <strong>LI-...</strong> se creará como <strong>Procesada</strong> y sumará las unidades de vuelta al inventario + Kardex de inmediato. Si la dejas desmarcada, quedará <strong>Pendiente de recepción</strong> para que bodega la procese al retirar el paquete del mesón.
+              </span>
+            </div>
+          </label>
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    showDenyButton: true,
+    confirmButtonText: '<i class="ri-arrow-go-back-line"></i> Crear Logística Inversa y Cancelar Pedido',
+    denyButtonText: 'Ir al Módulo Logística Inversa',
+    cancelButtonText: 'Volver sin cancelar',
+    confirmButtonColor: '#7c3aed',
+    denyButtonColor: '#0284c7',
+    cancelButtonColor: '#64748b',
+    preConfirm: () => {
+      const comments = (document.getElementById('swal-rl-cancel-comments')?.value || '').trim();
+      const restockNow = !!document.getElementById('swal-rl-cancel-restock-now')?.checked;
+      if (comments.length < 4) {
+        Swal.showValidationMessage('Por favor ingresa un motivo válido para la orden de Logística Inversa.');
+        return false;
+      }
+      return { comments, isFinalizado: restockNow };
+    }
+  });
+
+  if (modalRes.isDenied) {
+    if (typeof window.applyWmsFiltersAndRender === 'function') window.applyWmsFiltersAndRender();
+    const rlNavBtn = document.querySelector('[data-view="reverse_logistics"], [onclick*="reverse_logistics"]');
+    if (rlNavBtn) rlNavBtn.click();
+    return { cancelled: false, navigatedToRl: true };
+  }
+
+  if (!modalRes.isConfirmed || !modalRes.value) {
+    if (typeof window.applyWmsFiltersAndRender === 'function') window.applyWmsFiltersAndRender();
+    return { cancelled: false };
+  }
+
+  try {
+    Swal.fire({
+      title: 'Generando Logística Inversa y cancelando retiro...',
+      html: `<div style="font-size:0.88rem; color:var(--color-text-muted);">Creando orden formal de devolución y anulando pedido <strong>${esc(orderLabel)}</strong>...</div>`,
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => Swal.showLoading()
+    });
+
+    const { rl, liOrder, liOrderNumber } = await window.createFormalReverseLogisticsForPickupCancel(order, modalRes.value);
+
+    const { error: cancelErr } = await supabase
+      .from('orders')
+      .update({ estado_wms: 'Cancelado', status: 'cancelado' })
+      .eq('id', order.id);
+    if (cancelErr) throw cancelErr;
+
+    await window.syncPickupTablesStatus([order], 'CANCELADO');
+
+    order.estado_wms = 'Cancelado';
+    order.status = 'cancelado';
+    if (typeof window.clearSingleOrderWmsCache === 'function') {
+      window.clearSingleOrderWmsCache(order);
+    } else {
+      delete order._wmsTags;
+    }
+
+    if (liOrder && Array.isArray(window.loadedOrders) && !window.loadedOrders.some(o => o.id === liOrder.id)) {
+      window.loadedOrders.unshift(liOrder);
+    }
+    if (window.wmsDbCache && typeof window.wmsDbCache.clearCache === 'function') {
+      window.wmsDbCache.clearCache().catch(() => {});
+    }
+    if (typeof window.applyWmsFiltersAndRender === 'function') {
+      window.applyWmsFiltersAndRender();
+    }
+    if (typeof window.refreshAgendasOrderCell === 'function') {
+      window.refreshAgendasOrderCell(order.id, 'estado_wms', 'Cancelado');
+    }
+
+    await Swal.fire({
+      icon: 'success',
+      title: 'Retiro Anulado con Logística Inversa',
+      html: `
+        <div style="text-align: left; font-size: 0.88rem; line-height: 1.45;">
+          <p style="margin-bottom: 0.5rem;">✅ Pedido <strong>${esc(orderLabel)}</strong> actualizado a <strong>Cancelado</strong> y retirado de mesón.</p>
+          <p style="margin-bottom: 0.5rem;">🔄 Orden de Logística Inversa creada: <strong style="color: #7c3aed;">${esc(liOrderNumber)}</strong> (${modalRes.value.isFinalizado ? '<span style="color:#059669;font-weight:700;">Procesada · Stock reingresado</span>' : '<span style="color:#d97706;font-weight:700;">Pendiente de recepción en bodega</span>'}).</p>
+        </div>
+      `,
+      confirmButtonColor: '#7c3aed'
+    });
+
+    return { cancelled: true, rl, liOrder, liOrderNumber };
+  } catch (err) {
+    console.error('[handleCancelListoParaRetiroOrder] Error:', err);
+    if (typeof window.applyWmsFiltersAndRender === 'function') window.applyWmsFiltersAndRender();
+    Swal.fire('Error al anular retiro', err.message || String(err), 'error');
+    return { cancelled: false, error: err };
+  }
+};
+
 window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
   const order = window.loadedOrders.find(o => o.id === orderId);
   if (!order) return;
+
+  const effCatOrder = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+    ? window.getOrderEffectiveCategoriaEntrega(order)
+    : String(order.categoria_entrega || '').toUpperCase().trim();
+  const isRetiroOrder = effCatOrder === 'RETIRO';
+
+  // Regla de exclusividad de 'Listo para retiro' y auto-promoción de 'Pickeado' en pedidos RETIRO
+  if (newWmsStatus === 'Listo para retiro' && !isRetiroOrder) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Estado Exclusivo para Retiros',
+      html: `El estado <strong>Listo para retiro</strong> solo puede asignarse a pedidos con categoría <strong>RETIRO</strong>.`,
+      confirmButtonColor: '#7c3aed'
+    });
+    applyWmsFiltersAndRender();
+    return;
+  }
+  if (isRetiroOrder && newWmsStatus === 'Pickeado') {
+    newWmsStatus = 'Listo para retiro';
+  }
+  if (isRetiroOrder && newWmsStatus === 'Despachado') {
+    const pickChoice = await Swal.fire({
+      icon: 'info',
+      title: 'Pedido de Categoría RETIRO',
+      html: `Los pedidos de <strong>RETIRO</strong> utilizan <strong>Listo para retiro</strong> cuando están preparados en mesón (descontando stock) y <strong>Entregado</strong> cuando el cliente los retira.`,
+      showCancelButton: true,
+      showDenyButton: true,
+      confirmButtonText: '🏪 Pasar a Listo para retiro',
+      denyButtonText: '🏁 Marcar Entregado (Retirado)',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#7c3aed',
+      denyButtonColor: '#059669'
+    });
+    if (pickChoice.isConfirmed) {
+      newWmsStatus = 'Listo para retiro';
+    } else if (pickChoice.isDenied) {
+      newWmsStatus = 'Entregado';
+    } else {
+      applyWmsFiltersAndRender();
+      return;
+    }
+  }
+
+  // Cancelación protegida de pedidos en 'Listo para retiro': exigir / crear Orden de Logística Inversa
+  if (newWmsStatus === 'Cancelado' && order.estado_wms === 'Listo para retiro') {
+    await window.handleCancelListoParaRetiroOrder(order);
+    return;
+  }
+
+  if (newWmsStatus === 'Listo para retiro') {
+    try {
+      const checkPrior = await window.checkOrderExistingStockMovement(order);
+      const hadPriorMovement = !!(checkPrior && checkPrior.hasMovement);
+
+      const valRes = await validateOrderStockForDispatch([order]);
+      if (!valRes || !valRes.isValid) {
+        if (typeof Swal.close === 'function') Swal.close();
+        applyWmsFiltersAndRender();
+        return;
+      }
+
+      Swal.fire({
+        title: 'Pasando a Listo para retiro...',
+        html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Rebajando unidades físicas y habilitando retiro en mesón para <strong>${window.escapeHtml(order.external_order_number || order.id)}</strong>...</div>`,
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showConfirmButton: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      const nowIso = new Date().toISOString();
+      let { error } = await supabase
+        .from('orders')
+        .update({
+          estado_wms: 'Listo para retiro',
+          status: 'listo para retiro',
+          stock_descontado: true,
+          ready_for_pickup_at: nowIso
+        })
+        .eq('id', orderId);
+
+      if (error && String(error.message || '').includes('ready_for_pickup_at')) {
+        const fb = await supabase
+          .from('orders')
+          .update({
+            estado_wms: 'Listo para retiro',
+            status: 'listo para retiro',
+            stock_descontado: true
+          })
+          .eq('id', orderId);
+        error = fb.error;
+      }
+      if (error) throw error;
+
+      await window.syncPickupTablesStatus([order], 'LISTO PARA RETIRO');
+
+      order.estado_wms = 'Listo para retiro';
+      order.status = 'listo para retiro';
+      order.stock_descontado = true;
+      order.ready_for_pickup_at = order.ready_for_pickup_at || nowIso;
+      if (typeof window.clearSingleOrderWmsCache === 'function') {
+        window.clearSingleOrderWmsCache(order);
+      } else {
+        delete order._wmsTags;
+      }
+
+      try {
+        await supabase.rpc('recalculate_committed_stock');
+      } catch (_) {}
+
+      applyWmsFiltersAndRender();
+      if (typeof window.refreshAgendasOrderCell === 'function') {
+        window.refreshAgendasOrderCell(orderId, 'estado_wms', 'Listo para retiro');
+      }
+      window.triggerShopifyFulfillmentSync([orderId]);
+
+      Swal.fire({
+        icon: 'success',
+        title: '🏪 ¡Listo para Retiro!',
+        text: hadPriorMovement
+          ? `El pedido ${order.external_order_number || order.id} pasó a Listo para retiro (movimiento previo verificado, sin doble descuento).`
+          : `El pedido ${order.external_order_number || order.id} quedó disponible en mesón y sus unidades salieron del inventario.`,
+        timer: 2000,
+        showConfirmButton: false
+      });
+    } catch (err) {
+      console.error('[updateWmsOrderStatus -> Listo para retiro] Error:', err);
+      applyWmsFiltersAndRender();
+      Swal.fire('Error', 'No se pudo pasar a Listo para retiro: ' + err.message, 'error');
+    }
+    return;
+  }
 
   if (newWmsStatus === 'En preparación') {
     const now = new Date();
@@ -22827,6 +23849,24 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 window.openReopenDeliveredOrderModal = async function(orderId) {
   const order = window.loadedOrders ? window.loadedOrders.find(o => String(o.id) === String(orderId)) : null;
   const orderLabel = order ? (order.external_order_number || order.id) : orderId;
+  const isRetiroReopen = order && (
+    (typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+      ? window.getOrderEffectiveCategoriaEntrega(order)
+      : String(order.categoria_entrega || '').toUpperCase().trim()) === 'RETIRO'
+  );
+
+  const targetOptionsHtml = isRetiroReopen
+    ? `
+      <option value="Listo para retiro" selected>🏪 Listo para retiro (Mantiene descuento de stock)</option>
+      <option value="Incidencia">⚠️ Incidencia (Para gestión de reclamo / devolución)</option>
+      <option value="En procesamiento">⏳ En procesamiento</option>
+    `
+    : `
+      <option value="Despachado" selected>🚚 Despachado (Mantiene descuento de stock)</option>
+      <option value="Incidencia">⚠️ Incidencia (Para gestión de reclamo / devolución)</option>
+      <option value="Pickeado">✅ Pickeado</option>
+      <option value="En procesamiento">⏳ En procesamiento</option>
+    `;
 
   const { value: formVals } = await Swal.fire({
     title: 'Reapertura Administrativa de Pedido Entregado',
@@ -22839,10 +23879,7 @@ window.openReopenDeliveredOrderModal = async function(orderId) {
         <div>
           <label style="font-weight: 700; display: block; margin-bottom: 0.3rem;">Estado WMS destino al reabrir</label>
           <select id="swal-reopen-target-wms" class="form-input" style="width: 100%; font-weight: 600;">
-            <option value="Despachado" selected>🚚 Despachado (Mantiene descuento de stock)</option>
-            <option value="Incidencia">⚠️ Incidencia (Para gestión de reclamo / devolución)</option>
-            <option value="Pickeado">✅ Pickeado</option>
-            <option value="En procesamiento">⏳ En procesamiento</option>
+            ${targetOptionsHtml}
           </select>
         </div>
         <div>
@@ -22856,7 +23893,7 @@ window.openReopenDeliveredOrderModal = async function(orderId) {
     cancelButtonText: 'Cancelar',
     confirmButtonColor: '#d97706',
     preConfirm: () => {
-      const targetWms = document.getElementById('swal-reopen-target-wms')?.value || 'Despachado';
+      const targetWms = document.getElementById('swal-reopen-target-wms')?.value || (isRetiroReopen ? 'Listo para retiro' : 'Despachado');
       const reason = (document.getElementById('swal-reopen-reason')?.value || '').trim();
       if (reason.length < 5) {
         Swal.showValidationMessage('Debes ingresar un motivo válido (mínimo 5 caracteres).');
@@ -97740,7 +98777,7 @@ window.executeOrdersStockWarehouseChange = async function(orderIds, targetWhId, 
           }
         }
 
-        const isDispatched = order.estado_wms === 'Despachado' || order.stock_descontado === true;
+        const isDispatched = order.estado_wms === 'Despachado' || order.estado_wms === 'Listo para retiro' || order.stock_descontado === true;
         const items = order.order_items || [];
 
         for (const item of items) {
@@ -98594,8 +99631,8 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
   const sourceOrders = Array.isArray(targetOrders) ? targetOrders : (window.loadedOrders || []);
   if (!sourceOrders || sourceOrders.length === 0) return;
 
-  // Incluir tanto pedidos 'En preparación' (para pasar a Pickeado o Despachado) como 'Pickeado' (para pasar a Despachado cuando se retiran)
-  const candidateOrders = sourceOrders.filter(o => o && (o.estado_wms === 'En preparación' || o.estado_wms === 'Pickeado'));
+  // Incluir pedidos 'En preparación' (para pasar a Pickeado o Listo para retiro) y 'Pickeado' / 'Listo para retiro' (para pasar a Entregado cuando se retiran)
+  const candidateOrders = sourceOrders.filter(o => o && (o.estado_wms === 'En preparación' || o.estado_wms === 'Pickeado' || o.estado_wms === 'Listo para retiro'));
   if (candidateOrders.length === 0) return;
 
   const searchKeysSet = new Set();
@@ -98733,6 +99770,7 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
       };
 
       const ordersToPickeado = [];
+      const ordersToListoRetiro = [];
       const ordersToDespachado = [];
 
       candidateOrders.forEach(o => {
@@ -98757,17 +99795,26 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
           });
         }
 
+        const effCat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+          ? window.getOrderEffectiveCategoriaEntrega(o)
+          : String(o.categoria_entrega || '').toUpperCase().trim();
+        const isRetiroOrder = effCat === 'RETIRO' || String(o.agenda || '').toUpperCase().trim() === 'RETIRO';
+
         if (isDeliveredPickerStatus(meta.status) && o.estado_wms !== 'Entregado') {
           ordersToDespachado.push({ order: o, meta });
         } else if (!isDeliveredPickerStatus(meta.status) && o.estado_wms === 'En preparación') {
-          ordersToPickeado.push({ order: o, meta });
+          if (isRetiroOrder) {
+            ordersToListoRetiro.push({ order: o, meta });
+          } else {
+            ordersToPickeado.push({ order: o, meta });
+          }
         }
       });
 
       const updateChunkSize = 60;
       const syncedShopifyIds = [];
 
-      // 1. Procesar pedidos que pasan a 'Pickeado'
+      // 1a. Procesar pedidos de distribución que pasan a 'Pickeado'
       if (ordersToPickeado.length > 0) {
         const ids = ordersToPickeado.map(x => x.order.id);
         for (let i = 0; i < ids.length; i += updateChunkSize) {
@@ -98789,6 +99836,55 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
           syncedShopifyIds.push(o.id);
           if (typeof window.refreshAgendasOrderCell === 'function') {
             window.refreshAgendasOrderCell(o.id, 'estado_wms', 'Pickeado');
+          }
+        });
+      }
+
+      // 1b. Procesar pedidos con categoría RETIRO completados en Picker -> pasan automáticamente a 'Listo para retiro' (rebajando stock físico)
+      if (ordersToListoRetiro.length > 0) {
+        const ids = ordersToListoRetiro.map(x => x.order.id);
+        const nowIso = new Date().toISOString();
+        for (let i = 0; i < ids.length; i += updateChunkSize) {
+          const chunkIds = ids.slice(i, i + updateChunkSize);
+          let { error: wmsErr } = await supabase
+            .from('orders')
+            .update({
+              estado_wms: 'Listo para retiro',
+              status: 'listo para retiro',
+              stock_descontado: true,
+              ready_for_pickup_at: nowIso
+            })
+            .in('id', chunkIds);
+          if (wmsErr && String(wmsErr.message || '').includes('ready_for_pickup_at')) {
+            const fb = await supabase
+              .from('orders')
+              .update({ estado_wms: 'Listo para retiro', status: 'listo para retiro', stock_descontado: true })
+              .in('id', chunkIds);
+            wmsErr = fb.error;
+          }
+          if (wmsErr) throw wmsErr;
+        }
+
+        if (typeof window.syncPickupTablesStatus === 'function') {
+          await window.syncPickupTablesStatus(ordersToListoRetiro.map(x => x.order), 'LISTO PARA RETIRO');
+        }
+
+        ordersToListoRetiro.forEach(({ order: o, meta }) => {
+          o.estado_wms = 'Listo para retiro';
+          o.status = 'listo para retiro';
+          o.stock_descontado = true;
+          o.ready_for_pickup_at = o.ready_for_pickup_at || nowIso;
+          if (meta?.status) o.picker_status = meta.status;
+          if (meta?.operator) o.picker_operator = meta.operator;
+          if (typeof window.clearSingleOrderWmsCache === 'function') {
+            window.clearSingleOrderWmsCache(o);
+          } else {
+            delete o._wmsTags;
+            delete o._wmsSearchIndex;
+          }
+          syncedShopifyIds.push(o.id);
+          if (typeof window.refreshAgendasOrderCell === 'function') {
+            window.refreshAgendasOrderCell(o.id, 'estado_wms', 'Listo para retiro');
           }
         });
       }
@@ -98859,13 +99955,13 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
       }
 
       // 3. Notificaciones y sincronización en tiempo real con Shopify
-      const totalUpdated = ordersToPickeado.length + ordersToDespachado.length;
+      const totalUpdated = ordersToPickeado.length + ordersToListoRetiro.length + ordersToDespachado.length;
       if (totalUpdated > 0) {
         if (typeof window.triggerShopifyFulfillmentSync === 'function' && syncedShopifyIds.length > 0) {
           window.triggerShopifyFulfillmentSync(syncedShopifyIds);
         }
 
-        if (ordersToDespachado.length > 0 && ordersToPickeado.length === 0) {
+        if (ordersToDespachado.length > 0 && ordersToPickeado.length === 0 && ordersToListoRetiro.length === 0) {
           const orderNames = ordersToDespachado.map(x => x.order.external_order_number || x.order.id).slice(0, 3).join(', ') + (ordersToDespachado.length > 3 ? ' y otros' : '');
           const notifTitle = `¡${ordersToDespachado.length} pedido(s) retirado(s) y finalizado(s)!`;
           const notifHtml = `<div style="font-size: 0.825rem; margin-top: 0.25rem; color: var(--color-text-muted);">Pedidos: <strong>${orderNames}</strong> cerrados automáticamente en 'Entregado'.</div>`;
@@ -98878,10 +99974,14 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
             });
           }
         } else {
-          const allUpdatedOrders = [...ordersToPickeado.map(x => x.order), ...ordersToDespachado.map(x => x.order)];
+          const allUpdatedOrders = [...ordersToPickeado.map(x => x.order), ...ordersToListoRetiro.map(x => x.order), ...ordersToDespachado.map(x => x.order)];
           const orderNames = allUpdatedOrders.map(o => o.external_order_number || o.id).slice(0, 3).join(', ') + (allUpdatedOrders.length > 3 ? ' y otros' : '');
           const notifTitle = `¡${totalUpdated} pedido(s) sincronizados desde el Picker!`;
-          const notifHtml = `<div style="font-size: 0.825rem; margin-top: 0.25rem; color: var(--color-text-muted);">Pedidos: <strong>${orderNames}</strong> actualizados (${ordersToPickeado.length} Pickeado, ${ordersToDespachado.length} Entregado).</div>`;
+          const parts = [];
+          if (ordersToPickeado.length > 0) parts.push(`${ordersToPickeado.length} Pickeado`);
+          if (ordersToListoRetiro.length > 0) parts.push(`${ordersToListoRetiro.length} Listo para retiro`);
+          if (ordersToDespachado.length > 0) parts.push(`${ordersToDespachado.length} Entregado`);
+          const notifHtml = `<div style="font-size: 0.825rem; margin-top: 0.25rem; color: var(--color-text-muted);">Pedidos: <strong>${orderNames}</strong> actualizados (${parts.join(', ')}).</div>`;
           if (typeof window.showStockaNotification === 'function') {
             window.showStockaNotification({
               type: 'success',
@@ -101577,7 +102677,7 @@ window.openEditOrderItemsModal = async function(orderId) {
       }
     }
 
-    const isDispatched = (order.estado_wms === 'Despachado') || (order.stock_descontado === true);
+    const isDispatched = (order.estado_wms === 'Despachado') || (order.estado_wms === 'Listo para retiro') || (order.stock_descontado === true);
     window.tempEditOrderData = {
       ...order,
       isDispatched
@@ -136111,7 +137211,7 @@ window.AUTOMATIONS_CATALOG = [
   },
   {
     id: 'auto-picker-to-pickeado',
-    title: 'Picker → WMS: Pedido Completado pasa a Pickeado',
+    title: 'Picker → WMS: Pedido Completado pasa a Pickeado (o Listo para retiro)',
     category: 'picker_wms',
     categoryLabel: 'Picker ↔ WMS',
     badgeColor: '#7c3aed',
@@ -136122,12 +137222,28 @@ window.AUTOMATIONS_CATALOG = [
     canToggleInDb: true,
     trigger: 'Operario finaliza el armado del pedido en App Picker (`history_logs.estado` o `active_orders.sheet_status` en `Completado`, `Completado-Asistido` o `Listo para retiro`).',
     condition: 'El pedido se encuentra en estado `En preparación` en Stocka WMS.',
-    action: 'Cambia automáticamente el pedido en WMS a `estado_wms = "Pickeado"`, respalda `picker_history_snapshot` localmente en WMS y guarda operario + etiqueta escaneada.',
+    action: 'Cambia automáticamente a `Pickeado` (si es Distribución) o directamente a `Listo para retiro` con salida física de inventario (si es `RETIRO`), respaldando operario y etiqueta escaneada.',
     techSource: 'js/admin.js (`window.syncPickerStatusToWms`) & `sync_to_picker.js`'
   },
   {
+    id: 'auto-retiro-pickeado-to-listo',
+    title: 'WMS Retiros: Pedido RETIRO Pickeado pasa a LISTO PARA RETIRO + Salida de Stock',
+    category: 'picker_wms',
+    categoryLabel: 'Picker ↔ WMS',
+    badgeColor: '#7c3aed',
+    badgeBg: 'rgba(124, 58, 237, 0.12)',
+    icon: 'ri-store-2-fill',
+    mode: 'Trigger SQL Tiempo Real + Worker',
+    status: 'active',
+    canToggleInDb: true,
+    trigger: 'Un pedido con `categoria_entrega = "RETIRO"` finaliza picking (`Pickeado` o `Listo para retiro`).',
+    condition: 'Exclusivo para categoría `RETIRO`. Exige Orden Formal de Logística Inversa si se desea cancelar tras quedar en mesón.',
+    action: 'Promueve automáticamente a `estado_wms = "Listo para retiro"`, descuenta las unidades físicas de `inventory` (movimiento `out` idempotente sin doble rebaja al pasar luego a `Entregado`) y habilita `store_pickups` en mesón.',
+    techSource: 'Trigger `ab_02_enforce_listo_para_retiro_rules` + `handle_order_status_change`'
+  },
+  {
     id: 'auto-shopify-ready-for-pickup',
-    title: 'WMS → Shopify: Pedido de Retiro Pickeado pasa a "Listo para retirar"',
+    title: 'WMS → Shopify: Pedido en "Listo para retiro" notifica "Listo para retirar" en Shopify',
     category: 'wms_shopify',
     categoryLabel: 'WMS ↔ Shopify',
     badgeColor: '#0284c7',
@@ -136136,7 +137252,7 @@ window.AUTOMATIONS_CATALOG = [
     mode: 'Trigger SQL + Edge Function Tiempo Real',
     status: 'active',
     canToggleInDb: true,
-    trigger: 'Un pedido con `agenda = "RETIRO"` o `categoria_entrega = "RETIRO"` cambia a `estado_wms = "Pickeado"` en WMS.',
+    trigger: 'Un pedido con `categoria_entrega = "RETIRO"` cambia a `estado_wms = "Listo para retiro"` en WMS.',
     condition: 'El comercio tiene activa la sincronización inversa (`sync_tracking_enabled = true`) y estados intermedios (`sync_intermediate_statuses = true`).',
     action: 'Encola `set_ready_for_pickup`, ejecuta la mutación GraphQL nativa de Shopify `fulfillmentOrderLineItemsPreparedForPickup` y añade el tag `Stocka: Listo para Retiro`.',
     techSource: 'Trigger `trg_enqueue_shopify_fulfillment` + Edge Function `shopify-fulfillment-sync`'
@@ -137355,7 +138471,7 @@ window.openShopifyStatusControlModal = async function(orderId, opts = {}) {
     defaultAction = 'set_in_transit';
   } else if ((order.estado_wms === 'Despachado' || (order.estado_wms === 'Pickeado' && !isRetiro)) && !['fulfilled', 'in_transit', 'delivered'].includes(shState)) {
     defaultAction = 'create_fulfillment';
-  } else if (order.estado_wms === 'Pickeado' && isRetiro && shState !== 'ready_for_pickup') {
+  } else if ((order.estado_wms === 'Listo para retiro' || (order.estado_wms === 'Pickeado' && isRetiro)) && shState !== 'ready_for_pickup') {
     defaultAction = 'set_ready_for_pickup';
   } else if (order.estado_wms === 'En preparación' && shState === 'unfulfilled') {
     defaultAction = 'set_in_progress';

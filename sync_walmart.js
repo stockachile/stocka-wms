@@ -653,7 +653,7 @@ async function syncMerchantOrders(integration) {
         // Si se canceló en Walmart, cancelarlo en el WMS (protegiendo estados operacionales avanzados)
         if (isCancelled && existingOrder.status !== 'cancelado') {
           const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
-          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'listo para retiro', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
           const cancelUpdate = { payment_status: finalWalmartStatus, status: 'cancelado' };
           if (!estadosWmsProtegidos.includes(currentWmsState)) {
             cancelUpdate.estado_wms = 'Cancelado';
@@ -679,7 +679,7 @@ async function syncMerchantOrders(integration) {
             ...(courierName && !existingOrder.courier ? { courier: courierName } : {})
           };
           
-          const terminalStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
+          const terminalStatuses = ['despachado', 'listo para retiro', 'cancelado', 'entregado', 'retirado'];
           const existingWmsLow = (existingOrder.estado_wms || '').trim().toLowerCase();
           if (targetStatus === 'entregado' && !['entregado', 'cancelado', 'archivado'].includes(existingWmsLow)) {
             updatePayload.status = 'entregado';

@@ -19,9 +19,13 @@ const PICKER_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdX
 
 let _pickerSupabaseClient = null;
 function getPickerSupabase() {
+  if (window.pickerSupabase) return window.pickerSupabase;
   if (_pickerSupabaseClient) return _pickerSupabaseClient;
   if (window.supabase && typeof window.supabase.createClient === 'function') {
-    _pickerSupabaseClient = window.supabase.createClient(PICKER_SUPABASE_URL, PICKER_SUPABASE_KEY);
+    _pickerSupabaseClient = window.supabase.createClient(PICKER_SUPABASE_URL, PICKER_SUPABASE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+    });
+    window.pickerSupabase = _pickerSupabaseClient;
   }
   return _pickerSupabaseClient;
 }
@@ -107,6 +111,9 @@ function getWmsStatusStyle(order) {
       icon: 'ri-verified-badge-fill'
     };
   }
+  if (low.includes('listo para retiro')) {
+    return { label: 'LISTO PARA RETIRO', bg: 'rgba(124, 58, 237, 0.14)', color: '#6d28d9', border: 'rgba(124, 58, 237, 0.38)', icon: 'ri-store-2-fill' };
+  }
   if (low.includes('despachado')) {
     return { label: wms, bg: 'rgba(2, 132, 199, 0.14)', color: '#0369a1', border: 'rgba(2, 132, 199, 0.35)', icon: 'ri-truck-line' };
   }
@@ -144,6 +151,7 @@ window.reopenDeliveredOrderFromPage = async function(orderId) {
           <label style="font-weight: 700; display: block; margin-bottom: 0.25rem;">Estado WMS destino:</label>
           <select id="sop-reopen-target-status" class="form-input" style="width: 100%; padding: 0.45rem;">
             <option value="Despachado" selected>Despachado</option>
+            <option value="Listo para retiro">Listo para retiro (Solo RETIRO)</option>
             <option value="Incidencia">Incidencia</option>
             <option value="Pickeado">Pickeado</option>
             <option value="En procesamiento">En procesamiento</option>
@@ -1996,9 +2004,11 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
           tracking_number: trk,
           courier: ft.courier ? String(ft.courier).trim() : (orderData.courier ? String(orderData.courier).trim() : null),
           tracking_url: ft.tracking_url ? String(ft.tracking_url).trim() : (orderData.tracking_url ? String(orderData.tracking_url).trim() : null),
-          source_table: ft.source_table || null,
+          source_table: ft.source_table || (ft.sync_platform === 'bluex' ? 'bluex_envios' : (ft.sync_platform === 'starkenpro' ? 'starken_envios' : null)),
+          sync_platform: ft.sync_platform || null,
           status: ft.status || null,
           global_status: ft.global_status || null,
+          last_checked_at: ft.last_checked_at || null,
           updated_at: ft.updated_at || null
         };
         break;
@@ -2230,13 +2240,17 @@ function buildOrderLifecycleSteps(orderData, pickerData, trackingInfo) {
   const wmsLow = String(orderData.estado_wms || orderData.status || 'En procesamiento').toLowerCase();
   const isCanceled = wmsLow.includes('cancelado');
   const isIncident = wmsLow.includes('incidencia');
+  const isRetiroCat = (window.getOrderEffectiveCategoriaEntrega
+    ? window.getOrderEffectiveCategoriaEntrega(orderData)
+    : String(orderData.categoria_entrega || '').toUpperCase().trim()) === 'RETIRO';
+  const isReadyForPickup = wmsLow.includes('listo para retiro');
   const isDeliveredFinal = Boolean(trackingInfo?.isDelivered) || wmsLow.includes('entregado') || wmsLow.includes('retirado');
-  const isDispatched = isDeliveredFinal || wmsLow.includes('despachado') || Boolean(trackingInfo?.isInTransit);
+  const isDispatched = isDeliveredFinal || isReadyForPickup || wmsLow.includes('despachado') || Boolean(trackingInfo?.isInTransit);
   const isPicked = isDispatched || wmsLow.includes('pickeado') || wmsLow.includes('preparado') || wmsLow.includes('listo') || pickerData.isCompleted;
   const isPreparing = isPicked || wmsLow.includes('preparación') || wmsLow.includes('preparacion') || pickerData.hasActive || Boolean(orderData.agenda || orderData.operador);
 
   // Si el pedido ya fue despachado y el courier lo tiene EN TRÁNSITO, ALERTA o ENTREGADO, la etapa activa pasa a la 5 (Tránsito y Entrega Final)
-  const hasAdvancedToStep5 = isDeliveredFinal || (isDispatched && (trackingInfo?.isInTransit || trackingInfo?.isAlert));
+  const hasAdvancedToStep5 = isDeliveredFinal || (!isRetiroCat && isDispatched && (trackingInfo?.isInTransit || trackingInfo?.isAlert));
 
   let currentStep = 1;
   if (hasAdvancedToStep5) currentStep = 5;
@@ -2284,12 +2298,14 @@ function buildOrderLifecycleSteps(orderData, pickerData, trackingInfo) {
     },
     {
       num: 4,
-      title: '4. Empaque y Despacho',
-      icon: 'ri-truck-line',
-      desc: `Courier: ${trackingInfo?.effectiveCourier || orderData.courier || 'Por asignar'}${trackingInfo?.effectiveTracking ? ` · Guía: ${trackingInfo.effectiveTracking}` : ''}`,
-      meta: orderData.stock_descontado_at
-        ? `Despachado (${new Date(orderData.stock_descontado_at).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })})`
-        : (isDispatched ? 'Despachado de bodega' : 'En espera de despacho'),
+      title: isRetiroCat ? '4. Listo para Retiro en Sucursal' : '4. Empaque y Despacho',
+      icon: isRetiroCat ? 'ri-store-2-fill' : 'ri-truck-line',
+      desc: isRetiroCat
+        ? `Punto de Retiro: ${orderData.sucursal_pickeo || 'Sucursal Ñuñoa'} · Stock físico descontado`
+        : `Courier: ${trackingInfo?.effectiveCourier || orderData.courier || 'Por asignar'}${trackingInfo?.effectiveTracking ? ` · Guía: ${trackingInfo.effectiveTracking}` : ''}`,
+      meta: (orderData.ready_for_pickup_at || orderData.stock_descontado_at)
+        ? `${isRetiroCat ? 'En mesón' : 'Despachado'} (${new Date(orderData.ready_for_pickup_at || orderData.stock_descontado_at).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })})`
+        : (isDispatched ? (isRetiroCat ? 'Disponible en mesón' : 'Despachado de bodega') : (isRetiroCat ? 'Pendiente de preparación' : 'En espera de despacho')),
       state: currentStep > 4 ? 'completed' : (currentStep === 4 ? 'current' : 'pending')
     },
     {
@@ -2826,8 +2842,8 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
               pickerData.operator = pickerData.operator || firstLog.picker || null;
               pickerData.sucursal = pickerData.sucursal || firstLog.sucursal || null;
               pickerData.observation = pickerData.observation || firstLog.comentarios || null;
-            } else if (!pickerData.hasActive && (orderData.estado_wms === 'Pickeado' || orderData.picker_status)) {
-              pickerData.status = orderData.picker_status || 'Completado';
+            } else if (!pickerData.hasActive && (orderData.estado_wms === 'Pickeado' || orderData.estado_wms === 'Listo para retiro' || orderData.picker_status)) {
+              pickerData.status = orderData.picker_status || (orderData.estado_wms === 'Listo para retiro' ? 'Listo para retiro' : 'Completado');
               pickerData.isCompleted = true;
               pickerData.operator = orderData.picker_operator || window.pickerOperatorsMap?.[orderData.external_order_number || orderData.id] || null;
               pickerData.sucursal = orderData.sucursal_pickeo || null;
@@ -3096,7 +3112,7 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
               <i class="${isFull ? 'ri-checkbox-circle-fill' : 'ri-time-line'}"></i> ${scanInfo.scanned}/${scanInfo.total} escaneado
             </span>
           `;
-        } else if (pickerData.isCompleted || isOrderDeliveredClosed || ['pickeado', 'despachado', 'entregado'].includes(String(orderData.estado_wms || '').toLowerCase())) {
+        } else if (pickerData.isCompleted || isOrderDeliveredClosed || ['pickeado', 'listo para retiro', 'despachado', 'entregado'].includes(String(orderData.estado_wms || '').toLowerCase())) {
           pickerScanCell = `
             <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.48rem; border-radius: 999px; background: rgba(59, 130, 246, 0.12); color: #2563eb;">
               <i class="ri-check-double-line"></i> Verificado (${qty}/${qty})
@@ -3342,7 +3358,14 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                 <div style="display: flex; align-items: center; gap: 0.4rem; background: var(--color-bg); padding: 0.32rem 0.65rem; border-radius: 8px; border: 1px solid var(--color-border);">
                   <label style="font-size: 0.73rem; font-weight: 700; color: var(--color-text-muted); margin: 0;">Estado WMS:</label>
                   <select class="status-select wms-status-select" data-order-id="${orderData.id}" ${isOrderDeliveredClosed ? 'disabled title="Pedido finalizado e inmutable. Usa Reabrir Pedido (Admin) para modificarlo."' : ''} style="padding: 0.24rem 0.5rem; font-size: 0.79rem; font-weight: 700; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: ${isOrderDeliveredClosed ? 'not-allowed' : 'pointer'}; opacity: ${isOrderDeliveredClosed ? '0.8' : '1'};">
-                    ${['En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado'].map(st => `
+                    ${(categoriaEffective === 'RETIRO'
+                        ? ['En procesamiento', 'En preparación', 'Listo para retiro', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado']
+                        : ['En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado']
+                      ).concat(
+                        (orderData.estado_wms && !['En procesamiento', 'En preparación', 'Pickeado', 'Listo para retiro', 'Despachado', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado'].includes(orderData.estado_wms))
+                          ? [orderData.estado_wms]
+                          : ((categoriaEffective === 'RETIRO' && ['Pickeado', 'Despachado'].includes(orderData.estado_wms)) || (categoriaEffective !== 'RETIRO' && orderData.estado_wms === 'Listo para retiro') ? [orderData.estado_wms] : [])
+                      ).map(st => `
                       <option value="${st}" ${(orderData.estado_wms || orderData.status) === st ? 'selected' : ''}>${st === 'Entregado' ? 'Entregado (Finalizado)' : st}</option>
                     `).join('')}
                   </select>

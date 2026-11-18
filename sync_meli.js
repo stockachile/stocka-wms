@@ -872,7 +872,7 @@ async function syncMerchantOrders(integration) {
         // Si se canceló en MercadoLibre, reflejar status='cancelado' y cancelar estado_wms SOLO si aún no está en preparación/pickeado/despachado
         if (isCancelled && existingOrder.status !== 'cancelado') {
           const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
-          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'listo para retiro', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
           const cancelPayload = {
             payment_status: group.status,
             status: 'cancelado'
@@ -952,8 +952,8 @@ async function syncMerchantOrders(integration) {
             updatePayload.estado_wms = 'Entregado';
             updatePayload.closed_by_automation = 'auto-marketplace-delivered-to-entregado';
           } else {
-            const terminalStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
-            const wmsAlreadyTerminal = ['despachado', 'cancelado', 'archivado', 'entregado', 'retirado'].includes(existingWmsLow) || existingOrder.stock_descontado === true;
+            const terminalStatuses = ['despachado', 'listo para retiro', 'cancelado', 'entregado', 'retirado'];
+            const wmsAlreadyTerminal = ['despachado', 'listo para retiro', 'cancelado', 'archivado', 'entregado', 'retirado'].includes(existingWmsLow) || existingOrder.stock_descontado === true;
             if (!wmsAlreadyTerminal && !terminalStatuses.includes(existingOrder.status)) {
               if (targetStatus === 'despachado') {
                 updatePayload.status = 'despachado';

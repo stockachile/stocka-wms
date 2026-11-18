@@ -347,7 +347,7 @@ async function handleOrderNotification(orderId: string, integration: any, access
 
     if (isCancelled && existingOrder.status !== 'cancelado') {
       const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
-      const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+      const estadosWmsProtegidos = ['en preparación', 'pickeado', 'listo para retiro', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
       const cancelPayload: Record<string, any> = {
         payment_status: group.status,
         status: 'cancelado'

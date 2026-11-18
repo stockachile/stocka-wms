@@ -315,17 +315,27 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
 
   if (pickerHistory && pickerHistory.length > 0) {
     const historicalStatus = pickerHistory[0].estado;
-    console.log(`⚠️ Pedido ${orderNo} YA REGISTRA HISTORIAL en Picker ("${historicalStatus}"). No se admite re-envío.`);
+    const isHistRetirado = ['RETIRADO', 'ENTREGADO'].includes(String(historicalStatus || '').trim().toUpperCase());
+    const targetHistWms = isHistRetirado ? 'Entregado' : 'Listo para retiro';
+    const targetHistStatus = isHistRetirado ? 'retirado' : 'listo para retiro';
+    console.log(`⚠️ Pedido ${orderNo} YA REGISTRA HISTORIAL en Picker ("${historicalStatus}"). Sincronizando WMS a "${targetHistWms}" sin re-envío.`);
     
-    // Sincronizar WMS para que quede en estado terminal
+    // Sincronizar WMS al estado real de retiro (con salida de stock idempotente)
     await wmsClient
       .from('orders')
-      .update({ estado_wms: 'Despachado' })
+      .update({
+        estado_wms: targetHistWms,
+        status: targetHistStatus,
+        stock_descontado: true,
+        categoria_entrega: 'RETIRO',
+        agenda: 'RETIRO',
+        operador: 'SUCURSAL ÑUÑOA'
+      })
       .eq('id', order.id);
 
     return {
       skipped: true,
-      reason: `El pedido ya cuenta con registro histórico completado en el Picker ("${historicalStatus}"). Se sincronizó WMS a Despachado.`
+      reason: `El pedido ya cuenta con registro histórico completado en el Picker ("${historicalStatus}"). Se sincronizó WMS a ${targetHistWms}.`
     };
   }
 

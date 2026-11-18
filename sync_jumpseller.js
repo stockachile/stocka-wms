@@ -681,7 +681,7 @@ async function syncOrders(integration, headers, warehouseId) {
         }
 
         const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
-        const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+        const estadosWmsProtegidos = ['en preparación', 'pickeado', 'listo para retiro', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
         const wasCancelledInWms =
           (existingOrder.status || '').toLowerCase() === 'cancelado' ||
           currentWmsState === 'cancelado';
@@ -733,10 +733,10 @@ async function syncOrders(integration, headers, warehouseId) {
         if (!isWmsItemsEdited && !isCancelled) {
           const rawStatus = (existingOrder.status || '').toLowerCase();
           const rawWmsStatus = (existingOrder.estado_wms || '').toLowerCase();
-          const isClosedOrDispatched = ['despachado', 'entregado', 'retirado', 'cancelado', 'archivado'].includes(rawStatus) ||
-                                       ['despachado', 'entregado', 'retirado', 'cancelado', 'archivado'].includes(rawWmsStatus);
+          const isClosedOrDispatched = ['listo para retiro', 'despachado', 'entregado', 'retirado', 'cancelado', 'archivado'].includes(rawStatus) ||
+                                       ['listo para retiro', 'despachado', 'entregado', 'retirado', 'cancelado', 'archivado'].includes(rawWmsStatus);
           const wmsStatus = (existingOrder.estado_wms || existingOrder.status || 'En procesamiento').toLowerCase();
-          const estadosCriticos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado', 'archivado'];
+          const estadosCriticos = ['en preparación', 'pickeado', 'listo para retiro', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado', 'archivado'];
 
           if (!isClosedOrDispatched && !estadosCriticos.includes(wmsStatus)) {
             const { data: existingItems, error: itemsCheckErr } = await supabase

@@ -723,7 +723,7 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
   const isCancelled = statusName === "cancelled" || ["voided", "refunded"].includes(paymentStatus);
 
   const currentWmsState = (existingOrder.estado_wms || "En procesamiento").trim().toLowerCase();
-  const estadosWmsProtegidos = ["en preparación", "pickeado", "despachado", "incidencia", "entregado", "retirado", "archivado"];
+  const estadosWmsProtegidos = ["en preparación", "pickeado", "listo para retiro", "despachado", "incidencia", "entregado", "retirado", "archivado"];
   const isProtectedState = estadosWmsProtegidos.includes(currentWmsState);
 
   const addr = order.shipping_address;
@@ -792,7 +792,7 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
 
   // Lógica de Alertas de Pedido (WMS ya preparando o despachando)
   const wmsStatus = existingOrder.estado_wms || "En procesamiento";
-  const estadosCriticos = ["en preparación", "pickeado", "despachado", "incidencia"];
+  const estadosCriticos = ["en preparación", "pickeado", "listo para retiro", "despachado", "incidencia"];
 
   if (estadosCriticos.includes(currentWmsState)) {
     let alertMessage = `El pedido Tiendanube ${finalOrderNumber} ha sido modificado en la tienda mientras estaba en WMS con estado: ${wmsStatus}.`;

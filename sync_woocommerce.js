@@ -643,11 +643,11 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
         const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
         const currentRawStatus = (existingOrder.status || '').trim().toLowerCase();
-        const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
-        const estadosInmutablesDespacho = ['despachado', 'entregado', 'retirado', 'archivado'];
+        const estadosWmsProtegidos = ['en preparación', 'pickeado', 'listo para retiro', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+        const estadosInmutablesDespacho = ['listo para retiro', 'despachado', 'entregado', 'retirado', 'archivado'];
         const isClosedOrDispatched =
-          ['despachado', 'entregado', 'retirado', 'cancelado'].includes(currentRawStatus) ||
-          ['despachado', 'entregado', 'retirado', 'cancelado'].includes(currentWmsState);
+          ['listo para retiro', 'despachado', 'entregado', 'retirado', 'cancelado'].includes(currentRawStatus) ||
+          ['listo para retiro', 'despachado', 'entregado', 'retirado', 'cancelado'].includes(currentWmsState);
         const wasCancelledInWms =
           currentRawStatus === 'cancelado' ||
           currentWmsState === 'cancelado';
@@ -738,10 +738,10 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
 
           const rawStatusNow = (existingOrder.status || '').toLowerCase();
           const rawWmsStatusNow = (existingOrder.estado_wms || '').toLowerCase();
-          const isNowClosedOrDispatched = ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawStatusNow) ||
-                                          ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawWmsStatusNow);
+          const isNowClosedOrDispatched = ['listo para retiro', 'despachado', 'entregado', 'retirado', 'cancelado'].includes(rawStatusNow) ||
+                                          ['listo para retiro', 'despachado', 'entregado', 'retirado', 'cancelado'].includes(rawWmsStatusNow);
           const wmsStatusNow = (existingOrder.estado_wms || existingOrder.status || 'En procesamiento').toLowerCase();
-          const estadosCriticos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'];
+          const estadosCriticos = ['en preparación', 'pickeado', 'listo para retiro', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'];
 
           if (!itemsCheckErr && (!existingItems || existingItems.length === 0) && !isNowClosedOrDispatched && !estadosCriticos.includes(wmsStatusNow)) {
             console.log(`ℹ️ Pedido existente ${finalOrderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);

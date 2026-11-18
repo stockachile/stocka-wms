@@ -909,6 +909,9 @@ window.getOriginalPlatformStatus = function(order) {
     if (order.estado_wms === 'Entregado' || rawFul === 'delivered') {
       fulLabel = 'ENTREGADO';
       fulColor = '#059669';
+    } else if (order.estado_wms === 'Listo para retiro' || rawFul === 'ready_for_pickup') {
+      fulLabel = 'LISTO PARA RETIRO';
+      fulColor = '#7c3aed';
     } else if (['fulfilled', 'despachado'].includes(rawFul) || order.estado_wms === 'Despachado') {
       fulLabel = 'PREPARADO';
       fulColor = '#10b981';
@@ -1030,7 +1033,7 @@ window.isOrderStockCommittedEligible = function(order) {
   const orderStatus = String(order.status || '').toLowerCase().trim();
   const wmsStatus = String(order.estado_wms || '').trim();
   if (['cancelado', 'devolución', 'devolucion'].includes(orderStatus)) return false;
-  if (['Cancelado', 'Archivado', 'Despachado', 'Entregado'].includes(wmsStatus)) return false;
+  if (['Cancelado', 'Archivado', 'Listo para retiro', 'Despachado', 'Entregado'].includes(wmsStatus)) return false;
   if (order.raw_shopify_data?.cancelled_at) return false;
   if (order.raw_shopify_data?.confirmed === false) return false;
 
@@ -1269,6 +1272,9 @@ window.getItemProcessingStatusBadge = function(order, itemSku, itemName) {
   if (wms === 'despachado') {
     return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-truck-line"></i> Despachado</span>`;
   }
+  if (wms === 'listo para retiro') {
+    return `<span class="badge" style="background-color: #f5f3ff; color: #6d28d9; border: 1px solid #c4b5fd; font-size: 0.7rem; font-weight: 700; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-store-2-fill"></i> Listo para retiro</span>`;
+  }
   if (wms === 'pickeado') {
     return `<span class="badge" style="background-color: #e0f2fe; color: #0369a1; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-check-line"></i> Pickeado</span>`;
   }
@@ -1329,7 +1335,7 @@ window.shouldProcessOrderStockLocal = function(order, config, allOrdersList, che
   // El estado de despacho/plataforma (order.status) NO influye en el control de inventario WMS.
   if (checkTerminal) {
     const orderWmsStatus = (order.estado_wms || '').toLowerCase().trim();
-    const terminalWmsStatuses = ['despachado', 'entregado', 'cancelado', 'archivado'];
+    const terminalWmsStatuses = ['listo para retiro', 'despachado', 'entregado', 'cancelado', 'archivado'];
     if (terminalWmsStatuses.includes(orderWmsStatus)) {
       return false;
     }
@@ -2691,12 +2697,12 @@ async function renderDashboard() {
             }));
           }
 
-          // Incluir también cualquier pedido activo en bodega anterior a los 66 días
+          // Incluir también cualquier pedido activo en bodega o pendiente de retiro anterior a los 66 días
           const olderActivePromise = supabase
             .from('orders')
             .select(orderSelectCols)
             .in('comercio', companyList)
-            .in('status', ['en preparación', 'para procesar', 'preparado'])
+            .in('status', ['en preparación', 'para procesar', 'preparado', 'listo para retiro'])
             .lt('created_at', sixtySixDaysAgoIso)
             .order('created_at', { ascending: false })
             .limit(1000)
@@ -3142,7 +3148,7 @@ async function renderDashboard() {
       } else if (st === 'en preparación' || wmsSt === 'en preparación') {
         pipelineInPrep++;
         activeOrders++;
-      } else if (st === 'preparado' || st === 'listo para retiro' || wmsSt === 'pickeado') {
+      } else if (st === 'preparado' || st === 'listo para retiro' || wmsSt === 'pickeado' || wmsSt === 'listo para retiro') {
         pipelineReady++;
         activeOrders++;
       } else if (isWithin60d && (st === 'entregado' || st === 'retirado' || wmsSt === 'entregado')) {
@@ -3154,7 +3160,7 @@ async function renderDashboard() {
       }
 
       // Sucursal de pickeo activa
-      if (['para procesar', 'en preparación', 'preparado'].includes(st) && !['despachado', 'entregado', 'cancelado', 'archivado'].includes(wmsSt)) {
+      if (['para procesar', 'en preparación', 'preparado'].includes(st) && !['listo para retiro', 'despachado', 'entregado', 'cancelado', 'archivado'].includes(wmsSt)) {
         let orderBranch = o.sucursal_pickeo ? normalizeBranchKey(o.sucursal_pickeo) : null;
         if (!orderBranch && Array.isArray(o.order_items) && o.order_items.length > 0) {
           const firstWhId = o.order_items[0].warehouse_id;
@@ -11056,16 +11062,16 @@ window.getPickerStatusForOrder = function(order) {
       updatedAt: order.picker_last_synced_at || null
     };
   }
-  if (order.estado_wms === 'Pickeado' || (order.estado_wms === 'Despachado' && order.picker_operator)) {
+  if (order.estado_wms === 'Pickeado' || order.estado_wms === 'Listo para retiro' || ((order.estado_wms === 'Despachado' || order.estado_wms === 'Entregado') && order.picker_operator)) {
     return {
-      status: 'Completado',
+      status: order.estado_wms === 'Listo para retiro' ? 'Listo para retiro' : 'Completado',
       operator: order.picker_operator || window.pickerOperatorsMap[order.external_order_number || order.id] || null,
       sucursal: order.sucursal_pickeo || null,
       comercio: comNorm || null,
       isActive: false,
       isCompleted: true,
       source: 'wms_pickeado_state',
-      updatedAt: order.picker_last_synced_at || order.stock_descontado_at || null
+      updatedAt: order.ready_for_pickup_at || order.picker_last_synced_at || order.stock_descontado_at || null
     };
   }
   return null;
@@ -11929,7 +11935,7 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
   const shipments = window.clientLoadedShipments || [];
   const rawShopify = order.raw_shopify_data;
   const isReturned = (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at)) && 
-                     ['Despachado', 'Entregado', 'Pickeado', 'entregado', 'retirado'].includes(order.estado_wms);
+                     ['Listo para retiro', 'Despachado', 'Entregado', 'Pickeado', 'entregado', 'retirado'].includes(order.estado_wms);
   const forcedInfo = window.getOrderForcedTrackingInfo ? window.getOrderForcedTrackingInfo(order) : null;
 
   const index = window._clientShipmentsIndex || window.buildClientShipmentsIndex(shipments);
@@ -13760,6 +13766,7 @@ window.applyClientWmsFiltersAndRender = function() {
     'En procesamiento': 0,
     'En preparación': 0,
     'Pickeado': 0,
+    'Listo para retiro': 0,
     'Despachado': 0,
     'Entregado': 0,
     'Incidencia': 0,
@@ -13879,7 +13886,7 @@ window.applyClientWmsFiltersAndRender = function() {
   }
 
   // 1. Renderizar pestañas
-  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado'];
+  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Listo para retiro', 'Despachado', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado'];
   const tabsHtml = tabs.map(tab => {
     const isActive = activeTab === tab;
     const count = tabCounts[tab] || 0;
@@ -13891,6 +13898,9 @@ window.applyClientWmsFiltersAndRender = function() {
     } else if (tab === 'Entregado') {
       badgeBg = '#d1fae5';
       badgeColor = '#047857';
+    } else if (tab === 'Listo para retiro') {
+      badgeBg = '#f5f3ff';
+      badgeColor = '#6d28d9';
     } else if (tab === 'Pickeado' || tab === 'Despachado') {
       badgeBg = '#dcfce7';
       badgeColor = '#22c55e';
@@ -13905,7 +13915,9 @@ window.applyClientWmsFiltersAndRender = function() {
       badgeColor = '#4b5563';
     }
 
-    const tabLabelHtml = tab === 'Entregado' ? '<i class="ri-verified-badge-fill"></i> Entregado' : tab;
+    const tabLabelHtml = tab === 'Entregado'
+      ? '<i class="ri-verified-badge-fill"></i> Entregado'
+      : (tab === 'Listo para retiro' ? '<i class="ri-store-2-fill"></i> Listo para retiro' : tab);
 
     return `
       <button onclick="window.setClientWmsTab('${tab}')" style="background: ${isActive ? 'var(--color-primary)' : 'transparent'}; color: ${isActive ? '#ffffff' : 'var(--color-text-main)'}; border: ${isActive ? 'none' : '1px solid var(--color-border)'}; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.825rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
@@ -14056,6 +14068,10 @@ window.applyClientWmsFiltersAndRender = function() {
       wmsBadgeBg = '#ecfdf5';
       wmsBadgeColor = '#047857';
       wmsBadgeBorder = '1px solid #6ee7b7';
+    } else if (wmsStatus === 'Listo para retiro') {
+      wmsBadgeBg = '#f5f3ff';
+      wmsBadgeColor = '#6d28d9';
+      wmsBadgeBorder = '1px solid #c4b5fd';
     } else if (wmsStatus === 'Pickeado' || wmsStatus === 'Despachado') {
       wmsBadgeBg = '#d1fae5';
       wmsBadgeColor = '#065f46';
@@ -14303,7 +14319,7 @@ window.applyClientWmsFiltersAndRender = function() {
           : '') + (isPickingReqItem
           ? `<span class="badge" style="background-color: rgba(14, 165, 233, 0.12); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.28); font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem;" title="Se muestra en Picker como punto a chequear (Solicitud de Picking) y descuenta stock normalmente en WMS"><i class="ri-list-check-2"></i> Solicitud Picking</span>`
           : '');
-        const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(order.estado_wms);
+        const isOrderTerminalOrShipped = ['despachado', 'listo para retiro', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Listo para retiro', 'Despachado', 'Entregado', 'Cancelado', 'Archivado'].includes(order.estado_wms);
         const isAlreadyDescontado = isOrderTerminalOrShipped || !!order.stock_descontado;
         if (origItem && window.isOrderItemEliminated && window.isOrderItemEliminated(order, origItem)) {
           stockCellHtml = `<span style="color: #6b7280; font-size: 0.75rem; font-style: italic;" title="Producto eliminado del pedido"><i class="ri-close-circle-line"></i> Eliminado</span>`;
@@ -29816,10 +29832,12 @@ window.renderPickups = async function() {
           <label class="form-label" style="font-size: 0.8rem;">Estado</label>
           <select id="filter-pickups-status" class="form-input">
             <option value="">Todos</option>
+            <option value="LISTO PARA RETIRO">Listo para Retiro</option>
             <option value="ENTREGADO">Entregado</option>
             <option value="EN SUCURSAL">En Sucursal</option>
             <option value="PENDIENTE">Pendiente</option>
             <option value="EN RUTA">En Ruta</option>
+            <option value="CANCELADO">Cancelado</option>
           </select>
         </div>
         <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
@@ -29979,8 +29997,9 @@ async function fetchAndRenderPickupsData() {
         let badgeClass = 'badge-neutral';
         const st = p.estado_pedido ? p.estado_pedido.toUpperCase() : '';
         if (st === 'ENTREGADO') badgeClass = 'badge-success';
-        else if (st === 'EN SUCURSAL') badgeClass = 'badge-primary';
-        else if (st === 'PENDIENTE') badgeClass = 'badge-warning';
+        else if (st === 'LISTO PARA RETIRO' || st === 'EN SUCURSAL') badgeClass = 'badge-primary';
+        else if (st === 'PENDIENTE' || st === 'NO PREPARADO') badgeClass = 'badge-warning';
+        else if (st === 'CANCELADO') badgeClass = 'badge-danger';
 
         let safeData = '{}';
         try { safeData = encodeURIComponent(JSON.stringify(p)); } catch(e){}
@@ -45946,7 +45965,7 @@ async function buildClientShopifyExportDataset(selectedOrders) {
         sku: oi.products?.sku || oi.sku || "",
         requires_shipping: true,
         taxable: true,
-        fulfillment_status: (order.estado_wms === 'Despachado' || order.estado_wms === 'Entregado') ? 'fulfilled' : null,
+        fulfillment_status: (order.estado_wms === 'Listo para retiro' || order.estado_wms === 'Despachado' || order.estado_wms === 'Entregado') ? 'fulfilled' : null,
         vendor: "WMS STOCKA"
       }));
     } else {
@@ -45957,7 +45976,7 @@ async function buildClientShopifyExportDataset(selectedOrders) {
         sku: order.sku || "",
         requires_shipping: true,
         taxable: true,
-        fulfillment_status: (order.estado_wms === 'Despachado' || order.estado_wms === 'Entregado') ? 'fulfilled' : null,
+        fulfillment_status: (order.estado_wms === 'Listo para retiro' || order.estado_wms === 'Despachado' || order.estado_wms === 'Entregado') ? 'fulfilled' : null,
         vendor: "WMS STOCKA"
       }];
     }
@@ -46018,7 +46037,7 @@ async function buildClientShopifyExportDataset(selectedOrders) {
       finStatus = 'paid';
     }
 
-    const isWmsFulfilled = order.estado_wms === 'Despachado' || order.estado_wms === 'Entregado';
+    const isWmsFulfilled = order.estado_wms === 'Listo para retiro' || order.estado_wms === 'Despachado' || order.estado_wms === 'Entregado';
     const fulfillStatus = raw.fulfillment_status || (isWmsFulfilled ? 'fulfilled' : '');
     const paidAt = raw.processed_at || (finStatus === 'paid' ? (order.created_at || new Date().toISOString()) : '');
     const fulfilledAt = isWmsFulfilled ? (order.delivered_at || order.fecha_procesamiento || order.created_at || '') : '';

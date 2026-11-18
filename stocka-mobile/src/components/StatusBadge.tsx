@@ -20,6 +20,10 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, type = 'order'
       bg = colors.successLight;
       text = colors.success;
       label = 'Entregado';
+    } else if (norm.includes('listo para retiro') || norm.includes('listo_retiro')) {
+      bg = 'rgba(124, 58, 237, 0.14)';
+      text = '#7c3aed';
+      label = 'Listo Retiro';
     } else if (norm.includes('despachado') || norm.includes('transito') || norm.includes('en_ruta')) {
       bg = colors.infoLight;
       text = colors.info;

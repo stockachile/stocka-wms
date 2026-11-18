@@ -1108,11 +1108,11 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
 
   const currentWmsState = (existingOrder.estado_wms || "En procesamiento").trim().toLowerCase();
   const currentRawStatus = (existingOrder.status || "").trim().toLowerCase();
-  const estadosWmsProtegidos = ["en preparación", "pickeado", "despachado", "incidencia", "entregado", "retirado", "archivado"];
-  const estadosInmutablesDespacho = ["despachado", "entregado", "retirado", "archivado"];
+  const estadosWmsProtegidos = ["en preparación", "pickeado", "listo para retiro", "despachado", "incidencia", "entregado", "retirado", "archivado"];
+  const estadosInmutablesDespacho = ["listo para retiro", "despachado", "entregado", "retirado", "archivado"];
   const isInitiallyClosedOrDispatched =
-    ["despachado", "entregado", "retirado", "cancelado"].includes(currentRawStatus) ||
-    ["despachado", "entregado", "retirado", "cancelado"].includes(currentWmsState);
+    ["listo para retiro", "despachado", "entregado", "retirado", "cancelado"].includes(currentRawStatus) ||
+    ["listo para retiro", "despachado", "entregado", "retirado", "cancelado"].includes(currentWmsState);
   const wasCancelledInWms =
     currentRawStatus === "cancelado" ||
     currentWmsState === "cancelado";
@@ -1190,10 +1190,10 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
   // Alertas críticas si el pedido ya está en preparación o posterior
   const rawStatus = ((updatedData.status || existingOrder.status) || "").toLowerCase();
   const rawWmsStatus = ((updatedData.estado_wms || existingOrder.estado_wms) || "").toLowerCase();
-  const isClosedOrDispatched = ["despachado", "entregado", "retirado", "cancelado"].includes(rawStatus) ||
-                               ["despachado", "entregado", "retirado", "cancelado"].includes(rawWmsStatus);
+  const isClosedOrDispatched = ["listo para retiro", "despachado", "entregado", "retirado", "cancelado"].includes(rawStatus) ||
+                               ["listo para retiro", "despachado", "entregado", "retirado", "cancelado"].includes(rawWmsStatus);
   const wmsStatus = updatedData.estado_wms || existingOrder.estado_wms || updatedData.status || existingOrder.status || "En procesamiento";
-  const estadosCriticos = ["en preparación", "pickeado", "despachado", "incidencia", "entregado", "retirado", "cancelado"];
+  const estadosCriticos = ["en preparación", "pickeado", "listo para retiro", "despachado", "incidencia", "entregado", "retirado", "cancelado"];
 
   if (isClosedOrDispatched || estadosCriticos.includes(wmsStatus.toLowerCase())) {
     if (isCancelled && estadosWmsProtegidos.includes(currentWmsState)) {
@@ -1372,7 +1372,7 @@ async function handleWooOrderDelete(_merchantId: string, comercio: string, order
       return;
     }
     const currentWmsState = (existingOrder.estado_wms || "En procesamiento").trim().toLowerCase();
-    const estadosWmsProtegidos = ["en preparación", "pickeado", "despachado", "incidencia", "entregado", "retirado", "archivado"];
+    const estadosWmsProtegidos = ["en preparación", "pickeado", "listo para retiro", "despachado", "incidencia", "entregado", "retirado", "archivado"];
     const updatePayload: Record<string, any> = { status: "cancelado" };
     if (!estadosWmsProtegidos.includes(currentWmsState)) {
       updatePayload.estado_wms = "Cancelado";

@@ -415,10 +415,10 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     // Alertas críticas si el pedido ya está siendo preparado o protección si ya está cerrado
     const rawStatus = (existingOrder.status || '').toLowerCase();
     const rawWmsStatus = (existingOrder.estado_wms || '').toLowerCase();
-    const isClosedOrDispatched = ['despachado', 'entregado', 'retirado', 'cancelado', 'archivado'].includes(rawStatus) ||
-                                 ['despachado', 'entregado', 'retirado', 'cancelado', 'archivado'].includes(rawWmsStatus);
+    const isClosedOrDispatched = ['listo para retiro', 'despachado', 'entregado', 'retirado', 'cancelado', 'archivado'].includes(rawStatus) ||
+                                 ['listo para retiro', 'despachado', 'entregado', 'retirado', 'cancelado', 'archivado'].includes(rawWmsStatus);
     const wmsStatus = existingOrder.estado_wms || existingOrder.status || 'En procesamiento';
-    const estadosCriticos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado', 'archivado'];
+    const estadosCriticos = ['en preparación', 'pickeado', 'listo para retiro', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado', 'archivado'];
 
     if (isWmsItemsEdited) {
       console.log(`Pedido ${orderNumber} fue editado manualmente en WMS. Omitiendo sobrescritura de order_items.`);
@@ -666,7 +666,7 @@ async function handleOrderCancel(merchantId: string, comercio: string, order: an
 
   // Si está en estado crítico en WMS, emitir alerta en lugar de cancelar a ciegas
   const wmsStatus = existingOrder.estado_wms || 'En procesamiento';
-  const estadosCriticos = ['En preparación', 'Pickeado', 'Despachado', 'Incidencia'];
+  const estadosCriticos = ['En preparación', 'Pickeado', 'Listo para retiro', 'Despachado', 'Incidencia'];
 
   if (estadosCriticos.includes(wmsStatus)) {
     await supabase.from("order_alerts").insert([{

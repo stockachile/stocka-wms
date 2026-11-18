@@ -285,7 +285,7 @@ window.openEditOrderItemsModal = async function(orderId) {
       }
     }
 
-    const isDispatched = (order.estado_wms === 'Despachado') || (order.stock_descontado === true);
+    const isDispatched = (order.estado_wms === 'Despachado') || (order.estado_wms === 'Listo para retiro') || (order.stock_descontado === true);
     window.tempEditOrderData = {
       ...order,
       isDispatched,

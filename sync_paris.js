@@ -522,7 +522,7 @@ async function syncMerchantOrders(integration) {
         // Si el pedido se canceló en origen, actualizar su estado en WMS (protegiendo estados operacionales avanzados)
         if (isCancelled && existingOrder.status !== 'cancelado') {
           const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
-          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'listo para retiro', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
           const cancelUpdate = { ...orderDataToUpdate, status: 'cancelado' };
           if (!estadosWmsProtegidos.includes(currentWmsState)) {
             cancelUpdate.estado_wms = 'Cancelado';

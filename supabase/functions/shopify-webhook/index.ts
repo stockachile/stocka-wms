@@ -633,7 +633,7 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
   // Lógica de Alertas Condicionales y Protección de Pedidos Avanzados
   const rawStatus = (existingOrder.status || '').toLowerCase().trim();
   const rawWmsStatus = (existingOrder.estado_wms || '').toLowerCase().trim();
-  const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+  const estadosWmsProtegidos = ['en preparación', 'pickeado', 'listo para retiro', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
 
   // Si el pedido ya está finalizado e inmutable en 'Entregado', NO mutar la fila ni disparar alertas operativas de "detener despacho"
   if (rawWmsStatus === 'entregado') {
@@ -673,12 +673,12 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     return;
   }
 
-  const isClosedOrDispatched = ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawStatus) ||
-                               ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawWmsStatus);
+  const isClosedOrDispatched = ['listo para retiro', 'despachado', 'entregado', 'retirado', 'cancelado'].includes(rawStatus) ||
+                               ['listo para retiro', 'despachado', 'entregado', 'retirado', 'cancelado'].includes(rawWmsStatus);
 
   const wmsStatus = existingOrder.estado_wms || existingOrder.status || 'En procesamiento';
-  const isAdvancedOrPrep = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'].includes(rawWmsStatus) ||
-                           ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'].includes(rawStatus);
+  const isAdvancedOrPrep = ['en preparación', 'pickeado', 'listo para retiro', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'].includes(rawWmsStatus) ||
+                           ['en preparación', 'pickeado', 'listo para retiro', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'].includes(rawStatus);
 
   // Verificar si hubo un cambio real en los artículos, montos, estado de pago o cancelación (Order Edit)
   // para evitar alertas innecesarias cuando solo cambia el estado de preparación (fulfillment), tags o notas en Shopify.

@@ -400,11 +400,11 @@ async function syncMerchantOrders(integration) {
         };
 
         // No sobreescribir estados terminales en WMS
-        const isTerminalWMS = ['despachado', 'cancelado', 'entregado', 'retirado'].includes(existingOrder.status);
+        const isTerminalWMS = ['despachado', 'listo para retiro', 'cancelado', 'entregado', 'retirado'].includes(existingOrder.status);
         
         if (isCancelled && existingOrder.status !== 'cancelado') {
           const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
-          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'listo para retiro', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
           const cancelUpdate = { ...orderDataToUpdate, status: 'cancelado' };
           if (!estadosWmsProtegidos.includes(currentWmsState)) {
             cancelUpdate.estado_wms = 'Cancelado';

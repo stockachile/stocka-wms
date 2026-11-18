@@ -32,10 +32,12 @@ export const fetchOrders = async (
     if (statusFilter && statusFilter !== 'todos') {
       if (statusFilter === 'entregado') {
         query = query.or('estado_wms.eq.Entregado,status.in.(entregado,retirado)');
+      } else if (statusFilter === 'listo para retiro' || statusFilter === 'listo_retiro') {
+        query = query.eq('estado_wms', 'Listo para retiro');
       } else if (statusFilter === 'despachado') {
         query = query.eq('estado_wms', 'Despachado');
       } else if (statusFilter === 'pendiente') {
-        query = query.in('estado_wms', ['En procesamiento', 'En preparación', 'Pickeado']);
+        query = query.in('estado_wms', ['En procesamiento', 'En preparación', 'Pickeado', 'Listo para retiro']);
       } else {
         query = query.eq('status', statusFilter);
       }

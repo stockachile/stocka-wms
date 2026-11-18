@@ -625,6 +625,18 @@ body.resizing-columns * {
   border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
+.excel-badge-wms-listo-retiro {
+  background: rgba(124, 58, 237, 0.15);
+  color: #6d28d9;
+  border: 1px solid rgba(124, 58, 237, 0.35);
+}
+
+.excel-badge-wms-entregado {
+  background: rgba(5, 150, 105, 0.16);
+  color: #047857;
+  border: 1px solid rgba(5, 150, 105, 0.4);
+}
+
 .excel-badge-wms-despachado {
   background: rgba(99, 102, 241, 0.15);
   color: #4f46e5;

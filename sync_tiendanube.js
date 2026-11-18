@@ -753,7 +753,7 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
         const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
-        const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+        const estadosWmsProtegidos = ['en preparación', 'pickeado', 'listo para retiro', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
         const isProtectedState = estadosWmsProtegidos.includes(currentWmsState);
 
         const orderDataToUpdate = { ...orderDataToSave };

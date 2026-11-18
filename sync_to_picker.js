@@ -708,9 +708,10 @@ async function run() {
           const finalStatus = (matchedLog && matchedLog.estado) || firstAct.sheet_status || 'Completado';
           const finalOp = (matchedLog && matchedLog.picker) || firstAct.operator || null;
           const isRetirado = String(finalStatus || '').trim().toUpperCase() === 'RETIRADO';
-          const targetWmsState = isRetirado ? 'Entregado' : 'Pickeado';
-          const targetInternalStatus = isRetirado ? 'retirado' : 'preparado';
+          const targetWmsState = isRetirado ? 'Entregado' : (isRetiro ? 'Listo para retiro' : 'Pickeado');
+          const targetInternalStatus = isRetirado ? 'retirado' : (isRetiro ? 'listo para retiro' : 'preparado');
           const scLabel = (matchedLog && matchedLog.scanned_label) || firstAct.scanned_label || null;
+          const nowIso = new Date().toISOString();
           const orderHistoryLogs = allLogsByOrderMap.get(cleanOrderNo) || (matchedLog ? [matchedLog] : []);
           const pickerHistorySnapshot = {
             status: finalStatus,
@@ -720,7 +721,7 @@ async function run() {
             items_summary: (matchedLog && matchedLog.items_summary) || null,
             observation: firstAct.observation || (matchedLog && matchedLog.comentarios) || null,
             history_logs: orderHistoryLogs,
-            synced_at: new Date().toISOString()
+            synced_at: nowIso
           };
           console.log(`🎉 [SYNC PICKER] Pedido ${orderNo} completado en Picker (${finalStatus}). Sincronizando WMS a '${targetWmsState}'...`);
 
@@ -730,14 +731,17 @@ async function run() {
               status: targetInternalStatus,
               picker_status: finalStatus,
               picker_operator: finalOp,
-              picker_last_synced_at: new Date().toISOString(),
+              picker_last_synced_at: nowIso,
               picker_history_snapshot: pickerHistorySnapshot
             };
             if (isRetirado) {
               completedPayload.stock_descontado = true;
-              completedPayload.delivered_at = new Date().toISOString();
-              completedPayload.closed_at = new Date().toISOString();
+              completedPayload.delivered_at = nowIso;
+              completedPayload.closed_at = nowIso;
               completedPayload.closed_by_automation = 'auto-pickup-retirado-to-entregado';
+            } else if (isRetiro) {
+              completedPayload.stock_descontado = true;
+              completedPayload.ready_for_pickup_at = nowIso;
             }
             if (scLabel) completedPayload.picker_scanned_label = scLabel;
 
@@ -745,12 +749,17 @@ async function run() {
             if (res.error) throw res.error;
           } catch (_) {
             const fbPayload = { estado_wms: targetWmsState, status: targetInternalStatus };
-            if (isRetirado) fbPayload.stock_descontado = true;
+            if (isRetirado || isRetiro) fbPayload.stock_descontado = true;
             await wmsClient.from('orders').update(fbPayload).eq('id', wmsOrder.id);
           }
+          const pickupKeys = [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')];
           if (isRetirado) {
-            await wmsClient.from('store_pickups').update({ estado_pedido: 'ENTREGADO' }).in('pedido', [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')]);
-            await pickerClient.from('active_orders').delete().in('order_number', [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')]);
+            await wmsClient.from('store_pickups').update({ estado_pedido: 'ENTREGADO' }).in('pedido', pickupKeys);
+            await pickerClient.from('active_orders').delete().in('order_number', pickupKeys);
+          } else if (isRetiro) {
+            await wmsClient.from('store_pickups').update({ estado_pedido: 'LISTO PARA RETIRO' }).in('pedido', pickupKeys).in('estado_pedido', ['NO PREPARADO', 'PENDIENTE']);
+            await pickerClient.from('sucursal_pickups').update({ estado_pedido: 'LISTO PARA RETIRO' }).in('pedido', pickupKeys).in('estado_pedido', ['NO PREPARADO', 'PENDIENTE']);
+            await pickerClient.from('active_orders').delete().in('order_number', pickupKeys);
           }
           continue;
         }
@@ -1074,8 +1083,12 @@ async function run() {
           if (pickupCheck) {
             const st = (pickupCheck.estado_pedido || '').trim().toUpperCase();
             if (st === 'CANCELADO') {
-              console.log(`🚫 Pedido ${orderNo} fue cancelado en Punto de Retiro. Sincronizando WMS a 'Cancelado'...`);
-              await wmsClient.from('orders').update({ estado_wms: 'Cancelado' }).eq('id', wmsOrder.id);
+              if (wmsOrder.estado_wms !== 'Listo para retiro' && !wmsOrder.stock_descontado) {
+                console.log(`🚫 Pedido ${orderNo} fue cancelado en Punto de Retiro (aún sin rebaja de stock). Sincronizando WMS a 'Cancelado'...`);
+                await wmsClient.from('orders').update({ estado_wms: 'Cancelado', status: 'cancelado' }).eq('id', wmsOrder.id);
+              } else {
+                console.warn(`⚠️ Pedido ${orderNo} marcado CANCELADO en Punto de Retiro, pero ya rebajó stock en WMS (${wmsOrder.estado_wms}). Requiere Orden Formal de Logística Inversa en WMS.`);
+              }
               isPickupHandled = true;
             } else if (st === 'ENTREGADO') {
               console.log(`📦 Pedido ${orderNo} fue entregado en Punto de Retiro. Sincronizando WMS a 'Entregado'...`);
@@ -1137,8 +1150,8 @@ async function run() {
         if (matchedCompletedLog) {
           const logs = [matchedCompletedLog];
           const isRetirado = String(logs[0].estado || '').trim().toUpperCase() === 'RETIRADO';
-          const targetWmsState = isRetirado ? 'Entregado' : 'Pickeado';
-          const targetInternalStatus = isRetirado ? 'retirado' : 'preparado';
+          const targetWmsState = isRetirado ? 'Entregado' : (isRetiro ? 'Listo para retiro' : 'Pickeado');
+          const targetInternalStatus = isRetirado ? 'retirado' : (isRetiro ? 'listo para retiro' : 'preparado');
           const nowIso = new Date().toISOString();
           const orderHistoryLogs = allLogsByOrderMap.get(cleanOrderNo) || logs;
           const pickerHistorySnapshot = {
@@ -1169,6 +1182,9 @@ async function run() {
               completedPayload.delivered_at = nowIso;
               completedPayload.closed_at = nowIso;
               completedPayload.closed_by_automation = 'auto-pickup-retirado-to-entregado';
+            } else if (isRetiro) {
+              completedPayload.stock_descontado = true;
+              completedPayload.ready_for_pickup_at = nowIso;
             }
             if (logs[0].scanned_label) {
               completedPayload.picker_scanned_label = logs[0].scanned_label;
@@ -1180,7 +1196,7 @@ async function run() {
             if (res.error) throw res.error;
           } catch (_) {
             const fbPayload = { estado_wms: targetWmsState, status: targetInternalStatus };
-            if (isRetirado) fbPayload.stock_descontado = true;
+            if (isRetirado || isRetiro) fbPayload.stock_descontado = true;
             const fallbackRes = await wmsClient
               .from('orders')
               .update(fbPayload)
@@ -1188,8 +1204,12 @@ async function run() {
             wmsUpdateErr = fallbackRes.error;
           }
 
+          const pickupKeys = [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')];
           if (isRetirado) {
-            await wmsClient.from('store_pickups').update({ estado_pedido: 'ENTREGADO' }).in('pedido', [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')]);
+            await wmsClient.from('store_pickups').update({ estado_pedido: 'ENTREGADO' }).in('pedido', pickupKeys);
+          } else if (isRetiro) {
+            await wmsClient.from('store_pickups').update({ estado_pedido: 'LISTO PARA RETIRO' }).in('pedido', pickupKeys).in('estado_pedido', ['NO PREPARADO', 'PENDIENTE']);
+            await pickerClient.from('sucursal_pickups').update({ estado_pedido: 'LISTO PARA RETIRO' }).in('pedido', pickupKeys).in('estado_pedido', ['NO PREPARADO', 'PENDIENTE']);
           }
 
           if (wmsUpdateErr) {
@@ -1335,7 +1355,7 @@ async function syncPickedRetiroOrdersToEntregado() {
     const { data: pickedOrders, error: pErr } = await wmsClient
       .from('orders')
       .select('id, external_order_number, comercio, sucursal_pickeo, agenda, categoria_entrega, estado_wms')
-      .eq('estado_wms', 'Pickeado');
+      .in('estado_wms', ['Pickeado', 'Listo para retiro']);
 
     if (pErr || !pickedOrders || pickedOrders.length === 0) return;
 
@@ -1497,7 +1517,7 @@ async function cleanupClosedOrdersFromPickerActive() {
       });
     }
 
-    const terminalSet = new Set(['Despachado', 'Entregado', 'Cancelado', 'Archivado']);
+    const terminalSet = new Set(['Listo para retiro', 'Despachado', 'Entregado', 'Cancelado', 'Archivado']);
     const activeIdsToDelete = [];
 
     activeRows.forEach(r => {

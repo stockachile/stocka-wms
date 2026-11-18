@@ -436,7 +436,7 @@ async function syncOrders(integration) {
           delete orderDataToUpdate.estado_wms;
         } else {
           const currentWmsState = (existingOrder.estado_wms || 'En procesamiento').trim().toLowerCase();
-          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
+          const estadosWmsProtegidos = ['en preparación', 'pickeado', 'listo para retiro', 'despachado', 'incidencia', 'entregado', 'retirado', 'archivado'];
           if (estadosWmsProtegidos.includes(currentWmsState)) {
             delete orderDataToUpdate.estado_wms;
           }

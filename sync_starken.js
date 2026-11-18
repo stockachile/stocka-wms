@@ -561,8 +561,8 @@ async function syncStarkenPro() {
     };
     upsertUnificadosList.push(unificadoRecord);
 
-    // Actualizar pedido en WMS si hubo coincidencia
-    if (matchedOrder) {
+    // Actualizar pedido en WMS si hubo coincidencia (excluyendo Listo para retiro / RETIRO)
+    if (matchedOrder && matchedOrder.estado_wms !== 'Listo para retiro' && String(matchedOrder.categoria_entrega || '').toUpperCase().trim() !== 'RETIRO') {
       const updatePayload = {
         starken_status: status,
         raw_starken_data: starkenRecord

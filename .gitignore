@@ -34,6 +34,7 @@ bluex_state.json
 starken_state.json
 *.log
 # WhatsApp Bot Session Credentials
+.whatsapp_data/
 auth_info_baileys/
 whatsapp-service/auth_info_baileys/
 downloads/*.png

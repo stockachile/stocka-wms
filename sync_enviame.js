@@ -377,7 +377,7 @@ async function processEnviameDelivery(d, context = {}) {
   }
 
   if (targetOrder) {
-    if (targetOrder.estado_wms === 'Entregado') {
+    if (['Entregado', 'Listo para retiro'].includes(targetOrder.estado_wms)) {
       return Boolean(validTracking);
     }
     if (String(targetOrder.categoria_entrega || '').toUpperCase().trim() === 'RETIRO') {
@@ -456,8 +456,8 @@ async function runSync(options = {}) {
 
     if (o && o[0]) {
       const order = o[0];
-      if (order.estado_wms === 'Entregado') {
-        console.log(`🏁 Pedido [${order.comercio}] ${order.external_order_number} ya está cerrado en estado 'Entregado' (Finalizado). No requiere nuevas consultas externas.`);
+      if (['Entregado', 'Listo para retiro'].includes(order.estado_wms)) {
+        console.log(`🏁 Pedido [${order.comercio}] ${order.external_order_number} ya está en estado '${order.estado_wms}'. No requiere consultas en Envíame.`);
         return;
       }
       deliveryId = order.enviame_delivery_id;
