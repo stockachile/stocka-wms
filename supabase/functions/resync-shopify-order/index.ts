@@ -658,6 +658,9 @@ serve(async (req) => {
       raw_shopify_data: {
         ...shopifyOrder,
         line_items: isWmsItemsEdited ? (existingRaw.line_items || shopifyOrder.line_items) : shopifyOrder.line_items,
+        ...(existingRaw.admin_notes ? { admin_notes: existingRaw.admin_notes } : {}),
+        ...(existingRaw.wms_admin_notes ? { wms_admin_notes: existingRaw.wms_admin_notes } : {}),
+        ...(existingRaw.wms_on_hold ? { wms_on_hold: existingRaw.wms_on_hold } : {}),
         ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
         ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
         ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {}),

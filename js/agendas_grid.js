@@ -955,6 +955,10 @@
 
     if (col.key === 'estado_wms') {
       const displayVal = rawVal || 'En procesamiento';
+      const isHeldOrd = typeof window.isOrderWmsOnHold === 'function' && window.isOrderWmsOnHold(order);
+      const holdReasonTip = isHeldOrd && typeof window.getOrderWmsHoldInfo === 'function'
+        ? String(window.getOrderWmsHoldInfo(order).reason || '').replace(/"/g, '&quot;')
+        : '';
       let badgeCls = 'excel-badge-wms-procesamiento';
       let icon = 'ri-loader-4-line';
       const norm = displayVal.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -983,6 +987,17 @@
       } else if (norm.includes('archivado')) {
         badgeCls = 'excel-badge-wms-archivado';
         icon = 'ri-inbox-archive-line';
+      }
+
+      if (isHeldOrd) {
+        return `
+          <div class="excel-cell-content excel-cell-dropdown-wrapper" style="text-align: center; background: rgba(245, 158, 11, 0.12);">
+            <span class="excel-badge-wms" style="display: inline-flex; align-items: center; gap: 0.2rem; max-width: calc(100% - 14px); white-space: normal; line-height: 1.15; padding: 0.12rem 0.35rem; font-size: 0.66rem; font-weight: 800; background: #fef2f2; color: #991b1b; border: 1.5px solid #f59e0b; border-radius: 4px;" title="⛔ EN ESPERA — No avanzar a preparación${holdReasonTip ? ' | Motivo: ' + holdReasonTip : ''}">
+              <i class="ri-hand-line" style="color: #dc2626;"></i> EN ESPERA
+            </span>
+            <i class="ri-arrow-down-s-line excel-cell-caret" title="Pedido bloqueado en espera"></i>
+          </div>
+        `;
       }
 
       return `
@@ -1090,12 +1105,19 @@
         consolidateMiniBadgeHtml = `<span onclick="event.stopPropagation(); if(window.openConsolidateOrdersModal){window.openConsolidateOrdersModal('${orderIdStr}');}" style="background: #f0fdfa; color: #0f766e; border: 1px solid #2dd4bf; border-radius: 3px; padding: 0 3px; font-size: 0.6rem; font-weight: 800; display: inline-flex; align-items: center; gap: 1px; line-height: 1.2; cursor: pointer;" title="Consolidable <24h (${consCand.diffLabel}) · Clic para consolidar"><i class="ri-links-line" style="font-size: 0.65rem;"></i>24H</span>`;
       }
 
+      const isHeldMini = typeof window.isOrderWmsOnHold === 'function' && window.isOrderWmsOnHold(order);
+      const canHoldMini = isHeldMini || String(order.estado_wms || 'En procesamiento').trim() === 'En procesamiento';
+      const holdMiniTip = isHeldMini && typeof window.getOrderWmsHoldInfo === 'function'
+        ? String(window.getOrderWmsHoldInfo(order).reason || '').replace(/"/g, '&quot;')
+        : '';
+
       return `
         <div class="excel-cell-content" style="font-family: monospace; font-weight: 700; color: var(--color-primary, #6366f1); white-space: nowrap; font-size: 0.76rem; display: flex; align-items: center; justify-content: space-between; gap: 0.25rem; width: 100%; cursor: pointer;" title="Abrir Ficha Completa del Pedido (#${rawVal})" onclick="if(window.openWmsOrderModal){window.openWmsOrderModal('${orderIdStr}'); event.stopPropagation();}">
           <span style="text-decoration: underline; text-underline-offset: 2px; overflow: hidden; text-overflow: ellipsis;">${rawVal}</span>
           <div style="display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;">
             ${consolidateMiniBadgeHtml}
             ${stockMiniBadgeHtml}
+            ${canHoldMini ? `<button type="button" onclick="event.stopPropagation(); if(window.openOrderWmsHoldModal){window.openOrderWmsHoldModal('${orderIdStr}');}" class="btn-order-wms-hold-trigger" data-order-id="${orderIdStr}" style="background: none; border: none; padding: 0 1px; cursor: pointer; color: ${isHeldMini ? '#d97706' : 'rgba(148, 163, 184, 0.65)'}; font-size: 0.84rem; display: inline-flex; align-items: center;" title="${isHeldMini ? `⛔ EN ESPERA (No avanzar a preparación)${holdMiniTip ? ': ' + holdMiniTip : ''}` : 'Poner pedido En Espera'}"><i class="${isHeldMini ? 'ri-pause-circle-fill' : 'ri-pause-circle-line'}"></i></button>` : ''}
             <button type="button" onclick="event.stopPropagation(); if(window.openOrderAdminNoteModal){window.openOrderAdminNoteModal('${orderIdStr}');}" class="btn-order-admin-note-trigger" data-order-id="${orderIdStr}" style="background: none; border: none; padding: 0 1px; cursor: pointer; color: ${hasNote ? '#4f46e5' : 'rgba(148, 163, 184, 0.65)'}; font-size: 0.82rem; display: inline-flex; align-items: center; transition: color 0.15s ease;" title="${hasNote ? `Nota Interna Admin: ${safeNote} (Clic para ver/editar)` : 'Añadir Nota Interna Admin'}">
               <i class="${hasNote ? 'ri-lock-2-fill' : 'ri-lock-2-line'}"></i>
             </button>
@@ -2670,6 +2692,35 @@
   window.batchUpdateAgendasOrders = async function(updates) {
     if (!updates || updates.length === 0) return;
 
+    // Bloqueo de seguridad: impedir que pedidos establecidos EN ESPERA avancen de "En procesamiento" hacia preparación/despacho
+    if (typeof window.isOrderBlockedByWmsHold === 'function') {
+      const blockedOrdersMap = new Map();
+      let attemptedTarget = 'En preparación';
+      updates = updates.filter(u => {
+        if (u.field !== 'estado_wms') return true;
+        const ord = (window.loadedOrders || []).find(o => String(o.id) === String(u.orderId))
+          || (window.agendasGridState?.filteredOrders || []).find(o => String(o.id) === String(u.orderId));
+        if (ord && window.isOrderBlockedByWmsHold(ord, u.value)) {
+          blockedOrdersMap.set(String(ord.id), ord);
+          attemptedTarget = u.value || attemptedTarget;
+          return false;
+        }
+        return true;
+      });
+
+      if (blockedOrdersMap.size > 0) {
+        blockedOrdersMap.forEach((ord) => {
+          if (typeof window.refreshAgendasOrderCell === 'function') {
+            window.refreshAgendasOrderCell(ord.id, 'estado_wms', ord.estado_wms || 'En procesamiento');
+          }
+        });
+        if (typeof window.showWmsHoldBlockedAlert === 'function') {
+          await window.showWmsHoldBlockedAlert(Array.from(blockedOrdersMap.values()), attemptedTarget);
+        }
+        if (updates.length === 0) return;
+      }
+    }
+
     const saveIndicator = document.getElementById('agendas-save-indicator');
     if (saveIndicator) {
       saveIndicator.className = 'agendas-save-status saving';
@@ -3174,8 +3225,8 @@
       }
     }
 
-    // Si es admin_notes, actualizar la celda de numero_pedido para refrescar el candado y tooltip
-    if (targetColKey === 'admin_notes' || colKey === 'admin_notes') {
+    // Si es admin_notes o wms_on_hold, actualizar la celda de numero_pedido (y estado_wms para espera)
+    if (targetColKey === 'admin_notes' || colKey === 'admin_notes' || targetColKey === 'wms_on_hold' || colKey === 'wms_on_hold') {
       let numCell = document.querySelector(`.excel-cell[data-order-id="${idStr}"][data-col-key="numero_pedido"]`);
       if (!numCell) {
         const numCells = document.querySelectorAll(`.excel-cell[data-col-key="numero_pedido"]`);
@@ -4832,6 +4883,32 @@
     if (selectedOrders.length === 0) {
       Swal.fire('Atención', 'No se pudieron encontrar los datos de los pedidos seleccionados.', 'warning');
       return;
+    }
+
+    // 0. Bloquear avance de pedidos que estén marcados EN ESPERA en Torre de Control
+    if (typeof window.isOrderWmsOnHold === 'function') {
+      const heldOptiOrders = selectedOrders.filter(o => window.isOrderWmsOnHold(o));
+      if (heldOptiOrders.length > 0) {
+        if (heldOptiOrders.length === selectedOrders.length) {
+          if (typeof window.showWmsHoldBlockedAlert === 'function') {
+            await window.showWmsHoldBlockedAlert(heldOptiOrders, 'En preparación (Despacho Optiroute)');
+          }
+          return;
+        }
+        const remOpti = selectedOrders.length - heldOptiOrders.length;
+        const optiMixRes = await Swal.fire({
+          icon: 'warning',
+          title: `⛔ ${heldOptiOrders.length} pedido(s) En Espera bloqueados`,
+          html: `Hay <strong>${heldOptiOrders.length}</strong> pedido(s) seleccionados que están marcados <strong>EN ESPERA</strong> y no deben avanzar de <em>En procesamiento</em>.<br><br>¿Deseas quitarlos de la ruta y continuar únicamente con los otros <strong>${remOpti}</strong> pedido(s)?`,
+          showCancelButton: true,
+          confirmButtonText: `Quitar en espera y continuar con ${remOpti}`,
+          cancelButtonText: 'Cancelar',
+          confirmButtonColor: '#4f46e5'
+        });
+        if (!optiMixRes.isConfirmed) return;
+        const heldIdsSet = new Set(heldOptiOrders.map(o => String(o.id)));
+        selectedOrders = selectedOrders.filter(o => !heldIdsSet.has(String(o.id)));
+      }
     }
 
     // 1. Validar stock en tiempo real ANTES de abrir la configuración/envío de ruta Optiroute

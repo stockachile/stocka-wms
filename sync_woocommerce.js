@@ -686,6 +686,7 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
           ...(existingRaw.admin_notes ? { admin_notes: existingRaw.admin_notes } : {}),
           ...(existingRaw.wms_admin_notes ? { wms_admin_notes: existingRaw.wms_admin_notes } : {}),
           ...(existingRaw.internal_notes ? { internal_notes: existingRaw.internal_notes } : {}),
+          ...(existingRaw.wms_on_hold ? { wms_on_hold: existingRaw.wms_on_hold } : {}),
           ...(existingRaw.wms_manually_cancelled ? { wms_manually_cancelled: true } : {}),
           ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
           ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),

@@ -4484,6 +4484,713 @@ window.openOrderAdminNoteModal = async function(orderId) {
   }
 };
 
+// ============================================================================
+// BLOQUEO OPERATIVO "EN ESPERA" EN TORRE DE CONTROL (IMPIDE AVANCE A PREPARACIÓN)
+// ============================================================================
+window.orderWmsHoldMap = window.orderWmsHoldMap || {};
+
+window.isTargetStatusAdvancingFromProcessing = function(targetStatus) {
+  if (!targetStatus) return false;
+  const norm = String(targetStatus)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+  return (
+    norm.includes('preparacion') ||
+    norm === 'preparado' ||
+    norm === 'pickeado' ||
+    norm.includes('listo para retiro') ||
+    norm === 'despachado' ||
+    norm === 'entregado' ||
+    norm === 'retirado' ||
+    norm.includes('en transito')
+  );
+};
+
+window.getOrderWmsHoldInfo = function(order) {
+  if (!order) return { active: false, reason: '', setAt: null, setBy: null };
+
+  // 0. Priorizar estado en memoria sincronizado en caliente o desde auditoría
+  if (order.id && window.orderWmsHoldMap && window.orderWmsHoldMap[order.id] !== undefined) {
+    const mem = window.orderWmsHoldMap[order.id];
+    if (mem && typeof mem === 'object') {
+      return {
+        active: Boolean(mem.active),
+        reason: String(mem.reason || '').trim(),
+        setAt: mem.setAt || mem.set_at || null,
+        setBy: mem.setBy || mem.set_by || null
+      };
+    }
+  }
+  if (order.external_order_number && window.orderWmsHoldMap && window.orderWmsHoldMap[order.external_order_number] !== undefined) {
+    const memExt = window.orderWmsHoldMap[order.external_order_number];
+    if (memExt && typeof memExt === 'object') {
+      return {
+        active: Boolean(memExt.active),
+        reason: String(memExt.reason || '').trim(),
+        setAt: memExt.setAt || memExt.set_at || null,
+        setBy: memExt.setBy || memExt.set_by || null
+      };
+    }
+  }
+
+  // 1. Columnas dedicadas en public.orders (si están presentes)
+  if (typeof order.wms_on_hold === 'boolean') {
+    if (order.wms_on_hold) {
+      return {
+        active: true,
+        reason: String(order.wms_on_hold_reason || '').trim(),
+        setAt: order.wms_on_hold_at || null,
+        setBy: order.wms_on_hold_by || null
+      };
+    }
+    // Si la columna existe en la fila y es explícitamente false, respetar salvo que _wmsHoldInfo en memoria diga lo contrario
+    if (order._wmsHoldInfo && typeof order._wmsHoldInfo === 'object') {
+      return {
+        active: Boolean(order._wmsHoldInfo.active),
+        reason: String(order._wmsHoldInfo.reason || '').trim(),
+        setAt: order._wmsHoldInfo.setAt || null,
+        setBy: order._wmsHoldInfo.setBy || null
+      };
+    }
+  }
+
+  // 2. JSONB raw_*_data de plataformas / integraciones
+  const rawPayloads = [
+    order.raw_shopify_data,
+    order.raw_woocommerce_data,
+    order.raw_meli_data,
+    order.raw_falabella_data,
+    order.raw_paris_data,
+    order.raw_ripley_data,
+    order.raw_jumpseller_data,
+    order.raw_tiendanube_data,
+    order.raw_walmart_data,
+    order.raw_lightdata_data
+  ];
+  for (const raw of rawPayloads) {
+    if (raw && typeof raw === 'object' && raw.wms_on_hold !== undefined) {
+      if (typeof raw.wms_on_hold === 'object' && raw.wms_on_hold !== null) {
+        return {
+          active: Boolean(raw.wms_on_hold.active),
+          reason: String(raw.wms_on_hold.reason || '').trim(),
+          setAt: raw.wms_on_hold.set_at || raw.wms_on_hold.setAt || null,
+          setBy: raw.wms_on_hold.set_by || raw.wms_on_hold.setBy || null
+        };
+      }
+      if (typeof raw.wms_on_hold === 'boolean') {
+        return {
+          active: raw.wms_on_hold,
+          reason: String(raw.wms_on_hold_reason || '').trim(),
+          setAt: null,
+          setBy: null
+        };
+      }
+    }
+  }
+
+  // 3. Fallback en memoria
+  if (order._wmsHoldInfo && typeof order._wmsHoldInfo === 'object') {
+    return {
+      active: Boolean(order._wmsHoldInfo.active),
+      reason: String(order._wmsHoldInfo.reason || '').trim(),
+      setAt: order._wmsHoldInfo.setAt || null,
+      setBy: order._wmsHoldInfo.setBy || null
+    };
+  }
+
+  return { active: false, reason: '', setAt: null, setBy: null };
+};
+
+window.isOrderWmsOnHold = function(order) {
+  if (!order) return false;
+  const currentWms = String(order.estado_wms || 'En procesamiento').trim();
+  if (currentWms !== 'En procesamiento') return false;
+  const info = window.getOrderWmsHoldInfo(order);
+  return Boolean(info && info.active);
+};
+
+window.isOrderBlockedByWmsHold = function(order, targetStatus = 'En preparación') {
+  if (!window.isOrderWmsOnHold(order)) return false;
+  return window.isTargetStatusAdvancingFromProcessing(targetStatus);
+};
+
+window.syncOrderWmsHoldsFromAuditLogs = async function(orderIds = null) {
+  try {
+    if (!window.supabase) return;
+    window.orderWmsHoldMap = window.orderWmsHoldMap || {};
+
+    let q = supabase
+      .from('order_audit_logs')
+      .select('order_id, user_email, action, details, created_at')
+      .ilike('action', '%Espera WMS%')
+      .order('created_at', { ascending: true });
+
+    if (Array.isArray(orderIds) && orderIds.length > 0 && orderIds.length <= 250) {
+      q = q.in('order_id', orderIds);
+    }
+
+    const { data: logs, error } = await q;
+    if (error) {
+      console.warn('Aviso sincronizando estados En Espera desde order_audit_logs:', error);
+      return;
+    }
+
+    if (Array.isArray(logs) && logs.length > 0) {
+      logs.forEach(l => {
+        if (!l || !l.order_id) return;
+        const actLow = String(l.action || '').toLowerCase();
+        const isReleased = actLow.includes('liberada') || actLow.includes('desbloqueado') || l.details?.wms_on_hold === false;
+        const holdObj = {
+          active: !isReleased,
+          reason: isReleased ? '' : String(l.details?.reason || '').trim(),
+          setAt: isReleased ? null : (l.details?.set_at || l.created_at || null),
+          setBy: isReleased ? null : (l.details?.set_by || l.user_email || null)
+        };
+        window.orderWmsHoldMap[l.order_id] = holdObj;
+
+        const ord = (window.loadedOrders || []).find(o => String(o.id) === String(l.order_id));
+        if (ord) {
+          ord.wms_on_hold = holdObj.active;
+          ord.wms_on_hold_reason = holdObj.reason || null;
+          ord.wms_on_hold_at = holdObj.setAt;
+          ord.wms_on_hold_by = holdObj.setBy;
+          ord._wmsHoldInfo = holdObj;
+          delete ord._wmsTags;
+          delete ord._wmsSearchIndex;
+          if (ord.external_order_number) {
+            window.orderWmsHoldMap[ord.external_order_number] = holdObj;
+          }
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('Error en syncOrderWmsHoldsFromAuditLogs:', err);
+  }
+};
+
+window.toggleWmsHoldFilter = function(event) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  const tagSelect = document.getElementById('filter-order-tag');
+  const isCurrentlyActive = tagSelect && tagSelect.value === 'EN ESPERA (BLOQUEADO)';
+  window.wmsActiveTab = 'En procesamiento';
+  window.wmsCurrentPage = 1;
+  if (tagSelect) {
+    if (isCurrentlyActive) {
+      tagSelect.value = '';
+    } else {
+      if (!Array.from(tagSelect.options).some(o => o.value === 'EN ESPERA (BLOQUEADO)')) {
+        const opt = document.createElement('option');
+        opt.value = 'EN ESPERA (BLOQUEADO)';
+        opt.textContent = '⏸️ EN ESPERA (No avanzar a preparación)';
+        tagSelect.appendChild(opt);
+      }
+      tagSelect.value = 'EN ESPERA (BLOQUEADO)';
+    }
+  }
+  if (typeof window.applyWmsFiltersAndRender === 'function') {
+    window.applyWmsFiltersAndRender();
+  }
+};
+
+window.showWmsHoldBlockedAlert = async function(blockedOrders, attemptedTargetLabel = 'En preparación') {
+  const list = Array.isArray(blockedOrders) ? blockedOrders.filter(Boolean) : (blockedOrders ? [blockedOrders] : []);
+  if (list.length === 0) return;
+
+  const esc = (str) => (window.escapeHtml ? window.escapeHtml(String(str ?? '')) : String(str ?? ''));
+
+  if (list.length === 1) {
+    const ord = list[0];
+    const folio = ord.external_order_number || (ord.id ? String(ord.id).slice(0, 8) : 'Pedido');
+    const comercio = ord.comercio ? ` · ${ord.comercio}` : '';
+    const info = window.getOrderWmsHoldInfo(ord);
+    const setAtFormatted = info.setAt ? new Date(info.setAt).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' }) : '';
+
+    const res = await Swal.fire({
+      icon: 'warning',
+      title: '<span style="color: #b45309; font-weight: 800;"><i class="ri-hand-line" style="color: #dc2626;"></i> Avance Bloqueado · Pedido en Espera</span>',
+      width: '560px',
+      html: `
+        <div style="text-align: left; font-size: 0.88rem; line-height: 1.45;">
+          <div style="background: #fffbeb; border: 1.5px solid #f59e0b; border-left: 5px solid #dc2626; border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 0.85rem; color: #78350f;">
+            <div style="font-weight: 800; font-size: 0.94rem; color: #991b1b; margin-bottom: 0.25rem;">
+              ⛔ El pedido #${esc(folio)}${esc(comercio)} no debe avanzar de "En procesamiento"
+            </div>
+            <div>
+              Se intentó mover a <strong>"${esc(attemptedTargetLabel)}"</strong>, pero este pedido se encuentra retenido <strong>EN ESPERA</strong> en la Torre de Control.
+            </div>
+          </div>
+          ${info.reason ? `
+            <div style="background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #cbd5e1); border-radius: 6px; padding: 0.6rem 0.8rem; margin-bottom: 0.65rem;">
+              <div style="font-size: 0.73rem; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 0.2rem;">Motivo de la espera registrado:</div>
+              <div style="font-weight: 700; color: var(--color-text-main, #0f172a); white-space: pre-wrap;">${esc(info.reason)}</div>
+              ${(info.setBy || setAtFormatted) ? `<div style="font-size: 0.72rem; color: #64748b; margin-top: 0.3rem;"><i class="ri-user-settings-line"></i> ${esc(info.setBy || 'Admin WMS')}${setAtFormatted ? ' · ' + esc(setAtFormatted) : ''}</div>` : ''}
+            </div>
+          ` : ''}
+          <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted, #64748b);">
+            El pedido se mantuvo en <strong>En procesamiento</strong>. Si ya se resolvió el motivo y deseas habilitar su preparación, primero debes liberar la espera explícitamente.
+          </p>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'Entendido (Mantener en espera)',
+      cancelButtonText: '<i class="ri-lock-unlock-line"></i> Gestionar / Quitar Espera',
+      confirmButtonColor: '#d97706',
+      cancelButtonColor: '#475569'
+    });
+
+    if (res.dismiss === Swal.DismissReason.cancel && ord.id) {
+      await window.openOrderWmsHoldModal(ord.id);
+    }
+    return;
+  }
+
+  const rowsHtml = list.slice(0, 15).map(ord => {
+    const folio = ord.external_order_number || (ord.id ? String(ord.id).slice(0, 8) : 'Pedido');
+    const info = window.getOrderWmsHoldInfo(ord);
+    return `<li style="margin-bottom: 0.3rem;"><strong>#${esc(folio)}</strong> (${esc(ord.comercio || 'Sin comercio')})${info.reason ? ` — <span style="color:#92400e;">${esc(info.reason)}</span>` : ''}</li>`;
+  }).join('');
+  const extraCount = list.length > 15 ? `<div style="font-size:0.76rem; color:#64748b; margin-top:0.25rem;">...y ${list.length - 15} pedido(s) más en espera.</div>` : '';
+
+  await Swal.fire({
+    icon: 'warning',
+    title: `<span style="color: #b45309; font-weight: 800;"><i class="ri-hand-line" style="color: #dc2626;"></i> Avance Bloqueado (${list.length} en Espera)</span>`,
+    width: '600px',
+    html: `
+      <div style="text-align: left; font-size: 0.86rem; line-height: 1.45;">
+        <div style="background: #fffbeb; border: 1.5px solid #f59e0b; border-left: 5px solid #dc2626; border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 0.8rem; color: #78350f;">
+          Los <strong>${list.length}</strong> pedidos seleccionados están marcados <strong>EN ESPERA</strong> y tienen bloqueado su avance desde <strong>"En procesamiento"</strong> hacia <strong>"${esc(attemptedTargetLabel)}"</strong>.
+        </div>
+        <div style="max-height: 180px; overflow-y: auto; background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: 6px; padding: 0.6rem 0.85rem; margin-bottom: 0.65rem;">
+          <ul style="margin: 0; padding-left: 1.1rem; font-size: 0.8rem;">${rowsHtml}</ul>
+          ${extraCount}
+        </div>
+        <p style="margin: 0; font-size: 0.79rem; color: var(--color-text-muted, #64748b);">
+          Para avanzar estos pedidos a preparación, primero quita su estado <strong>En Espera</strong> desde su fila o mediante el botón masivo <strong>⏸️ En Espera</strong>.
+        </p>
+      </div>
+    `,
+    confirmButtonText: 'Entendido',
+    confirmButtonColor: '#d97706'
+  });
+};
+
+window.saveOrderWmsHold = async function(orderId, { active, reason = '' } = {}, opts = {}) {
+  const silent = Boolean(opts.silent);
+  const skipRender = Boolean(opts.skipRender);
+  try {
+    let order = (window.loadedOrders || []).find(o => String(o.id) === String(orderId))
+      || (window.agendasGridState?.filteredOrders || []).find(o => String(o.id) === String(orderId));
+
+    if (!order && window.supabase) {
+      const { data: dbOrd } = await supabase.from('orders').select('*').eq('id', orderId).maybeSingle();
+      if (dbOrd) order = dbOrd;
+    }
+
+    const currentWms = String(order?.estado_wms || 'En procesamiento').trim();
+    if (active && currentWms !== 'En procesamiento') {
+      if (!silent && window.Swal) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Solo aplicable en "En procesamiento"',
+          html: `El bloqueo <strong>En Espera</strong> está diseñado para impedir que un pedido avance desde <strong>En procesamiento</strong> hacia preparación.<br><br>Este pedido se encuentra actualmente en <strong>"${window.escapeHtml ? window.escapeHtml(currentWms) : currentWms}"</strong>.`,
+          confirmButtonColor: '#6366f1'
+        });
+      }
+      return false;
+    }
+
+    const cleanReason = active ? String(reason || '').trim() : '';
+    const nowIso = new Date().toISOString();
+    let userEmail = 'admin@stocka.cl';
+    let userId = null;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        userEmail = session.user.email || userEmail;
+        userId = session.user.id || null;
+      }
+    } catch (_) {}
+
+    const rawKey = order?.raw_shopify_data ? 'raw_shopify_data' :
+                   (order?.raw_woocommerce_data ? 'raw_woocommerce_data' :
+                   (order?.raw_falabella_data ? 'raw_falabella_data' :
+                   (order?.raw_paris_data ? 'raw_paris_data' :
+                   (order?.raw_ripley_data ? 'raw_ripley_data' :
+                   (order?.raw_jumpseller_data ? 'raw_jumpseller_data' :
+                   (order?.raw_tiendanube_data ? 'raw_tiendanube_data' :
+                   (order?.raw_meli_data ? 'raw_meli_data' :
+                   (order?.raw_walmart_data ? 'raw_walmart_data' : 'raw_shopify_data'))))))));
+
+    const holdMeta = active
+      ? { active: true, reason: cleanReason, set_at: nowIso, set_by: userEmail }
+      : { active: false, reason: '', released_at: nowIso, released_by: userEmail };
+
+    const existingRaw = (order && order[rawKey] && typeof order[rawKey] === 'object') ? { ...order[rawKey] } : {};
+    existingRaw.wms_on_hold = holdMeta;
+    existingRaw.wms_custom_edited = true;
+
+    const updatePayload = {
+      [rawKey]: existingRaw,
+      wms_on_hold: Boolean(active),
+      wms_on_hold_reason: active ? (cleanReason || null) : null,
+      wms_on_hold_at: active ? nowIso : null,
+      wms_on_hold_by: active ? userEmail : null
+    };
+
+    let { error: updateErr } = await supabase
+      .from('orders')
+      .update(updatePayload)
+      .eq('id', orderId);
+
+    // Fallback transparente si la migración SQL de columnas wms_on_hold aún no se ha corrido (42703)
+    if (updateErr && (updateErr.code === '42703' || String(updateErr.message || '').includes('wms_on_hold'))) {
+      const fallbackPayload = { [rawKey]: existingRaw };
+      const retryRes = await supabase
+        .from('orders')
+        .update(fallbackPayload)
+        .eq('id', orderId);
+      updateErr = retryRes.error;
+    }
+
+    if (updateErr) throw updateErr;
+
+    const memHoldObj = {
+      active: Boolean(active),
+      reason: cleanReason,
+      setAt: active ? nowIso : null,
+      setBy: active ? userEmail : null
+    };
+
+    window.orderWmsHoldMap = window.orderWmsHoldMap || {};
+    window.orderWmsHoldMap[orderId] = memHoldObj;
+
+    if (order) {
+      order[rawKey] = existingRaw;
+      order.wms_on_hold = Boolean(active);
+      order.wms_on_hold_reason = active ? (cleanReason || null) : null;
+      order.wms_on_hold_at = active ? nowIso : null;
+      order.wms_on_hold_by = active ? userEmail : null;
+      order._wmsHoldInfo = memHoldObj;
+      if (order.external_order_number) {
+        window.orderWmsHoldMap[order.external_order_number] = memHoldObj;
+      }
+      delete order._wmsTags;
+      delete order._wmsSearchIndex;
+    }
+
+    // Registrar trazabilidad en order_audit_logs
+    try {
+      await supabase.from('order_audit_logs').insert({
+        order_id: orderId,
+        user_id: userId,
+        user_email: userEmail,
+        action: active ? 'Espera WMS Activada (Avance Bloqueado)' : 'Espera WMS Liberada (Avance Habilitado)',
+        details: {
+          comment: active
+            ? (cleanReason ? `⏸️ Pedido puesto EN ESPERA (No avanzar de En procesamiento). Motivo: ${cleanReason}` : '⏸️ Pedido puesto EN ESPERA (No avanzar de En procesamiento)')
+            : '▶️ Espera liberada: pedido habilitado nuevamente para avanzar a preparación',
+          wms_on_hold: Boolean(active),
+          reason: cleanReason,
+          set_at: active ? nowIso : null,
+          set_by: active ? userEmail : null
+        }
+      });
+      if (!skipRender && typeof window.loadOrderAuditLogs === 'function' && window.wmsExpandedOrderIds?.has(orderId)) {
+        window.loadOrderAuditLogs(orderId);
+      }
+    } catch (auditErr) {
+      console.warn('Aviso registrando auditoría de Espera WMS:', auditErr);
+    }
+
+    if (!skipRender) {
+      if (window.wmsDbCache && typeof window.wmsDbCache.clearCache === 'function') {
+        window.wmsDbCache.clearCache().catch(() => {});
+      }
+      if (typeof window.updateOrderTagFilterOptions === 'function') {
+        window.updateOrderTagFilterOptions();
+      }
+      if (typeof window.applyWmsFiltersAndRender === 'function') {
+        window.applyWmsFiltersAndRender();
+      }
+      if (typeof window.refreshAgendasOrderCell === 'function') {
+        window.refreshAgendasOrderCell(orderId, 'estado_wms', order?.estado_wms || 'En procesamiento');
+        window.refreshAgendasOrderCell(orderId, 'wms_on_hold', Boolean(active));
+      }
+      if (window._activeSingleOrderPageId && String(window._activeSingleOrderPageId) === String(orderId) && typeof window.renderSingleOrderPage === 'function') {
+        window.renderSingleOrderPage(orderId, { isAdmin: true });
+      }
+    }
+
+    if (!silent) {
+      const msg = active
+        ? '⏸️ Pedido establecido EN ESPERA (Avance a preparación bloqueado)'
+        : '▶️ Espera liberada (El pedido ya puede avanzar a preparación)';
+      if (window.showToast) {
+        window.showToast(msg, 'success');
+      } else if (window.Swal) {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'success',
+          title: msg,
+          showConfirmButton: false,
+          timer: 2200
+        });
+      }
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error guardando estado En Espera WMS:', err);
+    if (!silent && window.Swal) {
+      Swal.fire('Error', 'No se pudo actualizar el estado En Espera: ' + (err.message || err), 'error');
+    }
+    return false;
+  }
+};
+
+window.openOrderWmsHoldModal = async function(orderId) {
+  if (!orderId) return;
+  let order = (window.loadedOrders || []).find(o => String(o.id) === String(orderId))
+    || (window.agendasGridState?.filteredOrders || []).find(o => String(o.id) === String(orderId));
+
+  if (!order && window.supabase) {
+    try {
+      const { data: dbOrd } = await supabase.from('orders').select('*').eq('id', orderId).maybeSingle();
+      if (dbOrd) order = dbOrd;
+    } catch (_) {}
+  }
+
+  if (!order) return;
+
+  const esc = (s) => (window.escapeHtml ? window.escapeHtml(String(s ?? '')) : String(s ?? ''));
+  const currentWms = String(order.estado_wms || 'En procesamiento').trim();
+  const orderNum = order.external_order_number || String(order.id).slice(0, 8);
+  const comercio = order.comercio ? ` · ${order.comercio}` : '';
+  const holdInfo = window.getOrderWmsHoldInfo(order);
+  const isCurrentlyHeld = window.isOrderWmsOnHold(order);
+
+  if (!isCurrentlyHeld && currentWms !== 'En procesamiento') {
+    await Swal.fire({
+      icon: 'info',
+      title: 'Pedido fuera de "En procesamiento"',
+      html: `
+        <div style="text-align: left; font-size: 0.88rem; line-height: 1.45;">
+          <p>El pedido <strong>#${esc(orderNum)}${esc(comercio)}</strong> se encuentra actualmente en estado <strong>"${esc(currentWms)}"</strong>.</p>
+          <p style="margin-top: 0.5rem; color: var(--color-text-muted);">La opción <strong>En Espera</strong> retiene pedidos en estado <strong>"En procesamiento"</strong> para bloquear su paso a preparación. Si necesitas retenerlo antes de preparar, devuélvelo primero a <em>En procesamiento</em>.</p>
+        </div>
+      `,
+      confirmButtonColor: '#6366f1'
+    });
+    return;
+  }
+
+  const presetReasons = [
+    'Confirmar dirección / comuna con cliente',
+    'Cliente solicitó cambio de producto',
+    'Esperando confirmación de pago',
+    'Esperando reposición / ingreso de stock',
+    'Retener para consolidar con otro pedido',
+    'Instrucción directa del comercio'
+  ];
+
+  const setAtText = holdInfo.setAt ? new Date(holdInfo.setAt).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' }) : '';
+
+  const modalRes = await Swal.fire({
+    title: `<div style="display:flex; align-items:center; gap:0.5rem; justify-content:center; color:${isCurrentlyHeld ? '#b45309' : '#d97706'}; font-size:1.15rem; font-weight:800;">
+              <i class="${isCurrentlyHeld ? 'ri-pause-circle-fill' : 'ri-hand-line'}" style="font-size:1.4rem; color:${isCurrentlyHeld ? '#dc2626' : '#d97706'};"></i>
+              <span>${isCurrentlyHeld ? 'Pedido en Espera (Avance Bloqueado)' : 'Establecer Pedido en Espera'}</span>
+            </div>`,
+    width: '560px',
+    html: `
+      <div style="text-align: left; font-size: 0.86rem; line-height: 1.4;">
+        <div style="background: ${isCurrentlyHeld ? '#fef2f2' : '#fffbeb'}; border: 1.5px solid ${isCurrentlyHeld ? '#fca5a5' : '#fcd34d'}; border-left: 4px solid ${isCurrentlyHeld ? '#dc2626' : '#d97706'}; padding: 0.65rem 0.85rem; border-radius: 6px; margin-bottom: 0.9rem;">
+          <div style="font-weight: 800; color: ${isCurrentlyHeld ? '#991b1b' : '#92400e'}; font-size: 0.9rem;">
+            Pedido #${esc(orderNum)}${esc(comercio)}
+          </div>
+          <div style="font-size: 0.78rem; color: ${isCurrentlyHeld ? '#7f1d1d' : '#78350f'}; margin-top: 0.2rem;">
+            ${isCurrentlyHeld
+              ? `⛔ Actualmente <strong>EN ESPERA</strong>: este pedido tiene <strong>bloqueado su avance a Preparación</strong>.${(holdInfo.setBy || setAtText) ? `<br><span style="font-size:0.72rem; opacity:0.88;">Activado por ${esc(holdInfo.setBy || 'Admin')}${setAtText ? ' el ' + esc(setAtText) : ''}</span>` : ''}`
+              : `Al activar <strong>En Espera</strong>, se mostrará una alerta visual en Torre de Control indicando que <strong>no debe avanzar de "En procesamiento"</strong> y se bloqueará cualquier intento de pasarlo a <strong>"En preparación"</strong>.`}
+          </div>
+        </div>
+
+        <label style="display: block; font-weight: 700; font-size: 0.8rem; color: var(--color-text-main, #1e293b); margin-bottom: 0.35rem;">
+          Motivo o instrucción de espera <span style="font-weight: 500; color: var(--color-text-muted);">(visible en la alerta visual)</span>:
+        </label>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.5rem;">
+          ${presetReasons.map(r => `
+            <button type="button" class="wms-hold-preset-chip" data-reason="${esc(r)}" style="background: var(--color-bg, #f1f5f9); border: 1px solid var(--color-border, #cbd5e1); color: var(--color-text-main, #334155); border-radius: 99px; padding: 0.18rem 0.55rem; font-size: 0.72rem; font-weight: 600; cursor: pointer; transition: all 0.15s;">
+              + ${esc(r)}
+            </button>
+          `).join('')}
+        </div>
+        <textarea id="swal-wms-hold-reason" class="wms-input-ctrl" style="width: 100%; min-height: 82px; padding: 0.5rem 0.65rem; font-size: 0.84rem; border-radius: 6px; border: 1.5px solid #f59e0b; box-sizing: border-box; resize: vertical; font-family: inherit;" placeholder="Ej: Cliente pidió confirmar cambio de talla antes de enviar a bodega...">${esc(holdInfo.reason || '')}</textarea>
+      </div>
+    `,
+    showCancelButton: true,
+    showDenyButton: isCurrentlyHeld,
+    confirmButtonText: isCurrentlyHeld
+      ? '<i class="ri-play-circle-line"></i> Quitar Espera (Desbloquear Avance)'
+      : '<i class="ri-pause-circle-fill"></i> Poner en Espera y Bloquear Avance',
+    denyButtonText: '<i class="ri-save-line"></i> Actualizar Motivo',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: isCurrentlyHeld ? '#059669' : '#d97706',
+    denyButtonColor: '#4f46e5',
+    cancelButtonColor: '#94a3b8',
+    focusConfirm: false,
+    didOpen: () => {
+      const textarea = document.getElementById('swal-wms-hold-reason');
+      document.querySelectorAll('.wms-hold-preset-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const r = btn.getAttribute('data-reason') || '';
+          if (textarea) {
+            textarea.value = r;
+            textarea.focus();
+          }
+        });
+      });
+      if (textarea && !isCurrentlyHeld) {
+        textarea.focus();
+      }
+    },
+    preConfirm: () => {
+      const reasonVal = document.getElementById('swal-wms-hold-reason')?.value?.trim() || '';
+      if (isCurrentlyHeld) {
+        return { action: 'release', reason: '' };
+      }
+      return { action: 'activate', reason: reasonVal };
+    },
+    preDeny: () => {
+      const reasonVal = document.getElementById('swal-wms-hold-reason')?.value?.trim() || '';
+      return { action: 'update_reason', reason: reasonVal };
+    }
+  });
+
+  if (modalRes.isConfirmed && modalRes.value) {
+    if (modalRes.value.action === 'release') {
+      await window.saveOrderWmsHold(orderId, { active: false, reason: '' });
+    } else {
+      await window.saveOrderWmsHold(orderId, { active: true, reason: modalRes.value.reason });
+    }
+  } else if (modalRes.isDenied && modalRes.value) {
+    await window.saveOrderWmsHold(orderId, { active: true, reason: modalRes.value.reason });
+  }
+};
+
+window.openBulkWmsHoldModal = async function() {
+  const ids = Array.from(window.wmsSelectedOrderIds || []);
+  if (ids.length === 0) {
+    if (window.Swal) Swal.fire('Sin selección', 'Selecciona al menos un pedido en la Torre de Control.', 'info');
+    return;
+  }
+
+  const esc = (s) => (window.escapeHtml ? window.escapeHtml(String(s ?? '')) : String(s ?? ''));
+  const selectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
+  const procOrders = selectedOrders.filter(o => String(o.estado_wms || 'En procesamiento').trim() === 'En procesamiento');
+  const heldOrders = procOrders.filter(o => window.isOrderWmsOnHold(o));
+  const nonProcCount = selectedOrders.length - procOrders.length;
+
+  if (procOrders.length === 0) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Sin pedidos en "En procesamiento"',
+      html: `Ninguno de los <strong>${selectedOrders.length}</strong> pedidos seleccionados está en estado <strong>"En procesamiento"</strong>.<br>La espera operativa solo aplica a pedidos en procesamiento antes de pasar a preparación.`,
+      confirmButtonColor: '#d97706'
+    });
+    return;
+  }
+
+  const allAlreadyHeld = heldOrders.length === procOrders.length && heldOrders.length > 0;
+
+  const modalRes = await Swal.fire({
+    title: `<div style="display:flex; align-items:center; gap:0.5rem; justify-content:center; color:#b45309; font-size:1.12rem; font-weight:800;">
+              <i class="ri-pause-circle-fill" style="color:#d97706; font-size:1.35rem;"></i>
+              <span>Gestión Masiva de Pedidos en Espera (${procOrders.length})</span>
+            </div>`,
+    width: '560px',
+    html: `
+      <div style="text-align: left; font-size: 0.86rem; line-height: 1.42;">
+        <div style="background: #fffbeb; border: 1px solid #fcd34d; border-left: 4px solid #d97706; padding: 0.65rem 0.85rem; border-radius: 6px; margin-bottom: 0.85rem; color: #78350f;">
+          <div><strong>${procOrders.length}</strong> pedido(s) en <strong>En procesamiento</strong> seleccionados (${heldOrders.length} actualmente en espera).</div>
+          ${nonProcCount > 0 ? `<div style="margin-top: 0.25rem; font-size: 0.76rem; color: #b45309;">* Se omitirán ${nonProcCount} pedido(s) que ya no están en "En procesamiento".</div>` : ''}
+        </div>
+        <label style="display: block; font-weight: 700; font-size: 0.8rem; margin-bottom: 0.3rem;">
+          Motivo de la espera (al poner en espera):
+        </label>
+        <input id="swal-bulk-wms-hold-reason" type="text" class="wms-input-ctrl" style="width: 100%; padding: 0.5rem 0.65rem; font-size: 0.84rem; border-radius: 6px; border: 1.5px solid #f59e0b; box-sizing: border-box;" placeholder="Ej: Esperando confirmación comercial / stock / dirección..." value="" />
+      </div>
+    `,
+    showCancelButton: true,
+    showDenyButton: heldOrders.length > 0 && !allAlreadyHeld,
+    confirmButtonText: allAlreadyHeld
+      ? `<i class="ri-play-circle-line"></i> Liberar Espera (${heldOrders.length})`
+      : `<i class="ri-pause-circle-fill"></i> Poner en Espera (${procOrders.length})`,
+    denyButtonText: `<i class="ri-play-circle-line"></i> Liberar los ${heldOrders.length} en espera`,
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: allAlreadyHeld ? '#059669' : '#d97706',
+    denyButtonColor: '#059669',
+    cancelButtonColor: '#94a3b8',
+    preConfirm: () => ({
+      mode: allAlreadyHeld ? 'release' : 'activate',
+      reason: document.getElementById('swal-bulk-wms-hold-reason')?.value?.trim() || ''
+    }),
+    preDeny: () => ({
+      mode: 'release',
+      reason: ''
+    })
+  });
+
+  const chosen = modalRes.isConfirmed ? modalRes.value : (modalRes.isDenied ? modalRes.value : null);
+  if (!chosen) return;
+
+  const targets = chosen.mode === 'release' ? heldOrders : procOrders;
+  if (targets.length === 0) return;
+
+  Swal.fire({
+    title: chosen.mode === 'release' ? 'Liberando pedidos en espera...' : 'Estableciendo pedidos en espera...',
+    html: `<div style="font-size: 0.86rem; color: var(--color-text-muted);">Procesando ${targets.length} pedido(s)...</div>`,
+    allowOutsideClick: false,
+    showConfirmButton: false,
+    didOpen: () => Swal.showLoading()
+  });
+
+  let okCount = 0;
+  for (const ord of targets) {
+    const ok = await window.saveOrderWmsHold(
+      ord.id,
+      { active: chosen.mode === 'activate', reason: chosen.reason },
+      { silent: true, skipRender: true }
+    );
+    if (ok) okCount++;
+  }
+
+  if (window.wmsDbCache && typeof window.wmsDbCache.clearCache === 'function') {
+    window.wmsDbCache.clearCache().catch(() => {});
+  }
+  if (typeof window.updateOrderTagFilterOptions === 'function') {
+    window.updateOrderTagFilterOptions();
+  }
+  if (typeof window.applyWmsFiltersAndRender === 'function') {
+    window.applyWmsFiltersAndRender();
+  }
+
+  Swal.fire({
+    icon: 'success',
+    title: chosen.mode === 'activate' ? '⏸️ Pedidos en Espera' : '▶️ Espera Liberada',
+    text: chosen.mode === 'activate'
+      ? `Se establecieron ${okCount} pedido(s) EN ESPERA con bloqueo de avance a preparación.`
+      : `Se liberaron ${okCount} pedido(s) de espera; ya pueden avanzar a preparación.`,
+    timer: 2300,
+    showConfirmButton: false
+  });
+};
+
 // Helper para obtener la lista limpia de códigos de barra alternativos (multi-código) de un producto
 window.getProductAlternateBarcodes = function(prod) {
   if (!prod) return [];
@@ -6141,6 +6848,10 @@ window.pollForLightDataTracking = function(orderIds, maxWaitSeconds = 180) {
 // Función global para solicitar la generación de la etiqueta LightData vía Edge Function
 window.generarEtiquetaLightData = async function(orderId, btn) {
   const order = (window.loadedOrders || []).find(o => o.id === orderId);
+  if (order && typeof window.isOrderWmsOnHold === 'function' && window.isOrderWmsOnHold(order)) {
+    await window.showWmsHoldBlockedAlert([order], 'En preparación (Etiqueta Alpha)');
+    return;
+  }
   const effCat = order
     ? (typeof window.getOrderEffectiveCategoriaEntrega === 'function' ? window.getOrderEffectiveCategoriaEntrega(order) : String(order.categoria_entrega || '').toUpperCase().trim())
     : '';
@@ -6371,10 +7082,46 @@ window.generarEtiquetaLightData = async function(orderId, btn) {
 
 // Función global para solicitar la generación masiva de etiquetas en LightData
 window.bulkCreateLightDataLabels = async function(btn) {
-  const ids = Array.from(window.wmsSelectedOrderIds || []);
+  let ids = Array.from(window.wmsSelectedOrderIds || []);
   if (ids.length === 0) {
     alert('No has seleccionado ningún pedido.');
     return;
+  }
+
+  const initialSelected = (window.loadedOrders || []).filter(o => ids.includes(o.id));
+  const heldInSelection = initialSelected.filter(o => typeof window.isOrderWmsOnHold === 'function' && window.isOrderWmsOnHold(o));
+  if (heldInSelection.length > 0) {
+    if (heldInSelection.length === initialSelected.length) {
+      await window.showWmsHoldBlockedAlert(heldInSelection, 'En preparación (Etiquetas Alpha)');
+      return;
+    }
+    const nonHeldCount = initialSelected.length - heldInSelection.length;
+    const esc = (s) => (window.escapeHtml ? window.escapeHtml(String(s ?? '')) : String(s ?? ''));
+    const heldListHtml = heldInSelection.slice(0, 10).map(o => {
+      const info = window.getOrderWmsHoldInfo(o);
+      return `<li><strong>#${esc(o.external_order_number || String(o.id).slice(0, 8))}</strong> (${esc(o.comercio || '-')})${info.reason ? ` — <span style="color:#92400e;">${esc(info.reason)}</span>` : ''}</li>`;
+    }).join('');
+    const mixRes = await Swal.fire({
+      icon: 'warning',
+      title: `⛔ ${heldInSelection.length} pedido(s) En Espera bloqueados`,
+      width: '580px',
+      html: `
+        <div style="text-align: left; font-size: 0.86rem; line-height: 1.45;">
+          <div style="background: #fffbeb; border: 1.5px solid #f59e0b; border-left: 4px solid #dc2626; border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.75rem; color: #78350f;">
+            En tu selección hay <strong>${heldInSelection.length}</strong> pedido(s) marcados <strong>EN ESPERA</strong> que <strong>no pueden avanzar a En preparación</strong> ni generar etiqueta Alpha:
+          </div>
+          <ul style="margin: 0 0 0.75rem 0; padding-left: 1.2rem; font-size: 0.8rem; max-height: 140px; overflow-y: auto;">${heldListHtml}</ul>
+          <p style="margin: 0; font-size: 0.82rem;">¿Deseas omitir los pedidos en espera y continuar únicamente con los otros <strong>${nonHeldCount}</strong> pedido(s) habilitados?</p>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: `Omitir en espera y procesar ${nonHeldCount}`,
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#e91e63'
+    });
+    if (!mixRes.isConfirmed) return;
+    const heldIdsSet = new Set(heldInSelection.map(o => o.id));
+    ids = ids.filter(id => !heldIdsSet.has(id));
   }
   
   // Validación previa de fono y comuna masiva
@@ -6754,10 +7501,31 @@ window.bulkExportAlphaExcel = async function(btn = null) {
     return;
   }
 
-  const selectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
+  let selectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
   if (selectedOrders.length === 0) {
     alert('No se encontraron los datos de los pedidos seleccionados en memoria.');
     return;
+  }
+
+  const heldExcelOrders = selectedOrders.filter(o => typeof window.isOrderWmsOnHold === 'function' && window.isOrderWmsOnHold(o));
+  if (heldExcelOrders.length > 0) {
+    if (heldExcelOrders.length === selectedOrders.length) {
+      await window.showWmsHoldBlockedAlert(heldExcelOrders, 'En preparación (Planilla Excel Alpha)');
+      return;
+    }
+    const remCount = selectedOrders.length - heldExcelOrders.length;
+    const mixExcel = await Swal.fire({
+      icon: 'warning',
+      title: `⛔ ${heldExcelOrders.length} pedido(s) En Espera bloqueados`,
+      html: `Hay <strong>${heldExcelOrders.length}</strong> pedido(s) marcados <strong>EN ESPERA</strong> que no deben avanzar de <em>En procesamiento</em>.<br><br>¿Deseas excluirlos y generar la planilla Excel solo para los otros <strong>${remCount}</strong> pedido(s)?`,
+      showCancelButton: true,
+      confirmButtonText: `Excluir en espera y exportar ${remCount}`,
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#e91e63'
+    });
+    if (!mixExcel.isConfirmed) return;
+    const heldSet = new Set(heldExcelOrders.map(o => o.id));
+    selectedOrders = selectedOrders.filter(o => !heldSet.has(o.id));
   }
 
   const distinctSucs = [...new Set(selectedOrders.map(o => o.sucursal_pickeo).filter(Boolean))];
@@ -7451,7 +8219,7 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
           lightdata_status: resolvedStatus,
           raw_lightdata_data: rawLd
         };
-        if (order.estado_wms === 'En procesamiento') {
+        if (order.estado_wms === 'En procesamiento' && !(typeof window.isOrderWmsOnHold === 'function' && window.isOrderWmsOnHold(order))) {
           updatePayload.estado_wms = 'En preparación';
         }
 
@@ -8393,16 +9161,16 @@ async function init() {
 
     // Event delegation for dynamic actions
     document.addEventListener('change', async (e) => {
-      if (e.target && e.target.classList.contains('status-select')) {
-        const orderId = e.target.getAttribute('data-order-id');
-        const newStatus = e.target.value;
-        console.log(`DEBUG: Cambiando estado de pedido ${orderId} a ${newStatus}...`);
-        await updateOrderStatus(orderId, newStatus);
-      } else if (e.target && e.target.classList.contains('wms-status-select')) {
+      if (e.target && e.target.classList.contains('wms-status-select')) {
         const orderId = e.target.getAttribute('data-order-id');
         const newWmsStatus = e.target.value;
         console.log(`DEBUG: Cambiando estado WMS de pedido ${orderId} a ${newWmsStatus}...`);
         await window.updateWmsOrderStatus(orderId, newWmsStatus);
+      } else if (e.target && e.target.classList.contains('status-select')) {
+        const orderId = e.target.getAttribute('data-order-id');
+        const newStatus = e.target.value;
+        console.log(`DEBUG: Cambiando estado de pedido ${orderId} a ${newStatus}...`);
+        await updateOrderStatus(orderId, newStatus);
       }
     });
 
@@ -8867,6 +9635,13 @@ const ALL_STATUSES = [
 
 async function updateOrderStatus(orderId, newStatus) {
   const order = window.loadedOrders.find(o => o.id === orderId);
+  if (order && typeof window.isOrderBlockedByWmsHold === 'function' && window.isOrderBlockedByWmsHold(order, newStatus)) {
+    document.querySelectorAll(`.status-select[data-order-id="${orderId}"]`).forEach(sel => {
+      sel.value = order.estado_wms && sel.classList.contains('wms-status-select') ? order.estado_wms : (order.status || 'para procesar');
+    });
+    await window.showWmsHoldBlockedAlert([order], newStatus);
+    return;
+  }
   if (order && (newStatus === 'en preparación' || newStatus === 'despachado')) {
     if (newStatus === 'despachado' && window.checkOrderExistingStockMovement) {
       const checkPrior = await window.checkOrderExistingStockMovement(order);
@@ -9469,6 +10244,32 @@ window.loadOrderAuditLogs = async function(orderId) {
         const creatorBox = document.getElementById(`wms-manual-creator-box-${targetUuid}`);
         if (creatorBox && typeof window.renderOrderManualCreatorHtml === 'function') {
           creatorBox.outerHTML = window.renderOrderManualCreatorHtml(ordObj);
+        }
+      }
+    }
+
+    // Si existe un registro de Espera WMS en la auditoría, sincronizar el mapa en memoria
+    const latestHoldLog = effectiveLogs.find(l => l && l.action && l.action.toLowerCase().includes('espera wms'));
+    if (latestHoldLog) {
+      const actLow = latestHoldLog.action.toLowerCase();
+      const isReleased = actLow.includes('liberada') || actLow.includes('desbloqueado') || latestHoldLog.details?.wms_on_hold === false;
+      const holdObj = {
+        active: !isReleased,
+        reason: isReleased ? '' : String(latestHoldLog.details?.reason || '').trim(),
+        setAt: isReleased ? null : (latestHoldLog.details?.set_at || latestHoldLog.created_at || null),
+        setBy: isReleased ? null : (latestHoldLog.details?.set_by || latestHoldLog.user_email || null)
+      };
+      window.orderWmsHoldMap = window.orderWmsHoldMap || {};
+      window.orderWmsHoldMap[targetUuid] = holdObj;
+      const ordObjHold = (window.loadedOrders || []).find(o => String(o.id) === String(targetUuid));
+      if (ordObjHold) {
+        ordObjHold.wms_on_hold = holdObj.active;
+        ordObjHold.wms_on_hold_reason = holdObj.reason || null;
+        ordObjHold.wms_on_hold_at = holdObj.setAt;
+        ordObjHold.wms_on_hold_by = holdObj.setBy;
+        ordObjHold._wmsHoldInfo = holdObj;
+        if (ordObjHold.external_order_number) {
+          window.orderWmsHoldMap[ordObjHold.external_order_number] = holdObj;
         }
       }
     }
@@ -10279,6 +11080,10 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
         stock_descontado,
         stock_descontado_at,
         ready_for_pickup_at,
+        wms_on_hold,
+        wms_on_hold_reason,
+        wms_on_hold_at,
+        wms_on_hold_by,
         order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, is_picking_request, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, length, width, height, volumen, weight))
       `.replace(/\s+/g, ' ').trim();
 
@@ -10327,7 +11132,15 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
 
         if (res.error) {
           const errMsg = String(res.error.message || '');
-          if (res.error.code === '42703' || errMsg.includes('ready_for_pickup_at') || errMsg.includes('closed_snapshot') || errMsg.includes('transport_status_normalized') || errMsg.includes('estado_ruta_optiroute') || errMsg.includes('picker_')) {
+          if (res.error.code === '42703' || errMsg.includes('wms_on_hold') || errMsg.includes('ready_for_pickup_at') || errMsg.includes('closed_snapshot') || errMsg.includes('transport_status_normalized') || errMsg.includes('estado_ruta_optiroute') || errMsg.includes('picker_')) {
+            if (errMsg.includes('wms_on_hold')) {
+              selectStr = selectStr
+                .replace(/,?\s*wms_on_hold_reason/g, '')
+                .replace(/,?\s*wms_on_hold_at/g, '')
+                .replace(/,?\s*wms_on_hold_by/g, '')
+                .replace(/,?\s*wms_on_hold/g, '');
+              continue;
+            }
             if (errMsg.includes('ready_for_pickup_at')) {
               selectStr = selectStr.replace(/,?\s*ready_for_pickup_at/g, '');
               continue;
@@ -10500,6 +11313,9 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
           (async () => {
             if (typeof window.syncOrderAdminNotesFromAuditLogs === 'function') {
               await window.syncOrderAdminNotesFromAuditLogs();
+            }
+            if (typeof window.syncOrderWmsHoldsFromAuditLogs === 'function') {
+              await window.syncOrderWmsHoldsFromAuditLogs();
             }
           })(),
           (async () => {
@@ -13537,6 +14353,11 @@ async function renderAdminOrders() {
         tags.add('CON NOTA INTERNA');
       }
 
+      // 8c. En Espera en Torre de Control (Bloqueo de avance a preparación)
+      if (typeof window.isOrderWmsOnHold === 'function' && window.isOrderWmsOnHold(order)) {
+        tags.add('EN ESPERA (BLOQUEADO)');
+      }
+
       // 9. Sin Stock y Sobredemanda de Stock (Físico < Comprometido + En Mesa)
       const stockAlert = window.checkOrderStockAlert(order);
       if (stockAlert && stockAlert.hasStockAlert) {
@@ -13687,6 +14508,7 @@ async function renderAdminOrders() {
       });
 
       const orderPillTags = [
+        { key: 'EN ESPERA (BLOQUEADO)', label: 'EN ESPERA (No avanzar a preparación)', icon: '⏸️' },
         { key: 'CONSOLIDABLE (<24H)', label: 'CONSOLIDABLE (<24H · Correo + Dirección)', icon: '🔗' },
         { key: 'CONSOLIDADO', label: 'CONSOLIDADO (Envío Unificado)', icon: '📦' },
         { key: 'DESCUADRE UDS.', label: 'DESCUADRE UDS. (Ítems ≠ UDS)', icon: '⚠️' },
@@ -15579,8 +16401,11 @@ window.getWmsFilteredOrders = function(excludeColKey = null, forTab = null, opti
         const tagsStr = (window.getOrderTags ? window.getOrderTags(order) : []).join(' ');
         const orderNoteStr = window.getOrderNoteText ? window.getOrderNoteText(order) : '';
         const adminNoteStr = window.getOrderAdminNote ? window.getOrderAdminNote(order) : '';
+        const holdReasonStr = (window.isOrderWmsOnHold && window.isOrderWmsOnHold(order))
+          ? `en espera bloqueado ${window.getOrderWmsHoldInfo(order).reason || ''}`
+          : '';
 
-        searchIndex = `${orderId} ${extNo} ${skuStr} ${nameStr} ${company} ${customer} ${tracking} ${sucursal} ${shippingMethodStr} ${shippingCityStr} ${operadorStr} ${agendaStr} ${tagsStr} ${orderNoteStr} ${adminNoteStr}`.toLowerCase();
+        searchIndex = `${orderId} ${extNo} ${skuStr} ${nameStr} ${company} ${customer} ${tracking} ${sucursal} ${shippingMethodStr} ${shippingCityStr} ${operadorStr} ${agendaStr} ${tagsStr} ${orderNoteStr} ${adminNoteStr} ${holdReasonStr}`.toLowerCase();
         order._wmsSearchIndex = searchIndex;
       }
       if (!searchIndex.includes(searchText)) return false;
@@ -15785,12 +16610,16 @@ window.applyWmsFiltersAndRender = function() {
     'Archivado': 0
   };
   let prepMissingPickerCount = 0;
+  let procOnHoldCount = 0;
 
   for (let i = 0; i < baseOrders.length; i++) {
     const o = baseOrders[i];
     const ew = o.estado_wms;
     if (ew && tabCounts.hasOwnProperty(ew)) {
       tabCounts[ew]++;
+    }
+    if (ew === 'En procesamiento' && typeof window.isOrderWmsOnHold === 'function' && window.isOrderWmsOnHold(o)) {
+      procOnHoldCount++;
     }
     if (ew === 'En preparación') {
       const pSt = window.getPickerStatusForOrder ? window.getPickerStatusForOrder(o) : null;
@@ -15811,6 +16640,7 @@ window.applyWmsFiltersAndRender = function() {
   }
 
   const isSinRegFilterActive = selectedTag === 'Picker: Sin registro';
+  const isHoldFilterActive = selectedTag === 'EN ESPERA (BLOQUEADO)';
   const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Listo para retiro', 'Despachado', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado'];
   const tabsHtml = tabs.map(tab => {
     const isActive = window.wmsActiveTab === tab;
@@ -15837,6 +16667,10 @@ window.applyWmsFiltersAndRender = function() {
           ? `background: #f5f3ff; color: #6d28d9; border: 1px solid #c4b5fd; padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 800;`
           : `padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;`);
 
+    const procOnHoldPillHtml = (tab === 'En procesamiento' && procOnHoldCount > 0)
+      ? `<span onclick="event.stopPropagation(); window.toggleWmsHoldFilter(event);" style="background: ${isHoldFilterActive ? '#d97706' : '#fffbeb'}; color: ${isHoldFilterActive ? '#ffffff' : '#b45309'}; border: 1px solid ${isHoldFilterActive ? '#b45309' : '#fcd34d'}; padding: 0.12rem 0.42rem; border-radius: 9999px; font-size: 0.68rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.2rem; box-shadow: 0 1px 3px rgba(217,119,6,0.22); cursor: pointer;" title="⏸️ ${procOnHoldCount} pedido(s) en 'En procesamiento' están EN ESPERA (avance a preparación bloqueado). Clic para filtrarlos."><i class="ri-pause-circle-fill" style="font-size: 0.76rem; color: ${isHoldFilterActive ? '#ffffff' : '#d97706'};"></i> ${procOnHoldCount} en espera</span>`
+      : '';
+
     const prepMissingAlertPillHtml = (tab === 'En preparación' && prepMissingPickerCount > 0)
       ? `<span onclick="event.stopPropagation(); window.togglePrepMissingPickerFilter(event);" style="background: ${isSinRegFilterActive ? '#dc2626' : '#fef2f2'}; color: ${isSinRegFilterActive ? '#ffffff' : '#dc2626'}; border: 1px solid ${isSinRegFilterActive ? '#b91c1c' : '#fca5a5'}; padding: 0.12rem 0.42rem; border-radius: 9999px; font-size: 0.68rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.2rem; box-shadow: 0 1px 3px rgba(220,38,38,0.22); cursor: pointer;" title="⚠️ Alerta: ${prepMissingPickerCount} pedido(s) en 'En preparación' tienen 'Picker: Sin registro' (no existen en la bodega física asignada). Clic para filtrarlos."><i class="ri-error-warning-fill" style="font-size: 0.75rem; color: ${isSinRegFilterActive ? '#ffffff' : '#dc2626'};"></i> ${prepMissingPickerCount} sin registro</span>`
       : '';
@@ -15860,10 +16694,26 @@ window.applyWmsFiltersAndRender = function() {
       <button onclick="window.setWmsTab('${tab}')" style="background: ${isActive ? activeBgColor : 'transparent'}; color: ${isActive ? '#ffffff' : 'var(--color-text-main)'}; border: ${isActive ? 'none' : inactiveBorder}; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.825rem; cursor: pointer; display: flex; align-items: center; gap: 0.45rem; transition: all 0.2s;">
         ${tabLabelHtml}
         <span class="${isActive || tab === 'Entregado' || tab === 'Listo para retiro' ? '' : badgeClass}" style="${isActive ? activeSpanStyle : inactiveSpanStyle}">${count}</span>
-        ${prepMissingAlertPillHtml}${olderReadyPickupsPillHtml}
+        ${procOnHoldPillHtml}${prepMissingAlertPillHtml}${olderReadyPickupsPillHtml}
       </button>
     `;
   }).join('');
+
+  const procOnHoldAlertBarHtml = (procOnHoldCount > 0 && (window.wmsActiveTab === 'En procesamiento' || isHoldFilterActive))
+    ? `
+      <div style="margin-top: 0.6rem; background: #fffbeb; border: 1px solid #fcd34d; border-left: 4px solid #d97706; border-radius: var(--radius-sm); padding: 0.45rem 0.8rem; display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.78rem; color: #78350f; line-height: 1.35;">
+          <i class="ri-pause-circle-fill" style="font-size: 1.05rem; color: #d97706; flex-shrink: 0;"></i>
+          <span><strong>Pedidos en Espera (Avance Bloqueado):</strong> Hay <strong>${procOnHoldCount}</strong> pedido(s) en <em>"En procesamiento"</em> marcados en espera que <strong>no deben avanzar a preparación</strong> hasta liberar su bloqueo.</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+          <button type="button" onclick="window.toggleWmsHoldFilter(event)" class="btn btn-sm" style="background: ${isHoldFilterActive ? '#d97706' : '#ffffff'}; color: ${isHoldFilterActive ? '#ffffff' : '#b45309'}; border: 1px solid #f59e0b; padding: 0.2rem 0.55rem; font-size: 0.72rem; font-weight: 700; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="${isHoldFilterActive ? 'ri-close-circle-line' : 'ri-filter-3-line'}"></i> ${isHoldFilterActive ? 'Quitar filtro En Espera' : `Ver los ${procOnHoldCount} en espera`}
+          </button>
+        </div>
+      </div>
+    `
+    : '';
 
   const prepMissingAlertBarHtml = (prepMissingPickerCount > 0 && (window.wmsActiveTab === 'En preparación' || isSinRegFilterActive))
     ? `
@@ -15890,6 +16740,7 @@ window.applyWmsFiltersAndRender = function() {
       <div style="display: flex; gap: 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
         ${tabsHtml}
       </div>
+      ${procOnHoldAlertBarHtml}
       ${prepMissingAlertBarHtml}
     `;
   }
@@ -16513,6 +17364,13 @@ window.applyWmsFiltersAndRender = function() {
     const adminNoteForCol = window.getOrderAdminNote ? window.getOrderAdminNote(order) : '';
     const adminNoteLockBtn = `<button type="button" onclick="event.stopPropagation(); window.openOrderAdminNoteModal('${order.id}')" class="btn-order-admin-note-trigger" data-order-id="${order.id}" style="background: none; border: none; padding: 0 2px; margin-left: 2px; cursor: pointer; color: ${adminNoteForCol ? '#4f46e5' : '#94a3b8'}; font-size: 0.85rem; vertical-align: middle; display: inline-flex; align-items: center;" title="${adminNoteForCol ? `Nota Interna Admin: ${adminNoteForCol.replace(/"/g, '&quot;')} (Clic para ver/editar)` : 'Añadir Nota Interna Admin'}"><i class="${adminNoteForCol ? 'ri-lock-2-fill' : 'ri-lock-2-line'}"></i></button>`;
 
+    const isOrderHeldNow = typeof window.isOrderWmsOnHold === 'function' && window.isOrderWmsOnHold(order);
+    const holdInfoForCol = isOrderHeldNow ? window.getOrderWmsHoldInfo(order) : null;
+    const canShowHoldTrigger = isOrderHeldNow || String(order.estado_wms || 'En procesamiento').trim() === 'En procesamiento';
+    const wmsHoldTriggerBtn = canShowHoldTrigger
+      ? `<button type="button" onclick="event.stopPropagation(); window.openOrderWmsHoldModal('${order.id}')" class="btn-order-wms-hold-trigger" data-order-id="${order.id}" style="background: ${isOrderHeldNow ? '#fffbeb' : 'none'}; border: ${isOrderHeldNow ? '1px solid #f59e0b' : 'none'}; border-radius: 4px; padding: ${isOrderHeldNow ? '0 3px' : '0 2px'}; margin-left: 2px; cursor: pointer; color: ${isOrderHeldNow ? '#d97706' : '#94a3b8'}; font-size: 0.86rem; vertical-align: middle; display: inline-flex; align-items: center;" title="${isOrderHeldNow ? `⛔ EN ESPERA (No avanzar a preparación)${holdInfoForCol?.reason ? ': ' + holdInfoForCol.reason.replace(/"/g, '&quot;') : ''} — Clic para gestionar o liberar` : 'Establecer Pedido en Espera (Bloquear avance a preparación)'}"><i class="${isOrderHeldNow ? 'ri-pause-circle-fill' : 'ri-pause-circle-line'}"></i></button>`
+      : '';
+
     const safeCustomerRefName = (displayName && displayName !== 'No registrado' && displayName.trim() !== '')
       ? String(displayName).trim()
       : '';
@@ -16521,8 +17379,8 @@ window.applyWmsFiltersAndRender = function() {
       : '';
 
     const orderDisplayId = order.external_order_number 
-      ? `<div style="display:flex; flex-direction:column; gap:0.15rem;"><div style="display:inline-flex; align-items:center;"><span onclick="event.stopPropagation(); window.openWmsOrderModal('${order.id}');" style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; cursor: pointer; color: var(--color-primary);" title="Abrir Ficha Completa del Pedido (${order.external_order_number})">${order.external_order_number}</span>${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.external_order_number, 'Número de pedido', 'Copiar número de pedido') : ''}${adminNoteLockBtn}</div> <span style="font-size: 0.7rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span>${customerRefSubHtml}</div>` 
-      : `<div style="display:flex; flex-direction:column; gap:0.15rem;"><div style="display:inline-flex; align-items:center;"><span onclick="event.stopPropagation(); window.openWmsOrderModal('${order.id}');" style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; cursor: pointer; color: var(--color-primary);" title="Abrir Ficha Completa del Pedido (${order.id})">${order.id.split('-')[0]}</span>${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.id, 'ID de pedido', 'Copiar ID de pedido') : ''}${adminNoteLockBtn}</div>${customerRefSubHtml}</div>`;
+      ? `<div style="display:flex; flex-direction:column; gap:0.15rem;"><div style="display:inline-flex; align-items:center;"><span onclick="event.stopPropagation(); window.openWmsOrderModal('${order.id}');" style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; cursor: pointer; color: var(--color-primary);" title="Abrir Ficha Completa del Pedido (${order.external_order_number})">${order.external_order_number}</span>${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.external_order_number, 'Número de pedido', 'Copiar número de pedido') : ''}${adminNoteLockBtn}${wmsHoldTriggerBtn}</div> <span style="font-size: 0.7rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span>${customerRefSubHtml}</div>` 
+      : `<div style="display:flex; flex-direction:column; gap:0.15rem;"><div style="display:inline-flex; align-items:center;"><span onclick="event.stopPropagation(); window.openWmsOrderModal('${order.id}');" style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; cursor: pointer; color: var(--color-primary);" title="Abrir Ficha Completa del Pedido (${order.id})">${order.id.split('-')[0]}</span>${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.id, 'ID de pedido', 'Copiar ID de pedido') : ''}${adminNoteLockBtn}${wmsHoldTriggerBtn}</div>${customerRefSubHtml}</div>`;
 
     // Validar si el courier u operador guardado en el pedido es un operador ignorado (RECIBELO, WELIVERY)
     const orderCourierUpper = (order.courier || '').toUpperCase().trim();
@@ -17538,7 +18396,8 @@ window.applyWmsFiltersAndRender = function() {
     // Color del dropdown de WMS según el estado
     const isOrderFinalDelivered = order.estado_wms === 'Entregado';
     let wmsColor = '#0ea5e9'; // info
-    if (order.estado_wms === 'Incidencia' || order.estado_wms === 'Cancelado') wmsColor = '#ef4444'; // danger
+    if (isOrderHeldNow) wmsColor = '#d97706'; // amber hold warning
+    else if (order.estado_wms === 'Incidencia' || order.estado_wms === 'Cancelado') wmsColor = '#ef4444'; // danger
     else if (order.estado_wms === 'Archivado') wmsColor = '#64748b'; // slate / gray
     else if (order.estado_wms === 'Entregado') wmsColor = '#059669'; // emerald seal
     else if (order.estado_wms === 'Listo para retiro') wmsColor = '#7c3aed'; // violet pickup shelf
@@ -17613,6 +18472,17 @@ window.applyWmsFiltersAndRender = function() {
     if (adminNote) {
       const isAdminNoteActive = selectedTag === 'CON NOTA INTERNA';
       adminNoteBadgeHtml = `<span id="admin-note-badge-${order.id}" class="badge wms-order-tag-badge ${isAdminNoteActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('CON NOTA INTERNA', event)" style="background-color: rgba(99, 102, 241, 0.12); color: #4338ca; border: 1px solid rgba(99, 102, 241, 0.35); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isAdminNoteActive ? 'outline: 2px solid #4338ca; box-shadow: 0 0 6px rgba(67,56,202,0.4);' : ''}" title="Nota Interna Admin: ${(adminNote || '').replace(/"/g, '&quot;')} (Clic para filtrar)"><i class="ri-lock-2-line" style="color: #4f46e5;"></i> NOTA INTERNA <i class="ri-pencil-line" onclick="event.stopPropagation(); window.openOrderAdminNoteModal('${order.id}')" title="Editar nota interna" style="margin-left: 0.15rem; font-size: 0.7rem; opacity: 0.85;"></i></span>`;
+    }
+
+    let wmsHoldBadgeHtml = '';
+    if (isOrderHeldNow) {
+      const isHoldTagActive = selectedTag === 'EN ESPERA (BLOQUEADO)';
+      const safeHoldReasonAttr = (holdInfoForCol?.reason || '').replace(/"/g, '&quot;');
+      const shortHoldReason = holdInfoForCol?.reason
+        ? (holdInfoForCol.reason.length > 42 ? holdInfoForCol.reason.slice(0, 40) + '…' : holdInfoForCol.reason)
+        : '';
+      const escapedShortReason = window.escapeHtml ? window.escapeHtml(shortHoldReason) : shortHoldReason;
+      wmsHoldBadgeHtml = `<span id="wms-hold-badge-${order.id}" class="badge wms-order-tag-badge ${isHoldTagActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('EN ESPERA (BLOQUEADO)', event)" style="background: linear-gradient(90deg, #fffbeb 0%, #fef3c7 100%); color: #991b1b; border: 1.5px solid #f59e0b; font-size: 0.66rem; font-weight: 800; padding: 0.16rem 0.48rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.25px; cursor: pointer; box-shadow: 0 1px 3px rgba(217, 119, 6, 0.25); ${isHoldTagActive ? 'outline: 2px solid #d97706; box-shadow: 0 0 6px rgba(217,119,6,0.55);' : ''}" title="⛔ PEDIDO EN ESPERA — NO AVANZAR DE EN PROCESAMIENTO${safeHoldReasonAttr ? ' | Motivo: ' + safeHoldReasonAttr : ''} (Clic para filtrar todos los pedidos en espera)"><i class="ri-hand-line" style="color: #dc2626; font-size: 0.78rem;"></i> EN ESPERA · NO AVANZAR A PREPARACIÓN${escapedShortReason ? `<span style="font-weight: 700; color: #92400e; border-left: 1px solid #fbbf24; padding-left: 0.28rem; margin-left: 0.1rem;">${escapedShortReason}</span>` : ''} <i class="ri-settings-3-line" onclick="event.stopPropagation(); window.openOrderWmsHoldModal('${order.id}')" title="Gestionar o quitar espera" style="margin-left: 0.12rem; font-size: 0.75rem; color: #b45309;"></i></span>`;
     }
 
     const pickerBadgeHtml = window.renderPickerStatusBadge ? window.renderPickerStatusBadge(order) : '';
@@ -17868,6 +18738,20 @@ window.applyWmsFiltersAndRender = function() {
       const { itemsRowsHtml, rawJsonBtnHtml, rawJsonHeaderBtnHtml, origStatus, originalPlatformStatusHtml, rawStoreTags, customPlatformTagsHtml } = buildOrderDetailExtraVars();
       return `
           <div class="order-detail-container" style="display: flex; flex-direction: column; gap: 1.25rem;">
+            ${isOrderHeldNow ? `
+              <div style="background: linear-gradient(90deg, #fffbeb 0%, #fef2f2 100%); border: 1.5px solid #f59e0b; border-left: 5px solid #dc2626; border-radius: var(--radius-md); padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+                <div style="display: flex; align-items: flex-start; gap: 0.6rem; flex: 1; min-width: 240px;">
+                  <i class="ri-hand-line" style="color: #dc2626; font-size: 1.35rem; margin-top: 1px; flex-shrink: 0;"></i>
+                  <div style="font-size: 0.84rem; color: #78350f; line-height: 1.4;">
+                    <div style="font-weight: 800; color: #991b1b; font-size: 0.88rem;">⛔ PEDIDO EN ESPERA — NO DEBE AVANZAR DE "EN PROCESAMIENTO"</div>
+                    <div>Su paso a <strong>En preparación</strong> está bloqueado.${holdInfoForCol?.reason ? ` <strong>Motivo:</strong> ${window.escapeHtml ? window.escapeHtml(holdInfoForCol.reason) : holdInfoForCol.reason}` : ''}</div>
+                  </div>
+                </div>
+                <button type="button" onclick="window.openOrderWmsHoldModal('${order.id}')" class="btn btn-sm" style="background: #d97706; color: #ffffff; border: none; padding: 0.32rem 0.75rem; font-size: 0.76rem; font-weight: 700; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;">
+                  <i class="ri-lock-unlock-line"></i> Gestionar / Liberar Espera
+                </button>
+              </div>
+            ` : ''}
             ${(window.renderOrderDetailConsolidationCardHtml ? window.renderOrderDetailConsolidationCardHtml(order) : '')}
             <!-- Fila superior: 3 Columnas de Información -->
             <div class="order-detail-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
@@ -17994,6 +18878,26 @@ window.applyWmsFiltersAndRender = function() {
                     </div>
                   </div>
                 </div>
+
+                ${canShowHoldTrigger ? `
+                  <div style="margin-top: 0.55rem; margin-bottom: 0.5rem; background: ${isOrderHeldNow ? '#fffbeb' : 'var(--color-bg)'}; border: 1px solid ${isOrderHeldNow ? '#f59e0b' : 'var(--color-border)'}; border-left: 3px solid ${isOrderHeldNow ? '#dc2626' : '#d97706'}; padding: 0.5rem 0.65rem; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                    <div style="font-size: 0.78rem; line-height: 1.3;">
+                      <strong style="color: ${isOrderHeldNow ? '#991b1b' : '#b45309'}; display: flex; align-items: center; gap: 0.3rem;">
+                        <i class="${isOrderHeldNow ? 'ri-pause-circle-fill' : 'ri-pause-circle-line'}"></i>
+                        ${isOrderHeldNow ? 'En Espera (Avance Bloqueado)' : 'Control de Espera Operativa'}
+                      </strong>
+                      <span style="color: var(--color-text-muted); font-size: 0.73rem;">
+                        ${isOrderHeldNow
+                          ? (holdInfoForCol?.reason ? `Motivo: ${window.escapeHtml ? window.escapeHtml(holdInfoForCol.reason) : holdInfoForCol.reason}` : 'No puede avanzar a preparación.')
+                          : 'Retener en procesamiento e impedir paso a preparación.'}
+                      </span>
+                    </div>
+                    <button type="button" onclick="window.openOrderWmsHoldModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.18rem 0.5rem; font-size: 0.72rem; font-weight: 700; cursor: pointer; border-color: ${isOrderHeldNow ? '#059669' : '#d97706'}; color: ${isOrderHeldNow ? '#059669' : '#b45309'}; background: #ffffff; display: inline-flex; align-items: center; gap: 0.22rem;">
+                      <i class="${isOrderHeldNow ? 'ri-play-circle-line' : 'ri-pause-circle-fill'}"></i>
+                      ${isOrderHeldNow ? 'Quitar Espera' : 'Poner en Espera'}
+                    </button>
+                  </div>
+                ` : ''}
                 
                 <!-- Tarjeta de Control y Trazabilidad Picker -->
                 <div style="margin-top: 0.85rem; padding: 0.85rem; border-radius: var(--radius-sm); background: rgba(79, 70, 229, 0.03); border: 1px solid rgba(79, 70, 229, 0.15); display: flex; flex-direction: column; gap: 0.5rem;">
@@ -18247,7 +19151,7 @@ window.applyWmsFiltersAndRender = function() {
     window._wmsOrderDetailRenderers.set(String(order.id), buildOrderDetailsInnerHtml);
 
     rowsHtml += `
-      <tr id="row-${order.id}" class="order-row ${isOverdueItem ? 'wms-overdue-order-row' : ''} ${isInitiallyExpanded ? 'expanded' : ''}" data-order-id="${order.id}" style="transition: background-color 0.2s;">
+      <tr id="row-${order.id}" class="order-row ${isOverdueItem ? 'wms-overdue-order-row' : ''} ${isInitiallyExpanded ? 'expanded' : ''}" data-order-id="${order.id}" style="transition: background-color 0.2s; ${isOrderHeldNow ? 'background-color: rgba(245, 158, 11, 0.065); box-shadow: inset 4px 0 0 #d97706;' : ''}">
         <td style="text-align: center;" onclick="event.stopPropagation()">
           <input type="checkbox" class="wms-order-cb ${isOverdueItem ? 'wms-overdue-cb' : ''}" data-order-id="${order.id}" ${window.wmsSelectedOrderIds.has(order.id) ? 'checked' : ''} onclick="window.toggleWmsOrderSelect(this, '${order.id}', event)" style="width: 15px; height: 15px; accent-color: var(--color-primary); cursor: pointer;">
         </td>
@@ -18317,19 +19221,25 @@ window.applyWmsFiltersAndRender = function() {
                   </button>
                 </div>
               ` : `
-                <select class="form-input wms-status-select" data-order-id="${order.id}" style="padding: 0.15rem 0.3rem; font-size: 0.74rem; width: 100%; min-width: 95px; font-weight: 700; border: 1.5px solid ${wmsColor}; color: ${wmsColor}; background: ${wmsColor}06; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; height: 24px; line-height: 1;">
-                  <option value="En procesamiento" ${order.estado_wms === 'En procesamiento' ? 'selected' : ''}>En procesamiento</option>
-                  <option value="En preparación" ${order.estado_wms === 'En preparación' ? 'selected' : ''}>En preparación</option>
-                  ${(currentCategoria !== 'RETIRO' || order.estado_wms === 'Pickeado') ? `<option value="Pickeado" ${order.estado_wms === 'Pickeado' ? 'selected' : ''}>Pickeado</option>` : ''}
-                  ${(currentCategoria === 'RETIRO' || order.estado_wms === 'Listo para retiro') ? `<option value="Listo para retiro" ${order.estado_wms === 'Listo para retiro' ? 'selected' : ''}>Listo para retiro</option>` : ''}
-                  ${(currentCategoria !== 'RETIRO' || order.estado_wms === 'Despachado') ? `<option value="Despachado" ${order.estado_wms === 'Despachado' ? 'selected' : ''}>Despachado</option>` : ''}
-                  <option value="Entregado" ${order.estado_wms === 'Entregado' ? 'selected' : ''}>Entregado</option>
+                <select class="form-input wms-status-select" data-order-id="${order.id}" style="padding: 0.15rem 0.3rem; font-size: 0.74rem; width: 100%; min-width: 95px; font-weight: 700; border: 1.5px solid ${wmsColor}; color: ${wmsColor}; background: ${isOrderHeldNow ? '#fffbeb' : `${wmsColor}06`}; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; height: 24px; line-height: 1;" title="${isOrderHeldNow ? '⛔ Pedido EN ESPERA: no puede avanzar de En procesamiento a En preparación' : ''}">
+                  <option value="En procesamiento" ${order.estado_wms === 'En procesamiento' ? 'selected' : ''}>${isOrderHeldNow ? '⏸️ En procesamiento (En espera)' : 'En procesamiento'}</option>
+                  <option value="En preparación" ${order.estado_wms === 'En preparación' ? 'selected' : ''}>${isOrderHeldNow ? '🔒 En preparación (Bloqueado)' : 'En preparación'}</option>
+                  ${(currentCategoria !== 'RETIRO' || order.estado_wms === 'Pickeado') ? `<option value="Pickeado" ${order.estado_wms === 'Pickeado' ? 'selected' : ''}>${isOrderHeldNow ? '🔒 Pickeado (Bloqueado)' : 'Pickeado'}</option>` : ''}
+                  ${(currentCategoria === 'RETIRO' || order.estado_wms === 'Listo para retiro') ? `<option value="Listo para retiro" ${order.estado_wms === 'Listo para retiro' ? 'selected' : ''}>${isOrderHeldNow ? '🔒 Listo para retiro (Bloqueado)' : 'Listo para retiro'}</option>` : ''}
+                  ${(currentCategoria !== 'RETIRO' || order.estado_wms === 'Despachado') ? `<option value="Despachado" ${order.estado_wms === 'Despachado' ? 'selected' : ''}>${isOrderHeldNow ? '🔒 Despachado (Bloqueado)' : 'Despachado'}</option>` : ''}
+                  <option value="Entregado" ${order.estado_wms === 'Entregado' ? 'selected' : ''}>${isOrderHeldNow ? '🔒 Entregado (Bloqueado)' : 'Entregado'}</option>
                   <option value="Incidencia" ${order.estado_wms === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
                   <option value="Cancelado" ${order.estado_wms === 'Cancelado' ? 'selected' : ''}>Cancelado</option>
                   <option value="Archivado" ${order.estado_wms === 'Archivado' ? 'selected' : ''}>Archivado</option>
                 </select>
               `}
             </div>
+            ${isOrderHeldNow ? `
+              <div onclick="event.stopPropagation(); window.openOrderWmsHoldModal('${order.id}')" style="display: flex; align-items: center; justify-content: space-between; gap: 0.2rem; background: #fef2f2; color: #991b1b; border: 1.5px solid #fca5a5; border-left: 3px solid #dc2626; border-radius: 4px; padding: 0.14rem 0.36rem; font-size: 0.64rem; font-weight: 800; cursor: pointer; line-height: 1.15;" title="⛔ NO AVANZAR DE EN PROCESAMIENTO${holdInfoForCol?.reason ? ' · Motivo: ' + holdInfoForCol.reason.replace(/"/g, '&quot;') : ''} — Clic para gestionar o liberar espera">
+                <span style="display: inline-flex; align-items: center; gap: 0.18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><i class="ri-hand-line" style="color: #dc2626; font-size: 0.74rem; flex-shrink: 0;"></i> EN ESPERA · NO AVANZAR</span>
+                <i class="ri-lock-unlock-line" style="font-size: 0.68rem; color: #b91c1c; flex-shrink: 0;"></i>
+              </div>
+            ` : ''}
             <div style="display: flex; align-items: center; gap: 0.25rem;">
               <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; width: 44px; flex-shrink: 0; line-height: 1;">Origen:</span>
               <span style="background-color: ${badgeBg}; color: ${badgeTextColor}; padding: 0.1rem 0.45rem; border-radius: 99px; font-size: 0.68rem; font-weight: 700; white-space: nowrap; display: inline-block; line-height: 1.25;">${isReturned ? 'devolución' : order.status}</span>
@@ -18341,10 +19251,10 @@ window.applyWmsFiltersAndRender = function() {
         </td>
         <td style="text-align: center; vertical-align: middle;">${periodHtml}</td>
       </tr>
-      <tr id="badges-row-${order.id}" class="order-badges-row ${isOverdueItem ? 'wms-overdue-badges-row' : ''}" style="transition: background-color 0.2s;">
+      <tr id="badges-row-${order.id}" class="order-badges-row ${isOverdueItem ? 'wms-overdue-badges-row' : ''}" style="transition: background-color 0.2s; ${isOrderHeldNow ? 'background-color: rgba(245, 158, 11, 0.065); box-shadow: inset 4px 0 0 #d97706;' : ''}">
         <td colspan="13" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${isOrderFinalDelivered ? `<span class="badge" style="background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.25px;" title="Seguimiento cerrado · Snapshot 360° guardado en BD sin nuevas consultas externas"><i class="ri-shield-check-fill" style="color: #059669; font-size: 0.76rem;"></i> FINALIZADO · SNAPSHOT SELLADO</span>` : ''}${overdueRowBadgeHtml}${categoryBadgeHtml}${(window.getConsolidationBadgeHtml ? window.getConsolidationBadgeHtml(order) : '')}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${(window.renderOrderCartpaperBoxBadgeHtml ? window.renderOrderCartpaperBoxBadgeHtml(order) : '')}${qtyMismatchBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${noteBadgeHtml}${adminNoteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
+            ${wmsHoldBadgeHtml}${isOrderFinalDelivered ? `<span class="badge" style="background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.25px;" title="Seguimiento cerrado · Snapshot 360° guardado en BD sin nuevas consultas externas"><i class="ri-shield-check-fill" style="color: #059669; font-size: 0.76rem;"></i> FINALIZADO · SNAPSHOT SELLADO</span>` : ''}${overdueRowBadgeHtml}${categoryBadgeHtml}${(window.getConsolidationBadgeHtml ? window.getConsolidationBadgeHtml(order) : '')}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${(window.renderOrderCartpaperBoxBadgeHtml ? window.renderOrderCartpaperBoxBadgeHtml(order) : '')}${qtyMismatchBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${noteBadgeHtml}${adminNoteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>
@@ -18676,12 +19586,19 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
       }
     }
 
-    // 5.5. Sincronizar notas internas desde auditoría para estos pedidos
+    // 5.5. Sincronizar notas internas y estados En Espera desde auditoría para estos pedidos
     if (typeof window.syncOrderAdminNotesFromAuditLogs === 'function') {
       try {
         await window.syncOrderAdminNotesFromAuditLogs(refreshedOrders.map(o => o.id));
       } catch (adminNotesErr) {
         console.warn('[Sync Subset] Error actualizando notas internas:', adminNotesErr);
+      }
+    }
+    if (typeof window.syncOrderWmsHoldsFromAuditLogs === 'function') {
+      try {
+        await window.syncOrderWmsHoldsFromAuditLogs(refreshedOrders.map(o => o.id));
+      } catch (holdSyncErr) {
+        console.warn('[Sync Subset] Error actualizando estados En Espera:', holdSyncErr);
       }
     }
 
@@ -19474,6 +20391,9 @@ function renderWmsBulkActionsBar() {
           <option value="Archivado">Archivado</option>
         </select>
         <button onclick="window.applyBulkWmsStatus()" class="btn btn-accent" style="background: var(--color-primary); color: white; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; box-shadow: none; border: none; cursor: pointer; border-radius: var(--radius-sm);">Aplicar</button>
+        <button onclick="window.openBulkWmsHoldModal()" class="btn" style="background: #d97706; color: white; font-weight: 700; padding: 0.25rem 0.75rem; font-size: 0.82rem; border: 1px solid rgba(255,255,255,0.35); cursor: pointer; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.3rem; box-shadow: 0 2px 4px rgba(0,0,0,0.18);" title="Establecer o liberar masivamente el estado EN ESPERA (bloquear avance a preparación) de los pedidos seleccionados">
+          <i class="ri-pause-circle-fill"></i> En Espera
+        </button>
         <button onclick="window.openBulkShopifyStatusModal()" class="btn" style="background: #10b981; color: white; font-weight: 700; padding: 0.25rem 0.75rem; font-size: 0.82rem; border: 1px solid rgba(255,255,255,0.3); cursor: pointer; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.3rem; box-shadow: 0 2px 4px rgba(0,0,0,0.18);" title="Cambiar o sincronizar masivamente el estado en Shopify de los pedidos seleccionados">
           <i class="ri-shopping-bag-3-line"></i> Estado Shopify
         </button>
@@ -19971,6 +20891,44 @@ window.applyBulkWmsStatus = async function() {
     const getCat = (o) => typeof window.getOrderEffectiveCategoriaEntrega === 'function'
       ? window.getOrderEffectiveCategoriaEntrega(o)
       : String(o?.categoria_entrega || '').toUpperCase().trim();
+
+    // Bloqueo estricto de pedidos EN ESPERA cuando se intenta avanzar desde 'En procesamiento' hacia preparación o despacho
+    if (typeof window.isOrderBlockedByWmsHold === 'function') {
+      const heldBlocked = bulkSelectedOrders.filter(o => window.isOrderBlockedByWmsHold(o, newStatus));
+      if (heldBlocked.length > 0) {
+        if (heldBlocked.length === bulkSelectedOrders.length) {
+          await window.showWmsHoldBlockedAlert(heldBlocked, newStatus);
+          return;
+        }
+        const allowedCount = bulkSelectedOrders.length - heldBlocked.length;
+        const esc = (s) => (window.escapeHtml ? window.escapeHtml(String(s ?? '')) : String(s ?? ''));
+        const blockedListHtml = heldBlocked.slice(0, 10).map(o => {
+          const hInf = window.getOrderWmsHoldInfo(o);
+          return `<li><strong>#${esc(o.external_order_number || String(o.id).slice(0, 8))}</strong> (${esc(o.comercio || '-')})${hInf.reason ? ` — <span style="color:#92400e;">${esc(hInf.reason)}</span>` : ''}</li>`;
+        }).join('');
+        const mixConfirm = await Swal.fire({
+          icon: 'warning',
+          title: `⛔ ${heldBlocked.length} pedido(s) En Espera con avance bloqueado`,
+          width: '580px',
+          html: `
+            <div style="text-align: left; font-size: 0.86rem; line-height: 1.45;">
+              <div style="background: #fffbeb; border: 1.5px solid #f59e0b; border-left: 4px solid #dc2626; border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 0.75rem; color: #78350f;">
+                Hay <strong>${heldBlocked.length}</strong> pedido(s) marcados <strong>EN ESPERA</strong> que <strong>no deben avanzar de "En procesamiento"</strong> hacia <strong>"${esc(newStatus)}"</strong>:
+              </div>
+              <ul style="margin: 0 0 0.75rem 0; padding-left: 1.2rem; font-size: 0.8rem; max-height: 140px; overflow-y: auto;">${blockedListHtml}</ul>
+              <p style="margin: 0; font-size: 0.82rem;">Los pedidos en espera permanecerán bloqueados en <em>En procesamiento</em>. ¿Deseas continuar únicamente con los otros <strong>${allowedCount}</strong> pedido(s)?</p>
+            </div>
+          `,
+          showCancelButton: true,
+          confirmButtonText: `Omitir en espera y avanzar ${allowedCount}`,
+          cancelButtonText: 'Cancelar',
+          confirmButtonColor: '#7117eb'
+        });
+        if (!mixConfirm.isConfirmed) return;
+        const skipHeldSet = new Set(heldBlocked.map(o => o.id));
+        ids = ids.filter(id => !skipHeldSet.has(id));
+      }
+    }
 
     if (newStatus === 'Cancelado') {
       const readyPickupOrders = bulkSelectedOrders.filter(o => o.estado_wms === 'Listo para retiro');
@@ -22947,6 +23905,19 @@ window.handleCancelListoParaRetiroOrder = async function(order, opts = {}) {
 window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
   const order = window.loadedOrders.find(o => o.id === orderId);
   if (!order) return;
+
+  // Bloqueo estricto si el pedido está establecido EN ESPERA en Torre de Control y se intenta avanzar desde "En procesamiento"
+  if (typeof window.isOrderBlockedByWmsHold === 'function' && window.isOrderBlockedByWmsHold(order, newWmsStatus)) {
+    const prevState = order.estado_wms || 'En procesamiento';
+    document.querySelectorAll(`.wms-status-select[data-order-id="${orderId}"]`).forEach(sel => {
+      sel.value = prevState;
+    });
+    if (typeof window.applyWmsFiltersAndRender === 'function' && !window._activeSingleOrderPageId) {
+      window.applyWmsFiltersAndRender();
+    }
+    await window.showWmsHoldBlockedAlert([order], newWmsStatus);
+    return;
+  }
 
   const effCatOrder = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
     ? window.getOrderEffectiveCategoriaEntrega(order)
@@ -94686,9 +95657,26 @@ window.openWmsOrderModal = async function(orderId) {
           </div>
           <div class="wms-modal-field">
             <label class="wms-modal-label">Estado WMS</label>
+            ${(typeof window.isOrderWmsOnHold === 'function' && window.isOrderWmsOnHold(order)) ? `
+              <div style="background: #fffbeb; border: 1.5px solid #f59e0b; border-left: 4px solid #dc2626; border-radius: 6px; padding: 0.45rem 0.65rem; margin-bottom: 0.45rem; font-size: 0.75rem; color: #78350f; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                <div>
+                  <strong style="color: #991b1b;"><i class="ri-hand-line"></i> EN ESPERA · NO AVANZAR A PREPARACIÓN</strong>
+                  ${window.getOrderWmsHoldInfo(order).reason ? `<div style="margin-top:2px;">Motivo: ${window.escapeHtml ? window.escapeHtml(window.getOrderWmsHoldInfo(order).reason) : window.getOrderWmsHoldInfo(order).reason}</div>` : ''}
+                </div>
+                <button type="button" onclick="Swal.close(); setTimeout(() => window.openOrderWmsHoldModal('${order.id}'), 120);" style="background: #ffffff; border: 1px solid #d97706; color: #b45309; font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 5px; cursor: pointer; white-space: nowrap;">
+                  Quitar Espera
+                </button>
+              </div>
+            ` : ((currentStatus === 'Para procesar' || currentStatus === 'En procesamiento') ? `
+              <div style="margin-bottom: 0.4rem; display: flex; justify-content: flex-end;">
+                <button type="button" onclick="Swal.close(); setTimeout(() => window.openOrderWmsHoldModal('${order.id}'), 120);" style="background: #fffbeb; border: 1px solid #f59e0b; color: #b45309; font-size: 0.7rem; font-weight: 700; padding: 0.16rem 0.5rem; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.22rem;">
+                  <i class="ri-pause-circle-fill"></i> Poner en Espera (Bloquear Avance)
+                </button>
+              </div>
+            ` : '')}
             <select id="wms-modal-estado-wms" class="wms-input-ctrl">
               <option value="En procesamiento" ${currentStatus === 'Para procesar' || currentStatus === 'En procesamiento' ? 'selected' : ''}>En procesamiento (Para procesar)</option>
-              <option value="En preparación" ${currentStatus === 'En preparación' ? 'selected' : ''}>En preparación</option>
+              <option value="En preparación" ${currentStatus === 'En preparación' ? 'selected' : ''}>${(typeof window.isOrderWmsOnHold === 'function' && window.isOrderWmsOnHold(order)) ? '🔒 En preparación (Bloqueado - En Espera)' : 'En preparación'}</option>
               <option value="Pickeado" ${currentStatus === 'Preparado' || currentStatus === 'Pickeado' ? 'selected' : ''}>Pickeado (Preparado)</option>
               <option value="Despachado" ${currentStatus === 'Despachado' ? 'selected' : ''}>Despachado</option>
               <option value="Incidencia" ${currentStatus === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
@@ -94905,6 +95893,11 @@ window.openWmsOrderModal = async function(orderId) {
       }
       if (!city) {
         Swal.showValidationMessage('La comuna de despacho es obligatoria.');
+        return false;
+      }
+      if (typeof window.isOrderBlockedByWmsHold === 'function' && window.isOrderBlockedByWmsHold(order, estado_wms)) {
+        const hReason = window.getOrderWmsHoldInfo(order).reason;
+        Swal.showValidationMessage(`⛔ Pedido EN ESPERA: No debe avanzar de "En procesamiento" a "${estado_wms}"${hReason ? ` (Motivo: ${hReason})` : ''}. Quita primero la espera.`);
         return false;
       }
 
@@ -138852,11 +139845,15 @@ window.executeShopifyOrderStatusAction = async function(ordersList, params) {
         delete order._wmsTags;
 
         if (params.alsoUpdateWms && params.targetWmsStatus && order.estado_wms !== params.targetWmsStatus) {
-          await supabase
-            .from('orders')
-            .update({ estado_wms: params.targetWmsStatus })
-            .eq('id', order.id);
-          order.estado_wms = params.targetWmsStatus;
+          if (typeof window.isOrderBlockedByWmsHold === 'function' && window.isOrderBlockedByWmsHold(order, params.targetWmsStatus)) {
+            errorsList.push(`${order.external_order_number || order.id}: Estado WMS se mantuvo en "En procesamiento" porque el pedido está EN ESPERA (avance bloqueado).`);
+          } else {
+            await supabase
+              .from('orders')
+              .update({ estado_wms: params.targetWmsStatus })
+              .eq('id', order.id);
+            order.estado_wms = params.targetWmsStatus;
+          }
         }
       } else if (resultItem && resultItem.status === 'needs_reauth') {
         needsReauthComercios.add(order.comercio);

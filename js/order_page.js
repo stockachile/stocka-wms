@@ -2430,6 +2430,10 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
       closed_by_automation,
       is_consolidated,
       consolidated_into_order_id,
+      wms_on_hold,
+      wms_on_hold_reason,
+      wms_on_hold_at,
+      wms_on_hold_by,
       order_items (
         id,
         quantity,
@@ -2443,7 +2447,7 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
       )
     `.replace(/\s+/g, ' ').trim();
 
-    const stripNewSnapshotCols = (cols) => cols.replace(/,\s*(picker_status|picker_operator|picker_scanned_label|picker_last_synced_at|picker_history_snapshot|closed_snapshot|tracking_history|transport_status_normalized|dispatched_at|delivered_at|closed_at|closed_by_automation|is_consolidated|consolidated_into_order_id)/g, '');
+    const stripNewSnapshotCols = (cols) => cols.replace(/,\s*(picker_status|picker_operator|picker_scanned_label|picker_last_synced_at|picker_history_snapshot|closed_snapshot|tracking_history|transport_status_normalized|dispatched_at|delivered_at|closed_at|closed_by_automation|is_consolidated|consolidated_into_order_id|wms_on_hold_reason|wms_on_hold_at|wms_on_hold_by|wms_on_hold)/g, '');
 
     let orderData = null;
     if (isUuid(cleanRef)) {
@@ -2965,6 +2969,12 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
     const relativeAgeStr = formatRelativeTimeEs(orderData.created_at);
     const orderNote = window.getOrderNoteText ? window.getOrderNoteText(orderData) : '';
     const adminNote = isAdmin && window.getOrderAdminNote ? window.getOrderAdminNote(orderData) : '';
+    if (isAdmin && typeof window.syncOrderWmsHoldsFromAuditLogs === 'function' && (!window.orderWmsHoldMap || window.orderWmsHoldMap[orderData.id] === undefined)) {
+      try { await window.syncOrderWmsHoldsFromAuditLogs([orderData.id]); } catch (_) {}
+    }
+    const isOrderOnHoldPage = isAdmin && typeof window.isOrderWmsOnHold === 'function' && window.isOrderWmsOnHold(orderData);
+    const orderHoldInfoPage = isOrderOnHoldPage && typeof window.getOrderWmsHoldInfo === 'function' ? window.getOrderWmsHoldInfo(orderData) : null;
+    const canToggleHoldPage = isAdmin && !isOrderDeliveredClosed && (isOrderOnHoldPage || String(orderData.estado_wms || 'En procesamiento').trim() === 'En procesamiento');
     const categoriaEffective = window.getOrderEffectiveCategoriaEntrega
       ? window.getOrderEffectiveCategoriaEntrega(orderData)
       : (orderData.categoria_entrega || 'DISTRIBUCIÓN');
@@ -3355,9 +3365,9 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
             <!-- Botonera Operativa Principal -->
             <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               ${isAdmin ? `
-                <div style="display: flex; align-items: center; gap: 0.4rem; background: var(--color-bg); padding: 0.32rem 0.65rem; border-radius: 8px; border: 1px solid var(--color-border);">
-                  <label style="font-size: 0.73rem; font-weight: 700; color: var(--color-text-muted); margin: 0;">Estado WMS:</label>
-                  <select class="status-select wms-status-select" data-order-id="${orderData.id}" ${isOrderDeliveredClosed ? 'disabled title="Pedido finalizado e inmutable. Usa Reabrir Pedido (Admin) para modificarlo."' : ''} style="padding: 0.24rem 0.5rem; font-size: 0.79rem; font-weight: 700; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: ${isOrderDeliveredClosed ? 'not-allowed' : 'pointer'}; opacity: ${isOrderDeliveredClosed ? '0.8' : '1'};">
+                <div style="display: flex; align-items: center; gap: 0.4rem; background: ${isOrderOnHoldPage ? '#fffbeb' : 'var(--color-bg)'}; padding: 0.32rem 0.65rem; border-radius: 8px; border: 1.5px solid ${isOrderOnHoldPage ? '#f59e0b' : 'var(--color-border)'};">
+                  <label style="font-size: 0.73rem; font-weight: 700; color: ${isOrderOnHoldPage ? '#b45309' : 'var(--color-text-muted)'}; margin: 0;">Estado WMS:</label>
+                  <select class="status-select wms-status-select" data-order-id="${orderData.id}" ${isOrderDeliveredClosed ? 'disabled title="Pedido finalizado e inmutable. Usa Reabrir Pedido (Admin) para modificarlo."' : ''} style="padding: 0.24rem 0.5rem; font-size: 0.79rem; font-weight: 700; border-radius: 6px; border: 1px solid ${isOrderOnHoldPage ? '#d97706' : 'var(--color-border)'}; background: var(--color-surface); color: ${isOrderOnHoldPage ? '#b45309' : 'var(--color-text-main)'}; cursor: ${isOrderDeliveredClosed ? 'not-allowed' : 'pointer'}; opacity: ${isOrderDeliveredClosed ? '0.8' : '1'};">
                     ${(categoriaEffective === 'RETIRO'
                         ? ['En procesamiento', 'En preparación', 'Listo para retiro', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado']
                         : ['En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado']
@@ -3365,11 +3375,18 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                         (orderData.estado_wms && !['En procesamiento', 'En preparación', 'Pickeado', 'Listo para retiro', 'Despachado', 'Entregado', 'Incidencia', 'Cancelado', 'Archivado'].includes(orderData.estado_wms))
                           ? [orderData.estado_wms]
                           : ((categoriaEffective === 'RETIRO' && ['Pickeado', 'Despachado'].includes(orderData.estado_wms)) || (categoriaEffective !== 'RETIRO' && orderData.estado_wms === 'Listo para retiro') ? [orderData.estado_wms] : [])
-                      ).map(st => `
-                      <option value="${st}" ${(orderData.estado_wms || orderData.status) === st ? 'selected' : ''}>${st === 'Entregado' ? 'Entregado (Finalizado)' : st}</option>
-                    `).join('')}
+                      ).map(st => {
+                        const isBlockedOpt = isOrderOnHoldPage && ['En preparación', 'Pickeado', 'Listo para retiro', 'Despachado', 'Entregado'].includes(st);
+                        const optLabel = st === 'Entregado' ? 'Entregado (Finalizado)' : st;
+                        return `<option value="${st}" ${(orderData.estado_wms || orderData.status) === st ? 'selected' : ''}>${isBlockedOpt ? '🔒 ' + optLabel + ' (Bloqueado)' : (isOrderOnHoldPage && st === 'En procesamiento' ? '⏸️ En procesamiento (En espera)' : optLabel)}</option>`;
+                      }).join('')}
                   </select>
                 </div>
+                ${canToggleHoldPage ? `
+                  <button type="button" onclick="window.openOrderWmsHoldModal('${orderData.id}')" class="sop-btn" style="background: ${isOrderOnHoldPage ? '#059669' : '#fffbeb'}; color: ${isOrderOnHoldPage ? '#ffffff' : '#b45309'}; border: 1.5px solid ${isOrderOnHoldPage ? '#047857' : '#f59e0b'}; font-weight: 800;">
+                    <i class="${isOrderOnHoldPage ? 'ri-play-circle-line' : 'ri-pause-circle-fill'}"></i> ${isOrderOnHoldPage ? 'Quitar Espera' : 'Poner en Espera'}
+                  </button>
+                ` : ''}
               ` : ''}
               <button type="button" onclick="window.showShippingLabelModal('${orderData.id}')" class="sop-btn sop-btn-indigo">
                 <i class="ri-printer-line"></i> Etiqueta Stocka
@@ -3392,6 +3409,20 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
             </div>
           </div>
 
+          ${isOrderOnHoldPage ? `
+            <div style="margin-bottom: 1rem; background: linear-gradient(90deg, #fffbeb 0%, #fef2f2 100%); border: 1.5px solid #f59e0b; border-left: 5px solid #dc2626; border-radius: 10px; padding: 0.85rem 1.1rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+              <div style="display: flex; align-items: flex-start; gap: 0.65rem; flex: 1; min-width: 240px;">
+                <i class="ri-hand-line" style="color: #dc2626; font-size: 1.4rem; margin-top: 1px;"></i>
+                <div style="font-size: 0.85rem; color: #78350f; line-height: 1.4;">
+                  <div style="font-weight: 800; color: #991b1b; font-size: 0.92rem;">⛔ PEDIDO EN ESPERA — NO DEBE AVANZAR DE "EN PROCESAMIENTO"</div>
+                  <div>El avance a <strong>En preparación</strong> se encuentra bloqueado.${orderHoldInfoPage?.reason ? ` <strong>Motivo:</strong> ${escapeHtmlSafe(orderHoldInfoPage.reason)}` : ''}</div>
+                </div>
+              </div>
+              <button type="button" onclick="window.openOrderWmsHoldModal('${orderData.id}')" class="sop-btn" style="background: #d97706; color: #ffffff; border: none; font-weight: 700;">
+                <i class="ri-lock-unlock-line"></i> Gestionar / Quitar Espera
+              </button>
+            </div>
+          ` : ''}
           ${(window.renderOrderDetailConsolidationCardHtml ? window.renderOrderDetailConsolidationCardHtml(orderData) : '')}
 
           <!-- Franja de 5 KPIs Ejecutivos -->

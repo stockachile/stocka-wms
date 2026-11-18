@@ -837,12 +837,18 @@ async function handleIndividualMode(idPedido) {
     const cleanDid = String(createdDid).trim();
     const trackingUrlVal = `https://alphagroup.lightdata.com.ar/tracking.php?token=${cleanDid}d54df4s8a88`;
     const fechaProcesamientoVal = getFechaProcesamiento();
+    const isHeldOrderSingle = Boolean(
+      order.wms_on_hold === true ||
+      order.raw_shopify_data?.wms_on_hold?.active === true ||
+      order.raw_woocommerce_data?.wms_on_hold?.active === true ||
+      order.raw_jumpseller_data?.wms_on_hold?.active === true
+    );
     const updatedOrderData = {
       tracking_number: cleanDid, // Usar el ID de LightData como tracking
       tracking_url: trackingUrlVal,
       courier: 'CARRIER EXTERNO',
       label_base64: pdfBase64,
-      estado_wms: 'En preparación',
+      ...(!isHeldOrderSingle ? { estado_wms: 'En preparación' } : {}),
       fecha_procesamiento: fechaProcesamientoVal,
       agenda: 'RM',
       operador: 'ALPHA',
@@ -1467,12 +1473,18 @@ async function handleBulkMode(limiteCarga) {
     await runWithConcurrency(verifiedOrderMatches, 6, async (matchItem) => {
       const { order, did, trackingUrl, labelBase64 } = matchItem;
 
+      const isHeldOrderBulk = Boolean(
+        order.wms_on_hold === true ||
+        order.raw_shopify_data?.wms_on_hold?.active === true ||
+        order.raw_woocommerce_data?.wms_on_hold?.active === true ||
+        order.raw_jumpseller_data?.wms_on_hold?.active === true
+      );
       const updatedOrderData = {
         tracking_number: did,
         tracking_url: trackingUrl,
         courier: 'CARRIER EXTERNO',
         label_base64: labelBase64 || null,
-        estado_wms: 'En preparación',
+        ...(!isHeldOrderBulk ? { estado_wms: 'En preparación' } : {}),
         fecha_procesamiento: fechaProcesamientoVal,
         agenda: 'RM',
         operador: 'ALPHA',
