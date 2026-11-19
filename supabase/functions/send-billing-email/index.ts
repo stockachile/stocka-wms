@@ -93,28 +93,56 @@ serve(async (req) => {
       auth: { persistSession: false }
     })
 
-    // Validar autorización
+    const payload = await req.json()
+    const clientAllowedEmailTypes = [
+      'stock_inbound_created',
+      'shopify_pin_submitted',
+      'onboarding_received',
+      'onboarding_contract_received',
+      'onboarding_admin_notification',
+      'merchant_integration_connected'
+    ];
+
+    // Validar autorización (soporta SUPABASE_SERVICE_ROLE_KEY interno, JWT service_role de triggers pg_net y usuarios autenticados)
     let isAuthorized = false;
     let user = null;
 
     if (cleanServiceKey && token === cleanServiceKey) {
       isAuthorized = true;
     } else {
-      const { data: { user: verifiedUser }, error: authErr } = await supabaseClient.auth.getUser(token)
-      if (!authErr && verifiedUser) {
-        user = verifiedUser;
-        const { data: profile } = await supabaseClient
-          .from('profiles')
-          .select('role, is_colaborador, allowed_modules')
-          .eq('id', user.id)
-          .maybeSingle()
-        if (profile && (
-          profile.role === 'admin' || 
-          profile.role === 'all' || 
-          profile.is_colaborador === true || 
-          profile.allowed_modules === 'all'
-        )) {
-          isAuthorized = true;
+      // Verificar si es un JWT service_role válido enviado por un trigger de PostgreSQL (pg_net)
+      try {
+        const jwtParts = token.split('.');
+        if (jwtParts.length === 3) {
+          const claims = JSON.parse(atob(jwtParts[1].replace(/-/g, '+').replace(/_/g, '/')));
+          if (claims && claims.role === 'service_role' && claims.ref === 'ejtjfaucnxbikrwjwwdu') {
+            const triggerClient = createClient(supabaseUrl, token, { auth: { persistSession: false } });
+            const { error: probeErr } = await triggerClient.from('profiles').select('id').limit(1);
+            if (!probeErr) {
+              isAuthorized = true;
+            }
+          }
+        }
+      } catch (_) {}
+
+      if (!isAuthorized) {
+        const { data: { user: verifiedUser }, error: authErr } = await supabaseClient.auth.getUser(token)
+        if (!authErr && verifiedUser) {
+          user = verifiedUser;
+          const { data: profile } = await supabaseClient
+            .from('profiles')
+            .select('role, is_colaborador, allowed_modules')
+            .eq('id', user.id)
+            .maybeSingle()
+          if (profile && (
+            profile.role === 'admin' || 
+            profile.role === 'all' || 
+            profile.is_colaborador === true || 
+            profile.allowed_modules === 'all' ||
+            clientAllowedEmailTypes.includes(payload?.emailType)
+          )) {
+            isAuthorized = true;
+          }
         }
       }
     }
@@ -127,8 +155,6 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
     }
-
-    const payload = await req.json()
     const { 
       recordId, 
       serviceType, 

@@ -67448,6 +67448,7 @@ window.submitAdminNewDeclaration = async function() {
     }
 
     // 8. Intentar generar el comprobante PDF oficial
+    let generatedAdminPdfBase64 = null;
     if (typeof window.generateDeclarationPDFBase64 === 'function') {
       try {
         const pdfBase64 = await window.generateDeclarationPDFBase64({
@@ -67472,6 +67473,7 @@ window.submitAdminNewDeclaration = async function() {
           notes: notes,
           products_list: window.adminNewDecProducts
         });
+        generatedAdminPdfBase64 = pdfBase64;
 
         await supabase
           .from('stock_declarations')
@@ -67485,9 +67487,26 @@ window.submitAdminNewDeclaration = async function() {
       }
     }
 
-    // 9. Notificar a los usuarios del comercio
+    // 9. Notificar por correo e in-app a los usuarios del comercio
     try {
-      if (typeof notifyCommerceUsers === 'function') {
+      if (typeof window.sendStockInboundNotification === 'function') {
+        await window.sendStockInboundNotification({
+          event: 'created',
+          declarationId: newDecId,
+          comercio: commerce,
+          title: title,
+          decData: {
+            ...insertPayload,
+            id: newDecId
+          },
+          status: initialStatus,
+          productsList: window.adminNewDecProducts,
+          fileBase64: generatedAdminPdfBase64 || fileBase64 || null,
+          fileName: generatedAdminPdfBase64
+            ? `comprobante_ingreso_${newDecId.substring(0, 8).toUpperCase()}.pdf`
+            : (fileName || null)
+        });
+      } else if (typeof notifyCommerceUsers === 'function') {
         const notifTitle = 'Nuevo Ingreso de Stock Registrado por Administración';
         const notifMsg = `Administración ha declarado un nuevo ingreso de stock para tu comercio: "${title}" (#ING-${newDecId.substring(0, 8).toUpperCase()}). Revisa los detalles en la sección de Declaraciones.`;
         await notifyCommerceUsers(commerce, notifTitle, notifMsg);

@@ -86,6 +86,22 @@
           });
         }
       }
+
+      // 3. Obtener contactos activos de facturación / notificaciones del comercio como respaldo
+      const { data: billingContacts, error: bcErr } = await client
+        .from('billing_contacts')
+        .select('email')
+        .ilike('comercio', targetComercioLower)
+        .eq('activo', true);
+
+      if (!bcErr && Array.isArray(billingContacts)) {
+        billingContacts.forEach(c => {
+          const clean = (c?.email || '').trim().toLowerCase();
+          if (clean.includes('@') && clean.includes('.')) {
+            emails.add(clean);
+          }
+        });
+      }
     } catch (err) {
       console.error('[Inbound Notifications] Error al obtener correos del comercio:', err);
     }
