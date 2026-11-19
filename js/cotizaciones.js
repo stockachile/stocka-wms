@@ -9,7 +9,7 @@ import {
   formatCLP, 
   generateWhatsAppLink,
   sendQuoteEmailViaBrevo
-} from './pricing_manager.js?v=1.4';
+} from './pricing_manager.js?v=1.5';
 
 let currentPricingConfig = null;
 let currentQuoteResult = null;
@@ -76,9 +76,118 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 3. Registrar Event Listeners
   setupEventListeners();
 
-  // 4. Primer cálculo y render inicial
+  // 4. Sincronizar visualizadores de sliders, tarjetas activas y navegación
+  updateAllSliderFills();
+  setupScrollSpyAndMobileBar();
+
+  // 5. Primer cálculo y render inicial
   recalculateAndRender();
 });
+
+/**
+ * Actualiza la variable CSS --slider-pct para el relleno dinámico del slider
+ */
+function updateSliderFill(sliderEl) {
+  if (!sliderEl) return;
+  const min = parseFloat(sliderEl.min) || 0;
+  const max = parseFloat(sliderEl.max) || 100;
+  const val = parseFloat(sliderEl.value) || 0;
+  const pct = Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100));
+  sliderEl.style.setProperty('--slider-pct', `${pct}%`);
+}
+
+function updateAllSliderFills() {
+  updateSliderFill(getOrdersSlider());
+  updateSliderFill(getVolumeSlider());
+}
+
+/**
+ * Scroll-spy para los pasos de navegación y visibilidad de la barra móvil
+ */
+function setupScrollSpyAndMobileBar() {
+  // Ocultar barra flotante móvil cuando el resumen real es visible en pantalla
+  const mobileBar = document.getElementById('mobile-sticky-bar');
+  const summaryCard = document.getElementById('sticky-summary-card');
+  if (mobileBar && summaryCard && 'IntersectionObserver' in window) {
+    const summaryObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        mobileBar.classList.toggle('is-hidden', entry.isIntersecting);
+      });
+    }, { threshold: 0.15 });
+    summaryObserver.observe(summaryCard);
+  }
+
+  // Barra de pasos flotante sticky + Scroll-spy preciso
+  const stepNav = document.getElementById('cotizador-step-nav');
+  const stepSentinel = document.getElementById('step-nav-sentinel');
+  const navPills = Array.from(document.querySelectorAll('.step-nav-pill[data-step-target]'));
+  const sections = navPills
+    .map(pill => ({
+      id: pill.getAttribute('data-step-target'),
+      pill,
+      el: document.getElementById(pill.getAttribute('data-step-target'))
+    }))
+    .filter(item => item.el);
+
+  const setActiveStepPill = (activeId) => {
+    navPills.forEach(pill => {
+      const isNowActive = pill.getAttribute('data-step-target') === activeId;
+      const wasActive = pill.classList.contains('active');
+      pill.classList.toggle('active', isNowActive);
+      if (isNowActive && !wasActive && stepNav && stepNav.scrollWidth > stepNav.clientWidth + 4) {
+        const targetLeft = pill.offsetLeft - (stepNav.clientWidth / 2) + (pill.offsetWidth / 2);
+        stepNav.scrollTo({ left: Math.max(0, targetLeft), behavior: 'smooth' });
+      }
+    });
+  };
+
+  navPills.forEach(pill => {
+    pill.addEventListener('click', () => {
+      setActiveStepPill(pill.getAttribute('data-step-target'));
+    });
+  });
+
+  if (stepNav || sections.length > 0) {
+    let scrollTicking = false;
+    const syncFloatingNavAndSpy = () => {
+      scrollTicking = false;
+
+      // 1. Estado visual flotante glassmorphism al cruzar el umbral del header
+      if (stepNav && stepSentinel) {
+        const triggerY = window.innerWidth <= 768 ? 66 : 76;
+        const isStuck = stepSentinel.getBoundingClientRect().top <= triggerY;
+        stepNav.classList.toggle('is-stuck', isStuck);
+      }
+
+      // 2. Scroll-spy determinístico según posición vertical
+      if (sections.length > 0) {
+        const offsetLine = window.innerWidth <= 768 ? 145 : 165;
+        let currentId = sections[0].id;
+        for (const sec of sections) {
+          if (sec.el.getBoundingClientRect().top <= offsetLine) {
+            currentId = sec.id;
+          }
+        }
+        // Si llegó al final de la página, activar la última pestaña visible
+        if ((window.innerHeight + window.scrollY) >= (document.documentElement.scrollHeight - 40)) {
+          currentId = sections[sections.length - 1].id;
+        }
+        setActiveStepPill(currentId);
+      }
+    };
+
+    const onScrollOrResize = () => {
+      if (!scrollTicking) {
+        scrollTicking = true;
+        requestAnimationFrame(syncFloatingNavAndSpy);
+      }
+    };
+
+    window.addEventListener('scroll', onScrollOrResize, { passive: true });
+    window.addEventListener('resize', onScrollOrResize, { passive: true });
+    syncFloatingNavAndSpy();
+  }
+}
 
 /**
  * Sincroniza dinámicamente las etiquetas, escalas de descuentos y opciones del DOM
@@ -87,14 +196,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 function syncDynamicPricingUI(cfg) {
   if (!cfg) return;
 
-  // 1. Escala de Descuentos en Almacenamiento (badges)
-  const scaleStatusEl = document.getElementById('label-discount-scale-status');
-  const scaleWrapper = scaleStatusEl?.parentElement?.nextElementSibling;
-  if (scaleWrapper && Array.isArray(cfg.storage_discounts) && cfg.storage_discounts.length > 0) {
-    scaleWrapper.innerHTML = cfg.storage_discounts.map(d => {
-      const rangeText = d.max >= 999999 ? `+${Math.floor(d.min)} m³` : `${d.min}-${d.max} m³`;
-      return `<span class="badge" style="font-size: 0.72rem; padding: 0.25rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border);">${rangeText}: <strong>${d.discount_pct}%</strong></span>`;
-    }).join('');
+  // 1. Escala de Descuentos en Almacenamiento (chips interactivos) y máximo descuento en Hero
+  const scaleWrapper = document.getElementById('discount-scale-chips')
+    || document.getElementById('label-discount-scale-status')?.parentElement?.nextElementSibling;
+  if (Array.isArray(cfg.storage_discounts) && cfg.storage_discounts.length > 0) {
+    if (scaleWrapper) {
+      scaleWrapper.innerHTML = cfg.storage_discounts.map(d => {
+        const rangeText = d.max >= 999999 ? `+${Math.floor(d.min)} m³` : `${d.min}–${d.max} m³`;
+        return `<span class="discount-tier-chip" data-min="${d.min}" data-max="${d.max}"><span>${rangeText}</span><strong>${d.discount_pct}%</strong></span>`;
+      }).join('');
+    }
+    const maxPct = Math.max(...cfg.storage_discounts.map(d => Number(d.discount_pct) || 0));
+    const heroMaxEl = document.getElementById('hero-max-storage-discount');
+    if (heroMaxEl && maxPct > 0) {
+      heroMaxEl.textContent = `Hasta ${maxPct}% OFF en bodegaje`;
+    }
   }
 
   // 2. Parámetros avanzados de pedidos (SKU, Unidades, Venta Protegida, Catálogo, Marketplace)
@@ -138,15 +254,20 @@ function syncDynamicPricingUI(cfg) {
     const currentVal = selectRegional.value || '1_3kg';
     selectRegional.innerHTML = cfg.regional_shipping.weight_brackets.map(wb => {
       const isDefault = wb.id === currentVal;
-      const star = wb.id === '1_3kg' ? ' ⭐' : '';
-      return `<option value="${wb.id}" ${isDefault ? 'selected' : ''}>${wb.label} — Promedio ~${formatCLP(wb.avg_rate)} + IVA (${wb.cheapest_courier || 'Starken'})${star}</option>`;
+      const star = wb.id === '1_3kg' ? ' (Recomendado)' : '';
+      const shortLabel = String(wb.label || '').replace(/\s*\([^)]*\)/g, '').trim();
+      return `<option value="${wb.id}" ${isDefault ? 'selected' : ''}>${shortLabel} · ~${formatCLP(wb.avg_rate)} + IVA${star}</option>`;
     }).join('');
   }
 
   // 4. Textos de Despacho, Insumos y Servicios
   const shipSameDayInput = document.getElementById('input-shipments-sameday');
   if (shipSameDayInput && shipSameDayInput.nextElementSibling && cfg.shipping?.same_day_rm !== undefined) {
-    shipSameDayInput.nextElementSibling.textContent = `${formatCLP(cfg.shipping.same_day_rm)} + IVA por paquete en 36 comunas de Santiago.`;
+    shipSameDayInput.nextElementSibling.textContent = `${formatCLP(cfg.shipping.same_day_rm)} + IVA hasta 10 kg en 36 comunas de Santiago.`;
+  }
+  const shipColinaInput = document.getElementById('input-shipments-colina');
+  if (shipColinaInput && shipColinaInput.nextElementSibling && cfg.shipping?.colina !== undefined) {
+    shipColinaInput.nextElementSibling.textContent = `${formatCLP(cfg.shipping.colina)} + IVA por paquete en zona norte RM.`;
   }
   const shipCourierInput = document.getElementById('input-shipments-courier');
   if (shipCourierInput && shipCourierInput.nextElementSibling && cfg.shipping?.enviame_integration_fee !== undefined) {
@@ -154,7 +275,16 @@ function syncDynamicPricingUI(cfg) {
   }
   const pickupExpressInput = document.getElementById('input-pickups-express');
   if (pickupExpressInput && pickupExpressInput.nextElementSibling && cfg.shipping?.pickup_express_base !== undefined) {
-    pickupExpressInput.nextElementSibling.textContent = `${formatCLP(cfg.shipping.pickup_express_base)} + IVA base. (El retiro estándar con 60 min de aviso es 100% gratuito).`;
+    pickupExpressInput.nextElementSibling.textContent = `${formatCLP(cfg.shipping.pickup_express_base)} + IVA base. (El retiro estándar con 60 min de aviso es $0).`;
+  }
+  const mlFullInput = document.getElementById('input-ml-full-units');
+  if (mlFullInput && mlFullInput.nextElementSibling && cfg.pick_pack_rules?.surcharge_ml_full_labeling !== undefined) {
+    mlFullInput.nextElementSibling.textContent = `${formatCLP(cfg.pick_pack_rules.surcharge_ml_full_labeling)} + IVA por unidad etiquetada para despacho a bodega FULL.`;
+  }
+  const inboundLabelInput = document.getElementById('input-inbound-labeling-units');
+  if (inboundLabelInput && inboundLabelInput.nextElementSibling) {
+    const rate = cfg.services?.inbound_labeling_per_unit ?? 100;
+    inboundLabelInput.nextElementSibling.textContent = `${formatCLP(rate)} + IVA / unidad solo si llega sin código. Si viene etiquetado es $0.`;
   }
   const bubbleInput = document.getElementById('input-bubble-wrap');
   if (bubbleInput) {
@@ -178,7 +308,7 @@ function syncDynamicPricingUI(cfg) {
       <div class="form-group">
         <label for="input-box-${bx.id}" class="form-label">${bx.name} (${bx.length_cm}×${bx.width_cm}×${bx.height_cm} cm)</label>
         <input type="number" id="input-box-${bx.id}" data-supply-box-id="${bx.id}" class="form-input dynamic-supply-box-input" value="0" min="0" placeholder="0">
-        <small style="color: var(--color-text-muted); font-size: 0.72rem;">${formatCLP(bx.unit_price)} + IVA c/u</small>
+        <small class="field-hint">${formatCLP(bx.unit_price)} + IVA c/u</small>
       </div>
     `).join('');
     suppliesGrid.innerHTML = (bubbleGroup ? bubbleGroup.outerHTML : '') + boxesHtml;
@@ -202,6 +332,7 @@ function setupEventListeners() {
   if (elOrdersSlider && elOrdersNumber) {
     elOrdersSlider.addEventListener('input', () => {
       elOrdersNumber.value = elOrdersSlider.value;
+      updateSliderFill(elOrdersSlider);
       highlightActivePreset(parseInt(elOrdersSlider.value, 10));
       recalculateAndRender();
     });
@@ -209,7 +340,8 @@ function setupEventListeners() {
     elOrdersNumber.addEventListener('input', () => {
       const val = parseInt(elOrdersNumber.value, 10);
       if (!isNaN(val)) {
-        elOrdersSlider.value = Math.min(3000, Math.max(0, val));
+        elOrdersSlider.value = Math.min(4000, Math.max(0, val));
+        updateSliderFill(elOrdersSlider);
         highlightActivePreset(val);
       }
       recalculateAndRender();
@@ -223,7 +355,10 @@ function setupEventListeners() {
       if (!isNaN(orders)) {
         const slider = getOrdersSlider();
         const numberInput = getOrdersNumber();
-        if (slider) slider.value = Math.min(3000, orders);
+        if (slider) {
+          slider.value = Math.min(4000, orders);
+          updateSliderFill(slider);
+        }
         if (numberInput) numberInput.value = orders;
         document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
@@ -231,6 +366,20 @@ function setupEventListeners() {
       }
     });
   });
+
+  // Toggle Expandir/Colapsar todas las condiciones transparentes
+  const btnToggleAllCond = document.getElementById('btn-toggle-all-conditions');
+  if (btnToggleAllCond) {
+    btnToggleAllCond.addEventListener('click', () => {
+      const items = Array.from(document.querySelectorAll('#section-transparent-conditions .condition-accordion'));
+      const allOpen = items.length > 0 && items.every(d => d.open);
+      items.forEach(d => { d.open = !allOpen; });
+      btnToggleAllCond.classList.toggle('is-expanded', !allOpen);
+      btnToggleAllCond.innerHTML = !allOpen
+        ? `<i class="ri-arrow-up-s-line"></i><span>Contraer todo</span>`
+        : `<i class="ri-arrow-down-s-line"></i><span>Expandir todo</span>`;
+    });
+  }
 
   // Toggle de opciones avanzadas de pedido
   const btnToggleAdv = document.getElementById('btn-toggle-advanced-orders');
@@ -265,11 +414,14 @@ function setupEventListeners() {
     'switch-catalogue-100',
     'switch-marketplace-collect',
     'input-shipments-sameday',
+    'input-shipments-colina',
     'input-shipments-courier',
     'select-regional-weight',
     'input-pickups-express',
     'input-bubble-wrap',
     'input-box-s',
+    'input-ml-full-units',
+    'input-inbound-labeling-units',
     'check-pos-service',
     'check-vitrina-service',
     'input-unloading-m3'
@@ -319,12 +471,17 @@ function setupEventListeners() {
     const updateItemSubtotal = () => {
       const qty = Math.max(0, parseInt(inputQty.value, 10) || 0);
       inputQty.value = qty;
+      card.classList.toggle('has-qty', qty > 0);
       const subtotalM3 = (qty * vol).toFixed(2);
       const subEl = card.querySelector('.didactic-item-subtotal strong');
       if (subEl) subEl.textContent = `${subtotalM3} m³`;
       syncStorageVolumeFromActiveMode();
       recalculateAndRender();
     };
+
+    if (inputQty) {
+      card.classList.toggle('has-qty', (parseInt(inputQty.value, 10) || 0) > 0);
+    }
 
     if (btnMinus && inputQty) {
       btnMinus.addEventListener('click', () => {
@@ -356,16 +513,36 @@ function setupEventListeners() {
   if (elVolumeSlider && elVolumeNumber) {
     elVolumeSlider.addEventListener('input', () => {
       elVolumeNumber.value = elVolumeSlider.value;
+      updateSliderFill(elVolumeSlider);
       recalculateAndRender();
     });
 
     elVolumeNumber.addEventListener('input', () => {
       elVolumeSlider.value = Math.min(40, Math.max(0.1, parseFloat(elVolumeNumber.value) || 0.1));
+      updateSliderFill(elVolumeSlider);
       recalculateAndRender();
     });
   }
 
-  // Calculadora de Caja Personalizada
+  // Calculadora de Caja Personalizada (con vista previa en vivo y feedback inline)
+  const customCalcInputs = ['calc-custom-length', 'calc-custom-width', 'calc-custom-height', 'calc-custom-qty'];
+  const updateCustomBoxPreview = () => {
+    const l = parseFloat(document.getElementById('calc-custom-length')?.value) || 0;
+    const w = parseFloat(document.getElementById('calc-custom-width')?.value) || 0;
+    const h = parseFloat(document.getElementById('calc-custom-height')?.value) || 0;
+    const qty = parseInt(document.getElementById('calc-custom-qty')?.value, 10) || 0;
+    const previewEl = document.getElementById('custom-box-live-preview');
+    if (previewEl) {
+      const m3 = (l > 0 && w > 0 && h > 0 && qty > 0) ? ((l * w * h) / 1000000) * qty : 0;
+      previewEl.textContent = `${m3.toFixed(2)} m³`;
+    }
+  };
+  customCalcInputs.forEach(id => {
+    const inp = document.getElementById(id);
+    if (inp) inp.addEventListener('input', updateCustomBoxPreview);
+  });
+  updateCustomBoxPreview();
+
   const btnApplyCustom = document.getElementById('btn-apply-custom-box');
   if (btnApplyCustom) {
     btnApplyCustom.addEventListener('click', () => {
@@ -379,9 +556,18 @@ function setupEventListeners() {
         const volNum = getVolumeNumber();
         const volSlide = getVolumeSlider();
         if (volNum) volNum.value = customM3.toFixed(2);
-        if (volSlide) volSlide.value = Math.min(40, customM3.toFixed(2));
+        if (volSlide) {
+          volSlide.value = Math.min(40, customM3.toFixed(2));
+          updateSliderFill(volSlide);
+        }
         recalculateAndRender();
-        alert(`Se han añadido ${customM3.toFixed(2)} m³ correspondientes a ${qty} cajas de ${l}×${w}×${h} cm.`);
+        const fb = document.getElementById('custom-box-feedback');
+        if (fb) {
+          fb.innerHTML = `<i class="ri-checkbox-circle-fill"></i> Aplicado: <strong>${customM3.toFixed(2)} m³</strong> (${qty} cajas de ${l}×${w}×${h} cm).`;
+          fb.classList.add('visible');
+          clearTimeout(fb._hideTimer);
+          fb._hideTimer = setTimeout(() => fb.classList.remove('visible'), 4500);
+        }
       }
     });
   }
@@ -407,6 +593,11 @@ function setupEventListeners() {
   if (modal) {
     modal.addEventListener('click', (e) => {
       if (e.target === modal) modal.classList.remove('open');
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal.classList.contains('open')) {
+        modal.classList.remove('open');
+      }
     });
   }
 
@@ -471,7 +662,10 @@ function syncStorageVolumeFromActiveMode() {
   const elVolumeNumber = getVolumeNumber();
   const elVolumeSlider = getVolumeSlider();
   if (elVolumeNumber) elVolumeNumber.value = vol.toFixed(2);
-  if (elVolumeSlider) elVolumeSlider.value = Math.min(40, vol.toFixed(2));
+  if (elVolumeSlider) {
+    elVolumeSlider.value = Math.min(40, vol.toFixed(2));
+    updateSliderFill(elVolumeSlider);
+  }
 }
 
 /**
@@ -514,6 +708,7 @@ function recalculateAndRender() {
       hasOver100SkuCatalogue: document.getElementById('switch-catalogue-100')?.checked || false,
       isMarketplaceCollect: document.getElementById('switch-marketplace-collect')?.checked || false,
       shipmentsSameDay: parseInt(document.getElementById('input-shipments-sameday')?.value, 10) || 0,
+      shipmentsColina: parseInt(document.getElementById('input-shipments-colina')?.value, 10) || 0,
       shipmentsCourier: parseInt(document.getElementById('input-shipments-courier')?.value, 10) || 0,
       regionalWeightBracket: document.getElementById('select-regional-weight')?.value || '1_3kg',
       pickupsExpress: parseInt(document.getElementById('input-pickups-express')?.value, 10) || 0,
@@ -523,7 +718,9 @@ function recalculateAndRender() {
       boxesS: parseInt(document.getElementById('input-box-s')?.value || document.getElementById('input-box-box_s')?.value, 10) || 0,
       hasPosService: document.getElementById('check-pos-service')?.checked || false,
       hasVitrinaService: document.getElementById('check-vitrina-service')?.checked || false,
-      unloadingVolumeM3: parseFloat(document.getElementById('input-unloading-m3')?.value) || 0
+      unloadingVolumeM3: parseFloat(document.getElementById('input-unloading-m3')?.value) || 0,
+      mlFullLabelingUnits: parseInt(document.getElementById('input-ml-full-units')?.value, 10) || 0,
+      inboundLabelingUnits: parseInt(document.getElementById('input-inbound-labeling-units')?.value, 10) || 0
     };
 
     currentQuoteResult = calculateQuotation(inputs, currentPricingConfig);
@@ -559,13 +756,20 @@ function renderQuotation(res) {
     tierBannerStorage.textContent = `${formatCLP(res.activeRange.storage_m3)} + IVA / m³`;
   }
 
-  // Barra al siguiente rango
+  // Barra al siguiente rango + Progreso animado
   const nextTierBar = document.getElementById('next-tier-bar-container');
   const nextTierText = document.getElementById('next-tier-text');
+  const nextTierFill = document.getElementById('next-tier-progress-fill');
   if (nextTierBar && nextTierText) {
     if (res.nextRange && res.ordersToNextRange > 0) {
       nextTierBar.style.display = 'flex';
-      nextTierText.innerHTML = `¡Agrega <strong>${res.ordersToNextRange} pedidos</strong> más para desbloquear el Rango ${res.nextRange.id} y pagar <strong>${formatCLP(res.nextRange.pick_pack_base)}</strong> por pedido!`;
+      nextTierText.innerHTML = `Agrega <strong>${res.ordersToNextRange} pedidos</strong> más para desbloquear el <strong>Rango ${res.nextRange.id}</strong> y pagar <strong>${formatCLP(res.nextRange.pick_pack_base)}</strong> por pedido.`;
+      if (nextTierFill) {
+        const minBound = res.activeRange.min || 0;
+        const span = Math.max(1, res.nextRange.min - minBound);
+        const progress = Math.max(6, Math.min(98, Math.round(((res.pickPack.monthlyOrders - minBound) / span) * 100)));
+        nextTierFill.style.width = `${progress}%`;
+      }
     } else {
       nextTierBar.style.display = 'none';
     }
@@ -581,19 +785,26 @@ function renderQuotation(res) {
   if (displayEquivalence) {
     const approxPallets = Math.max(1, Math.round(res.storage.volumeM3 / 1.8));
     const approxRacks = Math.max(1, Math.round(res.storage.volumeM3 / 1.0));
-    displayEquivalence.innerHTML = `💡 Tu mercadería equivale aproximadamente a <strong>~${approxPallets} pallet${approxPallets > 1 ? 's' : ''} estándar</strong> o <strong>~${approxRacks} estante${approxRacks > 1 ? 's' : ''}</strong> de bodega.`;
+    displayEquivalence.innerHTML = `Tu mercadería equivale aprox. a <strong>~${approxPallets} pallet${approxPallets > 1 ? 's' : ''} estándar</strong> o <strong>~${approxRacks} estante${approxRacks > 1 ? 's' : ''}</strong> de bodega.`;
   }
 
-  // Badge de Descuento por Almacenamiento
+  // Badge de Descuento por Almacenamiento + Resaltado de escalón activo
   const badgeStorageDiscount = document.getElementById('badge-storage-discount');
   const labelDiscountScaleStatus = document.getElementById('label-discount-scale-status');
+  document.querySelectorAll('.discount-tier-chip').forEach(chip => {
+    const minV = parseFloat(chip.getAttribute('data-min')) || 0;
+    const maxV = parseFloat(chip.getAttribute('data-max')) || 999999;
+    const isHit = res.storage.volumeM3 >= minV && res.storage.volumeM3 <= maxV;
+    chip.classList.toggle('is-active', isHit);
+  });
+
   if (badgeStorageDiscount) {
     if (res.storage.discountPct > 0) {
       badgeStorageDiscount.style.display = 'inline-flex';
-      badgeStorageDiscount.innerHTML = `<i class="ri-percent-line"></i> ${res.storage.discountPct}% Descuento Aplicado (${formatCLP(res.storage.discountAmount)} ahorro)`;
+      badgeStorageDiscount.innerHTML = `<i class="ri-percent-line"></i> ${res.storage.discountPct}% OFF · Ahorras ${formatCLP(res.storage.discountAmount)}`;
       if (labelDiscountScaleStatus) {
-        labelDiscountScaleStatus.textContent = `🎉 ¡${res.storage.discountPct}% de descuento activo!`;
-        labelDiscountScaleStatus.style.color = 'var(--color-success)';
+        labelDiscountScaleStatus.innerHTML = `<i class="ri-checkbox-circle-fill"></i> ${res.storage.discountPct}% de descuento activo`;
+        labelDiscountScaleStatus.style.color = 'var(--cot-emerald)';
       }
     } else {
       badgeStorageDiscount.style.display = 'none';
@@ -602,8 +813,8 @@ function renderQuotation(res) {
         const minTarget = firstDiscount.min ?? 10;
         const pctTarget = firstDiscount.discount_pct ?? 18;
         const needed = Math.max(0.1, minTarget - res.storage.volumeM3).toFixed(1);
-        labelDiscountScaleStatus.textContent = `Alcanza ${minTarget} m³ (te faltan ${needed} m³) para ${pctTarget}% OFF`;
-        labelDiscountScaleStatus.style.color = 'var(--color-accent)';
+        labelDiscountScaleStatus.textContent = `Alcanza ${minTarget} m³ (faltan ${needed} m³) para ${pctTarget}% OFF`;
+        labelDiscountScaleStatus.style.color = 'var(--cot-accent-text)';
       }
     }
   }
@@ -662,6 +873,9 @@ function renderQuotation(res) {
       if (res.shipping.shipmentsSameDay > 0) {
         parts.push(`${res.shipping.shipmentsSameDay} RM Same Day`);
       }
+      if (res.shipping.shipmentsColina > 0) {
+        parts.push(`${res.shipping.shipmentsColina} Colina`);
+      }
       if (res.shipping.shipmentsCourier > 0) {
         parts.push(`${res.shipping.shipmentsCourier} Regiones (${res.shipping.activeWeightBracket?.label || '1 a 3 kg'})`);
       }
@@ -682,7 +896,14 @@ function renderQuotation(res) {
   if (rowExtras && summaryExtrasSub && summaryExtrasVal) {
     if (res.extras.totalCost > 0) {
       rowExtras.style.display = 'flex';
-      summaryExtrasSub.textContent = `Insumos y servicios sucursal`;
+      const extraLabels = [];
+      if (res.extras.supplies?.totalSuppliesCost > 0) extraLabels.push('Insumos');
+      if (res.extras.services?.mlFullLabelingUnits > 0) extraLabels.push(`${res.extras.services.mlFullLabelingUnits} ML FULL`);
+      if (res.extras.services?.inboundLabelingUnits > 0) extraLabels.push(`${res.extras.services.inboundLabelingUnits} Etiq. ingreso`);
+      if (res.extras.services?.hasPosService) extraLabels.push('POS');
+      if (res.extras.services?.hasVitrinaService) extraLabels.push('Vitrina');
+      if (res.extras.services?.costUnloading > 0) extraLabels.push(`Descarga ${res.extras.services.unloadingVolumeM3} m³`);
+      summaryExtrasSub.textContent = extraLabels.join(' + ') || 'Insumos y servicios sucursal';
       summaryExtrasVal.textContent = formatCLP(res.extras.totalCost);
     } else {
       rowExtras.style.display = 'none';
@@ -692,6 +913,12 @@ function renderQuotation(res) {
   // Totales
   const summaryNetTotal = document.getElementById('summary-net-total');
   if (summaryNetTotal) summaryNetTotal.textContent = formatCLP(res.totals.netMonthly);
+
+  // Sincronizar barra flotante móvil
+  const mobileTotal = document.getElementById('mobile-summary-total');
+  if (mobileTotal) mobileTotal.textContent = formatCLP(res.totals.netMonthly);
+  const mobileMeta = document.getElementById('mobile-summary-meta');
+  if (mobileMeta) mobileMeta.textContent = `Subtotal Neto · Rango ${res.activeRange.id}`;
 
   const summaryIvaGross = document.getElementById('summary-iva-gross-text');
   if (summaryIvaGross) {

@@ -27,15 +27,34 @@
   }
 
   /* ========================================================
-     1. HERO SECTION
+     1. HERO SECTION (MODERN SAAS AMBIENT GRID)
      ======================================================== */
   .stocka-tf-hero-sec {
-    padding: 4rem 0 3.5rem 0;
+    position: relative;
+    padding: 4rem 0 2.5rem 0;
     text-align: center;
-    background: radial-gradient(circle at 50% 10%, rgba(92, 36, 255, 0.06) 0%, rgba(255, 255, 255, 1) 70%);
+    background:
+      radial-gradient(ellipse 75% 55% at 22% -5%, rgba(92, 36, 255, 0.1) 0%, transparent 65%),
+      radial-gradient(ellipse 60% 45% at 82% 8%, rgba(6, 214, 160, 0.08) 0%, transparent 60%),
+      #ffffff;
     border-bottom: 1px solid #f1f5f9;
+    overflow: hidden;
+  }
+  .stocka-tf-hero-sec::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-size: 42px 42px;
+    background-image:
+      linear-gradient(to right, rgba(15, 23, 42, 0.03) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(15, 23, 42, 0.03) 1px, transparent 1px);
+    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.85) 0%, transparent 78%);
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.85) 0%, transparent 78%);
   }
   .stocka-tf-hero-wrap {
+    position: relative;
+    z-index: 1;
     max-width: 820px;
     margin: 0 auto;
   }
@@ -43,10 +62,11 @@
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.35rem 0.95rem;
+    padding: 0.38rem 1rem;
     border-radius: 9999px;
-    background: #f1f0fe;
+    background: rgba(255, 255, 255, 0.9);
     border: 1px solid #e0dcfe;
+    box-shadow: 0 2px 8px rgba(92, 36, 255, 0.08);
     color: #5c24ff;
     font-size: 0.78rem;
     font-weight: 800;
@@ -58,9 +78,175 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #5c24ff;
+    background: #06d6a0;
     display: inline-block;
-    box-shadow: 0 0 0 3px rgba(92, 36, 255, 0.25);
+    box-shadow: 0 0 0 3px rgba(6, 214, 160, 0.25);
+    animation: stockaTfPulse 2.2s infinite ease-in-out;
+  }
+  @keyframes stockaTfPulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(0.82); opacity: 0.6; }
+  }
+
+  /* ========================================================
+     1B. FLOATING STICKY SECTION NAV PILL BAR
+     ======================================================== */
+  .stocka-tf-float-nav-slot {
+    position: relative;
+    width: 100%;
+    min-height: 58px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0.65rem 1rem;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    box-sizing: border-box;
+    z-index: 35;
+  }
+  .stocka-tf-float-nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem;
+    border-radius: 9999px;
+    background: #ffffff;
+    border: 1px solid rgba(15, 23, 42, 0.09);
+    box-shadow: 0 4px 18px -6px rgba(15, 23, 42, 0.1);
+    max-width: calc(100vw - 28px);
+    box-sizing: border-box;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    transition: background-color 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  }
+  .stocka-tf-float-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .stocka-tf-float-nav.is-floating {
+    position: fixed;
+    top: var(--stocka-nav-top, 84px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 35;
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(18px) saturate(180%);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
+    border-color: rgba(92, 36, 255, 0.24);
+    box-shadow: 0 14px 34px -10px rgba(15, 23, 42, 0.2), 0 4px 12px -4px rgba(92, 36, 255, 0.16);
+  }
+  .stocka-tf-nav-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.38rem;
+    padding: 0.42rem 0.9rem;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #475569 !important;
+    text-decoration: none !important;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+  }
+  .stocka-tf-nav-pill:hover {
+    color: #0f172a !important;
+    background: #f1f5f9;
+  }
+  .stocka-tf-nav-pill.active {
+    background: #5c24ff;
+    color: #ffffff !important;
+    box-shadow: 0 4px 12px -2px rgba(92, 36, 255, 0.45);
+  }
+  .stocka-tf-nav-pill .pill-num {
+    font-size: 0.68rem;
+    font-weight: 800;
+    opacity: 0.72;
+  }
+  .stocka-tf-nav-pill.active .pill-num {
+    opacity: 0.95;
+  }
+  .stocka-tf-nav-pill.pill-zero {
+    color: #059669 !important;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+  }
+  .stocka-tf-nav-pill.pill-zero:hover,
+  .stocka-tf-nav-pill.pill-zero.active {
+    background: #059669;
+    color: #ffffff !important;
+    border-color: transparent;
+    box-shadow: 0 4px 12px -2px rgba(16, 185, 129, 0.45);
+  }
+
+  /* Tabular numerals & Gradient-filled range slider */
+  .stocka-tf-card-price,
+  #tf-unit-cost-val,
+  #tf-table-body td {
+    font-variant-numeric: tabular-nums;
+  }
+  #tf-orders-range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 8px;
+    border-radius: 9999px;
+    background: linear-gradient(90deg, #5c24ff 0%, #818cf8 var(--slider-pct, 90%), #e2e8f0 var(--slider-pct, 90%));
+    outline: none;
+    cursor: pointer;
+  }
+  #tf-orders-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #5c24ff;
+    border: 3px solid #ffffff;
+    box-shadow: 0 4px 12px rgba(92, 36, 255, 0.45);
+    cursor: pointer;
+    transition: transform 0.16s ease, box-shadow 0.16s ease;
+  }
+  #tf-orders-range::-webkit-slider-thumb:hover {
+    transform: scale(1.16);
+    box-shadow: 0 6px 16px rgba(92, 36, 255, 0.55);
+  }
+  #tf-orders-range::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #5c24ff;
+    border: 3px solid #ffffff;
+    box-shadow: 0 4px 12px rgba(92, 36, 255, 0.45);
+    cursor: pointer;
+  }
+
+  .stocka-tf-cond-expand-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 1.15rem;
+    padding: 0.5rem 1.05rem;
+    border-radius: 9999px;
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    color: #334155;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.2s ease;
+  }
+  .stocka-tf-cond-expand-btn:hover {
+    border-color: #5c24ff;
+    color: #5c24ff;
+    background: #f5f3ff;
+  }
+  #stocka-tarifas-base-anchor,
+  #stocka-zero-fees-anchor,
+  #stocka-cotizador-anchor,
+  #stocka-sucursal-anchor,
+  #stocka-condiciones-anchor {
+    scroll-margin-top: 152px;
   }
   .stocka-tf-hero-title {
     font-size: 2.35rem;
@@ -765,6 +951,263 @@
     stroke-width: 2;
     fill: none;
   }
+
+  /* ========================================================
+     8. ZERO FEES SECTION ("LO QUE NO COBRAMOS $0")
+     ======================================================== */
+  .stocka-tf-zero-sec {
+    padding: 5rem 0;
+    background: linear-gradient(180deg, #f8fafc 0%, #ecfdf5 50%, #ffffff 100%);
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .stocka-tf-zero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.35rem 0.9rem;
+    border-radius: 9999px;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    color: #059669;
+    font-size: 0.76rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.85rem;
+  }
+  .stocka-tf-zero-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+  @media (min-width: 640px) {
+    .stocka-tf-zero-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  @media (min-width: 1024px) {
+    .stocka-tf-zero-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  .stocka-tf-zero-card {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 20px;
+    padding: 1.45rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    box-shadow: 0 6px 20px -10px rgba(15, 23, 42, 0.06);
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .stocka-tf-zero-card:hover {
+    transform: translateY(-4px);
+    border-color: #6ee7b7;
+    box-shadow: 0 16px 32px -12px rgba(16, 185, 129, 0.2);
+  }
+  .stocka-tf-zero-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .stocka-tf-zero-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: #f1f0fe;
+    color: #5c24ff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .stocka-tf-zero-icon svg {
+    width: 21px;
+    height: 21px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+  }
+  .stocka-tf-zero-pill {
+    font-size: 0.9rem;
+    font-weight: 900;
+    color: #059669;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+  }
+  .stocka-tf-zero-title {
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0.15rem 0 0 0;
+    line-height: 1.25;
+  }
+  .stocka-tf-zero-desc {
+    font-size: 0.85rem;
+    color: #475569;
+    line-height: 1.5;
+    margin: 0;
+    flex: 1;
+  }
+  .stocka-tf-zero-vs {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding-top: 0.7rem;
+    margin-top: 0.25rem;
+    border-top: 1px dashed #e2e8f0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #64748b;
+  }
+  .stocka-tf-zero-vs span.vs-x {
+    color: #ef4444;
+    font-weight: 900;
+  }
+
+  /* ========================================================
+     9. TRANSPARENT CONDITIONS ACCORDION SECTION
+     ======================================================== */
+  .stocka-tf-cond-sec {
+    padding: 4.5rem 0;
+    background: #ffffff;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .stocka-tf-cond-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.15rem;
+    align-items: start;
+  }
+  @media (min-width: 860px) {
+    .stocka-tf-cond-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  .stocka-tf-cond-card {
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 18px;
+    overflow: hidden;
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  .stocka-tf-cond-card[open] {
+    background: #ffffff;
+    border-color: #c4b5fd;
+    box-shadow: 0 10px 26px -12px rgba(92, 36, 255, 0.14);
+  }
+  .stocka-tf-cond-summary {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.15rem 1.25rem;
+    cursor: pointer;
+    user-select: none;
+  }
+  .stocka-tf-cond-summary::-webkit-details-marker {
+    display: none;
+  }
+  .stocka-tf-cond-summary h3 {
+    font-size: 0.98rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 0.2rem 0;
+    line-height: 1.25;
+  }
+  .stocka-tf-cond-summary p {
+    font-size: 0.78rem;
+    color: #64748b;
+    margin: 0;
+  }
+  .stocka-tf-cond-chevron {
+    width: 18px;
+    height: 18px;
+    color: #64748b;
+    flex-shrink: 0;
+    transition: transform 0.2s ease, color 0.2s ease;
+  }
+  .stocka-tf-cond-card[open] .stocka-tf-cond-chevron {
+    transform: rotate(180deg);
+    color: #5c24ff;
+  }
+  .stocka-tf-cond-body {
+    padding: 0 1.25rem 1.25rem 1.25rem;
+    border-top: 1px dashed #e2e8f0;
+  }
+  .stocka-tf-cond-body ul {
+    list-style: none;
+    padding: 0;
+    margin: 0.95rem 0 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+  .stocka-tf-cond-body li {
+    position: relative;
+    padding-left: 1rem;
+    font-size: 0.84rem;
+    color: #475569;
+    line-height: 1.5;
+  }
+  .stocka-tf-cond-body li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.55rem;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #5c24ff;
+  }
+  .stocka-tf-cond-body li strong {
+    color: #0f172a;
+  }
+  .stk-tf-ico {
+    width: 15px;
+    height: 15px;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    flex-shrink: 0;
+    display: inline-block;
+    vertical-align: -2px;
+  }
+  .stocka-tf-cond-summary h3 {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .stocka-tf-cond-summary h3 .stk-tf-ico {
+    width: 17px;
+    height: 17px;
+    color: #5c24ff;
+  }
+  .stocka-tf-tramo-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .stocka-tf-hint-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    color: #10b981;
+    font-weight: 700;
+    margin-top: 0.45rem;
+  }
+  .stocka-tf-hint-inline .stk-tf-ico {
+    width: 13px;
+    height: 13px;
+  }
 </style>
 
 <div class="stocka-tf-page">
@@ -828,7 +1271,11 @@
           </div>
           <div class="stocka-tf-pill-item">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>
-            <span>Sin Mínimos</span>
+            <span>$0 Implementación y WMS</span>
+          </div>
+          <div class="stocka-tf-pill-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>
+            <span>$0 Costo Fijo ≥ 75 ped.</span>
           </div>
           <div class="stocka-tf-pill-item">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>
@@ -840,10 +1287,31 @@
     </div>
   </section>
 
+  <!-- Barra Flotante Sticky de Navegación por Secciones -->
+  <div class="stocka-tf-float-nav-slot" id="tf-float-nav-slot">
+    <nav class="stocka-tf-float-nav" id="tf-float-nav" aria-label="Secciones de Tarifas Stocka">
+      <a href="#stocka-tarifas-base-anchor" class="stocka-tf-nav-pill active" data-tf-target="stocka-tarifas-base-anchor">
+        <span class="pill-num">01</span><span>Tarifas Base</span>
+      </a>
+      <a href="#stocka-zero-fees-anchor" class="stocka-tf-nav-pill pill-zero" data-tf-target="stocka-zero-fees-anchor">
+        <span class="pill-num">$0</span><span>Qué NO cobramos</span>
+      </a>
+      <a href="#stocka-cotizador-anchor" class="stocka-tf-nav-pill" data-tf-target="stocka-cotizador-anchor">
+        <span class="pill-num">02</span><span>Cotizador 360</span>
+      </a>
+      <a href="#stocka-sucursal-anchor" class="stocka-tf-nav-pill" data-tf-target="stocka-sucursal-anchor">
+        <span class="pill-num">03</span><span>Sucursal Ñuñoa</span>
+      </a>
+      <a href="#stocka-condiciones-anchor" class="stocka-tf-nav-pill" data-tf-target="stocka-condiciones-anchor">
+        <span class="pill-num">04</span><span>Condiciones</span>
+      </a>
+    </nav>
+  </div>
+
   <!-- ========================================================
        2. CORE BASE PRICING CARDS (3 PILARES)
        ======================================================== -->
-  <section class="stocka-tf-pricing-sec">
+  <section class="stocka-tf-pricing-sec" id="stocka-tarifas-base-anchor">
     <div class="stocka-tf-container">
       
       <div class="stocka-tf-sec-header">
@@ -864,42 +1332,44 @@
           </div>
           <div style="display: flex; align-items: center; gap: 0.5rem;">
             <div id="tf-tier-active-badge" style="background: linear-gradient(135deg, #5c24ff 0%, #4338ca 100%); color: #ffffff; padding: 0.35rem 0.95rem; border-radius: 9999px; font-size: 0.82rem; font-weight: 800; box-shadow: 0 4px 12px rgba(92, 36, 255, 0.25);">
-              Rango 7: +2.500 pedidos (Enterprise)
+              Rango 8: +3.500 pedidos (Enterprise+)
             </div>
           </div>
         </div>
 
-        <!-- Quick Tramo Buttons Pills -->
-        <div class="stocka-tf-tramo-pills" style="margin-bottom: 1.25rem;">
-          <button type="button" class="stocka-tf-tramo-btn" data-orders="60" data-tier="1">0 – 100 ped</button>
-          <button type="button" class="stocka-tf-tramo-btn" data-orders="180" data-tier="2">101 – 250 ped</button>
-          <button type="button" class="stocka-tf-tramo-btn" data-orders="300" data-tier="3">251 – 350 ped</button>
-          <button type="button" class="stocka-tf-tramo-btn" data-orders="420" data-tier="4">351 – 500 ped</button>
+        <!-- Quick Tramo Buttons Pills (8 Tramos Oficiales WMS) -->
+        <div class="stocka-tf-tramo-pills" id="tf-tramo-pills-container" style="margin-bottom: 1.25rem;">
+          <button type="button" class="stocka-tf-tramo-btn" data-orders="20" data-tier="1">0 – 25 ped</button>
+          <button type="button" class="stocka-tf-tramo-btn" data-orders="60" data-tier="2">26 – 100 ped</button>
+          <button type="button" class="stocka-tf-tramo-btn" data-orders="150" data-tier="3">101 – 200 ped</button>
+          <button type="button" class="stocka-tf-tramo-btn" data-orders="350" data-tier="4">201 – 500 ped</button>
           <button type="button" class="stocka-tf-tramo-btn" data-orders="800" data-tier="5">501 – 1.500 ped</button>
           <button type="button" class="stocka-tf-tramo-btn" data-orders="1800" data-tier="6">1.501 – 2.500 ped</button>
-          <button type="button" class="stocka-tf-tramo-btn active" data-orders="3000" data-tier="7">+2.500 Enterprise ⭐</button>
+          <button type="button" class="stocka-tf-tramo-btn" data-orders="2800" data-tier="7">2.501 – 3.500 ped</button>
+          <button type="button" class="stocka-tf-tramo-btn active" data-orders="3600" data-tier="8">+3.500 Enterprise <svg class="stk-tf-ico" viewBox="0 0 24 24" style="width:13px;height:13px;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg></button>
         </div>
 
         <!-- Range Slider -->
         <div style="position: relative;">
-          <input type="range" id="tf-orders-range" class="stocka-cot-range" min="0" max="3000" value="3000" step="10" style="width: 100%;">
+          <input type="range" id="tf-orders-range" class="stocka-cot-range" min="0" max="4000" value="3600" step="10" style="width: 100%;">
           <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #94a3b8; font-weight: 700; margin-top: 0.35rem;">
             <span>0</span>
-            <span>250</span>
+            <span>200</span>
             <span>500</span>
             <span>1.500</span>
             <span>2.500</span>
-            <span>+2.500 Enterprise</span>
+            <span>+3.500 Enterprise</span>
           </div>
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.15rem; padding-top: 0.85rem; border-top: 1px dashed #e2e8f0;">
           <span style="font-size: 0.85rem; color: #475569;">
-            Mostrando tarifas unitarias para: <strong id="tf-orders-count-text" style="color: #5c24ff; font-weight: 800;">+2.500 pedidos / mes (Enterprise)</strong>
+            Mostrando tarifas unitarias para: <strong id="tf-orders-count-text" style="color: #5c24ff; font-weight: 800;">3.600 pedidos / mes</strong>
           </span>
-          <button type="button" id="tf-toggle-table-btn" style="background: none; border: none; font-size: 0.82rem; font-weight: 700; color: #5c24ff; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-family: inherit;">
-            <span>📊 Ver tabla completa de tramos WMS</span>
-            <svg style="width: 15px; height: 15px; transition: transform 0.2s ease;" id="tf-table-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          <button type="button" id="tf-toggle-table-btn" style="background: none; border: none; font-size: 0.82rem; font-weight: 700; color: #5c24ff; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; font-family: inherit;">
+            <svg class="stk-tf-ico" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+            <span>Ver tabla completa de tramos WMS</span>
+            <svg style="width: 15px; height: 15px; transition: transform 0.2s ease;" id="tf-table-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
           </button>
         </div>
 
@@ -925,8 +1395,8 @@
         <!-- Live Unit Cost Indicator Banner (Idea 2) -->
         <div class="stocka-tf-unit-cost-banner" style="margin-top: 1.25rem; padding: 1rem 1.25rem; background: linear-gradient(135deg, rgba(92, 36, 255, 0.04) 0%, rgba(248, 250, 252, 1) 100%); border: 1.5px solid #e0dcfe; border-radius: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
           <div style="display: flex; align-items: center; gap: 0.75rem;">
-            <div style="width: 38px; height: 38px; border-radius: 10px; background: #5c24ff; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0;">
-              💡
+            <div style="width: 38px; height: 38px; border-radius: 10px; background: #5c24ff; color: #ffffff; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <svg class="stk-tf-ico" viewBox="0 0 24 24" style="width:20px;height:20px;"><path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"></path></svg>
             </div>
             <div>
               <span style="font-size: 0.72rem; font-weight: 800; color: #5c24ff; text-transform: uppercase; letter-spacing: 0.05em; display: block;">COSTO UNITARIO ESTIMADO</span>
@@ -954,20 +1424,22 @@
               <div class="stocka-tf-card-icon" style="margin-bottom: 0;">
                 <svg viewBox="0 0 24 24"><path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
               </div>
-              <span style="background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; font-size: 0.72rem; font-weight: 700; padding: 0.25rem 0.65rem; border-radius: 9999px; display: inline-flex; align-items: center; gap: 0.3rem;">
-                🏷️ Volumen dinámico on demand
+              <span style="background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; font-size: 0.72rem; font-weight: 700; padding: 0.25rem 0.65rem; border-radius: 9999px; display: inline-flex; align-items: center; gap: 0.35rem;">
+                <svg class="stk-tf-ico" viewBox="0 0 24 24" style="width:13px;height:13px;"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
+                Volumen dinámico on demand
               </span>
             </div>
             <h3 class="stocka-tf-card-title">Almacenamiento</h3>
-            <p class="stocka-tf-card-sub" id="tf-card-storage-sub">Tarifa para tramo +2.500 ped/mes (Enterprise)</p>
+            <p class="stocka-tf-card-sub" id="tf-card-storage-sub">Tarifa para tramo +3.500 ped/mes (Enterprise+)</p>
             
             <div class="stocka-tf-card-price-box">
               <span class="stocka-tf-card-from">Tarifa:</span>
-              <span class="stocka-tf-card-price" id="tf-card-storage-price">$26.500</span>
-              <span class="stocka-tf-card-unit">/ m³ al mes</span>
+              <span class="stocka-tf-card-price" id="tf-card-storage-price">$25.500</span>
+              <span class="stocka-tf-card-unit">+ IVA / m³ al mes</span>
             </div>
-            <span id="tf-storage-tier-hint" style="font-size: 0.75rem; color: #10b981; font-weight: 700; display: block; margin-top: 0.45rem;">
-              ⚡ Tarifa más baja para grandes volúmenes
+            <span class="stocka-tf-hint-inline">
+              <svg class="stk-tf-ico" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+              <span id="tf-storage-tier-hint">Además hasta 39% OFF adicional desde 10 m³</span>
             </span>
           </div>
 
@@ -1010,27 +1482,29 @@
               <div class="stocka-tf-card-icon" style="background: rgba(92, 36, 255, 0.12); margin-bottom: 0;">
                 <svg viewBox="0 0 24 24"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
               </div>
-              <span style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; font-size: 0.72rem; font-weight: 800; padding: 0.25rem 0.65rem; border-radius: 9999px; display: inline-flex; align-items: center; gap: 0.3rem;">
-                ⚡ 0% Comisiones por venta
+              <span style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; font-size: 0.72rem; font-weight: 800; padding: 0.25rem 0.65rem; border-radius: 9999px; display: inline-flex; align-items: center; gap: 0.35rem;">
+                <svg class="stk-tf-ico" viewBox="0 0 24 24" style="width:13px;height:13px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                0% Comisiones por venta
               </span>
             </div>
             <h3 class="stocka-tf-card-title">Preparación (Pick & Pack)</h3>
-            <p class="stocka-tf-card-sub" id="tf-card-pickpack-sub">Tarifa para tramo +2.500 ped/mes (Enterprise)</p>
+            <p class="stocka-tf-card-sub" id="tf-card-pickpack-sub">Tarifa para tramo +3.500 ped/mes (Enterprise+)</p>
             
             <div class="stocka-tf-card-price-box">
               <span class="stocka-tf-card-from">Tarifa:</span>
-              <span class="stocka-tf-card-price" id="tf-card-pickpack-price">$850</span>
-              <span class="stocka-tf-card-unit">/ pedido</span>
+              <span class="stocka-tf-card-price" id="tf-card-pickpack-price">$800</span>
+              <span class="stocka-tf-card-unit">+ IVA / pedido</span>
             </div>
-            <span id="tf-pickpack-tier-hint" style="font-size: 0.75rem; color: #10b981; font-weight: 700; display: block; margin-top: 0.45rem;">
-              ⚡ Tarifa más baja para grandes volúmenes
+            <span class="stocka-tf-hint-inline">
+              <svg class="stk-tf-ico" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <span id="tf-pickpack-tier-hint">Incluye hasta 3 SKU, 10 uds. y Venta Protegida $650 (&lt;$10.000)</span>
             </span>
           </div>
 
           <ul class="stocka-tf-card-list">
             <li class="stocka-tf-card-item">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
-              <span>Valor por pedido preparado y etiquetado.</span>
+              <span>Valor por pedido preparado y etiquetado (hasta 3 SKU / 10 uds.).</span>
             </li>
             <li class="stocka-tf-card-item">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -1042,7 +1516,7 @@
             </li>
             <li class="stocka-tf-card-item">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
-              <span>Empaque estándar incluido (bolsa courier, film y cinta).</span>
+              <span>Empaque estándar incluido (hasta 50×50×50 cm: bolsa, film y cinta).</span>
             </li>
             <li class="stocka-tf-card-item">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -1050,7 +1524,7 @@
             </li>
             <li class="stocka-tf-card-item">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
-              <span>Procesamiento de pedidos B2C y despachos B2B.</span>
+              <span>Adicionales claros: +$100/SKU &gt;3 · +$50/ud. &gt;10 · +$100 Colecta ML.</span>
             </li>
           </ul>
 
@@ -1066,39 +1540,41 @@
               <div class="stocka-tf-card-icon" style="margin-bottom: 0;">
                 <svg viewBox="0 0 24 24"><path d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"></path><path d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0"></path></svg>
               </div>
-              <span style="background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; font-size: 0.72rem; font-weight: 800; padding: 0.25rem 0.65rem; border-radius: 9999px; display: inline-flex; align-items: center; gap: 0.3rem;">
-                🚀 Same Day & Couriers
+              <span style="background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; font-size: 0.72rem; font-weight: 800; padding: 0.25rem 0.65rem; border-radius: 9999px; display: inline-flex; align-items: center; gap: 0.35rem;">
+                <svg class="stk-tf-ico" viewBox="0 0 24 24" style="width:13px;height:13px;"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+                Same Day &amp; Couriers
               </span>
             </div>
             <h3 class="stocka-tf-card-title">Despachos & Envíos</h3>
-            <p class="stocka-tf-card-sub">Tarifa preferencial plana para Santiago RM y couriers a todo Chile.</p>
+            <p class="stocka-tf-card-sub">Tarifa plana Same Day RM hasta 10 kg, Colina y couriers a todo Chile.</p>
             
             <div class="stocka-tf-card-price-box">
               <span class="stocka-tf-card-from">Tarifa:</span>
-              <span class="stocka-tf-card-price">$3.200</span>
+              <span class="stocka-tf-card-price" id="tf-card-shipping-price">$3.200</span>
               <span class="stocka-tf-card-unit">+ IVA / paquete RM</span>
             </div>
-            <span style="font-size: 0.75rem; color: #10b981; font-weight: 700; display: block; margin-top: 0.45rem;">
-              ⚡ Tarifa plana sin importar el volumen
+            <span class="stocka-tf-hint-inline">
+              <svg class="stk-tf-ico" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+              <span>Colina / Chicureo: $3.490 + IVA · Regiones vía Envíame</span>
             </span>
           </div>
 
           <ul class="stocka-tf-card-list">
             <li class="stocka-tf-card-item">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
-              <span>Entrega Same Day en 36 comunas de Santiago.</span>
+              <span>Entrega Same Day en 36 comunas RM (≤10 kg $3.200 · 11–20 kg $6.400).</span>
             </li>
             <li class="stocka-tf-card-item">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
-              <span>Compatibilidad con Mercado Libre Flex.</span>
+              <span>Compatibilidad directa con Mercado Libre Flex y Colina ($3.490).</span>
             </li>
             <li class="stocka-tf-card-item">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
-              <span>Integración a regiones vía Starken, Blue Express y Chilexpress.</span>
+              <span>Regiones vía Envíame ($35/orden + flete Starken, Blue o Chilexpress).</span>
             </li>
             <li class="stocka-tf-card-item">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
-              <span>Envíos asegurados y protegidos durante el traslado.</span>
+              <span>Retiro estándar en sucursal Ñuñoa $0 (Express inmediato $1.490).</span>
             </li>
             <li class="stocka-tf-card-item">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -1171,7 +1647,7 @@
             <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.85rem;">
               <li style="display: flex; align-items: flex-start; gap: 0.65rem; font-size: 0.86rem; color: #1e293b;">
                 <span style="color: #10b981; font-weight: 800; flex-shrink: 0;">✓</span>
-                <span><strong>$0 Costo Fijo Mensual:</strong> Solo pagas por el volumen que ocupas y los pedidos que vendes.</span>
+                <span><strong>$0 Implementación y $0 Costo Fijo (desde 75 ped. o 1,5 m³):</strong> Sin costos de entrada; si operas bajo ese umbral aplica solo un costo mínimo de mantención (0,9 o 1,5 UF).</span>
               </li>
               <li style="display: flex; align-items: flex-start; gap: 0.65rem; font-size: 0.86rem; color: #1e293b;">
                 <span style="color: #10b981; font-weight: 800; flex-shrink: 0;">✓</span>
@@ -1179,11 +1655,11 @@
               </li>
               <li style="display: flex; align-items: flex-start; gap: 0.65rem; font-size: 0.86rem; color: #1e293b;">
                 <span style="color: #10b981; font-weight: 800; flex-shrink: 0;">✓</span>
-                <span><strong>Todo Incluido:</strong> Embalaje estándar, software WMS en la nube 24/7 y seguridad CCTV.</span>
+                <span><strong>Todo Incluido ($0 WMS &amp; Setup):</strong> Embalaje estándar, software WMS 24/7, integraciones nativas y seguridad CCTV.</span>
               </li>
               <li style="display: flex; align-items: flex-start; gap: 0.65rem; font-size: 0.86rem; color: #1e293b;">
                 <span style="color: #10b981; font-weight: 800; flex-shrink: 0;">✓</span>
-                <span><strong>Escalabilidad ilimitada:</strong> Procesa de 50 a 5.000 pedidos en CyberDays sin complicaciones.</span>
+                <span><strong>Escalabilidad ilimitada:</strong> Procesa de 50 a 5.000+ pedidos en CyberDays sin complicaciones.</span>
               </li>
             </ul>
           </div>
@@ -1191,6 +1667,113 @@
         </div>
       </div>
 
+    </div>
+  </section>
+
+  <!-- ========================================================
+       2B. LO QUE NO COBRAMOS ($0) VS. OTROS FULFILLMENT
+       ======================================================== -->
+  <section class="stocka-tf-zero-sec" id="stocka-zero-fees-anchor">
+    <div class="stocka-tf-container">
+      <div class="stocka-tf-sec-header" style="margin-bottom: 2.75rem;">
+        <span class="stocka-tf-zero-badge">✓ Ventaja Stocka · Cero Costos de Entrada</span>
+        <h2 class="stocka-tf-sec-title">Lo que <span style="color: #059669;">NO cobramos ($0)</span> y otros fulfillment sí</h2>
+        <p class="stocka-tf-sec-desc">
+          Empieza a operar sin barreras de entrada, sin licencias mensuales de software y pagando únicamente por tu operación real. Todo esto viene incluido desde el día 1:
+        </p>
+      </div>
+
+      <div class="stocka-tf-zero-grid">
+        <div class="stocka-tf-zero-card">
+          <div class="stocka-tf-zero-top">
+            <span class="stocka-tf-zero-icon"><svg viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg></span>
+            <span class="stocka-tf-zero-pill">$0</span>
+          </div>
+          <h3 class="stocka-tf-zero-title">Implementación y Setup Inicial</h3>
+          <p class="stocka-tf-zero-desc">Configuración de cuenta, carga de catálogo, capacitación y puesta en marcha en menos de 48 h sin fees de entrada.</p>
+          <div class="stocka-tf-zero-vs"><span class="vs-x">✕</span><span>Otros cobran: Fee de setup / onboarding</span></div>
+        </div>
+
+        <div class="stocka-tf-zero-card">
+          <div class="stocka-tf-zero-top">
+            <span class="stocka-tf-zero-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="14" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg></span>
+            <span class="stocka-tf-zero-pill">$0 / mes</span>
+          </div>
+          <h3 class="stocka-tf-zero-title">Licencia Software WMS 24/7</h3>
+          <p class="stocka-tf-zero-desc">Acceso ilimitado a nuestro WMS en la nube con inventario en tiempo real, trazabilidad, devoluciones y reportería.</p>
+          <div class="stocka-tf-zero-vs"><span class="vs-x">✕</span><span>Otros cobran: Mensualidad de plataforma</span></div>
+        </div>
+
+        <div class="stocka-tf-zero-card">
+          <div class="stocka-tf-zero-top">
+            <span class="stocka-tf-zero-icon"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></span>
+            <span class="stocka-tf-zero-pill">$0</span>
+          </div>
+          <h3 class="stocka-tf-zero-title">Integraciones Nativas E-commerce</h3>
+          <p class="stocka-tf-zero-desc">Conecta Shopify, Mercado Libre, WooCommerce, Falabella, Ripley y Jumpseller sin costos de conexión ni mensualidad por canal.</p>
+          <div class="stocka-tf-zero-vs"><span class="vs-x">✕</span><span>Otros cobran: Cobro por integración o API</span></div>
+        </div>
+
+        <div class="stocka-tf-zero-card">
+          <div class="stocka-tf-zero-top">
+            <span class="stocka-tf-zero-icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></span>
+            <span class="stocka-tf-zero-pill">$0</span>
+          </div>
+          <h3 class="stocka-tf-zero-title">Ingreso y Recepción de Stock</h3>
+          <p class="stocka-tf-zero-desc">Recepción e inventario sin costo cuando tu mercadería llega etiquetada y descargada en perímetro (y descargas &lt; 1 m³ gratis).</p>
+          <div class="stocka-tf-zero-vs"><span class="vs-x">✕</span><span>Otros cobran: Fee por recepción o caja</span></div>
+        </div>
+
+        <div class="stocka-tf-zero-card">
+          <div class="stocka-tf-zero-top">
+            <span class="stocka-tf-zero-icon"><svg viewBox="0 0 24 24"><line x1="19" y1="5" x2="5" y2="19"></line><circle cx="6.5" cy="6.5" r="2.5"></circle><circle cx="17.5" cy="17.5" r="2.5"></circle></svg></span>
+            <span class="stocka-tf-zero-pill">0%</span>
+          </div>
+          <h3 class="stocka-tf-zero-title">Comisiones sobre tus Ventas</h3>
+          <p class="stocka-tf-zero-desc">Nunca descontamos porcentajes sobre tu facturación; pagas solo tarifas claras por espacio y pedidos preparados.</p>
+          <div class="stocka-tf-zero-vs"><span class="vs-x">✕</span><span>Otros cobran: % sobre monto de venta</span></div>
+        </div>
+
+        <div class="stocka-tf-zero-card">
+          <div class="stocka-tf-zero-top">
+            <span class="stocka-tf-zero-icon"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg></span>
+            <span class="stocka-tf-zero-pill">Incluido</span>
+          </div>
+          <h3 class="stocka-tf-zero-title">Empaque Estándar (hasta 50×50×50 cm)</h3>
+          <p class="stocka-tf-zero-desc">Bolsa courier, film alusa, cinta de seguridad y etiqueta de envío incluidos directamente en tu tarifa base de Pick &amp; Pack.</p>
+          <div class="stocka-tf-zero-vs"><span class="vs-x">✕</span><span>Otros cobran: Bolsas y cintas aparte</span></div>
+        </div>
+
+        <div class="stocka-tf-zero-card">
+          <div class="stocka-tf-zero-top">
+            <span class="stocka-tf-zero-icon"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></span>
+            <span class="stocka-tf-zero-pill">$0</span>
+          </div>
+          <h3 class="stocka-tf-zero-title">Costo Fijo (≥ 75 pedidos o 1,5 m³)</h3>
+          <p class="stocka-tf-zero-desc">Al superar 75 pedidos/mes o 1,5 m³ de bodegaje, quedas automáticamente exento de costo fijo mensual ($0).</p>
+          <div class="stocka-tf-zero-vs"><span class="vs-x">✕</span><span>Otros cobran: Mínimos fijos elevados</span></div>
+        </div>
+
+        <div class="stocka-tf-zero-card">
+          <div class="stocka-tf-zero-top">
+            <span class="stocka-tf-zero-icon"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></span>
+            <span class="stocka-tf-zero-pill">$0</span>
+          </div>
+          <h3 class="stocka-tf-zero-title">Punto de Retiro Presencial Ñuñoa</h3>
+          <p class="stocka-tf-zero-desc">Ofrece retiro presencial a tus clientes en nuestra sucursal Ñuñoa sin costo extra (retiro estándar listo en 60 min).</p>
+          <div class="stocka-tf-zero-vs"><span class="vs-x">✕</span><span>Otros cobran: Arriendo o fee por retiro</span></div>
+        </div>
+
+        <div class="stocka-tf-zero-card">
+          <div class="stocka-tf-zero-top">
+            <span class="stocka-tf-zero-icon"><svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"></path><rect x="9" y="3" width="6" height="4" rx="1"></rect><path d="M9 14l2 2 4-4"></path></svg></span>
+            <span class="stocka-tf-zero-pill">Gratis</span>
+          </div>
+          <h3 class="stocka-tf-zero-title">Inventarios Físicos de Cortesía</h3>
+          <p class="stocka-tf-zero-desc">Incluye 2 inventarios físicos completos gratis por semestre y 3 inventarios parciales gratis cada mes (hasta 5 SKU).</p>
+          <div class="stocka-tf-zero-vs"><span class="vs-x">✕</span><span>Otros cobran: Cada conteo o auditoría</span></div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -1216,7 +1799,7 @@
   <!-- ========================================================
        4. ADDITIONAL SERVICES (ÑUÑOA SUCURSAL)
        ======================================================== -->
-  <section class="stocka-tf-additional-sec">
+  <section class="stocka-tf-additional-sec" id="stocka-sucursal-anchor">
     <div class="stocka-tf-container">
       
       <div class="stocka-tf-sec-header">
@@ -1247,11 +1830,11 @@
               </li>
               <li class="stocka-tf-add-item">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>Sin costo mensual adicional, solo tarifa estándar de pick & pack.</span>
+                <span>Retiro estándar $0 (60 min de aviso, ≤3 bultos / 20 uds.); solo pagas pick &amp; pack.</span>
               </li>
               <li class="stocka-tf-add-item">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>Horario continuado de atención de lunes a sábado.</span>
+                <span>Retiro Express inmediato disponible desde $1.490 + IVA base.</span>
               </li>
             </ul>
           </div>
@@ -1279,11 +1862,11 @@
               </li>
               <li class="stocka-tf-add-item">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>Códigos QR directos para comprar en tu ecommerce.</span>
+                <span>Showroom dedicado: $1.490 + IVA por venta + instalación a convenir.</span>
               </li>
               <li class="stocka-tf-add-item">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>Espacio afecto a disponibilidad y tipo de producto.</span>
+                <span>Códigos QR directos y espacio sujeto a disponibilidad.</span>
               </li>
             </ul>
           </div>
@@ -1298,16 +1881,16 @@
           <div>
             <span class="stocka-tf-add-badge" style="background: #fdf4ff; color: #c026d3;">Venta Directa</span>
             <h3 class="stocka-tf-add-title">Punto de Venta (POS)</h3>
-            <div class="stocka-tf-add-price">0,2 UF <span style="font-size: 0.85rem; color: #64748b; font-weight: 600;">/ mes</span></div>
+            <div class="stocka-tf-add-price">0,2 UF <span style="font-size: 0.85rem; color: #64748b; font-weight: 600;">/ mes + comisiones</span></div>
 
             <ul class="stocka-tf-add-list">
               <li class="stocka-tf-add-item">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>Habilita ventas presenciales con cobro con tarjeta al instante.</span>
+                <span>Comisión transaccional transparente: <strong>2,5% débito / 3,5% crédito</strong>.</span>
               </li>
               <li class="stocka-tf-add-item">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>Emisión directa de boleta electrónica o integración a tu ERP.</span>
+                <span>Preparación presencial de venta POS: <strong>$1.490 + IVA</strong> base por venta.</span>
               </li>
               <li class="stocka-tf-add-item">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -1331,6 +1914,99 @@
   </section>
 
   <!-- ========================================================
+       4B. OTROS COSTOS OPERATIVOS Y CONDICIONES TRANSPARENTES
+       ======================================================== -->
+  <section class="stocka-tf-cond-sec" id="stocka-condiciones-anchor">
+    <div class="stocka-tf-container">
+      <div class="stocka-tf-sec-header" style="margin-bottom: 2.5rem;">
+        <span class="stocka-tf-sec-sub">100% TRANSPARENCIA TARIFARIA</span>
+        <h2 class="stocka-tf-sec-title">Otros costos operativos y condiciones del servicio</h2>
+        <p class="stocka-tf-sec-desc">
+          Cargos opcionales o por excepción que aplican solo en escenarios específicos. Sin letra chica ni sorpresas en tu facturación.
+        </p>
+        <button type="button" id="tf-btn-toggle-all-cond" class="stocka-tf-cond-expand-btn">
+          <span>Expandir todo</span>
+          <span id="tf-cond-toggle-arrow">▼</span>
+        </button>
+      </div>
+
+      <div class="stocka-tf-cond-grid">
+        <details class="stocka-tf-cond-card">
+          <summary class="stocka-tf-cond-summary">
+            <div>
+              <h3><svg class="stk-tf-ico" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg> Empaque estándar, dimensiones y sobrepeso RM</h3>
+              <p>Base hasta 50×50×50 cm y 20 kg/ud. · Tramos Same Day</p>
+            </div>
+            <svg class="stocka-tf-cond-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </summary>
+          <div class="stocka-tf-cond-body">
+            <ul>
+              <li><strong>Pick &amp; Pack estándar incluido:</strong> bolsa courier, film alusa, cinta y etiqueta hasta 50×50×50 cm y 20 kg/unidad (incluye hasta 3 SKU y 10 unidades).</li>
+              <li><strong>Insumos opcionales:</strong> Plástico burbuja $3,6/cm lineal ($360 + IVA/m lineal, rollo 50 cm) · Cajas XS $280 / S $450 / M $990 / L $1.490 (+ IVA).</li>
+              <li><strong>Despacho Same Day RM / ML Flex por peso:</strong> ≤10 kg <strong>$3.200 + IVA</strong> · 11–20 kg <strong>$6.400 + IVA</strong> · 21–30 kg <strong>$9.600 + IVA</strong>. Colina/Chicureo: <strong>$3.490 + IVA</strong>.</li>
+              <li><strong>Pedidos combinados:</strong> cada referencia u orden agrupada se prepara y tarifa de forma independiente.</li>
+            </ul>
+          </div>
+        </details>
+
+        <details class="stocka-tf-cond-card">
+          <summary class="stocka-tf-cond-summary">
+            <div>
+              <h3><svg class="stk-tf-ico" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg> Sucursal Ñuñoa: Retiros, POS, Vitrina y Carga</h3>
+              <p>Retiro estándar $0 · Retiro Express $1.490 · POS 0,2 UF/mes</p>
+            </div>
+            <svg class="stocka-tf-cond-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </summary>
+          <div class="stocka-tf-cond-body">
+            <ul>
+              <li><strong>Retiro estándar ($0):</strong> aviso mínimo 60 min; hasta 3 bultos, 25 kg/bulto, 20 uds. y 5 SKU.</li>
+              <li><strong>Retiro Express inmediato:</strong> <strong>$1.490 + IVA</strong> base (≤1 bulto, 25 kg, 5 uds., 3 SKU); +$150/ud. (tope 15) y +$150/SKU (tope 6).</li>
+              <li><strong>Punto de Venta (POS):</strong> 0,2 UF/mes + comisiones 2,5% débito / 3,5% crédito + $1.490 + IVA prep./venta.</li>
+              <li><strong>Carga de vehículo externo en retiro:</strong> 70% del costo de preparación del pedido.</li>
+            </ul>
+          </div>
+        </details>
+
+        <details class="stocka-tf-cond-card">
+          <summary class="stocka-tf-cond-summary">
+            <div>
+              <h3><svg class="stk-tf-ico" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg> Inventarios, Recepciones, Etiquetado y Descarga</h3>
+              <p>Cortesías gratis · Etiquetado $100/ud. · Descarga &gt; 1 m³</p>
+            </div>
+            <svg class="stocka-tf-cond-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </summary>
+          <div class="stocka-tf-cond-body">
+            <ul>
+              <li><strong>Inventarios incluidos gratis:</strong> 2 inventarios totales por semestre y 3 parciales por mes (hasta 5 SKU).</li>
+              <li><strong>Inventarios adicionales a solicitud:</strong> Total <strong>1 UF cada 50 SKU</strong> · Parcial <strong>0,4 UF</strong> por solicitud (hasta 5 SKU).</li>
+              <li><strong>Etiquetado opcional:</strong> Código de barras en ingreso (solo si llega sin etiqueta) o preparación Mercado Libre FULL: <strong>$100 + IVA / unidad</strong>.</li>
+              <li><strong>Descarga pesada y retiro parcial:</strong> Descarga por personal Stocka <strong>0,1 UF/m³</strong> (tope 2 UF; &lt; 1 m³ gratis). Retiro parcial de stock propio se cobra como pedido preparado.</li>
+            </ul>
+          </div>
+        </details>
+
+        <details class="stocka-tf-cond-card">
+          <summary class="stocka-tf-cond-summary">
+            <div>
+              <h3><svg class="stk-tf-ico" viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg> Couriers externos, Seguros y Cierre de Cuenta</h3>
+              <p>Seguro opcional · Reexpedición · Sin plazos forzosos</p>
+            </div>
+            <svg class="stocka-tf-cond-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </summary>
+          <div class="stocka-tf-cond-body">
+            <ul>
+              <li><strong>Integración Envíame (regiones):</strong> $35 + IVA por etiqueta + flete neto Starken, Blue Express o Chilexpress.</li>
+              <li><strong>Seguro extendido opcional:</strong> recomendado para envíos &gt; $100.000 declarados (0,5% a 1,5% según courier externo).</li>
+              <li><strong>Reexpedición 3er intento (Blue Express):</strong> $1.675 + $56/kg + IVA (tarifa courier externo).</li>
+              <li><strong>Término de servicio sin amarres:</strong> sin contratos de permanencia; requiere aviso previo de 30 días y preparación logística de retiro final de inventario (<strong>5 UF base</strong> + $100/SKU &gt; 3 + $50/ud. &gt; 10 + IVA, según Contrato Marco).</li>
+            </ul>
+          </div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
        5. PRESENTATIONS / DOWNLOADS
        ======================================================== -->
   <section class="stocka-tf-downloads-sec">
@@ -1347,7 +2023,7 @@
       <div class="stocka-tf-pres-grid">
         
         <!-- Card 1 -->
-        <a href="https://hubs.ly/Q02R4PLC0" target="_blank" class="stocka-tf-pres-card">
+        <a href="https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_fulfillment_360_1787715943297.pdf" id="tf-pres-fulfillment-link" target="_blank" rel="noopener noreferrer" class="stocka-tf-pres-card">
           <div class="stocka-tf-pres-img-wrap">
             <span class="stocka-tf-pres-badge">Presentación PDF</span>
             <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Diseno_sin_titulo_22_bab10e87-14f8-4868-b83b-702dcc29ab25.png?v=1724374063" alt="Servicios de Fulfillment" width="400" height="260" loading="lazy">
@@ -1362,7 +2038,7 @@
         </a>
 
         <!-- Card 2 -->
-        <a href="https://hubs.ly/Q02R4Ps90" target="_blank" class="stocka-tf-pres-card">
+        <a href="https://hubs.ly/Q02R4Ps90" target="_blank" rel="noopener noreferrer" class="stocka-tf-pres-card">
           <div class="stocka-tf-pres-img-wrap">
             <span class="stocka-tf-pres-badge">Sucursal Física</span>
             <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Diseno_sin_titulo_23.png?v=1724374825" alt="Punto de Retiro y Vitrinas" width="400" height="260" loading="lazy">
@@ -1377,7 +2053,7 @@
         </a>
 
         <!-- Card 3 -->
-        <a href="https://hubs.ly/Q02R4Pcr0" target="_blank" class="stocka-tf-pres-card">
+        <a href="https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_despachos_rm_1787715973435.pdf" id="tf-pres-despachos-link" target="_blank" rel="noopener noreferrer" class="stocka-tf-pres-card">
           <div class="stocka-tf-pres-img-wrap">
             <span class="stocka-tf-pres-badge">Red de Envíos</span>
             <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Diseno_sin_titulo_24.png?v=1724375275" alt="Despachos y Distribución" width="400" height="260" loading="lazy">
@@ -1477,15 +2153,20 @@
 
 <script>
   (function() {
-    const WMS_TIERS = [
-      { id: 1, min: 0, max: 100, label: "Rango 1: 0 a 100 pedidos", storage: 43500, pickpack: 1200, ordersLabel: "0 a 100 ped/mes" },
-      { id: 2, min: 101, max: 250, label: "Rango 2: 101 a 250 pedidos", storage: 38500, pickpack: 1100, ordersLabel: "101 a 250 ped/mes" },
-      { id: 3, min: 251, max: 350, label: "Rango 3: 251 a 350 pedidos", storage: 35500, pickpack: 1050, ordersLabel: "251 a 350 ped/mes" },
-      { id: 4, min: 351, max: 500, label: "Rango 4: 351 a 500 pedidos", storage: 33500, pickpack: 1000, ordersLabel: "351 a 500 ped/mes" },
+    const SUPABASE_URL = 'https://ejtjfaucnxbikrwjwwdu.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MzExODUsImV4cCI6MjA5NTQwNzE4NX0.cnuyxOpbqr-182Q3MJFJu0prtFSvwk1RgbiVBhjYUak';
+
+    let WMS_TIERS = [
+      { id: 1, min: 0, max: 25, label: "Rango 1: 0 a 25 pedidos", storage: 48900, pickpack: 1250, ordersLabel: "0 a 25 ped/mes" },
+      { id: 2, min: 26, max: 100, label: "Rango 2: 26 a 100 pedidos", storage: 43500, pickpack: 1200, ordersLabel: "26 a 100 ped/mes" },
+      { id: 3, min: 101, max: 200, label: "Rango 3: 101 a 200 pedidos", storage: 38500, pickpack: 1150, ordersLabel: "101 a 200 ped/mes" },
+      { id: 4, min: 201, max: 500, label: "Rango 4: 201 a 500 pedidos", storage: 33500, pickpack: 1050, ordersLabel: "201 a 500 ped/mes" },
       { id: 5, min: 501, max: 1500, label: "Rango 5: 501 a 1.500 pedidos", storage: 30500, pickpack: 950, ordersLabel: "501 a 1.500 ped/mes" },
       { id: 6, min: 1501, max: 2500, label: "Rango 6: 1.501 a 2.500 pedidos", storage: 28500, pickpack: 900, ordersLabel: "1.501 a 2.500 ped/mes" },
-      { id: 7, min: 2501, max: 999999, label: "Rango 7: +2.500 pedidos (Enterprise)", storage: 26500, pickpack: 850, ordersLabel: "+2.500 ped/mes" }
+      { id: 7, min: 2501, max: 3500, label: "Rango 7: 2.501 a 3.500 pedidos", storage: 26500, pickpack: 850, ordersLabel: "2.501 a 3.500 ped/mes" },
+      { id: 8, min: 3501, max: 999999, label: "Rango 8: +3.500 pedidos (Enterprise+)", storage: 25500, pickpack: 800, ordersLabel: "+3.500 ped/mes" }
     ];
+    let sameDayRate = 3200;
 
     function formatCLP(val) {
       return '$' + Math.round(val).toLocaleString('es-CL');
@@ -1499,27 +2180,32 @@
       const storageSub = document.getElementById('tf-card-storage-sub');
       const pickpackPrice = document.getElementById('tf-card-pickpack-price');
       const pickpackSub = document.getElementById('tf-card-pickpack-sub');
+      const shippingPrice = document.getElementById('tf-card-shipping-price');
+      const storageHint = document.getElementById('tf-storage-tier-hint');
       const tramoBtns = document.querySelectorAll('.stocka-tf-tramo-btn');
       const tableBody = document.getElementById('tf-table-body');
       const toggleTableBtn = document.getElementById('tf-toggle-table-btn');
       const tableContainer = document.getElementById('tf-full-table-container');
       const chevron = document.getElementById('tf-table-chevron');
 
-      // Populate table rows
-      if (tableBody) {
+      function renderTable() {
+        if (!tableBody) return;
         tableBody.innerHTML = WMS_TIERS.map(t => `
           <tr class="stocka-tf-table-row" data-tier="${t.id}" style="border-bottom: 1px solid #e2e8f0; transition: background 0.15s ease;">
             <td style="padding: 0.75rem 0.85rem; font-weight: 700;">Rango ${t.id}</td>
             <td style="padding: 0.75rem 0.85rem;">${t.ordersLabel}</td>
             <td style="padding: 0.75rem 0.85rem; font-weight: 700; color: #5c24ff;">${formatCLP(t.pickpack)}</td>
             <td style="padding: 0.75rem 0.85rem; font-weight: 700;">${formatCLP(t.storage)}</td>
-            <td style="padding: 0.75rem 0.85rem;">$3.200 + IVA</td>
+            <td style="padding: 0.75rem 0.85rem;">${formatCLP(sameDayRate)} + IVA</td>
           </tr>
         `).join('');
       }
 
       function updateTierDisplay(orders) {
-        const tier = WMS_TIERS.find(t => orders >= t.min && orders <= t.max) || WMS_TIERS[0];
+        let tier = WMS_TIERS.find(t => orders >= t.min && orders <= t.max) || WMS_TIERS[0];
+        if (orders > WMS_TIERS[WMS_TIERS.length - 1].min) {
+          tier = WMS_TIERS[WMS_TIERS.length - 1];
+        }
 
         if (activeBadge) activeBadge.textContent = tier.label;
         if (countText) countText.textContent = `${orders.toLocaleString('es-CL')} pedidos / mes`;
@@ -1530,15 +2216,18 @@
         if (pickpackPrice) pickpackPrice.textContent = formatCLP(tier.pickpack);
         if (pickpackSub) pickpackSub.textContent = `Tarifa para ${tier.ordersLabel}`;
 
-        // Update Live Unit Cost Banner (Idea 2)
+        if (shippingPrice) shippingPrice.textContent = formatCLP(sameDayRate);
+
+        // Update Live Unit Cost Banner
         const unitCostVal = document.getElementById('tf-unit-cost-val');
         const unitCostSub = document.getElementById('tf-unit-cost-sub');
         if (unitCostVal) {
           let estimatedVol = 1.0;
-          if (orders > 2500) estimatedVol = 25.0;
+          if (orders > 3500) estimatedVol = 35.0;
+          else if (orders > 2500) estimatedVol = 25.0;
           else if (orders > 1500) estimatedVol = 15.0;
           else if (orders > 500) estimatedVol = 8.0;
-          else if (orders > 250) estimatedVol = 3.5;
+          else if (orders > 200) estimatedVol = 3.5;
           else if (orders > 100) estimatedVol = 2.0;
 
           const effectiveOrders = Math.max(1, orders);
@@ -1555,15 +2244,26 @@
           btn.classList.toggle('active', parseInt(btn.dataset.tier, 10) === tier.id);
         });
 
-        // Highlight table row
         document.querySelectorAll('.stocka-tf-table-row').forEach(row => {
           row.classList.toggle('active', parseInt(row.dataset.tier, 10) === tier.id);
         });
       }
 
+      renderTable();
+
+      function updateSliderVisual() {
+        if (!rangeInput) return;
+        const min = parseFloat(rangeInput.min) || 0;
+        const max = parseFloat(rangeInput.max) || 4000;
+        const val = parseFloat(rangeInput.value) || 0;
+        const pct = Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100));
+        rangeInput.style.setProperty('--slider-pct', pct + '%');
+      }
+
       if (rangeInput) {
         rangeInput.addEventListener('input', () => {
           const orders = parseInt(rangeInput.value, 10) || 0;
+          updateSliderVisual();
           updateTierDisplay(orders);
         });
       }
@@ -1571,7 +2271,10 @@
       tramoBtns.forEach(btn => {
         btn.addEventListener('click', () => {
           const orders = parseInt(btn.dataset.orders, 10);
-          if (rangeInput) rangeInput.value = orders;
+          if (rangeInput) {
+            rangeInput.value = orders;
+            updateSliderVisual();
+          }
           updateTierDisplay(orders);
         });
       });
@@ -1584,8 +2287,121 @@
         });
       }
 
-      // Initialize with default Enterprise (lowest rates)
-      updateTierDisplay(3000);
+      // Expand / Collapse all transparent conditions
+      const btnToggleAllCond = document.getElementById('tf-btn-toggle-all-cond');
+      if (btnToggleAllCond) {
+        btnToggleAllCond.addEventListener('click', () => {
+          const items = Array.from(document.querySelectorAll('#stocka-condiciones-anchor .stocka-tf-cond-card'));
+          const allOpen = items.length > 0 && items.every(d => d.open);
+          items.forEach(d => { d.open = !allOpen; });
+          btnToggleAllCond.innerHTML = !allOpen
+            ? '<span>Contraer todo</span><span>▲</span>'
+            : '<span>Expandir todo</span><span>▼</span>';
+        });
+      }
+
+      // Floating sticky section nav pill bar + deterministic scroll-spy
+      const floatSlot = document.getElementById('tf-float-nav-slot');
+      const floatNav = document.getElementById('tf-float-nav');
+      const navPills = Array.from(document.querySelectorAll('#tf-float-nav .stocka-tf-nav-pill[data-tf-target]'));
+      const navSections = navPills
+        .map(pill => ({ id: pill.dataset.tfTarget, pill, el: document.getElementById(pill.dataset.tfTarget) }))
+        .filter(item => item.el);
+
+      if (floatSlot && floatNav) {
+        let navTicking = false;
+        function measureHeaderHeight() {
+          const hdr = document.querySelector('header.sf-header__desktop, header.sf-header__mobile, section.sf-header');
+          if (hdr) {
+            const h = hdr.getBoundingClientRect().height;
+            if (h > 30 && h < 140) return Math.round(h);
+          }
+          return window.innerWidth <= 768 ? 64 : 76;
+        }
+        function setActiveTfPill(activeId) {
+          navPills.forEach(p => {
+            const isNow = p.dataset.tfTarget === activeId;
+            const was = p.classList.contains('active');
+            p.classList.toggle('active', isNow);
+            if (isNow && !was && floatNav.scrollWidth > floatNav.clientWidth + 4) {
+              const targetLeft = p.offsetLeft - (floatNav.clientWidth / 2) + (p.offsetWidth / 2);
+              floatNav.scrollTo({ left: Math.max(0, targetLeft), behavior: 'smooth' });
+            }
+          });
+        }
+        navPills.forEach(p => {
+          p.addEventListener('click', () => setActiveTfPill(p.dataset.tfTarget));
+        });
+        function syncFloatingNav() {
+          navTicking = false;
+          const hdrH = measureHeaderHeight();
+          const navTop = hdrH + 10;
+          floatNav.style.setProperty('--stocka-nav-top', navTop + 'px');
+          const slotTop = floatSlot.getBoundingClientRect().top;
+          floatNav.classList.toggle('is-floating', slotTop <= navTop);
+
+          if (navSections.length > 0) {
+            const offsetLine = navTop + 90;
+            let currentId = navSections[0].id;
+            for (let i = 0; i < navSections.length; i++) {
+              if (navSections[i].el.getBoundingClientRect().top <= offsetLine) {
+                currentId = navSections[i].id;
+              }
+            }
+            setActiveTfPill(currentId);
+          }
+        }
+        function onNavScroll() {
+          if (!navTicking) {
+            navTicking = true;
+            requestAnimationFrame(syncFloatingNav);
+          }
+        }
+        window.addEventListener('scroll', onNavScroll, { passive: true });
+        window.addEventListener('resize', onNavScroll, { passive: true });
+        syncFloatingNav();
+      }
+
+      // Initialize with default Enterprise+ (lowest rates)
+      updateSliderVisual();
+      updateTierDisplay(3600);
+
+      // Sync live rates & presentations from Supabase WMS pricing_config
+      fetch(SUPABASE_URL + '/rest/v1/pricing_config?config_key=eq.current_rates&select=data', {
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY }
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(rows => {
+          const cfg = Array.isArray(rows) && rows[0] && rows[0].data ? rows[0].data : null;
+          if (!cfg) return;
+          if (Array.isArray(cfg.order_ranges) && cfg.order_ranges.length > 0) {
+            WMS_TIERS = cfg.order_ranges.map(r => ({
+              id: r.id,
+              min: r.min,
+              max: r.max,
+              label: `Rango ${r.id}: ${r.label}`,
+              storage: r.storage_m3,
+              pickpack: r.pick_pack_base,
+              ordersLabel: r.label
+            }));
+          }
+          if (cfg.shipping && cfg.shipping.same_day_rm) {
+            sameDayRate = cfg.shipping.same_day_rm;
+          }
+          if (Array.isArray(cfg.storage_discounts) && cfg.storage_discounts.length > 0 && storageHint) {
+            const maxPct = Math.max(...cfg.storage_discounts.map(d => Number(d.discount_pct) || 0));
+            if (maxPct > 0) storageHint.textContent = `Además hasta ${maxPct}% OFF adicional desde 10 m³`;
+          }
+          if (cfg.presentations) {
+            const linkFul = document.getElementById('tf-pres-fulfillment-link');
+            const linkDesp = document.getElementById('tf-pres-despachos-link');
+            if (linkFul && cfg.presentations.fulfillment_url) linkFul.href = cfg.presentations.fulfillment_url;
+            if (linkDesp && cfg.presentations.despachos_rm_url) linkDesp.href = cfg.presentations.despachos_rm_url;
+          }
+          renderTable();
+          updateTierDisplay(parseInt(rangeInput ? rangeInput.value : 3600, 10) || 3600);
+        })
+        .catch(() => {});
     }
 
     if (document.readyState === 'loading') {

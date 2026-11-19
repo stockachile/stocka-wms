@@ -3,11 +3,11 @@
  * Basado en Tarifarios Stocka 2024-2025 v1.2 y configurable por el Administrador.
  */
 
-// Configuración por defecto oficial (Tarifarios Stocka 2024-2025 v1.2)
+// Configuración por defecto oficial (Tarifarios Stocka Vigente)
 export const DEFAULT_PRICING_CONFIG = {
   version: "1.2 (2024-2025)",
-  updated_at: "2026-08-25",
-  uf_value: 40867, // Valor UF de referencia en CLP actualizado en vivo
+  updated_at: "2026-11-01",
+  uf_value: 41248, // Valor UF de referencia en CLP actualizado en vivo
 
   // 1. Rangos de Pedidos Mensuales (fijan tarifa base de pick & pack y costo por m3)
   order_ranges: [
@@ -17,16 +17,21 @@ export const DEFAULT_PRICING_CONFIG = {
     { id: 4, min: 201, max: 500, label: "201 a 500 pedidos", storage_m3: 33500, pick_pack_base: 1050 },
     { id: 5, min: 501, max: 1500, label: "501 a 1.500 pedidos", storage_m3: 30500, pick_pack_base: 950 },
     { id: 6, min: 1501, max: 2500, label: "1.501 a 2.500 pedidos", storage_m3: 28500, pick_pack_base: 900 },
-    { id: 7, min: 2501, max: 999999, label: "+2.500 pedidos", storage_m3: 26500, pick_pack_base: 850 }
+    { id: 7, min: 2501, max: 3500, label: "2.501 a 3.500 pedidos", storage_m3: 26500, pick_pack_base: 850 },
+    { id: 8, min: 3501, max: 999999, label: "+3.500 pedidos", storage_m3: 25500, pick_pack_base: 800 }
   ],
 
-  // 2. Descuentos por volumen de almacenamiento (>10 m3)
+  // 2. Descuentos por volumen de almacenamiento (>= 10 m3, hasta 39% OFF)
   storage_discounts: [
     { min: 10.0, max: 15.0, discount_pct: 18, label: "10 - 15 m³ (18%)" },
     { min: 15.01, max: 25.0, discount_pct: 21, label: "15.1 - 25 m³ (21%)" },
     { min: 25.01, max: 35.0, discount_pct: 24, label: "25.1 - 35 m³ (24%)" },
     { min: 35.01, max: 60.0, discount_pct: 27, label: "35.1 - 60 m³ (27%)" },
-    { min: 60.01, max: 999999, discount_pct: 32, label: "+60 m³ (32%)" }
+    { min: 60.01, max: 100.0, discount_pct: 30, label: "60.1 - 100 m³ (30%)" },
+    { min: 100.01, max: 160.0, discount_pct: 33, label: "100.1 - 160 m³ (33%)" },
+    { min: 160.01, max: 230.0, discount_pct: 35, label: "160.1 - 230 m³ (35%)" },
+    { min: 230.01, max: 300.0, discount_pct: 37, label: "230.1 - 300 m³ (37%)" },
+    { min: 300.01, max: 999999, discount_pct: 39, label: "+300 m³ (39%)" }
   ],
 
   // 3. Reglas y Recargos de Pick & Pack
@@ -81,12 +86,12 @@ export const DEFAULT_PRICING_CONFIG = {
   // 6. Insumos Opcionales y Materiales de Embalaje Configurables (Cajas por tamaño y Plástico Burbuja)
   supplies: {
     bubble_wrap_roll: {
-      roll_cost: 36000,        // Costo del rollo ($ CLP + IVA)
-      roll_width_cm: 100,      // Ancho del rollo en cm (ej. 100 cm = 1,0 m)
-      roll_length_m: 100,      // Metros totales del rollo (ej. 100 m = 10.000 cm)
+      roll_cost: 18000,        // Costo del rollo ($ CLP + IVA)
+      roll_width_cm: 50,       // Ancho del rollo en cm (50 cm = 0,5 m)
+      roll_length_m: 50,       // Metros totales del rollo (50 m = 5.000 cm)
       cost_per_linear_cm: 3.6, // Costo lineal por cm ($) = roll_cost / (roll_length_m * 100)
       cost_per_linear_m: 360,  // Costo lineal por metro ($) = cost_per_linear_cm * 100
-      cost_per_sqm: 360        // Costo por m2 ($)
+      cost_per_sqm: 720        // Costo por m2 ($)
     },
     boxes: [
       { id: 'box_xs', name: 'Caja XS', length_cm: 10, width_cm: 10, height_cm: 10, unit_price: 280 },
@@ -94,7 +99,7 @@ export const DEFAULT_PRICING_CONFIG = {
       { id: 'box_m',  name: 'Caja M',  length_cm: 30, width_cm: 30, height_cm: 30, unit_price: 990 },
       { id: 'box_l',  name: 'Caja L',  length_cm: 40, width_cm: 30, height_cm: 30, unit_price: 1490 }
     ],
-    bubble_wrap_sqm: 360, // m2 plástico burbuja ($360 + IVA)
+    bubble_wrap_sqm: 720, // m2 plástico burbuja ($720 + IVA)
     bubble_wrap_linear_cm: 3.6, // cm lineal plástico burbuja ($3,60 + IVA)
     box_xs: 280, // Caja XS 10x10x10 cm ($280 + IVA)
     box_s: 450, // Caja S 20x20x20 cm ($450 + IVA)
@@ -109,7 +114,8 @@ export const DEFAULT_PRICING_CONFIG = {
     vitrina_monthly_uf: 0.6, // Vitrina de exhibición (0.6 UF)
     showroom_sale_base: 1490, // Showroom venta $1.490 base
     unloading_service_uf_per_m3: 0.1, // Descarga camión/proveedor (0.1 UF/m3)
-    unloading_service_cap_uf: 2.0 // Tope descarga (2.0 UF)
+    unloading_service_cap_uf: 2.0, // Tope descarga (2.0 UF)
+    inbound_labeling_per_unit: 100 // Etiquetado código de barras en ingreso ($100 + IVA/unidad)
   },
 
   // 8. Cajas y Dimensiones Didácticas para Cálculo de Volumen
@@ -216,7 +222,7 @@ export async function getLiveUfValue() {
   } catch (e) {}
 
   // 4. Fallback oficial actualizado
-  return 40867;
+  return 41248;
 }
 
 /**
@@ -626,6 +632,7 @@ export function calculateQuotation(inputs, customConfig = null) {
 
   // 5. Despachos y Envíos Proyectados
   const shipmentsSameDay = Math.max(0, parseInt(inputs.shipmentsSameDay, 10) || 0);
+  const shipmentsColina = Math.max(0, parseInt(inputs.shipmentsColina, 10) || 0);
   const shipmentsCourier = Math.max(0, parseInt(inputs.shipmentsCourier, 10) || 0);
   const pickupsExpress = Math.max(0, parseInt(inputs.pickupsExpress, 10) || 0);
 
@@ -644,12 +651,13 @@ export function calculateQuotation(inputs, customConfig = null) {
   const unitRegionalShipmentRate = regionalAvgCourierRate + enviameFeePerOrder;
 
   const costShipmentsSameDay = shipmentsSameDay * (config.shipping.same_day_rm || 3200);
+  const costShipmentsColina = shipmentsColina * (config.shipping.colina || 3490);
   const costCourierIntegration = shipmentsCourier * enviameFeePerOrder;
   const costCourierFreight = shipmentsCourier * regionalAvgCourierRate;
   const costCourierTotal = shipmentsCourier * unitRegionalShipmentRate;
   const costPickupsExpress = pickupsExpress * (config.shipping.pickup_express_base || 1490);
   
-  const totalShippingServices = costShipmentsSameDay + costCourierTotal + costPickupsExpress;
+  const totalShippingServices = costShipmentsSameDay + costShipmentsColina + costCourierTotal + costPickupsExpress;
 
   // 6. Insumos y Servicios Adicionales
   const bubbleWrapSqm = Math.max(0, parseFloat(inputs.bubbleWrapSqm) || 0);
@@ -657,7 +665,7 @@ export function calculateQuotation(inputs, customConfig = null) {
   const costPerLinearCm = config.supplies.bubble_wrap_roll?.cost_per_linear_cm ?? config.supplies.bubble_wrap_linear_cm ?? 3.6;
   const costBubbleWrap = bubbleWrapLinearCm > 0
     ? (bubbleWrapLinearCm * costPerLinearCm)
-    : (bubbleWrapSqm * (config.supplies.bubble_wrap_sqm || 360));
+    : (bubbleWrapSqm * (config.supplies.bubble_wrap_sqm || 720));
 
   const boxesXs = Math.max(0, parseInt(inputs.boxesXs, 10) || 0);
   const boxesS = Math.max(0, parseInt(inputs.boxesS, 10) || 0);
@@ -677,10 +685,12 @@ export function calculateQuotation(inputs, customConfig = null) {
 
   const costSupplies = costBubbleWrap + costBoxes;
 
-  // Servicios Adicionales en Sucursal
+  // Servicios Adicionales en Sucursal y Bodega
   const hasPosService = !!inputs.hasPosService;
   const hasVitrinaService = !!inputs.hasVitrinaService;
   const unloadingVolumeM3 = Math.max(0, parseFloat(inputs.unloadingVolumeM3) || 0);
+  const mlFullLabelingUnits = Math.max(0, parseInt(inputs.mlFullLabelingUnits, 10) || 0);
+  const inboundLabelingUnits = Math.max(0, parseInt(inputs.inboundLabelingUnits, 10) || 0);
 
   const costPos = hasPosService ? Math.round((config.services.pos_monthly_uf || 0.2) * ufValue) : 0;
   const costVitrina = hasVitrinaService ? Math.round((config.services.vitrina_monthly_uf || 0.6) * ufValue) : 0;
@@ -692,7 +702,10 @@ export function calculateQuotation(inputs, customConfig = null) {
     costUnloading = Math.round(Math.min(rawUnloadingUF, capUF) * ufValue);
   }
 
-  const totalExtraServices = costPos + costVitrina + costUnloading + costSupplies;
+  const costMlFullLabeling = mlFullLabelingUnits * (config.pick_pack_rules.surcharge_ml_full_labeling ?? 100);
+  const costInboundLabeling = inboundLabelingUnits * (config.services.inbound_labeling_per_unit ?? 100);
+
+  const totalExtraServices = costPos + costVitrina + costUnloading + costMlFullLabeling + costInboundLabeling + costSupplies;
 
   // 7. Totales Consolidados
   const totalNet = Math.round(netStorageCost + totalPickPackCost + fixedFeeCLP + totalShippingServices + totalExtraServices);
@@ -750,6 +763,8 @@ export function calculateQuotation(inputs, customConfig = null) {
     shipping: {
       shipmentsSameDay,
       costShipmentsSameDay,
+      shipmentsColina,
+      costShipmentsColina,
       shipmentsCourier,
       regionalWeightBracketId,
       activeWeightBracket,
@@ -780,7 +795,11 @@ export function calculateQuotation(inputs, customConfig = null) {
         costVitrina,
         unloadingVolumeM3,
         costUnloading,
-        totalServicesCost: costPos + costVitrina + costUnloading
+        mlFullLabelingUnits,
+        costMlFullLabeling,
+        inboundLabelingUnits,
+        costInboundLabeling,
+        totalServicesCost: costPos + costVitrina + costUnloading + costMlFullLabeling + costInboundLabeling
       },
       totalCost: Math.round(totalExtraServices)
     },
@@ -815,6 +834,20 @@ export function generateWhatsAppLink(quoteResult, contactInfo = {}) {
   const name = contactInfo.name ? `Mi nombre es ${contactInfo.name}` : "Hola";
   const company = contactInfo.company ? ` de ${contactInfo.company}` : "";
 
+  const shippingParts = [];
+  if (quoteResult.shipping?.shipmentsSameDay > 0) shippingParts.push(`${quoteResult.shipping.shipmentsSameDay} RM Same Day`);
+  if (quoteResult.shipping?.shipmentsColina > 0) shippingParts.push(`${quoteResult.shipping.shipmentsColina} Colina/Chicureo`);
+  if (quoteResult.shipping?.shipmentsCourier > 0) shippingParts.push(`${quoteResult.shipping.shipmentsCourier} Regiones`);
+  if (quoteResult.shipping?.pickupsExpress > 0) shippingParts.push(`${quoteResult.shipping.pickupsExpress} Retiros Express`);
+
+  const extraParts = [];
+  if (quoteResult.extras?.supplies?.totalSuppliesCost > 0) extraParts.push(`Insumos`);
+  if (quoteResult.extras?.services?.hasPosService) extraParts.push(`POS`);
+  if (quoteResult.extras?.services?.hasVitrinaService) extraParts.push(`Vitrina`);
+  if (quoteResult.extras?.services?.unloadingVolumeM3 >= 1) extraParts.push(`Descarga ${quoteResult.extras.services.unloadingVolumeM3} m³`);
+  if (quoteResult.extras?.services?.mlFullLabelingUnits > 0) extraParts.push(`${quoteResult.extras.services.mlFullLabelingUnits} etiq. ML FULL`);
+  if (quoteResult.extras?.services?.inboundLabelingUnits > 0) extraParts.push(`${quoteResult.extras.services.inboundLabelingUnits} etiq. ingreso`);
+
   const lines = [
     `👋 *${name}${company}*`,
     `Acabo de realizar una simulación en el *Cotizador Fulfillment 360 de Stocka* y me gustaría recibir asesoría comercial.`,
@@ -828,6 +861,8 @@ export function generateWhatsAppLink(quoteResult, contactInfo = {}) {
     quoteResult.fixedFee.isExempt 
       ? `• *Costo Fijo:* Exento ($0)` 
       : `• *Costo Fijo:* ${quoteResult.fixedFee.uf} UF (${formatCLP(quoteResult.fixedFee.clp)})`,
+    ...(quoteResult.shipping?.totalCost > 0 ? [`• *Despachos (${shippingParts.join(', ')}):* ${formatCLP(quoteResult.shipping.totalCost)} + IVA`] : []),
+    ...(quoteResult.extras?.totalCost > 0 ? [`• *Adicionales (${extraParts.join(', ')}):* ${formatCLP(quoteResult.extras.totalCost)} + IVA`] : []),
     ``,
     `💰 *Total Estimado Mensual:* ${formatCLP(quoteResult.totals.netMonthly)} + IVA (${formatCLP(quoteResult.totals.grossMonthly)} IVA Inc.)`,
     `🎯 *Costo Promedio por Pedido:* ${formatCLP(quoteResult.totals.costPerOrderNet)} + IVA`,
@@ -863,6 +898,22 @@ export function generateQuoteEmailHtml(quoteResult, contactInfo = {}) {
   const cotizadorUrl = `https://wms.stocka.cl/cotizaciones.html?pedidos=${quoteResult.pickPack.monthlyOrders}&volumen=${quoteResult.storage.volumeM3}`;
   const meetingUrl = 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5';
   const whatsappUrl = generateWhatsAppLink(quoteResult, contactInfo);
+
+  const shippingDescParts = [];
+  if (quoteResult.shipping?.shipmentsSameDay > 0) shippingDescParts.push(`${quoteResult.shipping.shipmentsSameDay} RM Same Day/Flex`);
+  if (quoteResult.shipping?.shipmentsColina > 0) shippingDescParts.push(`${quoteResult.shipping.shipmentsColina} Colina/Chicureo`);
+  if (quoteResult.shipping?.shipmentsCourier > 0) shippingDescParts.push(`${quoteResult.shipping.shipmentsCourier} Regiones`);
+  if (quoteResult.shipping?.pickupsExpress > 0) shippingDescParts.push(`${quoteResult.shipping.pickupsExpress} Retiros Express`);
+  const shippingDescText = shippingDescParts.length ? shippingDescParts.join(' · ') : 'Envíos RM Same Day / Flex y Couriers integrados';
+
+  const extrasDescParts = [];
+  if (quoteResult.extras?.supplies?.totalSuppliesCost > 0) extrasDescParts.push('Insumos especiales');
+  if (quoteResult.extras?.services?.hasPosService) extrasDescParts.push('POS Sucursal');
+  if (quoteResult.extras?.services?.hasVitrinaService) extrasDescParts.push('Vitrina Exhibición');
+  if (quoteResult.extras?.services?.unloadingVolumeM3 >= 1) extrasDescParts.push(`Descarga ${quoteResult.extras.services.unloadingVolumeM3} m³`);
+  if (quoteResult.extras?.services?.mlFullLabelingUnits > 0) extrasDescParts.push(`Etiquetado ML FULL (${quoteResult.extras.services.mlFullLabelingUnits} uds.)`);
+  if (quoteResult.extras?.services?.inboundLabelingUnits > 0) extrasDescParts.push(`Etiquetado Ingreso (${quoteResult.extras.services.inboundLabelingUnits} uds.)`);
+  const extrasDescText = extrasDescParts.length ? extrasDescParts.join(' · ') : 'Insumos especiales y servicios en sucursal';
 
   return `
 <!DOCTYPE html>
@@ -969,7 +1020,7 @@ export function generateQuoteEmailHtml(quoteResult, contactInfo = {}) {
           <tr>
             <td>
               <div class="item-title">🚚 Despachos y Envíos Proyectados</div>
-              <div class="item-desc">Envíos RM Same Day / Flex y Couriers integrados</div>
+              <div class="item-desc">${shippingDescText}</div>
             </td>
             <td class="item-amount">${formatCLP(quoteResult.shipping.totalCost)}</td>
           </tr>
@@ -978,13 +1029,29 @@ export function generateQuoteEmailHtml(quoteResult, contactInfo = {}) {
           <tr>
             <td>
               <div class="item-title">✨ Insumos y Servicios Adicionales</div>
-              <div class="item-desc">Insumos especiales y servicios en sucursal</div>
+              <div class="item-desc">${extrasDescText}</div>
             </td>
             <td class="item-amount">${formatCLP(quoteResult.extras.totalCost)}</td>
           </tr>
           ` : ''}
         </tbody>
       </table>
+
+      <!-- Lo que NO cobramos ($0) -->
+      <div style="margin: 0 0 22px 0; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px; padding: 14px 16px;">
+        <div style="font-weight: 700; font-size: 13px; color: #065f46; margin-bottom: 6px;">
+          ✅ Incluido a costo $0 en Stocka (lo que otros fulfillment suelen cobrar):
+        </div>
+        <div style="font-size: 12px; color: #047857; line-height: 1.55;">
+          • <strong>$0 Implementación y Setup inicial</strong> &nbsp;·&nbsp;
+          • <strong>$0 Licencia Software WMS 24/7</strong> &nbsp;·&nbsp;
+          • <strong>$0 Integraciones nativas</strong> (Shopify, ML, WooCommerce, Falabella, etc.) &nbsp;·&nbsp;
+          • <strong>$0 Ingreso de stock etiquetado</strong> &nbsp;·&nbsp;
+          • <strong>0% Comisiones sobre tus ventas</strong> &nbsp;·&nbsp;
+          • <strong>$0 Empaque estándar</strong> (hasta 50×50×50 cm) &nbsp;·&nbsp;
+          • <strong>$0 Punto de Retiro Ñuñoa</strong> (estándar 60 min).
+        </div>
+      </div>
 
       <!-- Grand Total Box -->
       <div class="total-box">

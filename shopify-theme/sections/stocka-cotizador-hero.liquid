@@ -7,10 +7,26 @@
 
 <style>
   .stocka-coth-section-{{ section.id }} {
-    background-color: {{ settings.bg_color | default: "#f8fafc" }};
+    background:
+      radial-gradient(ellipse 75% 55% at 18% -5%, rgba(92, 36, 255, 0.1) 0%, transparent 65%),
+      radial-gradient(ellipse 60% 45% at 85% 10%, rgba(6, 214, 160, 0.08) 0%, transparent 60%),
+      {{ settings.bg_color | default: "#f8fafc" }};
     padding: 3.5rem 1rem;
     position: relative;
     overflow: hidden;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .stocka-coth-section-{{ section.id }}::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-size: 42px 42px;
+    background-image:
+      linear-gradient(to right, rgba(15, 23, 42, 0.03) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(15, 23, 42, 0.03) 1px, transparent 1px);
+    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.85) 0%, transparent 78%);
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.85) 0%, transparent 78%);
   }
   @media (min-width: 1024px) {
     .stocka-coth-section-{{ section.id }} {
@@ -19,6 +35,8 @@
   }
 
   .stocka-coth-container-{{ section.id }} {
+    position: relative;
+    z-index: 1;
     max-width: 1240px;
     margin: 0 auto;
     display: grid;
@@ -37,16 +55,30 @@
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    background: rgba(92, 36, 255, 0.08);
+    background: rgba(255, 255, 255, 0.9);
     color: #5c24ff;
     padding: 0.4rem 1.1rem;
     border-radius: 9999px;
-    font-size: 0.82rem;
-    font-weight: 700;
+    font-size: 0.8rem;
+    font-weight: 800;
     letter-spacing: 0.5px;
     text-transform: uppercase;
     margin-bottom: 1.25rem;
-    border: 1px solid rgba(92, 36, 255, 0.15);
+    border: 1px solid rgba(92, 36, 255, 0.18);
+    box-shadow: 0 2px 10px rgba(92, 36, 255, 0.08);
+  }
+  .stocka-coth-live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #06d6a0;
+    box-shadow: 0 0 0 3px rgba(6, 214, 160, 0.25);
+    display: inline-block;
+    animation: stockaCothPulse 2.2s infinite ease-in-out;
+  }
+  @keyframes stockaCothPulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(0.82); opacity: 0.6; }
   }
 
   .stocka-coth-title-{{ section.id }} {
@@ -205,7 +237,7 @@
     <div>
       {% if settings.badge_text != blank %}
         <div class="stocka-coth-badge-{{ section.id }}">
-          <span>🧮</span> {{ settings.badge_text }}
+          <span class="stocka-coth-live-dot"></span> {{ settings.badge_text }}
         </div>
       {% endif %}
 
@@ -215,7 +247,7 @@
       </h1>
 
       <p class="stocka-coth-subtitle-{{ section.id }}">
-        {{ settings.subtitle | default: "Calcula de forma transparente los costos de almacenamiento, preparación de pedidos (Pick & Pack) y despachos para tu ecommerce. Sin costos fijos ocultos ni contratos forzosos." }}
+        {{ settings.subtitle | default: "Calcula de forma transparente los costos de almacenamiento, preparación de pedidos (Pick & Pack) y despachos para tu ecommerce. $0 implementación, $0 licencia WMS y $0 integraciones, sin contratos forzosos." }}
       </p>
 
       <div class="stocka-coth-pills-row">
@@ -223,10 +255,10 @@
           <span style="color: #10b981;">✓</span> Tarifas dinámicas según volumen
         </div>
         <div class="stocka-coth-pill-item">
-          <span style="color: #10b981;">✓</span> Hasta 32% descuento en bodega
+          <span style="color: #10b981;">✓</span> Hasta 39% descuento en bodega
         </div>
         <div class="stocka-coth-pill-item">
-          <span style="color: #10b981;">✓</span> Sin costos de ingreso
+          <span style="color: #10b981;">✓</span> $0 implementación, setup y WMS
         </div>
         <div class="stocka-coth-pill-item">
           <span style="color: #10b981;">✓</span> Integración Shopify y Mercado Libre
@@ -234,11 +266,13 @@
       </div>
 
       <div class="stocka-coth-actions-{{ section.id }}">
-        <a href="#stocka-simulator-app" class="stocka-coth-btn-primary-{{ section.id }}">
-          {{ settings.btn_primary_text | default: "Comenzar Simulación Online 👇" }}
+        <a href="#stocka-simulator-app" class="stocka-coth-btn-primary-{{ section.id }}" style="gap: 0.5rem;">
+          <span>{{ settings.btn_primary_text | default: "Comenzar Simulación Online" | remove: "👇" | strip }}</span>
+          <svg style="width: 17px; height: 17px; stroke: currentColor; stroke-width: 2.2; fill: none;" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
         </a>
-        <a href="https://wa.me/56939247487?text=Hola!%20Me%20gustar%C3%ADa%20conversar%20sobre%20una%20cotizaci%C3%B3n%20para%20mi%20tienda" target="_blank" class="stocka-coth-btn-secondary-{{ section.id }}">
-          💬 Consultar por WhatsApp
+        <a href="https://wa.me/56939247487?text=Hola!%20Me%20gustar%C3%ADa%20conversar%20sobre%20una%20cotizaci%C3%B3n%20para%20mi%20tienda" target="_blank" class="stocka-coth-btn-secondary-{{ section.id }}" style="gap: 0.5rem;">
+          <svg style="width: 17px; height: 17px; stroke: currentColor; stroke-width: 2; fill: none;" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+          <span>Consultar por WhatsApp</span>
         </a>
       </div>
     </div>
@@ -247,12 +281,12 @@
     <div class="stocka-coth-image-wrapper-{{ section.id }}">
       
       <div class="stocka-coth-float-badge stocka-coth-float-1">
-        <div style="width: 38px; height: 38px; border-radius: 10px; background: #eef2ff; color: #5c24ff; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
-          🚀
+        <div style="width: 38px; height: 38px; border-radius: 10px; background: #eef2ff; color: #5c24ff; display: flex; align-items: center; justify-content: center;">
+          <svg style="width: 20px; height: 20px; stroke: currentColor; stroke-width: 2; fill: none;" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
         </div>
         <div>
           <div style="font-size: 0.88rem; font-weight: 700; color: #0f172a; line-height: 1.2;">Pick & Pack Inteligente</div>
-          <div style="font-size: 0.75rem; color: #64748b;">Desde $850 por pedido</div>
+          <div style="font-size: 0.75rem; color: #64748b;">Desde $800 por pedido</div>
         </div>
       </div>
 
@@ -275,8 +309,8 @@
       </div>
 
       <div class="stocka-coth-float-badge stocka-coth-float-2">
-        <div style="width: 38px; height: 38px; border-radius: 10px; background: #ecfdf5; color: #10b981; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
-          📊
+        <div style="width: 38px; height: 38px; border-radius: 10px; background: #ecfdf5; color: #10b981; display: flex; align-items: center; justify-content: center;">
+          <svg style="width: 20px; height: 20px; stroke: currentColor; stroke-width: 2; fill: none;" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
         </div>
         <div>
           <div style="font-size: 0.88rem; font-weight: 700; color: #0f172a; line-height: 1.2;">Tarifas Oficiales</div>
@@ -315,13 +349,13 @@
       "type": "textarea",
       "id": "subtitle",
       "label": "Subtítulo / Bajada",
-      "default": "Calcula de forma transparente los costos de almacenamiento, preparación de pedidos (Pick & Pack) y despachos para tu ecommerce. Sin costos fijos ocultos ni contratos forzosos."
+      "default": "Calcula de forma transparente los costos de almacenamiento, preparación de pedidos (Pick & Pack) y despachos para tu ecommerce. $0 implementación, $0 licencia WMS y $0 integraciones, sin contratos forzosos."
     },
     {
       "type": "text",
       "id": "btn_primary_text",
       "label": "Texto Botón Principal",
-      "default": "Comenzar Simulación Online 👇"
+      "default": "Comenzar Simulación Online"
     },
     {
       "type": "image_picker",

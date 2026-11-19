@@ -312,13 +312,13 @@
     
     <!-- Category Filter Bar -->
     <div class="stocka-mf-cats-bar" id="stocka-mf-cats">
-      <button type="button" class="stocka-mf-cat-btn active" data-cat="all">⭐ Todas las Preguntas</button>
-      <button type="button" class="stocka-mf-cat-btn" data-cat="fulfillment">📦 Fulfillment & Bodegas</button>
-      <button type="button" class="stocka-mf-cat-btn" data-cat="tarifas">💰 Tarifas & Cobros</button>
-      <button type="button" class="stocka-mf-cat-btn" data-cat="despachos">🚀 Despachos & Couriers</button>
-      <button type="button" class="stocka-mf-cat-btn" data-cat="integracion">🔌 Integraciones & WMS</button>
-      <button type="button" class="stocka-mf-cat-btn" data-cat="sucursal">🏬 Retiro & Sucursal Ñuñoa</button>
-      <button type="button" class="stocka-mf-cat-btn" data-cat="soporte">🛍️ Seguimiento & Comprador</button>
+      <button type="button" class="stocka-mf-cat-btn active" data-cat="all"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg> Todas las Preguntas</button>
+      <button type="button" class="stocka-mf-cat-btn" data-cat="fulfillment"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg> Fulfillment &amp; Bodegas</button>
+      <button type="button" class="stocka-mf-cat-btn" data-cat="tarifas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0;"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg> Tarifas &amp; Cobros</button>
+      <button type="button" class="stocka-mf-cat-btn" data-cat="despachos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0;"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg> Despachos &amp; Couriers</button>
+      <button type="button" class="stocka-mf-cat-btn" data-cat="integracion"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0;"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg> Integraciones &amp; WMS</button>
+      <button type="button" class="stocka-mf-cat-btn" data-cat="sucursal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg> Retiro &amp; Sucursal Ñuñoa</button>
+      <button type="button" class="stocka-mf-cat-btn" data-cat="soporte"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0;"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg> Seguimiento &amp; Comprador</button>
     </div>
 
     <!-- Master Unified Accordion -->
@@ -376,11 +376,12 @@
           <div class="stocka-mf-icon">+</div>
         </button>
         <div class="stocka-mf-a">
-          Nuestras tarifas son 100% transparentes y dinámicas según volumen:
+          Nuestras tarifas son 100% transparentes y dinámicas según volumen (valores netos + IVA):
           <ul style="margin: 0.5rem 0 0.5rem 1.25rem; padding: 0;">
-            <li><strong>Pick & Pack:</strong> Va desde $850 por pedido en tramo Enterprise (+2.500 ped/mes) hasta $1.250 en tramos iniciales.</li>
-            <li><strong>Almacenamiento:</strong> Volumen dinámico on demand desde $26.500 por m³ al mes (pagas solo por los m³ que utilizas).</li>
-            <li><strong>Despachos Same Day RM:</strong> Tarifa preferencial de $3.200 + IVA por paquete.</li>
+            <li><strong>Pick &amp; Pack:</strong> Desde $800 por pedido en tramo Enterprise+ (+3.500 ped/mes) hasta $1.250 en tramos iniciales (y Venta Protegida $650 para tickets &lt; $10.000).</li>
+            <li><strong>Almacenamiento:</strong> Volumen dinámico on demand desde $25.500 hasta $48.900 por m³ al mes, con descuentos adicionales de 18% hasta 39% OFF desde 10 m³.</li>
+            <li><strong>Despachos Same Day RM:</strong> $3.200 + IVA hasta 10 kg en 36 comunas RM (11–20 kg $6.400 · Colina/Chicureo $3.490 + IVA) y regiones vía Envíame ($35/orden + flete courier).</li>
+            <li><strong>Costo Fijo Mensual:</strong> $0 (Exento) al superar 75 pedidos/mes o 1,5 m³ (bajo ese umbral aplica mantención mínima de 0,9 o 1,5 UF).</li>
           </ul>
         </div>
       </div>
@@ -390,12 +391,12 @@
         <button type="button" class="stocka-mf-q">
           <div class="stocka-mf-q-left">
             <span class="stocka-mf-cat-tag">Tarifas</span>
-            <span>¿Tienen costos de ingreso o permanencia mínima obligatoria?</span>
+            <span>¿Tienen costos de implementación, licencia WMS o permanencia mínima obligatoria?</span>
           </div>
           <div class="stocka-mf-icon">+</div>
         </button>
         <div class="stocka-mf-a">
-          No. En Stocka no cobramos tarifas ocultas de ingreso ni exigimos contratos forzosos con permanencia mínima. Nuestro modelo está pensado para escalar con tu ecommerce: si aumentas o disminuyes tus ventas, tus costos se adaptan automáticamente a tu realidad sin penalizaciones.
+          No. En Stocka cobramos <strong>$0 por implementación/setup inicial</strong>, <strong>$0 por licencia de software WMS 24/7</strong>, <strong>$0 por integraciones nativas</strong>, <strong>$0 por ingreso de stock etiquetado</strong> y <strong>0% comisiones sobre tus ventas</strong>. No exigimos contratos de permanencia forzosa: si decides cerrar tu operación, solo requiere aviso previo de 30 días y la preparación logística de retiro final de inventario.
         </div>
       </div>
 
@@ -514,8 +515,8 @@
         <div class="stocka-mf-a">
           Sí. Ofrecemos dos servicios complementarios de alto impacto comercial:
           <ul style="margin: 0.5rem 0 0.5rem 1.25rem; padding: 0;">
-            <li><strong>Vitrina Showroom (0,6 UF/mes):</strong> Espacio de exhibición destacado para tus productos más vendidos en nuestra tienda de Ñuñoa.</li>
-            <li><strong>Punto de Venta POS (0,2 UF/mes):</strong> Cobro con tarjeta de débito/crédito y emisión de boleta directa para compras presenciales de tus clientes.</li>
+            <li><strong>Vitrina de Exhibición (0,6 UF/mes):</strong> Espacio de exhibición destacado para tus productos más vendidos en nuestra tienda de Ñuñoa (Showroom dedicado: $1.490 + IVA por venta + instalación a convenir).</li>
+            <li><strong>Punto de Venta POS (0,2 UF/mes):</strong> Cobro presencial con tarjeta (+ comisiones 2,5% débito / 3,5% crédito y $1.490 + IVA preparación base por venta POS) y rebaja automática de stock.</li>
           </ul>
         </div>
       </div>
@@ -566,7 +567,9 @@
 
     <!-- No Results State -->
     <div class="stocka-mf-no-results" id="stocka-mf-no-results">
-      <div style="font-size: 2.5rem; margin-bottom: 0.75rem;">🔍</div>
+      <div style="width: 56px; height: 56px; border-radius: 16px; background: #f1f5f9; color: #5c24ff; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 0.85rem;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 28px; height: 28px;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      </div>
       <h3 style="font-size: 1.25rem; font-weight: 800; color: #0f172a; margin: 0 0 0.5rem 0;">No encontramos respuestas para tu búsqueda</h3>
       <p style="font-size: 0.9rem; color: #64748b; max-width: 480px; margin: 0 auto 1.5rem auto;">
         Intenta con otras palabras clave o contáctate directamente con nuestro equipo de atención personalizada.

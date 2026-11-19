@@ -15,50 +15,57 @@
   <meta property="og:description" content="Simula tus costos mensuales de almacenamiento y despacho con el tarifario oficial de STOCKA.">
   <meta property="og:image" content="https://wms.stocka.cl/img/banner%20seo.png">
 
+  <!-- Google Fonts: Outfit (Display) & Inter (UI / Tabular) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+
   <link rel="icon" type="image/png" href="./favicon.png">
   <link rel="apple-touch-icon" href="./favicon.png">
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
   <link rel="stylesheet" href="./css/style.css?v=2.1.0">
   <link rel="stylesheet" href="./css/layout.css?v=2.1.0">
-  <link rel="stylesheet" href="./css/cotizaciones.css?v=2.1.0">
+  <link rel="stylesheet" href="./css/cotizaciones.css?v=3.2.0">
   <script src="./js/theme.js?v=2.1.0"></script>
 </head>
 <body class="cotizador-page">
 
-  <!-- Botón flotante cambio de tema -->
-  <button class="theme-toggle-btn floating-theme-toggle" aria-label="Cambiar tema">
-    <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
-    <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
-  </button>
+  <!-- Fondo ambiental sutil estilo Stocka Cloud -->
+  <div class="cotizador-ambient-bg" aria-hidden="true"></div>
 
-  <!-- Encabezado de la página -->
+  <!-- Encabezado Glassmorphism Sticky -->
   <header class="cotizador-header">
     <div class="cotizador-header-content">
-      <a href="./index.html" class="cotizador-logo">
+      <a href="./index.html" class="cotizador-logo" aria-label="STOCKA WMS Inicio">
         <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" alt="STOCKA Logo" class="light-logo">
         <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo" class="dark-logo">
-        <span class="cotizador-logo-badge">Cotizador 360</span>
+        <span class="cotizador-logo-badge">
+          <span class="live-dot"></span>
+          <span>Cotizador 360</span>
+        </span>
       </a>
 
       <div class="cotizador-header-actions">
         <!-- Chip UF en vivo -->
-        <div id="cotizador-uf-chip" class="uf-chip" style="margin: 0;" title="Valor UF del día sincronizado en tiempo real">
+        <div id="cotizador-uf-chip" class="uf-chip cotizador-uf-pill" title="Valor UF del día sincronizado en tiempo real">
           <i class="ri-funds-line uf-icon"></i>
-          <span class="uf-label">UF</span>
-          <span id="uf-display-val" class="uf-display-text">$40.867</span>
+          <span class="uf-label">UF hoy</span>
+          <span id="uf-display-val" class="uf-display-text">$41.248</span>
         </div>
 
-        <!-- Botón de Modo Oscuro / Claro en Navbar -->
-        <button class="theme-toggle-btn header-theme-toggle" aria-label="Cambiar tema" title="Alternar entre modo Claro y Oscuro">
-          <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
-          <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+        <!-- Botón de Modo Oscuro / Claro -->
+        <button type="button" class="theme-toggle-btn header-theme-toggle" aria-label="Cambiar tema" title="Alternar entre modo Claro y Oscuro">
+          <i class="ri-sun-line sun-icon"></i>
+          <i class="ri-moon-line moon-icon"></i>
         </button>
 
-        <a href="./index.html" class="btn btn-outline btn-nav-login" style="font-size: 0.85rem; padding: 0.45rem 0.85rem; border-color: var(--color-border); color: var(--color-text-main);">
-          <i class="ri-login-box-line"></i> <span class="nav-btn-text">Ingresar al WMS</span>
+        <a href="./index.html" class="cotizador-nav-btn cotizador-nav-ghost btn-nav-login">
+          <i class="ri-login-box-line"></i>
+          <span class="nav-btn-text">Ingresar al WMS</span>
         </a>
-        <a href="./onboarding.html" class="btn btn-primary btn-nav-cta" style="font-size: 0.85rem; padding: 0.45rem 1rem; background: var(--color-accent); border-color: var(--color-accent);">
-          <i class="ri-rocket-2-line"></i> <span class="nav-btn-text">Solicitar Alta</span>
+        <a href="./onboarding.html" class="cotizador-nav-btn cotizador-nav-primary btn-nav-cta">
+          <i class="ri-rocket-2-line"></i>
+          <span class="nav-btn-text">Solicitar Alta</span>
         </a>
       </div>
     </div>
@@ -66,202 +73,319 @@
 
   <!-- Contenido Principal -->
   <main class="cotizador-main">
-    
-    <!-- Hero / Presentación -->
+
+    <!-- Hero / Presentación Editorial -->
     <section class="cotizador-hero">
-      <h1 class="cotizador-hero-title">Cotizador de Fulfillment 360</h1>
+      <div class="hero-eyebrow">
+        <span class="live-dot"></span>
+        <span>Tarifario Oficial Vigente · Cálculo en Tiempo Real</span>
+      </div>
+
+      <h1 class="cotizador-hero-title">
+        Simula tu operación de <span class="hero-gradient-text">Fulfillment 360</span>
+      </h1>
+
       <p class="cotizador-hero-desc">
-        Calcula de forma transparente y en tiempo real los costos de almacenamiento, preparación y despacho para tu e-commerce con nuestras tarifas oficiales vigentes.
+        Calcula con total transparencia tus costos mensuales de almacenamiento, Pick &amp; Pack y despachos con nuestras tarifas escalables vigentes.
       </p>
-      <div class="cotizador-benefits-pills">
-        <span class="benefit-pill"><i class="ri-checkbox-circle-fill"></i> Tarifas escalables según volumen</span>
-        <span class="benefit-pill"><i class="ri-checkbox-circle-fill"></i> Hasta 32% de descuento en almacenamiento</span>
-        <span class="benefit-pill"><i class="ri-checkbox-circle-fill"></i> Sin costos de ingreso ocultos</span>
-        <span class="benefit-pill"><i class="ri-checkbox-circle-fill"></i> Integración con Shopify y Mercado Libre</span>
+
+      <div class="cotizador-benefits-pills" style="margin-bottom: 0;">
+        <span class="benefit-pill"><i class="ri-checkbox-circle-fill"></i> Tarifas escalables por volumen</span>
+        <span class="benefit-pill"><i class="ri-checkbox-circle-fill"></i> <span id="hero-max-storage-discount">Hasta 39% OFF en bodegaje</span></span>
+        <span class="benefit-pill"><i class="ri-checkbox-circle-fill"></i> $0 implementación, setup y WMS</span>
+        <span class="benefit-pill"><i class="ri-checkbox-circle-fill"></i> Integración Shopify &amp; Mercado Libre</span>
       </div>
     </section>
 
-    <!-- Layout Dividido (Controles a la izquierda | Resumen a la derecha) -->
+    <!-- Centinela + Barra flotante sticky de navegación de pasos -->
+    <div class="step-nav-sentinel" id="step-nav-sentinel" aria-hidden="true"></div>
+    <div class="cotizador-step-nav-sticky-wrap" id="step-nav-sticky-wrap">
+      <nav class="cotizador-step-nav" id="cotizador-step-nav" aria-label="Pasos del cotizador">
+        <a href="#step-orders" class="step-nav-pill active" data-step-target="step-orders">
+          <span class="step-nav-num">01</span>
+          <span>Pedidos</span>
+        </a>
+        <a href="#storage-estimator-card" class="step-nav-pill" data-step-target="storage-estimator-card">
+          <span class="step-nav-num">02</span>
+          <span>Almacenamiento</span>
+        </a>
+        <a href="#step-shipping" class="step-nav-pill" data-step-target="step-shipping">
+          <span class="step-nav-num">03</span>
+          <span>Despachos</span>
+        </a>
+        <a href="#step-extras" class="step-nav-pill" data-step-target="step-extras">
+          <span class="step-nav-num">04</span>
+          <span>Adicionales</span>
+        </a>
+        <a href="#section-zero-fees" class="step-nav-pill step-nav-pill-zero" data-step-target="section-zero-fees">
+          <span class="step-nav-num">$0</span>
+          <span>Qué NO cobramos</span>
+        </a>
+      </nav>
+    </div>
+
+    <!-- Layout Dividido (Configurador a la izquierda | Resumen Sticky a la derecha) -->
     <div class="cotizador-grid">
-      
+
       <!-- COLUMNA IZQUIERDA: CONFIGURADOR PASO A PASO -->
       <div class="cotizador-form-column">
-        
-        <!-- SECCIÓN 1: VENTAS MENSUALES -->
-        <div class="cotizador-section-card">
-          <div class="section-header-row">
-            <h2 class="section-title"><i class="ri-shopping-cart-2-line"></i> 1. Ventas y Pedidos Mensuales</h2>
-            <span id="badge-current-range" class="badge" style="background: rgba(94, 23, 235, 0.15); color: var(--color-accent); font-weight: 700; padding: 0.35rem 0.75rem; border-radius: var(--radius-full);">Rango 2 (26 a 100 pedidos)</span>
-          </div>
-          <p class="section-subtitle">Tu volumen de pedidos define tu tarifa base de preparación (Pick & Pack) y el costo por m³ de almacenamiento.</p>
 
-          <!-- Banner Ilustración 3D Preparación / Pick & Pack -->
-          <div class="section-illustration-banner">
-            <img src="./images/stocka_pickpack.jpg" alt="Preparación Pick & Pack Stocka" loading="lazy" style="width: 100%; max-width: 100%; height: 100%; object-fit: cover; display: block;">
-            <div class="section-illustration-overlay">
-              <span class="section-illustration-caption">
-                <i class="ri-box-3-fill"></i> Preparación experta con empaque estándar
-              </span>
-              <span class="section-illustration-tag">Pick & Pack 360</span>
+        <!-- ================================================================
+             SECCIÓN 1: VENTAS Y PEDIDOS MENSUALES
+             ================================================================ -->
+        <section class="cotizador-section-card" id="step-orders">
+          <div class="section-hero-header">
+            <div class="section-hero-copy">
+              <div class="section-eyebrow-row">
+                <span class="step-tag">Paso 01 · Volumen</span>
+                <span id="badge-current-range" class="range-status-pill">Rango 2 (26 a 100 pedidos)</span>
+              </div>
+              <h2 class="section-title">Ventas y Pedidos Mensuales</h2>
+              <p class="section-subtitle">
+                Tu volumen mensual define automáticamente tu tarifa base de preparación (Pick &amp; Pack) y el valor por m³ de bodegaje.
+              </p>
+            </div>
+
+            <div class="section-visual-card">
+              <img src="./images/stocka_pickpack.jpg" alt="Preparación Pick & Pack Stocka" loading="lazy">
+              <span class="section-visual-pill"><i class="ri-box-3-fill"></i> Pick &amp; Pack 360</span>
             </div>
           </div>
 
-          <!-- Slider de Pedidos -->
-          <div class="slider-container">
+          <!-- Módulo Slider de Pedidos -->
+          <div class="slider-panel">
             <div class="slider-top-row">
-              <label for="input-orders-slider" class="slider-label">Ventas / Pedidos estimados por mes:</label>
+              <label for="input-orders-slider" class="slider-label">Pedidos estimados por mes</label>
               <div class="slider-value-display">
-                <input type="number" id="input-orders-number" class="slider-number-input" value="60" min="0" max="10000" step="1">
-                <span class="slider-unit">pedidos/mes</span>
+                <input type="number" id="input-orders-number" class="slider-number-input" value="60" min="0" max="10000" step="1" aria-label="Cantidad de pedidos mensuales">
+                <span class="slider-unit">pedidos / mes</span>
               </div>
             </div>
-            <input type="range" id="input-orders-slider" class="custom-range-slider" min="0" max="3000" value="60" step="1">
-            
+
+            <div class="range-slider-wrap">
+              <input type="range" id="input-orders-slider" class="custom-range-slider" min="0" max="4000" value="60" step="1">
+              <div class="range-ticks" aria-hidden="true">
+                <span>0</span>
+                <span>500</span>
+                <span>1.500</span>
+                <span>2.500</span>
+                <span>3.500+</span>
+              </div>
+            </div>
+
             <div class="quick-presets-row">
-              <span style="font-size: 0.75rem; color: var(--color-text-muted); align-self: center; margin-right: 0.25rem;">Rápido:</span>
-              <button type="button" class="preset-btn" data-orders="20">20 (Inicio)</button>
-              <button type="button" class="preset-btn active" data-orders="60">60 (Crecimiento)</button>
-              <button type="button" class="preset-btn" data-orders="150">150 (Medio)</button>
-              <button type="button" class="preset-btn" data-orders="350">350 (Escala)</button>
-              <button type="button" class="preset-btn" data-orders="800">800 (Líder)</button>
-              <button type="button" class="preset-btn" data-orders="2600">+2.500 (Enterprise)</button>
-            </div>
-          </div>
-
-          <!-- Banner Informativo del Rango -->
-          <div class="tier-banner" id="tier-info-banner">
-            <div class="tier-badge-title">
-              <i class="ri-award-line"></i>
-              <span id="tier-banner-name">Rango 2: 26 a 100 pedidos/mes</span>
-            </div>
-            <div class="tier-rates-mini">
-              <div class="tier-rate-item">
-                <span class="tier-rate-label">Pick & Pack Base:</span>
-                <span class="tier-rate-val" id="tier-banner-pickpack">$1.200 + IVA</span>
-              </div>
-              <div class="tier-rate-item">
-                <span class="tier-rate-label">Almacenamiento Base:</span>
-                <span class="tier-rate-val" id="tier-banner-storage">$43.500 + IVA / m³</span>
+              <span class="presets-caption">Escenarios rápidos:</span>
+              <div class="presets-pills">
+                <button type="button" class="preset-btn" data-orders="20">20 <em>Inicio</em></button>
+                <button type="button" class="preset-btn active" data-orders="60">60 <em>Crecimiento</em></button>
+                <button type="button" class="preset-btn" data-orders="150">150 <em>Medio</em></button>
+                <button type="button" class="preset-btn" data-orders="350">350 <em>Escala</em></button>
+                <button type="button" class="preset-btn" data-orders="800">800 <em>Líder</em></button>
+                <button type="button" class="preset-btn" data-orders="2600">+2.500 <em>Enterprise</em></button>
+                <button type="button" class="preset-btn" data-orders="3600">+3.500 <em>Max</em></button>
               </div>
             </div>
           </div>
 
-          <!-- Barra de Proyección al Siguiente Rango -->
-          <div class="next-tier-bar" id="next-tier-bar-container">
-            <i class="ri-line-chart-line"></i>
-            <span id="next-tier-text">¡Agrega <strong>41 pedidos</strong> más para desbloquear el Rango 3 y pagar <strong>$1.150</strong> por pedido!</span>
+          <!-- Tarjeta Unificada de Rango Activo + Progreso al Siguiente Tramo -->
+          <div class="tier-insights-card" id="tier-info-banner">
+            <div class="tier-banner-top">
+              <div class="tier-badge-title">
+                <span class="tier-icon-badge"><i class="ri-award-fill"></i></span>
+                <div>
+                  <span class="tier-overline">Tramo Tarifario Activo</span>
+                  <span id="tier-banner-name" class="tier-name-value">Rango 2: 26 a 100 pedidos/mes</span>
+                </div>
+              </div>
+
+              <div class="tier-rates-mini">
+                <div class="tier-rate-item">
+                  <span class="tier-rate-label">Pick &amp; Pack Base</span>
+                  <span class="tier-rate-val" id="tier-banner-pickpack">$1.200 + IVA</span>
+                </div>
+                <div class="tier-rate-divider" aria-hidden="true"></div>
+                <div class="tier-rate-item">
+                  <span class="tier-rate-label">Almacenamiento Base</span>
+                  <span class="tier-rate-val" id="tier-banner-storage">$43.500 + IVA / m³</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Barra de Proyección al Siguiente Rango -->
+            <div class="next-tier-bar" id="next-tier-bar-container">
+              <div class="next-tier-row">
+                <span class="next-tier-icon"><i class="ri-sparkling-2-line"></i></span>
+                <span id="next-tier-text">¡Agrega <strong>41 pedidos</strong> más para desbloquear el Rango 3 y pagar <strong>$1.150</strong> por pedido!</span>
+              </div>
+              <div class="next-tier-track" aria-hidden="true">
+                <div class="next-tier-fill" id="next-tier-progress-fill" style="width: 45%;"></div>
+              </div>
+            </div>
           </div>
 
-          <!-- Canales de Venta -->
-          <div style="margin-top: 1.5rem;">
-            <label class="form-label" style="font-size: 0.85rem; margin-bottom: 0.35rem;">
-              <i class="ri-store-3-line"></i> ¿En qué canales vendes o planeas vender?
-            </label>
+          <!-- Canales de Venta con Logos Reales -->
+          <div class="subsection-block">
+            <div class="subsection-header">
+              <label class="subsection-title">
+                <i class="ri-store-3-line"></i> ¿En qué canales vendes o planeas vender?
+              </label>
+              <span class="subsection-hint">Selección múltiple</span>
+            </div>
+
             <div class="channels-grid">
-              <label class="channel-card selected"><input type="checkbox" name="sales_channel" value="shopify" checked> <span>Shopify</span></label>
-              <label class="channel-card"><input type="checkbox" name="sales_channel" value="mercadolibre"> <span>Mercado Libre</span></label>
-              <label class="channel-card"><input type="checkbox" name="sales_channel" value="woocommerce"> <span>WooCommerce</span></label>
-              <label class="channel-card"><input type="checkbox" name="sales_channel" value="falabella"> <span>Falabella</span></label>
-              <label class="channel-card"><input type="checkbox" name="sales_channel" value="ripley"> <span>Ripley / Paris</span></label>
-              <label class="channel-card"><input type="checkbox" name="sales_channel" value="jumpseller"> <span>Jumpseller</span></label>
-              <label class="channel-card"><input type="checkbox" name="sales_channel" value="b2b"> <span>Venta Mayorista</span></label>
+              <label class="channel-card selected">
+                <input type="checkbox" name="sales_channel" value="shopify" checked>
+                <span class="channel-logo-box"><img src="./img/shopify.png" alt="Shopify"></span>
+                <span class="channel-name">Shopify</span>
+                <span class="channel-check"><i class="ri-check-line"></i></span>
+              </label>
+
+              <label class="channel-card">
+                <input type="checkbox" name="sales_channel" value="mercadolibre">
+                <span class="channel-logo-box channel-logo-ml"><img src="./img/mercadolibre.png" alt="Mercado Libre"></span>
+                <span class="channel-name">Mercado Libre</span>
+                <span class="channel-check"><i class="ri-check-line"></i></span>
+              </label>
+
+              <label class="channel-card">
+                <input type="checkbox" name="sales_channel" value="woocommerce">
+                <span class="channel-logo-box"><img src="./img/woocommerce.png" alt="WooCommerce"></span>
+                <span class="channel-name">WooCommerce</span>
+                <span class="channel-check"><i class="ri-check-line"></i></span>
+              </label>
+
+              <label class="channel-card">
+                <input type="checkbox" name="sales_channel" value="falabella">
+                <span class="channel-logo-box"><img src="./img/falabella.png" alt="Falabella"></span>
+                <span class="channel-name">Falabella</span>
+                <span class="channel-check"><i class="ri-check-line"></i></span>
+              </label>
+
+              <label class="channel-card">
+                <input type="checkbox" name="sales_channel" value="ripley">
+                <span class="channel-logo-box channel-logo-dark"><img src="./img/ripley.png" alt="Ripley / Paris"></span>
+                <span class="channel-name">Ripley / Paris</span>
+                <span class="channel-check"><i class="ri-check-line"></i></span>
+              </label>
+
+              <label class="channel-card">
+                <input type="checkbox" name="sales_channel" value="jumpseller">
+                <span class="channel-logo-box"><img src="./img/jumpseller.png" alt="Jumpseller"></span>
+                <span class="channel-name">Jumpseller</span>
+                <span class="channel-check"><i class="ri-check-line"></i></span>
+              </label>
+
+              <label class="channel-card">
+                <input type="checkbox" name="sales_channel" value="b2b">
+                <span class="channel-logo-box channel-logo-icon"><i class="ri-building-2-line"></i></span>
+                <span class="channel-name">Venta Mayorista</span>
+                <span class="channel-check"><i class="ri-check-line"></i></span>
+              </label>
             </div>
           </div>
 
-          <!-- Opciones Avanzadas de Pedido -->
-          <button type="button" class="accordion-toggle" id="btn-toggle-advanced-orders">
-            <span><i class="ri-settings-4-line"></i> Parámetros detallados de tus pedidos (Opcional)</span>
-            <i class="ri-arrow-down-s-line" id="icon-advanced-orders"></i>
-          </button>
-
-          <div class="accordion-content" id="content-advanced-orders">
-            <div class="form-grid-2">
-              <div class="form-group">
-                <label for="input-sku-per-order" class="form-label">Promedio de SKU por pedido</label>
-                <input type="number" id="input-sku-per-order" class="form-input" value="1" min="1" max="50">
-                <small style="color: var(--color-text-muted); font-size: 0.72rem;">Tarifa base incluye hasta 3 SKU. +$100 por SKU adicional.</small>
-              </div>
-
-              <div class="form-group">
-                <label for="input-units-per-order" class="form-label">Promedio de Unidades por pedido</label>
-                <input type="number" id="input-units-per-order" class="form-input" value="1" min="1" max="100">
-                <small style="color: var(--color-text-muted); font-size: 0.72rem;">Tarifa base incluye hasta 10 unidades. +$50 por unidad adicional.</small>
-              </div>
-            </div>
-
-            <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">
-              <!-- Switch Venta Protegida -->
-              <div class="switch-container" style="margin-bottom: 0; padding: 0.75rem 1rem;">
-                <div class="switch-label-group">
-                  <span class="switch-title" style="font-size: 0.85rem;"><i class="ri-shield-check-line" style="color: var(--color-accent);"></i> Venta Protegida (Ticket de venta &lt; $10.000)</span>
-                  <span class="switch-desc">Si el valor de venta promedio es menor a $10.000, accedes a tarifa base mínima de $650 + IVA.</span>
-                </div>
-                <label class="switch-input-element">
-                  <input type="checkbox" id="switch-protected-sale">
-                  <span class="slider"></span>
-                </label>
-              </div>
-
-              <!-- Switch Catálogo > 100 SKU -->
-              <div class="switch-container" style="margin-bottom: 0; padding: 0.75rem 1rem;">
-                <div class="switch-label-group">
-                  <span class="switch-title" style="font-size: 0.85rem;"><i class="ri-layout-grid-line"></i> Catálogo amplio en bodega (+100 SKU distintos)</span>
-                  <span class="switch-desc">Aplica recargo de $100 por pedido procesado (exento en ventas de 1 o 2 unidades).</span>
-                </div>
-                <label class="switch-input-element">
-                  <input type="checkbox" id="switch-catalogue-100">
-                  <span class="slider"></span>
-                </label>
-              </div>
-
-              <!-- Switch Colecta Marketplace -->
-              <div class="switch-container" style="margin-bottom: 0; padding: 0.75rem 1rem;">
-                <div class="switch-label-group">
-                  <span class="switch-title" style="font-size: 0.85rem;"><i class="ri-truck-line"></i> Entrega en centros de envío Marketplace / Collect (+ $100)</span>
-                  <span class="switch-desc">Para pedidos entregados en centros de recepción ML, Falabella Collect, Pickit o sucursales de courier.</span>
-                </div>
-                <label class="switch-input-element">
-                  <input type="checkbox" id="switch-marketplace-collect">
-                  <span class="slider"></span>
-                </label>
-              </div>
-            </div>
-          </div>
-
-        </div>
-
-        <!-- SECCIÓN 2: ESTIMADOR DIDÁCTICO DE ALMACENAMIENTO (MÓDULO ESTRELLA) -->
-        <div class="cotizador-section-card" id="storage-estimator-card">
-          <div class="section-header-row">
-            <h2 class="section-title"><i class="ri-archive-line"></i> 2. Estimador de Almacenamiento (m³)</h2>
-            <span id="badge-storage-discount" class="volume-discount-badge" style="display: none;">
-              <i class="ri-percent-line"></i> 18% Descuento Aplicado
-            </span>
-          </div>
-          <p class="section-subtitle">Estima fácilmente cuánto espacio en metros cúbicos (m³) necesita tu mercadería en nuestras bodegas.</p>
-
-          <!-- Banner Ilustración 3D Almacenamiento y Racks -->
-          <div class="section-illustration-banner">
-            <img src="./images/stocka_almacenamiento.jpg" alt="Almacenamiento y Racks Stocka" loading="lazy" style="width: 100%; max-width: 100%; height: 100%; object-fit: cover; display: block;">
-            <div class="section-illustration-overlay">
-              <span class="section-illustration-caption">
-                <i class="ri-archive-fill"></i> Bodegas modernas con control digital
+          <!-- Acordeón: Parámetros Avanzados de Pedido -->
+          <div class="accordion-wrapper">
+            <button type="button" class="accordion-toggle" id="btn-toggle-advanced-orders">
+              <span class="accordion-toggle-left">
+                <span class="accordion-icon-pill"><i class="ri-equalizer-line"></i></span>
+                <span>Parámetros detallados de tus pedidos</span>
+                <span class="optional-micro-tag">Opcional</span>
               </span>
-              <span class="section-illustration-tag">Espacio Inteligente</span>
+              <i class="ri-arrow-down-s-line" id="icon-advanced-orders"></i>
+            </button>
+
+            <div class="accordion-content" id="content-advanced-orders">
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="input-sku-per-order" class="form-label">Promedio de SKU por pedido</label>
+                  <input type="number" id="input-sku-per-order" class="form-input" value="1" min="1" max="50">
+                  <small class="field-hint">Tarifa base incluye hasta 3 SKU. +$100 por SKU adicional.</small>
+                </div>
+
+                <div class="form-group">
+                  <label for="input-units-per-order" class="form-label">Promedio de Unidades por pedido</label>
+                  <input type="number" id="input-units-per-order" class="form-input" value="1" min="1" max="100">
+                  <small class="field-hint">Tarifa base incluye hasta 10 unidades. +$50 por unidad adicional.</small>
+                </div>
+              </div>
+
+              <div class="switches-stack">
+                <!-- Switch Venta Protegida -->
+                <div class="switch-container">
+                  <div class="switch-label-group">
+                    <span class="switch-title"><i class="ri-shield-check-line"></i> Venta Protegida (Ticket de venta &lt; $10.000)</span>
+                    <span class="switch-desc">Si el valor de venta promedio es menor a $10.000, accedes a tarifa base mínima de $650 + IVA.</span>
+                  </div>
+                  <label class="switch-input-element">
+                    <input type="checkbox" id="switch-protected-sale">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+
+                <!-- Switch Catálogo > 100 SKU -->
+                <div class="switch-container">
+                  <div class="switch-label-group">
+                    <span class="switch-title"><i class="ri-layout-grid-line"></i> Catálogo amplio en bodega (+100 SKU distintos)</span>
+                    <span class="switch-desc">Aplica recargo de $100 por pedido procesado (exento en ventas de 1 o 2 unidades).</span>
+                  </div>
+                  <label class="switch-input-element">
+                    <input type="checkbox" id="switch-catalogue-100">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+
+                <!-- Switch Colecta Marketplace -->
+                <div class="switch-container">
+                  <div class="switch-label-group">
+                    <span class="switch-title"><i class="ri-truck-line"></i> Entrega en centros de envío Marketplace / Collect (+ $100)</span>
+                    <span class="switch-desc">Para pedidos entregados en centros de recepción ML, Falabella Collect, Pickit o sucursales de courier.</span>
+                  </div>
+                  <label class="switch-input-element">
+                    <input type="checkbox" id="switch-marketplace-collect">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================================================================
+             SECCIÓN 2: ESTIMADOR DIDÁCTICO DE ALMACENAMIENTO (MÓDULO ESTRELLA)
+             ================================================================ -->
+        <section class="cotizador-section-card" id="storage-estimator-card">
+          <div class="section-hero-header">
+            <div class="section-hero-copy">
+              <div class="section-eyebrow-row">
+                <span class="step-tag">Paso 02 · Bodegaje</span>
+                <span id="badge-storage-discount" class="volume-discount-badge" style="display: none;">
+                  <i class="ri-percent-line"></i> 18% Descuento Aplicado
+                </span>
+              </div>
+              <h2 class="section-title">Estimador de Almacenamiento (m³)</h2>
+              <p class="section-subtitle">
+                Calcula fácilmente cuánto espacio cúbico requiere tu inventario usando cajas tipo, pallets o metros cúbicos directos.
+              </p>
+            </div>
+
+            <div class="section-visual-card">
+              <img src="./images/stocka_almacenamiento.jpg" alt="Almacenamiento y Racks Stocka" loading="lazy">
+              <span class="section-visual-pill"><i class="ri-archive-fill"></i> Bodega Inteligente</span>
             </div>
           </div>
 
-          <!-- Tabs de Selección de Modo Didáctico (3 Formas de Estimar) -->
-          <div class="storage-mode-tabs">
-            <button type="button" class="mode-tab-btn active" data-mode="didactic">
+          <!-- Segmented Control Tabs (3 Formas de Estimar) -->
+          <div class="storage-mode-tabs" role="tablist" aria-label="Modo de estimación de volumen">
+            <button type="button" class="mode-tab-btn active" data-mode="didactic" role="tab">
               <i class="ri-box-3-line"></i>
               <span>Por Cajas</span>
             </button>
-            <button type="button" class="mode-tab-btn" data-mode="pallets">
+            <button type="button" class="mode-tab-btn" data-mode="pallets" role="tab">
               <i class="ri-building-line"></i>
               <span>Por Pallets</span>
             </button>
-            <button type="button" class="mode-tab-btn" data-mode="direct">
+            <button type="button" class="mode-tab-btn" data-mode="direct" role="tab">
               <i class="ri-ruler-2-line"></i>
               <span>Directo m³</span>
             </button>
@@ -269,408 +393,510 @@
 
           <!-- MODO 1: DIDÁCTICO POR TIPOS DE PRODUCTO / CAJAS ESTÁNDAR -->
           <div id="storage-mode-didactic" class="storage-tab-content active">
-            <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
-              Selecciona las cantidades aproximadas de cajas o productos que mantendrás en inventario:
+            <p class="tab-helper-text">
+              Ajusta las cantidades aproximadas de cajas o bultos que mantendrás en stock mensual:
             </p>
 
             <div class="didactic-cards-grid">
-              
               <!-- Item 1: Ropa -->
               <div class="didactic-item-card" data-item-id="clothing" data-vol="0.006">
                 <div class="didactic-item-header">
                   <div class="didactic-item-icon"><i class="ri-t-shirt-line"></i></div>
-                  <div>
+                  <div class="didactic-item-meta">
                     <div class="didactic-item-title">Prendas / Ropa doblada</div>
-                    <div class="didactic-item-dims">30 × 20 × 10 cm (~0.006 m³)</div>
+                    <div class="didactic-item-dims">30 × 20 × 10 cm · 0.006 m³</div>
                   </div>
                 </div>
-                <div class="didactic-item-controls">
-                  <button type="button" class="btn-counter btn-minus">-</button>
-                  <input type="number" class="item-qty-input" value="0" min="0" max="5000">
-                  <button type="button" class="btn-counter btn-plus">+</button>
+                <div class="didactic-item-footer">
+                  <div class="didactic-item-controls">
+                    <button type="button" class="btn-counter btn-minus" aria-label="Disminuir">−</button>
+                    <input type="number" class="item-qty-input" value="0" min="0" max="5000" aria-label="Cantidad de prendas">
+                    <button type="button" class="btn-counter btn-plus" aria-label="Aumentar">+</button>
+                  </div>
+                  <div class="didactic-item-subtotal"><strong>0.00 m³</strong></div>
                 </div>
-                <div class="didactic-item-subtotal">Subtotal: <strong>0.00 m³</strong></div>
               </div>
 
               <!-- Item 2: Calzado -->
               <div class="didactic-item-card" data-item-id="shoes" data-vol="0.013">
                 <div class="didactic-item-header">
                   <div class="didactic-item-icon"><i class="ri-footprint-line"></i></div>
-                  <div>
-                    <div class="didactic-item-title">Cajas de Calzado / Zapatos</div>
-                    <div class="didactic-item-dims">35 × 25 × 15 cm (~0.013 m³)</div>
+                  <div class="didactic-item-meta">
+                    <div class="didactic-item-title">Cajas de Calzado</div>
+                    <div class="didactic-item-dims">35 × 25 × 15 cm · 0.013 m³</div>
                   </div>
                 </div>
-                <div class="didactic-item-controls">
-                  <button type="button" class="btn-counter btn-minus">-</button>
-                  <input type="number" class="item-qty-input" value="0" min="0" max="5000">
-                  <button type="button" class="btn-counter btn-plus">+</button>
+                <div class="didactic-item-footer">
+                  <div class="didactic-item-controls">
+                    <button type="button" class="btn-counter btn-minus" aria-label="Disminuir">−</button>
+                    <input type="number" class="item-qty-input" value="0" min="0" max="5000" aria-label="Cantidad de calzado">
+                    <button type="button" class="btn-counter btn-plus" aria-label="Aumentar">+</button>
+                  </div>
+                  <div class="didactic-item-subtotal"><strong>0.00 m³</strong></div>
                 </div>
-                <div class="didactic-item-subtotal">Subtotal: <strong>0.00 m³</strong></div>
               </div>
 
               <!-- Item 3: Caja S -->
               <div class="didactic-item-card" data-item-id="box_s" data-vol="0.008">
                 <div class="didactic-item-header">
                   <div class="didactic-item-icon"><i class="ri-archive-line"></i></div>
-                  <div>
-                    <div class="didactic-item-title">Caja Pequeña S (Cosmética, Joyas)</div>
-                    <div class="didactic-item-dims">20 × 20 × 20 cm (~0.008 m³)</div>
+                  <div class="didactic-item-meta">
+                    <div class="didactic-item-title">Caja Pequeña S</div>
+                    <div class="didactic-item-dims">20 × 20 × 20 cm · 0.008 m³</div>
                   </div>
                 </div>
-                <div class="didactic-item-controls">
-                  <button type="button" class="btn-counter btn-minus">-</button>
-                  <input type="number" class="item-qty-input" value="0" min="0" max="5000">
-                  <button type="button" class="btn-counter btn-plus">+</button>
+                <div class="didactic-item-footer">
+                  <div class="didactic-item-controls">
+                    <button type="button" class="btn-counter btn-minus" aria-label="Disminuir">−</button>
+                    <input type="number" class="item-qty-input" value="0" min="0" max="5000" aria-label="Cantidad de cajas S">
+                    <button type="button" class="btn-counter btn-plus" aria-label="Aumentar">+</button>
+                  </div>
+                  <div class="didactic-item-subtotal"><strong>0.00 m³</strong></div>
                 </div>
-                <div class="didactic-item-subtotal">Subtotal: <strong>0.00 m³</strong></div>
               </div>
 
               <!-- Item 4: Caja M -->
-              <div class="didactic-item-card" data-item-id="box_m" data-vol="0.027">
+              <div class="didactic-item-card has-qty" data-item-id="box_m" data-vol="0.027">
                 <div class="didactic-item-header">
                   <div class="didactic-item-icon"><i class="ri-box-3-line"></i></div>
-                  <div>
-                    <div class="didactic-item-title">Caja Mediana M (Deco, Hogar)</div>
-                    <div class="didactic-item-dims">30 × 30 × 30 cm (~0.027 m³)</div>
+                  <div class="didactic-item-meta">
+                    <div class="didactic-item-title">Caja Mediana M</div>
+                    <div class="didactic-item-dims">30 × 30 × 30 cm · 0.027 m³</div>
                   </div>
                 </div>
-                <div class="didactic-item-controls">
-                  <button type="button" class="btn-counter btn-minus">-</button>
-                  <input type="number" class="item-qty-input" value="70" min="0" max="5000">
-                  <button type="button" class="btn-counter btn-plus">+</button>
+                <div class="didactic-item-footer">
+                  <div class="didactic-item-controls">
+                    <button type="button" class="btn-counter btn-minus" aria-label="Disminuir">−</button>
+                    <input type="number" class="item-qty-input" value="70" min="0" max="5000" aria-label="Cantidad de cajas M">
+                    <button type="button" class="btn-counter btn-plus" aria-label="Aumentar">+</button>
+                  </div>
+                  <div class="didactic-item-subtotal"><strong>1.89 m³</strong></div>
                 </div>
-                <div class="didactic-item-subtotal">Subtotal: <strong>1.89 m³</strong></div>
               </div>
 
               <!-- Item 5: Caja L -->
               <div class="didactic-item-card" data-item-id="box_l" data-vol="0.060">
                 <div class="didactic-item-header">
                   <div class="didactic-item-icon"><i class="ri-archive-stack-line"></i></div>
-                  <div>
-                    <div class="didactic-item-title">Caja Grande L (Voluminosos)</div>
-                    <div class="didactic-item-dims">50 × 40 × 30 cm (~0.060 m³)</div>
+                  <div class="didactic-item-meta">
+                    <div class="didactic-item-title">Caja Grande L</div>
+                    <div class="didactic-item-dims">50 × 40 × 30 cm · 0.060 m³</div>
                   </div>
                 </div>
-                <div class="didactic-item-controls">
-                  <button type="button" class="btn-counter btn-minus">-</button>
-                  <input type="number" class="item-qty-input" value="0" min="0" max="5000">
-                  <button type="button" class="btn-counter btn-plus">+</button>
+                <div class="didactic-item-footer">
+                  <div class="didactic-item-controls">
+                    <button type="button" class="btn-counter btn-minus" aria-label="Disminuir">−</button>
+                    <input type="number" class="item-qty-input" value="0" min="0" max="5000" aria-label="Cantidad de cajas L">
+                    <button type="button" class="btn-counter btn-plus" aria-label="Aumentar">+</button>
+                  </div>
+                  <div class="didactic-item-subtotal"><strong>0.00 m³</strong></div>
                 </div>
-                <div class="didactic-item-subtotal">Subtotal: <strong>0.00 m³</strong></div>
               </div>
 
               <!-- Item 6: Caja XL Master -->
               <div class="didactic-item-card" data-item-id="box_xl" data-vol="0.120">
                 <div class="didactic-item-header">
                   <div class="didactic-item-icon"><i class="ri-layout-grid-line"></i></div>
-                  <div>
-                    <div class="didactic-item-title">Caja Master XL / Importación</div>
-                    <div class="didactic-item-dims">60 × 50 × 40 cm (~0.120 m³)</div>
+                  <div class="didactic-item-meta">
+                    <div class="didactic-item-title">Caja Master XL</div>
+                    <div class="didactic-item-dims">60 × 50 × 40 cm · 0.120 m³</div>
                   </div>
                 </div>
-                <div class="didactic-item-controls">
-                  <button type="button" class="btn-counter btn-minus">-</button>
-                  <input type="number" class="item-qty-input" value="0" min="0" max="5000">
-                  <button type="button" class="btn-counter btn-plus">+</button>
+                <div class="didactic-item-footer">
+                  <div class="didactic-item-controls">
+                    <button type="button" class="btn-counter btn-minus" aria-label="Disminuir">−</button>
+                    <input type="number" class="item-qty-input" value="0" min="0" max="5000" aria-label="Cantidad de cajas XL">
+                    <button type="button" class="btn-counter btn-plus" aria-label="Aumentar">+</button>
+                  </div>
+                  <div class="didactic-item-subtotal"><strong>0.00 m³</strong></div>
                 </div>
-                <div class="didactic-item-subtotal">Subtotal: <strong>0.00 m³</strong></div>
               </div>
-
             </div>
           </div>
 
           <!-- MODO 2: PALLETS Y RACKS -->
           <div id="storage-mode-pallets" class="storage-tab-content" style="display: none;">
-            <p style="font-size: 0.82rem; color: var(--color-text-muted); margin-bottom: 1rem;">
-              Ideal para importadores o marcas con mercadería estandarizada en pallets o repisas completas:
+            <p class="tab-helper-text">
+              Ideal para importadores o marcas con mercadería estandarizada en pallets o niveles completos de estantería:
             </p>
 
-            <div class="didactic-cards-grid">
-              
+            <div class="didactic-cards-grid didactic-cards-grid-2">
               <!-- Pallet -->
               <div class="didactic-item-card" data-item-id="pallet" data-vol="1.800">
                 <div class="didactic-item-header">
                   <div class="didactic-item-icon"><i class="ri-building-line"></i></div>
-                  <div>
+                  <div class="didactic-item-meta">
                     <div class="didactic-item-title">Pallet Estándar Completo</div>
-                    <div class="didactic-item-dims">1.2m × 1.0m × 1.5m altura (~1.80 m³)</div>
+                    <div class="didactic-item-dims">1.2m × 1.0m × 1.5m alto · 1.80 m³</div>
                   </div>
                 </div>
-                <div class="didactic-item-controls">
-                  <button type="button" class="btn-counter btn-minus">-</button>
-                  <input type="number" class="item-qty-input" value="0" min="0" max="200">
-                  <button type="button" class="btn-counter btn-plus">+</button>
+                <div class="didactic-item-footer">
+                  <div class="didactic-item-controls">
+                    <button type="button" class="btn-counter btn-minus" aria-label="Disminuir">−</button>
+                    <input type="number" class="item-qty-input" value="0" min="0" max="200" aria-label="Cantidad de pallets">
+                    <button type="button" class="btn-counter btn-plus" aria-label="Aumentar">+</button>
+                  </div>
+                  <div class="didactic-item-subtotal"><strong>0.00 m³</strong></div>
                 </div>
-                <div class="didactic-item-subtotal">Subtotal: <strong>0.00 m³</strong></div>
               </div>
 
               <!-- Rack -->
               <div class="didactic-item-card" data-item-id="rack" data-vol="1.000">
                 <div class="didactic-item-header">
                   <div class="didactic-item-icon"><i class="ri-grid-line"></i></div>
-                  <div>
+                  <div class="didactic-item-meta">
                     <div class="didactic-item-title">Nivel de Estantería / Rack</div>
-                    <div class="didactic-item-dims">1.0m × 0.5m × 2.0m altura (~1.00 m³)</div>
+                    <div class="didactic-item-dims">1.0m × 0.5m × 2.0m alto · 1.00 m³</div>
                   </div>
                 </div>
-                <div class="didactic-item-controls">
-                  <button type="button" class="btn-counter btn-minus">-</button>
-                  <input type="number" class="item-qty-input" value="0" min="0" max="200">
-                  <button type="button" class="btn-counter btn-plus">+</button>
+                <div class="didactic-item-footer">
+                  <div class="didactic-item-controls">
+                    <button type="button" class="btn-counter btn-minus" aria-label="Disminuir">−</button>
+                    <input type="number" class="item-qty-input" value="0" min="0" max="200" aria-label="Cantidad de racks">
+                    <button type="button" class="btn-counter btn-plus" aria-label="Aumentar">+</button>
+                  </div>
+                  <div class="didactic-item-subtotal"><strong>0.00 m³</strong></div>
                 </div>
-                <div class="didactic-item-subtotal">Subtotal: <strong>0.00 m³</strong></div>
               </div>
-
             </div>
           </div>
 
           <!-- MODO 3: MEDIDAS A MEDIDA / SLIDER DIRECTO -->
           <div id="storage-mode-direct" class="storage-tab-content" style="display: none;">
-            
-            <!-- Slider Directo de m3 -->
-            <div class="slider-container">
+            <div class="slider-panel">
               <div class="slider-top-row">
-                <label for="input-volume-slider" class="slider-label">Volumen total en metros cúbicos (m³):</label>
+                <label for="input-volume-slider" class="slider-label">Volumen total estimado</label>
                 <div class="slider-value-display">
-                  <input type="number" id="input-volume-number" class="slider-number-input" value="1.89" min="0.1" max="200" step="0.1">
+                  <input type="number" id="input-volume-number" class="slider-number-input" value="1.89" min="0.1" max="200" step="0.1" aria-label="Metros cúbicos">
                   <span class="slider-unit">m³</span>
                 </div>
               </div>
-              <input type="range" id="input-volume-slider" class="custom-range-slider" min="0.1" max="40" value="1.89" step="0.1">
+              <div class="range-slider-wrap">
+                <input type="range" id="input-volume-slider" class="custom-range-slider" min="0.1" max="40" value="1.89" step="0.1">
+                <div class="range-ticks" aria-hidden="true">
+                  <span>0.1 m³</span>
+                  <span>10 m³ (18% OFF)</span>
+                  <span>25 m³ (24% OFF)</span>
+                  <span>40+ m³</span>
+                </div>
+              </div>
             </div>
 
             <!-- Calculadora de Medidas Propias -->
-            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.25rem; margin-top: 1rem;">
-              <div style="font-weight: 700; font-size: 0.88rem; margin-bottom: 0.5rem; color: var(--color-text-main);">
-                <i class="ri-calculator-line"></i> ¿Tienes las medidas exactas de tus cajas?
+            <div class="custom-box-calculator">
+              <div class="custom-box-header">
+                <div class="custom-box-title">
+                  <i class="ri-calculator-line"></i> ¿Tienes las medidas exactas de tus cajas?
+                </div>
+                <span class="custom-box-preview-pill" id="custom-box-live-preview">1.20 m³</span>
               </div>
-              <div class="form-grid-2">
+
+              <div class="form-grid-4">
                 <div class="form-group">
-                  <label class="form-label" style="font-size: 0.78rem;">Largo (cm)</label>
-                  <input type="number" id="calc-custom-length" class="form-input" placeholder="40" value="40">
+                  <label for="calc-custom-length" class="form-label">Largo (cm)</label>
+                  <input type="number" id="calc-custom-length" class="form-input" placeholder="40" value="40" min="1">
                 </div>
                 <div class="form-group">
-                  <label class="form-label" style="font-size: 0.78rem;">Ancho (cm)</label>
-                  <input type="number" id="calc-custom-width" class="form-input" placeholder="30" value="30">
+                  <label for="calc-custom-width" class="form-label">Ancho (cm)</label>
+                  <input type="number" id="calc-custom-width" class="form-input" placeholder="30" value="30" min="1">
                 </div>
                 <div class="form-group">
-                  <label class="form-label" style="font-size: 0.78rem;">Alto (cm)</label>
-                  <input type="number" id="calc-custom-height" class="form-input" placeholder="20" value="20">
+                  <label for="calc-custom-height" class="form-label">Alto (cm)</label>
+                  <input type="number" id="calc-custom-height" class="form-input" placeholder="20" value="20" min="1">
                 </div>
                 <div class="form-group">
-                  <label class="form-label" style="font-size: 0.78rem;">Cantidad de Cajas</label>
-                  <input type="number" id="calc-custom-qty" class="form-input" placeholder="50" value="50">
+                  <label for="calc-custom-qty" class="form-label">Cantidad</label>
+                  <input type="number" id="calc-custom-qty" class="form-input" placeholder="50" value="50" min="1">
                 </div>
               </div>
-              <button type="button" id="btn-apply-custom-box" class="btn btn-outline" style="width: 100%; margin-top: 0.5rem; font-size: 0.82rem; border-color: var(--color-accent); color: var(--color-accent);">
-                <i class="ri-add-circle-line"></i> Aplicar a mi Volumen Total
+
+              <button type="button" id="btn-apply-custom-box" class="btn-apply-custom">
+                <i class="ri-add-circle-line"></i> Aplicar al Volumen Total
               </button>
+              <div id="custom-box-feedback" class="custom-box-feedback" aria-live="polite"></div>
             </div>
-
           </div>
 
-          <!-- BANNER DE RESULTADOS DE VOLUMEN Y EQUIVALENCIA DIDÁCTICA -->
-          <div class="volume-results-banner">
-            <div class="volume-display-block">
-              <div class="volume-icon-large"><i class="ri-cube-line"></i></div>
-              <div>
-                <div class="volume-number-text" id="display-total-volume">1.89 m³</div>
-                <div class="volume-label-sub">Espacio Total Estimado</div>
+          <!-- BANNER UNIFICADO DE RESULTADO DE VOLUMEN + ESCALA DE DESCUENTOS -->
+          <div class="volume-summary-panel">
+            <div class="volume-results-banner">
+              <div class="volume-display-block">
+                <div class="volume-icon-large"><i class="ri-box-3-line"></i></div>
+                <div>
+                  <div class="volume-label-sub">Espacio Total Estimado</div>
+                  <div class="volume-number-text" id="display-total-volume">1.89 m³</div>
+                </div>
+              </div>
+
+              <div class="volume-equivalence-text" id="display-volume-equivalence">
+                Equivale aprox. a <strong>~1 pallet estándar</strong> o <strong>~2 estanterías</strong> de bodega.
               </div>
             </div>
 
-            <div class="volume-equivalence-text" id="display-volume-equivalence">
-              💡 Tu mercadería equivale aproximadamente a <strong>~1 pallet estándar</strong> o <strong>~2 estanterías</strong> de bodega.
+            <div class="discount-scale-box">
+              <div class="discount-scale-header">
+                <span class="discount-scale-title"><i class="ri-price-tag-3-line"></i> Descuentos por volumen de bodegaje</span>
+                <span id="label-discount-scale-status" class="discount-scale-status">Alcanza 10 m³ para 18% OFF</span>
+              </div>
+              <div class="discount-chips-row" id="discount-scale-chips">
+                <span class="discount-tier-chip" data-min="10" data-max="15"><span>10–15 m³</span><strong>18%</strong></span>
+                <span class="discount-tier-chip" data-min="15.01" data-max="25"><span>15.1–25 m³</span><strong>21%</strong></span>
+                <span class="discount-tier-chip" data-min="25.01" data-max="35"><span>25.1–35 m³</span><strong>24%</strong></span>
+                <span class="discount-tier-chip" data-min="35.01" data-max="60"><span>35.1–60 m³</span><strong>27%</strong></span>
+                <span class="discount-tier-chip" data-min="60.01" data-max="100"><span>60.1–100 m³</span><strong>30%</strong></span>
+                <span class="discount-tier-chip" data-min="100.01" data-max="160"><span>100.1–160 m³</span><strong>33%</strong></span>
+                <span class="discount-tier-chip" data-min="160.01" data-max="230"><span>160.1–230 m³</span><strong>35%</strong></span>
+                <span class="discount-tier-chip" data-min="230.01" data-max="300"><span>230.1–300 m³</span><strong>37%</strong></span>
+                <span class="discount-tier-chip" data-min="300.01" data-max="999999"><span>+300 m³</span><strong>39%</strong></span>
+              </div>
             </div>
           </div>
+        </section>
 
-          <!-- Escala de Descuentos por Volumen de Almacenamiento -->
-          <div style="margin-top: 1.25rem; padding: 0.85rem 1rem; background: var(--color-bg); border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-            <div style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.35rem;">
-              <span>Escala de Descuentos en Almacenamiento:</span>
-              <span id="label-discount-scale-status" style="color: var(--color-accent); font-weight: 700;">Alcanza 10 m³ para 18% OFF</span>
+        <!-- ================================================================
+             SECCIÓN 3: SERVICIOS DE DESPACHO Y ENVÍOS (OPCIONAL)
+             ================================================================ -->
+        <section class="cotizador-section-card" id="step-shipping">
+          <div class="section-hero-header">
+            <div class="section-hero-copy">
+              <div class="section-eyebrow-row">
+                <span class="step-tag">Paso 03 · Logística</span>
+                <span class="optional-micro-tag">Opcional</span>
+              </div>
+              <h2 class="section-title">Despachos y Envíos Proyectados</h2>
+              <p class="section-subtitle">
+                Proyecta tus costos de última milla en Santiago (Same Day / Flex) y envíos optimizados a todo Chile vía Envíame.
+              </p>
             </div>
-            <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
-              <span class="badge" style="font-size: 0.72rem; padding: 0.25rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border);">10-15 m³: <strong>18%</strong></span>
-              <span class="badge" style="font-size: 0.72rem; padding: 0.25rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border);">15.1-25 m³: <strong>21%</strong></span>
-              <span class="badge" style="font-size: 0.72rem; padding: 0.25rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border);">25.1-35 m³: <strong>24%</strong></span>
-              <span class="badge" style="font-size: 0.72rem; padding: 0.25rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border);">35.1-60 m³: <strong>27%</strong></span>
-              <span class="badge" style="font-size: 0.72rem; padding: 0.25rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border);">+60 m³: <strong>32%</strong></span>
-            </div>
-          </div>
 
-        </div>
-
-        <!-- SECCIÓN 3: SERVICIOS DE DESPACHO Y ENVÍOS (OPCIONAL) -->
-        <div class="cotizador-section-card">
-          <div class="section-header-row">
-            <h2 class="section-title"><i class="ri-truck-line"></i> 3. Despachos y Envíos (Proyectado)</h2>
-            <span class="badge badge-neutral" style="font-size: 0.75rem;">Opcional</span>
-          </div>
-          <p class="section-subtitle">Calcula el costo proyectado de envíos si deseas utilizar nuestras soluciones de transporte y couriers integrados.</p>
-
-          <!-- Banner Ilustración 3D Flota y Despachos -->
-          <div class="section-illustration-banner">
-            <img src="./images/stocka_despachos.jpg" alt="Flota de Despachos Stocka Same Day" loading="lazy" style="width: 100%; max-width: 100%; height: 100%; object-fit: cover; display: block;">
-            <div class="section-illustration-overlay">
-              <span class="section-illustration-caption">
-                <i class="ri-truck-fill"></i> Same Day RM y Mercado Libre Flex
-              </span>
-              <span class="section-illustration-tag">Envíos Rápidos</span>
+            <div class="section-visual-card section-visual-truck">
+              <img src="./images/stocka_despachos.jpg" alt="Flota de Despachos Stocka Same Day" loading="lazy">
+              <span class="section-visual-pill"><i class="ri-truck-fill"></i> Same Day &amp; Flex</span>
             </div>
           </div>
 
           <div class="form-grid-2">
-            <div class="form-group">
-              <label for="input-shipments-sameday" class="form-label">
-                <i class="ri-flashlight-line" style="color: var(--color-accent);"></i> Despachos RM Same Day / Flex (Santiago)
+            <div class="form-group input-feature-card">
+              <label for="input-shipments-sameday" class="form-label form-label-icon">
+                <span class="label-icon-badge violet"><i class="ri-flashlight-line"></i></span>
+                <span>Despachos RM Same Day / Flex</span>
               </label>
               <input type="number" id="input-shipments-sameday" class="form-input" value="0" min="0" placeholder="0">
-              <small style="color: var(--color-text-muted); font-size: 0.72rem;">$3.200 + IVA por paquete en 36 comunas de Santiago.</small>
+              <small class="field-hint">$3.200 + IVA hasta 10 kg en 36 comunas de Santiago.</small>
             </div>
 
-            <div class="form-group">
-              <label for="input-shipments-courier" class="form-label">
-                <i class="ri-road-map-line" style="color: var(--color-primary);"></i> Envíos a Regiones (Vía Envíame)
+            <div class="form-group input-feature-card">
+              <label for="input-shipments-colina" class="form-label form-label-icon">
+                <span class="label-icon-badge amber"><i class="ri-map-pin-range-line"></i></span>
+                <span>Despachos Colina / Chicureo</span>
               </label>
-              <input type="number" id="input-shipments-courier" class="form-input" value="0" min="0" placeholder="0">
-              <small style="color: var(--color-text-muted); font-size: 0.72rem;">Cargo integración $35/orden + costo de flete courier optimizado.</small>
+              <input type="number" id="input-shipments-colina" class="form-input" value="0" min="0" placeholder="0">
+              <small class="field-hint">$3.490 + IVA por paquete en zona norte RM.</small>
             </div>
           </div>
 
-          <!-- Selector de Peso Promedio y Zonas Populares para Regiones -->
-          <div id="regional-weight-helper" style="margin-top: 0.75rem; padding: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); width: 100%; box-sizing: border-box; overflow: hidden;">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
-              <label for="select-regional-weight" style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); margin: 0; display: flex; align-items: center; gap: 0.35rem;">
-                <i class="ri-scales-3-line" style="color: var(--color-primary);"></i> Peso promedio por paquete a Regiones:
+          <div class="form-grid-2" style="margin-top: 1rem;">
+            <div class="form-group input-feature-card">
+              <label for="input-shipments-courier" class="form-label form-label-icon">
+                <span class="label-icon-badge blue"><i class="ri-road-map-line"></i></span>
+                <span>Envíos a Regiones (Envíame)</span>
               </label>
-              <span id="badge-regional-courier-rate" class="badge" style="font-size: 0.75rem; font-weight: 700; background: rgba(37, 99, 235, 0.1); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.2);">
+              <input type="number" id="input-shipments-courier" class="form-input" value="0" min="0" placeholder="0">
+              <small class="field-hint">Cargo integración $35/orden + costo de flete courier optimizado.</small>
+            </div>
+
+            <div class="form-group input-feature-card">
+              <label for="input-pickups-express" class="form-label form-label-icon">
+                <span class="label-icon-badge emerald"><i class="ri-store-2-line"></i></span>
+                <span>Retiros Express Inmediatos en Sucursal</span>
+              </label>
+              <input type="number" id="input-pickups-express" class="form-input" value="0" min="0" placeholder="0">
+              <small class="field-hint">$1.490 + IVA base. (El retiro estándar con 60 min de aviso es $0).</small>
+            </div>
+          </div>
+
+          <!-- Selector de Peso Promedio y Destinos Populares -->
+          <div id="regional-weight-helper" class="regional-panel">
+            <div class="regional-panel-header">
+              <label for="select-regional-weight" class="regional-panel-label">
+                <i class="ri-scales-3-line"></i> Peso promedio por paquete a Regiones
+              </label>
+              <span id="badge-regional-courier-rate" class="regional-rate-badge">
                 Tarifa promedio: ~$4.050 + IVA / envío
               </span>
             </div>
 
-            <select id="select-regional-weight" class="form-input" style="font-size: 0.85rem; font-weight: 600; margin-bottom: 0.75rem; width: 100%; max-width: 100%; box-sizing: border-box; text-overflow: ellipsis; overflow: hidden;">
-              <option value="0_1kg">Hasta 1 kg (Ligero) — Promedio ~$3.950 + IVA (Starken)</option>
-              <option value="1_3kg" selected>1 a 3 kg (Estándar) — Promedio ~$4.050 + IVA (Starken) ⭐</option>
-              <option value="3_6kg">3 a 6 kg (Mediano) — Promedio ~$6.450 + IVA (Starken)</option>
-              <option value="6_9kg">6 a 9 kg (Grande) — Promedio ~$6.790 + IVA (Starken)</option>
-            </select>
+            <div class="select-wrapper">
+              <select id="select-regional-weight" class="form-input form-select">
+                <option value="0_1kg">Hasta 1 kg · ~$3.950 + IVA</option>
+                <option value="1_3kg" selected>1 a 3 kg · ~$4.050 + IVA (Recomendado)</option>
+                <option value="3_6kg">3 a 6 kg · ~$6.450 + IVA</option>
+                <option value="6_9kg">6 a 9 kg · ~$6.790 + IVA</option>
+              </select>
+              <i class="ri-arrow-down-s-line select-chevron" aria-hidden="true"></i>
+            </div>
 
-            <!-- Mini Tabla / Cards de Destinos Populares -->
-            <div style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.5px;">
-              📍 Tarifas optimizadas a destinos más populares (Proveedor más económico):
+            <div class="regional-destinations-label">
+              <i class="ri-map-pin-2-line"></i> Referencia tarifas optimizadas (proveedor más económico)
             </div>
+
             <div class="regional-destinations-grid">
-              <div style="padding: 0.5rem 0.6rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); text-align: center;">
-                <div style="font-size: 0.72rem; color: var(--color-text-muted);">Valparaíso / Viña</div>
-                <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main);">$3.335</div>
-                <div style="font-size: 0.68rem; color: #10b981; font-weight: 600;">Starken</div>
+              <div class="dest-card">
+                <div class="dest-city">Valparaíso / Viña</div>
+                <div class="dest-price">$3.335</div>
+                <div class="dest-courier">Starken</div>
               </div>
-              <div style="padding: 0.5rem 0.6rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); text-align: center;">
-                <div style="font-size: 0.72rem; color: var(--color-text-muted);">Coquimbo / La Serena</div>
-                <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main);">$3.748</div>
-                <div style="font-size: 0.68rem; color: #10b981; font-weight: 600;">Starken</div>
+              <div class="dest-card">
+                <div class="dest-city">Coquimbo / Serena</div>
+                <div class="dest-price">$3.748</div>
+                <div class="dest-courier">Starken</div>
               </div>
-              <div style="padding: 0.5rem 0.6rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); text-align: center;">
-                <div style="font-size: 0.72rem; color: var(--color-text-muted);">Concepción / Biobío</div>
-                <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main);">$4.174</div>
-                <div style="font-size: 0.68rem; color: #10b981; font-weight: 600;">Starken</div>
+              <div class="dest-card">
+                <div class="dest-city">Concepción</div>
+                <div class="dest-price">$4.174</div>
+                <div class="dest-courier">Starken</div>
               </div>
-              <div style="padding: 0.5rem 0.6rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); text-align: center;">
-                <div style="font-size: 0.72rem; color: var(--color-text-muted);">Antofagasta / Calama</div>
-                <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main);">$5.294</div>
-                <div style="font-size: 0.68rem; color: #10b981; font-weight: 600;">Starken</div>
+              <div class="dest-card">
+                <div class="dest-city">Antofagasta</div>
+                <div class="dest-price">$5.294</div>
+                <div class="dest-courier">Starken</div>
               </div>
-              <div style="padding: 0.5rem 0.6rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); text-align: center;">
-                <div style="font-size: 0.72rem; color: var(--color-text-muted);">Puerto Montt / Sur</div>
-                <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main);">$4.223</div>
-                <div style="font-size: 0.68rem; color: #10b981; font-weight: 600;">Starken</div>
+              <div class="dest-card">
+                <div class="dest-city">Puerto Montt</div>
+                <div class="dest-price">$4.223</div>
+                <div class="dest-courier">Starken</div>
               </div>
             </div>
-            <p style="margin: 0.5rem 0 0 0; font-size: 0.7rem; color: var(--color-text-muted); line-height: 1.3;">
-              * Valores netos calculados con la tarifa más económica disponible vía Envíame entre Starken, Chilexpress y Blue Express.
+
+            <p class="regional-footnote">
+              * Valores netos referenciales calculados con la tarifa más conveniente vía Envíame entre Starken, Chilexpress y Blue Express.
+            </p>
+          </div>
+        </section>
+
+        <!-- ================================================================
+             SECCIÓN 4: INSUMOS Y SERVICIOS ADICIONALES
+             ================================================================ -->
+        <section class="cotizador-section-card" id="step-extras">
+          <div class="section-header-compact">
+            <div class="section-eyebrow-row">
+              <span class="step-tag">Paso 04 · Extras</span>
+              <span class="optional-micro-tag">Opcional</span>
+            </div>
+            <h2 class="section-title">Insumos y Servicios Adicionales</h2>
+            <p class="section-subtitle">
+              El embalaje estándar (bolsa courier, film alusa, cinta y etiqueta hasta 50×50×50 cm) está <strong>100% incluido</strong> en tu Pick &amp; Pack. Agrega insumos especiales, etiquetado o servicios en sucursal si los necesitas.
             </p>
           </div>
 
-          <div class="form-group" style="margin-top: 0.5rem;">
-            <label for="input-pickups-express" class="form-label">
-              <i class="ri-store-2-line" style="color: var(--color-success);"></i> Retiros Express Inmediatos en Sucursal
-            </label>
-            <input type="number" id="input-pickups-express" class="form-input" value="0" min="0" placeholder="0">
-            <small style="color: var(--color-text-muted); font-size: 0.72rem;">$1.490 + IVA base. (El retiro estándar con 60 min de aviso es 100% gratuito).</small>
-          </div>
-        </div>
-
-        <!-- SECCIÓN 4: INSUMOS Y SERVICIOS ADICIONALES -->
-        <div class="cotizador-section-card">
-          <div class="section-header-row">
-            <h2 class="section-title"><i class="ri-gift-line"></i> 4. Insumos y Servicios Adicionales</h2>
-            <span class="badge badge-neutral" style="font-size: 0.75rem;">Opcional</span>
-          </div>
-          <p class="section-subtitle">El embalaje estándar (bolsa courier, film alusa y cinta) está 100% incluido en el Pick & Pack. Puedes cotizar insumos o servicios extra aquí:</p>
-
           <!-- Insumos -->
-          <div style="font-size: 0.85rem; font-weight: 700; margin-bottom: 0.75rem; color: var(--color-text-main);">
-            <i class="ri-box-1-line"></i> Cajas e Insumos Especiales (unidades/mes):
-          </div>
-          <div class="form-grid-2">
-            <div class="form-group">
-              <label for="input-bubble-wrap" class="form-label">Plástico Burbuja (m²)</label>
-              <input type="number" id="input-bubble-wrap" class="form-input" value="0" min="0" placeholder="0">
-              <small style="color: var(--color-text-muted); font-size: 0.72rem;">$360 + IVA por m²</small>
+          <div class="subsection-block" style="margin-top: 0;">
+            <div class="subsection-header">
+              <span class="subsection-title"><i class="ri-box-1-line"></i> Cajas e Insumos Especiales (unidades/mes)</span>
             </div>
-            <div class="form-group">
-              <label for="input-box-s" class="form-label">Caja Tamaño S (20x20x20 cm)</label>
-              <input type="number" id="input-box-s" class="form-input" value="0" min="0" placeholder="0">
-              <small style="color: var(--color-text-muted); font-size: 0.72rem;">$450 + IVA c/u</small>
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="input-bubble-wrap" class="form-label">Plástico Burbuja (metros lineales · ancho 50 cm)</label>
+                <input type="number" id="input-bubble-wrap" class="form-input" value="0" min="0" placeholder="0">
+                <small class="field-hint">$3,6 / cm lineal ($360 + IVA por metro)</small>
+              </div>
+              <div class="form-group">
+                <label for="input-box-s" class="form-label">Caja Tamaño S (20×20×20 cm)</label>
+                <input type="number" id="input-box-s" class="form-input" value="0" min="0" placeholder="0">
+                <small class="field-hint">$450 + IVA c/u</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- Etiquetado Opcional -->
+          <div class="subsection-block">
+            <div class="subsection-header">
+              <span class="subsection-title"><i class="ri-barcode-box-line"></i> Etiquetado Opcional (ML FULL e Ingreso)</span>
+              <span class="subsection-hint">Solo si aplica</span>
+            </div>
+            <div class="form-grid-2">
+              <div class="form-group input-feature-card">
+                <label for="input-ml-full-units" class="form-label form-label-icon">
+                  <span class="label-icon-badge violet"><i class="ri-price-tag-3-line"></i></span>
+                  <span>Etiquetado Envíos Mercado Libre FULL</span>
+                </label>
+                <input type="number" id="input-ml-full-units" class="form-input" value="0" min="0" placeholder="0">
+                <small class="field-hint">$100 + IVA por unidad etiquetada para despacho a bodega FULL.</small>
+              </div>
+
+              <div class="form-group input-feature-card">
+                <label for="input-inbound-labeling-units" class="form-label form-label-icon">
+                  <span class="label-icon-badge blue"><i class="ri-barcode-box-line"></i></span>
+                  <span>Etiquetado Código de Barras en Ingreso</span>
+                </label>
+                <input type="number" id="input-inbound-labeling-units" class="form-input" value="0" min="0" placeholder="0">
+                <small class="field-hint">$100 + IVA / unidad solo si llega sin código. Si viene etiquetado es $0.</small>
+              </div>
             </div>
           </div>
 
           <!-- Servicios en Sucursal -->
-          <div style="font-size: 0.85rem; font-weight: 700; margin: 1.25rem 0 0.75rem 0; color: var(--color-text-main);">
-            <i class="ri-store-3-line"></i> Servicios en Sucursal y Recepción:
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 0.65rem;">
-            <label class="channel-card">
-              <input type="checkbox" id="check-pos-service">
-              <div>
-                <div style="font-weight: 700; font-size: 0.85rem;">Punto de Venta Físico en Sucursal (POS)</div>
-                <div style="font-size: 0.72rem; color: var(--color-text-muted);">Vende directo a clientes en tienda Stocka (0.2 UF/mes + comisiones POS).</div>
-              </div>
-            </label>
+          <div class="subsection-block">
+            <div class="subsection-header">
+              <span class="subsection-title"><i class="ri-store-3-line"></i> Servicios en Sucursal y Recepción</span>
+            </div>
 
-            <label class="channel-card">
-              <input type="checkbox" id="check-vitrina-service">
-              <div>
-                <div style="font-weight: 700; font-size: 0.85rem;">Vitrina de Exhibición de Marca</div>
-                <div style="font-size: 0.72rem; color: var(--color-text-muted);">Exhibe tus productos destacados en nuestra sala de ventas (0.6 UF/mes).</div>
-              </div>
-            </label>
+            <div class="service-cards-stack">
+              <label class="channel-card service-option-card">
+                <input type="checkbox" id="check-pos-service">
+                <span class="service-icon-box"><i class="ri-bank-card-line"></i></span>
+                <div class="service-copy">
+                  <div class="service-title-row">
+                    <span class="service-title">Punto de Venta Físico en Sucursal (POS)</span>
+                    <span class="service-price-pill">0,2 UF / mes</span>
+                  </div>
+                  <div class="service-desc">Vende presencial en nuestra tienda Ñuñoa (+ comisiones 2,5% débito / 3,5% crédito y $1.490 + IVA prep./venta).</div>
+                </div>
+                <span class="channel-check"><i class="ri-check-line"></i></span>
+              </label>
 
-            <div class="form-group" style="margin-top: 0.5rem;">
-              <label for="input-unloading-m3" class="form-label">Descarga de mercadería pesada por personal Stocka (m³)</label>
+              <label class="channel-card service-option-card">
+                <input type="checkbox" id="check-vitrina-service">
+                <span class="service-icon-box"><i class="ri-store-line"></i></span>
+                <div class="service-copy">
+                  <div class="service-title-row">
+                    <span class="service-title">Vitrina de Exhibición de Marca</span>
+                    <span class="service-price-pill">0,6 UF / mes</span>
+                  </div>
+                  <div class="service-desc">Exhibe tus productos destacados en nuestra sala de ventas física (Showroom: $1.490/venta + instalación a convenir).</div>
+                </div>
+                <span class="channel-check"><i class="ri-check-line"></i></span>
+              </label>
+            </div>
+
+            <div class="form-group input-feature-card" style="margin-top: 1rem; margin-bottom: 0;">
+              <label for="input-unloading-m3" class="form-label form-label-icon">
+                <span class="label-icon-badge amber"><i class="ri-inbox-unarchive-line"></i></span>
+                <span>Descarga de mercadería pesada por personal Stocka (m³)</span>
+              </label>
               <input type="number" id="input-unloading-m3" class="form-input" value="0" min="0" placeholder="0">
-              <small style="color: var(--color-text-muted); font-size: 0.72rem;">0.1 UF/m³ (tope 2 UF). Descargas &lt; 1 m³ son gratis.</small>
+              <small class="field-hint">0,1 UF/m³ (tope 2 UF). Descargas menores a 1 m³ o realizadas por tu transporte son $0.</small>
             </div>
           </div>
-        </div>
+        </section>
 
       </div>
 
-      <!-- COLUMNA DERECHA: TARJETA DE RESUMEN STICKY -->
-      <div class="cotizador-summary-column">
+      <!-- ================================================================
+           COLUMNA DERECHA: TARJETA DE RESUMEN STICKY
+           ================================================================ -->
+      <aside class="cotizador-summary-column" aria-label="Resumen de cotización">
         <div class="cotizacion-summary-card" id="sticky-summary-card">
-          
+
           <div class="summary-header">
             <div class="summary-title">
-              <i class="ri-file-list-3-line" style="color: var(--color-accent);"></i> Resumen de Cotización
+              <span class="summary-title-icon"><i class="ri-file-list-3-line"></i></span>
+              <span>Resumen Mensual</span>
             </div>
-            <span id="summary-tier-badge" class="badge" style="background: rgba(94, 23, 235, 0.12); color: var(--color-accent); font-weight: 700; font-size: 0.75rem;">Rango 2</span>
+            <span id="summary-tier-badge" class="summary-tier-pill">Rango 2</span>
           </div>
 
           <div class="summary-breakdown-list">
-            
             <!-- Item 1: Almacenamiento -->
             <div class="breakdown-row">
               <div class="breakdown-label-group">
@@ -683,7 +909,7 @@
             <!-- Item 2: Pick & Pack -->
             <div class="breakdown-row">
               <div class="breakdown-label-group">
-                <span class="breakdown-label"><i class="ri-box-3-line"></i> Pick & Pack (Preparación)</span>
+                <span class="breakdown-label"><i class="ri-box-3-line"></i> Pick &amp; Pack</span>
                 <span class="breakdown-subtext" id="summary-pickpack-subtext">60 pedidos × $1.200</span>
               </div>
               <span class="breakdown-value" id="summary-pickpack-val">$72.000</span>
@@ -692,7 +918,7 @@
             <!-- Item 3: Costo Fijo de Servicio -->
             <div class="breakdown-row" id="row-fixed-fee">
               <div class="breakdown-label-group">
-                <span class="breakdown-label"><i class="ri-shield-line"></i> Costo Fijo Mensual</span>
+                <span class="breakdown-label"><i class="ri-shield-check-line"></i> Costo Fijo Mensual</span>
                 <span class="breakdown-subtext" id="summary-fixedfee-subtext">0.9 UF (&lt; 75 ped. y &lt; 1.5m³)</span>
               </div>
               <span class="breakdown-value" id="summary-fixedfee-val">$34.650</span>
@@ -710,115 +936,381 @@
             <!-- Item 5: Insumos y Servicios Extras -->
             <div class="breakdown-row" id="row-extras" style="display: none;">
               <div class="breakdown-label-group">
-                <span class="breakdown-label"><i class="ri-gift-line"></i> Insumos y Servicios Extra</span>
+                <span class="breakdown-label"><i class="ri-gift-line"></i> Insumos y Extras</span>
                 <span class="breakdown-subtext" id="summary-extras-subtext">0 adicionales</span>
               </div>
               <span class="breakdown-value" id="summary-extras-val">$0</span>
             </div>
-
           </div>
 
-          <div class="summary-divider"></div>
-
-          <!-- Total Neto -->
-          <div class="total-row">
-            <span class="total-label">Subtotal Neto:</span>
-            <span class="total-amount" id="summary-net-total">$188.865</span>
-          </div>
-
-          <div class="total-gross-sub" id="summary-iva-gross-text">
-            + IVA 19% ($35.884) = <strong>$224.749 IVA Inc.</strong>
-          </div>
-
-          <!-- KPI Unit Cost -->
-          <div class="kpi-unit-cost-card">
-            <div class="kpi-unit-label">
-              <i class="ri-calculator-line" style="color: var(--color-accent); margin-right: 0.25rem;"></i> Costo Estimado por Pedido:
+          <!-- Bloque Total Neto + KPI Costo por Pedido -->
+          <div class="summary-total-box">
+            <div class="total-row">
+              <span class="total-label">Subtotal Neto</span>
+              <span class="total-amount" id="summary-net-total">$188.865</span>
             </div>
-            <div class="kpi-unit-val" id="summary-cost-per-order">$3.148 + IVA</div>
+            <div class="total-gross-sub" id="summary-iva-gross-text">
+              + IVA 19% ($35.884) = <strong>$224.749 IVA Inc.</strong>
+            </div>
+
+            <div class="kpi-unit-cost-card">
+              <div class="kpi-unit-label">
+                <i class="ri-calculator-line"></i> Costo est. por pedido
+              </div>
+              <div class="kpi-unit-val" id="summary-cost-per-order">$3.148 + IVA</div>
+            </div>
           </div>
 
           <!-- Botones de Acción / Conversión -->
           <div class="summary-actions-grid">
             <a href="./onboarding.html" id="btn-go-onboarding-with-quote" class="btn-cta-primary">
-              <i class="ri-rocket-2-line"></i> Solicitar Alta con esta Cotización
+              <i class="ri-rocket-2-line"></i>
+              <span>Solicitar Alta con esta Cotización</span>
             </a>
 
             <div class="btn-action-row">
               <a href="#" id="btn-quote-whatsapp" target="_blank" rel="noopener noreferrer" class="btn-secondary-action btn-whatsapp">
-                <i class="ri-whatsapp-line" style="font-size: 1.1rem;"></i> WhatsApp
+                <i class="ri-whatsapp-line"></i> WhatsApp
               </a>
               <button type="button" id="btn-print-quote" class="btn-secondary-action">
-                <i class="ri-printer-line"></i> Imprimir / PDF
+                <i class="ri-printer-line"></i> PDF / Imprimir
               </button>
             </div>
 
-            <button type="button" id="btn-open-email-modal" class="btn-secondary-action" style="width: 100%; border-style: dashed;">
+            <button type="button" id="btn-open-email-modal" class="btn-secondary-action btn-email-trigger">
               <i class="ri-mail-send-line"></i> Recibir Cotización por Correo
             </button>
 
             <!-- Presentaciones Oficiales Descargables -->
-            <div style="margin-top: 0.85rem; padding-top: 0.85rem; border-top: 1px dashed var(--color-border); display: flex; flex-direction: column; gap: 0.4rem;">
-              <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; text-align: center;">
-                Descargar Presentaciones:
-              </span>
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem;">
-                <a href="#" id="btn-pres-fulfillment-link" target="_blank" class="badge" style="display: flex; align-items: center; justify-content: center; gap: 0.25rem; padding: 0.4rem 0.25rem; font-size: 0.72rem; font-weight: 600; text-decoration: none; background: rgba(94, 23, 235, 0.08); color: var(--color-accent); border: 1px solid rgba(94, 23, 235, 0.2); border-radius: var(--radius-sm); text-align: center;">
-                  <i class="ri-file-pdf-fill"></i> Fulfillment 360
+            <div class="summary-presentations">
+              <span class="summary-mini-heading">Presentaciones oficiales</span>
+              <div class="presentations-grid">
+                <a href="#" id="btn-pres-fulfillment-link" target="_blank" rel="noopener noreferrer" class="pres-link-pill pres-violet">
+                  <i class="ri-file-pdf-2-line"></i> Fulfillment 360
                 </a>
-                <a href="#" id="btn-pres-despachos-link" target="_blank" class="badge" style="display: flex; align-items: center; justify-content: center; gap: 0.25rem; padding: 0.4rem 0.25rem; font-size: 0.72rem; font-weight: 600; text-decoration: none; background: rgba(37, 99, 235, 0.08); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.2); border-radius: var(--radius-sm); text-align: center;">
-                  <i class="ri-truck-fill"></i> Despachos RM
+                <a href="#" id="btn-pres-despachos-link" target="_blank" rel="noopener noreferrer" class="pres-link-pill pres-blue">
+                  <i class="ri-truck-line"></i> Despachos RM
                 </a>
               </div>
             </div>
 
             <!-- Mini Sección de Agendar Reunión en el Resumen -->
-            <div class="summary-meeting-mini-box" style="margin-top: 0.85rem; padding: 0.85rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); text-align: center;">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.45rem;">
-                <span class="badge" style="font-size: 0.68rem; font-weight: 700; background: rgba(94, 23, 235, 0.1); color: var(--color-accent); border: 1px solid rgba(94, 23, 235, 0.2); padding: 0.15rem 0.45rem;">
-                  ⏱ 20–30 min.
-                </span>
-                <span style="font-size: 0.68rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.2rem;">
-                  <i class="ri-video-chat-line" style="color: #2563eb;"></i> Vía Meet
-                </span>
-              </div>
-              <div style="display: flex; align-items: center; gap: 0.6rem; text-align: left; margin-bottom: 0.65rem;">
-                <div style="width: 36px; height: 36px; border-radius: 50%; overflow: hidden; border: 1.5px solid var(--color-accent); flex-shrink: 0;">
-                  <img src="./images/felipe_avatar.png" alt="Felipe de Stocka.cl" style="width: 100%; height: 100%; object-fit: cover;">
+            <div class="summary-meeting-mini-box">
+              <div class="advisor-row">
+                <div class="advisor-avatar-wrap">
+                  <img src="./images/felipe_avatar.png" alt="Felipe de Stocka.cl">
+                  <span class="advisor-online-dot" aria-hidden="true"></span>
                 </div>
-                <div>
-                  <div style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-main); line-height: 1.2;">Felipe de Stocka.cl</div>
-                  <div style="font-size: 0.68rem; color: var(--color-text-muted);">Asesoría comercial y dudas</div>
+                <div class="advisor-info">
+                  <div class="advisor-name">Felipe de Stocka.cl</div>
+                  <div class="advisor-meta"><i class="ri-video-chat-line"></i> Meet · 20–30 min</div>
                 </div>
+                <a href="https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5" target="_blank" rel="noopener noreferrer" class="btn-sidebar-schedule-meeting">
+                  <span>Agendar</span>
+                  <i class="ri-arrow-right-up-line"></i>
+                </a>
               </div>
-              <a href="https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5" target="_blank" rel="noopener noreferrer" class="btn-sidebar-schedule-meeting" style="display: flex; align-items: center; justify-content: center; gap: 0.35rem; width: 100%; background: var(--color-accent); color: #ffffff !important; text-decoration: none; padding: 0.6rem 0.75rem; border-radius: var(--radius-full); font-weight: 700; font-size: 0.8rem; transition: all 0.2s ease; box-shadow: 0 2px 6px rgba(94, 23, 235, 0.25);">
-                <span>Programar una reunión</span>
-                <i class="ri-arrow-right-line"></i>
-              </a>
             </div>
           </div>
 
-          <p style="font-size: 0.72rem; color: var(--color-text-muted); text-align: center; margin-top: 1rem; line-height: 1.3;">
-            * Valores referenciales calculados según Tarifario Oficial Stocka 2024-2025 v1.2. No constituyen contrato definitivo hasta la validación de inventario y firma digital.
+          <p class="summary-disclaimer">
+            * Valores referenciales según Tarifario Oficial Stocka 2024-2025 v1.2. No constituyen contrato definitivo hasta validación de inventario.
           </p>
-
         </div>
-      </div>
+      </aside>
 
     </div>
 
-    <!-- SECCIÓN DE AGENDAMIENTO DE REUNIÓN (HUBSPOT / MEET) -->
+    <!-- ================================================================
+         SECCIÓN: LO QUE NO COBRAMOS ($0) VS. OTROS FULFILLMENT
+         ================================================================ -->
+    <section class="zero-fees-section" id="section-zero-fees">
+      <div class="zero-fees-header">
+        <div class="zero-fees-eyebrow">
+          <i class="ri-sparkling-2-fill"></i>
+          <span>Ventaja Stocka · Cero Costos de Entrada</span>
+        </div>
+        <h2 class="zero-fees-title">
+          Lo que <span class="zero-highlight">NO cobramos ($0)</span> y otros fulfillment sí
+        </h2>
+        <p class="zero-fees-subtitle">
+          Sin barreras de entrada, sin mensualidades ocultas de software y sin comisiones sobre tu facturación. Todo esto viene incluido desde el día 1:
+        </p>
+      </div>
+
+      <div class="zero-fees-grid">
+        <!-- 1. Implementación / Setup -->
+        <article class="zero-fee-card">
+          <div class="zero-fee-top">
+            <span class="zero-fee-icon"><i class="ri-rocket-2-line"></i></span>
+            <span class="zero-fee-badge">$0</span>
+          </div>
+          <h3 class="zero-fee-name">Implementación y Setup Inicial</h3>
+          <p class="zero-fee-desc">
+            Configuración de cuenta, creación de catálogo, capacitación y puesta en marcha en menos de 48 h sin cobros de entrada.
+          </p>
+          <div class="zero-fee-compare">
+            <i class="ri-close-circle-line"></i>
+            <span>Otros cobran: Fee de setup / onboarding</span>
+          </div>
+        </article>
+
+        <!-- 2. Licencia Software WMS -->
+        <article class="zero-fee-card">
+          <div class="zero-fee-top">
+            <span class="zero-fee-icon"><i class="ri-dashboard-3-line"></i></span>
+            <span class="zero-fee-badge">$0 / mes</span>
+          </div>
+          <h3 class="zero-fee-name">Licencia Software WMS 24/7</h3>
+          <p class="zero-fee-desc">
+            Portal propio con inventario en tiempo real, trazabilidad por pedido, métricas, devoluciones y múltiples usuarios incluidos.
+          </p>
+          <div class="zero-fee-compare">
+            <i class="ri-close-circle-line"></i>
+            <span>Otros cobran: Mensualidad de plataforma</span>
+          </div>
+        </article>
+
+        <!-- 3. Integraciones Nativas -->
+        <article class="zero-fee-card">
+          <div class="zero-fee-top">
+            <span class="zero-fee-icon"><i class="ri-links-line"></i></span>
+            <span class="zero-fee-badge">$0</span>
+          </div>
+          <h3 class="zero-fee-name">Integraciones Nativas E-commerce</h3>
+          <p class="zero-fee-desc">
+            Conecta Shopify, Mercado Libre, WooCommerce, Falabella, Ripley y Jumpseller sin costos de conexión ni recargos por canal.
+          </p>
+          <div class="zero-fee-compare">
+            <i class="ri-close-circle-line"></i>
+            <span>Otros cobran: Cobro por integración o API</span>
+          </div>
+        </article>
+
+        <!-- 4. Ingreso / Recepción de Stock -->
+        <article class="zero-fee-card">
+          <div class="zero-fee-top">
+            <span class="zero-fee-icon"><i class="ri-inbox-unarchive-line"></i></span>
+            <span class="zero-fee-badge">$0</span>
+          </div>
+          <h3 class="zero-fee-name">Ingreso y Recepción de Stock</h3>
+          <p class="zero-fee-desc">
+            Recibimos y ubicamos tu mercadería sin costo cuando llega etiquetada y descargada en perímetro (y descargas &lt; 1 m³ gratis).
+          </p>
+          <div class="zero-fee-compare">
+            <i class="ri-close-circle-line"></i>
+            <span>Otros cobran: Fee por caja o recepción</span>
+          </div>
+        </article>
+
+        <!-- 5. Comisiones sobre tus ventas -->
+        <article class="zero-fee-card">
+          <div class="zero-fee-top">
+            <span class="zero-fee-icon"><i class="ri-percent-line"></i></span>
+            <span class="zero-fee-badge">0%</span>
+          </div>
+          <h3 class="zero-fee-name">Comisiones sobre tus Ventas</h3>
+          <p class="zero-fee-desc">
+            Nunca cobramos porcentajes sobre tu facturación online; tu margen crece completo a medida que escalas en volumen.
+          </p>
+          <div class="zero-fee-compare">
+            <i class="ri-close-circle-line"></i>
+            <span>Otros cobran: % sobre valor del pedido</span>
+          </div>
+        </article>
+
+        <!-- 6. Empaque Estándar Incluido -->
+        <article class="zero-fee-card">
+          <div class="zero-fee-top">
+            <span class="zero-fee-icon"><i class="ri-box-3-line"></i></span>
+            <span class="zero-fee-badge">Incluido</span>
+          </div>
+          <h3 class="zero-fee-name">Empaque Estándar (hasta 50×50×50 cm)</h3>
+          <p class="zero-fee-desc">
+            Tu tarifa de Pick &amp; Pack incluye bolsa courier, film alusa, cinta de seguridad y etiqueta de despacho sin recargos aparte.
+          </p>
+          <div class="zero-fee-compare">
+            <i class="ri-close-circle-line"></i>
+            <span>Otros cobran: Bolsas y cintas por separado</span>
+          </div>
+        </article>
+
+        <!-- 7. Costo Fijo Mensual Exento -->
+        <article class="zero-fee-card">
+          <div class="zero-fee-top">
+            <span class="zero-fee-icon"><i class="ri-shield-check-line"></i></span>
+            <span class="zero-fee-badge">$0</span>
+          </div>
+          <h3 class="zero-fee-name">Costo Fijo Mensual (≥ 75 ped. o 1,5 m³)</h3>
+          <p class="zero-fee-desc">
+            Al operar desde 75 pedidos al mes o 1,5 m³ de almacenamiento, tu costo fijo mensual baja automáticamente a $0.
+          </p>
+          <div class="zero-fee-compare">
+            <i class="ri-close-circle-line"></i>
+            <span>Otros cobran: Mínimos mensuales altos</span>
+          </div>
+        </article>
+
+        <!-- 8. Punto de Retiro Ñuñoa -->
+        <article class="zero-fee-card">
+          <div class="zero-fee-top">
+            <span class="zero-fee-icon"><i class="ri-store-2-line"></i></span>
+            <span class="zero-fee-badge">$0</span>
+          </div>
+          <h3 class="zero-fee-name">Punto de Retiro Presencial Ñuñoa</h3>
+          <p class="zero-fee-desc">
+            Ofrece retiro presencial a tus clientes en nuestra sucursal Ñuñoa sin costo extra (retiro estándar listo en 60 min).
+          </p>
+          <div class="zero-fee-compare">
+            <i class="ri-close-circle-line"></i>
+            <span>Otros cobran: Fee por punto de retiro</span>
+          </div>
+        </article>
+
+        <!-- 9. Inventarios de Cortesía -->
+        <article class="zero-fee-card">
+          <div class="zero-fee-top">
+            <span class="zero-fee-icon"><i class="ri-clipboard-line"></i></span>
+            <span class="zero-fee-badge">Gratis</span>
+          </div>
+          <h3 class="zero-fee-name">Inventarios Físicos de Cortesía</h3>
+          <p class="zero-fee-desc">
+            Incluye 2 inventarios físicos completos gratis por semestre y 3 inventarios parciales gratis cada mes (hasta 5 SKU).
+          </p>
+          <div class="zero-fee-compare">
+            <i class="ri-close-circle-line"></i>
+            <span>Otros cobran: Cada auditoría o conteo</span>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         SECCIÓN: OTROS COSTOS OPERATIVOS Y CONDICIONES TRANSPARENTES
+         ================================================================ -->
+    <section class="conditions-section" id="section-transparent-conditions">
+      <div class="conditions-header-row">
+        <div>
+          <div class="conditions-eyebrow">
+            <i class="ri-file-shield-2-line"></i>
+            <span>100% Transparencia Tarifaria</span>
+          </div>
+          <h2 class="conditions-title">Otros costos operativos y condiciones del servicio</h2>
+          <p class="conditions-subtitle">
+            Revisa en detalle los cargos opcionales o por excepción que aplican solo en casos específicos. Sin letra chica.
+          </p>
+        </div>
+        <button type="button" id="btn-toggle-all-conditions" class="conditions-expand-btn">
+          <i class="ri-arrow-down-s-line"></i>
+          <span>Expandir todo</span>
+        </button>
+      </div>
+
+      <div class="conditions-grid">
+        <!-- Bloque 1: Empaque y Sobrepeso -->
+        <details class="condition-accordion">
+          <summary class="condition-summary">
+            <div class="condition-summary-left">
+              <span class="condition-icon violet"><i class="ri-scales-3-line"></i></span>
+              <div>
+                <h3>Empaque estándar, medidas y sobrepeso RM</h3>
+                <p>Base hasta 50×50×50 cm, 20 kg/ud. · Tramos de peso Same Day</p>
+              </div>
+            </div>
+            <i class="ri-arrow-down-s-line condition-chevron"></i>
+          </summary>
+          <div class="condition-body">
+            <ul>
+              <li><strong>Pick &amp; Pack estándar incluido:</strong> bolsa courier, film alusa, cinta y etiqueta para bultos de hasta <code>50×50×50 cm</code> y <code>20 kg/unidad</code> (base incluye hasta 3 SKU y 10 unidades).</li>
+              <li><strong>Despacho Same Day RM / ML Flex por peso:</strong> hasta <code>10 kg</code> <strong>$3.200 + IVA</strong> · de <code>11 a 20 kg</code> <strong>$6.400 + IVA</strong> · de <code>21 a 30 kg</code> <strong>$9.600 + IVA</strong>.</li>
+              <li><strong>Zona Colina / Chicureo:</strong> tarifa base <strong>$3.490 + IVA</strong> por bulto estándar.</li>
+              <li><strong>Pedidos combinados:</strong> cuando se agrupan distintas referencias/órdenes, cada referencia se prepara y tarifa de forma independiente.</li>
+            </ul>
+          </div>
+        </details>
+
+        <!-- Bloque 2: Sucursal, Retiros, POS y Showroom -->
+        <details class="condition-accordion">
+          <summary class="condition-summary">
+            <div class="condition-summary-left">
+              <span class="condition-icon emerald"><i class="ri-store-2-line"></i></span>
+              <div>
+                <h3>Sucursal Ñuñoa: Retiros, POS, Vitrina y Showroom</h3>
+                <p>Retiro estándar $0 · Retiro Express $1.490 · Comisiones POS</p>
+              </div>
+            </div>
+            <i class="ri-arrow-down-s-line condition-chevron"></i>
+          </summary>
+          <div class="condition-body">
+            <ul>
+              <li><strong>Retiro estándar en sucursal ($0):</strong> aviso mínimo de 60 min; hasta 3 bultos, 25 kg/bulto, 20 unidades y 5 SKU (solo se cobra preparación del pedido).</li>
+              <li><strong>Retiro Express inmediato:</strong> <strong>$1.490 + IVA</strong> base (hasta 1 bulto, 25 kg, 5 uds. y 3 SKU). Adicionales: <strong>+$150/ud.</strong> (tope 15 uds.) y <strong>+$150/SKU</strong> (tope 6 SKU).</li>
+              <li><strong>Punto de Venta físico (POS):</strong> <strong>0,2 UF/mes</strong> + comisión transaccional <strong>2,5% débito / 3,5% crédito</strong> + <strong>$1.490 + IVA</strong> preparación base por venta POS.</li>
+              <li><strong>Vitrina &amp; Showroom:</strong> Vitrina <strong>0,6 UF/mes</strong>; Showroom <strong>$1.490 + IVA</strong> por venta + instalación a convenir. Carga en vehículo externo: <strong>70%</strong> del costo de preparación.</li>
+            </ul>
+          </div>
+        </details>
+
+        <!-- Bloque 3: Inventarios, Ingresos y Retiro de Stock -->
+        <details class="condition-accordion">
+          <summary class="condition-summary">
+            <div class="condition-summary-left">
+              <span class="condition-icon blue"><i class="ri-clipboard-line"></i></span>
+              <div>
+                <h3>Inventarios, Recepciones y Retiro de Stock</h3>
+                <p>Cortesías incluidas · Etiquetado $100/ud · Descarga &gt; 1 m³</p>
+              </div>
+            </div>
+            <i class="ri-arrow-down-s-line condition-chevron"></i>
+          </summary>
+          <div class="condition-body">
+            <ul>
+              <li><strong>Inventarios incluidos gratis:</strong> 2 inventarios físicos totales por semestre y 3 inventarios parciales por mes (hasta 5 SKU c/u).</li>
+              <li><strong>Inventarios adicionales a solicitud:</strong> Inventario total <strong>1 UF</strong> cada 50 SKU · Inventario parcial <strong>0,4 UF</strong> por solicitud (hasta 5 SKU).</li>
+              <li><strong>Etiquetado opcional:</strong> Código de barras en ingreso (solo si llega sin etiqueta) o preparación para Mercado Libre FULL: <strong>$100 + IVA / unidad</strong>.</li>
+              <li><strong>Descarga pesada y retiro parcial:</strong> Descarga por personal Stocka <strong>0,1 UF/m³</strong> (tope <strong>2 UF</strong>; descargas &lt; 1 m³ son gratis). Retiro parcial de stock propio se tarifa como pedido preparado.</li>
+            </ul>
+          </div>
+        </details>
+
+        <!-- Bloque 4: Couriers Externos y Término de Servicio -->
+        <details class="condition-accordion">
+          <summary class="condition-summary">
+            <div class="condition-summary-left">
+              <span class="condition-icon amber"><i class="ri-truck-line"></i></span>
+              <div>
+                <h3>Couriers externos, seguros y término de servicio</h3>
+                <p>Seguro opcional · Reexpedición · Sin plazos forzosos</p>
+              </div>
+            </div>
+            <i class="ri-arrow-down-s-line condition-chevron"></i>
+          </summary>
+          <div class="condition-body">
+            <ul>
+              <li><strong>Seguro extendido opcional (couriers externos):</strong> recomendado para envíos con valor declarado mayor a $100.000 (<strong>0,5% a 1,5%</strong> según transportista).</li>
+              <li><strong>Reexpedición 3er intento (Blue Express):</strong> tarifa courier externo de <strong>$1.675 + $56/kg + IVA</strong> en devoluciones por intentos fallidos.</li>
+              <li><strong>Integración Envíame:</strong> <strong>$35 + IVA</strong> por etiqueta generada + flete neto del courier seleccionado (Starken, Chilexpress o Blue Express).</li>
+              <li><strong>Término de servicio sin amarres:</strong> sin permanencia mínima; requiere aviso previo de 30 días y preparación logística de retiro final de inventario (<strong>5 UF</strong> base + $100/SKU &gt; 3 + $50/ud. &gt; 10 + IVA, según Contrato Marco).</li>
+            </ul>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         SECCIÓN DE AGENDAMIENTO DE REUNIÓN (HUBSPOT / MEET)
+         ================================================================ -->
     <section class="meeting-schedule-section">
       <div class="meeting-card-container">
         <div class="meeting-card-left">
           <div class="meeting-duration-pill">
-            <i class="ri-time-line"></i> 20–30 min.
+            <i class="ri-time-line"></i> 20–30 min · Sin compromiso
           </div>
           <h2 class="meeting-title">
-            Agenda una reunión para conocernos mejor.
+            ¿Quieres revisar tu operación con un especialista?
           </h2>
           <p class="meeting-desc">
-            Te recomendamos antes revisar nuestra presentación de servicios, así podremos conversar con mayor profundidad en lo que necesitas para tu comercio.
+            Conversemos sobre tus canales, integraciones y volumen proyectado para diseñar el plan ideal para tu e-commerce.
           </p>
           <div class="meeting-host-row">
             <div class="meeting-avatar-wrap">
@@ -834,6 +1326,7 @@
             <i class="ri-arrow-right-line"></i>
           </a>
         </div>
+
         <div class="meeting-card-right">
           <div class="meeting-benefits-list">
             <div class="meeting-benefit-item">
@@ -864,52 +1357,71 @@
 
   </main>
 
+  <!-- Barra Flotante de Resumen para Móvil / Tablet -->
+  <div class="mobile-sticky-summary-bar" id="mobile-sticky-bar">
+    <div class="mobile-bar-info">
+      <span class="mobile-bar-label" id="mobile-summary-meta">Subtotal Neto · Rango 2</span>
+      <span class="mobile-bar-total" id="mobile-summary-total">$188.865</span>
+    </div>
+    <a href="#sticky-summary-card" class="mobile-bar-btn">
+      <span>Ver Resumen</span>
+      <i class="ri-arrow-down-line"></i>
+    </a>
+  </div>
+
   <!-- MODAL DE CAPTURA DE LEAD / ENVIAR POR EMAIL -->
-  <div class="modal-backdrop" id="email-quote-modal">
-    <div class="cotizador-modal-card" style="overflow: hidden;">
+  <div class="modal-backdrop" id="email-quote-modal" role="dialog" aria-modal="true" aria-labelledby="modal-quote-title">
+    <div class="cotizador-modal-card">
       <div class="modal-header-illustration">
         <img src="./images/stocka_pickpack.jpg" alt="Stocka Fulfillment">
+        <div class="modal-header-gradient"></div>
       </div>
-      <button type="button" class="modal-close-btn" id="btn-close-modal" style="background: rgba(0,0,0,0.5); color: #ffffff; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 10;"><i class="ri-close-line"></i></button>
-      
-      <div style="text-align: center; margin-bottom: 1.25rem;">
-        <h3 style="font-size: 1.3rem; font-weight: 700; margin-bottom: 0.25rem; color: var(--color-text-main);">Recibe tu Cotización Formal</h3>
-        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin: 0;">Ingresa tus datos y te enviaremos el desglose completo y las presentaciones a tu correo:</p>
+      <button type="button" class="modal-close-btn" id="btn-close-modal" aria-label="Cerrar modal">
+        <i class="ri-close-line"></i>
+      </button>
+
+      <div class="modal-body-content">
+        <div class="modal-title-block">
+          <span class="modal-badge"><i class="ri-mail-check-line"></i> Envío instantáneo</span>
+          <h3 id="modal-quote-title">Recibe tu Cotización Formal</h3>
+          <p>Ingresa tus datos y te enviaremos el desglose completo y las presentaciones oficiales a tu correo:</p>
+        </div>
+
+        <form id="lead-quote-form">
+          <!-- Campo Honeypot trampa para bots -->
+          <div style="display:none !important; visibility:hidden; opacity:0; position:absolute; left:-9999px;" aria-hidden="true">
+            <input type="text" name="_gotcha" id="lead-honeypot" tabindex="-1" autocomplete="off">
+          </div>
+
+          <div class="form-group">
+            <label for="lead-company" class="form-label">Nombre de tu Comercio / Empresa <span class="req-star">*</span></label>
+            <input type="text" id="lead-company" class="form-input" placeholder="Mi Tienda Online SpA" required>
+          </div>
+
+          <div class="form-group">
+            <label for="lead-name" class="form-label">Nombre de Contacto <span class="req-star">*</span></label>
+            <input type="text" id="lead-name" class="form-input" placeholder="Juan Pérez" required>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="lead-email" class="form-label">Correo Electrónico <span class="req-star">*</span></label>
+              <input type="email" id="lead-email" class="form-input" placeholder="juan@mitienda.com" required>
+            </div>
+            <div class="form-group">
+              <label for="lead-phone" class="form-label">Teléfono / WhatsApp <span class="req-star">*</span></label>
+              <input type="tel" id="lead-phone" class="form-input" placeholder="+56 9 1234 5678" required>
+            </div>
+          </div>
+
+          <div id="lead-modal-alert"></div>
+
+          <button type="submit" class="btn-cta-primary modal-submit-btn">
+            <i class="ri-send-plane-fill"></i>
+            <span>Guardar y Enviar Cotización</span>
+          </button>
+        </form>
       </div>
-
-      <form id="lead-quote-form">
-        <!-- Campo Honeypot trampa para bots (invisible para usuarios reales) -->
-        <div style="display:none !important; visibility:hidden; opacity:0; position:absolute; left:-9999px;" aria-hidden="true">
-          <input type="text" name="_gotcha" id="lead-honeypot" tabindex="-1" autocomplete="off">
-        </div>
-
-        <div class="form-group">
-          <label for="lead-company" class="form-label">Nombre de tu Comercio / Empresa <span style="color: var(--color-danger)">*</span></label>
-          <input type="text" id="lead-company" class="form-input" placeholder="Mi Tienda Online SpA" required>
-        </div>
-
-        <div class="form-group">
-          <label for="lead-name" class="form-label">Nombre de Contacto <span style="color: var(--color-danger)">*</span></label>
-          <input type="text" id="lead-name" class="form-input" placeholder="Juan Pérez" required>
-        </div>
-
-        <div class="form-grid-2">
-          <div class="form-group">
-            <label for="lead-email" class="form-label">Correo Electrónico <span style="color: var(--color-danger)">*</span></label>
-            <input type="email" id="lead-email" class="form-input" placeholder="juan@mitienda.com" required>
-          </div>
-          <div class="form-group">
-            <label for="lead-phone" class="form-label">Teléfono / WhatsApp <span style="color: var(--color-danger)">*</span></label>
-            <input type="tel" id="lead-phone" class="form-input" placeholder="+56 9 1234 5678" required>
-          </div>
-        </div>
-
-        <div id="lead-modal-alert"></div>
-
-        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem; padding: 0.8rem; background: var(--color-accent); border-color: var(--color-accent); font-weight: 700;">
-          <i class="ri-send-plane-fill"></i> Guardar y Enviar Cotización
-        </button>
-      </form>
     </div>
   </div>
 
@@ -917,7 +1429,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- App Scripts -->
   <script type="module" src="./js/supabase.js?v=1.4"></script>
-  <script type="module" src="./js/cotizaciones.js?v=1.4"></script>
+  <script type="module" src="./js/cotizaciones.js?v=3.2.0"></script>
+
   <!-- Floating Scroll to Top Button -->
   <button type="button" class="scroll-to-top-btn" id="scroll-to-top-btn" title="Volver arriba" aria-label="Volver arriba">
     <i class="ri-arrow-up-line"></i>

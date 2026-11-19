@@ -46,12 +46,30 @@
     border-radius: 20px;
     padding: 1.75rem 1.5rem;
     margin-bottom: 1.5rem;
-    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 14px 34px -16px rgba(15, 23, 42, 0.08);
     position: relative;
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
     min-width: 0;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  }
+  .stocka-cot-card:hover {
+    border-color: rgba(92, 36, 255, 0.26);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04), 0 20px 40px -18px rgba(92, 36, 255, 0.12);
+  }
+  .stocka-cot-step-pill {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.7rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #5c24ff;
+    background: rgba(92, 36, 255, 0.08);
+    padding: 0.24rem 0.68rem;
+    border-radius: 9999px;
+    margin-bottom: 0.45rem;
   }
   @media (max-width: 767px) {
     .stocka-cot-card {
@@ -133,11 +151,19 @@
     color: #64748b;
   }
 
+  .stocka-cot-num-input,
+  .stocka-cot-rate-badge .val,
+  .stocka-cot-breakdown-row strong,
+  .stocka-cot-total-clp,
+  .stocka-cot-kpi-unit strong {
+    font-variant-numeric: tabular-nums;
+  }
+
   .stocka-cot-range {
     width: 100%;
     height: 8px;
     border-radius: 9999px;
-    background: #e2e8f0;
+    background: linear-gradient(90deg, #5c24ff 0%, #818cf8 var(--slider-pct, 0%), #e2e8f0 var(--slider-pct, 0%));
     outline: none;
     -webkit-appearance: none;
     appearance: none;
@@ -150,12 +176,23 @@
     height: 24px;
     border-radius: 50%;
     background: #5c24ff;
+    border: 3px solid #ffffff;
     cursor: pointer;
-    box-shadow: 0 4px 10px rgba(92, 36, 255, 0.4);
-    transition: transform 0.15s ease;
+    box-shadow: 0 4px 12px rgba(92, 36, 255, 0.45);
+    transition: transform 0.16s ease, box-shadow 0.16s ease;
   }
   .stocka-cot-range::-webkit-slider-thumb:hover {
-    transform: scale(1.2);
+    transform: scale(1.16);
+    box-shadow: 0 6px 16px rgba(92, 36, 255, 0.55);
+  }
+  .stocka-cot-range::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #5c24ff;
+    border: 3px solid #ffffff;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(92, 36, 255, 0.45);
   }
 
   .stocka-cot-presets {
@@ -245,34 +282,172 @@
     gap: 0.5rem;
   }
 
+  .stk-cot-ico {
+    width: 15px;
+    height: 15px;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    flex-shrink: 0;
+    display: inline-block;
+    vertical-align: -2px;
+  }
+  .stk-cot-ico-sm {
+    width: 13px;
+    height: 13px;
+  }
+  .stk-cot-ico-accent {
+    color: #5c24ff;
+  }
+  .stocka-cot-label-row {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #1e293b;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-bottom: 0.55rem;
+  }
+
   .stocka-cot-channels {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-    gap: 0.6rem;
-    margin-top: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.65rem;
+    margin-top: 0.65rem;
+  }
+  @media (max-width: 520px) {
+    .stocka-cot-channels {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.5rem;
+    }
   }
   .stocka-cot-channel-item {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.6rem 0.8rem;
+    gap: 0.55rem;
+    padding: 0.52rem 0.65rem;
     background: #f8fafc;
     border: 1.5px solid #e2e8f0;
-    border-radius: 10px;
+    border-radius: 12px;
     cursor: pointer;
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: #334155;
-    transition: all 0.2s ease;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #1e293b;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     user-select: none;
+    min-width: 0;
   }
   .stocka-cot-channel-item:hover {
-    border-color: #cbd5e1;
+    border-color: rgba(92, 36, 255, 0.35);
+    background: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.08);
   }
   .stocka-cot-channel-item.active {
     background: #f5f3ff;
     border-color: #5c24ff;
+    color: #4c1d95;
+    box-shadow: 0 4px 12px -4px rgba(92, 36, 255, 0.22);
+  }
+  .stocka-ch-logo {
+    width: 46px;
+    height: 26px;
+    border-radius: 7px;
+    background: #ffffff;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 4px;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .stocka-ch-logo img {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    display: block;
+  }
+  .stocka-ch-logo.is-icon {
+    background: rgba(92, 36, 255, 0.08);
+    border-color: rgba(92, 36, 255, 0.2);
     color: #5c24ff;
+  }
+  .stocka-ch-name {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.79rem;
+    font-weight: 700;
+  }
+  .stocka-ch-check {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 1.5px solid #cbd5e1;
+    background: #ffffff;
+    color: transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+  }
+  .stocka-cot-channel-item.active .stocka-ch-check {
+    background: #5c24ff;
+    border-color: #5c24ff;
+    color: #ffffff;
+  }
+  @media (max-width: 520px) {
+    .stocka-cot-channel-item {
+      padding: 0.45rem 0.5rem;
+      gap: 0.4rem;
+    }
+    .stocka-ch-logo {
+      width: 36px;
+      height: 22px;
+    }
+    .stocka-ch-name {
+      font-size: 0.72rem;
+      white-space: normal;
+      line-height: 1.15;
+    }
+    .stocka-ch-check {
+      width: 16px;
+      height: 16px;
+    }
+  }
+  .stocka-cot-switch-info h4 {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+  .stocka-cot-details summary > span:first-child {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+  .stocka-cot-check-item strong {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .stocka-cot-disc-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .stocka-cot-zero-strip strong {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
   }
 
   .stocka-cot-switch-row {
@@ -320,18 +495,30 @@
     box-sizing: border-box;
   }
   .stocka-cot-summary-card {
-    background: #0f172a;
+    background: linear-gradient(160deg, #0f172a 0%, #161838 58%, #0f172a 100%);
     color: #ffffff;
     border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
     padding: 2rem 1.75rem;
     position: relative;
+    overflow: hidden;
     z-index: 25;
-    box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
-    will-change: transform; transition: transform 0.05s linear;
+    box-shadow: 0 25px 55px -14px rgba(15, 23, 42, 0.42);
+    will-change: transform;
+    transition: transform 0.05s linear;
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
     min-width: 0;
+  }
+  .stocka-cot-summary-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #5c24ff 0%, #3b82f6 55%, #06d6a0 100%);
   }
   @media (max-width: 1023px) {
     .stocka-cot-summary-card {
@@ -992,6 +1179,254 @@
     white-space: nowrap;
   }
 
+  /* Collapsible Advanced / Optional Panels */
+  .stocka-cot-details {
+    margin-top: 1.25rem;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 14px;
+    background: #f8fafc;
+    overflow: hidden;
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  .stocka-cot-details[open] {
+    border-color: #c4b5fd;
+    background: #ffffff;
+  }
+  .stocka-cot-details summary {
+    list-style: none;
+    padding: 0.9rem 1.15rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.86rem;
+    font-weight: 700;
+    color: #1e293b;
+    user-select: none;
+  }
+  .stocka-cot-details summary::-webkit-details-marker { display: none; }
+  .stocka-cot-details summary .det-tag {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: #64748b;
+    background: #e2e8f0;
+    padding: 0.15rem 0.55rem;
+    border-radius: 9999px;
+    margin-left: 0.4rem;
+  }
+  .stocka-cot-details summary .det-arrow {
+    font-size: 0.8rem;
+    color: #64748b;
+    transition: transform 0.2s ease;
+  }
+  .stocka-cot-details[open] summary .det-arrow {
+    transform: rotate(180deg);
+    color: #5c24ff;
+  }
+  .stocka-cot-details-body {
+    padding: 0.25rem 1.15rem 1.15rem 1.15rem;
+    border-top: 1px dashed #e2e8f0;
+  }
+  .stocka-cot-mini-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.85rem;
+    margin-top: 0.85rem;
+  }
+  @media (max-width: 600px) {
+    .stocka-cot-mini-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .stocka-cot-mini-field label {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #334155;
+    margin-bottom: 0.3rem;
+  }
+  .stocka-cot-mini-field input[type="number"],
+  .stocka-cot-mini-field select {
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #0f172a;
+    background: #ffffff;
+    box-sizing: border-box;
+    font-family: inherit;
+  }
+  .stocka-cot-mini-field input[type="number"]:focus,
+  .stocka-cot-mini-field select:focus {
+    outline: none;
+    border-color: #5c24ff;
+    box-shadow: 0 0 0 3px rgba(92, 36, 255, 0.12);
+  }
+  .stocka-cot-mini-field small {
+    display: block;
+    font-size: 0.7rem;
+    color: #64748b;
+    margin-top: 0.25rem;
+    line-height: 1.35;
+  }
+  .stocka-cot-check-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    margin-top: 0.9rem;
+  }
+  .stocka-cot-check-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.65rem 0.8rem;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: #334155;
+    line-height: 1.35;
+  }
+  .stocka-cot-check-item input[type="checkbox"] {
+    margin-top: 0.15rem;
+    accent-color: #5c24ff;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+  }
+  .stocka-cot-check-item strong {
+    color: #0f172a;
+    display: block;
+    margin-bottom: 0.1rem;
+  }
+
+  /* Summary enhancements */
+  .stocka-cot-exempt-pill {
+    display: inline-block;
+    background: rgba(16, 185, 129, 0.16);
+    color: #34d399 !important;
+    border: 1px solid rgba(52, 211, 153, 0.32);
+    padding: 0.12rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.76rem;
+    font-weight: 800;
+  }
+  .stocka-cot-row-sub {
+    display: block;
+    font-size: 0.7rem;
+    color: #94a3b8;
+    font-weight: 500;
+    margin-top: 2px;
+  }
+  .stocka-cot-total-iva {
+    font-size: 0.76rem;
+    color: #cbd5e1;
+    margin-top: 0.45rem;
+  }
+  .stocka-cot-kpi-unit {
+    margin-top: 0.75rem;
+    padding-top: 0.7rem;
+    border-top: 1px dashed rgba(255, 255, 255, 0.14);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.78rem;
+    color: #94a3b8;
+  }
+  .stocka-cot-kpi-unit strong {
+    color: #34d399;
+    font-size: 0.92rem;
+    font-weight: 800;
+  }
+  .stocka-cot-zero-strip {
+    margin-top: 1rem;
+    padding: 0.75rem 0.85rem;
+    border-radius: 12px;
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(52, 211, 153, 0.25);
+    font-size: 0.73rem;
+    color: #a7f3d0;
+    line-height: 1.5;
+  }
+  .stocka-cot-zero-strip strong {
+    color: #ffffff;
+    display: block;
+    margin-bottom: 0.2rem;
+    font-size: 0.75rem;
+  }
+
+  /* Interactive 9-Tier Storage Discount Ladder */
+  .stocka-cot-disc-ladder {
+    margin-top: 1.25rem;
+    padding: 0.95rem 1.05rem;
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.06) 0%, rgba(92, 36, 255, 0.03) 100%);
+    border: 1px solid #a7f3d0;
+  }
+  .stocka-cot-disc-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.65rem;
+  }
+  .stocka-cot-disc-title {
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #475569;
+  }
+  .stocka-cot-disc-status {
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #5c24ff;
+  }
+  .stocka-cot-disc-chips {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+    gap: 0.4rem;
+  }
+  .stocka-cot-disc-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.08rem;
+    padding: 0.42rem 0.3rem;
+    border-radius: 10px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    text-align: center;
+    transition: all 0.2s ease;
+  }
+  .stocka-cot-disc-chip span {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #64748b;
+  }
+  .stocka-cot-disc-chip strong {
+    font-size: 0.84rem;
+    font-weight: 800;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+  }
+  .stocka-cot-disc-chip.is-active {
+    background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+    border-color: transparent;
+    box-shadow: 0 6px 14px -4px rgba(16, 185, 129, 0.48);
+    transform: translateY(-2px);
+  }
+  .stocka-cot-disc-chip.is-active span,
+  .stocka-cot-disc-chip.is-active strong {
+    color: #ffffff;
+  }
+
 </style>
 
 <section id="stocka-simulator-app" class="stocka-cot-app-sec">
@@ -1003,11 +1438,11 @@
       <div class="stocka-cot-controls-col">
         
         <!-- STEP 1: PEDIDOS / VENTAS MENSUALES -->
-        <div class="stocka-cot-card">
+        <div class="stocka-cot-card" id="cot-step-orders">
+          <span class="stocka-cot-step-pill">Paso 01 · Volumen</span>
           <div class="stocka-cot-card-header">
             <div class="stocka-cot-step-title">
-              <span>🛒</span>
-              <span>1. Ventas y Pedidos Mensuales</span>
+              <span>Ventas y Pedidos Mensuales</span>
             </div>
             <span id="stocka-tier-badge" class="stocka-cot-badge">Rango 2 (26 a 100 pedidos)</span>
           </div>
@@ -1023,7 +1458,7 @@
                 <span class="stocka-cot-unit">pedidos/mes</span>
               </div>
             </div>
-            <input type="range" id="cot-orders-slider" class="stocka-cot-range" min="0" max="3000" value="60" step="1">
+            <input type="range" id="cot-orders-slider" class="stocka-cot-range" min="0" max="4000" value="60" step="1">
             
             <div class="stocka-cot-presets">
               <span style="font-size: 0.75rem; color: #64748b; margin-right: 0.25rem;">Rápido:</span>
@@ -1033,6 +1468,7 @@
               <button type="button" class="stocka-cot-preset-btn" data-orders="350">350 (Escala)</button>
               <button type="button" class="stocka-cot-preset-btn" data-orders="800">800 (Líder)</button>
               <button type="button" class="stocka-cot-preset-btn" data-orders="2600">+2.500 (Enterprise)</button>
+              <button type="button" class="stocka-cot-preset-btn" data-orders="3600">+3.500 (Max)</button>
             </div>
           </div>
 
@@ -1056,67 +1492,152 @@
 
           <!-- Next Tier Progress Info -->
           <div class="stocka-cot-next-tier" id="cot-next-tier-bar">
-            <span>📈</span>
+            <svg class="stk-cot-ico" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
             <span id="cot-next-tier-text">¡Agrega <strong>41 pedidos</strong> más para desbloquear el Rango 3 y pagar <strong>$1.150</strong> por pedido!</span>
           </div>
 
-          <!-- Sales Channels -->
+          <!-- Sales Channels (Real Logos) -->
           <div style="margin-top: 1.5rem;">
-            <label style="font-size: 0.85rem; font-weight: 700; color: #1e293b; display: block; margin-bottom: 0.5rem;">
-              🏪 Canales de venta donde operas o planeas vender:
+            <label class="stocka-cot-label-row">
+              <svg class="stk-cot-ico stk-cot-ico-accent" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+              <span>Canales de venta donde operas o planeas vender ($0 integración):</span>
             </label>
             <div class="stocka-cot-channels" id="cot-channels-group">
-              <div class="stocka-cot-channel-item active" data-channel="Shopify"><span>🛍️</span> Shopify</div>
-              <div class="stocka-cot-channel-item active" data-channel="Mercado Libre"><span>💛</span> Mercado Libre</div>
-              <div class="stocka-cot-channel-item" data-channel="WooCommerce"><span>🟣</span> WooCommerce</div>
-              <div class="stocka-cot-channel-item" data-channel="Falabella"><span>🟢</span> Falabella</div>
-              <div class="stocka-cot-channel-item" data-channel="Ripley"><span>🔴</span> Ripley</div>
-              <div class="stocka-cot-channel-item" data-channel="Jumpseller"><span>🟠</span> Jumpseller</div>
-              <div class="stocka-cot-channel-item" data-channel="B2B"><span>🏢</span> Mayorista B2B</div>
+              <div class="stocka-cot-channel-item active" data-channel="Shopify">
+                <span class="stocka-ch-logo"><img src="{{ 'stocka-int-shopify.png' | asset_url }}" alt="Shopify" loading="lazy"></span>
+                <span class="stocka-ch-name">Shopify</span>
+                <span class="stocka-ch-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+              </div>
+              <div class="stocka-cot-channel-item active" data-channel="Mercado Libre">
+                <span class="stocka-ch-logo"><img src="{{ 'stocka-int-mercadolibre.png' | asset_url }}" alt="Mercado Libre" loading="lazy"></span>
+                <span class="stocka-ch-name">Mercado Libre</span>
+                <span class="stocka-ch-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+              </div>
+              <div class="stocka-cot-channel-item" data-channel="WooCommerce">
+                <span class="stocka-ch-logo"><img src="{{ 'stocka-int-woocommerce.png' | asset_url }}" alt="WooCommerce" loading="lazy"></span>
+                <span class="stocka-ch-name">WooCommerce</span>
+                <span class="stocka-ch-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+              </div>
+              <div class="stocka-cot-channel-item" data-channel="Falabella">
+                <span class="stocka-ch-logo"><img src="{{ 'stocka-int-falabella.png' | asset_url }}" alt="Falabella" loading="lazy"></span>
+                <span class="stocka-ch-name">Falabella</span>
+                <span class="stocka-ch-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+              </div>
+              <div class="stocka-cot-channel-item" data-channel="Ripley">
+                <span class="stocka-ch-logo"><img src="{{ 'stocka-int-ripley.png' | asset_url }}" alt="Ripley" loading="lazy"></span>
+                <span class="stocka-ch-name">Ripley</span>
+                <span class="stocka-ch-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+              </div>
+              <div class="stocka-cot-channel-item" data-channel="Jumpseller">
+                <span class="stocka-ch-logo"><img src="{{ 'stocka-int-jumpseller.png' | asset_url }}" alt="Jumpseller" loading="lazy"></span>
+                <span class="stocka-ch-name">Jumpseller</span>
+                <span class="stocka-ch-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+              </div>
+              <div class="stocka-cot-channel-item" data-channel="B2B">
+                <span class="stocka-ch-logo is-icon"><svg class="stk-cot-ico" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><line x1="9" y1="22" x2="9" y2="18"></line><line x1="15" y1="22" x2="15" y2="18"></line><line x1="8" y1="6" x2="10" y2="6"></line><line x1="14" y1="6" x2="16" y2="6"></line><line x1="8" y1="10" x2="10" y2="10"></line><line x1="14" y1="10" x2="16" y2="10"></line><line x1="8" y1="14" x2="10" y2="14"></line><line x1="14" y1="14" x2="16" y2="14"></line></svg></span>
+                <span class="stocka-ch-name">Mayorista B2B</span>
+                <span class="stocka-ch-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+              </div>
             </div>
           </div>
+
+          <!-- Parámetros Avanzados de Pedido (Opcional) -->
+          <details class="stocka-cot-details" id="cot-details-advanced">
+            <summary>
+              <span><svg class="stk-cot-ico stk-cot-ico-accent" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg> Parámetros detallados de tus pedidos <span class="det-tag">Opcional</span></span>
+              <span class="det-arrow">▼</span>
+            </summary>
+            <div class="stocka-cot-details-body">
+              <div class="stocka-cot-mini-grid">
+                <div class="stocka-cot-mini-field">
+                  <label for="cot-sku-per-order">Promedio de SKU por pedido</label>
+                  <input type="number" id="cot-sku-per-order" value="1" min="1" max="50">
+                  <small>Base incluye hasta 3 SKU. +$100 por SKU adicional.</small>
+                </div>
+                <div class="stocka-cot-mini-field">
+                  <label for="cot-units-per-order">Promedio de Unidades por pedido</label>
+                  <input type="number" id="cot-units-per-order" value="1" min="1" max="100">
+                  <small>Base incluye hasta 10 uds. +$50 por unidad adicional.</small>
+                </div>
+              </div>
+              <div class="stocka-cot-check-list">
+                <label class="stocka-cot-check-item">
+                  <input type="checkbox" id="cot-chk-protected">
+                  <span><strong><svg class="stk-cot-ico stk-cot-ico-accent" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> Venta Protegida (Ticket &lt; $10.000)</strong>Accede a tarifa base rebajada de $650 + IVA por pedido.</span>
+                </label>
+                <label class="stocka-cot-check-item">
+                  <input type="checkbox" id="cot-chk-cat100">
+                  <span><strong><svg class="stk-cot-ico stk-cot-ico-accent" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg> Catálogo amplio en bodega (+100 SKU)</strong>+$100 por pedido (exento en pedidos de hasta 2 unidades).</span>
+                </label>
+                <label class="stocka-cot-check-item">
+                  <input type="checkbox" id="cot-chk-mktcollect">
+                  <span><strong><svg class="stk-cot-ico stk-cot-ico-accent" viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg> Entrega en centros de envío Marketplace / Collect</strong>+$100 por pedido entregado en centros ML, Falabella o Pickit.</span>
+                </label>
+              </div>
+            </div>
+          </details>
         </div>
 
         <!-- STEP 2: ALMACENAMIENTO (m³) -->
-        <div class="stocka-cot-card">
+        <div class="stocka-cot-card" id="cot-step-storage">
+          <span class="stocka-cot-step-pill">Paso 02 · Bodegaje</span>
           <div class="stocka-cot-card-header">
             <div class="stocka-cot-step-title">
-              <span>📦</span>
-              <span>2. Espacio de Almacenamiento (m³)</span>
+              <span>Espacio de Almacenamiento (m³)</span>
             </div>
             <span id="stocka-storage-discount-badge" class="stocka-cot-badge" style="background: #ecfdf5; color: #065f46; border-color: #a7f3d0; display: none;">Descuento por volumen</span>
           </div>
           <p class="stocka-cot-step-subtitle">
-            Pagas únicamente por los metros cúbicos que ocupas. 1 m³ equivale aproximadamente a 1 pallet estándar (1x1x1 mts).
+            Pagas únicamente por los metros cúbicos que ocupas. <strong>1 pallet estándar (1,2×1,0×1,5 m) ≈ 1,8 m³</strong> · <strong>1 nivel de rack ≈ 1,0 m³</strong>. Descuentos automáticos de <strong>18% hasta 39% OFF</strong> desde 10 m³.
           </p>
 
           <div class="stocka-cot-slider-wrap">
             <div class="stocka-cot-slider-top">
               <span class="stocka-cot-slider-label">Volumen estimado a almacenar:</span>
               <div class="stocka-cot-value-box">
-                <input type="number" id="cot-vol-num" class="stocka-cot-num-input" value="2.0" step="0.5" min="0" max="500">
+                <input type="number" id="cot-vol-num" class="stocka-cot-num-input" value="2.0" step="0.1" min="0.1" max="500">
                 <span class="stocka-cot-unit">m³</span>
               </div>
             </div>
-            <input type="range" id="cot-vol-slider" class="stocka-cot-range" min="0.5" max="30" value="2.0" step="0.5">
+            <input type="range" id="cot-vol-slider" class="stocka-cot-range" min="0.5" max="80" value="2.0" step="0.5">
             
             <div class="stocka-cot-presets">
               <span style="font-size: 0.75rem; color: #64748b; margin-right: 0.25rem;">Volumen:</span>
-              <button type="button" class="stocka-cot-preset-btn" data-vol="1.0">1 m³ (~1 pallet)</button>
-              <button type="button" class="stocka-cot-preset-btn active" data-vol="2.0">2 m³ (Estándar)</button>
-              <button type="button" class="stocka-cot-preset-btn" data-vol="5.0">5 m³ (~5 pallets)</button>
+              <button type="button" class="stocka-cot-preset-btn" data-vol="1.0">1 m³ (~1 rack)</button>
+              <button type="button" class="stocka-cot-preset-btn active" data-vol="2.0">2 m³ (~1 pallet)</button>
+              <button type="button" class="stocka-cot-preset-btn" data-vol="5.4">5,4 m³ (~3 pallets)</button>
               <button type="button" class="stocka-cot-preset-btn" data-vol="12.0">12 m³ (18% dto)</button>
-              <button type="button" class="stocka-cot-preset-btn" data-vol="25.0">25 m³ (24% dto)</button>
+              <button type="button" class="stocka-cot-preset-btn" data-vol="26.0">26 m³ (24% dto)</button>
+              <button type="button" class="stocka-cot-preset-btn" data-vol="65.0">65 m³ (30% dto)</button>
+            </div>
+          </div>
+
+          <!-- Escala Interactiva de Descuentos por Volumen -->
+          <div class="stocka-cot-disc-ladder">
+            <div class="stocka-cot-disc-head">
+              <span class="stocka-cot-disc-title"><svg class="stk-cot-ico stk-cot-ico-sm" viewBox="0 0 24 24"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg> Descuentos automáticos por volumen</span>
+              <span class="stocka-cot-disc-status" id="cot-disc-scale-status">Alcanza 10 m³ para 18% OFF</span>
+            </div>
+            <div class="stocka-cot-disc-chips" id="cot-discount-scale-chips">
+              <span class="stocka-cot-disc-chip" data-min="10" data-max="15"><span>10–15 m³</span><strong>18%</strong></span>
+              <span class="stocka-cot-disc-chip" data-min="15.01" data-max="25"><span>15.1–25 m³</span><strong>21%</strong></span>
+              <span class="stocka-cot-disc-chip" data-min="25.01" data-max="35"><span>25.1–35 m³</span><strong>24%</strong></span>
+              <span class="stocka-cot-disc-chip" data-min="35.01" data-max="60"><span>35.1–60 m³</span><strong>27%</strong></span>
+              <span class="stocka-cot-disc-chip" data-min="60.01" data-max="100"><span>60.1–100 m³</span><strong>30%</strong></span>
+              <span class="stocka-cot-disc-chip" data-min="100.01" data-max="160"><span>100.1–160 m³</span><strong>33%</strong></span>
+              <span class="stocka-cot-disc-chip" data-min="160.01" data-max="230"><span>160.1–230 m³</span><strong>35%</strong></span>
+              <span class="stocka-cot-disc-chip" data-min="230.01" data-max="300"><span>230.1–300 m³</span><strong>37%</strong></span>
+              <span class="stocka-cot-disc-chip" data-min="300.01" data-max="999999"><span>+300 m³</span><strong>39%</strong></span>
             </div>
           </div>
         </div>
 
         <!-- STEP 3: DESPACHOS Y SERVICIOS SUCURSAL -->
-        <div class="stocka-cot-card">
+        <div class="stocka-cot-card" id="cot-step-shipping">
+          <span class="stocka-cot-step-pill">Paso 03 · Logística y Extras</span>
           <div class="stocka-cot-card-header">
             <div class="stocka-cot-step-title">
-              <span>🚚</span>
-              <span>3. Despachos y Servicios Adicionales</span>
+              <span>Despachos y Servicios Adicionales</span>
             </div>
           </div>
           <p class="stocka-cot-step-subtitle">
@@ -1125,17 +1646,18 @@
 
           <div class="stocka-cot-switch-row active" id="cot-switch-sameday">
             <div class="stocka-cot-switch-info">
-              <h4>⚡ Despachos Same Day Santiago (RM)</h4>
-              <p>Entregas el mismo día en 36 comunas de Santiago y Mercado Libre Flex.</p>
+              <h4><svg class="stk-cot-ico stk-cot-ico-accent" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> Despachos Same Day Santiago (RM)</h4>
+              <p>Entregas el mismo día hasta 10 kg en 36 comunas RM y Mercado Libre Flex (11–20 kg: $6.400 · Colina: $3.490).</p>
             </div>
-            <div class="stocka-cot-switch-price">$3.200 + IVA / paquete</div>
+            <div class="stocka-cot-switch-price">$3.200 + IVA / paq.</div>
           </div>
 
           <!-- Slider de Cobertura RM vs Regiones -->
           <div id="cot-rm-slider-container" style="margin: 0.85rem 0 1.25rem 0; padding: 1.15rem; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 14px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-              <label for="cot-rm-slider" style="font-size: 0.85rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 0.35rem;">
-                <span>📍</span> % de pedidos entregados en Santiago (RM):
+              <label for="cot-rm-slider" style="font-size: 0.85rem; font-weight: 700; color: #1e293b; display: inline-flex; align-items: center; gap: 0.4rem;">
+                <svg class="stk-cot-ico stk-cot-ico-accent" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                <span>% de pedidos entregados en Santiago (RM):</span>
               </label>
               <div style="background: #5c24ff; color: #ffffff; padding: 0.2rem 0.65rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 800;" id="cot-rm-pct-badge">
                 75% RM
@@ -1146,14 +1668,14 @@
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.65rem; margin-top: 0.75rem; width: 100%; box-sizing: border-box;">
               <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.65rem 0.85rem;">
-                <span style="font-size: 0.7rem; color: #64748b; font-weight: 700; display: block; text-transform: uppercase;">⚡ Santiago (Same Day RM)</span>
-                <strong style="font-size: 1.05rem; color: #5c24ff;" id="cot-rm-orders-text">45 pedidos</strong>
-                <span style="font-size: 0.7rem; color: #94a3b8; display: block;">$3.200 + IVA c/u</span>
+                <span style="font-size: 0.7rem; color: #64748b; font-weight: 700; display: inline-flex; align-items: center; gap: 0.3rem; text-transform: uppercase;"><svg class="stk-cot-ico stk-cot-ico-sm stk-cot-ico-accent" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> Santiago (Same Day RM)</span>
+                <strong style="font-size: 1.05rem; color: #5c24ff; display: block;" id="cot-rm-orders-text">45 pedidos</strong>
+                <span style="font-size: 0.7rem; color: #94a3b8; display: block;">$3.200 + IVA c/u (≤10 kg)</span>
               </div>
               <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.65rem 0.85rem;">
-                <span style="font-size: 0.7rem; color: #64748b; font-weight: 700; display: block; text-transform: uppercase;">🚛 Envíos a Regiones</span>
-                <strong style="font-size: 1.05rem; color: #0f172a;" id="cot-reg-orders-text">15 pedidos</strong>
-                <span style="font-size: 0.7rem; color: #94a3b8; display: block;">Vía couriers integrados</span>
+                <span style="font-size: 0.7rem; color: #64748b; font-weight: 700; display: inline-flex; align-items: center; gap: 0.3rem; text-transform: uppercase;"><svg class="stk-cot-ico stk-cot-ico-sm" viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg> Envíos a Regiones</span>
+                <strong style="font-size: 1.05rem; color: #0f172a; display: block;" id="cot-reg-orders-text">15 pedidos</strong>
+                <span style="font-size: 0.7rem; color: #94a3b8; display: block;" id="cot-reg-rate-hint">Envíame $35 + flete ~$4.050/env.</span>
               </div>
             </div>
 
@@ -1163,6 +1685,23 @@
               <button type="button" class="stocka-cot-preset-btn active" data-rm="75">75% RM (Promedio)</button>
               <button type="button" class="stocka-cot-preset-btn" data-rm="90">90% RM</button>
               <button type="button" class="stocka-cot-preset-btn" data-rm="100">100% Solo RM</button>
+            </div>
+
+            <!-- Peso promedio Regiones + Toggle inclusión flete -->
+            <div style="margin-top: 0.9rem; padding-top: 0.85rem; border-top: 1px dashed #cbd5e1; display: grid; grid-template-columns: 1fr; gap: 0.65rem;">
+              <div class="stocka-cot-mini-field">
+                <label for="cot-reg-weight" style="display: inline-flex; align-items: center; gap: 0.4rem;"><svg class="stk-cot-ico stk-cot-ico-sm stk-cot-ico-accent" viewBox="0 0 24 24"><path d="M12 3v18"></path><path d="M5 7h14"></path><path d="M3 14l2-7 2 7a2 2 0 0 1-4 0z"></path><path d="M17 14l2-7 2 7a2 2 0 0 1-4 0z"></path></svg> Peso promedio de tus paquetes a Regiones (vía Envíame)</label>
+                <select id="cot-reg-weight">
+                  <option value="0_1kg">Hasta 1 kg (Ligero) — Flete prom. ~$3.950 + $35 Envíame</option>
+                  <option value="1_3kg" selected>1 a 3 kg (Estándar E-commerce) — Flete prom. ~$4.050 + $35 Envíame (Recomendado)</option>
+                  <option value="3_6kg">3 a 6 kg (Mediano) — Flete prom. ~$6.450 + $35 Envíame</option>
+                  <option value="6_9kg">6 a 9 kg (Grande) — Flete prom. ~$6.790 + $35 Envíame</option>
+                </select>
+              </div>
+              <label class="stocka-cot-check-item" style="background: #ffffff; margin: 0;">
+                <input type="checkbox" id="cot-chk-include-regional" checked>
+                <span><strong>Incluir flete estimado a Regiones + $35/orden Envíame en el resumen</strong>Desmarca si prefieres cotizar solo preparación y RM, o si tu cliente paga el flete directo.</span>
+              </label>
             </div>
           </div>
 
@@ -1185,7 +1724,7 @@
                   <button type="button" class="stocka-courier-tab-btn active" data-courier="starken">
                     <span class="courier-dot dot-starken"></span>
                     <span class="courier-name">Starken</span>
-                    <span class="courier-pill-best">⭐ Mejor Tarifa</span>
+                    <span class="courier-pill-best" style="display:inline-flex;align-items:center;gap:0.2rem;"><svg class="stk-cot-ico" viewBox="0 0 24 24" style="width:11px;height:11px;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg> Mejor Tarifa</span>
                   </button>
                   <button type="button" class="stocka-courier-tab-btn" data-courier="blue">
                     <span class="courier-dot dot-blue"></span>
@@ -1212,8 +1751,9 @@
                     <strong>Starken:</strong> Mayor conveniencia en tarifas para ecommerce. Entrega a domicilio o retiro en sucursales a lo largo de todo Chile.
                   </span>
                 </div>
-                <div id="stocka-courier-transit-tag" style="font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 6px; background: rgba(0,0,0,0.06);">
-                  ⏱️ 1 a 2 días hábiles
+                <div style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.72rem; font-weight: 700; padding: 3px 9px; border-radius: 6px; background: rgba(0,0,0,0.06);">
+                  <svg class="stk-cot-ico" viewBox="0 0 24 24" style="width:12px;height:12px;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                  <span id="stocka-courier-transit-tag">1 a 2 días hábiles</span>
                 </div>
               </div>
             </div>
@@ -1325,27 +1865,79 @@
 
           <div class="stocka-cot-switch-row active" id="cot-switch-pickup">
             <div class="stocka-cot-switch-info">
-              <h4>🏬 Punto de Retiro Presencial Ñuñoa</h4>
-              <p>Ofrece a tus clientes retiro gratis en nuestra sucursal de Campos de Deportes.</p>
+              <h4><svg class="stk-cot-ico stk-cot-ico-accent" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg> Punto de Retiro Presencial Ñuñoa</h4>
+              <p>Retiro estándar $0 en Campos de Deportes (60 min de aviso, ≤3 bultos / 20 uds.). Retiro Express inmediato: $1.490 + IVA.</p>
             </div>
-            <div class="stocka-cot-switch-price" style="color: #10b981;">¡GRATIS!</div>
+            <div class="stocka-cot-switch-price" style="color: #10b981;">¡$0 ESTÁNDAR!</div>
           </div>
 
           <div class="stocka-cot-switch-row" id="cot-switch-vitrina">
             <div class="stocka-cot-switch-info">
-              <h4>🛍️ Vitrina de Exhibición / Showroom</h4>
-              <p>Muestra y exhibe tus productos más vendidos en nuestra tienda de Ñuñoa.</p>
+              <h4><svg class="stk-cot-ico stk-cot-ico-accent" viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg> Vitrina de Exhibición / Showroom</h4>
+              <p>Exhibe tus productos destacados en nuestra tienda Ñuñoa (Showroom dedicado: $1.490/venta + instalación a convenir).</p>
             </div>
             <div class="stocka-cot-switch-price">0,6 UF / mes</div>
           </div>
 
           <div class="stocka-cot-switch-row" id="cot-switch-pos">
             <div class="stocka-cot-switch-info">
-              <h4>💳 Punto de Venta POS (Venta física)</h4>
-              <p>Habilita venta presencial con boleta directa y cobro con tarjeta.</p>
+              <h4><svg class="stk-cot-ico stk-cot-ico-accent" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg> Punto de Venta POS (Venta física)</h4>
+              <p>Venta presencial con tarjeta (+ comisiones 2,5% débito / 3,5% crédito y $1.490 + IVA prep./venta).</p>
             </div>
             <div class="stocka-cot-switch-price">0,2 UF / mes</div>
           </div>
+
+          <!-- Extras Opcionales (Colina, Express, Etiquetado, Insumos, Descarga) -->
+          <details class="stocka-cot-details" id="cot-details-extras">
+            <summary>
+              <span><svg class="stk-cot-ico stk-cot-ico-accent" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg> Extras opcionales: Colina, Express, Etiquetado, Insumos y Descarga <span class="det-tag">Opcional</span></span>
+              <span class="det-arrow">▼</span>
+            </summary>
+            <div class="stocka-cot-details-body">
+              <div class="stocka-cot-mini-grid">
+                <div class="stocka-cot-mini-field">
+                  <label for="cot-colina-orders">Despachos Colina / Chicureo</label>
+                  <input type="number" id="cot-colina-orders" value="0" min="0" max="5000">
+                  <small>$3.490 + IVA / paquete zona norte RM.</small>
+                </div>
+                <div class="stocka-cot-mini-field">
+                  <label for="cot-express-pickups">Retiros Express Sucursal</label>
+                  <input type="number" id="cot-express-pickups" value="0" min="0" max="5000">
+                  <small>$1.490 + IVA base (estándar 60 min es $0).</small>
+                </div>
+                <div class="stocka-cot-mini-field">
+                  <label for="cot-mlfull-units">Etiquetado Mercado Libre FULL (uds.)</label>
+                  <input type="number" id="cot-mlfull-units" value="0" min="0" max="50000">
+                  <small>$100 + IVA / unidad para envío a bodega FULL.</small>
+                </div>
+                <div class="stocka-cot-mini-field">
+                  <label for="cot-inbound-label-units">Etiquetado Código de Barras Ingreso (uds.)</label>
+                  <input type="number" id="cot-inbound-label-units" value="0" min="0" max="50000">
+                  <small>$100 + IVA / ud. solo si llega sin código ($0 si viene etiquetado).</small>
+                </div>
+                <div class="stocka-cot-mini-field">
+                  <label for="cot-unloading-m3">Descarga pesada por personal Stocka (m³)</label>
+                  <input type="number" id="cot-unloading-m3" value="0" min="0" step="0.5" max="200">
+                  <small>0,1 UF/m³ (tope 2 UF). Descargas &lt; 1 m³ son $0.</small>
+                </div>
+                <div class="stocka-cot-mini-field">
+                  <label for="cot-bubble-m">Plástico Burbuja (metros lineales)</label>
+                  <input type="number" id="cot-bubble-m" value="0" min="0" step="1" max="5000">
+                  <small>$360 + IVA / m lineal ($3,6/cm · rollo 50 cm).</small>
+                </div>
+                <div class="stocka-cot-mini-field">
+                  <label for="cot-box-s">Cajas Especiales S (20×20×20 cm)</label>
+                  <input type="number" id="cot-box-s" value="0" min="0" max="10000">
+                  <small>$450 + IVA c/u (empaque estándar ya incluido).</small>
+                </div>
+                <div class="stocka-cot-mini-field">
+                  <label for="cot-box-m">Cajas Especiales M (30×30×30 cm)</label>
+                  <input type="number" id="cot-box-m" value="0" min="0" max="10000">
+                  <small>$990 + IVA c/u (también hay XS $280 y L $1.490).</small>
+                </div>
+              </div>
+            </div>
+          </details>
 
         </div>
 
@@ -1357,46 +1949,86 @@
           
           <div class="stocka-cot-sum-header">
             <div class="stocka-cot-sum-title">
-              <span>📋</span>
+              <svg class="stk-cot-ico" viewBox="0 0 24 24" style="width:19px;height:19px;color:#a78bfa;"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
               <span>Resumen de Cotización</span>
             </div>
             <div class="stocka-cot-sum-desc">
-              Tarifas netas sin IVA actualizadas en tiempo real.
+              Tarifario oficial sincronizado · UF ref. <span id="sum-uf-ref">$41.248</span>
             </div>
           </div>
 
           <div class="stocka-cot-breakdown-row">
-            <span>Almacenamiento (<span id="sum-vol-display">2.0</span> m³):</span>
+            <span>
+              Almacenamiento (<span id="sum-vol-display">2.0</span> m³):
+              <span class="stocka-cot-row-sub" id="sum-storage-sub">Tarifa tramo vigente</span>
+            </span>
             <strong id="sum-storage-val">$87.000</strong>
           </div>
 
           <div class="stocka-cot-breakdown-row">
-            <span>Pick & Pack (<span id="sum-orders-display">60</span> pedidos):</span>
+            <span>
+              Pick &amp; Pack (<span id="sum-orders-display">60</span> pedidos):
+              <span class="stocka-cot-row-sub" id="sum-pickpack-sub">$1.200 / pedido</span>
+            </span>
             <strong id="sum-pickpack-val">$72.000</strong>
           </div>
 
+          <div class="stocka-cot-breakdown-row" id="sum-row-fixedfee">
+            <span>
+              Costo Fijo Mensual:
+              <span class="stocka-cot-row-sub" id="sum-fixedfee-sub">Exento desde 75 ped. o 1,5 m³</span>
+            </span>
+            <strong id="sum-fixedfee-val" class="stocka-cot-exempt-pill">$0 (Exento)</strong>
+          </div>
+
           <div class="stocka-cot-breakdown-row" id="sum-row-shipping">
-            <span>Despachos RM (<span id="sum-rm-orders-count">45</span> ped):</span>
-            <strong id="sum-shipping-val">$192.000</strong>
+            <span>
+              Despachos RM (<span id="sum-rm-orders-count">45</span> ped):
+              <span class="stocka-cot-row-sub" id="sum-shipping-sub">Same Day / Flex ($3.200 c/u)</span>
+            </span>
+            <strong id="sum-shipping-val">$144.000</strong>
+          </div>
+
+          <div class="stocka-cot-breakdown-row" id="sum-row-regional" style="display: none;">
+            <span>
+              Envíos a Regiones (<span id="sum-reg-orders-count">15</span> ped):
+              <span class="stocka-cot-row-sub" id="sum-regional-sub">Envíame $35 + flete prom. ~$4.050</span>
+            </span>
+            <strong id="sum-regional-val">$61.275</strong>
           </div>
 
           <div class="stocka-cot-breakdown-row" id="sum-row-extra" style="display: none;">
-            <span>Servicios Sucursal (UF):</span>
+            <span>
+              Adicionales, Etiquetado e Insumos:
+              <span class="stocka-cot-row-sub" id="sum-extra-sub">Opcionales seleccionados</span>
+            </span>
             <strong id="sum-extra-val">$0</strong>
           </div>
 
           <div class="stocka-cot-total-box">
-            <div class="stocka-cot-total-lbl">Costo Mensual Estimado</div>
-            <div class="stocka-cot-total-clp" id="sum-total-clp">$351.000</div>
-            <div class="stocka-cot-total-uf" id="sum-total-uf">~ 8,59 UF + IVA</div>
+            <div class="stocka-cot-total-lbl">Subtotal Neto Mensual</div>
+            <div class="stocka-cot-total-clp" id="sum-total-clp">$364.275</div>
+            <div class="stocka-cot-total-uf" id="sum-total-uf">~ 8,83 UF + IVA</div>
+            <div class="stocka-cot-total-iva" id="sum-total-iva">+ IVA 19% ($69.212) = <strong>$433.487 IVA Inc.</strong></div>
+            <div class="stocka-cot-kpi-unit">
+              <span>Costo estimado por pedido:</span>
+              <strong id="sum-cost-per-order">$6.071 + IVA</strong>
+            </div>
           </div>
 
           <button type="button" id="cot-open-modal-btn" class="stocka-cot-btn-cta">
-            <span>Solicitar Alta o Recibir Cotización en PDF</span> 🚀
+            <span>Solicitar Alta o Recibir Cotización en PDF</span>
+            <svg class="stk-cot-ico" viewBox="0 0 24 24" style="width:16px;height:16px;"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
           </button>
 
-          <p style="font-size: 0.75rem; color: #94a3b8; text-align: center; margin-top: 1rem; margin-bottom: 0;">
-            🔒 Sin cobros adelantados. Te enviaremos el desglose formal con tarifarios a tu correo.
+          <div class="stocka-cot-zero-strip">
+            <strong><svg class="stk-cot-ico stk-cot-ico-sm" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> Incluido a costo $0 en Stocka:</strong>
+            $0 Implementación/Setup · $0 Licencia WMS 24/7 · $0 Integraciones · 0% Comisiones sobre ventas · $0 Ingreso etiquetado · $0 Empaque estándar.
+          </div>
+
+          <p style="font-size: 0.75rem; color: #94a3b8; text-align: center; margin-top: 0.85rem; margin-bottom: 0; display: flex; align-items: center; justify-content: center; gap: 0.35rem;">
+            <svg class="stk-cot-ico stk-cot-ico-sm" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            <span>Sin cobros adelantados. Te enviaremos el desglose formal con tarifarios a tu correo.</span>
           </p>
 
         </div>
@@ -1569,16 +2201,70 @@
 
 <script>
   (function() {
-    const UF_VALUE = 40867;
-    const TIERS = [
+    const SUPABASE_URL = 'https://ejtjfaucnxbikrwjwwdu.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MzExODUsImV4cCI6MjA5NTQwNzE4NX0.cnuyxOpbqr-182Q3MJFJu0prtFSvwk1RgbiVBhjYUak';
+
+    let UF_VALUE = 41248;
+    let TIERS = [
       { id: 1, min: 0, max: 25, label: "Rango 1: 0 a 25 pedidos", storage: 48900, pickpack: 1250 },
       { id: 2, min: 26, max: 100, label: "Rango 2: 26 a 100 pedidos", storage: 43500, pickpack: 1200 },
       { id: 3, min: 101, max: 200, label: "Rango 3: 101 a 200 pedidos", storage: 38500, pickpack: 1150 },
       { id: 4, min: 201, max: 500, label: "Rango 4: 201 a 500 pedidos", storage: 33500, pickpack: 1050 },
       { id: 5, min: 501, max: 1500, label: "Rango 5: 501 a 1.500 pedidos", storage: 30500, pickpack: 950 },
       { id: 6, min: 1501, max: 2500, label: "Rango 6: 1.501 a 2.500 pedidos", storage: 28500, pickpack: 900 },
-      { id: 7, min: 2501, max: 999999, label: "Rango 7: +2.500 pedidos (Enterprise)", storage: 26500, pickpack: 850 }
+      { id: 7, min: 2501, max: 3500, label: "Rango 7: 2.501 a 3.500 pedidos", storage: 26500, pickpack: 850 },
+      { id: 8, min: 3501, max: 999999, label: "Rango 8: +3.500 pedidos (Enterprise+)", storage: 25500, pickpack: 800 }
     ];
+    let STORAGE_DISCOUNTS = [
+      { min: 10.0, max: 15.0, discount_pct: 18 },
+      { min: 15.01, max: 25.0, discount_pct: 21 },
+      { min: 25.01, max: 35.0, discount_pct: 24 },
+      { min: 35.01, max: 60.0, discount_pct: 27 },
+      { min: 60.01, max: 100.0, discount_pct: 30 },
+      { min: 100.01, max: 160.0, discount_pct: 33 },
+      { min: 160.01, max: 230.0, discount_pct: 35 },
+      { min: 230.01, max: 300.0, discount_pct: 37 },
+      { min: 300.01, max: 999999, discount_pct: 39 }
+    ];
+    let RULES = {
+      base_included_sku: 3,
+      base_included_units: 10,
+      surcharge_extra_sku: 100,
+      surcharge_extra_unit: 50,
+      protected_ticket_base_rate: 650,
+      surcharge_marketplace_collect: 100,
+      catalogue_exempt_max_units: 2,
+      surcharge_catalogue_over_100_sku: 100,
+      surcharge_ml_full_labeling: 100,
+      inbound_labeling_per_unit: 100
+    };
+    let FIXED_FEE = {
+      exemption_min_orders: 75,
+      exemption_min_volume: 1.5,
+      tier1_max_orders: 50,
+      tier1_max_volume: 1.0,
+      tier1_fee_uf: 1.5,
+      tier2_fee_uf: 0.9
+    };
+    let RATES = {
+      same_day_rm: 3200,
+      colina: 3490,
+      enviame_fee: 35,
+      pickup_express: 1490,
+      pos_uf: 0.2,
+      vitrina_uf: 0.6,
+      unloading_uf_m3: 0.1,
+      unloading_cap_uf: 2.0,
+      bubble_linear_m: 360,
+      box_s: 450,
+      box_m: 990
+    };
+    let REGIONAL_BRACKETS = {
+      '0_1kg': { label: 'Hasta 1 kg', avg_rate: 3950 },
+      '1_3kg': { label: '1 a 3 kg', avg_rate: 4050 },
+      '3_6kg': { label: '3 a 6 kg', avg_rate: 6450 },
+      '6_9kg': { label: '6 a 9 kg', avg_rate: 6790 }
+    };
 
     let currentOrders = 60;
     let currentVol = 2.0;
@@ -1586,51 +2272,155 @@
     let rmPercentage = 75;
     let includeVitrina = false;
     let includePOS = false;
+    let lastSummarySnapshot = {};
 
     function formatCLP(val) {
       return '$' + Math.round(val).toLocaleString('es-CL');
     }
 
-    function calculate() {
-      const tier = TIERS.find(t => currentOrders >= t.min && currentOrders <= t.max) || TIERS[0];
-      
-      let storageDiscountPct = 0;
-      if (currentVol >= 60.0) storageDiscountPct = 0.32;
-      else if (currentVol >= 35.0) storageDiscountPct = 0.27;
-      else if (currentVol >= 25.0) storageDiscountPct = 0.24;
-      else if (currentVol >= 15.0) storageDiscountPct = 0.21;
-      else if (currentVol >= 10.0) storageDiscountPct = 0.18;
+    function getNumVal(id, fallback = 0) {
+      const el = document.getElementById(id);
+      if (!el) return fallback;
+      const v = parseFloat(el.value);
+      return isNaN(v) ? fallback : Math.max(0, v);
+    }
 
+    function getIntVal(id, fallback = 0) {
+      return Math.floor(getNumVal(id, fallback));
+    }
+
+    function getChecked(id, fallback = false) {
+      const el = document.getElementById(id);
+      return el ? !!el.checked : fallback;
+    }
+
+    function calculate() {
+      let tier = TIERS.find(t => currentOrders >= t.min && currentOrders <= t.max) || TIERS[0];
+      if (currentOrders > TIERS[TIERS.length - 1].min) {
+        tier = TIERS[TIERS.length - 1];
+      }
+
+      // 1. Almacenamiento con escala dinámica hasta 39% OFF
+      let storageDiscountPct = 0;
+      for (let i = 0; i < STORAGE_DISCOUNTS.length; i++) {
+        const d = STORAGE_DISCOUNTS[i];
+        if (currentVol >= d.min && currentVol <= d.max) {
+          storageDiscountPct = (Number(d.discount_pct) || 0) / 100;
+          break;
+        }
+      }
       const effectiveStorageRate = tier.storage * (1 - storageDiscountPct);
       const totalStorage = currentVol * effectiveStorageRate;
-      const totalPickPack = currentOrders * tier.pickpack;
+
+      // 2. Pick & Pack + Parámetros Avanzados
+      const skuPerOrder = Math.max(1, getIntVal('cot-sku-per-order', 1));
+      const unitsPerOrder = Math.max(1, getIntVal('cot-units-per-order', 1));
+      const isProtected = getChecked('cot-chk-protected', false);
+      const hasCat100 = getChecked('cot-chk-cat100', false);
+      const isMktCollect = getChecked('cot-chk-mktcollect', false);
+
+      const basePickPack = isProtected ? RULES.protected_ticket_base_rate : tier.pickpack;
+      const extraSkuCost = Math.max(0, skuPerOrder - RULES.base_included_sku) * RULES.surcharge_extra_sku;
+      const extraUnitsCost = Math.max(0, unitsPerOrder - RULES.base_included_units) * RULES.surcharge_extra_unit;
+      const catCost = (hasCat100 && unitsPerOrder > RULES.catalogue_exempt_max_units) ? RULES.surcharge_catalogue_over_100_sku : 0;
+      const mktCost = isMktCollect ? RULES.surcharge_marketplace_collect : 0;
+      const unitPickPack = basePickPack + extraSkuCost + extraUnitsCost + catCost + mktCost;
+      const totalPickPack = currentOrders * unitPickPack;
+
+      // 3. Costo Fijo Mensual (Exento >= 75 ped. o >= 1,5 m³)
+      let fixedFeeExempt = false;
+      let fixedFeeUF = 0;
+      let fixedFeeCLP = 0;
+      let fixedFeeReason = '';
+      if (currentOrders >= FIXED_FEE.exemption_min_orders || currentVol >= FIXED_FEE.exemption_min_volume) {
+        fixedFeeExempt = true;
+        fixedFeeReason = currentOrders >= FIXED_FEE.exemption_min_orders
+          ? `Exento (≥ ${FIXED_FEE.exemption_min_orders} pedidos)`
+          : `Exento (≥ ${FIXED_FEE.exemption_min_volume} m³)`;
+      } else if (currentOrders < FIXED_FEE.tier1_max_orders && currentVol < FIXED_FEE.tier1_max_volume) {
+        fixedFeeUF = FIXED_FEE.tier1_fee_uf;
+        fixedFeeCLP = Math.round(fixedFeeUF * UF_VALUE);
+        fixedFeeReason = `${fixedFeeUF} UF (< ${FIXED_FEE.tier1_max_orders} ped. y < ${FIXED_FEE.tier1_max_volume} m³)`;
+      } else {
+        fixedFeeUF = FIXED_FEE.tier2_fee_uf;
+        fixedFeeCLP = Math.round(fixedFeeUF * UF_VALUE);
+        fixedFeeReason = `${fixedFeeUF} UF (< ${FIXED_FEE.exemption_min_orders} ped. y < ${FIXED_FEE.exemption_min_volume} m³)`;
+      }
+
+      // 4. Despachos RM, Regiones + Envíame, Colina y Retiros Express
       const rmOrders = includeSameDay ? Math.round(currentOrders * (rmPercentage / 100)) : 0;
-      const regOrders = currentOrders - rmOrders;
-      const totalShipping = rmOrders * 3200;
+      const regOrders = includeSameDay ? (currentOrders - rmOrders) : 0;
+      const totalRmShipping = rmOrders * RATES.same_day_rm;
 
-      let extraUF = 0;
-      if (includeVitrina) extraUF += 0.6;
-      if (includePOS) extraUF += 0.2;
-      const totalExtra = extraUF * UF_VALUE;
+      const regWeightEl = document.getElementById('cot-reg-weight');
+      const regBracketKey = regWeightEl ? regWeightEl.value : '1_3kg';
+      const regBracket = REGIONAL_BRACKETS[regBracketKey] || REGIONAL_BRACKETS['1_3kg'];
+      const includeRegional = getChecked('cot-chk-include-regional', true);
+      const unitRegRate = regBracket.avg_rate + RATES.enviame_fee;
+      const totalRegShipping = (includeSameDay && includeRegional && regOrders > 0) ? (regOrders * unitRegRate) : 0;
 
-      const totalCost = totalStorage + totalPickPack + totalShipping + totalExtra;
-      const totalUF = (totalCost / UF_VALUE).toFixed(2);
+      const colinaOrders = getIntVal('cot-colina-orders', 0);
+      const expressPickups = getIntVal('cot-express-pickups', 0);
+      const costColina = colinaOrders * RATES.colina;
+      const costExpress = expressPickups * RATES.pickup_express;
+
+      // 5. Extras, Etiquetado, Descarga e Insumos
+      let extraBranchUF = 0;
+      if (includeVitrina) extraBranchUF += RATES.vitrina_uf;
+      if (includePOS) extraBranchUF += RATES.pos_uf;
+      const costBranch = Math.round(extraBranchUF * UF_VALUE);
+
+      const unloadingM3 = getNumVal('cot-unloading-m3', 0);
+      const costUnloading = unloadingM3 >= 1.0
+        ? Math.round(Math.min(unloadingM3 * RATES.unloading_uf_m3, RATES.unloading_cap_uf) * UF_VALUE)
+        : 0;
+
+      const mlFullUnits = getIntVal('cot-mlfull-units', 0);
+      const inboundLabelUnits = getIntVal('cot-inbound-label-units', 0);
+      const costMlFull = mlFullUnits * RULES.surcharge_ml_full_labeling;
+      const costInboundLabel = inboundLabelUnits * RULES.inbound_labeling_per_unit;
+
+      const bubbleMeters = getNumVal('cot-bubble-m', 0);
+      const boxS = getIntVal('cot-box-s', 0);
+      const boxM = getIntVal('cot-box-m', 0);
+      const costSupplies = (bubbleMeters * RATES.bubble_linear_m) + (boxS * RATES.box_s) + (boxM * RATES.box_m);
+
+      const totalExtrasAndSpecial = costBranch + costUnloading + costMlFull + costInboundLabel + costSupplies + costColina + costExpress;
+
+      // 6. Totales
+      const totalCost = Math.round(totalStorage + totalPickPack + fixedFeeCLP + totalRmShipping + totalRegShipping + totalExtrasAndSpecial);
+      const totalIVA = Math.round(totalCost * 0.19);
+      const totalGross = totalCost + totalIVA;
+      const totalUF = (totalCost / UF_VALUE).toFixed(2).replace('.', ',');
+      const costPerOrder = currentOrders > 0 ? Math.round(totalCost / currentOrders) : 0;
+
+      lastSummarySnapshot = {
+        tier, storageDiscountPct, totalStorage, unitPickPack, totalPickPack,
+        fixedFeeExempt, fixedFeeUF, fixedFeeCLP, fixedFeeReason,
+        rmOrders, totalRmShipping, regOrders, includeRegional, regBracket, totalRegShipping,
+        colinaOrders, expressPickups, mlFullUnits, inboundLabelUnits, unloadingM3,
+        bubbleMeters, boxS, boxM, totalExtrasAndSpecial, totalCost, totalIVA, totalGross, totalUF, costPerOrder
+      };
+
+      // Render DOM
+      const ufRefEl = document.getElementById('sum-uf-ref');
+      if (ufRefEl) ufRefEl.textContent = formatCLP(UF_VALUE);
 
       const tBadge = document.getElementById('stocka-tier-badge');
       if (tBadge) tBadge.textContent = tier.label;
       const tName = document.getElementById('cot-tier-name');
       if (tName) tName.textContent = tier.label + "/mes";
       const tPick = document.getElementById('cot-tier-pickpack');
-      if (tPick) tPick.textContent = formatCLP(tier.pickpack);
+      if (tPick) tPick.textContent = formatCLP(basePickPack);
       const tStore = document.getElementById('cot-tier-storage');
       if (tStore) tStore.textContent = formatCLP(tier.storage);
 
       const nextTierIndex = TIERS.findIndex(t => t.id === tier.id) + 1;
       const nextTierBar = document.getElementById('cot-next-tier-bar');
       if (nextTierBar) {
-        if (nextTierIndex < TIERS.length) {
+        if (nextTierIndex > 0 && nextTierIndex < TIERS.length) {
           const nextTier = TIERS[nextTierIndex];
-          const ordersNeeded = nextTier.min - currentOrders;
+          const ordersNeeded = Math.max(1, nextTier.min - currentOrders);
           document.getElementById('cot-next-tier-text').innerHTML = `¡Agrega <strong>${ordersNeeded} pedidos</strong> más para desbloquear el Rango ${nextTier.id} y pagar <strong>${formatCLP(nextTier.pickpack)}</strong> por pedido!`;
           nextTierBar.style.display = 'flex';
         } else {
@@ -1641,21 +2431,75 @@
       const discBadge = document.getElementById('stocka-storage-discount-badge');
       if (discBadge) {
         if (storageDiscountPct > 0) {
-          discBadge.textContent = `${Math.round(storageDiscountPct * 100)}% de descuento por volumen`;
+          discBadge.textContent = `${Math.round(storageDiscountPct * 100)}% OFF por volumen`;
           discBadge.style.display = 'inline-block';
         } else {
           discBadge.style.display = 'none';
         }
       }
 
+      // Resaltar escalón activo de descuentos de bodegaje + mensaje
+      document.querySelectorAll('#cot-discount-scale-chips .stocka-cot-disc-chip').forEach(chip => {
+        const minV = parseFloat(chip.dataset.min) || 0;
+        const maxV = parseFloat(chip.dataset.max) || 999999;
+        chip.classList.toggle('is-active', currentVol >= minV && currentVol <= maxV);
+      });
+      const discStatus = document.getElementById('cot-disc-scale-status');
+      if (discStatus) {
+        if (storageDiscountPct > 0) {
+          const savedAmount = Math.round(currentVol * tier.storage * storageDiscountPct);
+          discStatus.textContent = `✓ ${Math.round(storageDiscountPct * 100)}% OFF activo · Ahorras ${formatCLP(savedAmount)}`;
+          discStatus.style.color = '#059669';
+        } else {
+          const firstD = STORAGE_DISCOUNTS[0] || { min: 10, discount_pct: 18 };
+          const needed = Math.max(0.1, firstD.min - currentVol).toFixed(1).replace('.', ',');
+          discStatus.textContent = `Alcanza ${firstD.min} m³ (faltan ${needed} m³) para ${firstD.discount_pct}% OFF`;
+          discStatus.style.color = '#5c24ff';
+        }
+      }
+
+      // Actualizar relleno gradiente de todos los sliders
+      ['cot-orders-slider', 'cot-vol-slider', 'cot-rm-slider'].forEach(sId => {
+        const sEl = document.getElementById(sId);
+        if (!sEl) return;
+        const mn = parseFloat(sEl.min) || 0;
+        const mx = parseFloat(sEl.max) || 100;
+        const vl = parseFloat(sEl.value) || 0;
+        const pct = Math.max(0, Math.min(100, ((vl - mn) / (mx - mn)) * 100));
+        sEl.style.setProperty('--slider-pct', pct + '%');
+      });
+
       const svDisp = document.getElementById('sum-vol-display');
       if (svDisp) svDisp.textContent = currentVol.toFixed(1);
+      const ssSub = document.getElementById('sum-storage-sub');
+      if (ssSub) {
+        ssSub.textContent = storageDiscountPct > 0
+          ? `${formatCLP(tier.storage)}/m³ (-${Math.round(storageDiscountPct * 100)}% OFF)`
+          : `${formatCLP(tier.storage)}/m³`;
+      }
       const ssVal = document.getElementById('sum-storage-val');
       if (ssVal) ssVal.textContent = formatCLP(totalStorage);
+
       const soDisp = document.getElementById('sum-orders-display');
       if (soDisp) soDisp.textContent = currentOrders;
+      const spSub = document.getElementById('sum-pickpack-sub');
+      if (spSub) spSub.textContent = `${formatCLP(unitPickPack)} / pedido${isProtected ? ' (Venta Protegida)' : ''}`;
       const spVal = document.getElementById('sum-pickpack-val');
       if (spVal) spVal.textContent = formatCLP(totalPickPack);
+
+      // Costo Fijo Mensual
+      const ffSub = document.getElementById('sum-fixedfee-sub');
+      const ffVal = document.getElementById('sum-fixedfee-val');
+      if (ffSub) ffSub.textContent = fixedFeeReason;
+      if (ffVal) {
+        if (fixedFeeExempt) {
+          ffVal.textContent = '$0 (Exento)';
+          ffVal.className = 'stocka-cot-exempt-pill';
+        } else {
+          ffVal.textContent = formatCLP(fixedFeeCLP);
+          ffVal.className = '';
+        }
+      }
 
       const rmBadge = document.getElementById('cot-rm-pct-badge');
       if (rmBadge) rmBadge.textContent = `${rmPercentage}% RM`;
@@ -1663,6 +2507,12 @@
       if (rmTxt) rmTxt.textContent = `${rmOrders} pedidos`;
       const regTxt = document.getElementById('cot-reg-orders-text');
       if (regTxt) regTxt.textContent = `${regOrders} pedidos`;
+      const regHint = document.getElementById('cot-reg-rate-hint');
+      if (regHint) {
+        regHint.textContent = includeRegional
+          ? `Envíame ${formatCLP(RATES.enviame_fee)} + flete ~${formatCLP(regBracket.avg_rate)}/env.`
+          : `No incluido en el total (solo referencial)`;
+      }
 
       const rowShipping = document.getElementById('sum-row-shipping');
       const sumRmOrdersCount = document.getElementById('sum-rm-orders-count');
@@ -1670,17 +2520,42 @@
         if (includeSameDay && rmOrders > 0) {
           rowShipping.style.display = 'flex';
           if (sumRmOrdersCount) sumRmOrdersCount.textContent = rmOrders;
-          document.getElementById('sum-shipping-val').textContent = formatCLP(totalShipping);
+          document.getElementById('sum-shipping-val').textContent = formatCLP(totalRmShipping);
         } else {
           rowShipping.style.display = 'none';
         }
       }
 
+      const rowRegional = document.getElementById('sum-row-regional');
+      if (rowRegional) {
+        if (totalRegShipping > 0) {
+          rowRegional.style.display = 'flex';
+          const cntEl = document.getElementById('sum-reg-orders-count');
+          if (cntEl) cntEl.textContent = regOrders;
+          const subEl = document.getElementById('sum-regional-sub');
+          if (subEl) subEl.textContent = `${regBracket.label} · Envíame ${formatCLP(RATES.enviame_fee)} + flete ~${formatCLP(regBracket.avg_rate)}`;
+          document.getElementById('sum-regional-val').textContent = formatCLP(totalRegShipping);
+        } else {
+          rowRegional.style.display = 'none';
+        }
+      }
+
       const rowExtra = document.getElementById('sum-row-extra');
       if (rowExtra) {
-        if (totalExtra > 0) {
+        if (totalExtrasAndSpecial > 0) {
           rowExtra.style.display = 'flex';
-          document.getElementById('sum-extra-val').textContent = formatCLP(totalExtra);
+          const extraTags = [];
+          if (colinaOrders > 0) extraTags.push(`${colinaOrders} Colina`);
+          if (expressPickups > 0) extraTags.push(`${expressPickups} Express`);
+          if (mlFullUnits > 0) extraTags.push(`${mlFullUnits} FULL`);
+          if (inboundLabelUnits > 0) extraTags.push(`${inboundLabelUnits} Etiq. ing.`);
+          if (costUnloading > 0) extraTags.push(`Descarga ${unloadingM3}m³`);
+          if (costSupplies > 0) extraTags.push(`Insumos`);
+          if (includeVitrina) extraTags.push(`Vitrina`);
+          if (includePOS) extraTags.push(`POS`);
+          const extraSub = document.getElementById('sum-extra-sub');
+          if (extraSub) extraSub.textContent = extraTags.join(' · ') || 'Opcionales seleccionados';
+          document.getElementById('sum-extra-val').textContent = formatCLP(totalExtrasAndSpecial);
         } else {
           rowExtra.style.display = 'none';
         }
@@ -1690,6 +2565,88 @@
       if (stClp) stClp.textContent = formatCLP(totalCost);
       const stUf = document.getElementById('sum-total-uf');
       if (stUf) stUf.textContent = `~ ${totalUF} UF + IVA`;
+      const stIva = document.getElementById('sum-total-iva');
+      if (stIva) stIva.innerHTML = `+ IVA 19% (${formatCLP(totalIVA)}) = <strong>${formatCLP(totalGross)} IVA Inc.</strong>`;
+      const stUnit = document.getElementById('sum-cost-per-order');
+      if (stUnit) stUnit.textContent = `${formatCLP(costPerOrder)} + IVA`;
+
+      window.dispatchEvent(new Event('stocka-cot-recalc'));
+    }
+
+    function syncLiveConfigAndUf() {
+      // 1. Live UF from mindicador.cl (non-blocking)
+      fetch('https://mindicador.cl/api/uf')
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          const val = data && data.serie && data.serie[0] && data.serie[0].valor;
+          if (val && !isNaN(val) && val > 30000) {
+            UF_VALUE = Math.round(parseFloat(val));
+            calculate();
+          }
+        })
+        .catch(() => {});
+
+      // 2. Live Supabase pricing_config
+      fetch(SUPABASE_URL + '/rest/v1/pricing_config?config_key=eq.current_rates&select=data', {
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY }
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(rows => {
+          const cfg = Array.isArray(rows) && rows[0] && rows[0].data ? rows[0].data : null;
+          if (!cfg) return;
+          if (Array.isArray(cfg.order_ranges) && cfg.order_ranges.length > 0) {
+            TIERS = cfg.order_ranges.map(r => ({
+              id: r.id, min: r.min, max: r.max,
+              label: `Rango ${r.id}: ${r.label}`,
+              storage: r.storage_m3, pickpack: r.pick_pack_base
+            }));
+          }
+          if (Array.isArray(cfg.storage_discounts) && cfg.storage_discounts.length > 0) {
+            STORAGE_DISCOUNTS = cfg.storage_discounts;
+            const chipsBox = document.getElementById('cot-discount-scale-chips');
+            if (chipsBox) {
+              chipsBox.innerHTML = STORAGE_DISCOUNTS.map(d => {
+                const rng = d.max >= 999999 ? `+${Math.floor(d.min)} m³` : `${d.min}–${d.max} m³`;
+                return `<span class="stocka-cot-disc-chip" data-min="${d.min}" data-max="${d.max}"><span>${rng}</span><strong>${d.discount_pct}%</strong></span>`;
+              }).join('');
+            }
+          }
+          if (cfg.pick_pack_rules) {
+            RULES = Object.assign({}, RULES, cfg.pick_pack_rules);
+          }
+          if (cfg.fixed_service_fee) {
+            FIXED_FEE = Object.assign({}, FIXED_FEE, cfg.fixed_service_fee);
+          }
+          if (cfg.shipping) {
+            if (cfg.shipping.same_day_rm) RATES.same_day_rm = cfg.shipping.same_day_rm;
+            if (cfg.shipping.colina) RATES.colina = cfg.shipping.colina;
+            if (cfg.shipping.enviame_integration_fee) RATES.enviame_fee = cfg.shipping.enviame_integration_fee;
+            if (cfg.shipping.pickup_express_base) RATES.pickup_express = cfg.shipping.pickup_express_base;
+          }
+          if (cfg.services) {
+            if (cfg.services.pos_monthly_uf) RATES.pos_uf = cfg.services.pos_monthly_uf;
+            if (cfg.services.vitrina_monthly_uf) RATES.vitrina_uf = cfg.services.vitrina_monthly_uf;
+            if (cfg.services.unloading_service_uf_per_m3) RATES.unloading_uf_m3 = cfg.services.unloading_service_uf_per_m3;
+            if (cfg.services.unloading_service_cap_uf) RATES.unloading_cap_uf = cfg.services.unloading_service_cap_uf;
+            if (cfg.services.inbound_labeling_per_unit) RULES.inbound_labeling_per_unit = cfg.services.inbound_labeling_per_unit;
+          }
+          if (cfg.supplies) {
+            if (cfg.supplies.bubble_wrap_roll && cfg.supplies.bubble_wrap_roll.cost_per_linear_m) {
+              RATES.bubble_linear_m = cfg.supplies.bubble_wrap_roll.cost_per_linear_m;
+            }
+            if (cfg.supplies.box_s) RATES.box_s = cfg.supplies.box_s;
+            if (cfg.supplies.box_m) RATES.box_m = cfg.supplies.box_m;
+          }
+          if (cfg.regional_shipping && Array.isArray(cfg.regional_shipping.weight_brackets)) {
+            cfg.regional_shipping.weight_brackets.forEach(wb => {
+              if (wb && wb.id && wb.avg_rate) {
+                REGIONAL_BRACKETS[wb.id] = { label: wb.label || wb.id, avg_rate: wb.avg_rate };
+              }
+            });
+          }
+          calculate();
+        })
+        .catch(() => {});
     }
 
     function init() {
@@ -1710,13 +2667,13 @@
       };
       ordersNum.oninput = () => {
         currentOrders = Math.max(0, parseInt(ordersNum.value, 10) || 0);
-        ordersSlider.value = Math.min(3000, currentOrders);
+        ordersSlider.value = Math.min(4000, currentOrders);
         calculate();
       };
       document.querySelectorAll('.stocka-cot-presets button[data-orders]').forEach(btn => {
         btn.onclick = () => {
           currentOrders = parseInt(btn.dataset.orders, 10);
-          ordersSlider.value = currentOrders;
+          ordersSlider.value = Math.min(4000, currentOrders);
           ordersNum.value = currentOrders;
           document.querySelectorAll('.stocka-cot-presets button[data-orders]').forEach(b => b.classList.remove('active'));
           btn.classList.add('active');
@@ -1730,14 +2687,14 @@
         calculate();
       };
       volNum.oninput = () => {
-        currentVol = Math.max(0.5, parseFloat(volNum.value) || 0.5);
-        volSlider.value = Math.min(30, currentVol);
+        currentVol = Math.max(0.1, parseFloat(volNum.value) || 0.1);
+        volSlider.value = Math.min(80, currentVol);
         calculate();
       };
       document.querySelectorAll('.stocka-cot-presets button[data-vol]').forEach(btn => {
         btn.onclick = () => {
           currentVol = parseFloat(btn.dataset.vol);
-          volSlider.value = currentVol;
+          volSlider.value = Math.min(80, currentVol);
           volNum.value = currentVol.toFixed(1);
           document.querySelectorAll('.stocka-cot-presets button[data-vol]').forEach(b => b.classList.remove('active'));
           btn.classList.add('active');
@@ -1747,6 +2704,27 @@
 
       document.querySelectorAll('#cot-channels-group .stocka-cot-channel-item').forEach(item => {
         item.onclick = () => item.classList.toggle('active');
+      });
+
+      // Listeners para todos los parámetros avanzados y opcionales
+      [
+        'cot-sku-per-order', 'cot-units-per-order', 'cot-chk-protected', 'cot-chk-cat100', 'cot-chk-mktcollect',
+        'cot-reg-weight', 'cot-chk-include-regional',
+        'cot-colina-orders', 'cot-express-pickups', 'cot-mlfull-units', 'cot-inbound-label-units',
+        'cot-unloading-m3', 'cot-bubble-m', 'cot-box-s', 'cot-box-m'
+      ].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.addEventListener('input', calculate);
+          el.addEventListener('change', calculate);
+        }
+      });
+
+      // Recalcular altura sticky cuando se abren/cierran acordeones
+      document.querySelectorAll('#stocka-simulator-app details').forEach(det => {
+        det.addEventListener('toggle', () => {
+          setTimeout(() => window.dispatchEvent(new Event('stocka-cot-recalc')), 50);
+        });
       });
 
       const rmSlider = document.getElementById('cot-rm-slider');
@@ -1806,7 +2784,7 @@
         starken: {
           name: "Starken",
           desc: "<strong>Starken:</strong> Mayor conveniencia en tarifas para ecommerce. Entrega a domicilio o retiro en sucursales a lo largo de todo Chile.",
-          transit: "⏱️ 1 a 2 días hábiles",
+          transit: "1 a 2 días hábiles",
           bannerClass: "banner-starken",
           badgeColor: "#059669",
           badgeBg: "#ecfdf5",
@@ -1824,7 +2802,7 @@
         blue: {
           name: "Blue Express",
           desc: "<strong>Blue Express:</strong> Amplia red de Puntos Pick-Up y rápida cobertura domiciliaria nacional.",
-          transit: "⏱️ 1 a 2 días hábiles",
+          transit: "1 a 2 días hábiles",
           bannerClass: "banner-blue",
           badgeColor: "#0284c7",
           badgeBg: "#f0f9ff",
@@ -1842,7 +2820,7 @@
         chilexpress: {
           name: "Chilexpress",
           desc: "<strong>Chilexpress:</strong> Máxima prioridad, alta frecuencia y velocidad de entrega nacional día siguiente.",
-          transit: "⏱️ Día Siguiente / Express",
+          transit: "Día Siguiente / Express",
           bannerClass: "banner-chilexpress",
           badgeColor: "#b91c1c",
           badgeBg: "#fef2f2",
@@ -1860,7 +2838,7 @@
         correos: {
           name: "CorreosChile",
           desc: "<strong>CorreosChile:</strong> Máxima cobertura geográfica en zonas rurales, extremas y de difícil acceso.",
-          transit: "⏱️ 2 a 3 días hábiles",
+          transit: "2 a 3 días hábiles",
           bannerClass: "banner-correos",
           badgeColor: "#334155",
           badgeBg: "#f8fafc",
@@ -1987,15 +2965,24 @@
 
           const selectedChannels = Array.from(document.querySelectorAll('#cot-channels-group .stocka-cot-channel-item.active')).map(el => el.dataset.channel);
 
+          const snap = lastSummarySnapshot || {};
           const quoteDetailsNotes = `[COTIZADOR ONLINE 360]\n` +
-            `Pedidos Mensuales: ${currentOrders}\n` +
-            `Volumen Bodega: ${currentVol.toFixed(1)} m3\n` +
+            `Pedidos Mensuales: ${currentOrders} (${snap.tier ? snap.tier.label : ''})\n` +
+            `Volumen Bodega: ${currentVol.toFixed(1)} m3${snap.storageDiscountPct > 0 ? ` (-${Math.round(snap.storageDiscountPct * 100)}% dcto.)` : ''}\n` +
+            `Pick & Pack Unitario: ${formatCLP(snap.unitPickPack || 0)} + IVA\n` +
+            `Costo Fijo Mensual: ${snap.fixedFeeExempt ? '$0 (Exento)' : `${snap.fixedFeeUF} UF (${formatCLP(snap.fixedFeeCLP || 0)})`}\n` +
             `Canales: ${selectedChannels.join(', ') || 'No indicado'}\n` +
-            `Same Day RM: ${includeSameDay ? `${rmPercentage}% (${Math.round(currentOrders * (rmPercentage / 100))} pedidos)` : 'No'}\n` +
-            `Envíos a Regiones: ${currentOrders - (includeSameDay ? Math.round(currentOrders * (rmPercentage / 100)) : 0)} pedidos (vía couriers)\n` +
-            `Vitrina / Showroom: ${includeVitrina ? 'Sí' : 'No'}\n` +
-            `Punto de Venta POS: ${includePOS ? 'Sí' : 'No'}\n` +
-            `Costo Estimado Mensual: ${document.getElementById('sum-total-clp').textContent} (${document.getElementById('sum-total-uf').textContent})\n` +
+            `Same Day RM: ${includeSameDay ? `${rmPercentage}% (${snap.rmOrders || 0} pedidos · ${formatCLP(snap.totalRmShipping || 0)})` : 'No'}\n` +
+            `Envíos a Regiones: ${snap.regOrders || 0} pedidos (${snap.includeRegional ? `Incluye flete est. + Envíame: ${formatCLP(snap.totalRegShipping || 0)}` : 'Referencial no sumado'})\n` +
+            (snap.colinaOrders > 0 ? `Colina / Chicureo: ${snap.colinaOrders} pedidos\n` : '') +
+            (snap.expressPickups > 0 ? `Retiros Express: ${snap.expressPickups}\n` : '') +
+            (snap.mlFullUnits > 0 ? `Etiquetado ML FULL: ${snap.mlFullUnits} uds.\n` : '') +
+            (snap.inboundLabelUnits > 0 ? `Etiquetado Ingreso: ${snap.inboundLabelUnits} uds.\n` : '') +
+            (snap.unloadingM3 >= 1 ? `Descarga pesada: ${snap.unloadingM3} m3\n` : '') +
+            (snap.bubbleMeters > 0 || snap.boxS > 0 || snap.boxM > 0 ? `Insumos: Burbuja ${snap.bubbleMeters || 0}m, Caja S ${snap.boxS || 0}, Caja M ${snap.boxM || 0}\n` : '') +
+            `Vitrina / Showroom: ${includeVitrina ? 'Sí' : 'No'} · POS: ${includePOS ? 'Sí' : 'No'}\n` +
+            `Subtotal Neto Estimado: ${formatCLP(snap.totalCost || 0)} + IVA (${formatCLP(snap.totalGross || 0)} IVA Inc. · ${snap.totalUF || ''} UF)\n` +
+            `Costo Est. por Pedido: ${formatCLP(snap.costPerOrder || 0)} + IVA\n` +
             `Comentarios: ${notes || 'Sin comentarios adicionales'}`;
 
           try {
@@ -2022,7 +3009,7 @@
             errorDiv.textContent = 'Ocurrió un error al enviar. Escríbenos directamente a contacto@stocka.cl';
             errorDiv.style.display = 'block';
             submitBtn.disabled = false;
-            btnText.textContent = 'Confirmar y Enviar Cotización 🚀';
+            btnText.textContent = 'Confirmar y Enviar Cotización';
             spinner.style.display = 'none';
           }
         };
@@ -2051,7 +3038,7 @@
             return;
           }
 
-          const headerOffset = 100; // Height of theme navbar + buffer
+          const headerOffset = 154; // Height of theme navbar + floating section nav + buffer
           const gridRect = grid.getBoundingClientRect();
           const cardHeight = summaryCard.offsetHeight;
           const totalHeight = controlsCol ? controlsCol.offsetHeight : (summaryCol ? summaryCol.offsetHeight : 0);
@@ -2086,6 +3073,7 @@
       initStickyScroll();
 
       calculate();
+      syncLiveConfigAndUf();
     }
 
     if (document.readyState === 'loading') {
