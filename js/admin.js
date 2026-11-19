@@ -105454,25 +105454,33 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
       if (central) defaultWarehouseId = central.id;
     }
 
-    // 1. Procesar eliminaciones y actualizaciones usando la clave primaria ID
+    // 1. Procesar eliminaciones y actualizaciones usando la clave primaria ID (validando filas afectadas)
     for (const orig of window.originalEditOrderItems) {
       if (!currentMap.has(orig.id)) {
-        const { error } = await supabase
+        const { data: deletedRows, error } = await supabase
           .from('order_items')
           .delete()
-          .eq('id', orig.id);
+          .eq('id', orig.id)
+          .select('id');
         if (error) throw error;
+        if (!Array.isArray(deletedRows) || deletedRows.length === 0) {
+          throw new Error(`No se pudo eliminar el ítem "${orig.sku || orig.name || orig.id}" en base de datos.`);
+        }
       } else {
         const curr = currentMap.get(orig.id);
         if (curr.quantity !== orig.quantity || curr.warehouse_id !== orig.warehouse_id) {
-          const { error } = await supabase
+          const { data: updatedRows, error } = await supabase
             .from('order_items')
             .update({ 
               quantity: curr.quantity,
               warehouse_id: curr.warehouse_id || defaultWarehouseId
             })
-            .eq('id', orig.id);
+            .eq('id', orig.id)
+            .select('id');
           if (error) throw error;
+          if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
+            throw new Error(`No se pudo actualizar el ítem "${curr.sku || orig.sku || orig.id}" en base de datos.`);
+          }
         }
       }
     }
@@ -105480,15 +105488,19 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
     // 2. Procesar inserciones de nuevos ítems (que tienen id = null)
     for (const curr of window.tempEditOrderItems) {
       if (!curr.id) {
-        const { error } = await supabase
+        const { data: insertedRows, error } = await supabase
           .from('order_items')
           .insert({
             order_id: orderId,
             product_id: curr.product_id,
             warehouse_id: curr.warehouse_id || defaultWarehouseId,
             quantity: curr.quantity
-          });
+          })
+          .select('id');
         if (error) throw error;
+        if (!Array.isArray(insertedRows) || insertedRows.length === 0) {
+          throw new Error(`No se pudo agregar el ítem "${curr.sku || curr.name || curr.product_id}" en base de datos.`);
+        }
       }
     }
 
@@ -105739,12 +105751,16 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
       };
     }
 
-    const { error: orderUpdErr } = await supabase
+    const { data: updatedOrders, error: orderUpdErr } = await supabase
       .from('orders')
       .update(updatePayload)
-      .eq('id', orderId);
+      .eq('id', orderId)
+      .select('id, cantidad, sku, item, total_value');
 
     if (orderUpdErr) throw orderUpdErr;
+    if (!Array.isArray(updatedOrders) || updatedOrders.length === 0) {
+      throw new Error('No se pudieron guardar los cambios en el pedido en base de datos (0 filas afectadas).');
+    }
 
     const { error: auditErr } = await supabase
       .from('order_audit_logs')

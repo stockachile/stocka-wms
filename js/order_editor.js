@@ -182,7 +182,10 @@ window.openEditOrderItemsModal = async function(orderId) {
   }
 
   try {
-    const cachedOrderInMemory = (window.loadedOrders || window.clientLoadedOrders || []).find(o => o.id === orderId);
+    const cachedOrderInMemory =
+      (Array.isArray(window.loadedOrders) && window.loadedOrders.find(o => o.id === orderId)) ||
+      (Array.isArray(window.clientLoadedOrders) && window.clientLoadedOrders.find(o => o.id === orderId)) ||
+      null;
     if (cachedOrderInMemory?.comercio) {
       window.loadEditOrderCommerceCatalog(cachedOrderInMemory.comercio);
     }
@@ -214,11 +217,27 @@ window.openEditOrderItemsModal = async function(orderId) {
     window.tempWarehouses = whRes.data || [];
 
     // Verificación estricta de permisos de edición
-    const isAdmin = Boolean(
+    const userRoleLower = String(window.currentUserProfile?.role || window.userRole || '').toLowerCase().trim();
+    const isObserver = userRoleLower === 'observer';
+    const isAdmin = !isObserver && Boolean(
       document.getElementById('admin-cmd-container') ||
       window.location.pathname.includes('admin') ||
-      window.currentUserProfile?.role === 'admin'
+      userRoleLower === 'admin'
     );
+
+    if (isObserver) {
+      if (window.Swal) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Solo lectura (Observador)',
+          text: 'Tu perfil de Observador no tiene permisos para modificar ítems de pedidos.',
+          confirmButtonColor: '#6366f1'
+        });
+      } else {
+        alert('Acceso denegado: el rol de Observador no permite editar ítems de pedidos.');
+      }
+      return;
+    }
 
     const estadoWmsLower = String(order.estado_wms || order.status || '').toLowerCase().trim();
     const isEnProcesamiento = estadoWmsLower === 'en procesamiento';
@@ -1407,7 +1426,12 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
     const commerceName = orderData.comercio || '';
     const orderNumDisplay = orderData.external_order_number || orderId;
 
-    // Validación de seguridad para clientes
+    // Validación de seguridad para clientes / observadores
+    const userRoleLower = String(window.currentUserProfile?.role || window.userRole || '').toLowerCase().trim();
+    if (userRoleLower === 'observer') {
+      Swal.fire('Acceso denegado', 'Tu perfil de Observador es de solo lectura y no puede editar pedidos.', 'warning');
+      return;
+    }
     const estadoWmsLower = String(orderData.estado_wms || orderData.status || '').toLowerCase().trim();
     if (!isAdmin && estadoWmsLower !== 'en procesamiento') {
       Swal.fire('Error', 'Los pedidos solo pueden editarse mientras se encuentran en estado "En procesamiento".', 'error');
@@ -1474,25 +1498,33 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
       if (central) defaultWarehouseId = central.id;
     }
 
-    // 1. Procesar eliminaciones y actualizaciones usando ID
+    // 1. Procesar eliminaciones y actualizaciones usando ID (validando filas afectadas contra bloqueos RLS silenciosos)
     for (const orig of window.originalEditOrderItems) {
       if (!currentMap.has(orig.id)) {
-        const { error } = await supabase
+        const { data: deletedRows, error } = await supabase
           .from('order_items')
           .delete()
-          .eq('id', orig.id);
+          .eq('id', orig.id)
+          .select('id');
         if (error) throw error;
+        if (!Array.isArray(deletedRows) || deletedRows.length === 0) {
+          throw new Error(`No se pudo eliminar el ítem "${orig.sku || orig.name || orig.id}" (sin permisos de edición o el pedido ya cambió de estado). Recarga la vista para verificar.`);
+        }
       } else {
         const curr = currentMap.get(orig.id);
         if (curr.quantity !== orig.quantity || curr.warehouse_id !== orig.warehouse_id) {
-          const { error } = await supabase
+          const { data: updatedRows, error } = await supabase
             .from('order_items')
             .update({ 
               quantity: curr.quantity,
               warehouse_id: curr.warehouse_id || defaultWarehouseId
             })
-            .eq('id', orig.id);
+            .eq('id', orig.id)
+            .select('id');
           if (error) throw error;
+          if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
+            throw new Error(`No se pudo actualizar el ítem "${curr.sku || orig.sku || orig.id}" (sin permisos de edición o el pedido ya cambió de estado). Recarga la vista para verificar.`);
+          }
         }
       }
     }
@@ -1500,15 +1532,19 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
     // 2. Procesar inserciones de nuevos ítems
     for (const curr of window.tempEditOrderItems) {
       if (!curr.id) {
-        const { error } = await supabase
+        const { data: insertedRows, error } = await supabase
           .from('order_items')
           .insert({
             order_id: orderId,
             product_id: curr.product_id,
             warehouse_id: curr.warehouse_id || defaultWarehouseId,
             quantity: curr.quantity
-          });
+          })
+          .select('id');
         if (error) throw error;
+        if (!Array.isArray(insertedRows) || insertedRows.length === 0) {
+          throw new Error(`No se pudo agregar el ítem "${curr.sku || curr.name || curr.product_id}" (sin permisos de edición o el pedido ya cambió de estado).`);
+        }
       }
     }
 
@@ -1659,7 +1695,10 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
     const orderItemsNames = window.tempEditOrderItems.map(item => item.name).join(', ');
     const totalValue = window.tempEditOrderItems.reduce((sum, item) => sum + (item.quantity * item.price), 0);
 
-    const targetOrder = (window.loadedOrders || window.clientLoadedOrders || []).find(o => o.id === orderId);
+    const targetOrder =
+      (Array.isArray(window.loadedOrders) && window.loadedOrders.find(o => o.id === orderId)) ||
+      (Array.isArray(window.clientLoadedOrders) && window.clientLoadedOrders.find(o => o.id === orderId)) ||
+      (window.tempEditOrderData && window.tempEditOrderData.id === orderId ? window.tempEditOrderData : null);
 
     const rawKeys = [
       'raw_shopify_data', 'raw_woocommerce_data', 'raw_falabella_data',
@@ -1687,28 +1726,33 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
       price: String(item.price || 0)
     }));
 
-    const deletedSkusList = [];
+    const origQtyBySku = {};
     for (const orig of window.originalEditOrderItems) {
-      if (!currentMap.has(orig.id)) {
-        if (orig.sku) deletedSkusList.push(orig.sku.trim());
+      if (orig.sku) {
+        const skuKey = orig.sku.trim();
+        origQtyBySku[skuKey] = (origQtyBySku[skuKey] || 0) + (Number(orig.quantity) || 0);
       }
     }
 
-    const addedSkusList = [];
-    for (const curr of window.tempEditOrderItems) {
-      if (!curr.id && curr.sku) {
-        addedSkusList.push(curr.sku.trim());
-      }
-    }
-
-    const modifiedQuantitiesMap = {};
+    const currQtyBySku = {};
     for (const curr of window.tempEditOrderItems) {
       if (curr.sku) {
-        modifiedQuantitiesMap[curr.sku.trim()] = curr.quantity;
+        const skuKey = curr.sku.trim();
+        currQtyBySku[skuKey] = (currQtyBySku[skuKey] || 0) + (Number(curr.quantity) || 0);
       }
     }
 
-    const prevManualEdits = (targetOrder?.raw_shopify_data?.wms_manual_edits) || {};
+    const deletedSkusList = Object.keys(origQtyBySku).filter(skuKey => !(skuKey in currQtyBySku));
+    const addedSkusList = Object.keys(currQtyBySku).filter(skuKey => !(skuKey in origQtyBySku));
+
+    const modifiedQuantitiesMap = {};
+    for (const [skuKey, currQty] of Object.entries(currQtyBySku)) {
+      if (!(skuKey in origQtyBySku) || origQtyBySku[skuKey] !== currQty) {
+        modifiedQuantitiesMap[skuKey] = currQty;
+      }
+    }
+
+    const prevManualEdits = rawKeys.reduce((acc, k) => acc || targetOrder?.[k]?.wms_manual_edits, null) || {};
     const mergedDeleted = Array.from(new Set([...(prevManualEdits.deleted_skus || []), ...deletedSkusList]))
       .filter(s => !addedSkusList.includes(s));
     const mergedAdded = Array.from(new Set([...(prevManualEdits.added_skus || []), ...addedSkusList]))
@@ -1729,6 +1773,7 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
         foundRawKey = key;
         updatedRawDataObj = {
           ...targetOrder[key],
+          shopify_original_line_items: targetOrder[key].shopify_original_line_items || targetOrder[key].line_items || [],
           line_items: newRawLineItems,
           wms_items_edited: true,
           wms_custom_edited: true,
@@ -1747,12 +1792,16 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
       };
     }
 
-    const { error: orderUpdErr } = await supabase
+    const { data: updatedOrders, error: orderUpdErr } = await supabase
       .from('orders')
       .update(updatePayload)
-      .eq('id', orderId);
+      .eq('id', orderId)
+      .select('id, cantidad, sku, item, total_value');
 
     if (orderUpdErr) throw orderUpdErr;
+    if (!Array.isArray(updatedOrders) || updatedOrders.length === 0) {
+      throw new Error('No se pudieron guardar los cambios en el pedido (sin permisos de edición o el pedido ya salió de "En procesamiento"). Recarga la vista para verificar su estado actual.');
+    }
 
     const { error: auditErr } = await supabase
       .from('order_audit_logs')
@@ -1834,6 +1883,9 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
     // Refresco de vistas en admin y clientes
     if (typeof window.applyWmsFiltersAndRender === 'function') {
       window.applyWmsFiltersAndRender();
+    }
+    if (typeof window.applyClientWmsFiltersAndRender === 'function') {
+      window.applyClientWmsFiltersAndRender();
     }
     if (typeof window.renderOrders === 'function') {
       window.renderOrders();
