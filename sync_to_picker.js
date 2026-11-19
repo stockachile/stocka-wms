@@ -42,6 +42,51 @@ if (!WMS_KEY) {
 const wmsClient = createClient(WMS_URL, WMS_KEY);
 const pickerClient = createClient(PICKER_URL, PICKER_KEY);
 
+const PICKER_DATE_TOLERANCE_MS = 18 * 60 * 60 * 1000;
+
+function arePickerCommercesCompatible(comA, comB) {
+  const a = String(comA || '').trim().toUpperCase();
+  const b = String(comB || '').trim().toUpperCase();
+  if (!a || !b) return true;
+  if (a === b) return true;
+  const stripLegal = (s) => s.replace(/\b(LTDA\.?|SPA|S\.?P\.?A\.?|S\.?A\.?|E\.?I\.?R\.?L\.?)\b/gi, '').replace(/[^A-Z0-9]/g, '');
+  const na = stripLegal(a);
+  const nb = stripLegal(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const minLen = Math.min(na.length, nb.length);
+  return minLen >= 4 && (na.startsWith(nb) || nb.startsWith(na));
+}
+
+function extractPickerRowTimestampMs(row) {
+  if (!row) return 0;
+  const createdMs = row.created_at ? new Date(row.created_at).getTime() : 0;
+  const updatedMs = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+  const rawFecha = String(row.fecha || '').trim();
+  let fechaMs = 0;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rawFecha)) {
+    const rawHora = String(row.hora || '').trim();
+    const horaPart = /^\d{2}:\d{2}(:\d{2})?$/.test(rawHora) ? (rawHora.length === 5 ? `${rawHora}:00` : rawHora) : '12:00:00';
+    const parsed = new Date(`${rawFecha}T${horaPart}-03:00`).getTime();
+    if (!isNaN(parsed)) fechaMs = parsed;
+  }
+  if (fechaMs && createdMs) {
+    if (Math.abs(createdMs - fechaMs) > 2 * 24 * 60 * 60 * 1000) return fechaMs;
+    return createdMs;
+  }
+  return updatedMs || createdMs || fechaMs || 0;
+}
+
+function isPickerRowAfterOrderCreation(wmsOrder, pickerRow) {
+  if (!wmsOrder || !pickerRow) return false;
+  const ordCreatedMs = wmsOrder.created_at ? new Date(wmsOrder.created_at).getTime() : 0;
+  const rowEventMs = extractPickerRowTimestampMs(pickerRow);
+  if (ordCreatedMs && rowEventMs && rowEventMs < (ordCreatedMs - PICKER_DATE_TOLERANCE_MS)) {
+    return false;
+  }
+  return true;
+}
+
 // Helper para extraer y limpiar atributos válidos de notas en Shopify (omitiendo marketing, píxeles, cookies y metadatos técnicos)
 function getValidShopifyNoteAttributesText(noteAttributes) {
   if (!Array.isArray(noteAttributes) || noteAttributes.length === 0) return '';
@@ -369,6 +414,7 @@ async function run() {
       .from('orders')
       .select(`
         id,
+        created_at,
         external_order_number,
         external_platform,
         origen,
@@ -466,11 +512,11 @@ async function run() {
     const completedStatuses = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado', 'RETIRADO'];
     const { data: pickerCompletedLogs, error: pLogsErr } = await pickerClient
       .from('history_logs')
-      .select('pedido, estado, comentarios, picker, scanned_label, sucursal, items_summary, created_at')
+      .select('pedido, estado, comentarios, picker, scanned_label, sucursal, items_summary, fecha, hora, created_at')
       .in('pedido', orderNumbers)
       .order('created_at', { ascending: false });
 
-    const completedLogsMap = new Map();
+    const completedLogsByOrderMap = new Map();
     const allLogsByOrderMap = new Map();
     if (!pLogsErr && pickerCompletedLogs) {
       pickerCompletedLogs.forEach(log => {
@@ -479,8 +525,9 @@ async function run() {
         if (allLogsByOrderMap.get(pNorm).length < 25) {
           allLogsByOrderMap.get(pNorm).push(log);
         }
-        if (completedStatuses.includes(log.estado) && !completedLogsMap.has(pNorm)) {
-          completedLogsMap.set(pNorm, log);
+        if (completedStatuses.includes(log.estado)) {
+          if (!completedLogsByOrderMap.has(pNorm)) completedLogsByOrderMap.set(pNorm, []);
+          completedLogsByOrderMap.get(pNorm).push(log);
         }
       });
     }
@@ -653,6 +700,8 @@ async function run() {
       }
 
       const pickerItemsForOrder = (pickerActiveOrders || []).filter(item => {
+        if (!arePickerCommercesCompatible(wmsOrder.comercio, item.comercio)) return false;
+        if (!isPickerRowAfterOrderCreation(wmsOrder, item)) return false;
         const pNo = String(item.order_number || '').replace(/^#/, '').trim().toUpperCase();
         if (pNo === cleanOrderNo) return true;
         const pCleanDigits = pNo.replace(/\D/g, '');
@@ -698,10 +747,17 @@ async function run() {
         const firstAct = pickerItemsForOrder[0];
         const currentPickerTrack = String(firstAct.tracking || '').trim();
 
-        // 0. Si el pedido ya figura como COMPLETADO en active_orders o en history_logs, sincronizar a 'Pickeado' de inmediato
+        // 0. Si el pedido ya figura como COMPLETADO en active_orders o en history_logs (validando fecha >= creación y fecha >= ingreso activo), sincronizar a 'Pickeado' de inmediato
         const isCompletedInActive = completedStatuses.includes(firstAct.sheet_status) ||
           pickerItemsForOrder.some(it => completedStatuses.includes(it.sheet_status));
-        const matchedLog = completedLogsMap.get(cleanOrderNo);
+        const newestActiveMs = pickerItemsForOrder.reduce((mx, it) => Math.max(mx, extractPickerRowTimestampMs(it)), 0);
+        const validOrderLogs = (allLogsByOrderMap.get(cleanOrderNo) || []).filter(l => isPickerRowAfterOrderCreation(wmsOrder, l));
+        const matchedLog = (completedLogsByOrderMap.get(cleanOrderNo) || []).find(l => {
+          if (!isPickerRowAfterOrderCreation(wmsOrder, l)) return false;
+          const logMs = extractPickerRowTimestampMs(l);
+          if (!isCompletedInActive && newestActiveMs && logMs && logMs < newestActiveMs - 60000) return false;
+          return true;
+        }) || null;
         const isCompletedInHistory = Boolean(matchedLog);
 
         if (isCompletedInActive || isCompletedInHistory) {
@@ -712,7 +768,7 @@ async function run() {
           const targetInternalStatus = isRetirado ? 'retirado' : (isRetiro ? 'listo para retiro' : 'preparado');
           const scLabel = (matchedLog && matchedLog.scanned_label) || firstAct.scanned_label || null;
           const nowIso = new Date().toISOString();
-          const orderHistoryLogs = allLogsByOrderMap.get(cleanOrderNo) || (matchedLog ? [matchedLog] : []);
+          const orderHistoryLogs = validOrderLogs.length > 0 ? validOrderLogs : (matchedLog ? [matchedLog] : []);
           const pickerHistorySnapshot = {
             status: finalStatus,
             operator: finalOp,
@@ -1071,14 +1127,20 @@ async function run() {
         // === CASO B: El pedido no está activo en Picker active_orders ===
         console.log(`🔍 Pedido ${orderNo} no está activo en Picker. Verificando estado en Punto de Retiro e historial de completado...`);
 
-        // B.1 Verificar si es retiro y ya fue cancelado o entregado en sucursal_pickups
+        // B.1 Verificar si es retiro y ya fue cancelado o entregado en sucursal_pickups (validando comercio y fecha >= creación del pedido)
         let isPickupHandled = false;
         try {
-          const { data: pickupCheck } = await pickerClient
+          const { data: pickupRows } = await pickerClient
             .from('sucursal_pickups')
-            .select('estado_pedido')
+            .select('estado_pedido, comercio, created_at, updated_at')
             .eq('pedido', orderNo)
-            .maybeSingle();
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+          const pickupCheck = (pickupRows || []).find(p =>
+            arePickerCommercesCompatible(wmsOrder.comercio, p.comercio) &&
+            isPickerRowAfterOrderCreation(wmsOrder, p)
+          ) || null;
 
           if (pickupCheck) {
             const st = (pickupCheck.estado_pedido || '').trim().toUpperCase();
@@ -1093,7 +1155,7 @@ async function run() {
             } else if (st === 'ENTREGADO') {
               console.log(`📦 Pedido ${orderNo} fue entregado en Punto de Retiro. Sincronizando WMS a 'Entregado'...`);
               const nowIso = new Date().toISOString();
-              const orderHistoryLogs = allLogsByOrderMap.get(cleanOrderNo) || [];
+              const orderHistoryLogs = (allLogsByOrderMap.get(cleanOrderNo) || []).filter(l => isPickerRowAfterOrderCreation(wmsOrder, l));
               const retSnap = {
                 status: 'Retirado',
                 operator: orderHistoryLogs[0]?.picker || null,
@@ -1126,24 +1188,24 @@ async function run() {
 
         if (isPickupHandled) continue;
 
-        // B.2 Consultar en logs de completado del Picker (normalizando #)
-        let matchedCompletedLog = completedLogsMap.get(cleanOrderNo);
+        // B.2 Consultar en logs de completado del Picker (normalizando # y validando fecha >= creación del pedido)
+        let matchedCompletedLog = (completedLogsByOrderMap.get(cleanOrderNo) || []).find(l => isPickerRowAfterOrderCreation(wmsOrder, l)) || null;
         if (!matchedCompletedLog) {
           const searchLogKeys = [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')];
           const { data: logs, error: logsErr } = await pickerClient
             .from('history_logs')
-            .select('pedido, estado, comentarios, picker, scanned_label, sucursal, items_summary, created_at')
+            .select('pedido, estado, comentarios, picker, scanned_label, sucursal, items_summary, fecha, hora, created_at')
             .in('pedido', searchLogKeys)
             .in('estado', completedStatuses)
             .order('created_at', { ascending: false })
-            .limit(1);
+            .limit(5);
 
           if (logsErr) {
             console.error(`Error consultando logs para ${orderNo}:`, logsErr.message);
             continue;
           }
           if (logs && logs.length > 0) {
-            matchedCompletedLog = logs[0];
+            matchedCompletedLog = logs.find(l => isPickerRowAfterOrderCreation(wmsOrder, l)) || null;
           }
         }
 
@@ -1153,7 +1215,8 @@ async function run() {
           const targetWmsState = isRetirado ? 'Entregado' : (isRetiro ? 'Listo para retiro' : 'Pickeado');
           const targetInternalStatus = isRetirado ? 'retirado' : (isRetiro ? 'listo para retiro' : 'preparado');
           const nowIso = new Date().toISOString();
-          const orderHistoryLogs = allLogsByOrderMap.get(cleanOrderNo) || logs;
+          const validOrderLogsB = (allLogsByOrderMap.get(cleanOrderNo) || []).filter(l => isPickerRowAfterOrderCreation(wmsOrder, l));
+          const orderHistoryLogs = validOrderLogsB.length > 0 ? validOrderLogsB : logs;
           const pickerHistorySnapshot = {
             status: logs[0].estado,
             operator: logs[0].picker || null,
@@ -1354,7 +1417,7 @@ async function syncPickedRetiroOrdersToEntregado() {
   try {
     const { data: pickedOrders, error: pErr } = await wmsClient
       .from('orders')
-      .select('id, external_order_number, comercio, sucursal_pickeo, agenda, categoria_entrega, estado_wms')
+      .select('id, created_at, external_order_number, comercio, sucursal_pickeo, agenda, categoria_entrega, estado_wms')
       .in('estado_wms', ['Pickeado', 'Listo para retiro']);
 
     if (pErr || !pickedOrders || pickedOrders.length === 0) return;
@@ -1371,7 +1434,8 @@ async function syncPickedRetiroOrdersToEntregado() {
     const allKeys = Array.from(searchKeysSet);
     if (allKeys.length === 0) return;
 
-    const deliveredMetaMap = new Map();
+    const pickupsByClean = new Map();
+    const logsByClean = new Map();
     const chunkSize = 120;
 
     for (let i = 0; i < allKeys.length; i += chunkSize) {
@@ -1379,12 +1443,12 @@ async function syncPickedRetiroOrdersToEntregado() {
       const [pickRes, histRes] = await Promise.all([
         pickerClient
           .from('sucursal_pickups')
-          .select('pedido, comercio, estado_pedido, sucursal')
+          .select('pedido, comercio, estado_pedido, sucursal, created_at, updated_at')
           .in('pedido', chunk)
           .eq('estado_pedido', 'ENTREGADO'),
         pickerClient
           .from('history_logs')
-          .select('pedido, estado, comentarios, picker, scanned_label, sucursal, items_summary, created_at')
+          .select('pedido, estado, comentarios, picker, scanned_label, sucursal, items_summary, fecha, hora, created_at')
           .in('pedido', chunk)
           .in('estado', ['Retirado', 'RETIRADO'])
           .order('created_at', { ascending: false })
@@ -1393,10 +1457,9 @@ async function syncPickedRetiroOrdersToEntregado() {
       if (!pickRes.error && pickRes.data) {
         pickRes.data.forEach(r => {
           const clean = String(r.pedido || '').replace(/^#/, '').trim().toUpperCase();
-          const com = String(r.comercio || '').trim().toUpperCase();
           if (clean) {
-            if (com) deliveredMetaMap.set(`${clean}__${com}`, { pickup: r });
-            if (!deliveredMetaMap.has(clean)) deliveredMetaMap.set(clean, { pickup: r });
+            if (!pickupsByClean.has(clean)) pickupsByClean.set(clean, []);
+            pickupsByClean.get(clean).push(r);
           }
         });
       }
@@ -1404,39 +1467,35 @@ async function syncPickedRetiroOrdersToEntregado() {
         histRes.data.forEach(r => {
           const clean = String(r.pedido || '').replace(/^#/, '').trim().toUpperCase();
           if (clean) {
-            const cur = deliveredMetaMap.get(clean) || {};
-            if (!cur.log) cur.log = r;
-            deliveredMetaMap.set(clean, cur);
+            if (!logsByClean.has(clean)) logsByClean.set(clean, []);
+            logsByClean.get(clean).push(r);
           }
         });
       }
     }
 
-    if (deliveredMetaMap.size === 0) return;
+    if (pickupsByClean.size === 0 && logsByClean.size === 0) return;
 
-    const toEntregado = pickedOrders.filter(o => {
+    const toEntregado = [];
+    for (const o of pickedOrders) {
       const clean = String(o.external_order_number || o.id || '').replace(/^#/, '').trim().toUpperCase();
-      const com = String(o.comercio || '').trim().toUpperCase();
-      if (com && deliveredMetaMap.has(`${clean}__${com}`)) return true;
-      const genericMatch = deliveredMetaMap.get(clean);
-      if (!genericMatch) return false;
-      if (genericMatch.pickup && genericMatch.pickup.comercio && com && String(genericMatch.pickup.comercio).trim().toUpperCase() !== com) {
-        return false;
+      const matchedPickup = (pickupsByClean.get(clean) || []).find(p =>
+        arePickerCommercesCompatible(o.comercio, p.comercio) &&
+        isPickerRowAfterOrderCreation(o, p)
+      ) || null;
+      const matchedLog = (logsByClean.get(clean) || []).find(l => isPickerRowAfterOrderCreation(o, l)) || null;
+      if (matchedPickup || matchedLog) {
+        toEntregado.push({ ord: o, pickup: matchedPickup, log: matchedLog });
       }
-      return true;
-    });
+    }
 
-    for (const ord of toEntregado) {
+    for (const { ord, pickup, log } of toEntregado) {
       const orderNo = String(ord.external_order_number || ord.id);
-      const clean = orderNo.replace(/^#/, '').trim().toUpperCase();
-      const com = String(ord.comercio || '').trim().toUpperCase();
-      const meta = deliveredMetaMap.get(`${clean}__${com}`) || deliveredMetaMap.get(clean) || {};
-      const log = meta.log || null;
       const nowIso = new Date().toISOString();
       const pickerSnap = {
         status: 'Retirado',
         operator: log?.picker || null,
-        sucursal: log?.sucursal || meta.pickup?.sucursal || ord.sucursal_pickeo || 'Sucursal Ñuñoa',
+        sucursal: log?.sucursal || pickup?.sucursal || ord.sucursal_pickeo || 'Sucursal Ñuñoa',
         scanned_label: log?.scanned_label || null,
         items_summary: log?.items_summary || null,
         observation: log?.comentarios || null,

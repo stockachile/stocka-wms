@@ -934,6 +934,206 @@ window.resolveCommercePickerSigla = function(comercio) {
   return alphaOnly.length >= 3 ? alphaOnly.slice(0, 3) : '';
 };
 
+window.PICKER_MATCH_VERSION = 2;
+window.PICKER_DATE_TOLERANCE_MS = 18 * 60 * 60 * 1000; // 18h de tolerancia por zona horaria / ingreso manual el mismo día
+
+// Extrae el prefijo de comercio de un folio (ej. "DGORAL1965" -> "DGORAL", "MVI-3071" -> "MVI", "CRO#2303" -> "CRO", "#1965" -> "")
+window.extractPickerOrderPrefix = function(rawKey) {
+  if (!rawKey) return '';
+  const clean = String(rawKey).trim().replace(/^#/, '').trim().toUpperCase();
+  if (!clean) return '';
+  const sepMatch = clean.match(/^([A-Z][A-Z0-9]{1,9})[#\-_\s]+(?=[A-Z0-9#\-_\s]*\d)/);
+  if (sepMatch) return sepMatch[1];
+  const directMatch = clean.match(/^([A-Z]{2,10})(\d{3,})$/);
+  if (directMatch) return directMatch[1];
+  return '';
+};
+
+// Detecta folios numéricos cortos sin prefijo ni comercio (ej. "#1965", "3071", "10850") propensos a colisiones entre comercios
+window.isBareShortPickerKey = function(rawKey) {
+  if (!rawKey) return false;
+  const s = String(rawKey).trim();
+  if (s.startsWith('COMERCIO::') || s.startsWith('SIGLA::') || s.startsWith('ORDER_ID::')) return false;
+  return /^#?\d{1,7}$/.test(s);
+};
+
+// Compara nombres de comercio tolerando abreviaturas históricas del Picker (ej. "LAQU" vs "LAQU & COMPANY", "SERPA - BIOGANCE" vs "SERPA LTDA")
+window.arePickerCommercesCompatible = function(comA, comB) {
+  const a = String(comA || '').trim().toUpperCase();
+  const b = String(comB || '').trim().toUpperCase();
+  if (!a || !b) return true;
+  if (a === b) return true;
+  const stripLegal = (s) => s.replace(/\b(LTDA\.?|SPA|S\.?P\.?A\.?|S\.?A\.?|E\.?I\.?R\.?L\.?)\b/gi, '').replace(/[^A-Z0-9]/g, '');
+  const na = stripLegal(a);
+  const nb = stripLegal(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const minLen = Math.min(na.length, nb.length);
+  if (minLen >= 4 && (na.startsWith(nb) || nb.startsWith(na))) return true;
+  return false;
+};
+
+// Extrae la marca temporal real (ms) de un registro del Picker (respetando fecha/hora real en registros migrados en lote)
+window.extractPickerRowTimestampMs = function(row) {
+  if (!row) return 0;
+  const createdMs = row.created_at ? new Date(row.created_at).getTime() : 0;
+  const updatedMs = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+  const rawFecha = String(row.fecha || '').trim();
+  let fechaMs = 0;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rawFecha)) {
+    const rawHora = String(row.hora || '').trim();
+    const horaPart = /^\d{2}:\d{2}(:\d{2})?$/.test(rawHora) ? (rawHora.length === 5 ? `${rawHora}:00` : rawHora) : '12:00:00';
+    const parsed = new Date(`${rawFecha}T${horaPart}-03:00`).getTime();
+    if (!isNaN(parsed)) fechaMs = parsed;
+  }
+  if (fechaMs && createdMs) {
+    if (Math.abs(createdMs - fechaMs) > 2 * 24 * 60 * 60 * 1000) {
+      return fechaMs;
+    }
+    return createdMs;
+  }
+  return updatedMs || createdMs || fechaMs || 0;
+};
+
+// Extrae todos los SKUs y códigos de barra asociados a una orden del WMS
+window.getOrderPickerSkuTokens = function(order) {
+  const tokens = new Set();
+  if (!order) return tokens;
+  const addTok = (val) => {
+    const clean = String(val || '').trim().replace(/\s*\(x\d+\)\s*$/i, '').trim().toUpperCase();
+    if (clean && clean !== '-' && clean !== 'SKU-TEMP') tokens.add(clean);
+  };
+  if (order.sku) {
+    String(order.sku).split(/[,;|/]/).forEach(addTok);
+  }
+  if (Array.isArray(order.order_items)) {
+    order.order_items.forEach(oi => {
+      if (!oi) return;
+      addTok(oi.sku);
+      const p = oi.products;
+      if (p) {
+        addTok(p.sku);
+        addTok(p.barcode);
+        addTok(p.barcode_wms);
+        if (Array.isArray(p.alternate_barcodes)) p.alternate_barcodes.forEach(addTok);
+        if (Array.isArray(p.options?.alternate_barcodes)) p.options.alternate_barcodes.forEach(addTok);
+      }
+    });
+  }
+  return tokens;
+};
+
+// Evalúa si items_summary (history_logs) o sku (active_orders) coincide con los SKUs/barcodes del pedido WMS.
+// Retorna: true (coincidencia confirmada), false (SKUs explícitamente distintos), null (sin datos de SKU comparables).
+window.evaluatePickerRowSkuMatch = function(order, row) {
+  const orderTokens = window.getOrderPickerSkuTokens(order);
+  if (orderTokens.size === 0) return null;
+  const rawSummary = String(row?.items_summary || row?.sku || '').trim();
+  if (!rawSummary || rawSummary === '-' || /^datos no disponibles$/i.test(rawSummary) || /^sin sku/i.test(rawSummary) || /^#n\/a/i.test(rawSummary)) {
+    return null;
+  }
+  const rowTokens = [];
+  rawSummary.split(',').forEach(part => {
+    const cleaned = part
+      .trim()
+      .replace(/\s*\(\d+\/\d+\)\s*$/, '')
+      .replace(/\s*\[[^\]]*\]\s*$/g, '')
+      .trim();
+    cleaned.split('|').forEach(sub => {
+      const t = sub.trim().toUpperCase();
+      if (t && t !== '-' && t !== 'SIN SKU' && t !== '#N/A') {
+        rowTokens.push(t);
+        if (t.includes('-')) {
+          t.split('-').forEach(seg => {
+            const st = seg.trim();
+            if (st.length >= 4) rowTokens.push(st);
+          });
+        }
+      }
+    });
+  });
+  if (rowTokens.length === 0) return null;
+  return rowTokens.some(rt => orderTokens.has(rt));
+};
+
+// Validador central estricto: determina si una fila del Picker corresponde legítimamente a una orden del WMS.
+// Previene cruces entre comercios por folios sin prefijo (ej. DGORAL1965 vs #1965 CROMO, MVI-3071 vs 3071 SMILE FOR PETS) y registros de fechas anteriores al pedido.
+window.doesPickerRowMatchOrder = function(order, row, rowType = 'history_logs') {
+  if (!order || !row) return false;
+
+  const ordExt = String(order.external_order_number || '').trim();
+  const ordClean = ordExt.replace(/^#/, '').trim().toUpperCase();
+  const ordCompact = ordClean.replace(/[#\-_\s]+/g, '');
+  const ordDigits = ordClean.replace(/\D/g, '');
+  const ordPrefix = window.extractPickerOrderPrefix(ordClean);
+  const ordCom = String(order.comercio || '').trim().toUpperCase();
+  const ordSigla = ordCom && window.resolveCommercePickerSigla ? window.resolveCommercePickerSigla(ordCom) : '';
+  const ordIdUp = order.id ? String(order.id).trim().toUpperCase() : '';
+
+  const rowPedRaw = String(row.order_number || row.pedido || '').trim();
+  if (!rowPedRaw) return false;
+  const rowClean = rowPedRaw.replace(/^#/, '').trim().toUpperCase();
+  const rowCompact = rowClean.replace(/[#\-_\s]+/g, '');
+  const rowDigits = rowClean.replace(/\D/g, '');
+  const rowPrefix = window.extractPickerOrderPrefix(rowClean);
+  const rowCom = String(row.comercio || '').trim().toUpperCase();
+
+  // 1. Validación de identidad de folio / prefijo
+  const isUuidMatch = Boolean(ordIdUp && (rowClean === ordIdUp || rowPedRaw.toUpperCase() === ordIdUp));
+  if (!isUuidMatch) {
+    if (!ordDigits || !rowDigits || ordDigits !== rowDigits) {
+      if (rowClean !== ordClean && rowCompact !== ordCompact) return false;
+    }
+    if (rowPrefix) {
+      const ordComAlpha = ordCom.replace(/[^A-Z0-9]/g, '');
+      const prefixMatches =
+        (ordPrefix && rowPrefix === ordPrefix) ||
+        (ordSigla && rowPrefix === ordSigla) ||
+        (ordComAlpha && rowPrefix.length >= 3 && ordComAlpha.startsWith(rowPrefix)) ||
+        (ordPrefix && ordPrefix.length >= 3 && rowPrefix.startsWith(ordPrefix));
+      if (!prefixMatches) return false;
+    }
+  }
+
+  // 2. Validación de comercio (active_orders / sucursal_pickups)
+  if (rowCom && ordCom && !window.arePickerCommercesCompatible(ordCom, rowCom)) {
+    return false;
+  }
+
+  // 3. Validación cronológica estricta: descartar registros del Picker anteriores a la creación del pedido (> 18h antes)
+  const ordCreatedMs = order.created_at ? new Date(order.created_at).getTime() : 0;
+  const rowEventMs = window.extractPickerRowTimestampMs(row);
+  if (ordCreatedMs && rowEventMs && rowEventMs < (ordCreatedMs - window.PICKER_DATE_TOLERANCE_MS)) {
+    return false;
+  }
+
+  // 4. Guardia estricta para folios numéricos cortos sin prefijo (ej. "#1965", "3071", "3073", "1800")
+  const isRowBareShort = !isUuidMatch && !rowPrefix && rowDigits.length > 0 && rowDigits.length <= 7;
+  if (isRowBareShort) {
+    const skuMatch = window.evaluatePickerRowSkuMatch(order, row);
+    if (ordPrefix) {
+      if (rowType === 'history_logs') {
+        // history_logs no tiene columna comercio: solo aceptar match sin prefijo si los SKUs/barcodes coinciden explícitamente
+        if (skuMatch !== true) return false;
+      } else {
+        // active_orders / sucursal_pickups: exigir comercio compatible explícito o coincidencia de SKU
+        if (!rowCom && skuMatch !== true) return false;
+      }
+    } else {
+      // Ambos sin prefijo: rechazar si los SKUs son explícitamente incompatibles
+      if (skuMatch === false) return false;
+    }
+  } else if (rowType === 'history_logs' && !isUuidMatch) {
+    // Incluso con prefijo idéntico (reutilización de folio), rechazar si la fecha es anterior al pedido y los SKUs no coinciden
+    const skuMatch = window.evaluatePickerRowSkuMatch(order, row);
+    if (skuMatch === false && ordCreatedMs && rowEventMs && rowEventMs < ordCreatedMs) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 // Helper para normalizar identificadores de pedidos al buscar en mapas de Picker
 window.normalizeOrderKeys = function(rawKey, comercio = '') {
   if (!rawKey) return [];
@@ -955,8 +1155,8 @@ window.normalizeOrderKeys = function(rawKey, comercio = '') {
   const comNorm = String(comercio || '').trim().toUpperCase();
 
   // Si viene con prefijo de sigla (ej: "BLE#1114", "BLE-1114", "BLE1114", "DOR55019434")
-  const prefixSepMatch = cleanUpper.match(/^([A-Z]{2,8})[#\-_\s]+(\d+.*)$/);
-  const prefixDirectMatch = !prefixSepMatch ? cleanUpper.match(/^([A-Z]{2,6})(\d{3,})$/) : null;
+  const prefixSepMatch = cleanUpper.match(/^([A-Z][A-Z0-9]{1,9})[#\-_\s]+(\d+.*)$/);
+  const prefixDirectMatch = !prefixSepMatch ? cleanUpper.match(/^([A-Z]{2,10})(\d{3,})$/) : null;
   if (prefixSepMatch) {
     const pfx = prefixSepMatch[1];
     const numPart = prefixSepMatch[2].replace(/^#/, '').trim();
@@ -965,8 +1165,8 @@ window.normalizeOrderKeys = function(rawKey, comercio = '') {
     keys.add(`#${pfx}${numPart}`);
     keys.add(`${pfx}-${numPart}`);
     keys.add(`SIGLA::${pfx}::${numPart}`);
-    // Solo agregar la parte numérica suelta si tiene >= 6 dígitos para evitar colisiones entre comercios en folios cortos (#1111, #1114)
-    if (numPart.length >= 6) {
+    // Solo agregar la parte numérica suelta si tiene >= 8 dígitos (IDs únicos de Marketplace como MercadoLibre)
+    if (numPart.length >= 8 && /^\d+$/.test(numPart)) {
       keys.add(numPart);
       keys.add(`#${numPart}`);
     }
@@ -977,7 +1177,7 @@ window.normalizeOrderKeys = function(rawKey, comercio = '') {
     keys.add(`#${pfx}${numPart}`);
     keys.add(`${pfx}-${numPart}`);
     keys.add(`SIGLA::${pfx}::${numPart}`);
-    if (numPart.length >= 6) {
+    if (numPart.length >= 8) {
       keys.add(numPart);
       keys.add(`#${numPart}`);
     }
@@ -1002,38 +1202,45 @@ window.normalizeOrderKeys = function(rawKey, comercio = '') {
   return Array.from(keys);
 };
 
-// Genera todas las claves candidatas de búsqueda para una orden del WMS (priorizando claves con comercio/sigla)
+// Genera todas las claves candidatas de búsqueda para una orden del WMS (priorizando claves con comercio/sigla y evitando dígitos sueltos en pedidos con prefijo)
 window.getPickerOrderCandidateKeys = function(order, options = {}) {
   if (!order) return [];
   const includeInternal = options.includeInternal !== false;
   const includeUuid = options.includeUuid !== false;
   const compactForQuery = options.compactForQuery === true;
+  const includeBareFallback = options.includeBareFallback === true;
   const comNorm = String(order.comercio || '').trim().toUpperCase();
   const extRaw = String(order.external_order_number || '').trim();
   const rawShopifyName = String(order.raw_shopify_data?.name || '').trim();
   const rawShopifyNum = order.raw_shopify_data?.order_number != null ? String(order.raw_shopify_data.order_number).trim() : '';
 
+  const extCleanUpper = extRaw.replace(/^#/, '').trim().toUpperCase();
+  const digits = extCleanUpper.replace(/\D/g, '') || String(rawShopifyName || rawShopifyNum || '').replace(/\D/g, '');
+  const ordPrefix = window.extractPickerOrderPrefix ? window.extractPickerOrderPrefix(extCleanUpper) : '';
+  const blockBareShort = Boolean(ordPrefix && digits && digits.length <= 7 && !includeBareFallback);
+
   const orderedKeys = [];
   const seen = new Set();
   const addKey = (k) => {
     if (!k) return;
-    if (!includeInternal && (String(k).startsWith('COMERCIO::') || String(k).startsWith('SIGLA::'))) return;
-    if (!seen.has(k)) {
-      seen.add(k);
-      orderedKeys.push(k);
+    const s = String(k).trim();
+    if (!s) return;
+    if (!includeInternal && (s.startsWith('COMERCIO::') || s.startsWith('SIGLA::') || s.startsWith('ORDER_ID::'))) return;
+    if (blockBareShort && window.isBareShortPickerKey && window.isBareShortPickerKey(s)) return;
+    if (!seen.has(s)) {
+      seen.add(s);
+      orderedKeys.push(s);
     }
   };
 
-  const extCleanUpper = extRaw.replace(/^#/, '').trim().toUpperCase();
-  const digits = extCleanUpper.replace(/\D/g, '') || String(rawShopifyName || rawShopifyNum || '').replace(/\D/g, '');
   const sigla = comNorm && window.resolveCommercePickerSigla ? window.resolveCommercePickerSigla(comNorm) : '';
 
-  // 1. Claves compuestas por comercio y sigla (máxima precisión para evitar colisiones de folios cortos como #1111 / #1114)
+  // 1. Claves compuestas por comercio y sigla (máxima precisión para evitar colisiones de folios cortos)
   if (includeInternal) {
+    if (order.id) addKey(`ORDER_ID::${order.id}`);
     if (comNorm && extCleanUpper) addKey(`COMERCIO::${comNorm}::${extCleanUpper}`);
     if (comNorm && digits) addKey(`COMERCIO::${comNorm}::${digits}`);
     if (sigla && digits) addKey(`SIGLA::${sigla}::${digits}`);
-    if (order.id) addKey(`ORDER_ID::${order.id}`);
   }
 
   if (compactForQuery) {
@@ -1046,8 +1253,10 @@ window.getPickerOrderCandidateKeys = function(order, options = {}) {
       addKey(`${sigla}${digits}`);
       addKey(`${sigla}#${digits}`);
       addKey(`#${sigla}${digits}`);
+      addKey(`${sigla}-${digits}`);
     }
-    if (digits) {
+    // Solo consultar dígitos sueltos si el pedido NO tiene prefijo, si es un ID largo (>= 8 dígitos), o si se pidió explícitamente fallback
+    if (digits && (!ordPrefix || digits.length >= 8 || includeBareFallback)) {
       addKey(`#${digits}`);
       addKey(digits);
     }
@@ -1057,7 +1266,7 @@ window.getPickerOrderCandidateKeys = function(order, options = {}) {
     return orderedKeys;
   }
 
-  // 2. Claves normalizadas desde external_order_number y datos de tienda
+  // 2. Claves normalizadas desde external_order_number y datos de tienda (filtrando claves cortas sin prefijo cuando aplica)
   if (extRaw) {
     window.normalizeOrderKeys(extRaw, comNorm).forEach(addKey);
   }
@@ -1068,8 +1277,8 @@ window.getPickerOrderCandidateKeys = function(order, options = {}) {
     window.normalizeOrderKeys(rawShopifyNum, comNorm).forEach(addKey);
   }
 
-  // Fallback de dígitos puros al final (en caso de que el pedido tenga prefijo en WMS pero esté sin prefijo en Picker)
-  if (digits && digits.length >= 3) {
+  // Fallback de dígitos puros solo si el pedido no tiene prefijo, tiene >= 8 dígitos, o se solicita explícitamente
+  if (digits && (!ordPrefix || digits.length >= 8 || includeBareFallback) && digits.length >= 3) {
     addKey(`#${digits}`);
     addKey(digits);
   }
@@ -1082,20 +1291,23 @@ window.getPickerOrderCandidateKeys = function(order, options = {}) {
   return orderedKeys;
 };
 
-// Registra un estado de Picker en memoria para todas las variantes de clave del pedido
+// Registra un estado de Picker en memoria para todas las variantes seguras de clave del pedido
 window.registerOrderInPickerStatusMap = function(orderOrRow, statusObj, options = {}) {
   if (!orderOrRow || !statusObj) return;
   const overwriteExisting = options.overwrite !== false;
   const comNorm = String(orderOrRow.comercio || statusObj.comercio || '').trim().toUpperCase();
-  const enrichedStatus = comNorm && !statusObj.comercio
-    ? { ...statusObj, comercio: comNorm }
-    : statusObj;
+  const enrichedStatus = {
+    ...statusObj,
+    ...(comNorm && !statusObj.comercio ? { comercio: comNorm } : {}),
+    _matchV: statusObj._matchV || window.PICKER_MATCH_VERSION
+  };
 
   const rawNum = orderOrRow.external_order_number || orderOrRow.order_number || orderOrRow.pedido || orderOrRow.id;
+  const rawPrefix = window.extractPickerOrderPrefix ? window.extractPickerOrderPrefix(rawNum) : '';
   const keys = new Set([
     ...(rawNum ? window.normalizeOrderKeys(rawNum, comNorm) : []),
     ...(orderOrRow.external_order_number || orderOrRow.raw_shopify_data
-      ? window.getPickerOrderCandidateKeys(orderOrRow, { includeInternal: true, includeUuid: true })
+      ? window.getPickerOrderCandidateKeys(orderOrRow, { includeInternal: true, includeUuid: true, includeBareFallback: false })
       : [])
   ]);
   if (orderOrRow.id) {
@@ -1105,11 +1317,15 @@ window.registerOrderInPickerStatusMap = function(orderOrRow, statusObj, options 
 
   keys.forEach(k => {
     const isInternalKey = String(k).startsWith('COMERCIO::') || String(k).startsWith('SIGLA::') || String(k).startsWith('ORDER_ID::');
-    const isShortGenericKey = !isInternalKey && /^#?\d{1,5}$/.test(String(k));
+    const isShortGenericKey = !isInternalKey && window.isBareShortPickerKey && window.isBareShortPickerKey(k);
+    // Nunca contaminar claves numéricas cortas sueltas cuando el pedido ya tiene prefijo de comercio o no trae comercio
+    if (isShortGenericKey && (rawPrefix || !comNorm)) {
+      return;
+    }
     const existing = window.pickerStatusMap[k];
 
     // Evitar que un pedido de otro comercio sobreescriba una clave numérica corta (#1111, #1114) que ya pertenece a otro comercio
-    if (isShortGenericKey && existing && existing.comercio && comNorm && existing.comercio !== comNorm) {
+    if (isShortGenericKey && existing && existing.comercio && comNorm && !window.arePickerCommercesCompatible(existing.comercio, comNorm)) {
       if (existing.isActive && !enrichedStatus.isActive) return;
       if (existing.isCompleted && !enrichedStatus.isCompleted) return;
     }
@@ -1118,19 +1334,21 @@ window.registerOrderInPickerStatusMap = function(orderOrRow, statusObj, options 
       window.pickerStatusMap[k] = enrichedStatus;
     }
     if (enrichedStatus.operator && enrichedStatus.operator !== '-') {
-      if (!isShortGenericKey || !window.pickerOperatorsMap[k] || !existing?.comercio || existing.comercio === comNorm) {
+      if (!isShortGenericKey || !window.pickerOperatorsMap[k] || !existing?.comercio || window.arePickerCommercesCompatible(existing.comercio, comNorm)) {
         window.pickerOperatorsMap[k] = enrichedStatus.operator;
       }
     }
   });
 };
 
-// Helper para obtener el estado del Picker asignado a un pedido
+// Helper para obtener el estado del Picker asignado a un pedido (con validación de versión de caché, comercio y cronología)
 window.getPickerStatusForOrder = function(order) {
   if (!order) return null;
   const comNorm = String(order.comercio || '').trim().toUpperCase();
+  const ordPrefix = window.extractPickerOrderPrefix ? window.extractPickerOrderPrefix(order.external_order_number || '') : '';
+  const ordCreatedMs = order.created_at ? new Date(order.created_at).getTime() : 0;
   const candidates = window.getPickerOrderCandidateKeys
-    ? window.getPickerOrderCandidateKeys(order, { includeInternal: true, includeUuid: true })
+    ? window.getPickerOrderCandidateKeys(order, { includeInternal: true, includeUuid: true, includeBareFallback: false })
     : [
         ...(order.external_order_number ? window.normalizeOrderKeys(order.external_order_number, comNorm) : []),
         ...(order.id ? window.normalizeOrderKeys(order.id) : [])
@@ -1140,9 +1358,28 @@ window.getPickerStatusForOrder = function(order) {
     const st = window.pickerStatusMap[k];
     if (st) {
       const isInternalKey = String(k).startsWith('COMERCIO::') || String(k).startsWith('SIGLA::') || String(k).startsWith('ORDER_ID::');
-      const isShortGenericKey = !isInternalKey && /^#?\d{1,5}$/.test(String(k));
-      // Si es una clave genérica corta (ej: "#1111", "#1114") y ambos tienen comercio distinto, seguir buscando clave específica
-      if (isShortGenericKey && comNorm && st.comercio && String(st.comercio).trim().toUpperCase() !== comNorm) {
+      const isShortGenericKey = !isInternalKey && window.isBareShortPickerKey && window.isBareShortPickerKey(k);
+      // Ignorar entradas obsoletas de caché IndexedDB previas al parche v2 que puedan tener cruces antiguos
+      if ((st.source === 'history_logs' || st.source === 'sucursal_pickups' || st.source === 'picker_sync') && st._matchV !== window.PICKER_MATCH_VERSION) {
+        continue;
+      }
+      // Nunca resolver un pedido con prefijo mediante una clave numérica corta sin prefijo
+      if (isShortGenericKey && ordPrefix) {
+        continue;
+      }
+      // Si es una clave genérica corta (ej: "#1111", "2620"), exigir comercio compatible (nunca aceptar comercio vacío en cruce genérico)
+      if (isShortGenericKey && comNorm) {
+        if (!st.comercio || !window.arePickerCommercesCompatible(st.comercio, comNorm)) {
+          continue;
+        }
+      }
+      // Validación de comercio cuando el status trae comercio
+      if (comNorm && st.comercio && !window.arePickerCommercesCompatible(st.comercio, comNorm)) {
+        continue;
+      }
+      // Validación cronológica: descartar estados de Picker de fechas anteriores a la creación del pedido (> 18h antes)
+      const stTimeMs = st.eventTimeMs || (st.updatedAt ? new Date(st.updatedAt).getTime() : 0);
+      if (ordCreatedMs && stTimeMs && !isNaN(stTimeMs) && stTimeMs < (ordCreatedMs - window.PICKER_DATE_TOLERANCE_MS)) {
         continue;
       }
       return st;
@@ -1431,25 +1668,18 @@ window.fetchPickerOperators = async function(ordersList) {
     return { status: 'EN PREPARACIÓN', isCompleted: false, isActive: true };
   };
 
-  // Construir índices rápidos de ordersList por dígitos y por claves para asociar history_logs (que no tiene columna comercio) al pedido correcto
+  // Limpiar entradas de caché previas a v2 para los pedidos actuales para evitar persistencia de cruces antiguos
+  ordersList.forEach(o => {
+    if (!o || !o.id) return;
+    const prev = window.pickerStatusMap[`ORDER_ID::${o.id}`];
+    if (prev && (prev.source === 'history_logs' || prev.source === 'sucursal_pickups' || prev.source === 'picker_sync') && prev._matchV !== window.PICKER_MATCH_VERSION) {
+      delete window.pickerStatusMap[`ORDER_ID::${o.id}`];
+    }
+  });
+
+  // Construir índices rápidos de ordersList por dígitos y por claves para asociar tablas del Picker al pedido correcto
   const ordersByDigitsMap = new Map();
   const ordersByKeyMap = new Map();
-  const getOrderSkusUpper = (ord) => {
-    const s = new Set();
-    if (ord?.sku) {
-      String(ord.sku).split(/[,;|/]/).forEach(part => {
-        const clean = part.trim().replace(/\s*\(x\d+\)\s*$/i, '').trim().toUpperCase();
-        if (clean) s.add(clean);
-      });
-    }
-    if (Array.isArray(ord?.order_items)) {
-      ord.order_items.forEach(oi => {
-        const pSku = String(oi?.products?.sku || oi?.sku || '').trim().toUpperCase();
-        if (pSku) s.add(pSku);
-      });
-    }
-    return s;
-  };
 
   ordersList.forEach(o => {
     if (!o) return;
@@ -1460,7 +1690,7 @@ window.fetchPickerOperators = async function(ordersList) {
       ordersByDigitsMap.get(digits).push(o);
     }
     if (typeof window.getPickerOrderCandidateKeys === 'function') {
-      window.getPickerOrderCandidateKeys(o, { includeInternal: true, includeUuid: true }).forEach(k => {
+      window.getPickerOrderCandidateKeys(o, { includeInternal: true, includeUuid: true, includeBareFallback: false }).forEach(k => {
         const kUp = String(k).toUpperCase();
         if (!ordersByKeyMap.has(kUp)) ordersByKeyMap.set(kUp, []);
         ordersByKeyMap.get(kUp).push(o);
@@ -1468,68 +1698,65 @@ window.fetchPickerOperators = async function(ordersList) {
     }
   });
 
-  const matchPickerRowToWmsOrders = (pedRaw, rowComercio = '', itemsSummary = '', rowSucursal = '') => {
+  const matchPickerRowToWmsOrders = (row, rowType = 'history_logs') => {
+    const pedRaw = row?.order_number || row?.pedido;
     if (!pedRaw) return [];
     const pedClean = String(pedRaw).trim().replace(/^#/, '').trim().toUpperCase();
     const digits = pedClean.replace(/\D/g, '');
-    const comUpper = String(rowComercio || '').trim().toUpperCase();
-    const pfxMatch = pedClean.match(/^([A-Z]{2,8})[#\-_\s]*(\d+.*)$/);
-    const rowPrefix = pfxMatch ? pfxMatch[1] : '';
 
-    let candidates = (digits && ordersByDigitsMap.get(digits)) || ordersByKeyMap.get(pedClean) || [];
-    if (candidates.length <= 1) {
-      if (candidates.length === 1 && comUpper) {
-        const ordCom = String(candidates[0].comercio || '').trim().toUpperCase();
-        if (ordCom && ordCom !== comUpper) return [];
-      }
-      if (candidates.length === 1 && rowPrefix && !comUpper) {
-        const ordCom = String(candidates[0].comercio || '').trim().toUpperCase();
-        const ordSigla = window.resolveCommercePickerSigla ? window.resolveCommercePickerSigla(ordCom) : '';
-        if (ordCom && ordSigla && ordSigla !== rowPrefix && !ordCom.startsWith(rowPrefix)) {
-          return [];
+    const pool = [];
+    const seenIds = new Set();
+    const addPool = (list) => {
+      if (!Array.isArray(list)) return;
+      for (const ord of list) {
+        if (ord && ord.id && !seenIds.has(ord.id)) {
+          seenIds.add(ord.id);
+          pool.push(ord);
         }
       }
-      return candidates;
-    }
+    };
+    if (digits) addPool(ordersByDigitsMap.get(digits));
+    addPool(ordersByKeyMap.get(pedClean));
+    addPool(ordersByKeyMap.get('#' + pedClean));
+    if (pool.length === 0) return [];
 
-    // Desambiguar cuando múltiples comercios comparten el mismo folio corto (ej: #1111 o #1114)
+    // Validar estrictamente cada candidato con reglas de prefijo, comercio, cronología (>= order.created_at) y SKUs
+    let valid = pool.filter(ord => window.doesPickerRowMatchOrder(ord, row, rowType));
+    if (valid.length <= 1) return valid;
+
+    // Desambiguar cuando múltiples órdenes válidas comparten dígitos (priorizar comercio, prefijo exacto, SKU y sucursal)
+    const comUpper = String(row.comercio || '').trim().toUpperCase();
+    const rowPrefix = window.extractPickerOrderPrefix ? window.extractPickerOrderPrefix(pedClean) : '';
     if (comUpper) {
-      const byCom = candidates.filter(o => String(o.comercio || '').trim().toUpperCase() === comUpper);
-      if (byCom.length > 0) return byCom;
+      const byCom = valid.filter(o => window.arePickerCommercesCompatible(o.comercio, comUpper));
+      if (byCom.length > 0) valid = byCom;
     }
-    if (rowPrefix) {
-      const byPfx = candidates.filter(o => {
+    if (valid.length > 1 && rowPrefix) {
+      const byPfx = valid.filter(o => {
+        const oPfx = window.extractPickerOrderPrefix ? window.extractPickerOrderPrefix(o.external_order_number || '') : '';
         const ordCom = String(o.comercio || '').trim().toUpperCase();
         const ordSigla = window.resolveCommercePickerSigla ? window.resolveCommercePickerSigla(ordCom) : '';
-        return ordSigla === rowPrefix || ordCom.startsWith(rowPrefix) || String(o.external_order_number || '').trim().toUpperCase().startsWith(rowPrefix);
+        return oPfx === rowPrefix || ordSigla === rowPrefix || ordCom.startsWith(rowPrefix);
       });
-      if (byPfx.length > 0) return byPfx;
+      if (byPfx.length > 0) valid = byPfx;
     }
-    if (itemsSummary && itemsSummary !== '-') {
-      const summarySkus = String(itemsSummary)
-        .split(',')
-        .map(s => s.trim().replace(/\s*\(\d+\/\d+\)\s*$/, '').trim().toUpperCase())
-        .filter(s => s && s !== '-');
-      if (summarySkus.length > 0) {
-        const bySku = candidates.filter(o => {
-          const oSkus = getOrderSkusUpper(o);
-          return summarySkus.some(sk => oSkus.has(sk));
-        });
-        if (bySku.length > 0) return bySku;
-      }
+    if (valid.length > 1) {
+      const bySku = valid.filter(o => window.evaluatePickerRowSkuMatch(o, row) === true);
+      if (bySku.length > 0) valid = bySku;
     }
-    if (rowSucursal) {
-      const sucLow = String(rowSucursal).trim().toLowerCase();
-      const bySuc = candidates.filter(o => String(o.sucursal_pickeo || '').trim().toLowerCase() === sucLow);
-      if (bySuc.length === 1) return bySuc;
+    if (valid.length > 1 && row.sucursal) {
+      const sucLow = String(row.sucursal).trim().toLowerCase();
+      const bySuc = valid.filter(o => String(o.sucursal_pickeo || '').trim().toLowerCase() === sucLow);
+      if (bySuc.length === 1) valid = bySuc;
     }
-    return candidates;
+    return valid;
   };
 
   const applyActiveRow = (row) => {
     const num = row?.order_number;
     if (!num) return;
     const comNorm = String(row.comercio || '').trim().toUpperCase();
+    const eventTimeMs = window.extractPickerRowTimestampMs(row);
     const statusObj = {
       status: row.sheet_status || 'EN PREPARACIÓN',
       operator: row.operator || null,
@@ -1540,13 +1767,17 @@ window.fetchPickerOperators = async function(ordersList) {
       isActive: true,
       isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(row.sheet_status),
       source: 'active_orders',
-      updatedAt: row.created_at || null
+      updatedAt: row.created_at || null,
+      eventTimeMs,
+      _matchV: window.PICKER_MATCH_VERSION
     };
     if (typeof window.registerOrderInPickerStatusMap === 'function') {
-      window.registerOrderInPickerStatusMap(row, statusObj, { overwrite: true });
-      const matchedOrders = matchPickerRowToWmsOrders(num, comNorm, '', row.sucursal);
+      if (comNorm || !window.isBareShortPickerKey(num)) {
+        window.registerOrderInPickerStatusMap(row, statusObj, { overwrite: true });
+      }
+      const matchedOrders = matchPickerRowToWmsOrders(row, 'active_orders');
       matchedOrders.forEach(ord => window.registerOrderInPickerStatusMap(ord, statusObj, { overwrite: true }));
-    } else {
+    } else if (comNorm || !window.isBareShortPickerKey(num)) {
       window.normalizeOrderKeys(num, comNorm).forEach(k => {
         window.pickerStatusMap[k] = statusObj;
         if (row.operator) window.pickerOperatorsMap[k] = row.operator;
@@ -1560,6 +1791,7 @@ window.fetchPickerOperators = async function(ordersList) {
     const mapped = mapPickupStateToPickerStatus(pRow.estado_pedido);
     if (!mapped) return;
     const comNorm = String(pRow.comercio || '').trim().toUpperCase();
+    const eventTimeMs = window.extractPickerRowTimestampMs(pRow);
     const statusObj = {
       status: mapped.status,
       operator: mapped.status === 'Retirado' ? 'Punto de Retiro' : 'Sucursal Ñuñoa',
@@ -1569,9 +1801,11 @@ window.fetchPickerOperators = async function(ordersList) {
       isActive: mapped.isActive,
       isCompleted: mapped.isCompleted,
       source: 'sucursal_pickups',
-      updatedAt: pRow.updated_at || pRow.created_at || null
+      updatedAt: pRow.updated_at || pRow.created_at || null,
+      eventTimeMs,
+      _matchV: window.PICKER_MATCH_VERSION
     };
-    const matchedOrders = matchPickerRowToWmsOrders(ped, comNorm, '', pRow.sucursal);
+    const matchedOrders = matchPickerRowToWmsOrders(pRow, 'sucursal_pickups');
     if (matchedOrders.length > 0 && typeof window.registerOrderInPickerStatusMap === 'function') {
       matchedOrders.forEach(ord => {
         const existing = window.getPickerStatusForOrder ? window.getPickerStatusForOrder(ord) : null;
@@ -1580,12 +1814,18 @@ window.fetchPickerOperators = async function(ordersList) {
         }
       });
     }
-    window.normalizeOrderKeys(ped, comNorm).forEach(k => {
-      const existing = window.pickerStatusMap[k];
-      if (!existing || mapped.status === 'Retirado' || (mapped.isCompleted && !existing.isCompleted)) {
-        window.pickerStatusMap[k] = statusObj;
-      }
-    });
+    if (comNorm || !window.isBareShortPickerKey(ped)) {
+      window.normalizeOrderKeys(ped, comNorm).forEach(k => {
+        if (window.isBareShortPickerKey(k) && !comNorm) return;
+        const existing = window.pickerStatusMap[k];
+        if (existing && window.isBareShortPickerKey(k) && existing.comercio && comNorm && !window.arePickerCommercesCompatible(existing.comercio, comNorm)) {
+          return;
+        }
+        if (!existing || mapped.status === 'Retirado' || (mapped.isCompleted && !existing.isCompleted)) {
+          window.pickerStatusMap[k] = statusObj;
+        }
+      });
+    }
   };
 
   const seenOrderIdsInHistory = new Set();
@@ -1596,9 +1836,9 @@ window.fetchPickerOperators = async function(ordersList) {
     if (!ped) return;
     const pedNorm = String(ped).trim().toUpperCase();
     const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(row.estado);
-    const histTime = row.created_at ? new Date(row.created_at).getTime() : 0;
+    const histTime = window.extractPickerRowTimestampMs(row);
 
-    const matchedOrders = matchPickerRowToWmsOrders(ped, '', row.items_summary, row.sucursal);
+    const matchedOrders = matchPickerRowToWmsOrders(row, 'history_logs');
     if (matchedOrders.length > 0) {
       matchedOrders.forEach(ord => {
         if (!ord || !ord.id) return;
@@ -1616,12 +1856,14 @@ window.fetchPickerOperators = async function(ordersList) {
           isActive: false,
           isCompleted: isComp,
           source: 'history_logs',
-          updatedAt: row.created_at || `${row.fecha || ''} ${row.hora || ''}`.trim()
+          updatedAt: row.created_at || `${row.fecha || ''} ${row.hora || ''}`.trim(),
+          eventTimeMs: histTime,
+          _matchV: window.PICKER_MATCH_VERSION
         };
 
         const existingDirect = window.pickerStatusMap[`ORDER_ID::${ord.id}`] || (ordComNorm ? window.pickerStatusMap[`COMERCIO::${ordComNorm}::${String(ord.external_order_number || '').replace(/\D/g, '')}`] : null);
-        if (existingDirect && existingDirect.isActive && (!existingDirect.comercio || existingDirect.comercio === ordComNorm)) {
-          const actTime = existingDirect.updatedAt ? new Date(existingDirect.updatedAt).getTime() : 0;
+        if (existingDirect && existingDirect.isActive && (!existingDirect.comercio || window.arePickerCommercesCompatible(existingDirect.comercio, ordComNorm))) {
+          const actTime = existingDirect.eventTimeMs || (existingDirect.updatedAt ? new Date(existingDirect.updatedAt).getTime() : 0);
           if (!isComp || (actTime && histTime && histTime < actTime - 60000)) {
             if (row.picker && row.picker !== '-') {
               window.pickerOperatorsMap[`ORDER_ID::${ord.id}`] = row.picker;
@@ -1635,7 +1877,9 @@ window.fetchPickerOperators = async function(ordersList) {
       });
     }
 
-    if (!seenRawHistoryKeys.has(pedNorm)) {
+    // NUNCA publicar folios numéricos cortos sin prefijo (#1965, 3071) en el mapa global sin comercio:
+    // cualquier coincidencia legítima ya fue asociada arriba tras validar fecha + SKUs en doesPickerRowMatchOrder.
+    if (!seenRawHistoryKeys.has(pedNorm) && !window.isBareShortPickerKey(ped)) {
       seenRawHistoryKeys.add(pedNorm);
       const statusObj = {
         status: row.estado || 'Completado',
@@ -1646,12 +1890,15 @@ window.fetchPickerOperators = async function(ordersList) {
         isActive: false,
         isCompleted: isComp,
         source: 'history_logs',
-        updatedAt: row.created_at || `${row.fecha || ''} ${row.hora || ''}`.trim()
+        updatedAt: row.created_at || `${row.fecha || ''} ${row.hora || ''}`.trim(),
+        eventTimeMs: histTime,
+        _matchV: window.PICKER_MATCH_VERSION
       };
 
       window.normalizeOrderKeys(ped).forEach(k => {
-        const isShortGenericKey = !String(k).startsWith('COMERCIO::') && !String(k).startsWith('SIGLA::') && /^#?\d{1,5}$/.test(String(k));
-        if (row.picker && row.picker !== '-' && (!isShortGenericKey || !window.pickerOperatorsMap[k])) {
+        const isShortGenericKey = window.isBareShortPickerKey(k);
+        if (isShortGenericKey) return;
+        if (row.picker && row.picker !== '-') {
           window.pickerOperatorsMap[k] = row.picker;
         }
         const existing = window.pickerStatusMap[k];
@@ -1659,12 +1906,8 @@ window.fetchPickerOperators = async function(ordersList) {
           window.pickerStatusMap[k] = statusObj;
           return;
         }
-        // Si la clave genérica corta pertenece a otro comercio activo, no mezclarla sin comercio
-        if (isShortGenericKey && existing.comercio) {
-          return;
-        }
         if (existing.isActive) {
-          const actTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+          const actTime = existing.eventTimeMs || (existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0);
           if (isComp && (!actTime || !histTime || histTime >= actTime - 60000)) {
             window.pickerStatusMap[k] = {
               ...statusObj,
@@ -1672,7 +1915,10 @@ window.fetchPickerOperators = async function(ordersList) {
             };
           }
         } else if (isComp || !existing.isCompleted) {
-          window.pickerStatusMap[k] = statusObj;
+          const exTime = existing.eventTimeMs || 0;
+          if (!exTime || !histTime || histTime >= exTime) {
+            window.pickerStatusMap[k] = statusObj;
+          }
         }
       });
     }
@@ -1688,7 +1934,7 @@ window.fetchPickerOperators = async function(ordersList) {
       ] = await Promise.all([
         client
           .from('active_orders')
-          .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu, comercio')
+          .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu, comercio, sku')
           .limit(3000),
         client
           .from('history_logs')
@@ -1720,7 +1966,7 @@ window.fetchPickerOperators = async function(ordersList) {
     const unresolvedOrders = ordersList.filter(o => {
       if (!o) return false;
       const directSt = window.pickerStatusMap[`ORDER_ID::${o.id}`];
-      if (directSt && (directSt.source === 'active_orders' || directSt.source === 'history_logs' || directSt.source === 'sucursal_pickups')) {
+      if (directSt && directSt._matchV === window.PICKER_MATCH_VERSION && (directSt.source === 'active_orders' || directSt.source === 'history_logs' || directSt.source === 'sucursal_pickups')) {
         return false;
       }
       const isTerminal = ['despachado', 'entregado', 'retirado', 'cancelado'].includes((o.status || '').toLowerCase()) ||
@@ -1738,14 +1984,15 @@ window.fetchPickerOperators = async function(ordersList) {
       return;
     }
 
-    // Generar conjunto compacto de identificadores para los pedidos restantes
+    // Generar conjunto compacto de identificadores seguros (sin dígitos sueltos cuando el pedido ya tiene prefijo de comercio)
     const allQueryKeysSet = new Set();
     unresolvedOrders.forEach(o => {
       if (typeof window.getPickerOrderCandidateKeys === 'function') {
         const keys = window.getPickerOrderCandidateKeys(o, {
           includeInternal: false,
           includeUuid: !o.external_order_number,
-          compactForQuery: true
+          compactForQuery: true,
+          includeBareFallback: false
         });
         keys.forEach(k => allQueryKeysSet.add(k));
       } else if (o.external_order_number) {
@@ -1776,7 +2023,7 @@ window.fetchPickerOperators = async function(ordersList) {
         ] = await Promise.all([
           client
             .from('active_orders')
-            .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu, comercio')
+            .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu, comercio, sku')
             .in('order_number', chunk),
           client
             .from('history_logs')
@@ -1892,26 +2139,21 @@ window.openPickerOrderHistoryModal = async function(orderId) {
 
   try {
     const searchKeys = order && typeof window.getPickerOrderCandidateKeys === 'function'
-      ? window.getPickerOrderCandidateKeys(order, { includeInternal: false, includeUuid: true })
+      ? window.getPickerOrderCandidateKeys(order, { includeInternal: false, includeUuid: true, includeBareFallback: false })
       : [
           ...window.normalizeOrderKeys(orderNumber, commerceName).filter(k => !String(k).startsWith('COMERCIO::') && !String(k).startsWith('SIGLA::')),
           ...(order && order.id && order.id !== orderNumber ? window.normalizeOrderKeys(order.id) : [])
         ];
 
-    // 1. Consultar estado activo actual
+    // 1. Consultar estado activo actual (con validación estricta de comercio, fecha y prefijo)
     let { data: activeItems, error: activeErr } = await client
       .from('active_orders')
       .select('*')
       .in('order_number', searchKeys);
 
-    // Fallback por comercio + dígitos si en Picker tiene otro prefijo o formato
     const digitsOnly = String(orderNumber || '').replace(/\D/g, '');
-    if (activeItems && activeItems.length > 0 && order?.comercio) {
-      const ordComUpper = String(order.comercio).trim().toUpperCase();
-      const filteredByCom = activeItems.filter(r => !r.comercio || String(r.comercio).trim().toUpperCase() === ordComUpper);
-      if (filteredByCom.length > 0 || activeItems.every(r => r.comercio && String(r.comercio).trim().toUpperCase() !== ordComUpper)) {
-        activeItems = filteredByCom;
-      }
+    if (order && activeItems && activeItems.length > 0) {
+      activeItems = activeItems.filter(r => window.doesPickerRowMatchOrder(order, r, 'active_orders'));
     }
     if ((!activeItems || activeItems.length === 0) && order?.comercio && digitsOnly.length >= 3) {
       const { data: fbActive } = await client
@@ -1920,19 +2162,24 @@ window.openPickerOrderHistoryModal = async function(orderId) {
         .ilike('comercio', order.comercio.trim())
         .ilike('order_number', `%${digitsOnly}%`);
       if (fbActive && fbActive.length > 0) {
-        activeItems = fbActive.filter(r => String(r.order_number || '').replace(/\D/g, '') === digitsOnly);
+        activeItems = fbActive.filter(r => window.doesPickerRowMatchOrder(order, r, 'active_orders'));
       }
     }
 
-    // 2. Consultar historial de eventos completo
+    // 2. Consultar historial de eventos completo (validando fecha >= order.created_at, prefijo y SKUs)
     let { data: historyLogs, error: logsErr } = await client
       .from('history_logs')
       .select('*')
       .in('pedido', searchKeys)
       .order('created_at', { ascending: false });
 
-    // Fallback en history_logs por dígitos cuando el pedido se guardó con otro prefijo/espacio
-    if ((!historyLogs || historyLogs.length === 0) && digitsOnly.length >= 3) {
+    if (order && historyLogs && historyLogs.length > 0) {
+      historyLogs = historyLogs.filter(r => window.doesPickerRowMatchOrder(order, r, 'history_logs'));
+    }
+
+    // Fallback controlado en history_logs por dígitos (ej. pedidos antiguos de CROMO guardados sin prefijo),
+    // exigiendo siempre aprobación estricta de doesPickerRowMatchOrder (fecha válida + coincidencia explícita de SKU/barcode).
+    if ((!historyLogs || historyLogs.length === 0) && order && digitsOnly.length >= 3) {
       const { data: fbLogs } = await client
         .from('history_logs')
         .select('*')
@@ -1940,50 +2187,11 @@ window.openPickerOrderHistoryModal = async function(orderId) {
         .order('created_at', { ascending: false })
         .limit(30);
       if (fbLogs && fbLogs.length > 0) {
-        const ordComUpper = String(order?.comercio || '').trim().toUpperCase();
-        const ordSigla = ordComUpper && window.resolveCommercePickerSigla ? window.resolveCommercePickerSigla(ordComUpper) : '';
-        historyLogs = fbLogs.filter(r => {
-          const pClean = String(r.pedido || '').trim().replace(/^#/, '').trim().toUpperCase();
-          if (pClean.replace(/\D/g, '') !== digitsOnly) return false;
-          const pfxMatch = pClean.match(/^([A-Z]{2,8})[#\-_\s]*(\d+.*)$/);
-          if (pfxMatch && ordComUpper) {
-            const pfx = pfxMatch[1];
-            if (pfx !== ordSigla && !ordComUpper.startsWith(pfx)) return false;
-          }
-          return true;
-        });
+        historyLogs = fbLogs.filter(r => window.doesPickerRowMatchOrder(order, r, 'history_logs'));
       }
     }
 
-    // Si hay múltiples logs en un folio corto (#1111), filtrar/priorizar los que coincidan con SKUs o sucursal del pedido
-    if (historyLogs && historyLogs.length > 0 && order && digitsOnly.length <= 5) {
-      const orderSkus = new Set();
-      if (order.sku) {
-        String(order.sku).split(/[,;|/]/).forEach(part => {
-          const c = part.trim().replace(/\s*\(x\d+\)\s*$/i, '').trim().toUpperCase();
-          if (c) orderSkus.add(c);
-        });
-      }
-      if (Array.isArray(order.order_items)) {
-        order.order_items.forEach(oi => {
-          const s = String(oi?.products?.sku || oi?.sku || '').trim().toUpperCase();
-          if (s) orderSkus.add(s);
-        });
-      }
-      if (orderSkus.size > 0) {
-        const skuMatchedLogs = historyLogs.filter(l => {
-          const sum = String(l.items_summary || '').trim();
-          if (!sum || sum === '-') return false;
-          const logSkus = sum.split(',').map(s => s.trim().replace(/\s*\(\d+\/\d+\)\s*$/, '').trim().toUpperCase());
-          return logSkus.some(sk => orderSkus.has(sk));
-        });
-        if (skuMatchedLogs.length > 0) {
-          historyLogs = skuMatchedLogs;
-        }
-      }
-    }
-
-    // 3. Consultar registro de Punto de Retiro (sucursal_pickups) para trazabilidad de correo de aviso
+    // 3. Consultar registro de Punto de Retiro (sucursal_pickups) con validación estricta de comercio y fecha
     let pickupRecord = null;
     try {
       const { data: pickupRows } = await client
@@ -1991,10 +2199,11 @@ window.openPickerOrderHistoryModal = async function(orderId) {
         .select('*')
         .in('pedido', searchKeys)
         .order('created_at', { ascending: false })
-        .limit(5);
+        .limit(10);
       if (pickupRows && pickupRows.length > 0) {
-        const ordComUpper = String(order?.comercio || '').trim().toUpperCase();
-        pickupRecord = (ordComUpper ? pickupRows.find(r => !r.comercio || String(r.comercio).trim().toUpperCase() === ordComUpper) : pickupRows[0]) || null;
+        pickupRecord = order
+          ? (pickupRows.find(r => window.doesPickerRowMatchOrder(order, r, 'sucursal_pickups')) || null)
+          : pickupRows[0];
       }
       if (!pickupRecord && order?.comercio && digitsOnly.length >= 3) {
         const { data: fbPickups } = await client
@@ -2002,9 +2211,10 @@ window.openPickerOrderHistoryModal = async function(orderId) {
           .select('*')
           .ilike('comercio', order.comercio.trim())
           .ilike('pedido', `%${digitsOnly}%`)
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false })
+          .limit(10);
         if (fbPickups && fbPickups.length > 0) {
-          pickupRecord = fbPickups.find(r => String(r.pedido || '').replace(/\D/g, '') === digitsOnly) || null;
+          pickupRecord = fbPickups.find(r => window.doesPickerRowMatchOrder(order, r, 'sucursal_pickups')) || null;
         }
       }
     } catch (pickupErr) {
@@ -2031,7 +2241,9 @@ window.openPickerOrderHistoryModal = async function(orderId) {
         isActive: true,
         isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro'].includes(firstActive.sheet_status),
         source: 'active_orders',
-        updatedAt: firstActive.created_at || null
+        updatedAt: firstActive.created_at || null,
+        eventTimeMs: window.extractPickerRowTimestampMs(firstActive),
+        _matchV: window.PICKER_MATCH_VERSION
       };
       if (typeof window.registerOrderInPickerStatusMap === 'function') {
         window.registerOrderInPickerStatusMap(order || firstActive, statusObj);
@@ -2055,7 +2267,9 @@ window.openPickerOrderHistoryModal = async function(orderId) {
         isActive: mappedStatus === 'EN PREPARACIÓN',
         isCompleted: mappedStatus !== 'EN PREPARACIÓN',
         source: 'sucursal_pickups',
-        updatedAt: pickupRecord.updated_at || pickupRecord.created_at || null
+        updatedAt: pickupRecord.updated_at || pickupRecord.created_at || null,
+        eventTimeMs: window.extractPickerRowTimestampMs(pickupRecord),
+        _matchV: window.PICKER_MATCH_VERSION
       };
       if (typeof window.registerOrderInPickerStatusMap === 'function') {
         window.registerOrderInPickerStatusMap(order || pickupRecord, statusObj);
@@ -2065,6 +2279,8 @@ window.openPickerOrderHistoryModal = async function(orderId) {
     if (hasLogs) {
       const firstLog = historyLogs[0];
       const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(firstLog.estado);
+      const histTime = window.extractPickerRowTimestampMs(firstLog);
+      const actTime = hasActive ? window.extractPickerRowTimestampMs(activeItems[0]) : 0;
       const statusObj = {
         status: firstLog.estado || 'Completado',
         operator: firstLog.picker || null,
@@ -2072,12 +2288,14 @@ window.openPickerOrderHistoryModal = async function(orderId) {
         sucursal: firstLog.sucursal || null,
         itemsSummary: firstLog.items_summary || null,
         comercio: order?.comercio || null,
-        isActive: hasActive,
+        isActive: hasActive && !isComp,
         isCompleted: isComp,
         source: 'history_logs',
-        updatedAt: firstLog.created_at || `${firstLog.fecha} ${firstLog.hora}`
+        updatedAt: firstLog.created_at || `${firstLog.fecha} ${firstLog.hora}`,
+        eventTimeMs: histTime,
+        _matchV: window.PICKER_MATCH_VERSION
       };
-      if (!hasActive || isComp) {
+      if (!hasActive || (isComp && (!actTime || !histTime || histTime >= actTime - 60000))) {
         if (typeof window.registerOrderInPickerStatusMap === 'function') {
           window.registerOrderInPickerStatusMap(order || { pedido: orderNumber, id: orderId }, statusObj);
         } else {
@@ -2448,7 +2666,7 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
 
   try {
     const searchKeys = order && typeof window.getPickerOrderCandidateKeys === 'function'
-      ? window.getPickerOrderCandidateKeys(order, { includeInternal: false, includeUuid: true })
+      ? window.getPickerOrderCandidateKeys(order, { includeInternal: false, includeUuid: true, includeBareFallback: false })
       : [
           ...window.normalizeOrderKeys(orderNumber, order?.comercio || '').filter(k => !String(k).startsWith('COMERCIO::') && !String(k).startsWith('SIGLA::')),
           ...(order && order.id && order.id !== orderNumber ? window.normalizeOrderKeys(order.id) : [])
@@ -2456,25 +2674,21 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
 
     let { data: activeItems } = await client
       .from('active_orders')
-      .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu, comercio')
+      .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu, comercio, sku')
       .in('order_number', searchKeys);
 
     const digitsOnly = String(orderNumber || '').replace(/\D/g, '');
-    if (activeItems && activeItems.length > 0 && order?.comercio) {
-      const ordComUpper = String(order.comercio).trim().toUpperCase();
-      const filteredByCom = activeItems.filter(r => !r.comercio || String(r.comercio).trim().toUpperCase() === ordComUpper);
-      if (filteredByCom.length > 0 || activeItems.every(r => r.comercio && String(r.comercio).trim().toUpperCase() !== ordComUpper)) {
-        activeItems = filteredByCom;
-      }
+    if (order && activeItems && activeItems.length > 0) {
+      activeItems = activeItems.filter(r => window.doesPickerRowMatchOrder(order, r, 'active_orders'));
     }
     if ((!activeItems || activeItems.length === 0) && order?.comercio && digitsOnly.length >= 3) {
       const { data: fbActive } = await client
         .from('active_orders')
-        .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu, comercio')
+        .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu, comercio, sku')
         .ilike('comercio', order.comercio.trim())
         .ilike('order_number', `%${digitsOnly}%`);
       if (fbActive && fbActive.length > 0) {
-        activeItems = fbActive.filter(r => String(r.order_number || '').replace(/\D/g, '') === digitsOnly);
+        activeItems = fbActive.filter(r => window.doesPickerRowMatchOrder(order, r, 'active_orders'));
       }
     }
 
@@ -2485,7 +2699,11 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
       .order('created_at', { ascending: false })
       .limit(15);
 
-    if ((!historyLogs || historyLogs.length === 0) && digitsOnly.length >= 3) {
+    if (order && historyLogs && historyLogs.length > 0) {
+      historyLogs = historyLogs.filter(r => window.doesPickerRowMatchOrder(order, r, 'history_logs'));
+    }
+
+    if ((!historyLogs || historyLogs.length === 0) && order && digitsOnly.length >= 3) {
       const { data: fbLogs } = await client
         .from('history_logs')
         .select('pedido, picker, estado, comentarios, sucursal, fecha, hora, created_at, items_summary')
@@ -2493,60 +2711,34 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
         .order('created_at', { ascending: false })
         .limit(20);
       if (fbLogs && fbLogs.length > 0) {
-        const ordComUpper = String(order?.comercio || '').trim().toUpperCase();
-        const ordSigla = ordComUpper && window.resolveCommercePickerSigla ? window.resolveCommercePickerSigla(ordComUpper) : '';
-        historyLogs = fbLogs.filter(r => {
-          const pClean = String(r.pedido || '').trim().replace(/^#/, '').trim().toUpperCase();
-          if (pClean.replace(/\D/g, '') !== digitsOnly) return false;
-          const pfxMatch = pClean.match(/^([A-Z]{2,8})[#\-_\s]*(\d+.*)$/);
-          if (pfxMatch && ordComUpper) {
-            const pfx = pfxMatch[1];
-            if (pfx !== ordSigla && !ordComUpper.startsWith(pfx)) return false;
-          }
-          return true;
-        });
+        historyLogs = fbLogs.filter(r => window.doesPickerRowMatchOrder(order, r, 'history_logs'));
       }
     }
 
-    if (historyLogs && historyLogs.length > 0 && order && digitsOnly.length <= 5) {
-      const orderSkus = new Set();
-      if (order.sku) {
-        String(order.sku).split(/[,;|/]/).forEach(part => {
-          const c = part.trim().replace(/\s*\(x\d+\)\s*$/i, '').trim().toUpperCase();
-          if (c) orderSkus.add(c);
-        });
-      }
-      if (Array.isArray(order.order_items)) {
-        order.order_items.forEach(oi => {
-          const s = String(oi?.products?.sku || oi?.sku || '').trim().toUpperCase();
-          if (s) orderSkus.add(s);
-        });
-      }
-      if (orderSkus.size > 0) {
-        const skuMatched = historyLogs.filter(l => {
-          const sum = String(l.items_summary || '').trim();
-          if (!sum || sum === '-') return false;
-          const logSkus = sum.split(',').map(s => s.trim().replace(/\s*\(\d+\/\d+\)\s*$/, '').trim().toUpperCase());
-          return logSkus.some(sk => orderSkus.has(sk));
-        });
-        if (skuMatched.length > 0) historyLogs = skuMatched;
-      }
-    }
-
-    let { data: pickupRow } = await client
+    let pickupRow = null;
+    const { data: pickupRows } = await client
       .from('sucursal_pickups')
       .select('pedido, comercio, estado_pedido, sucursal, created_at, updated_at')
       .in('pedido', searchKeys)
-      .maybeSingle();
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (pickupRows && pickupRows.length > 0) {
+      pickupRow = order
+        ? (pickupRows.find(r => window.doesPickerRowMatchOrder(order, r, 'sucursal_pickups')) || null)
+        : pickupRows[0];
+    }
 
     if (!pickupRow && order?.comercio && digitsOnly.length >= 3) {
       const { data: fbPickups } = await client
         .from('sucursal_pickups')
         .select('pedido, comercio, estado_pedido, sucursal, created_at, updated_at')
         .ilike('comercio', order.comercio.trim())
-        .ilike('pedido', `%${digitsOnly}%`);
+        .ilike('pedido', `%${digitsOnly}%`)
+        .order('created_at', { ascending: false })
+        .limit(10);
       if (fbPickups && fbPickups.length > 0) {
-        pickupRow = fbPickups.find(r => String(r.pedido || '').replace(/\D/g, '') === digitsOnly) || null;
+        pickupRow = fbPickups.find(r => window.doesPickerRowMatchOrder(order, r, 'sucursal_pickups')) || null;
       }
     }
 
@@ -2564,7 +2756,9 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
         isActive: true,
         isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(act.sheet_status),
         source: 'active_orders',
-        updatedAt: act.created_at || null
+        updatedAt: act.created_at || null,
+        eventTimeMs: window.extractPickerRowTimestampMs(act),
+        _matchV: window.PICKER_MATCH_VERSION
       };
     }
 
@@ -2573,8 +2767,8 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
       const retiradoLog = historyLogs.find(h => String(h.estado || '').trim().toUpperCase() === 'RETIRADO');
       const hist = retiradoLog || historyLogs[0];
       const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(hist.estado);
-      const histTime = hist.created_at ? new Date(hist.created_at).getTime() : 0;
-      const actTime = resolvedStatus?.updatedAt ? new Date(resolvedStatus.updatedAt).getTime() : 0;
+      const histTime = window.extractPickerRowTimestampMs(hist);
+      const actTime = resolvedStatus?.eventTimeMs || (resolvedStatus?.updatedAt ? new Date(resolvedStatus.updatedAt).getTime() : 0);
       if (!resolvedStatus || (!resolvedStatus.isActive && isComp) || (resolvedStatus.isActive && isComp && (!actTime || !histTime || histTime >= actTime - 60000))) {
         resolvedStatus = {
           status: hist.estado || 'Completado',
@@ -2586,13 +2780,16 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
           isActive: Boolean(activeItems && activeItems.length > 0) && !isComp,
           isCompleted: isComp,
           source: 'history_logs',
-          updatedAt: hist.created_at || `${hist.fecha} ${hist.hora}`
+          updatedAt: hist.created_at || `${hist.fecha} ${hist.hora}`,
+          eventTimeMs: histTime,
+          _matchV: window.PICKER_MATCH_VERSION
         };
       }
     }
 
     if (pickupRow) {
       const pStUpper = String(pickupRow.estado_pedido || '').trim().toUpperCase();
+      const pickTime = window.extractPickerRowTimestampMs(pickupRow);
       if (pStUpper === 'ENTREGADO' || pStUpper === 'RETIRADO') {
         resolvedStatus = {
           status: 'Retirado',
@@ -2603,7 +2800,9 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
           isActive: false,
           isCompleted: true,
           source: 'sucursal_pickups',
-          updatedAt: pickupRow.updated_at || resolvedStatus?.updatedAt || new Date().toISOString()
+          updatedAt: pickupRow.updated_at || resolvedStatus?.updatedAt || new Date().toISOString(),
+          eventTimeMs: pickTime,
+          _matchV: window.PICKER_MATCH_VERSION
         };
       } else if (!resolvedStatus && pStUpper !== 'CANCELADO') {
         const isReady = pStUpper === 'LISTO PARA RETIRO' || pStUpper === 'PREPARADO';
@@ -2616,7 +2815,9 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
           isActive: !isReady,
           isCompleted: isReady,
           source: 'sucursal_pickups',
-          updatedAt: pickupRow.updated_at || pickupRow.created_at || new Date().toISOString()
+          updatedAt: pickupRow.updated_at || pickupRow.created_at || new Date().toISOString(),
+          eventTimeMs: pickTime,
+          _matchV: window.PICKER_MATCH_VERSION
         };
       }
     }
@@ -101232,7 +101433,8 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
     if (typeof window.getPickerOrderCandidateKeys === 'function') {
       window.getPickerOrderCandidateKeys(o, {
         includeInternal: false,
-        includeUuid: !o.external_order_number
+        includeUuid: !o.external_order_number,
+        includeBareFallback: false
       }).forEach(k => searchKeysSet.add(k));
     } else if (o.external_order_number) {
       window.normalizeOrderKeys(o.external_order_number, o.comercio).forEach(k => {
@@ -101247,11 +101449,12 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
 
   try {
     const completedStatuses = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'];
+    const completedStatusesUpperSet = new Set(completedStatuses.map(s => s.toUpperCase()));
     const isDeliveredPickerStatus = (st) => ['RETIRADO', 'ENTREGADO'].includes(String(st || '').trim().toUpperCase());
 
     const chunkSize = 80;
     const logs = [];
-    const activeCompleted = [];
+    const activeAll = [];
     const deliveredPickups = [];
 
     for (let i = 0; i < orderNumbers.length; i += chunkSize) {
@@ -101259,17 +101462,17 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
       const [logRes, actRes, pickRes] = await Promise.all([
         pickerSupabase
           .from('history_logs')
-          .select('pedido, estado, picker')
+          .select('pedido, estado, picker, fecha, hora, created_at, items_summary')
           .in('pedido', chunk)
-          .in('estado', completedStatuses),
+          .in('estado', completedStatuses)
+          .order('created_at', { ascending: false }),
         pickerSupabase
           .from('active_orders')
-          .select('order_number, sheet_status, operator, comercio')
-          .in('order_number', chunk)
-          .in('sheet_status', completedStatuses),
+          .select('order_number, sheet_status, operator, comercio, created_at, sku')
+          .in('order_number', chunk),
         pickerSupabase
           .from('sucursal_pickups')
-          .select('pedido, estado_pedido, comercio')
+          .select('pedido, estado_pedido, comercio, created_at, updated_at')
           .in('pedido', chunk)
           .eq('estado_pedido', 'ENTREGADO')
       ]);
@@ -101283,7 +101486,7 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
       if (actRes?.error) {
         console.warn("[Picker Status Sync] Warning querying active_orders chunk:", actRes.error.message);
       } else if (actRes?.data && actRes.data.length > 0) {
-        activeCompleted.push(...actRes.data);
+        activeAll.push(...actRes.data);
       }
 
       if (!pickRes?.error && pickRes?.data && pickRes.data.length > 0) {
@@ -101292,72 +101495,110 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
     }
 
     const hasLogs = logs.length > 0;
-    const hasActive = activeCompleted.length > 0;
+    const hasActive = activeAll.length > 0;
     const hasDeliveredPickups = deliveredPickups.length > 0;
 
     if (hasLogs || hasActive || hasDeliveredPickups) {
-      const completedKeysSet = new Set();
-      const statusMetaMap = new Map();
-
-      const setOrUpgradeMeta = (key, newStatus, newOperator, rowComercio = null) => {
-        completedKeysSet.add(key);
-        const existing = statusMetaMap.get(key);
-        if (!existing || (isDeliveredPickerStatus(newStatus) && !isDeliveredPickerStatus(existing.status))) {
-          statusMetaMap.set(key, {
-            status: newStatus || 'Completado',
-            operator: newOperator || existing?.operator || null,
-            comercio: rowComercio || existing?.comercio || null
+      const indexRowsByPedido = (rows, field) => {
+        const map = new Map();
+        rows.forEach(r => {
+          const raw = String(r?.[field] || '').trim();
+          if (!raw) return;
+          const cleanUp = raw.replace(/^#/, '').trim().toUpperCase();
+          const digits = cleanUp.replace(/\D/g, '');
+          const keys = new Set([raw.toUpperCase(), cleanUp, '#' + cleanUp]);
+          if (digits && digits.length >= 3) keys.add(`D::${digits}`);
+          keys.forEach(k => {
+            if (!map.has(k)) map.set(k, []);
+            map.get(k).push(r);
           });
-        }
+        });
+        return map;
       };
 
-      if (hasLogs) {
-        logs.forEach(l => {
-          window.normalizeOrderKeys(l.pedido).forEach(k => {
-            setOrUpgradeMeta(k, l.estado || 'Completado', l.picker || null, null);
-          });
-        });
-      }
+      const logsByKey = indexRowsByPedido(logs, 'pedido');
+      const activeByKey = indexRowsByPedido(activeAll, 'order_number');
+      const pickupsByKey = indexRowsByPedido(deliveredPickups, 'pedido');
 
-      if (hasActive) {
-        activeCompleted.forEach(a => {
-          const comNorm = String(a.comercio || '').trim().toUpperCase() || null;
-          window.normalizeOrderKeys(a.order_number, comNorm || '').forEach(k => {
-            setOrUpgradeMeta(k, a.sheet_status || 'Completado', a.operator || null, comNorm);
-          });
-        });
-      }
-
-      if (hasDeliveredPickups) {
-        deliveredPickups.forEach(p => {
-          const comNorm = String(p.comercio || '').trim().toUpperCase() || null;
-          window.normalizeOrderKeys(p.pedido, comNorm || '').forEach(k => {
-            setOrUpgradeMeta(k, 'Retirado', 'Punto de Retiro', comNorm);
-          });
-        });
-      }
-
-      const resolveMetaForOrder = (o) => {
-        const ordComUpper = String(o.comercio || '').trim().toUpperCase();
-        const keysToTry = typeof window.getPickerOrderCandidateKeys === 'function'
-          ? window.getPickerOrderCandidateKeys(o, { includeInternal: true, includeUuid: true })
-          : [
-              o.external_order_number ? String(o.external_order_number).trim().toUpperCase() : '',
-              o.external_order_number ? '#' + String(o.external_order_number).trim().toUpperCase().replace(/^#/, '') : '',
-              o.external_order_number ? String(o.external_order_number).trim().toUpperCase().replace(/^#/, '') : '',
-              o.id ? String(o.id).trim().toUpperCase() : ''
-            ].filter(Boolean);
-        let bestMeta = null;
-        for (const k of keysToTry) {
-          if (statusMetaMap.has(k)) {
-            const m = statusMetaMap.get(k);
-            const isShortKey = !String(k).startsWith('COMERCIO::') && !String(k).startsWith('SIGLA::') && /^#?\d{1,5}$/.test(String(k));
-            if (isShortKey && ordComUpper && m.comercio && m.comercio !== ordComUpper) continue;
-            if (!bestMeta || (isDeliveredPickerStatus(m.status) && !isDeliveredPickerStatus(bestMeta.status))) {
-              bestMeta = m;
+      const gatherCandidateRows = (o, map) => {
+        const out = [];
+        const seen = new Set();
+        const ext = String(o.external_order_number || '').trim();
+        const cleanUp = ext.replace(/^#/, '').trim().toUpperCase();
+        const digits = cleanUp.replace(/\D/g, '');
+        const lookupKeys = new Set();
+        if (ext) {
+          lookupKeys.add(ext.toUpperCase());
+          lookupKeys.add(cleanUp);
+          lookupKeys.add('#' + cleanUp);
+        }
+        if (digits && digits.length >= 3) lookupKeys.add(`D::${digits}`);
+        if (o.id) lookupKeys.add(String(o.id).trim().toUpperCase());
+        lookupKeys.forEach(k => {
+          const list = map.get(k);
+          if (!list) return;
+          for (const item of list) {
+            if (!seen.has(item)) {
+              seen.add(item);
+              out.push(item);
             }
           }
+        });
+        return out;
+      };
+
+      const resolveMetaForOrder = (o) => {
+        // 1. Evaluar filas activas en Picker (tanto completadas como aún en preparación)
+        const matchedActive = gatherCandidateRows(o, activeByKey)
+          .filter(a => window.doesPickerRowMatchOrder(o, a, 'active_orders'));
+        const activeCompletedRows = matchedActive.filter(a => completedStatusesUpperSet.has(String(a.sheet_status || '').trim().toUpperCase()));
+        const activeUncompletedRows = matchedActive.filter(a => !completedStatusesUpperSet.has(String(a.sheet_status || '').trim().toUpperCase()));
+
+        let newestUncompletedActiveMs = 0;
+        activeUncompletedRows.forEach(a => {
+          const t = window.extractPickerRowTimestampMs(a);
+          if (t > newestUncompletedActiveMs) newestUncompletedActiveMs = t;
+        });
+
+        let bestMeta = null;
+        const considerMeta = (status, operator, comercio, eventTimeMs) => {
+          if (!status) return;
+          if (!bestMeta || (isDeliveredPickerStatus(status) && !isDeliveredPickerStatus(bestMeta.status))) {
+            bestMeta = {
+              status,
+              operator: operator || bestMeta?.operator || null,
+              comercio: comercio || bestMeta?.comercio || null,
+              eventTimeMs: eventTimeMs || bestMeta?.eventTimeMs || 0
+            };
+          }
+        };
+
+        // 2. Retiros entregados validados por comercio + fecha
+        const matchedPickups = gatherCandidateRows(o, pickupsByKey)
+          .filter(p => window.doesPickerRowMatchOrder(o, p, 'sucursal_pickups'));
+        matchedPickups.forEach(p => {
+          const t = window.extractPickerRowTimestampMs(p);
+          if (newestUncompletedActiveMs && t && t < newestUncompletedActiveMs - 60000) return;
+          considerMeta('Retirado', 'Punto de Retiro', String(p.comercio || '').trim().toUpperCase() || null, t);
+        });
+
+        // 3. Filas completadas en active_orders (solo si NO hay filas activas aún en preparación más recientes)
+        if (activeUncompletedRows.length === 0) {
+          activeCompletedRows.forEach(a => {
+            considerMeta(a.sheet_status || 'Completado', a.operator || null, String(a.comercio || '').trim().toUpperCase() || null, window.extractPickerRowTimestampMs(a));
+          });
         }
+
+        // 4. Logs históricos completados validados por prefijo + fecha (>= order.created_at) + SKUs
+        const matchedLogs = gatherCandidateRows(o, logsByKey)
+          .filter(l => window.doesPickerRowMatchOrder(o, l, 'history_logs'));
+        matchedLogs.forEach(l => {
+          const t = window.extractPickerRowTimestampMs(l);
+          // Nunca cerrar un pedido que actualmente está 'EN PREPARACIÓN' en active_orders usando un log anterior a su ingreso activo
+          if (newestUncompletedActiveMs && (!t || t < newestUncompletedActiveMs - 60000)) return;
+          considerMeta(l.estado || 'Completado', l.picker || null, null, t);
+        });
+
         return bestMeta;
       };
 
@@ -101376,7 +101617,10 @@ window.syncPickerStatusToWms = async function(targetOrders = null) {
           comercio: o.comercio || meta.comercio || null,
           isCompleted: true,
           isActive: false,
-          source: 'picker_sync'
+          source: 'picker_sync',
+          eventTimeMs: meta.eventTimeMs || Date.now(),
+          updatedAt: meta.eventTimeMs ? new Date(meta.eventTimeMs).toISOString() : new Date().toISOString(),
+          _matchV: window.PICKER_MATCH_VERSION
         };
         if (typeof window.registerOrderInPickerStatusMap === 'function') {
           window.registerOrderInPickerStatusMap(o, stObj);

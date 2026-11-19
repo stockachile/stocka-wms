@@ -319,14 +319,27 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
 
   const orderNo = String(order.external_order_number || order.id);
 
-  // 2.1 Verificar si el pedido ya registra completado/retirado en el historial del Picker
-  const { data: pickerHistory } = await pickerClient
+  // 2.1 Verificar si el pedido ya registra completado/retirado en el historial del Picker (validando fecha >= creación del pedido)
+  const { data: pickerHistoryRaw } = await pickerClient
     .from('history_logs')
-    .select('id, estado, fecha, comentarios')
+    .select('id, estado, fecha, hora, created_at, comentarios')
     .eq('pedido', orderNo)
     .in('estado', ['Completado', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado', 'RETIRADO'])
     .order('created_at', { ascending: false })
-    .limit(1);
+    .limit(5);
+
+  const ordCreatedMs = order.created_at ? new Date(order.created_at).getTime() : 0;
+  const pickerHistory = (pickerHistoryRaw || []).filter(h => {
+    if (!ordCreatedMs) return true;
+    const hCreatedMs = h.created_at ? new Date(h.created_at).getTime() : 0;
+    let hMs = hCreatedMs;
+    if (h.fecha && /^\d{4}-\d{2}-\d{2}$/.test(String(h.fecha).trim())) {
+      const horaPart = /^\d{2}:\d{2}(:\d{2})?$/.test(String(h.hora || '').trim()) ? String(h.hora).trim() : '12:00:00';
+      const fMs = new Date(`${String(h.fecha).trim()}T${horaPart.length === 5 ? horaPart + ':00' : horaPart}-03:00`).getTime();
+      if (!isNaN(fMs) && (!hCreatedMs || Math.abs(hCreatedMs - fMs) > 2 * 24 * 60 * 60 * 1000)) hMs = fMs;
+    }
+    return !hMs || hMs >= (ordCreatedMs - 18 * 60 * 60 * 1000);
+  });
 
   if (pickerHistory && pickerHistory.length > 0) {
     const historicalStatus = pickerHistory[0].estado;
