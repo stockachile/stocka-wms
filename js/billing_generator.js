@@ -110,6 +110,9 @@ export const billingState = {
   isPaid: false,
   isLocked: false,
   paymentStatus: 'Por solicitar',
+  currentRecordId: null,
+  currentInvoiceFolio: null,
+  currentInvoicePdfUrl: null,
   loadedFromSnapshot: false,
   isLoading: false,
   isConglomerate: false,
@@ -2479,6 +2482,9 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   billingState.isPublished = false;
   billingState.isLocked = false;
   billingState.paymentStatus = 'Por solicitar';
+  billingState.currentRecordId = null;
+  billingState.currentInvoiceFolio = null;
+  billingState.currentInvoicePdfUrl = null;
 
   // 1.1 Consultar si ya existe un registro guardado/publicado/pagado (Supabase y localStorage)
   let savedSnapshot = null;
@@ -2501,11 +2507,13 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
         lookupCommerces.push('BIG BANG', 'BIG BANG SPA');
       } else if (upperCheck === 'SILVER FOX' || upperCheck === 'SILVER FOX SPA' || upperCheck.includes('SILVER FOX')) {
         lookupCommerces.push('SILVER FOX', 'SILVER FOX SPA');
+      } else if (upperCheck === 'POM KIDS' || upperCheck === 'POMS KIDS') {
+        lookupCommerces.push('POM KIDS', 'POMS KIDS');
       }
 
       const { data: bRecList } = await supabase
         .from('billing_records')
-        .select('id, desglose_fulfillment, pago_fulfillment, factura_fulfillment, total_fulfillment, abono_fulfillment, fulfillment_link, comercio, updated_at, fecha_limite')
+        .select('id, desglose_fulfillment, pago_fulfillment, factura_fulfillment, num_factura, factura_fulfillment_pdf_url, total_fulfillment, abono_fulfillment, fulfillment_link, comercio, updated_at, fecha_limite')
         .eq('period_id', billingState.currentPeriodId)
         .in('comercio', lookupCommerces);
 
@@ -2522,6 +2530,9 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
         const isPaidStatus = ['recibido', 'aprobado', 'pagado'].includes(rawPago.toLowerCase()) || rawDesglose.toLowerCase() === 'aprobado';
         const isPublishedStatus = isPaidStatus || ['enviado', 'publicado', 'aprobado', 'confirmado'].includes(rawDesglose.toLowerCase());
 
+        billingState.currentRecordId = bRec.id || null;
+        billingState.currentInvoiceFolio = bRec.num_factura || null;
+        billingState.currentInvoicePdfUrl = bRec.factura_fulfillment_pdf_url || null;
         billingState.isPaid = isPaidStatus;
         billingState.paymentStatus = rawPago || 'Por solicitar';
         billingState.isPublished = isPublishedStatus;
@@ -5544,8 +5555,109 @@ export async function confirmAndPublishBillingToCommerce() {
   const hasAdminAuth = await ensureAdminBillingSession();
   if (!hasAdminAuth) return false;
 
+  const roundedGross = Math.round(Number(t.totalGross) || 0);
+  const roundedAbonos = Math.round(Number(t.totalAbonos) || 0);
+  const roundedToPay = Math.round(Number(t.totalToPay) || 0);
+
+  const lookupCommerces = [b.currentCommerce];
+  const upperComm = (b.currentCommerce || '').trim().toUpperCase();
+  if (upperComm === 'BIG BANG' || upperComm === 'BIG BANG SPA' || upperComm.includes('BIG BANG')) {
+    lookupCommerces.push('BIG BANG', 'BIG BANG SPA');
+  } else if (upperComm === 'SILVER FOX' || upperComm === 'SILVER FOX SPA' || upperComm.includes('SILVER FOX')) {
+    lookupCommerces.push('SILVER FOX', 'SILVER FOX SPA');
+  } else if (upperComm === 'POM KIDS' || upperComm === 'POMS KIDS') {
+    lookupCommerces.push('POM KIDS', 'POMS KIDS');
+  }
+
+  // Consultar estado actual del registro y ficha SII en Lioren antes de mostrar el cuadro
+  const [existingRecsRes, liorenInspection] = await Promise.all([
+    supabase
+      .from('billing_records')
+      .select('id, pago_fulfillment, factura_fulfillment, num_factura, factura_fulfillment_pdf_url, fecha_limite')
+      .eq('period_id', b.currentPeriodId)
+      .in('comercio', lookupCommerces)
+      .limit(1),
+    typeof window.inspectCommerceForImmediateInvoice === 'function' && roundedGross > 0
+      ? window.inspectCommerceForImmediateInvoice(b.currentCommerce).catch(() => null)
+      : Promise.resolve(null)
+  ]);
+
+  const preExistingRec = existingRecsRes?.data?.[0] || null;
+  const alreadyEmittedFolio = preExistingRec?.num_factura || null;
+  const canEmitInvoice = roundedGross > 0 && !alreadyEmittedFolio;
+  const sii = liorenInspection?.sii || null;
+  const f33 = liorenInspection?.liorenStatus?.folios?.['33'] || null;
+  const netoSii = roundedGross > 0 ? Math.round(roundedGross / 1.19) : 0;
+  const ivaSii = Math.round(netoSii * 0.19);
+  const totalSii = netoSii + ivaSii;
+  const formattedPeriod = String(b.currentPeriodName || '').replace(/[\s-]+/g, '-').toUpperCase();
+  const defaultGlosa = `SERV. FULFILLMENT ${formattedPeriod}`.trim();
+  const publishIdempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `bg-pub-${b.currentPeriodId}-${Date.now()}`;
+
+  let invoiceOptionBlockHtml = '';
+  if (alreadyEmittedFolio) {
+    invoiceOptionBlockHtml = `
+      <div style="margin-top: 0.75rem; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 0.6rem 0.85rem; font-size: 0.8rem; color: #065f46; display: flex; align-items: center; gap: 0.45rem;">
+        <i class="ri-checkbox-circle-fill" style="font-size: 1.05rem; color: #10b981;"></i>
+        <span>Este servicio ya cuenta con la <strong>Factura Electrónica Folio #${escapeHtml(String(alreadyEmittedFolio))}</strong> emitida.</span>
+      </div>
+    `;
+  } else if (canEmitInvoice) {
+    invoiceOptionBlockHtml = `
+      <div id="bg-publish-invoice-card" style="margin-top: 0.75rem; background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 10px; padding: 0.75rem 0.9rem; transition: all 0.18s ease;">
+        <label style="display: flex; align-items: flex-start; gap: 0.55rem; cursor: pointer; margin: 0;">
+          <input type="checkbox" id="bg-publish-emit-invoice-cb" style="width: 18px; height: 18px; margin-top: 2px; accent-color: #6d28d9; cursor: pointer; flex-shrink: 0;">
+          <div style="min-width: 0; flex: 1;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; flex-wrap: wrap;">
+              <span style="font-size: 0.84rem; font-weight: 800; color: #0f172a;">
+                <i class="ri-flashlight-fill" style="color: #7c3aed;"></i> Generar de inmediato la Factura Electrónica SII
+              </span>
+              ${sii?.ready
+                ? `<span style="font-size: 0.68rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0;">✓ Ficha SII lista</span>`
+                : `<span style="font-size: 0.68rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: #fffbeb; color: #b45309; border: 1px solid #fde68a;">Completar ficha al publicar</span>`}
+            </div>
+            <span style="font-size: 0.74rem; color: #64748b; display: block; margin-top: 0.12rem;">
+              Emite la factura oficial (DTE 33) en Lioren junto con la publicación del cobro.
+            </span>
+          </div>
+        </label>
+
+        <div id="bg-publish-invoice-details" style="display: none; margin-top: 0.65rem; padding-top: 0.6rem; border-top: 1px dashed #cbd5e1; font-size: 0.76rem;">
+          ${sii?.ready ? `
+            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 7px; padding: 0.5rem 0.7rem; margin-bottom: 0.55rem; line-height: 1.45;">
+              <div style="display: flex; justify-content: space-between; gap: 0.4rem; flex-wrap: wrap;">
+                <span><strong style="color: #334155;">Receptor:</strong> ${escapeHtml(sii.rutFormatted)} · ${escapeHtml(sii.rs.slice(0, 34))}</span>
+                ${f33?.siguiente ? `<span style="color: #6d28d9; font-weight: 700;">Próx. Folio: #${f33.siguiente}</span>` : ''}
+              </div>
+              <div style="color: #475569; margin-top: 0.15rem;">
+                <strong>Glosa:</strong> ${escapeHtml(defaultGlosa)} · <strong>Total SII:</strong> <strong style="color: #5f06fa;">${formatCLP(totalSii)}</strong> <span style="color: #64748b;">(Neto ${formatCLP(netoSii)})</span>
+              </div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+              <label style="display: flex; align-items: center; gap: 0.45rem; cursor: pointer; font-weight: 600; color: #1e293b;">
+                <input type="radio" name="bg-publish-emit-mode" value="direct" checked style="accent-color: #6d28d9;">
+                <span>Emitir factura automáticamente en 1 paso al publicar</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.45rem; cursor: pointer; font-weight: 600; color: #475569;">
+                <input type="radio" name="bg-publish-emit-mode" value="modal" style="accent-color: #6d28d9;">
+                <span>Abrir modal de facturación tras publicar (revisar/editar glosa o datos)</span>
+              </label>
+            </div>
+          ` : `
+            <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 7px; padding: 0.5rem 0.65rem; color: #92400e; line-height: 1.4;">
+              <i class="ri-information-line"></i> Faltan datos tributarios por única vez (<strong>${escapeHtml((sii?.missing || ['RUT / Giro / Dirección']).join(', '))}</strong>). Al confirmar se publicará el desglose y se abrirá de inmediato el modal de facturación para completarlos y emitir.
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+  }
+
   // Cuadro de confirmación explícita
   const result = await Swal.fire({
+    width: '560px',
     title: '<div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;"><i class="ri-send-plane-fill" style="color: #5f06fa;"></i><span>¿Confirmar y Publicar Cobro?</span></div>',
     html: `
       <div style="text-align: left; font-size: 0.88rem; line-height: 1.5; color: #334155;">
@@ -5582,16 +5694,60 @@ export async function confirmAndPublishBillingToCommerce() {
           <i class="ri-information-line"></i> <strong>Efecto en el Portal del Cliente:</strong><br>
           El comercio podrá ver interactivamente el <strong>Desglose Oficial</strong>, el <strong>Registro de Pedidos</strong> y el <strong>Panel de Métricas</strong> en la sección donde antes veía adjuntos. No afectará otros periodos ni registros cargados manualmente.
         </div>
+        ${invoiceOptionBlockHtml}
       </div>
     `,
     showCancelButton: true,
     confirmButtonText: '<i class="ri-send-plane-fill"></i> Sí, Confirmar y Publicar',
     cancelButtonText: 'Cancelar',
     confirmButtonColor: '#5f06fa',
-    cancelButtonColor: '#64748b'
+    cancelButtonColor: '#64748b',
+    didOpen: (popup) => {
+      const cb = popup.querySelector('#bg-publish-emit-invoice-cb');
+      const card = popup.querySelector('#bg-publish-invoice-card');
+      const details = popup.querySelector('#bg-publish-invoice-details');
+      const radios = popup.querySelectorAll('input[name="bg-publish-emit-mode"]');
+      const confirmBtn = Swal.getConfirmButton();
+
+      const syncConfirmBtn = () => {
+        if (!cb || !confirmBtn) return;
+        const checked = cb.checked;
+        if (details) details.style.display = checked ? 'block' : 'none';
+        if (card) {
+          card.style.borderColor = checked ? '#7c3aed' : '#cbd5e1';
+          card.style.background = checked ? '#f5f3ff' : '#f8fafc';
+        }
+        if (!checked) {
+          confirmBtn.innerHTML = '<i class="ri-send-plane-fill"></i> Sí, Confirmar y Publicar';
+          confirmBtn.style.backgroundColor = '#5f06fa';
+        } else {
+          const selectedMode = popup.querySelector('input[name="bg-publish-emit-mode"]:checked')?.value || 'direct';
+          if (sii?.ready && selectedMode === 'direct') {
+            confirmBtn.innerHTML = '<i class="ri-flashlight-fill"></i> Confirmar, Publicar y Facturar';
+            confirmBtn.style.backgroundColor = '#6d28d9';
+          } else {
+            confirmBtn.innerHTML = '<i class="ri-flashlight-fill"></i> Publicar y Abrir Facturación';
+            confirmBtn.style.backgroundColor = '#6d28d9';
+          }
+        }
+      };
+
+      if (cb) cb.addEventListener('change', syncConfirmBtn);
+      radios.forEach(r => r.addEventListener('change', syncConfirmBtn));
+    },
+    preConfirm: () => {
+      const popup = Swal.getPopup();
+      const cb = popup?.querySelector('#bg-publish-emit-invoice-cb');
+      const selectedMode = popup?.querySelector('input[name="bg-publish-emit-mode"]:checked')?.value || 'direct';
+      return {
+        emitNow: Boolean(cb?.checked),
+        emitMode: sii?.ready ? selectedMode : 'modal'
+      };
+    }
   });
 
   if (!result.isConfirmed) return false;
+  const { emitNow = false, emitMode = 'direct' } = result.value || {};
 
   try {
     Swal.fire({
@@ -5665,10 +5821,6 @@ export async function confirmAndPublishBillingToCommerce() {
     } catch (e) {}
 
     // 3. Actualizar o insertar registro en base de datos
-    const roundedGross = Math.round(Number(t.totalGross) || 0);
-    const roundedAbonos = Math.round(Number(t.totalAbonos) || 0);
-    const roundedToPay = Math.round(Number(t.totalToPay) || 0);
-
     const updatePayload = {
       total_fulfillment: roundedGross,
       abono_fulfillment: roundedAbonos,
@@ -5684,17 +5836,9 @@ export async function confirmAndPublishBillingToCommerce() {
       updatePayload.fulfillment_link = publicSnapshotUrl;
     }
 
-    const lookupCommerces = [b.currentCommerce];
-    const upperComm = (b.currentCommerce || '').trim().toUpperCase();
-    if (upperComm === 'BIG BANG' || upperComm === 'BIG BANG SPA' || upperComm.includes('BIG BANG')) {
-      lookupCommerces.push('BIG BANG', 'BIG BANG SPA');
-    } else if (upperComm === 'SILVER FOX' || upperComm === 'SILVER FOX SPA' || upperComm.includes('SILVER FOX')) {
-      lookupCommerces.push('SILVER FOX', 'SILVER FOX SPA');
-    }
-
     const { data: existingRecs } = await supabase
       .from('billing_records')
-      .select('id, pago_fulfillment, factura_fulfillment, fecha_limite')
+      .select('id, pago_fulfillment, factura_fulfillment, num_factura, factura_fulfillment_pdf_url, fecha_limite')
       .eq('period_id', b.currentPeriodId)
       .in('comercio', lookupCommerces)
       .limit(1);
@@ -5751,6 +5895,9 @@ export async function confirmAndPublishBillingToCommerce() {
       }
     }
 
+    billingState.currentRecordId = finalRecordId;
+    billingState.currentInvoiceFolio = existingRec?.num_factura || null;
+    billingState.currentInvoicePdfUrl = existingRec?.factura_fulfillment_pdf_url || null;
     billingState.isSaved = true;
     billingState.isPublished = true;
     billingState.isLocked = true;
@@ -5768,7 +5915,97 @@ export async function confirmAndPublishBillingToCommerce() {
       loadAndRenderPeriodOverview({ silentBadgeOnly: true }).catch(() => {});
     }
 
+    // 4. Si el usuario marcó "Generar de inmediato la Factura Electrónica SII"
+    if (emitNow && finalRecordId) {
+      if (emitMode === 'direct' && sii?.ready && typeof window.emitImmediateLiorenInvoice === 'function') {
+        Swal.update({
+          title: 'Emitiendo Factura Electrónica SII...',
+          text: `Cobro publicado. Timbrando DTE 33 en Lioren para ${b.currentCommerce}...`
+        });
+        Swal.showLoading();
+
+        try {
+          const emitResult = await window.emitImmediateLiorenInvoice(finalRecordId, 'fulfillment', {
+            comercioName: b.currentCommerce,
+            periodId: b.currentPeriodId,
+            periodName: b.currentPeriodName,
+            grossAmount: roundedGross,
+            dueDate: b.invoiceDates?.dueDate || existingRec?.fecha_limite || '',
+            sii,
+            idempotencyKey: publishIdempotencyKey
+          });
+
+          const dte = emitResult?.dte || {};
+          billingState.currentInvoiceFolio = dte.folio || null;
+          billingState.currentInvoicePdfUrl = emitResult?.pdfUrl || null;
+          renderLockStatusBannerAndSyncToolbarUI();
+
+          if (typeof window.openPostPublishAndInvoiceModal === 'function') {
+            window.openPostPublishAndInvoiceModal({
+              recordId: finalRecordId,
+              periodId: b.currentPeriodId,
+              periodName: b.currentPeriodName,
+              comercioName: b.currentCommerce,
+              serviceType: 'fulfillment',
+              dte,
+              pdfUrl: emitResult?.pdfUrl || '',
+              xmlUrl: emitResult?.xmlUrl || '',
+              isSandbox: Boolean(emitResult?.isSandbox),
+              totalAbonos: t.totalAbonos || 0,
+              totalToPay: t.totalToPay || 0,
+              fallbackEmail: sii.email || ''
+            });
+          }
+          return true;
+        } catch (emitErr) {
+          console.error('Aviso emitiendo factura tras publicar cobro:', emitErr);
+          const fallbackDecision = await Swal.fire({
+            icon: 'warning',
+            title: 'Cobro Publicado — Pendiente Emitir Factura',
+            html: `
+              <div style="text-align: left; font-size: 0.85rem; line-height: 1.45;">
+                <p>El desglose de <strong>${escapeHtml(b.currentCommerce)}</strong> quedó <strong>publicado exitosamente</strong>, pero Lioren reportó un detalle al emitir la factura automática:</p>
+                <div style="background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 0.55rem 0.75rem; border-radius: 6px; margin: 0.5rem 0;">
+                  ${escapeHtml(emitErr.message || String(emitErr))}
+                </div>
+                <p style="margin: 0;">¿Deseas abrir el modal de facturación para revisarlo ahora?</p>
+              </div>
+            `,
+            showCancelButton: true,
+            showDenyButton: true,
+            confirmButtonText: '<i class="ri-flashlight-fill"></i> Abrir Modal de Facturación',
+            denyButtonText: '<i class="ri-mail-send-line"></i> Enviar Solo Desglose',
+            cancelButtonText: 'Cerrar',
+            confirmButtonColor: '#6d28d9',
+            denyButtonColor: '#2563eb'
+          });
+
+          if (fallbackDecision.isConfirmed && typeof window.openLiorenEmitModal === 'function') {
+            window.openLiorenEmitModal(finalRecordId, 'fulfillment', { fromPublishFlow: true });
+          } else if (fallbackDecision.isDenied && typeof window.openSendBillingEmailModal === 'function') {
+            window.openSendBillingEmailModal(finalRecordId, b.currentCommerce, b.currentPeriodId, {
+              defaultEmailType: 'billing_summary',
+              defaultServiceType: 'fulfillment'
+            });
+          }
+          return true;
+        }
+      } else if (typeof window.openLiorenEmitModal === 'function') {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'success',
+          title: `Cobro publicado — completa y emite la factura de ${b.currentCommerce}`,
+          showConfirmButton: false,
+          timer: 3800
+        });
+        window.openLiorenEmitModal(finalRecordId, 'fulfillment', { fromPublishFlow: true });
+        return true;
+      }
+    }
+
     const postAction = await Swal.fire({
+      width: '540px',
       icon: 'success',
       title: '¡Cobro Publicado con Éxito!',
       html: `
@@ -5783,19 +6020,24 @@ export async function confirmAndPublishBillingToCommerce() {
           `}
           <p style="color: #64748b; font-size: 0.78rem;">El cliente ya tiene acceso interactivo al Desglose Oficial, Registro tipo Excel y Panel de Métricas en su portal.</p>
           <div style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 6px; padding: 0.5rem 0.75rem; margin-top: 0.75rem; font-size: 0.78rem; color: #334155;">
-            ¿Deseas enviar el correo oficial de notificación con el enlace interactivo a los contactos del comercio ahora?
+            ¿Deseas enviar el correo de desglose al cliente o emitir su Factura Electrónica SII ahora?
           </div>
         </div>
       `,
       showCancelButton: true,
+      showDenyButton: Boolean(canEmitInvoice && finalRecordId && typeof window.openLiorenEmitModal === 'function'),
       confirmButtonText: '<i class="ri-mail-send-line"></i> Enviar Correo al Cliente',
-      cancelButtonText: 'Cerrar sin Enviar',
+      denyButtonText: '<i class="ri-flashlight-fill"></i> Emitir Factura SII',
+      cancelButtonText: 'Cerrar',
       confirmButtonColor: '#5f06fa',
+      denyButtonColor: '#6d28d9',
       cancelButtonColor: '#64748b'
     });
 
     if (postAction.isConfirmed && finalRecordId && typeof window.openSendBillingEmailModal === 'function') {
       window.openSendBillingEmailModal(finalRecordId, b.currentCommerce, b.currentPeriodId);
+    } else if (postAction.isDenied && finalRecordId && typeof window.openLiorenEmitModal === 'function') {
+      window.openLiorenEmitModal(finalRecordId, 'fulfillment');
     }
 
     return true;
@@ -7747,6 +7989,9 @@ export function renderGeneratorEmptyCommerceState() {
   billingState.isPaid = false;
   billingState.isLocked = false;
   billingState.paymentStatus = 'Por solicitar';
+  billingState.currentRecordId = null;
+  billingState.currentInvoiceFolio = null;
+  billingState.currentInvoicePdfUrl = null;
   billingState.loadedFromSnapshot = false;
   billingState.commerceObservations = [];
   billingState.commerceExtraCharges = [];
@@ -9153,6 +9398,35 @@ export function renderLockStatusBannerAndSyncToolbarUI() {
   // 1. Banner de estado de bloqueo / periodo cerrado
   const banner = document.getElementById('bg-lock-status-banner');
   if (banner) {
+    const safeCommJs = String(b.currentCommerce || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const grossVal = Math.round(Number(b.totals?.totalGross) || 0);
+    const invoiceActionHtml = b.currentInvoiceFolio
+      ? (b.currentInvoicePdfUrl
+          ? `<a href="${escapeHtml(b.currentInvoicePdfUrl)}" target="_blank" style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; font-weight: 800; font-size: 0.72rem; height: 26px; padding: 0 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; text-decoration: none;" title="Abrir PDF oficial de la Factura Electrónica">
+               <i class="ri-file-pdf-fill"></i> Factura #${escapeHtml(String(b.currentInvoiceFolio))}
+             </a>`
+          : `<span style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; font-weight: 800; font-size: 0.72rem; height: 26px; padding: 0 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">
+               <i class="ri-checkbox-circle-fill"></i> Factura #${escapeHtml(String(b.currentInvoiceFolio))}
+             </span>`)
+      : (b.currentRecordId && grossVal > 0
+          ? `<button type="button" onclick="window.openLiorenEmitModal && window.openLiorenEmitModal('${b.currentRecordId}', 'fulfillment')" class="btn btn-sm" style="background: linear-gradient(135deg, #6d28d9, #4f46e5); color: #ffffff; border: none; font-weight: 700; font-size: 0.72rem; height: 26px; padding: 0 0.65rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; box-shadow: 0 2px 5px rgba(109, 40, 217, 0.25);" title="Emitir Factura Electrónica SII para este cobro publicado">
+               <i class="ri-flashlight-fill"></i> Emitir Factura SII
+             </button>`
+          : '');
+
+    const emailActionHtml = b.currentRecordId
+      ? `
+        <button type="button" onclick="window.openSendBillingEmailModal && window.openSendBillingEmailModal('${b.currentRecordId}', '${safeCommJs}', '${b.currentPeriodId || ''}', { defaultEmailType: 'billing_summary', defaultServiceType: 'fulfillment' })" class="btn btn-sm" style="background: #ffffff; color: #5b21b6; border: 1px solid #c4b5fd; font-weight: 700; font-size: 0.72rem; height: 26px; padding: 0 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;" title="Previsualizar y enviar correo de Desglose de Servicios Confirmado">
+          <i class="ri-bar-chart-box-line"></i> Enviar Desglose
+        </button>
+        ${b.currentInvoiceFolio ? `
+          <button type="button" onclick="window.openSendBillingEmailModal && window.openSendBillingEmailModal('${b.currentRecordId}', '${safeCommJs}', '${b.currentPeriodId || ''}', { defaultEmailType: 'invoice_uploaded', defaultServiceType: 'fulfillment' })" class="btn btn-sm" style="background: #ffffff; color: #059669; border: 1px solid #a7f3d0; font-weight: 700; font-size: 0.72rem; height: 26px; padding: 0 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;" title="Previsualizar y enviar correo de Factura Emitida">
+            <i class="ri-mail-send-line"></i> Enviar Factura
+          </button>
+        ` : ''}
+      `
+      : '';
+
     if (!b.currentCommerce || !isLocked) {
       banner.style.display = 'none';
       banner.innerHTML = '';
@@ -9165,12 +9439,16 @@ export function renderLockStatusBannerAndSyncToolbarUI() {
               <i class="ri-lock-2-fill"></i> PERIODO CERRADO Y PAGADO
             </span>
             <span style="font-size: 0.78rem; color: #065f46; font-weight: 600;">
-              Facturación liquidada (${escapeHtml(b.paymentStatus || 'Pagado')}) · <strong>Modo Solo Lectura</strong> (cargado al instante sin recalcular).
+              Facturación liquidada (${escapeHtml(b.paymentStatus || 'Pagado')}) · <strong>Modo Solo Lectura</strong>.
             </span>
           </div>
-          <span style="font-size: 0.7rem; color: #047857; background: rgba(255,255,255,0.75); border: 1px solid rgba(16,185,129,0.35); padding: 2px 8px; border-radius: 999px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
-            <i class="ri-shield-check-fill"></i> Registro Inmutable v${b.currentVersion || 1}
-          </span>
+          <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+            ${invoiceActionHtml}
+            ${emailActionHtml}
+            <span style="font-size: 0.7rem; color: #047857; background: rgba(255,255,255,0.75); border: 1px solid rgba(16,185,129,0.35); padding: 2px 8px; border-radius: 999px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+              <i class="ri-shield-check-fill"></i> v${b.currentVersion || 1}
+            </span>
+          </div>
         </div>
       `;
     } else if (isPublished) {
@@ -9185,9 +9463,13 @@ export function renderLockStatusBannerAndSyncToolbarUI() {
               El desglose ya fue enviado al comercio y se encuentra en <strong>Modo Solo Lectura</strong>.
             </span>
           </div>
-          <button type="button" onclick="window.unlockPublishedBillingForEdit()" class="btn btn-sm" style="background: #ffffff; color: #6d28d9; border: 1px solid #8b5cf6; font-weight: 700; font-size: 0.72rem; height: 26px; padding: 0 0.65rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.04);" title="Habilitar edición excepcional para emitir una rectificación (nueva versión)">
-            <i class="ri-lock-unlock-line"></i> Reabrir para Rectificar
-          </button>
+          <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+            ${invoiceActionHtml}
+            ${emailActionHtml}
+            <button type="button" onclick="window.unlockPublishedBillingForEdit()" class="btn btn-sm" style="background: #ffffff; color: #6d28d9; border: 1px solid #8b5cf6; font-weight: 700; font-size: 0.72rem; height: 26px; padding: 0 0.65rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.04);" title="Habilitar edición excepcional para emitir una rectificación (nueva versión)">
+              <i class="ri-lock-unlock-line"></i> Reabrir para Rectificar
+            </button>
+          </div>
         </div>
       `;
     }
@@ -9235,6 +9517,22 @@ export function renderLockStatusBannerAndSyncToolbarUI() {
   });
 }
 window.renderLockStatusBannerAndSyncToolbarUI = renderLockStatusBannerAndSyncToolbarUI;
+
+window.syncGeneratorInvoiceBannerFromDb = async function() {
+  if (!billingState.currentRecordId) return;
+  try {
+    const { data } = await supabase
+      .from('billing_records')
+      .select('id, num_factura, factura_fulfillment_pdf_url')
+      .eq('id', billingState.currentRecordId)
+      .maybeSingle();
+    if (data) {
+      billingState.currentInvoiceFolio = data.num_factura || null;
+      billingState.currentInvoicePdfUrl = data.factura_fulfillment_pdf_url || null;
+      renderLockStatusBannerAndSyncToolbarUI();
+    }
+  } catch {}
+};
 
 // Permitir reabrir excepcionalmente un periodo confirmado (pero aún NO pagado) para emitir rectificación
 window.unlockPublishedBillingForEdit = async function() {

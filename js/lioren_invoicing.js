@@ -691,6 +691,9 @@ async function refreshViewsAfterInvoiceAction(periodId, recordId, serviceType) {
       if (window.bgOverviewSelectedRecordIds) window.bgOverviewSelectedRecordIds.clear();
       await window.loadAndRenderPeriodOverview();
     }
+    if (typeof window.syncGeneratorInvoiceBannerFromDb === 'function') {
+      await window.syncGeneratorInvoiceBannerFromDb();
+    }
     if (recordId && document.getElementById('modal-billing-commerce-detail') && typeof window.openBillingCommerceDetailModal === 'function') {
       const tab = serviceType === 'enviame' ? 'env' : 'fulf';
       await window.openBillingCommerceDetailModal(recordId, periodId, tab);
@@ -996,6 +999,7 @@ window.openLiorenCreditNoteModal = async function(recordId, serviceType) {
 window.openLiorenEmitModal = async function(recordId, serviceType, options = {}) {
   injectLiorenStyles();
   const initialMode = options.initialMode === 'manual' ? 'manual' : 'lioren';
+  const fromPublishFlow = Boolean(options.fromPublishFlow);
 
   try {
     const { data: record, error: getRecErr } = await supabase
@@ -1294,6 +1298,21 @@ window.openLiorenEmitModal = async function(recordId, serviceType, options = {})
                   <div id="lioren-rounding-note" style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.45rem; margin-bottom: 0.8rem;">
                     Monto registrado en panel: <strong>${formatCLP(rawGrossAmount)}</strong>
                   </div>
+
+                  ${fromPublishFlow ? `
+                    <!-- Opción adicional cuando viene de Confirmar y Publicar Cobro -->
+                    <div style="background: rgba(95, 6, 250, 0.06); padding: 0.65rem 0.85rem; border-radius: 10px; border: 1px solid rgba(95, 6, 250, 0.24); margin-bottom: 0.6rem; display: flex; align-items: flex-start; gap: 0.55rem;">
+                      <input type="checkbox" id="lioren-notify-desglose-brevo" checked style="width: 17px; height: 17px; margin-top: 2px; accent-color: #5f06fa; cursor: pointer; flex-shrink: 0;">
+                      <div style="min-width: 0;">
+                        <label for="lioren-notify-desglose-brevo" style="font-size: 0.79rem; font-weight: 700; color: var(--color-text-main); cursor: pointer; display: block; line-height: 1.3;">
+                          Enviar también correo automático de Desglose de Servicio Confirmado
+                        </label>
+                        <span style="font-size: 0.71rem; color: var(--color-text-muted); display: block; margin-top: 0.12rem;">
+                          Notificará el Desglose Interactivo 360° confirmado para ${escHtml(periodRaw)} junto al proceso de facturación.
+                        </span>
+                      </div>
+                    </div>
+                  ` : ''}
 
                   <!-- Aviso por Correo (Brevo) integrado en el bloque de cierre -->
                   <div id="lioren-brevo-card-box" class="lioren-brevo-card">
@@ -1766,8 +1785,10 @@ window.openLiorenEmitModal = async function(recordId, serviceType, options = {})
         }
 
         // En Sandbox desmarcamos por defecto el envío de correo real al cliente para evitar confusiones
+        const notifyDesgloseCb = document.getElementById('lioren-notify-desglose-brevo');
         if (st.isSandbox) {
           notifyCheckbox.checked = false;
+          if (notifyDesgloseCb) notifyDesgloseCb.checked = false;
           notifyHint.innerHTML = `<strong style="color: #d97706;">Modo Pruebas detectado:</strong> desmarcado por defecto para no enviar correo real al cliente con un folio de prueba.`;
         } else {
           notifyCheckbox.checked = true;
@@ -1846,9 +1867,25 @@ window.openLiorenEmitModal = async function(recordId, serviceType, options = {})
           idempotencyKey: sessionIdempotencyKey
         });
 
-        // Disparar correo Brevo si el usuario lo dejó marcado
+        // Disparar correo(s) Brevo si el usuario lo dejó marcado
         const receptorEmailEntered = document.getElementById('lioren-rec-email').value.trim();
+        const notifyDesgloseEl = document.getElementById('lioren-notify-desglose-brevo');
+        let autoDesgloseSentOk = false;
         let autoEmailSentOk = false;
+
+        if (notifyDesgloseEl?.checked) {
+          autoDesgloseSentOk = await sendBrevoDesgloseNotification(
+            recordId,
+            record.comercio,
+            serviceType,
+            [receptorEmailEntered],
+            {
+              explicitToEmails: emailNotificationState.customized ? emailNotificationState.effectiveToEmails : undefined,
+              ccEmails: emailNotificationState.effectiveCcEmails
+            }
+          );
+        }
+
         if (notifyCheckbox.checked) {
           autoEmailSentOk = await sendBrevoInvoiceNotification(
             recordId,
@@ -1870,8 +1907,27 @@ window.openLiorenEmitModal = async function(recordId, serviceType, options = {})
         await refreshViewsAfterInvoiceAction(record.period_id, recordId, serviceType);
 
         const dte = emitResult.dte || {};
+        const fallbackEmailVal = receptorEmailEntered || legal.email_facturacion || legal.rep_legal_email || '';
         const safeCommJs = String(record.comercio || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        const safeFallbackEmailJs = String(receptorEmailEntered || legal.email_facturacion || legal.rep_legal_email || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const safeFallbackEmailJs = String(fallbackEmailVal).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+        if (fromPublishFlow && typeof window.openPostPublishAndInvoiceModal === 'function') {
+          window.openPostPublishAndInvoiceModal({
+            recordId,
+            periodId: record.period_id || '',
+            periodName: periodRaw,
+            comercioName: record.comercio,
+            serviceType,
+            dte,
+            pdfUrl: emitResult.pdfUrl || '',
+            xmlUrl: emitResult.xmlUrl || '',
+            isSandbox: Boolean(emitResult.isSandbox),
+            fallbackEmail: fallbackEmailVal,
+            desgloseAlreadySent: autoDesgloseSentOk,
+            invoiceAlreadySent: autoEmailSentOk
+          });
+          return;
+        }
 
         Swal.fire({
           icon: 'success',
@@ -1886,17 +1942,23 @@ window.openLiorenEmitModal = async function(recordId, serviceType, options = {})
                 ${emitResult.pdfUrl ? `<a href="${emitResult.pdfUrl}" target="_blank" class="btn btn-primary btn-sm" style="flex: 1; justify-content: center; text-decoration: none; display: inline-flex; align-items: center; gap: 0.3rem;"><i class="ri-file-pdf-fill"></i> Ver / Descargar PDF</a>` : ''}
                 ${emitResult.xmlUrl ? `<a href="${emitResult.xmlUrl}" target="_blank" class="btn btn-outline btn-sm" style="flex: 1; justify-content: center; text-decoration: none; display: inline-flex; align-items: center; gap: 0.3rem;"><i class="ri-code-s-slash-line"></i> Descargar XML SII</a>` : ''}
               </div>
-              <div style="margin-top: 0.65rem; padding-top: 0.65rem; border-top: 1px dashed var(--color-border);">
+              <div style="margin-top: 0.65rem; padding-top: 0.65rem; border-top: 1px dashed var(--color-border); display: flex; flex-direction: column; gap: 0.45rem;">
                 ${autoEmailSentOk ? `
-                  <div style="font-size: 0.75rem; color: #059669; font-weight: 600; margin-bottom: 0.45rem;">
-                    <i class="ri-checkbox-circle-fill"></i> Notificación automática enviada por correo al seller.
+                  <div style="font-size: 0.75rem; color: #059669; font-weight: 600;">
+                    <i class="ri-checkbox-circle-fill"></i> Notificación automática de Factura enviada al seller.
                   </div>
                 ` : ''}
                 <button type="button"
-                        onclick="window.openInvoiceEmailComposer('${recordId}', '${safeCommJs}', '${record.period_id || ''}', '${serviceType}', '${safeFallbackEmailJs}')"
+                        onclick="window.openInvoiceEmailComposer('${recordId}', '${safeCommJs}', '${record.period_id || ''}', '${serviceType}', '${safeFallbackEmailJs}', 'invoice_uploaded')"
                         class="btn btn-sm"
-                        style="width: 100%; background: linear-gradient(135deg, #059669, #10b981); color: #ffffff; border: none; font-weight: 700; padding: 0.55rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; cursor: pointer; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);">
-                  <i class="ri-mail-send-fill"></i> ${autoEmailSentOk ? 'Reenviar / Enviar con Copia (CC) al Seller' : 'Enviar Factura por Correo al Seller'}
+                        style="width: 100%; background: linear-gradient(135deg, #059669, #10b981); color: #ffffff; border: none; font-weight: 700; padding: 0.52rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; cursor: pointer; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);">
+                  <i class="ri-mail-send-fill"></i> ${autoEmailSentOk ? 'Reenviar / Enviar Factura con Copia (CC)' : 'Enviar Correo de Factura Emitida'}
+                </button>
+                <button type="button"
+                        onclick="window.openInvoiceEmailComposer('${recordId}', '${safeCommJs}', '${record.period_id || ''}', '${serviceType}', '${safeFallbackEmailJs}', 'billing_summary')"
+                        class="btn btn-outline btn-sm"
+                        style="width: 100%; border-color: rgba(95, 6, 250, 0.35); color: #5f06fa; font-weight: 700; padding: 0.48rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; cursor: pointer;">
+                  <i class="ri-file-list-3-line"></i> Enviar Correo de Desglose de Servicios
                 </button>
               </div>
             </div>
@@ -2016,20 +2078,45 @@ window.openLiorenEmitModal = async function(recordId, serviceType, options = {})
 
         modal.remove();
         await refreshViewsAfterInvoiceAction(record.period_id, recordId, serviceType);
+        const fallbackManualVal = legal.email_facturacion || legal.rep_legal_email || '';
         const safeCommManualJs = String(record.comercio || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        const safeFallbackManualJs = String(legal.email_facturacion || legal.rep_legal_email || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const safeFallbackManualJs = String(fallbackManualVal).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+        if (fromPublishFlow && typeof window.openPostPublishAndInvoiceModal === 'function') {
+          window.openPostPublishAndInvoiceModal({
+            recordId,
+            periodId: record.period_id || '',
+            periodName: periodRaw,
+            comercioName: record.comercio,
+            serviceType,
+            dte: { folio: num, montoneto: initialNetAmount, montoiva: initialIvaAmount, montototal: rawGrossAmount },
+            pdfUrl: (serviceType === 'fulfillment' ? updates.factura_fulfillment_pdf_url : updates.factura_enviame_pdf_url) || '',
+            xmlUrl: '',
+            isSandbox: false,
+            fallbackEmail: fallbackManualVal,
+            desgloseAlreadySent: false,
+            invoiceAlreadySent: manualEmailSentOk
+          });
+          return;
+        }
 
         Swal.fire({
           icon: 'success',
           title: 'Factura registrada',
           html: `
-            <div style="font-size: 0.88rem;">
-              <p style="margin: 0 0 0.75rem 0;">Folio <strong>#${num}</strong> guardado exitosamente para <strong>${escHtml(record.comercio)}</strong>.</p>
+            <div style="font-size: 0.88rem; display: flex; flex-direction: column; gap: 0.45rem;">
+              <p style="margin: 0 0 0.35rem 0;">Folio <strong>#${num}</strong> guardado exitosamente para <strong>${escHtml(record.comercio)}</strong>.</p>
               <button type="button"
-                      onclick="window.openInvoiceEmailComposer('${recordId}', '${safeCommManualJs}', '${record.period_id || ''}', '${serviceType}', '${safeFallbackManualJs}')"
+                      onclick="window.openInvoiceEmailComposer('${recordId}', '${safeCommManualJs}', '${record.period_id || ''}', '${serviceType}', '${safeFallbackManualJs}', 'invoice_uploaded')"
                       class="btn btn-sm"
-                      style="width: 100%; background: linear-gradient(135deg, #059669, #10b981); color: #ffffff; border: none; font-weight: 700; padding: 0.55rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; cursor: pointer;">
-                <i class="ri-mail-send-fill"></i> ${manualEmailSentOk ? 'Reenviar / Enviar con Copia (CC) al Seller' : 'Enviar Factura por Correo al Seller'}
+                      style="width: 100%; background: linear-gradient(135deg, #059669, #10b981); color: #ffffff; border: none; font-weight: 700; padding: 0.52rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; cursor: pointer;">
+                <i class="ri-mail-send-fill"></i> ${manualEmailSentOk ? 'Reenviar / Enviar Factura con Copia (CC)' : 'Enviar Correo de Factura Emitida'}
+              </button>
+              <button type="button"
+                      onclick="window.openInvoiceEmailComposer('${recordId}', '${safeCommManualJs}', '${record.period_id || ''}', '${serviceType}', '${safeFallbackManualJs}', 'billing_summary')"
+                      class="btn btn-outline btn-sm"
+                      style="width: 100%; border-color: rgba(95, 6, 250, 0.35); color: #5f06fa; font-weight: 700; padding: 0.48rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; cursor: pointer;">
+                <i class="ri-file-list-3-line"></i> Enviar Correo de Desglose de Servicios
               </button>
             </div>
           `,
@@ -2142,13 +2229,13 @@ async function tryHydrateReceptorFromLioren(siiInfo) {
   }
 }
 
-window.openInvoiceEmailComposer = function(recordId, comercioName, periodId, serviceType = 'fulfillment', fallbackEmail = '') {
+window.openInvoiceEmailComposer = function(recordId, comercioName, periodId, serviceType = 'fulfillment', fallbackEmail = '', emailType = 'invoice_uploaded') {
   if (typeof Swal !== 'undefined' && Swal.isVisible && Swal.isVisible()) {
     Swal.close();
   }
   if (typeof window.openSendBillingEmailModal === 'function') {
     window.openSendBillingEmailModal(recordId, comercioName, periodId, {
-      defaultEmailType: 'invoice_uploaded',
+      defaultEmailType: emailType || 'invoice_uploaded',
       defaultServiceType: serviceType,
       fallbackEmail
     });
@@ -2853,6 +2940,262 @@ async function sendBrevoInvoiceNotification(recordId, comercioName, serviceType,
   }
   return false;
 }
+
+async function sendBrevoDesgloseNotification(recordId, comercioName, serviceType, extraEmails = [], customOptions = {}) {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return false;
+
+    const ds = window.__billingCommerceLegalDataset;
+    let targetEmails = [];
+
+    if (Array.isArray(customOptions.explicitToEmails) && customOptions.explicitToEmails.length > 0) {
+      targetEmails = customOptions.explicitToEmails;
+    } else {
+      const resolved = resolveInvoiceEmailCandidates(comercioName, ds, extraEmails);
+      targetEmails = resolved.hasActiveContacts ? [] : resolved.defaultRecipients;
+    }
+
+    const ccEmails = Array.isArray(customOptions.ccEmails) ? customOptions.ccEmails : [];
+
+    const res = await fetch(BREVO_EMAIL_EDGE_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({
+        recordId,
+        commerceName: comercioName,
+        comercio: comercioName,
+        serviceType,
+        emails: targetEmails,
+        ccEmails,
+        customMessage: '',
+        emailType: 'billing_summary'
+      })
+    });
+    if (res.ok) {
+      await supabase
+        .from('billing_records')
+        .update({ last_notified_at: new Date().toISOString() })
+        .eq('id', recordId);
+      return true;
+    }
+  } catch (e) {
+    console.warn('Aviso enviando correo de desglose Brevo:', e);
+  }
+  return false;
+}
+
+// Modal persistente post-publicación + facturación (permite enviar Desglose, Factura o Ambos sin cerrarse entre envíos)
+window.openPostPublishAndInvoiceModal = function({
+  recordId,
+  periodId = '',
+  periodName = '',
+  comercioName = '',
+  serviceType = 'fulfillment',
+  dte = {},
+  pdfUrl = '',
+  xmlUrl = '',
+  isSandbox = false,
+  totalAbonos = 0,
+  totalToPay = 0,
+  fallbackEmail = '',
+  desgloseAlreadySent = false,
+  invoiceAlreadySent = false
+}) {
+  injectLiorenStyles();
+  if (typeof Swal !== 'undefined' && Swal.isVisible && Swal.isVisible()) {
+    Swal.close();
+  }
+
+  const prevModal = document.getElementById('modal-post-publish-actions');
+  if (prevModal) prevModal.remove();
+
+  let desgloseSent = Boolean(desgloseAlreadySent);
+  let invoiceSent = Boolean(invoiceAlreadySent);
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-post-publish-actions';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9500'; // Debajo de modal-send-billing-email (9999) para permanecer abierto tras enviar el primer correo
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 580px; width: 95vw; border-radius: 16px; padding: 0; overflow: hidden; box-shadow: 0 24px 60px -12px rgba(15, 23, 42, 0.3);">
+      <div class="lioren-emit-header">
+        <div class="lioren-emit-header-left">
+          <div class="lioren-emit-icon-box" style="background: rgba(16, 185, 129, 0.14); border-color: rgba(16, 185, 129, 0.35); color: #059669;">
+            <i class="ri-checkbox-circle-fill"></i>
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800;">
+              ¡Cobro Publicado y Factura Folio #${escHtml(String(dte.folio || ''))} Emitida!
+            </h3>
+            <div style="font-size: 0.74rem; color: var(--color-text-muted); margin-top: 0.12rem;">
+              ${escHtml(comercioName)} · ${escHtml(periodName)}
+            </div>
+          </div>
+        </div>
+        <button type="button" class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+
+      <div style="padding: 1.15rem 1.35rem; background: var(--color-surface); font-size: 0.85rem; line-height: 1.5;">
+        ${isSandbox ? `
+          <div style="background: rgba(245, 158, 11, 0.14); color: #b45309; padding: 0.45rem 0.7rem; border-radius: 8px; font-size: 0.76rem; font-weight: 700; margin-bottom: 0.75rem;">
+            <i class="ri-flask-fill"></i> Factura emitida en Entorno de Pruebas Lioren
+          </div>
+        ` : ''}
+
+        <!-- Resumen DTE + enlaces PDF/XML -->
+        <div class="lioren-section-box" style="padding: 0.8rem 0.95rem; margin-bottom: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <div>
+              <span style="color: var(--color-text-muted); font-size: 0.76rem;">Folio SII Asignado:</span>
+              <strong style="font-size: 1.02rem; color: #5f06fa; margin-left: 0.25rem;">#${escHtml(String(dte.folio || ''))}</strong>
+            </div>
+            <div style="font-size: 0.8rem;">
+              Neto <strong>${formatCLP(dte.montoneto || 0)}</strong> · IVA <strong>${formatCLP(dte.montoiva || 0)}</strong> · Total <strong style="color: #0f172a;">${formatCLP(dte.montototal || 0)}</strong>
+            </div>
+          </div>
+          ${totalAbonos > 0 ? `
+            <div style="font-size: 0.76rem; color: #4338ca; font-weight: 700; margin-top: 0.3rem;">
+              Saldo Cliente tras Abonos: ${formatCLP(totalToPay)}
+            </div>
+          ` : ''}
+          ${(pdfUrl || xmlUrl) ? `
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.65rem;">
+              ${pdfUrl ? `<a href="${escHtml(pdfUrl)}" target="_blank" class="btn btn-primary btn-sm" style="flex: 1; justify-content: center; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem; height: 34px; font-size: 0.78rem;"><i class="ri-file-pdf-fill"></i> Ver / Descargar PDF</a>` : ''}
+              ${xmlUrl ? `<a href="${escHtml(xmlUrl)}" target="_blank" class="btn btn-outline btn-sm" style="flex: 1; justify-content: center; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem; height: 34px; font-size: 0.78rem;"><i class="ri-code-s-slash-line"></i> Descargar XML SII</a>` : ''}
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- Opciones de envío de correo al comercio -->
+        <div class="lioren-section-box" style="padding: 0.9rem 1rem; margin-bottom: 0;">
+          <div class="lioren-section-title" style="margin-bottom: 0.65rem;">
+            <span><i class="ri-mail-send-line"></i> Notificaciones por Correo al Comercio</span>
+          </div>
+          <p style="font-size: 0.76rem; color: var(--color-text-muted); margin: 0 0 0.7rem 0;">
+            Puedes previsualizar y enviar por separado el <strong>Correo de Desglose Confirmado</strong>, el <strong>Correo de Factura Emitida</strong>, o despachar ambos en un clic:
+          </p>
+
+          <div style="display: flex; flex-direction: column; gap: 0.55rem;">
+            <!-- Opción 1: Correo de Desglose Confirmado -->
+            <button type="button" id="btn-postpub-open-desglose-email" style="width: 100%; padding: 0.62rem 0.85rem; border-radius: 9px; border: 1.5px solid #8b5cf6; background: rgba(95, 6, 250, 0.06); color: #5b21b6; font-size: 0.81rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; text-align: left; transition: all 0.15s ease;">
+              <span style="display: inline-flex; align-items: center; gap: 0.45rem;">
+                <i class="ri-bar-chart-box-line" style="font-size: 1rem;"></i>
+                <span>1. Previsualizar y Enviar Correo de Desglose Confirmado</span>
+              </span>
+              <span id="badge-postpub-desglose-status" style="font-size: 0.69rem; padding: 2px 8px; border-radius: 999px; background: ${desgloseSent ? '#dcfce7' : '#ede9fe'}; color: ${desgloseSent ? '#166534' : '#5b21b6'};">
+                ${desgloseSent ? '✓ Enviado' : 'Abrir visor'}
+              </span>
+            </button>
+
+            <!-- Opción 2: Correo de Factura Emitida -->
+            <button type="button" id="btn-postpub-open-invoice-email" style="width: 100%; padding: 0.62rem 0.85rem; border-radius: 9px; border: 1.5px solid #10b981; background: rgba(16, 185, 129, 0.07); color: #047857; font-size: 0.81rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; text-align: left; transition: all 0.15s ease;">
+              <span style="display: inline-flex; align-items: center; gap: 0.45rem;">
+                <i class="ri-file-text-line" style="font-size: 1rem;"></i>
+                <span>2. Previsualizar y Enviar Correo de Factura Emitida</span>
+              </span>
+              <span id="badge-postpub-invoice-status" style="font-size: 0.69rem; padding: 2px 8px; border-radius: 999px; background: ${invoiceSent ? '#dcfce7' : '#d1fae5'}; color: #065f46;">
+                ${invoiceSent ? '✓ Enviado' : 'Abrir visor'}
+              </span>
+            </button>
+
+            <!-- Opción 3: Enviar Ambos en 1 Clic -->
+            <button type="button" id="btn-postpub-send-both-auto" style="width: 100%; margin-top: 0.15rem; padding: 0.62rem 0.9rem; border-radius: 9px; border: none; background: linear-gradient(135deg, #4f46e5, #059669); color: #ffffff; font-size: 0.82rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; box-shadow: 0 3px 10px rgba(79, 70, 229, 0.24);">
+              <i class="ri-send-plane-2-fill"></i> Enviar Ambos Correos Automáticamente (Desglose + Factura)
+            </button>
+          </div>
+        </div>
+
+        <div class="lioren-emit-footer" style="justify-content: flex-end; margin-top: 0.9rem; padding-top: 0.8rem;">
+          <button type="button" class="btn btn-primary" style="height: 38px; padding: 0 1.25rem; font-size: 0.84rem; background: #5f06fa; border: none;" onclick="this.closest('.modal-overlay').remove()">
+            Finalizar y Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const btnDesglose = document.getElementById('btn-postpub-open-desglose-email');
+  const btnInvoice = document.getElementById('btn-postpub-open-invoice-email');
+  const btnBoth = document.getElementById('btn-postpub-send-both-auto');
+  const badgeDesglose = document.getElementById('badge-postpub-desglose-status');
+  const badgeInvoice = document.getElementById('badge-postpub-invoice-status');
+
+  if (btnDesglose) {
+    btnDesglose.addEventListener('click', () => {
+      if (typeof window.openSendBillingEmailModal === 'function') {
+        window.openSendBillingEmailModal(recordId, comercioName, periodId, {
+          defaultEmailType: 'billing_summary',
+          defaultServiceType: serviceType,
+          fallbackEmail
+        });
+        if (badgeDesglose && !desgloseSent) {
+          badgeDesglose.textContent = 'Visor abierto';
+        }
+      }
+    });
+  }
+
+  if (btnInvoice) {
+    btnInvoice.addEventListener('click', () => {
+      if (typeof window.openSendBillingEmailModal === 'function') {
+        window.openSendBillingEmailModal(recordId, comercioName, periodId, {
+          defaultEmailType: 'invoice_uploaded',
+          defaultServiceType: serviceType,
+          fallbackEmail
+        });
+        if (badgeInvoice && !invoiceSent) {
+          badgeInvoice.textContent = 'Visor abierto';
+        }
+      }
+    });
+  }
+
+  if (btnBoth) {
+    btnBoth.addEventListener('click', async () => {
+      btnBoth.disabled = true;
+      btnBoth.innerHTML = '<i class="ri-loader-4-line spin"></i> Enviando correo de Desglose y correo de Factura...';
+
+      const okDesglose = desgloseSent
+        ? true
+        : await sendBrevoDesgloseNotification(recordId, comercioName, serviceType, fallbackEmail ? [fallbackEmail] : []);
+      const okInvoice = invoiceSent
+        ? true
+        : await sendBrevoInvoiceNotification(recordId, comercioName, serviceType, fallbackEmail ? [fallbackEmail] : []);
+
+      if (okDesglose) {
+        desgloseSent = true;
+        if (badgeDesglose) {
+          badgeDesglose.textContent = '✓ Enviado';
+          badgeDesglose.style.background = '#dcfce7';
+          badgeDesglose.style.color = '#166534';
+        }
+      }
+      if (okInvoice) {
+        invoiceSent = true;
+        if (badgeInvoice) {
+          badgeInvoice.textContent = '✓ Enviado';
+          badgeInvoice.style.background = '#dcfce7';
+          badgeInvoice.style.color = '#166534';
+        }
+      }
+
+      if (okDesglose && okInvoice) {
+        btnBoth.style.background = '#059669';
+        btnBoth.innerHTML = '<i class="ri-checkbox-circle-fill"></i> ¡Ambos correos enviados con éxito!';
+      } else {
+        btnBoth.disabled = false;
+        btnBoth.innerHTML = '<i class="ri-error-warning-line"></i> Reintentar o abrir visor individual arriba';
+      }
+    });
+  }
+};
 
 // ============================================================================
 // EMISIÓN RÁPIDA EN 1 SOLO CLICK (SIN ABRIR MODAL SI LA FICHA SII ESTÁ LISTA)
@@ -3580,4 +3923,92 @@ window.bulkEmitFromCommerceView = function() {
     if (scope === 'env' || scope === 'both') items.push({ recordId, serviceType: 'enviame' });
   });
   window.openBulkLiorenEmitModal(items);
+};
+
+// ============================================================================
+// INTEGRACIÓN DIRECTA CON GESTOR DE FACTURACIÓN ("CONFIRMAR Y PUBLICAR")
+// ============================================================================
+window.inspectCommerceForImmediateInvoice = async function(comercioName) {
+  injectLiorenStyles();
+  const [dataset, liorenStatus] = await Promise.all([
+    typeof window.fetchBillingCommerceLegalDataset === 'function'
+      ? window.fetchBillingCommerceLegalDataset()
+      : Promise.resolve(null),
+    getLiorenStatus(false).catch(() => null)
+  ]);
+
+  let sii = evaluateCommerceSiiReadiness(comercioName, dataset);
+  if (!sii.ready && sii.rutValid) {
+    sii = await tryHydrateReceptorFromLioren(sii);
+  }
+
+  return { sii, dataset, liorenStatus };
+};
+
+window.emitImmediateLiorenInvoice = async function(recordId, serviceType = 'fulfillment', options = {}) {
+  injectLiorenStyles();
+  const normalizedService = serviceType === 'enviame' ? 'enviame' : 'fulfillment';
+  const comercioName = options.comercioName || '';
+  const periodName = options.periodName || '';
+  const grossAmount = Math.round(Number(options.grossAmount) || 0);
+  const montoNeto = grossAmount > 0 ? Math.round(grossAmount / 1.19) : 0;
+
+  if (montoNeto <= 0) {
+    throw new Error('El monto a facturar debe ser mayor a $0.');
+  }
+
+  let sii = options.sii;
+  if (!sii) {
+    const dataset = typeof window.fetchBillingCommerceLegalDataset === 'function'
+      ? await window.fetchBillingCommerceLegalDataset()
+      : null;
+    sii = evaluateCommerceSiiReadiness(comercioName, dataset);
+    if (!sii.ready && sii.rutValid) {
+      sii = await tryHydrateReceptorFromLioren(sii);
+    }
+  }
+
+  if (!sii?.ready) {
+    throw new Error(`Faltan datos SII obligatorios para emitir: ${(sii?.missing || ['RUT']).join(', ')}.`);
+  }
+
+  const todayIso = new Date().toLocaleDateString('sv-SE');
+  const rawDue = String(options.dueDate || '').trim();
+  const vencimiento = (rawDue && rawDue >= todayIso) ? rawDue : computeBusinessDays(todayIso, 5);
+  const formattedPeriod = String(periodName || '').replace(/[\s-]+/g, '-').toUpperCase();
+  const glosa = `${normalizedService === 'fulfillment' ? 'SERV. FULFILLMENT' : 'SERV. ENVIAME'} ${formattedPeriod}`.trim();
+  const actividad = normalizedService === 'fulfillment' ? '521009' : '522190';
+  const idempotencyKey = options.idempotencyKey || ((typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `pub-emit-${recordId}-${normalizedService}-${Date.now()}`);
+
+  const emitResult = await callLiorenApi({
+    action: 'emit_dte',
+    recordId,
+    comercio: comercioName,
+    serviceType: normalizedService,
+    tipodoc: '33',
+    actividad,
+    fecha: todayIso,
+    vencimiento,
+    glosa,
+    montoNeto,
+    receptor: {
+      rut: sii.rutFormatted,
+      rs: sii.rs,
+      giro: sii.giro,
+      direccion: sii.direccion,
+      comuna: sii.comunaId,
+      ciudad: sii.ciudadId,
+      comunaNombre: sii.comunaNombre,
+      ciudadNombre: sii.ciudadNombre,
+      email: sii.email
+    },
+    saveCommerceLegalInfo: true,
+    idempotencyKey
+  });
+
+  cachedLiorenStatusTs = 0;
+  await refreshViewsAfterInvoiceAction(options.periodId || '', recordId, normalizedService);
+  return emitResult;
 };

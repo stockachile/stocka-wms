@@ -2317,6 +2317,7 @@ window.executeConfirmedEnviameProcessing = async function(periodId) {
   
   let successCount = 0;
   let emailNotice = '';
+  const processedEnviameInvoiceItems = [];
   
   try {
     const keys = Object.keys(groupsToUpdate);
@@ -2532,6 +2533,10 @@ window.executeConfirmedEnviameProcessing = async function(periodId) {
         if (insertErr) throw insertErr;
         recordId = inserted.id;
       }
+
+      if (recordId && newEnviameTotal > 0) {
+        processedEnviameInvoiceItems.push({ recordId, serviceType: 'enviame' });
+      }
       
       if (notifyClient && recordId) {
         const { data: contacts } = await supabase
@@ -2652,16 +2657,36 @@ window.executeConfirmedEnviameProcessing = async function(periodId) {
     }
     
     document.getElementById('modal-enviame-importer').remove();
-    
-    Swal.fire({
+
+    if (typeof window.loadBillingPeriods === 'function') {
+      await window.loadBillingPeriods();
+    }
+
+    const canEmitEnvInvoices = processedEnviameInvoiceItems.length > 0 && (
+      typeof window.openBulkLiorenEmitModal === 'function' || typeof window.openLiorenEmitModal === 'function'
+    );
+
+    const envPostRes = await Swal.fire({
       icon: 'success',
       title: 'Procesamiento Exitoso',
       text: `Se registraron con éxito los desgloses de Envíame para ${successCount} comercios en base de datos${emailNotice}.`,
-      confirmButtonColor: '#9c27b0'
+      showCancelButton: canEmitEnvInvoices,
+      confirmButtonText: canEmitEnvInvoices
+        ? (processedEnviameInvoiceItems.length === 1
+            ? '<i class="ri-flashlight-fill"></i> Emitir Factura Envíame en Lioren'
+            : `<i class="ri-flashlight-fill"></i> Emitir ${processedEnviameInvoiceItems.length} Facturas Envíame en Lioren`)
+        : 'Aceptar',
+      cancelButtonText: 'Cerrar',
+      confirmButtonColor: canEmitEnvInvoices ? '#6d28d9' : '#9c27b0',
+      cancelButtonColor: '#64748b'
     });
-    
-    if (typeof window.loadBillingPeriods === 'function') {
-      await window.loadBillingPeriods();
+
+    if (canEmitEnvInvoices && envPostRes.isConfirmed) {
+      if (processedEnviameInvoiceItems.length === 1 && typeof window.openLiorenEmitModal === 'function') {
+        window.openLiorenEmitModal(processedEnviameInvoiceItems[0].recordId, 'enviame');
+      } else if (typeof window.openBulkLiorenEmitModal === 'function') {
+        window.openBulkLiorenEmitModal(processedEnviameInvoiceItems);
+      }
     }
     
   } catch (err) {
