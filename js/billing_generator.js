@@ -1340,16 +1340,80 @@ export function normalizeOrderChildStore(orderComercio, conglomerateChildren = [
   return orderComercio;
 }
 
-// Detección de pedidos con agenda FULL MERCADOLIBRE para cobro de etiquetado
+// Detección integral de pedidos FULL (agenda FULL o destino BODEGA FULL) para cobro automático de etiquetado ($100 / ud.)
 export function isFullMeliOrder(order) {
   if (!order) return false;
+  if (order.isFullOrder === true) return true;
+
   const agenda = String(order.agenda || '').toUpperCase().trim();
-  if (!agenda) return false;
-  return agenda.includes('FULL MERCADOLIBRE') || 
-         agenda.includes('FULL MERCADO LIBRE') || 
-         (agenda.includes('FULL') && (agenda.includes('MERCADO') || agenda.includes('MELI')));
+  if (agenda && /\bFULL\b/.test(agenda)) return true;
+
+  const custName = String(order.customerName || order.customer_name || '').toUpperCase().trim();
+  if (custName.includes('BODEGA FULL')) return true;
+
+  const shipAddr = String(order.shippingAddress || order.shipping_address || '').toUpperCase().trim();
+  if (shipAddr.includes('BODEGA FULL')) return true;
+
+  const custEmail = String(order.customerEmail || order.customer_email || '').toLowerCase().trim();
+  if (custEmail === 'full@mercadolibre.cl') return true;
+
+  return false;
 }
 window.isFullMeliOrder = isFullMeliOrder;
+
+// Resolver estado consolidado y glosa editable del costo de etiquetado FULL
+export function resolveFullLabelingState(billableOrders = [], existingTotals = {}, defaultRate = 100) {
+  const fullOrders = (Array.isArray(billableOrders) ? billableOrders : []).filter(o => !o.isExcluded && isFullMeliOrder(o));
+  const autoOrdersCount = fullOrders.length;
+  const autoUnitsCount = fullOrders.reduce((acc, o) => acc + (Math.max(1, parseInt(o.unitsCount, 10) || 1)), 0);
+  const safeDefaultRate = Math.max(0, Math.round(Number(defaultRate) || 100));
+
+  const customTitle = String(existingTotals?.meliFullCustomTitle || '').trim();
+  const customDesc = String(existingTotals?.meliFullCustomDesc || '').trim();
+  const isExempt = Boolean(existingTotals?.meliFullExempt);
+  const hideWhenExempt = Boolean(existingTotals?.meliFullHideWhenExempt);
+
+  const hasManualUnits = existingTotals?.meliFullManualUnits !== undefined &&
+                         existingTotals?.meliFullManualUnits !== null &&
+                         existingTotals?.meliFullManualUnits !== '';
+  const manualUnits = hasManualUnits ? Math.max(0, parseInt(existingTotals.meliFullManualUnits, 10) || 0) : null;
+
+  const hasManualRate = existingTotals?.meliFullManualRate !== undefined &&
+                        existingTotals?.meliFullManualRate !== null &&
+                        existingTotals?.meliFullManualRate !== '';
+  const manualRate = hasManualRate ? Math.max(0, Math.round(Number(existingTotals.meliFullManualRate) || 0)) : null;
+
+  const hasAnyFullActivity = autoOrdersCount > 0 || (manualUnits !== null && manualUnits > 0);
+  const effectiveUnits = !hasAnyFullActivity ? 0 : (isExempt ? 0 : (manualUnits !== null ? manualUnits : autoUnitsCount));
+  const effectiveRate = !hasAnyFullActivity ? safeDefaultRate : (isExempt ? 0 : (manualRate !== null ? manualRate : safeDefaultRate));
+  const effectiveNet = Math.round(effectiveUnits * effectiveRate);
+
+  const defaultTitle = 'Costo de etiquetado de ítems FULL';
+  const ordersRef = Math.max(autoOrdersCount, effectiveUnits > 0 ? 1 : 0);
+  const defaultDesc = isExempt
+    ? `Exento ($0) · ${autoUnitsCount} unidad${autoUnitsCount === 1 ? '' : 'es'} en ${autoOrdersCount} pedido${autoOrdersCount === 1 ? '' : 's'} FULL`
+    : `${formatCLP(effectiveRate)} por unidad etiquetada (${effectiveUnits} unidad${effectiveUnits === 1 ? '' : 'es'} en ${ordersRef} pedido${ordersRef === 1 ? '' : 's'} FULL)`;
+
+  return {
+    meliFullOrdersCount: autoOrdersCount,
+    meliFullAutoUnitsCount: autoUnitsCount,
+    meliFullDefaultRate: safeDefaultRate,
+    meliFullUnitsCount: effectiveUnits,
+    meliFullRate: effectiveRate,
+    meliFullNet: effectiveNet,
+    meliFullTitle: customTitle || defaultTitle,
+    meliFullDesc: customDesc || defaultDesc,
+    meliFullDefaultTitle: defaultTitle,
+    meliFullDefaultDesc: defaultDesc,
+    meliFullCustomTitle: customTitle || null,
+    meliFullCustomDesc: customDesc || null,
+    meliFullManualUnits: manualUnits,
+    meliFullManualRate: manualRate,
+    meliFullExempt: isExempt,
+    meliFullHideWhenExempt: hideWhenExempt,
+    meliFullIsCustom: Boolean(customTitle || customDesc || isExempt || manualUnits !== null || manualRate !== null)
+  };
+}
 
 // Detección de pedidos generados en Punto de Venta físico (POS)
 export function isPosSaleOrder(order) {
@@ -2814,7 +2878,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     }
 
     // 6.2 Proyección ligera de pedidos (extrae sólo subcampos JSONB requeridos en vez de blobs completos ni LATERAL order_items)
-    const fastOrderSelectFields = 'id,created_at,external_order_number,external_platform,status,estado_wms,comercio,categoria_entrega,agenda,operador,shipping_city,shipping_address,shipping_method,total_value,sku,cantidad,item,periodo_facturacion,consolidation_role:raw_shopify_data->>_consolidation_role,consolidated_into_folio:raw_shopify_data->>_consolidated_into_folio,consolidated_into_id:raw_shopify_data->>_consolidated_into_order_id,consolidated_children_folios:raw_shopify_data->_consolidated_children_folios,shopify_items:raw_shopify_data->line_items,shopify_name:raw_shopify_data->>name,shopify_total:raw_shopify_data->>total_price,woo_items:raw_woocommerce_data->line_items,woo_total:raw_woocommerce_data->>total,meli_items:raw_meli_data->order_items,meli_total:raw_meli_data->>total_amount';
+    const fastOrderSelectFields = 'id,created_at,external_order_number,external_platform,status,estado_wms,comercio,categoria_entrega,agenda,operador,customer_name,customer_email,shipping_city,shipping_address,shipping_method,total_value,sku,cantidad,item,periodo_facturacion,consolidation_role:raw_shopify_data->>_consolidation_role,consolidated_into_folio:raw_shopify_data->>_consolidated_into_folio,consolidated_into_id:raw_shopify_data->>_consolidated_into_order_id,consolidated_children_folios:raw_shopify_data->_consolidated_children_folios,shopify_items:raw_shopify_data->line_items,shopify_name:raw_shopify_data->>name,shopify_total:raw_shopify_data->>total_price,woo_items:raw_woocommerce_data->line_items,woo_total:raw_woocommerce_data->>total,meli_items:raw_meli_data->order_items,meli_total:raw_meli_data->>total_amount';
 
     let step = 500;
     let lastCreatedAt = null;
@@ -3340,6 +3404,10 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       }),
       operador: (ord.operador && String(ord.operador).trim() !== '' && String(ord.operador).trim() !== '—') ? String(ord.operador).trim() : (isPosOrder ? 'POS Sucursal' : ''),
       agenda: (ord.agenda && String(ord.agenda).trim() !== '' && String(ord.agenda).trim() !== '—') ? String(ord.agenda).trim() : '',
+      customerName: ord.customer_name || manualOrderOverride?.customerName || '',
+      customerEmail: ord.customer_email || manualOrderOverride?.customerEmail || '',
+      shippingAddress: ord.shipping_address || manualOrderOverride?.shippingAddress || '',
+      isFullOrder: isFullMeliOrder(ord) || Boolean(manualOrderOverride?.isFullOrder),
       shippingMethod: (ord.shipping_method && String(ord.shipping_method).trim() !== '' && String(ord.shipping_method).trim() !== '—') ? String(ord.shipping_method).trim() : (isPosOrder ? 'Entrega en Punto Físico' : ''),
       ticketVenta: finalTicketVenta,
       deliveryType: finalDeliveryType,
@@ -3379,11 +3447,18 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 
   const enviameOrders = billableOrders.filter(o => o.deliveryType === 'ENVIAME_REGION' && !o.isConsolidatedSecondary);
 
-  // 9b. Detección y cálculo de Cobro de Etiqueta FULL de MELI ($100 por producto / unidad en pedidos con agenda FULL MERCADOLIBRE)
-  const fullMeliOrders = billableOrders.filter(o => isFullMeliOrder(o));
-  const meliFullUnitsCount = fullMeliOrders.reduce((acc, o) => acc + (Math.max(1, parseInt(o.unitsCount, 10) || 1)), 0);
-  const meliFullRate = (cfg.pick_pack_rules && cfg.pick_pack_rules.surcharge_ml_full_labeling) || 100;
-  const meliFullNet = meliFullUnitsCount * meliFullRate;
+  // 9b. Detección y cálculo automático de Costo de Etiquetado FULL ($100 por unidad etiquetada, glosa editable)
+  const fullSessionKey = `${billingState.currentPeriodId}_${commerceName}`;
+  const defaultFullRate = (cfg.pick_pack_rules && cfg.pick_pack_rules.surcharge_ml_full_labeling) || 100;
+  const savedFullMeta = customOverrides.forceFresh
+    ? {}
+    : (customOverrides.fullLabeling ||
+       ((billingState.fullLabelingSessionKey === fullSessionKey && billingState.totals)
+         ? billingState.totals
+         : (savedSnapshot?.totals || {})));
+  const fullLabelState = resolveFullLabelingState(billableOrders, savedFullMeta, defaultFullRate);
+  billingState.fullLabelingSessionKey = fullSessionKey;
+  const meliFullNet = fullLabelState.meliFullNet;
 
   // 9.1 Conteo global de artículos y ranking de productos más vendidos
   const productMap = {};
@@ -3732,10 +3807,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   billingState.totals = {
     ordersCount: totalOrdersCount,
     billableOrdersCount: billableOrders.length,
-    meliFullOrdersCount: fullMeliOrders.length,
-    meliFullUnitsCount,
-    meliFullRate,
-    meliFullNet,
+    ...fullLabelState,
     storageRate: baseStorageM3Rate,
     defaultStorageRate: defaultStorageM3Rate,
     storageGross: Math.round(grossStorage),
@@ -3798,28 +3870,30 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
     ? b.storeBreakdown
     : (b.isConglomerate ? computeConglomerateStoreBreakdown(b.orders, b) : []);
 
-  // Detección y cálculo garantizado de Cobro de Etiqueta FULL de MELI
-  let meliFullOrdersCount = t.meliFullOrdersCount;
-  let meliFullUnitsCount = t.meliFullUnitsCount;
-  let meliFullNet = t.meliFullNet;
-
-  if (meliFullNet === undefined || meliFullNet === null) {
-    const fullMeliOrders = (b.orders || []).filter(o => !o.isExcluded && isFullMeliOrder(o));
-    meliFullOrdersCount = fullMeliOrders.length;
-    meliFullUnitsCount = fullMeliOrders.reduce((sum, o) => sum + (Math.max(1, parseInt(o.unitsCount, 10) || 1)), 0);
-    meliFullNet = meliFullUnitsCount * 100;
-
-    if (meliFullNet > 0) {
-      t.meliFullOrdersCount = meliFullOrdersCount;
-      t.meliFullUnitsCount = meliFullUnitsCount;
-      t.meliFullRate = 100;
-      t.meliFullNet = meliFullNet;
-      t.totalNet = (t.totalNet || 0) + meliFullNet;
+  // Detección y cálculo garantizado de Costo de Etiquetado FULL (con soporte de glosa editable)
+  const billableForFull = (b.orders || []).filter(o => !o.isExcluded);
+  const fullResolved = resolveFullLabelingState(billableForFull, t, t.meliFullDefaultRate || 100);
+  if (t.meliFullNet === undefined || t.meliFullNet === null) {
+    Object.assign(t, fullResolved);
+    if (fullResolved.meliFullNet > 0) {
+      t.totalNet = (t.totalNet || 0) + fullResolved.meliFullNet;
       t.iva = Math.round(t.totalNet * 0.19);
       t.totalGross = t.totalNet + t.iva;
       t.totalToPay = Math.max(0, t.totalGross - (t.totalAbonos || 0));
     }
+  } else if (!t.meliFullTitle) {
+    t.meliFullTitle = fullResolved.meliFullTitle;
+    t.meliFullDesc = fullResolved.meliFullDesc;
+    t.meliFullAutoUnitsCount = fullResolved.meliFullAutoUnitsCount;
   }
+  const meliFullOrdersCount = t.meliFullOrdersCount ?? fullResolved.meliFullOrdersCount;
+  const meliFullUnitsCount = t.meliFullUnitsCount ?? fullResolved.meliFullUnitsCount;
+  const meliFullNet = t.meliFullNet ?? fullResolved.meliFullNet;
+  const meliFullTitle = t.meliFullTitle || fullResolved.meliFullTitle;
+  const meliFullDesc = t.meliFullDesc || fullResolved.meliFullDesc;
+  const showFullLabelRow = isClient
+    ? ((meliFullNet > 0 || meliFullUnitsCount > 0 || (meliFullOrdersCount > 0 && t.meliFullExempt && !t.meliFullHideWhenExempt)))
+    : ((meliFullOrdersCount > 0) || (meliFullUnitsCount > 0) || (meliFullNet > 0) || Boolean(t.meliFullIsCustom));
 
   // Auto-enriquecimiento de respaldo desde localStorage si RUT o Razón Social vienen vacíos o con guión
   if (commName) {
@@ -4188,20 +4262,37 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
               </tr>
             ` : ''}
 
-            <!-- 4.2 Cobro de Etiqueta FULL de MELI (si aplica) -->
-            ${((t.meliFullNet > 0) || (meliFullUnitsCount > 0)) ? `
-              <tr>
+            <!-- 4.2 Costo de Etiquetado de Ítems FULL (automático cuando existen pedidos FULL, con glosa editable) -->
+            ${showFullLabelRow ? `
+              <tr style="${(!isClient && t.meliFullExempt && t.meliFullHideWhenExempt) ? 'opacity: 0.58; background: #f8fafc;' : ''}">
                 <td>
-                  <div style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">Cobro de etiqueta FULL de MELI</div>
-                  <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">
-                    $100 por producto incluido en el pedido (${t.meliFullUnitsCount || meliFullUnitsCount} unidades en ${t.meliFullOrdersCount || meliFullOrdersCount} pedido${(t.meliFullOrdersCount || meliFullOrdersCount) === 1 ? '' : 's'} con agenda FULL MERCADOLIBRE)
+                  <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                    <div>
+                      <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                        <span style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">${escapeHtml(meliFullTitle)}</span>
+                        ${(!isClient && t.meliFullExempt && t.meliFullHideWhenExempt) ? `
+                          <span style="background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; font-size: 0.67rem; font-weight: 700; padding: 1px 6px; border-radius: 4px;">
+                            Oculto en vista cliente / PDF
+                          </span>
+                        ` : ''}
+                      </div>
+                      <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">
+                        ${escapeHtml(meliFullDesc)}
+                      </div>
+                    </div>
+                    ${!isClient ? `
+                    <div class="no-print">
+                      <button type="button" onclick="window.openEditFullLabelingModal()" title="Editar glosa, unidades o tarifa de etiquetado FULL" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 7px; cursor: pointer; color: #475569; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                        <i class="ri-pencil-line"></i> Editar
+                      </button>
+                    </div>` : ''}
                   </div>
                 </td>
                 <td style="text-align: center; font-weight: 600; color: #64748b;">ud.</td>
-                <td style="text-align: center; font-weight: 700; color: #0f172a;">${t.meliFullUnitsCount || meliFullUnitsCount}</td>
-                <td style="text-align: right; font-weight: 700; color: #0f172a;">${formatCLP(t.meliFullNet || meliFullNet)}</td>
-                <td style="text-align: right; color: #64748b;">${formatCLP((t.meliFullNet || meliFullNet) * 0.19)}</td>
-                <td style="text-align: right; font-weight: 800; color: #0f172a;">${formatCLP((t.meliFullNet || meliFullNet) * 1.19)}</td>
+                <td style="text-align: center; font-weight: 700; color: #0f172a;">${meliFullUnitsCount}</td>
+                <td style="text-align: right; font-weight: 700; color: #0f172a;">${formatCLP(meliFullNet)}</td>
+                <td style="text-align: right; color: #64748b;">${formatCLP(Math.round(meliFullNet * 0.19))}</td>
+                <td style="text-align: right; font-weight: 800; color: #0f172a;">${formatCLP(Math.round(meliFullNet * 1.19))}</td>
               </tr>
             ` : ''}
 
@@ -4773,19 +4864,15 @@ export function exportBillingToExcel(customState = null) {
     ]);
   }
 
-  // Cobro de Etiqueta FULL de MELI si aplica
-  let meliUnits = t.meliFullUnitsCount;
-  let meliNet = t.meliFullNet;
-  let meliOrders = t.meliFullOrdersCount;
-  if (meliNet === undefined || meliNet === null) {
-    const fullMeliOrders = (b.orders || []).filter(o => !o.isExcluded && isFullMeliOrder(o));
-    meliOrders = fullMeliOrders.length;
-    meliUnits = fullMeliOrders.reduce((sum, o) => sum + (Math.max(1, parseInt(o.unitsCount, 10) || 1)), 0);
-    meliNet = meliUnits * 100;
-  }
-  if (meliNet > 0 || meliUnits > 0) {
+  // Costo de Etiquetado FULL si aplica
+  const fullExcelState = resolveFullLabelingState((b.orders || []).filter(o => !o.isExcluded), t, t.meliFullDefaultRate || 100);
+  const meliUnits = t.meliFullUnitsCount !== undefined ? t.meliFullUnitsCount : fullExcelState.meliFullUnitsCount;
+  const meliNet = t.meliFullNet !== undefined && t.meliFullNet !== null ? t.meliFullNet : fullExcelState.meliFullNet;
+  const meliTitleExcel = t.meliFullTitle || fullExcelState.meliFullTitle;
+  const meliDescExcel = t.meliFullDesc || fullExcelState.meliFullDesc;
+  if ((meliNet > 0 || meliUnits > 0 || (fullExcelState.meliFullOrdersCount > 0 && t.meliFullExempt && !t.meliFullHideWhenExempt))) {
     summaryData.push([
-      `Cobro de etiqueta FULL de MELI (${meliUnits} unidades en ${meliOrders} pedidos con agenda FULL MERCADOLIBRE)`,
+      `${meliTitleExcel} (${meliDescExcel})`,
       "ud.",
       meliUnits,
       meliNet,
@@ -9862,6 +9949,11 @@ export function renderOrdersTableUI() {
                 <i class="ri-store-3-fill"></i> PUNTO DE VENTA
               </span>
             ` : ''}
+            ${isFullMeliOrder(o) ? `
+              <span style="background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; font-size: 0.65rem; font-weight: 800; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Pedido FULL detectado: Suma ${o.unitsCount} unidad(es) al costo automático de etiquetado FULL en el desglose">
+                <i class="ri-price-tag-3-fill"></i> ENVÍO FULL (${o.unitsCount} etiq.)
+              </span>
+            ` : ''}
             ${billingState.isConglomerate && o.comercio ? `
               <span class="bg-order-child-store-badge" title="Tienda del conglomerado: ${escapeHtml(o.comercio)}">
                 <i class="ri-store-2-line"></i> ${escapeHtml(o.comercio)}
@@ -10820,11 +10912,10 @@ function recalculateFromCurrentState() {
 
   const enviameOrders = billableOrders.filter(o => o.deliveryType === 'ENVIAME_REGION');
 
-  // Cobro de Etiqueta FULL de MELI ($100 por producto en pedidos con agenda FULL MERCADOLIBRE)
-  const fullMeliOrders = billableOrders.filter(o => isFullMeliOrder(o));
-  const meliFullUnitsCount = fullMeliOrders.reduce((acc, o) => acc + (Math.max(1, parseInt(o.unitsCount, 10) || 1)), 0);
-  const meliFullRate = (b.pricingConfig?.pick_pack_rules?.surcharge_ml_full_labeling) || 100;
-  const meliFullNet = meliFullUnitsCount * meliFullRate;
+  // Costo de Etiquetado FULL ($100 por unidad en pedidos FULL, preservando glosa o ajustes manuales)
+  const defaultFullRate = (b.pricingConfig?.pick_pack_rules?.surcharge_ml_full_labeling) || 100;
+  const fullLabelState = resolveFullLabelingState(billableOrders, b.totals || {}, defaultFullRate);
+  const meliFullNet = fullLabelState.meliFullNet;
 
   const baseStorageM3Rate = b.totals?.storageRate || b.activeRange?.storage_m3 || 48900;
   const storageDiscountPct = (b.totals?.storageDiscountPct !== undefined) ? b.totals.storageDiscountPct : 0;
@@ -10866,10 +10957,7 @@ function recalculateFromCurrentState() {
     ...b.totals,
     ordersCount: b.orders.length,
     billableOrdersCount: billableOrders.length,
-    meliFullOrdersCount: fullMeliOrders.length,
-    meliFullUnitsCount,
-    meliFullRate,
-    meliFullNet,
+    ...fullLabelState,
     storageRate: baseStorageM3Rate,
     storageGross: Math.round(grossStorage),
     storageDiscountPct,
@@ -10953,12 +11041,12 @@ export function resolveCanonicalSupplyAgendaGroup(order) {
     return { key: 'POS', label: 'PUNTO DE VENTA (POS)', shortLabel: 'POS', rawAgenda: raw || 'POS', sortOrder: 60 };
   }
 
-  if (!hasAgenda) {
-    return { key: 'SIN_AGENDA', label: 'SIN AGENDA', shortLabel: 'SIN AGENDA', rawAgenda: 'Sin Agenda', sortOrder: 99 };
+  if (isFullMeliOrder(order) || norm.includes('FULL MERCADO') || norm === 'FULL MELI' || norm === 'FULL') {
+    return { key: 'FULL_MELI', label: 'FULL MERCADOLIBRE', shortLabel: 'FULL MELI', rawAgenda: raw || 'FULL', sortOrder: 50 };
   }
 
-  if (isFullMeliOrder(order) || norm.includes('FULL MERCADO') || norm === 'FULL MELI' || norm === 'FULL') {
-    return { key: 'FULL_MELI', label: 'FULL MERCADOLIBRE', shortLabel: 'FULL MELI', rawAgenda: raw, sortOrder: 50 };
+  if (!hasAgenda) {
+    return { key: 'SIN_AGENDA', label: 'SIN AGENDA', shortLabel: 'SIN AGENDA', rawAgenda: 'Sin Agenda', sortOrder: 99 };
   }
 
   if (norm === 'FLEX' || norm.includes('FLEX')) {
@@ -12860,6 +12948,154 @@ window.openEditPosFeeModal = async function() {
       timer: 2500
     });
   }
+};
+
+// Modal interactivo para editar glosa, cantidad de unidades o tarifa de etiquetado de pedidos FULL
+window.openEditFullLabelingModal = async function() {
+  if (guardBillingLocked()) return;
+  const b = billingState;
+  const billableOrders = (b.orders || []).filter(o => !o.isExcluded);
+  const defaultRate = (b.pricingConfig?.pick_pack_rules?.surcharge_ml_full_labeling) || 100;
+  const currentFull = resolveFullLabelingState(billableOrders, b.totals || {}, defaultRate);
+
+  const autoOrders = currentFull.meliFullOrdersCount;
+  const autoUnits = currentFull.meliFullAutoUnitsCount;
+  const initialMode = currentFull.meliFullExempt
+    ? 'exento'
+    : ((currentFull.meliFullManualUnits !== null || currentFull.meliFullManualRate !== null) ? 'custom' : 'auto');
+
+  const { value: formValues } = await Swal.fire({
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.45rem;"><i class="ri-price-tag-3-line" style="color: #5f06fa;"></i><span>Costo de Etiquetado FULL</span></div>',
+    width: '540px',
+    html: `
+      <div style="text-align: left; font-size: 0.88rem;">
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 0.9rem; font-size: 0.78rem; color: #475569;">
+          Detectados automáticamente <strong>${autoOrders} pedido${autoOrders === 1 ? '' : 's'} FULL</strong> con un total de <strong>${autoUnits} unidad${autoUnits === 1 ? '' : 'es'}</strong> etiquetadas (tarifa base <strong>${formatCLP(defaultRate)} / ud.</strong> + IVA).
+        </div>
+
+        <label style="font-size: 0.74rem; font-weight: 800; color: #334155; display: block; margin-bottom: 0.25rem; text-transform: uppercase;">Glosa Principal (Ítem en el Desglose):</label>
+        <input type="text" id="swal-fulllabel-title" class="swal2-input" style="width: 100%; height: 38px; margin: 0 0 0.75rem 0; font-size: 0.85rem;" value="${escapeHtml(currentFull.meliFullTitle)}" placeholder="Ej: Costo de etiquetado de ítems FULL">
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+          <label style="font-size: 0.74rem; font-weight: 800; color: #334155; text-transform: uppercase;">Detalle / Sub-glosa Descriptiva:</label>
+          <button type="button" id="swal-fulllabel-reset-desc" style="background: transparent; border: none; color: #5f06fa; font-size: 0.72rem; font-weight: 700; cursor: pointer; padding: 0;">Usar descripción automática</button>
+        </div>
+        <input type="text" id="swal-fulllabel-desc" class="swal2-input" style="width: 100%; height: 38px; margin: 0 0 0.85rem 0; font-size: 0.83rem;" value="${escapeHtml(currentFull.meliFullCustomDesc || '')}" placeholder="Automática: ${escapeHtml(currentFull.meliFullDefaultDesc)}">
+
+        <label style="font-size: 0.74rem; font-weight: 800; color: #334155; display: block; margin-bottom: 0.25rem; text-transform: uppercase;">Condición de Cálculo:</label>
+        <select id="swal-fulllabel-mode" class="swal2-select" style="width: 100%; height: 38px; margin: 0 0 0.75rem 0; font-size: 0.84rem;">
+          <option value="auto" ${initialMode === 'auto' ? 'selected' : ''}>Automático (${autoUnits} ud. × ${formatCLP(defaultRate)} = ${formatCLP(autoUnits * defaultRate)} neto)</option>
+          <option value="custom" ${initialMode === 'custom' ? 'selected' : ''}>Personalizar Unidades o Tarifa Unitaria</option>
+          <option value="exento" ${initialMode === 'exento' ? 'selected' : ''}>Exento ($0) / Bonificado</option>
+        </select>
+
+        <div id="swal-fulllabel-custom-box" style="display: ${initialMode === 'custom' ? 'grid' : 'none'}; grid-template-columns: 1fr 1fr; gap: 0.65rem; margin-bottom: 0.75rem;">
+          <div>
+            <label style="font-size: 0.73rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.2rem;">UNIDADES ETIQUETADAS:</label>
+            <input type="number" id="swal-fulllabel-units" min="0" class="swal2-input" style="width: 100%; height: 38px; margin: 0; font-size: 0.85rem;" value="${currentFull.meliFullManualUnits !== null ? currentFull.meliFullManualUnits : autoUnits}">
+          </div>
+          <div>
+            <label style="font-size: 0.73rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.2rem;">TARIFA POR UNIDAD ($ NETO):</label>
+            <input type="number" id="swal-fulllabel-rate" min="0" class="swal2-input" style="width: 100%; height: 38px; margin: 0; font-size: 0.85rem;" value="${currentFull.meliFullManualRate !== null ? currentFull.meliFullManualRate : defaultRate}">
+          </div>
+        </div>
+
+        <div id="swal-fulllabel-exempt-box" style="display: ${initialMode === 'exento' ? 'block' : 'none'}; margin-bottom: 0.75rem;">
+          <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: #475569; cursor: pointer;">
+            <input type="checkbox" id="swal-fulllabel-hide-row" ${currentFull.meliFullHideWhenExempt ? 'checked' : ''} style="accent-color: #5f06fa; width: 16px; height: 16px;">
+            <span>Ocultar esta fila en la vista del cliente y en el PDF</span>
+          </label>
+        </div>
+
+        <div id="swal-fulllabel-preview" style="background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 0.65rem 0.85rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #4c1d95;"></div>
+      </div>
+    `,
+    didOpen: () => {
+      const modeSel = document.getElementById('swal-fulllabel-mode');
+      const customBox = document.getElementById('swal-fulllabel-custom-box');
+      const exemptBox = document.getElementById('swal-fulllabel-exempt-box');
+      const unitsInp = document.getElementById('swal-fulllabel-units');
+      const rateInp = document.getElementById('swal-fulllabel-rate');
+      const descInp = document.getElementById('swal-fulllabel-desc');
+      const resetDescBtn = document.getElementById('swal-fulllabel-reset-desc');
+      const previewEl = document.getElementById('swal-fulllabel-preview');
+
+      const updatePreview = () => {
+        const m = modeSel?.value || 'auto';
+        if (customBox) customBox.style.display = m === 'custom' ? 'grid' : 'none';
+        if (exemptBox) exemptBox.style.display = m === 'exento' ? 'block' : 'none';
+
+        let u = autoUnits;
+        let r = defaultRate;
+        if (m === 'exento') {
+          u = 0;
+          r = 0;
+        } else if (m === 'custom') {
+          u = Math.max(0, parseInt(unitsInp?.value, 10) || 0);
+          r = Math.max(0, Math.round(Number(rateInp?.value) || 0));
+        }
+        const net = Math.round(u * r);
+        const iva = Math.round(net * 0.19);
+        if (previewEl) {
+          previewEl.innerHTML = `
+            <span><strong>${u} ud.</strong> × ${formatCLP(r)}</span>
+            <span>Neto: <strong>${formatCLP(net)}</strong> · Total c/IVA: <strong>${formatCLP(net + iva)}</strong></span>
+          `;
+        }
+      };
+
+      modeSel?.addEventListener('change', updatePreview);
+      unitsInp?.addEventListener('input', updatePreview);
+      rateInp?.addEventListener('input', updatePreview);
+      resetDescBtn?.addEventListener('click', () => {
+        if (descInp) descInp.value = '';
+      });
+      updatePreview();
+    },
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-check-line"></i> Aplicar al Desglose',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    preConfirm: () => {
+      const rawTitle = document.getElementById('swal-fulllabel-title')?.value?.trim() || '';
+      const rawDesc = document.getElementById('swal-fulllabel-desc')?.value?.trim() || '';
+      const mode = document.getElementById('swal-fulllabel-mode')?.value || 'auto';
+      const manualUnits = Math.max(0, parseInt(document.getElementById('swal-fulllabel-units')?.value, 10) || 0);
+      const manualRate = Math.max(0, Math.round(Number(document.getElementById('swal-fulllabel-rate')?.value) || 0));
+      const hideRow = Boolean(document.getElementById('swal-fulllabel-hide-row')?.checked);
+
+      return {
+        customTitle: (rawTitle && rawTitle !== 'Costo de etiquetado de ítems FULL') ? rawTitle : (rawTitle || 'Costo de etiquetado de ítems FULL'),
+        customDesc: rawDesc || null,
+        mode,
+        manualUnits,
+        manualRate,
+        hideRow
+      };
+    }
+  });
+
+  if (!formValues) return;
+
+  const isDefaultTitle = formValues.customTitle === 'Costo de etiquetado de ítems FULL';
+  b.totals.meliFullCustomTitle = isDefaultTitle ? null : formValues.customTitle;
+  b.totals.meliFullCustomDesc = formValues.customDesc;
+  b.totals.meliFullExempt = formValues.mode === 'exento';
+  b.totals.meliFullHideWhenExempt = formValues.mode === 'exento' ? formValues.hideRow : false;
+  b.totals.meliFullManualUnits = formValues.mode === 'custom' ? formValues.manualUnits : null;
+  b.totals.meliFullManualRate = formValues.mode === 'custom' ? formValues.manualRate : null;
+
+  b.isSaved = false;
+  recalculateFromCurrentState();
+
+  Swal.fire({
+    toast: true,
+    position: 'top-end',
+    icon: 'success',
+    title: 'Glosa y etiquetado FULL actualizados',
+    showConfirmButton: false,
+    timer: 2400
+  });
 };
 
 // Modal interactivo para asignar o editar el volumen mensual (m³), tarifa de almacenamiento y descuento por volumen
@@ -15981,19 +16217,14 @@ export function sanitizeSnapshotOrdersMarketplace(snapshot, config = null) {
     }
   }
 
-  // Calcular Cobro de Etiqueta FULL de MELI ($100 por producto en pedidos con agenda FULL MERCADOLIBRE)
+  // Calcular Costo de Etiquetado FULL ($100 por unidad etiquetada, respetando glosas o ajustes personalizados del snapshot)
   const billable = snapshot.orders.filter(o => !o.isExcluded);
-  const fullMeliOrders = billable.filter(o => isFullMeliOrder(o));
-  const meliFullUnitsCount = fullMeliOrders.reduce((sum, o) => sum + (Math.max(1, parseInt(o.unitsCount, 10) || 1)), 0);
-  const meliFullRate = 100;
-  const meliFullNet = meliFullUnitsCount * meliFullRate;
+  const resolvedFull = resolveFullLabelingState(billable, snapshot.totals || {}, snapshot.totals?.meliFullDefaultRate || 100);
+  const meliFullNet = resolvedFull.meliFullNet;
 
   if (snapshot.totals) {
     const prevMeliNet = snapshot.totals.meliFullNet !== undefined ? snapshot.totals.meliFullNet : null;
-    snapshot.totals.meliFullOrdersCount = fullMeliOrders.length;
-    snapshot.totals.meliFullUnitsCount = meliFullUnitsCount;
-    snapshot.totals.meliFullRate = meliFullRate;
-    snapshot.totals.meliFullNet = meliFullNet;
+    Object.assign(snapshot.totals, resolvedFull);
 
     // Si cambió marketplace O si el snapshot no tenía meliFullNet registrado o difiere
     if (changed || prevMeliNet === null || prevMeliNet !== meliFullNet) {
