@@ -17,9 +17,15 @@
 
 /admin*
   X-Frame-Options: SAMEORIGIN
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/panel*
+  X-Frame-Options: SAMEORIGIN
+  Cache-Control: no-cache, no-store, must-revalidate
 
 /dashboard*
   X-Frame-Options: SAMEORIGIN
+  Cache-Control: no-cache, no-store, must-revalidate
 
 /*
   X-XSS-Protection: 1; mode=block

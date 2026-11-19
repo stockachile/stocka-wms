@@ -8649,7 +8649,7 @@ async function init() {
 
     if (!session) {
       console.warn('DEBUG: No hay sesión activa. Redirigiendo a index.html...');
-      window.location.href = 'index.html';
+      window.location.href = window.StockaRouter ? window.StockaRouter.getLoginRedirectUrl() : '/index.html';
       return;
     }
 
@@ -8666,7 +8666,7 @@ async function init() {
             localStorage.removeItem('sb-ejtjfaucnxbikrwjwwdu-auth-token');
             sessionStorage.removeItem('sb-ejtjfaucnxbikrwjwwdu-auth-token');
           } catch(e) {}
-          window.location.href = 'index.html?reason=session_expired';
+          window.location.href = window.StockaRouter ? window.StockaRouter.getLoginRedirectUrl('session_expired') : '/index.html?reason=session_expired';
           return;
         } else {
           session = refData.session;
@@ -8720,7 +8720,7 @@ async function init() {
     // Fast-path: usar perfil Admin cacheado (<10 min) para renderizar sin bloqueo y revalidar en segundo plano
     let profile = null;
     try {
-      const rawCachedProf = sessionStorage.getItem('wms_admin_profile_v1');
+      const rawCachedProf = sessionStorage.getItem('wms_admin_profile_v1') || localStorage.getItem('wms_admin_profile_v1');
       if (rawCachedProf) {
         const parsedProf = JSON.parse(rawCachedProf);
         if (parsedProf && parsedProf.id === session.user.id && parsedProf.role === 'admin' && (Date.now() - (parsedProf.cachedAt || 0) < 600000)) {
@@ -8743,14 +8743,14 @@ async function init() {
               sessionStorage.removeItem('wms_admin_profile_v1');
               localStorage.removeItem('wms_admin_profile_v1');
               await supabase.auth.signOut().catch(() => {});
-              window.location.href = 'index.html?reason=session_expired';
+              window.location.href = window.StockaRouter ? window.StockaRouter.getLoginRedirectUrl('session_expired') : '/index.html?reason=session_expired';
             }
             return;
           }
           if (!freshProf || freshProf.role !== 'admin') {
             sessionStorage.removeItem('wms_admin_profile_v1');
             localStorage.removeItem('wms_admin_profile_v1');
-            window.location.href = 'dashboard.html';
+            window.location.href = window.StockaRouter ? window.StockaRouter.getBaseUrl('client') : '/dashboard.html';
             return;
           }
           await ensureAdminModulesSynced(freshProf, session.user.id);
@@ -8782,7 +8782,7 @@ async function init() {
             sessionStorage.removeItem('wms_admin_profile_v1');
             localStorage.removeItem('wms_admin_profile_v1');
           } catch(e) {}
-          window.location.href = 'index.html?reason=session_expired';
+          window.location.href = window.StockaRouter ? window.StockaRouter.getLoginRedirectUrl('session_expired') : '/index.html?reason=session_expired';
           return;
         }
       } else {
@@ -8824,7 +8824,7 @@ async function init() {
         sessionStorage.removeItem('wms_admin_profile_v1');
         localStorage.removeItem('wms_admin_profile_v1');
         alert("Acceso denegado. Se requieren permisos de Administrador.");
-        window.location.href = 'dashboard.html';
+        window.location.href = window.StockaRouter ? window.StockaRouter.getBaseUrl('client') : '/dashboard.html';
         return;
       }
 
@@ -8894,189 +8894,223 @@ async function init() {
       });
     }
 
-    // Navigation and Filtering
+    // Navigation, Clean URL Sync & Module Permissions
+    if (window.StockaRouter) {
+      window.StockaRouter.syncMenuHrefs(document, 'admin');
+    }
+
+    const allowedModulesStr = profile?.allowed_modules || 'all';
+    const allowedModules = (allowedModulesStr !== 'all' && allowedModulesStr !== null && allowedModulesStr !== '')
+      ? allowedModulesStr.split(',').map(m => m.trim())
+      : [];
+    let firstVisibleItem = null;
+
+    const isAdminViewAllowed = (view) => {
+      if (!view) return false;
+      if (allowedModulesStr === 'all' || allowedModulesStr === null || allowedModulesStr === '') return true;
+      return allowedModules.includes(view) ||
+        (view === 'inventory_count' && (allowedModules.includes('inventory_admin') || allowedModules.length === 0)) ||
+        view === 'dashboard' || view === 'workspace' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' ||
+        view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator' ||
+        view === 'returns_admin' || view === 'pos_admin' || view === 'tickets_admin' ||
+        view === 'movements_admin' || view === 'surveys_admin' || view === 'inventory_count' ||
+        view === 'inventory_coverage_admin' || view === 'inventory_coverage';
+    };
+
+    const activateAdminView = (rawView, historyOptions = {}) => {
+      const view = rawView === 'inventory_coverage' ? 'inventory_coverage_admin' : rawView;
+      if (navItems) {
+        navItems.forEach(n => {
+          const isMatch = n.getAttribute('data-view') === view && !n.classList.contains('hidden-ticket-nav');
+          n.classList.toggle('active', isMatch);
+        });
+      }
+
+      if (historyOptions !== false && window.StockaRouter) {
+        window.StockaRouter.syncBrowserHistory(view, 'admin', historyOptions || {});
+      }
+      if (window.StockaRouter) {
+        window.StockaRouter.updateDocumentTitle(view, 'admin');
+      }
+
+      console.log('DEBUG: Navegando a vista administrador:', view);
+
+      if (view === 'dashboard') {
+        viewTitle.textContent = 'Dashboard Admin';
+        renderAdminDashboard();
+      } else if (view === 'notifications_admin') {
+        viewTitle.textContent = 'Notificaciones y Avisos';
+        renderNotificationsAdmin();
+      } else if (view === 'orders_admin') {
+        viewTitle.textContent = 'Gestor de Pedidos';
+        renderAdminOrders();
+      } else if (view === 'inventory_admin') {
+        viewTitle.textContent = 'Inventario';
+        renderAdminInventory();
+      } else if (view === 'inventory_coverage_admin' || view === 'inventory_coverage') {
+        viewTitle.textContent = 'Cobertura de Inventario y Salud de Catálogo (30d)';
+        if (typeof window.renderInventoryCoverageAdmin === 'function') {
+          window.renderInventoryCoverageAdmin();
+        }
+      } else if (view === 'inventory_count') {
+        viewTitle.textContent = 'Conteo de Inventario Móvil';
+        if (typeof window.renderInventoryCountAdmin === 'function') {
+          window.renderInventoryCountAdmin();
+        } else if (typeof renderInventoryCountAdmin === 'function') {
+          renderInventoryCountAdmin();
+        }
+      } else if (view === 'movements_admin') {
+        viewTitle.textContent = 'Trazabilidad y Movimientos de Stock';
+        renderAdminMovements();
+      } else if (view === 'transfers_admin') {
+        viewTitle.textContent = 'Transferencias de Stock entre Bodegas';
+        if (typeof window.renderStockTransfersAdmin === 'function') {
+          window.renderStockTransfersAdmin(document.getElementById('app-content'));
+        }
+      } else if (view === 'consolidated_shipments') {
+        viewTitle.textContent = 'Envíos Consolidados';
+        renderConsolidatedShipments();
+      } else if (view === 'manifests_admin') {
+        viewTitle.textContent = 'Centro de Manifiestos';
+        if (window.renderManifestsAdmin) {
+          window.renderManifestsAdmin();
+        }
+      } else if (view === 'optiroute_support') {
+        viewTitle.textContent = 'Optiroute';
+        renderOptirouteSupport();
+      } else if (view === 'reassign_admin') {
+        viewTitle.textContent = 'Hub Central / Reubicar Stock';
+        renderReassignStock();
+      } else if (view === 'manual_in_admin') {
+        viewTitle.textContent = 'Ingreso Manual';
+        renderManualIn();
+      } else if (view === 'declarations_admin') {
+        viewTitle.textContent = 'Ingresos de Stock';
+        renderDeclarationsAdmin();
+      } else if (view === 'upload_products_admin') {
+        viewTitle.textContent = 'Carga de Planillas';
+        renderUploadProducts();
+      } else if (view === 'catalog') {
+        viewTitle.textContent = 'Catálogo & Equivalencias';
+        renderAdminCatalog();
+      } else if (view === 'label_generator') {
+        viewTitle.textContent = 'Generador de Etiquetas';
+        window.renderLabelGenerator();
+      } else if (view === 'onboarding_admin') {
+        viewTitle.textContent = 'Solicitudes de Alta';
+        renderOnboardingAdmin();
+      } else if (view === 'leads_admin') {
+        viewTitle.textContent = 'Central de Leads (CRM de Prospectos)';
+        if (typeof renderLeadsAdmin === 'function') {
+          renderLeadsAdmin();
+        }
+      } else if (view === 'redzone_admin') {
+        viewTitle.textContent = 'Solicitudes de Baja (Término de Servicio)';
+        renderRedZoneAdmin();
+      } else if (view === 'users_admin') {
+        viewTitle.textContent = 'Gestionar Usuarios';
+        renderUsersAdmin();
+      } else if (view === 'identity_qr_admin') {
+        viewTitle.textContent = 'Identidad & Códigos QR Dinámicos';
+        renderIdentityQRAdmin();
+      } else if (view === 'merchants_admin') {
+        viewTitle.textContent = 'Gestionar Comercios';
+        renderMerchantsAdmin();
+      } else if (view === 'warehouses_admin') {
+        viewTitle.textContent = 'Gestionar Bodegas';
+        renderWarehousesAdmin();
+      } else if (view === 'visibility_rules_admin') {
+        viewTitle.textContent = 'Reglas de Visibilidad';
+        renderVisibilityRulesAdmin();
+      } else if (view === 'pricing_config_admin') {
+        viewTitle.textContent = 'Tarifas y Cotizador';
+        renderPricingConfigAdmin();
+      } else if (view === 'integrations') {
+        viewTitle.textContent = 'Integraciones';
+        renderIntegrations();
+      } else if (view === 'billing_admin') {
+        viewTitle.textContent = 'Facturación';
+        renderBillingAdmin();
+      } else if (view === 'clickup_facturacion_admin') {
+        viewTitle.textContent = 'Facturación ClickUp';
+        if (window.renderClickupFacturacionAdmin) {
+          window.renderClickupFacturacionAdmin();
+        }
+      } else if (view === 'enviame_analytics') {
+        viewTitle.textContent = 'Analítica Envíame';
+        if (window.renderEnviameAnalytics) {
+          window.renderEnviameAnalytics();
+        } else {
+          document.getElementById('app-content').innerHTML = '<div class="alert alert-danger">Error: Módulo de analíticas de Envíame no cargado.</div>';
+        }
+      } else if (view === 'volumen_diario_admin') {
+        viewTitle.textContent = 'Registro de Volumen Diario';
+        renderVolumenDiarioAdmin();
+      } else if (view === 'profile') {
+        viewTitle.textContent = 'Mi Perfil';
+        renderProfile();
+      } else if (view === 'inbox') {
+        viewTitle.textContent = 'Mi Inbox';
+        renderInboxPage();
+      } else if (view === 'tickets_admin') {
+        viewTitle.textContent = 'Gestión de Tickets';
+        const appContent = document.getElementById('app-content');
+        renderTicketsAdmin(appContent);
+      } else if (view === 'incidencias_admin') {
+        viewTitle.textContent = 'Gestión de Incidencias';
+        const appContent = document.getElementById('app-content');
+        renderIncidenciasAdmin(appContent);
+      } else if (view === 'documentation_admin') {
+        viewTitle.textContent = 'Documentación del Servicio';
+        renderDocsAdmin();
+      } else if (view === 'automations_admin') {
+        viewTitle.textContent = 'Centro de Automatizaciones Activas';
+        if (typeof window.renderAutomationsAdmin === 'function') {
+          window.renderAutomationsAdmin();
+        }
+      } else if (view === 'cotizador_admin') {
+        viewTitle.textContent = 'Cotizador de Envíos';
+        renderCotizadorAdmin();
+      } else if (view === 'returns_admin') {
+        viewTitle.textContent = 'Logística Inversa';
+        renderAdminReturns();
+      } else if (view === 'pos_admin') {
+        viewTitle.textContent = 'Punto de Ventas (Sucursal Ñuñoa)';
+        if (typeof window.renderPosAdmin === 'function') {
+          window.renderPosAdmin();
+        } else if (typeof renderPosAdmin === 'function') {
+          renderPosAdmin();
+        }
+      } else if (view === 'surveys_admin') {
+        viewTitle.textContent = 'Encuestas & Reviews';
+        const appContent = document.getElementById('app-content');
+        renderSurveysAdmin(appContent);
+      } else if (view === 'workspace') {
+        viewTitle.textContent = 'Mi Panel de Trabajo';
+        if (typeof window.renderWorkspacePanel === 'function') {
+          window.renderWorkspacePanel();
+        }
+      }
+    };
+
     if (navItems) {
       navItems.forEach(item => {
         item.addEventListener('click', (e) => {
-          e.preventDefault();
           const targetItem = e.target.closest('.nav-item');
           if (!targetItem) return;
+          if (targetItem.getAttribute('target') === '_blank') return;
 
-          navItems.forEach(n => n.classList.remove('active'));
-          targetItem.classList.add('active');
+          // Permitir Ctrl+Clic / Cmd+Clic / Clic central para abrir el módulo en una pestaña nueva real
+          if (window.StockaRouter && window.StockaRouter.isModifiedClick(e)) return;
 
+          e.preventDefault();
           const view = targetItem.getAttribute('data-view');
-          console.log('DEBUG: Navegando a vista administrador:', view);
-          
-          if (view === 'dashboard') {
-            viewTitle.textContent = 'Dashboard Admin';
-            renderAdminDashboard();
-          } else if (view === 'notifications_admin') {
-            viewTitle.textContent = 'Notificaciones y Avisos';
-            renderNotificationsAdmin();
-          } else if (view === 'orders_admin') {
-            viewTitle.textContent = 'Gestor de Pedidos';
-            renderAdminOrders();
-          } else if (view === 'inventory_admin') {
-            viewTitle.textContent = 'Inventario';
-            renderAdminInventory();
-          } else if (view === 'inventory_coverage_admin' || view === 'inventory_coverage') {
-            viewTitle.textContent = 'Cobertura de Inventario y Salud de Catálogo (30d)';
-            if (typeof window.renderInventoryCoverageAdmin === 'function') {
-              window.renderInventoryCoverageAdmin();
-            }
-          } else if (view === 'inventory_count') {
-            viewTitle.textContent = 'Conteo de Inventario Móvil';
-            if (typeof window.renderInventoryCountAdmin === 'function') {
-              window.renderInventoryCountAdmin();
-            } else if (typeof renderInventoryCountAdmin === 'function') {
-              renderInventoryCountAdmin();
-            }
-          } else if (view === 'movements_admin') {
-            viewTitle.textContent = 'Trazabilidad y Movimientos de Stock';
-            renderAdminMovements();
-          } else if (view === 'transfers_admin') {
-            viewTitle.textContent = 'Transferencias de Stock entre Bodegas';
-            if (typeof window.renderStockTransfersAdmin === 'function') {
-              window.renderStockTransfersAdmin(document.getElementById('app-content'));
-            }
-          } else if (view === 'consolidated_shipments') {
-            viewTitle.textContent = 'Envíos Consolidados';
-            renderConsolidatedShipments();
-          } else if (view === 'manifests_admin') {
-            viewTitle.textContent = 'Centro de Manifiestos';
-            if (window.renderManifestsAdmin) {
-              window.renderManifestsAdmin();
-            }
-          } else if (view === 'optiroute_support') {
-            viewTitle.textContent = 'Optiroute';
-            renderOptirouteSupport();
-          } else if (view === 'reassign_admin') {
-            viewTitle.textContent = 'Hub Central / Reubicar Stock';
-            renderReassignStock();
-          } else if (view === 'manual_in_admin') {
-            viewTitle.textContent = 'Ingreso Manual';
-            renderManualIn();
-          } else if (view === 'declarations_admin') {
-            viewTitle.textContent = 'Ingresos de Stock';
-            renderDeclarationsAdmin();
-          } else if (view === 'upload_products_admin') {
-            viewTitle.textContent = 'Carga de Planillas';
-            renderUploadProducts();
-          } else if (view === 'catalog') {
-            viewTitle.textContent = 'Catálogo & Equivalencias';
-            renderAdminCatalog();
-          } else if (view === 'label_generator') {
-            viewTitle.textContent = 'Generador de Etiquetas';
-            window.renderLabelGenerator();
-          } else if (view === 'onboarding_admin') {
-            viewTitle.textContent = 'Solicitudes de Alta';
-            renderOnboardingAdmin();
-          } else if (view === 'leads_admin') {
-            viewTitle.textContent = 'Central de Leads (CRM de Prospectos)';
-            if (typeof renderLeadsAdmin === 'function') {
-              renderLeadsAdmin();
-            }
-          } else if (view === 'redzone_admin') {
-            viewTitle.textContent = 'Solicitudes de Baja (Término de Servicio)';
-            renderRedZoneAdmin();
-          } else if (view === 'users_admin') {
-            viewTitle.textContent = 'Gestionar Usuarios';
-            renderUsersAdmin();
-          } else if (view === 'identity_qr_admin') {
-            viewTitle.textContent = 'Identidad & Códigos QR Dinámicos';
-            renderIdentityQRAdmin();
-          } else if (view === 'merchants_admin') {
-            viewTitle.textContent = 'Gestionar Comercios';
-            renderMerchantsAdmin();
-          } else if (view === 'warehouses_admin') {
-            viewTitle.textContent = 'Gestionar Bodegas';
-            renderWarehousesAdmin();
-          } else if (view === 'visibility_rules_admin') {
-            viewTitle.textContent = 'Reglas de Visibilidad';
-            renderVisibilityRulesAdmin();
-          } else if (view === 'pricing_config_admin') {
-            viewTitle.textContent = 'Tarifas y Cotizador';
-            renderPricingConfigAdmin();
-          } else if (view === 'integrations') {
-            viewTitle.textContent = 'Integraciones';
-            renderIntegrations();
-          } else if (view === 'billing_admin') {
-            viewTitle.textContent = 'Facturación';
-            renderBillingAdmin();
-          } else if (view === 'clickup_facturacion_admin') {
-            viewTitle.textContent = 'Facturación ClickUp';
-            if (window.renderClickupFacturacionAdmin) {
-              window.renderClickupFacturacionAdmin();
-            }
-          } else if (view === 'enviame_analytics') {
-            viewTitle.textContent = 'Analítica Envíame';
-            if (window.renderEnviameAnalytics) {
-              window.renderEnviameAnalytics();
-            } else {
-              document.getElementById('app-content').innerHTML = '<div class="alert alert-danger">Error: Módulo de analíticas de Envíame no cargado.</div>';
-            }
-          } else if (view === 'volumen_diario_admin') {
-            viewTitle.textContent = 'Registro de Volumen Diario';
-            renderVolumenDiarioAdmin();
-          } else if (view === 'profile') {
-            viewTitle.textContent = 'Mi Perfil';
-            renderProfile();
-          } else if (view === 'inbox') {
-            viewTitle.textContent = 'Mi Inbox';
-            renderInboxPage();
-          } else if (view === 'tickets_admin') {
-            viewTitle.textContent = 'Gestión de Tickets';
-            const appContent = document.getElementById('app-content');
-            renderTicketsAdmin(appContent);
-          } else if (view === 'incidencias_admin') {
-            viewTitle.textContent = 'Gestión de Incidencias';
-            const appContent = document.getElementById('app-content');
-            renderIncidenciasAdmin(appContent);
-          } else if (view === 'documentation_admin') {
-            viewTitle.textContent = 'Documentación del Servicio';
-            renderDocsAdmin();
-          } else if (view === 'automations_admin') {
-            viewTitle.textContent = 'Centro de Automatizaciones Activas';
-            if (typeof window.renderAutomationsAdmin === 'function') {
-              window.renderAutomationsAdmin();
-            }
-          } else if (view === 'cotizador_admin') {
-            viewTitle.textContent = 'Cotizador de Envíos';
-            renderCotizadorAdmin();
-          } else if (view === 'returns_admin') {
-            viewTitle.textContent = 'Logística Inversa';
-            renderAdminReturns();
-          } else if (view === 'pos_admin') {
-            viewTitle.textContent = 'Punto de Ventas (Sucursal Ñuñoa)';
-            if (typeof window.renderPosAdmin === 'function') {
-              window.renderPosAdmin();
-            } else if (typeof renderPosAdmin === 'function') {
-              renderPosAdmin();
-            }
-          } else if (view === 'surveys_admin') {
-            viewTitle.textContent = 'Encuestas & Reviews';
-            const appContent = document.getElementById('app-content');
-            renderSurveysAdmin(appContent);
-          } else if (view === 'workspace') {
-            viewTitle.textContent = 'Mi Panel de Trabajo';
-            if (typeof window.renderWorkspacePanel === 'function') {
-              window.renderWorkspacePanel();
-            }
-          }
+          if (!view) return;
+          activateAdminView(view);
         });
       });
-    }
 
-    // Filter Navigation based on allowed_modules for Admin
-    const allowedModulesStr = profile?.allowed_modules || 'all';
-    let allowedModules = [];
-    let firstVisibleItem = null;
-
-    if (navItems) {
       if (allowedModulesStr !== 'all' && allowedModulesStr !== null && allowedModulesStr !== '') {
-        allowedModules = allowedModulesStr.split(',').map(m => m.trim());
-        
         navItems.forEach(item => {
           const parentLi = item.closest('li');
           if (item.classList.contains('hidden-ticket-nav')) {
@@ -9084,13 +9118,7 @@ async function init() {
             return;
           }
           const view = item.getAttribute('data-view');
-          const isAllowed = allowedModules.includes(view) ||
-            (view === 'inventory_count' && (allowedModules.includes('inventory_admin') || allowedModules.length === 0)) ||
-            view === 'dashboard' || view === 'workspace' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' ||
-            view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator' ||
-            view === 'returns_admin' || view === 'pos_admin' || view === 'tickets_admin' ||
-            view === 'movements_admin' || view === 'surveys_admin' || view === 'inventory_count' ||
-            view === 'inventory_coverage_admin' || view === 'inventory_coverage';
+          const isAllowed = isAdminViewAllowed(view);
 
           if (isAllowed) {
             if (parentLi) parentLi.style.display = '';
@@ -9102,20 +9130,19 @@ async function init() {
           }
         });
       } else {
-        // Por defecto, si es 'all' todos los ítems de navegación están permitidos
         if (navItems.length > 0) firstVisibleItem = navItems[0];
       }
-      // Ocultar cabeceras de categorías vacías
       updateCategoryHeadersVisibility();
     }
 
-    // Initial View selection based on search param ?order= / ?pedido= or #order= or ?view= or hash #view or allowed modules
+    // Initial View selection based on ?order= / ?pedido= or clean route /admin/<slug> or ?view= or #view
     const urlParams = new URLSearchParams(window.location.search);
     const rawHash = (window.location.hash || '').replace(/^#/, '').trim();
     const hashOrderMatch = rawHash.match(/^(?:order|pedido)=(.+)$/i);
     const initialOrderParam = (urlParams.get('order') || urlParams.get('pedido') || (hashOrderMatch ? decodeURIComponent(hashOrderMatch[1]) : '') || '').trim();
-    const initialViewParam = urlParams.get('view') || (!hashOrderMatch ? rawHash : '');
-    const hashTarget = initialViewParam ? document.querySelector(`.nav-item[data-view="${initialViewParam}"]`) : null;
+    const requestedView = window.StockaRouter
+      ? window.StockaRouter.resolveViewFromUrl('admin')
+      : (urlParams.get('view') || (!hashOrderMatch ? rawHash : ''));
 
     if (initialOrderParam) {
       console.log('DEBUG: Cargando Página Individual de Pedido desde URL:', initialOrderParam);
@@ -9125,26 +9152,47 @@ async function init() {
       } else {
         window._pendingSingleOrderPage = { orderId: initialOrderParam, isAdmin: true };
       }
-    } else if (hashTarget && hashTarget.closest('li')?.style.display !== 'none') {
-      console.log('DEBUG: Cargando vista inicial desde parámetro o hash:', initialViewParam);
-      hashTarget.click();
+    } else if (requestedView && isAdminViewAllowed(requestedView)) {
+      console.log('DEBUG: Cargando vista inicial desde URL:', requestedView);
+      activateAdminView(requestedView, { replace: true, preserveExtraParams: true });
     } else if (firstVisibleItem) {
       const defaultView = 'dashboard';
-      const isDefaultAllowed = true;
-      
-      if (isDefaultAllowed) {
-        viewTitle.textContent = 'Dashboard Admin';
-        console.log('DEBUG: Renderizando vista Dashboard Admin...');
-        renderAdminDashboard();
+      if (isAdminViewAllowed(defaultView)) {
+        activateAdminView('dashboard', { replace: true, preserveExtraParams: true });
       } else {
-        console.log('DEBUG: Vista por defecto restringida, seleccionando primer módulo permitido:', firstVisibleItem.getAttribute('data-view'));
-        firstVisibleItem.click();
+        const fallbackView = firstVisibleItem.getAttribute('data-view');
+        console.log('DEBUG: Vista por defecto restringida, seleccionando primer módulo permitido:', fallbackView);
+        activateAdminView(fallbackView, { replace: true, preserveExtraParams: true });
       }
     } else {
       const appContent = document.getElementById('app-content');
       appContent.innerHTML = `<div class="card" style="padding: 2rem; text-align: center;"><p style="color: var(--color-text-muted);">No tienes módulos asignados. Contacta al propietario del sistema.</p></div>`;
       viewTitle.textContent = 'Sin Acceso';
     }
+
+    // Soporte nativo para botones Atrás / Adelante del navegador
+    window.addEventListener('popstate', () => {
+      const p = new URLSearchParams(window.location.search);
+      const h = (window.location.hash || '').replace(/^#/, '').trim();
+      const hm = h.match(/^(?:order|pedido)=(.+)$/i);
+      const ordId = (p.get('order') || p.get('pedido') || (hm ? decodeURIComponent(hm[1]) : '') || '').trim();
+      if (ordId) {
+        if (viewTitle) viewTitle.textContent = `Pedido #${ordId.slice(0, 12)}`;
+        if (typeof window.renderSingleOrderPage === 'function') {
+          window.renderSingleOrderPage(ordId, { isAdmin: true });
+        }
+        return;
+      }
+      const nextView = (window.StockaRouter ? window.StockaRouter.resolveViewFromUrl('admin') : '') || 'dashboard';
+      if (isAdminViewAllowed(nextView)) {
+        if (window.StockaRouter) window.StockaRouter._isHandlingPopState = true;
+        try {
+          activateAdminView(nextView, false);
+        } finally {
+          if (window.StockaRouter) window.StockaRouter._isHandlingPopState = false;
+        }
+      }
+    });
 
     // Logout
     if (logoutBtn) {
@@ -9155,7 +9203,7 @@ async function init() {
           localStorage.removeItem('wms_admin_profile_v1');
         } catch (_) {}
         await supabase.auth.signOut();
-        window.location.href = 'index.html';
+        window.location.href = window.StockaRouter ? window.StockaRouter.getLoginRedirectUrl('', false) : '/index.html';
       });
     }
 
@@ -48093,7 +48141,7 @@ document.addEventListener('change', async (e) => {
 
       // Redirigir al dashboard si el administrador actual se auto-degradó
       if (userAuth && userAuth.user && userAuth.user.id === userId && newRole !== 'admin') {
-        window.location.href = 'dashboard.html';
+        window.location.href = window.StockaRouter ? window.StockaRouter.getBaseUrl('client') : '/dashboard.html';
       }
 
     } catch (err) {
@@ -126023,7 +126071,7 @@ window.reloginAndRefresh = async function() {
     sessionStorage.removeItem('sb-ejtjfaucnxbikrwjwwdu-auth-token');
     sessionStorage.removeItem('wms_demo_mode');
   } catch (e) {}
-  window.location.href = 'index.html?reason=session_expired';
+  window.location.href = window.StockaRouter ? window.StockaRouter.getLoginRedirectUrl('session_expired') : '/index.html?reason=session_expired';
 };
 
 // =======================================================

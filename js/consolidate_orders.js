@@ -633,7 +633,7 @@ export function getConsolidationBadgeHtml(order) {
   const icon = isCritical ? 'ri-alarm-warning-fill' : 'ri-links-line';
 
   // Mostrar botón de acción sólo al Administrador (la decisión la toma el Admin)
-  const isAdminView = !window.location.pathname.toLowerCase().includes('dashboard.html');
+  const isAdminView = Boolean(document.querySelector('[data-sidebar-role="admin"]') || window.location.pathname.toLowerCase().includes('admin'));
 
   return `
     <span class="badge consolidation-badge-candidate"
@@ -784,7 +784,7 @@ export function renderOrderDetailConsolidationCardHtml(order) {
 
   if (!info.isConsolidated && !group) return '';
 
-  const isAdminView = !window.location.pathname.toLowerCase().includes('dashboard.html');
+  const isAdminView = Boolean(document.querySelector('[data-sidebar-role="admin"]') || window.location.pathname.toLowerCase().includes('admin'));
 
   if (info.isConsolidated) {
     const isPrimary = info.role === 'primary';

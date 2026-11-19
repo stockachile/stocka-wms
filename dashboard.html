@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base href="/">
   <title>Dashboard - WMS STOCKA</title>
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" type="image/png" href="./favicon.png">
@@ -15,7 +16,7 @@
   <link rel="stylesheet" href="./css/inventory_coverage.css?v=1.2.1">
   <!-- Quill Styles for Rich Content Rendering -->
   <link href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" rel="stylesheet">
-  <script src="./js/theme.js?v=1.2.8"></script>
+  <script src="./js/theme.js?v=1.2.10"></script>
 
   <!-- Immediate Shopify OAuth Detection (Enforces Shopify App Store Guideline 2.3.2) -->
   <script>
@@ -85,14 +86,14 @@
       <nav class="sidebar-nav">
         <ul class="sidebar-primary-list">
           <li class="sidebar-top-item">
-            <a href="#" class="nav-item active" data-view="dashboard">
+            <a href="/panel" class="nav-item active" data-view="dashboard">
               <i class="ri-dashboard-line"></i>
               <span class="nav-text">Dashboard</span>
             </a>
           </li>
           <!-- Acceso Destacado para Cuentas Nuevas Solo Lectura: Realizar Onboarding -->
           <li class="sidebar-observer-onboarding-li" id="sidebar-observer-onboarding-li" style="display: none;">
-            <a href="#" id="sidebar-observer-onboarding-btn" class="nav-item sidebar-observer-onboarding-btn" data-view="observer_onboarding" title="Conoce el paso a paso e inicia tu Onboarding para ser un comercio asociado a Stocka Fulfillment">
+            <a href="/panel/onboarding" id="sidebar-observer-onboarding-btn" class="nav-item sidebar-observer-onboarding-btn" data-view="observer_onboarding" title="Conoce el paso a paso e inicia tu Onboarding para ser un comercio asociado a Stocka Fulfillment">
               <i class="ri-rocket-2-fill observer-onb-icon"></i>
               <span class="nav-text observer-onb-label" id="sidebar-observer-onboarding-label">Realizar Onboarding</span>
               <span class="observer-onb-pill" id="sidebar-observer-onboarding-pill">Alta</span>
@@ -100,7 +101,7 @@
           </li>
           <!-- Panel de Trabajo oculto temporalmente para Clientes (activo solo en Admin) -->
           <li class="sidebar-top-item" style="display: none !important;">
-            <a href="#" class="nav-item" data-view="workspace" style="display: none !important;">
+            <a href="/panel/panel-trabajo" class="nav-item" data-view="workspace" style="display: none !important;">
               <i class="ri-layout-masonry-line"></i>
               <span class="nav-text">Panel de Trabajo</span>
               <span class="menu-badge ws-sidebar-pending-badge" style="display: none; background-color: #6366f1; color: white;">0</span>
@@ -123,12 +124,12 @@
                 <span>Inventario y Bodega</span>
               </div>
               <ul class="flyout-panel-list">
-                <li><a href="#" class="nav-item" data-view="inventory"><i class="ri-box-3-line"></i> <span class="nav-text">Inventario</span> <span id="badge-inventory-client" class="menu-badge" style="display: none; background-color: #6366f1; color: white;">0</span></a></li>
-                <li><a href="#" class="nav-item" data-view="inventory_coverage"><i class="ri-pulse-line"></i> <span class="nav-text">Cobertura y Salud</span> <span class="menu-badge" style="background-color: #10b981; color: white; font-size: 0.65rem;">30d</span></a></li>
-                <li><a href="#" class="nav-item" data-view="catalog"><i class="ri-list-check"></i> <span class="nav-text">Catálogo</span></a></li>
-                <li><a href="#" class="nav-item" data-view="declarations"><i class="ri-inbox-archive-line"></i> <span class="nav-text">Ingresos de Stock</span></a></li>
-                <li><a href="#" class="nav-item" data-view="movements"><i class="ri-loop-right-line"></i> <span class="nav-text">Movimientos</span></a></li>
-                <li><a href="#" class="nav-item" data-view="warehouses"><i class="ri-building-2-line"></i> <span class="nav-text">Bodegas</span></a></li>
+                <li><a href="/panel/inventario" class="nav-item" data-view="inventory"><i class="ri-box-3-line"></i> <span class="nav-text">Inventario</span> <span id="badge-inventory-client" class="menu-badge" style="display: none; background-color: #6366f1; color: white;">0</span></a></li>
+                <li><a href="/panel/cobertura" class="nav-item" data-view="inventory_coverage"><i class="ri-pulse-line"></i> <span class="nav-text">Cobertura y Salud</span> <span class="menu-badge" style="background-color: #10b981; color: white; font-size: 0.65rem;">30d</span></a></li>
+                <li><a href="/panel/catalogo" class="nav-item" data-view="catalog"><i class="ri-list-check"></i> <span class="nav-text">Catálogo</span></a></li>
+                <li><a href="/panel/ingresos" class="nav-item" data-view="declarations"><i class="ri-inbox-archive-line"></i> <span class="nav-text">Ingresos de Stock</span></a></li>
+                <li><a href="/panel/movimientos" class="nav-item" data-view="movements"><i class="ri-loop-right-line"></i> <span class="nav-text">Movimientos</span></a></li>
+                <li><a href="/panel/bodegas" class="nav-item" data-view="warehouses"><i class="ri-building-2-line"></i> <span class="nav-text">Bodegas</span></a></li>
               </ul>
             </div>
           </li>
@@ -147,14 +148,14 @@
                 <span>Pedidos y Despachos</span>
               </div>
               <ul class="flyout-panel-list">
-                <li><a href="#" class="nav-item" data-view="orders"><i class="ri-shopping-cart-2-line"></i> <span class="nav-text">Pedidos</span></a></li>
-                <li class="hidden-ticket-li" style="display: none;"><a href="#" class="nav-item hidden-ticket-nav" data-view="pending"><i class="ri-error-warning-line"></i> <span class="nav-text">Por Asignar</span></a></li>
-                <li><a href="#" class="nav-item" data-view="shipments"><i class="ri-truck-line"></i> <span class="nav-text">Despachos</span></a></li>
-                <li><a href="#" class="nav-item" data-view="manifests"><i class="ri-file-paper-2-line"></i> <span class="nav-text">Centro de Manifiestos</span></a></li>
-                <li><a href="#" class="nav-item" data-view="returns"><i class="ri-arrow-go-back-line"></i> <span class="nav-text">Logística Inversa</span></a></li>
-                <li><a href="#" class="nav-item" data-view="pickups"><i class="ri-store-2-line"></i> <span class="nav-text">Punto de Retiro</span></a></li>
-                <li><a href="#" class="nav-item" data-view="sales"><i class="ri-shopping-cart-2-line"></i> <span class="nav-text">Punto de Ventas</span></a></li>
-                <li><a href="#" class="nav-item" data-view="volumen_diario"><i class="ri-line-chart-line"></i> <span class="nav-text">Volumen Diario</span></a></li>
+                <li><a href="/panel/pedidos" class="nav-item" data-view="orders"><i class="ri-shopping-cart-2-line"></i> <span class="nav-text">Pedidos</span></a></li>
+                <li class="hidden-ticket-li" style="display: none;"><a href="/panel/por-asignar" class="nav-item hidden-ticket-nav" data-view="pending"><i class="ri-error-warning-line"></i> <span class="nav-text">Por Asignar</span></a></li>
+                <li><a href="/panel/despachos" class="nav-item" data-view="shipments"><i class="ri-truck-line"></i> <span class="nav-text">Despachos</span></a></li>
+                <li><a href="/panel/manifiestos" class="nav-item" data-view="manifests"><i class="ri-file-paper-2-line"></i> <span class="nav-text">Centro de Manifiestos</span></a></li>
+                <li><a href="/panel/logistica-inversa" class="nav-item" data-view="returns"><i class="ri-arrow-go-back-line"></i> <span class="nav-text">Logística Inversa</span></a></li>
+                <li><a href="/panel/punto-retiro" class="nav-item" data-view="pickups"><i class="ri-store-2-line"></i> <span class="nav-text">Punto de Retiro</span></a></li>
+                <li><a href="/panel/punto-ventas" class="nav-item" data-view="sales"><i class="ri-shopping-cart-2-line"></i> <span class="nav-text">Punto de Ventas</span></a></li>
+                <li><a href="/panel/volumen-diario" class="nav-item" data-view="volumen_diario"><i class="ri-line-chart-line"></i> <span class="nav-text">Volumen Diario</span></a></li>
               </ul>
             </div>
           </li>
@@ -173,9 +174,9 @@
                 <span>Herramientas y Cotizador</span>
               </div>
               <ul class="flyout-panel-list">
-                <li><a href="#" class="nav-item" data-view="label_generator"><i class="ri-printer-line"></i> <span class="nav-text">Etiquetas</span></a></li>
-                <li><a href="#" class="nav-item" data-view="cotizador"><i class="ri-calculator-line"></i> <span class="nav-text">Cotizador de Envíos</span></a></li>
-                <li><a href="#" class="nav-item" data-view="tracking_widget"><i class="ri-radar-line"></i> <span class="nav-text">Portal de Tracking</span> <span class="menu-badge" style="background-color: var(--color-primary, #5c24ff); color: white; font-size: 0.65rem;">Nuevo</span></a></li>
+                <li><a href="/panel/etiquetas" class="nav-item" data-view="label_generator"><i class="ri-printer-line"></i> <span class="nav-text">Etiquetas</span></a></li>
+                <li><a href="/panel/cotizador" class="nav-item" data-view="cotizador"><i class="ri-calculator-line"></i> <span class="nav-text">Cotizador de Envíos</span></a></li>
+                <li><a href="/panel/portal-tracking" class="nav-item" data-view="tracking_widget"><i class="ri-radar-line"></i> <span class="nav-text">Portal de Tracking</span> <span class="menu-badge" style="background-color: var(--color-primary, #5c24ff); color: white; font-size: 0.65rem;">Nuevo</span></a></li>
                 <li><a href="./cotizaciones.html" target="_blank" class="nav-item" data-view="cotizaciones_fulfillment" style="color: var(--color-primary);"><i class="ri-price-tag-3-line"></i> <span class="nav-text">Cotizador Fulfillment</span> <i class="ri-external-link-line" style="font-size: 0.75rem; margin-left: auto;"></i></a></li>
               </ul>
             </div>
@@ -195,19 +196,19 @@
                 <span>Cuenta y Sistema</span>
               </div>
               <ul class="flyout-panel-list">
-                <li><a href="#" class="nav-item" data-view="billing"><i class="ri-bill-line"></i> <span class="nav-text">Facturación</span></a></li>
-                <li><a href="#" class="nav-item" data-view="integrations"><i class="ri-plug-line"></i> <span class="nav-text">Integraciones</span></a></li>
-                <li><a href="#" class="nav-item" data-view="incidencias"><i class="ri-alert-line"></i> <span class="nav-text">Incidencias</span> <span id="badge-incidencias" class="menu-badge" style="display: none;">0</span></a></li>
-                <li><a href="#" class="nav-item" data-view="surveys"><i class="ri-survey-line"></i> <span class="nav-text">Encuestas & Feedback</span> <span id="badge-surveys-client" class="menu-badge" style="display: none;">0</span></a></li>
-                <li class="hidden-ticket-li" style="display: none;"><a href="#" class="nav-item hidden-ticket-nav" data-view="tickets"></a></li>
-                <li><a href="#" class="nav-item" data-view="documentation"><i class="ri-file-text-line"></i> <span class="nav-text">Documentación</span></a></li>
+                <li><a href="/panel/facturacion" class="nav-item" data-view="billing"><i class="ri-bill-line"></i> <span class="nav-text">Facturación</span></a></li>
+                <li><a href="/panel/integraciones" class="nav-item" data-view="integrations"><i class="ri-plug-line"></i> <span class="nav-text">Integraciones</span></a></li>
+                <li><a href="/panel/incidencias" class="nav-item" data-view="incidencias"><i class="ri-alert-line"></i> <span class="nav-text">Incidencias</span> <span id="badge-incidencias" class="menu-badge" style="display: none;">0</span></a></li>
+                <li><a href="/panel/encuestas" class="nav-item" data-view="surveys"><i class="ri-survey-line"></i> <span class="nav-text">Encuestas & Feedback</span> <span id="badge-surveys-client" class="menu-badge" style="display: none;">0</span></a></li>
+                <li class="hidden-ticket-li" style="display: none;"><a href="/panel/tickets" class="nav-item hidden-ticket-nav" data-view="tickets"></a></li>
+                <li><a href="/panel/documentacion" class="nav-item" data-view="documentation"><i class="ri-file-text-line"></i> <span class="nav-text">Documentación</span></a></li>
               </ul>
             </div>
           </li>
 
           <!-- Acceso Rápido Destacado: Instalar Portal de Tracking -->
           <li class="sidebar-quick-tracker-li" id="sidebar-quick-tracker-li">
-            <a href="#" id="sidebar-quick-tracker-btn" class="sidebar-quick-tracker-btn" data-quick-view="tracking_widget" title="Instalar y configurar Portal de Tracking para tus clientes">
+            <a href="/panel/portal-tracking" id="sidebar-quick-tracker-btn" class="sidebar-quick-tracker-btn" data-quick-view="tracking_widget" title="Instalar y configurar Portal de Tracking para tus clientes">
               <i class="ri-radar-line tracker-icon"></i>
               <span class="tracker-label">Portal de Tracking</span>
               <span class="tracker-pill">Instalar</span>
@@ -225,7 +226,7 @@
         </div>
       </nav>
       <div class="sidebar-footer sidebar-footer-compact">
-        <a href="#" id="sidebar-support-btn" class="btn btn-accent nav-item" data-view="tickets" title="Soporte y Tickets">
+        <a href="/panel/tickets" id="sidebar-support-btn" class="btn btn-accent nav-item" data-view="tickets" title="Soporte y Tickets">
           <i class="ri-customer-service-2-line"></i>
           <span class="nav-text">Soporte y Tickets</span>
         </a>
@@ -388,7 +389,7 @@
 
               <div class="client-help-list">
                 <!-- Mis Tickets de Soporte -->
-                <a href="#" class="nav-item client-help-card" data-view="tickets">
+                <a href="/panel/tickets" class="nav-item client-help-card" data-view="tickets">
                   <span class="quick-card-icon icon-purple"><i class="ri-customer-service-2-line"></i></span>
                   <span class="quick-card-info">
                     <strong>Mis Tickets de Soporte</strong>
@@ -483,7 +484,7 @@
 
                 <!-- Accesos rápidos a Mi Inbox y Facturación -->
                 <div class="notif-quick-channels">
-                  <a href="#" class="nav-item notif-channel-pill" data-view="inbox" title="Abrir Mi Bandeja de Entrada">
+                  <a href="/panel/inbox" class="nav-item notif-channel-pill" data-view="inbox" title="Abrir Mi Bandeja de Entrada">
                     <i class="ri-inbox-archive-line"></i>
                     <span>Mi Inbox</span>
                   </a>
@@ -497,7 +498,7 @@
                   <div style="padding: 1.25rem; text-align: center; color: var(--color-text-muted); font-size: 0.82rem;">No tienes notificaciones.</div>
                 </div>
                 <div class="notif-popover-footer">
-                  <a href="#" class="nav-item notif-view-all-link" data-view="inbox">
+                  <a href="/panel/inbox" class="nav-item notif-view-all-link" data-view="inbox">
                     Ver todas las notificaciones <i class="ri-arrow-right-line"></i>
                   </a>
                 </div>
@@ -547,11 +548,11 @@
               </div>
 
               <div class="profile-dropdown-menu">
-                <a href="#" class="nav-item admin-profile-menu-item" data-view="profile">
+                <a href="/panel/perfil" class="nav-item admin-profile-menu-item" data-view="profile">
                   <i class="ri-user-settings-line"></i>
                   <span>Mi Perfil y Preferencias</span>
                 </a>
-                <a href="#" class="nav-item admin-profile-menu-item" data-view="inbox">
+                <a href="/panel/inbox" class="nav-item admin-profile-menu-item" data-view="inbox">
                   <i class="ri-inbox-line"></i>
                   <span>Mi Bandeja de Entrada</span>
                 </a>
@@ -2083,13 +2084,13 @@
   <script src="./js/integration_notifications.js?v=1.0.0"></script>
   <script type="module" src="./js/billing_generator.js?v=1.3.11"></script>
   <script type="module" src="./js/split_orders.js?v=1.0.0"></script>
-  <script type="module" src="./js/consolidate_orders.js?v=1.0.1"></script>
+  <script type="module" src="./js/consolidate_orders.js?v=1.0.3"></script>
   <script type="module" src="./js/picking_requests.js?v=1.0.5"></script>
   <script type="module" src="./js/order_editor.js?v=1.0.2"></script>
-  <script type="module" src="./js/app.js?v=1.1.9"></script>
+  <script type="module" src="./js/app.js?v=1.2.1"></script>
   <script type="module" src="./js/inventory_coverage.js?v=1.2.2"></script>
   <script type="module" src="./js/tour.js?v=1.0.1"></script>
-  <script type="module" src="./js/order_page.js?v=1.0.15"></script>
+  <script type="module" src="./js/order_page.js?v=1.0.17"></script>
 
   <!-- Floating Scroll to Top Button -->
   <button type="button" class="scroll-to-top-btn" id="scroll-to-top-btn" title="Volver arriba" aria-label="Volver arriba">

@@ -104,6 +104,50 @@ document.addEventListener('DOMContentLoaded', () => {
                          window.location.hash.includes('type=recovery') || 
                          window.location.href.includes('type=recovery');
 
+  // Helper para destino post-login (soporta rutas limpias /admin y /panel + retorno profundo ?redirect=)
+  let _localCleanRoutesSupported = null;
+  const detectCleanRoutesSupport = async () => {
+    if (_localCleanRoutesSupported !== null) return _localCleanRoutesSupported;
+    const host = (window.location.hostname || '').toLowerCase();
+    const isLocal = host === 'localhost' || host === '127.0.0.1';
+    if (window.location.protocol === 'file:') {
+      _localCleanRoutesSupported = false;
+      return false;
+    }
+    if (!isLocal) {
+      _localCleanRoutesSupported = true;
+      return true;
+    }
+    try {
+      const probe = await fetch('/admin', { method: 'HEAD', cache: 'no-store' });
+      _localCleanRoutesSupported = probe.ok;
+    } catch (_) {
+      _localCleanRoutesSupported = false;
+    }
+    return _localCleanRoutesSupported;
+  };
+  detectCleanRoutesSupport();
+
+  const getPostLoginDestination = async (role = 'client') => {
+    const supportsClean = await detectCleanRoutesSupport();
+    try {
+      const reqRedirect = new URLSearchParams(window.location.search).get('redirect') || '';
+      if (supportsClean && reqRedirect.startsWith('/') && !reqRedirect.startsWith('//')) {
+        const lower = reqRedirect.toLowerCase();
+        if (role === 'admin' && (lower.startsWith('/admin') || lower.startsWith('/conteo') || lower.startsWith('/inventario-movil'))) {
+          return reqRedirect;
+        }
+        if (role !== 'admin' && (lower.startsWith('/panel') || lower.startsWith('/dashboard'))) {
+          return reqRedirect;
+        }
+      }
+    } catch (_) {}
+    if (!supportsClean) {
+      return role === 'admin' ? 'admin.html' : 'dashboard.html';
+    }
+    return role === 'admin' ? '/admin' : '/panel';
+  };
+
   // Check si ya hay sesión activa
   const checkSession = async () => {
     // Si venimos de un flujo de autenticación (como confirmación o recovery), no redireccionar inmediatamente.
@@ -118,7 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Fetch role and redirect
       const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
       const role = profile ? profile.role : 'client';
-      window.location.href = role === 'admin' ? 'admin.html' : 'dashboard.html';
+      window.location.href = await getPostLoginDestination(role);
     }
   };
 
@@ -310,8 +354,8 @@ document.addEventListener('DOMContentLoaded', () => {
       void loader.offsetWidth;
       loader.style.opacity = '1';
       
-      setTimeout(() => {
-        window.location.href = 'dashboard.html';
+      setTimeout(async () => {
+        window.location.href = await getPostLoginDestination('client');
       }, 1300);
       return;
     }
@@ -376,14 +420,15 @@ document.addEventListener('DOMContentLoaded', () => {
         void loader.offsetWidth;
         loader.style.opacity = '1';
         
-        setTimeout(() => {
+        setTimeout(async () => {
           const pendingShop = localStorage.getItem('pending_shopify_shop');
           if (pendingShop) {
             localStorage.removeItem('pending_shopify_shop');
             localStorage.removeItem('pending_shopify_link');
-            window.location.href = `dashboard.html?integration=success&shop=${encodeURIComponent(pendingShop)}`;
+            const clientBase = (await getPostLoginDestination('client')).split('?')[0];
+            window.location.href = `${clientBase}?integration=success&shop=${encodeURIComponent(pendingShop)}`;
           } else {
-            window.location.href = role === 'admin' ? 'admin.html' : 'dashboard.html';
+            window.location.href = await getPostLoginDestination(role);
           }
         }, 1300);
       }
@@ -438,14 +483,15 @@ document.addEventListener('DOMContentLoaded', () => {
         // Si la confirmación de email está desactivada en Supabase, signUp inicia sesión automáticamente
         if (data.session) {
           showAlert('¡Registro exitoso! Iniciando sesión...', 'success');
-          setTimeout(() => {
+          setTimeout(async () => {
             const pendingShop = localStorage.getItem('pending_shopify_shop');
             if (pendingShop) {
               localStorage.removeItem('pending_shopify_shop');
               localStorage.removeItem('pending_shopify_link');
-              window.location.href = `dashboard.html?integration=success&shop=${encodeURIComponent(pendingShop)}`;
+              const clientBase = (await getPostLoginDestination('client')).split('?')[0];
+              window.location.href = `${clientBase}?integration=success&shop=${encodeURIComponent(pendingShop)}`;
             } else {
-              window.location.href = 'dashboard.html';
+              window.location.href = await getPostLoginDestination('client');
             }
           }, 1500);
         } else {
@@ -602,8 +648,8 @@ document.addEventListener('DOMContentLoaded', () => {
         window.location.hash = '';
 
         // Esperar transición
-        setTimeout(() => {
-          window.location.href = 'dashboard.html';
+        setTimeout(async () => {
+          window.location.href = await getPostLoginDestination('client');
         }, 1500);
 
       } catch (error) {

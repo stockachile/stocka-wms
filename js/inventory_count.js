@@ -2556,7 +2556,9 @@ function initGlobalHeaderActions() {
 function openSessionQrModal() {
   if (!activeCountSession) return;
 
-  const joinUrl = `${window.location.origin}${window.location.pathname}?view=inventory_count&session=${activeCountSession.id}`;
+  const joinUrl = window.StockaRouter
+    ? `${window.location.origin}${window.StockaRouter.getViewUrl('inventory_count', 'admin', { session: activeCountSession.id })}`
+    : `${window.location.origin}${window.location.pathname}?view=inventory_count&session=${activeCountSession.id}`;
 
   let modal = document.getElementById('modal-inv-share-qr');
   if (modal) modal.remove();

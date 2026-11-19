@@ -1579,12 +1579,12 @@ async function init() {
         console.log('DEBUG: Redirigiendo a index.html para iniciar sesión y vincular cuenta...');
         localStorage.setItem('pending_shopify_shop', cleanShop);
         localStorage.setItem('pending_shopify_link', 'true');
-        window.location.href = `index.html?shop=${encodeURIComponent(cleanShop)}&integration=success`;
+        window.location.href = `/index.html?shop=${encodeURIComponent(cleanShop)}&integration=success`;
         return;
       }
 
       console.warn('DEBUG: No hay sesión activa. Redirigiendo a index.html...');
-      window.location.href = 'index.html';
+      window.location.href = window.StockaRouter ? window.StockaRouter.getLoginRedirectUrl() : '/index.html';
       return;
     }
 
@@ -1726,7 +1726,8 @@ async function init() {
 
     if (profile && profile.role === 'admin') {
       console.log('DEBUG: Rol es admin. Redirigiendo a admin.html...');
-      window.location.href = 'admin.html' + (window.location.search || '');
+      const baseAdmin = window.StockaRouter ? window.StockaRouter.getBaseUrl('admin') : '/admin.html';
+      window.location.href = baseAdmin + (window.location.search || '');
       return;
     }
 
@@ -1794,9 +1795,155 @@ async function init() {
       });
     }
 
-    // Navigation Logic Setup
+    // Navigation Logic, Clean URL Sync & Module Permissions
     window.currentActiveView = 'dashboard';
     window.activeViewRequestId = 0;
+
+    if (window.StockaRouter) {
+      window.StockaRouter.syncMenuHrefs(document, 'client');
+    }
+
+    const allowedModulesStr = profile?.allowed_modules || 'all';
+    const allowedModules = (allowedModulesStr !== 'all' && allowedModulesStr !== null && allowedModulesStr !== '')
+      ? allowedModulesStr.split(',').map(m => m.trim())
+      : [];
+    let firstVisibleItem = null;
+
+    const isClientViewAllowed = (view) => {
+      if (!view) return false;
+      if (userRole === 'observer') {
+        return view === 'dashboard' || view === 'observer_onboarding' || view === 'profile' || view === 'inbox';
+      }
+      if (view === 'workspace' || view === 'observer_onboarding') return false;
+      if (allowedModulesStr === 'all' || allowedModulesStr === null || allowedModulesStr === '') return true;
+      if (allowedModules.includes(view) || view === 'profile' || view === 'inbox' || view === 'tickets') return true;
+      if (
+        (view === 'dashboard' || view === 'tracking_widget' || view === 'inventory_coverage') &&
+        (allowedModules.length > 5 || allowedModules.includes('inventory') || allowedModules.includes('catalog'))
+      ) {
+        return true;
+      }
+      return false;
+    };
+
+    const activateClientView = (view, historyOptions = {}) => {
+      if (navItems) {
+        navItems.forEach(n => {
+          const isMatch = n.getAttribute('data-view') === view && !n.classList.contains('hidden-ticket-nav');
+          n.classList.toggle('active', isMatch);
+        });
+      }
+
+      window.currentActiveView = view;
+      window.activeViewRequestId = (window.activeViewRequestId || 0) + 1;
+
+      if (window.activeDashboardLoaderInterval) {
+        clearInterval(window.activeDashboardLoaderInterval);
+        window.activeDashboardLoaderInterval = null;
+      }
+
+      if (historyOptions !== false && window.StockaRouter) {
+        window.StockaRouter.syncBrowserHistory(view, 'client', historyOptions || {});
+      }
+      if (window.StockaRouter) {
+        window.StockaRouter.updateDocumentTitle(view, 'client');
+      }
+
+      if (view === 'dashboard') {
+        viewTitle.textContent = 'Dashboard';
+        renderDashboard();
+      } else if (view === 'inventory') {
+        viewTitle.textContent = 'Inventario';
+        renderInventory();
+      } else if (view === 'inventory_coverage') {
+        viewTitle.textContent = 'Cobertura de Inventario y Salud de Stock (30d)';
+        if (typeof window.renderInventoryCoverageClient === 'function') {
+          window.renderInventoryCoverageClient();
+        }
+      } else if (view === 'catalog') {
+        viewTitle.textContent = 'Catálogo de Productos';
+        renderCatalog();
+      } else if (view === 'label_generator') {
+        viewTitle.textContent = 'Generador de Etiquetas';
+        window.renderLabelGenerator();
+      } else if (view === 'orders') {
+        viewTitle.textContent = 'Pedidos';
+        renderOrders();
+      } else if (view === 'shipments') {
+        viewTitle.textContent = 'Despachos';
+        renderShipments();
+      } else if (view === 'manifests') {
+        viewTitle.textContent = 'Centro de Manifiestos';
+        if (typeof window.renderManifestsClient === 'function') {
+          window.renderManifestsClient();
+        }
+      } else if (view === 'movements') {
+        viewTitle.textContent = 'Movimientos';
+        renderMovements();
+      } else if (view === 'warehouses') {
+        viewTitle.textContent = 'Bodegas';
+        renderWarehouses();
+      } else if (view === 'pending') {
+        viewTitle.textContent = 'Por Asignar';
+        renderPending();
+      } else if (view === 'returns') {
+        viewTitle.textContent = 'Logística Inversa';
+        renderReturns();
+      } else if (view === 'pickups') {
+        viewTitle.textContent = 'Punto de Retiro';
+        renderPickups();
+      } else if (view === 'sales') {
+        viewTitle.textContent = 'Punto de Ventas';
+        renderSales();
+      } else if (view === 'integrations') {
+        viewTitle.textContent = 'Integraciones';
+        renderIntegrations();
+      } else if (view === 'declarations') {
+        viewTitle.textContent = 'Ingresos de Stock';
+        renderDeclarations();
+      } else if (view === 'billing') {
+        viewTitle.textContent = 'Facturación';
+        renderBillingClient();
+      } else if (view === 'volumen_diario') {
+        viewTitle.textContent = 'Historial de Volumen Diario';
+        renderVolumenDiario();
+      } else if (view === 'cotizador') {
+        viewTitle.textContent = 'Cotizador de Envíos';
+        renderCotizador();
+      } else if (view === 'tracking_widget') {
+        viewTitle.textContent = 'Portal de Tracking para Clientes';
+        renderTrackingWidgetCustomizer();
+      } else if (view === 'profile') {
+        viewTitle.textContent = 'Mi Perfil';
+        renderProfile();
+      } else if (view === 'inbox') {
+        viewTitle.textContent = 'Mi Inbox';
+        renderInboxPage();
+      } else if (view === 'tickets') {
+        viewTitle.textContent = 'Soporte y Tickets';
+        const appContent = document.getElementById('app-content');
+        renderTicketsClient(appContent);
+      } else if (view === 'incidencias') {
+        viewTitle.textContent = 'Incidencias';
+        const appContent = document.getElementById('app-content');
+        renderIncidenciasClient(appContent);
+      } else if (view === 'surveys') {
+        viewTitle.textContent = 'Encuestas & Feedback';
+        const appContent = document.getElementById('app-content');
+        renderSurveysClient(appContent);
+      } else if (view === 'documentation') {
+        viewTitle.textContent = 'Documentación del Servicio';
+        renderDocsClient();
+      } else if (view === 'workspace') {
+        viewTitle.textContent = 'Mi Panel de Trabajo';
+        if (typeof window.renderWorkspacePanel === 'function') {
+          window.renderWorkspacePanel();
+        }
+      } else if (view === 'observer_onboarding') {
+        viewTitle.textContent = 'Onboarding Fulfillment 360';
+        renderObserverOnboardingGuideView();
+      }
+    };
 
     if (navItems) {
       navItems.forEach(item => {
@@ -1807,125 +1954,16 @@ async function init() {
           // Permitir navegación nativa en enlaces externos (como Cotizador Fulfillment)
           if (targetItem.getAttribute('target') === '_blank') return;
 
+          // Permitir Ctrl+Clic / Cmd+Clic / Clic central para abrir el módulo en una pestaña nueva real
+          if (window.StockaRouter && window.StockaRouter.isModifiedClick(e)) return;
+
           e.preventDefault();
-
-          navItems.forEach(n => n.classList.remove('active'));
-          targetItem.classList.add('active');
-
           const view = targetItem.getAttribute('data-view');
-          window.currentActiveView = view;
-          window.activeViewRequestId = (window.activeViewRequestId || 0) + 1;
-
-          // Limpiar inmediatamente cualquier loader o temporizador del dashboard
-          if (window.activeDashboardLoaderInterval) {
-            clearInterval(window.activeDashboardLoaderInterval);
-            window.activeDashboardLoaderInterval = null;
-          }
-          
-          if (view === 'dashboard') {
-            viewTitle.textContent = 'Dashboard';
-            renderDashboard();
-          } else if (view === 'inventory') {
-            viewTitle.textContent = 'Inventario';
-            renderInventory();
-          } else if (view === 'inventory_coverage') {
-            viewTitle.textContent = 'Cobertura de Inventario y Salud de Stock (30d)';
-            if (typeof window.renderInventoryCoverageClient === 'function') {
-              window.renderInventoryCoverageClient();
-            }
-          } else if (view === 'catalog') {
-            viewTitle.textContent = 'Catálogo de Productos';
-            renderCatalog();
-          } else if (view === 'label_generator') {
-            viewTitle.textContent = 'Generador de Etiquetas';
-            window.renderLabelGenerator();
-          } else if (view === 'orders') {
-            viewTitle.textContent = 'Pedidos';
-            renderOrders();
-          } else if (view === 'shipments') {
-            viewTitle.textContent = 'Despachos';
-            renderShipments();
-          } else if (view === 'manifests') {
-            viewTitle.textContent = 'Centro de Manifiestos';
-            if (typeof window.renderManifestsClient === 'function') {
-              window.renderManifestsClient();
-            }
-          } else if (view === 'movements') {
-            viewTitle.textContent = 'Movimientos';
-            renderMovements();
-          } else if (view === 'warehouses') {
-            viewTitle.textContent = 'Bodegas';
-            renderWarehouses();
-          } else if (view === 'pending') {
-            viewTitle.textContent = 'Por Asignar';
-            renderPending();
-          } else if (view === 'returns') {
-            viewTitle.textContent = 'Logística Inversa';
-            renderReturns();
-          } else if (view === 'pickups') {
-            viewTitle.textContent = 'Punto de Retiro';
-            renderPickups();
-          } else if (view === 'sales') {
-            viewTitle.textContent = 'Punto de Ventas';
-            renderSales();
-          } else if (view === 'integrations') {
-            viewTitle.textContent = 'Integraciones';
-            renderIntegrations();
-          } else if (view === 'declarations') {
-            viewTitle.textContent = 'Ingresos de Stock';
-            renderDeclarations();
-          } else if (view === 'billing') {
-            viewTitle.textContent = 'Facturación';
-            renderBillingClient();
-          } else if (view === 'volumen_diario') {
-            viewTitle.textContent = 'Historial de Volumen Diario';
-            renderVolumenDiario();
-          } else if (view === 'cotizador') {
-            viewTitle.textContent = 'Cotizador de Envíos';
-            renderCotizador();
-          } else if (view === 'tracking_widget') {
-            viewTitle.textContent = 'Portal de Tracking para Clientes';
-            renderTrackingWidgetCustomizer();
-          } else if (view === 'profile') {
-            viewTitle.textContent = 'Mi Perfil';
-            renderProfile();
-          } else if (view === 'inbox') {
-            viewTitle.textContent = 'Mi Inbox';
-            renderInboxPage();
-          } else if (view === 'tickets') {
-            viewTitle.textContent = 'Soporte y Tickets';
-            const appContent = document.getElementById('app-content');
-            renderTicketsClient(appContent);
-          } else if (view === 'incidencias') {
-            viewTitle.textContent = 'Incidencias';
-            const appContent = document.getElementById('app-content');
-            renderIncidenciasClient(appContent);
-          } else if (view === 'surveys') {
-            viewTitle.textContent = 'Encuestas & Feedback';
-            const appContent = document.getElementById('app-content');
-            renderSurveysClient(appContent);
-          } else if (view === 'documentation') {
-            viewTitle.textContent = 'Documentación del Servicio';
-            renderDocsClient();
-          } else if (view === 'workspace') {
-            viewTitle.textContent = 'Mi Panel de Trabajo';
-            if (typeof window.renderWorkspacePanel === 'function') {
-              window.renderWorkspacePanel();
-            }
-          } else if (view === 'observer_onboarding') {
-            viewTitle.textContent = 'Onboarding Fulfillment 360';
-            renderObserverOnboardingGuideView();
-          }
+          if (!view) return;
+          activateClientView(view);
         });
       });
-    }
 
-    // Filter Navigation based on allowed_modules for Clients
-    const allowedModulesStr = profile?.allowed_modules || 'all';
-    let allowedModules = [];
-    let firstVisibleItem = null;
-
-    if (navItems) {
       if (userRole === 'observer') {
         navItems.forEach(item => {
           const parentLi = item.closest('li');
@@ -1939,7 +1977,7 @@ async function init() {
             item.style.display = 'none';
             return;
           }
-          if (view === 'dashboard' || view === 'observer_onboarding' || view === 'profile' || view === 'inbox') {
+          if (isClientViewAllowed(view)) {
             if (parentLi) parentLi.style.display = '';
             else item.style.display = '';
             if (!firstVisibleItem && view === 'dashboard') firstVisibleItem = item;
@@ -1970,8 +2008,6 @@ async function init() {
           }
         }
       } else if (allowedModulesStr !== 'all' && allowedModulesStr !== null && allowedModulesStr !== '') {
-        allowedModules = allowedModulesStr.split(',').map(m => m.trim());
-        
         navItems.forEach(item => {
           const parentLi = item.closest('li');
           if (item.classList.contains('hidden-ticket-nav')) {
@@ -1985,14 +2021,8 @@ async function init() {
             item.style.display = 'none';
             return;
           }
-          let isAllowed = allowedModules.includes(view) || view === 'profile' || view === 'inbox' || view === 'tickets';
 
-          // Compatibilidad con perfiles antiguos guardados antes de que dashboard, tracking_widget o inventory_coverage fueran configurables
-          if ((view === 'dashboard' || view === 'tracking_widget' || view === 'inventory_coverage') && !allowedModules.includes(view) && (allowedModules.length > 5 || allowedModules.includes('inventory') || allowedModules.includes('catalog'))) {
-            isAllowed = true;
-          }
-
-          if (isAllowed) {
+          if (isClientViewAllowed(view)) {
             if (parentLi) parentLi.style.display = '';
             else item.style.display = '';
             if (!firstVisibleItem) firstVisibleItem = item;
@@ -2018,10 +2048,14 @@ async function init() {
       updateCategoryHeadersVisibility();
     }
 
-    // Initial View selection based on ?order= / ?pedido= or #order= or allowed modules for Client
+    // Initial View selection based on ?order= / ?pedido= or clean route /panel/<slug> or ?view= or #view
     const rawClientHash = (window.location.hash || '').replace(/^#/, '').trim();
     const clientHashOrderMatch = rawClientHash.match(/^(?:order|pedido)=(.+)$/i);
     const initialOrderParam = (urlParams.get('order') || urlParams.get('pedido') || (clientHashOrderMatch ? decodeURIComponent(clientHashOrderMatch[1]) : '') || '').trim();
+    const requestedClientView = window.StockaRouter
+      ? window.StockaRouter.resolveViewFromUrl('client')
+      : (urlParams.get('view') || (!clientHashOrderMatch ? rawClientHash : ''));
+
     if (initialOrderParam) {
       console.log('DEBUG: Cargando Página Individual de Pedido (Cliente):', initialOrderParam);
       if (viewTitle) viewTitle.textContent = `Pedido #${initialOrderParam.slice(0, 12)}`;
@@ -2031,17 +2065,17 @@ async function init() {
       } else {
         window._pendingSingleOrderPage = { orderId: initialOrderParam, isAdmin: false };
       }
+    } else if (requestedClientView && isClientViewAllowed(requestedClientView)) {
+      console.log('DEBUG: Cargando vista inicial Cliente desde URL:', requestedClientView);
+      activateClientView(requestedClientView, { replace: true, preserveExtraParams: true });
     } else if (firstVisibleItem) {
-      const isDefaultAllowed = allowedModulesStr === 'all' || allowedModules.includes('dashboard') || (allowedModules.length > 5 && !allowedModulesStr.includes('dashboard'));
-      
-      if (isDefaultAllowed) {
+      if (isClientViewAllowed('dashboard')) {
         console.log('DEBUG: Renderizando vista inicial Dashboard...');
-        viewTitle.textContent = 'Dashboard';
-        window.currentActiveView = 'dashboard';
-        renderDashboard();
+        activateClientView('dashboard', { replace: true, preserveExtraParams: true });
       } else {
-        console.log('DEBUG: Vista de dashboard restringida, seleccionando primer módulo permitido:', firstVisibleItem.getAttribute('data-view'));
-        firstVisibleItem.click();
+        const fallbackView = firstVisibleItem.getAttribute('data-view');
+        console.log('DEBUG: Vista de dashboard restringida, seleccionando primer módulo permitido:', fallbackView);
+        activateClientView(fallbackView, { replace: true, preserveExtraParams: true });
       }
     } else {
       const appContent = document.getElementById('app-content');
@@ -2049,12 +2083,37 @@ async function init() {
       viewTitle.textContent = 'Sin Acceso';
     }
 
+    // Soporte nativo para botones Atrás / Adelante del navegador
+    window.addEventListener('popstate', () => {
+      const p = new URLSearchParams(window.location.search);
+      const h = (window.location.hash || '').replace(/^#/, '').trim();
+      const hm = h.match(/^(?:order|pedido)=(.+)$/i);
+      const ordId = (p.get('order') || p.get('pedido') || (hm ? decodeURIComponent(hm[1]) : '') || '').trim();
+      if (ordId) {
+        if (viewTitle) viewTitle.textContent = `Pedido #${ordId.slice(0, 12)}`;
+        window.currentActiveView = 'order_detail';
+        if (typeof window.renderSingleOrderPage === 'function') {
+          window.renderSingleOrderPage(ordId, { isAdmin: false });
+        }
+        return;
+      }
+      const nextView = (window.StockaRouter ? window.StockaRouter.resolveViewFromUrl('client') : '') || 'dashboard';
+      if (isClientViewAllowed(nextView)) {
+        if (window.StockaRouter) window.StockaRouter._isHandlingPopState = true;
+        try {
+          activateClientView(nextView, false);
+        } finally {
+          if (window.StockaRouter) window.StockaRouter._isHandlingPopState = false;
+        }
+      }
+    });
+
     // Logout Logic
     if (logoutBtn) {
       logoutBtn.addEventListener('click', async () => {
         console.log('DEBUG: Cerrando sesión...');
         await supabase.auth.signOut();
-        window.location.href = 'index.html';
+        window.location.href = window.StockaRouter ? window.StockaRouter.getLoginRedirectUrl('', false) : '/index.html';
       });
     }
 

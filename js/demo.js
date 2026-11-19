@@ -1112,7 +1112,7 @@ window.injectDemoUI = function() {
   document.getElementById('demo-action-exit').addEventListener('click', () => {
     sessionStorage.removeItem('wms_demo_mode');
     sessionStorage.removeItem('wms_demo_db_initialized');
-    window.location.href = 'index.html';
+    window.location.href = '/index.html';
   });
 };
 

@@ -211,15 +211,15 @@ function getPlatformMeta(order) {
 
 function getOrderPageUrl(orderId, isAdmin = null) {
   const adminMode = isAdmin !== null ? isAdmin : Boolean(document.getElementById('admin-cmd-container') || window.location.pathname.includes('admin'));
-  const currentPath = window.location.pathname || '';
-  const usesCleanUrls = !currentPath.endsWith('.html') && (currentPath.endsWith('/admin') || currentPath.endsWith('/dashboard'));
-  let basePage = adminMode
-    ? (usesCleanUrls ? '/admin' : 'admin.html')
-    : (usesCleanUrls ? '/dashboard' : 'dashboard.html');
-  if (adminMode && (currentPath.endsWith('/admin') || currentPath.endsWith('/admin.html'))) {
-    basePage = currentPath;
-  } else if (!adminMode && (currentPath.endsWith('/dashboard') || currentPath.endsWith('/dashboard.html'))) {
-    basePage = currentPath;
+  let basePage;
+  if (window.StockaRouter) {
+    basePage = window.StockaRouter.getBaseUrl(adminMode ? 'admin' : 'client');
+  } else {
+    const currentPath = window.location.pathname || '';
+    const usesCleanUrls = !currentPath.endsWith('.html');
+    basePage = adminMode
+      ? (usesCleanUrls ? '/admin' : '/admin.html')
+      : (usesCleanUrls ? '/panel' : '/dashboard.html');
   }
   return `${basePage}?order=${encodeURIComponent(orderId)}#order=${encodeURIComponent(orderId)}`;
 }
@@ -4057,6 +4057,8 @@ function initOrderSearchAndPageModule() {
   }
 
   document.addEventListener('click', (e) => {
+    if (window.StockaRouter && window.StockaRouter.isModifiedClick(e)) return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || (typeof e.button === 'number' && e.button !== 0)) return;
     const nav = e.target.closest('.nav-item[data-view]');
     if (nav && (window._activeSingleOrderPageId || window._suppressDashboardForOrderPage)) {
       window._suppressDashboardForOrderPage = false;

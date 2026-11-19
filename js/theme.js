@@ -8,6 +8,435 @@ if (window.location.hostname === 'stocka-wms.netlify.app') {
   window.location.replace('https://wms.stocka.cl' + window.location.pathname + window.location.search + window.location.hash);
 }
 
+// =========================================================================
+// 0.1 Enrutador Limpio por URL (StockaRouter - History API + Rutas Amigables)
+// =========================================================================
+(function initStockaRouter() {
+  const ADMIN_VIEW_SLUGS = {
+    dashboard: '',
+    workspace: 'panel-trabajo',
+    orders_admin: 'pedidos',
+    cotizador_admin: 'cotizador',
+    consolidated_shipments: 'consolidados',
+    manifests_admin: 'manifiestos',
+    optiroute_support: 'optiroute',
+    incidencias_admin: 'incidencias',
+    volumen_diario_admin: 'volumen-diario',
+    returns_admin: 'logistica-inversa',
+    returns_widget: 'portales-cambios',
+    pos_admin: 'punto-ventas',
+    inventory_admin: 'inventario',
+    inventory_coverage_admin: 'cobertura',
+    inventory_coverage: 'cobertura',
+    inventory_count: 'conteo-movil',
+    movements_admin: 'movimientos',
+    transfers_admin: 'transferencias',
+    reassign_admin: 'hub-central',
+    manual_in_admin: 'ingreso-manual',
+    declarations_admin: 'ingresos',
+    upload_products_admin: 'carga-planillas',
+    catalog: 'catalogo',
+    label_generator: 'etiquetas',
+    merchants_admin: 'comercios',
+    onboarding_admin: 'solicitudes-alta',
+    leads_admin: 'leads',
+    redzone_admin: 'solicitudes-baja',
+    surveys_admin: 'encuestas',
+    tickets_admin: 'tickets',
+    billing_admin: 'facturacion',
+    clickup_facturacion_admin: 'facturacion-clickup',
+    enviame_analytics: 'analitica-enviame',
+    pricing_config_admin: 'tarifas',
+    users_admin: 'usuarios',
+    identity_qr_admin: 'identidad-qr',
+    warehouses_admin: 'bodegas',
+    visibility_rules_admin: 'reglas-visibilidad',
+    integrations: 'integraciones',
+    automations_admin: 'automatizaciones',
+    notifications_admin: 'notificaciones',
+    documentation_admin: 'documentacion',
+    profile: 'perfil',
+    inbox: 'inbox'
+  };
+
+  const CLIENT_VIEW_SLUGS = {
+    dashboard: '',
+    observer_onboarding: 'onboarding',
+    workspace: 'panel-trabajo',
+    inventory: 'inventario',
+    inventory_coverage: 'cobertura',
+    catalog: 'catalogo',
+    declarations: 'ingresos',
+    movements: 'movimientos',
+    warehouses: 'bodegas',
+    orders: 'pedidos',
+    pending: 'por-asignar',
+    shipments: 'despachos',
+    manifests: 'manifiestos',
+    returns: 'logistica-inversa',
+    pickups: 'punto-retiro',
+    sales: 'punto-ventas',
+    volumen_diario: 'volumen-diario',
+    label_generator: 'etiquetas',
+    cotizador: 'cotizador',
+    tracking_widget: 'portal-tracking',
+    returns_widget: 'portal-cambios',
+    billing: 'facturacion',
+    integrations: 'integraciones',
+    incidencias: 'incidencias',
+    surveys: 'encuestas',
+    tickets: 'tickets',
+    documentation: 'documentacion',
+    profile: 'perfil',
+    inbox: 'inbox'
+  };
+
+  const buildReverseMap = (viewMap, extraAliases = {}) => {
+    const rev = { ...extraAliases };
+    Object.entries(viewMap).forEach(([view, slug]) => {
+      if (slug && !rev[slug]) {
+        rev[slug] = view;
+      }
+    });
+    return rev;
+  };
+
+  const ADMIN_SLUG_TO_VIEW = buildReverseMap(ADMIN_VIEW_SLUGS, {
+    'conteo': 'inventory_count',
+    'inventario-movil': 'inventory_count',
+    'dashboard': 'dashboard'
+  });
+
+  const CLIENT_SLUG_TO_VIEW = buildReverseMap(CLIENT_VIEW_SLUGS, {
+    'dashboard': 'dashboard'
+  });
+
+  // Títulos compactos con el módulo al inicio (ideales para pestañas angostas o verticales)
+  const ADMIN_VIEW_TITLES = {
+    dashboard: 'Dashboard',
+    workspace: 'Panel de Trabajo',
+    orders_admin: 'Pedidos',
+    cotizador_admin: 'Cotizador',
+    consolidated_shipments: 'Consolidados',
+    manifests_admin: 'Manifiestos',
+    optiroute_support: 'Optiroute',
+    incidencias_admin: 'Incidencias',
+    volumen_diario_admin: 'Volumen Diario',
+    returns_admin: 'Logística Inversa',
+    returns_widget: 'Portales Cambios',
+    pos_admin: 'Punto de Ventas',
+    inventory_admin: 'Inventario',
+    inventory_coverage_admin: 'Cobertura 30d',
+    inventory_coverage: 'Cobertura 30d',
+    inventory_count: 'Conteo Móvil',
+    movements_admin: 'Movimientos',
+    transfers_admin: 'Transferencias',
+    reassign_admin: 'Hub Central',
+    manual_in_admin: 'Ingreso Manual',
+    declarations_admin: 'Ingresos Stock',
+    upload_products_admin: 'Carga Planillas',
+    catalog: 'Catálogo',
+    label_generator: 'Etiquetas',
+    merchants_admin: 'Comercios',
+    onboarding_admin: 'Solicitudes Alta',
+    leads_admin: 'Leads CRM',
+    redzone_admin: 'Solicitudes Baja',
+    surveys_admin: 'Encuestas',
+    tickets_admin: 'Tickets',
+    billing_admin: 'Facturación',
+    clickup_facturacion_admin: 'ClickUp Fact.',
+    enviame_analytics: 'Envíame',
+    pricing_config_admin: 'Tarifas',
+    users_admin: 'Usuarios',
+    identity_qr_admin: 'Identidad & QR',
+    warehouses_admin: 'Bodegas',
+    visibility_rules_admin: 'Visibilidad',
+    integrations: 'Integraciones',
+    automations_admin: 'Automatizaciones',
+    notifications_admin: 'Notificaciones',
+    documentation_admin: 'Documentación',
+    profile: 'Mi Perfil',
+    inbox: 'Mi Inbox'
+  };
+
+  const CLIENT_VIEW_TITLES = {
+    dashboard: 'Dashboard',
+    observer_onboarding: 'Onboarding',
+    workspace: 'Panel de Trabajo',
+    inventory: 'Inventario',
+    inventory_coverage: 'Cobertura 30d',
+    catalog: 'Catálogo',
+    declarations: 'Ingresos Stock',
+    movements: 'Movimientos',
+    warehouses: 'Bodegas',
+    orders: 'Pedidos',
+    pending: 'Por Asignar',
+    shipments: 'Despachos',
+    manifests: 'Manifiestos',
+    returns: 'Logística Inversa',
+    pickups: 'Punto de Retiro',
+    sales: 'Punto de Ventas',
+    volumen_diario: 'Volumen Diario',
+    label_generator: 'Etiquetas',
+    cotizador: 'Cotizador',
+    tracking_widget: 'Portal Tracking',
+    returns_widget: 'Portal Cambios',
+    billing: 'Facturación',
+    integrations: 'Integraciones',
+    incidencias: 'Incidencias',
+    surveys: 'Encuestas',
+    tickets: 'Tickets',
+    documentation: 'Documentación',
+    profile: 'Mi Perfil',
+    inbox: 'Mi Inbox'
+  };
+
+  window.StockaRouter = {
+    _isHandlingPopState: false,
+    ADMIN_VIEW_SLUGS,
+    CLIENT_VIEW_SLUGS,
+    ADMIN_VIEW_TITLES,
+    CLIENT_VIEW_TITLES,
+
+    detectRole() {
+      const sidebar = document.querySelector('.sidebar[data-sidebar-role]');
+      if (sidebar) {
+        const attr = sidebar.getAttribute('data-sidebar-role');
+        if (attr === 'admin' || attr === 'client') return attr;
+      }
+      if (document.getElementById('admin-cmd-container')) return 'admin';
+      const pathLower = (window.location.pathname || '').toLowerCase();
+      if (pathLower.startsWith('/admin') || pathLower === '/conteo' || pathLower === '/inventario-movil') {
+        return 'admin';
+      }
+      return 'client';
+    },
+
+    usesCleanPaths() {
+      const host = (window.location.hostname || '').toLowerCase();
+      const isLocal = host === 'localhost' || host === '127.0.0.1' || window.location.protocol === 'file:';
+      return !(isLocal && (window.location.pathname || '').toLowerCase().endsWith('.html'));
+    },
+
+    getBaseUrl(role = null) {
+      const r = role || this.detectRole();
+      if (this.usesCleanPaths()) {
+        return r === 'admin' ? '/admin' : '/panel';
+      }
+      return r === 'admin' ? '/admin.html' : '/dashboard.html';
+    },
+
+    getLoginRedirectUrl(reason = '', includeReturnPath = true) {
+      const params = new URLSearchParams();
+      if (reason) params.set('reason', reason);
+      if (includeReturnPath && window.location.protocol !== 'file:') {
+        const rel = (window.location.pathname || '') + (window.location.search || '') + (window.location.hash || '');
+        const cleanCheck = (window.location.pathname || '').toLowerCase();
+        const isRootPortal = (
+          !window.location.search &&
+          !window.location.hash &&
+          (cleanCheck === '/' || cleanCheck === '/index.html' || cleanCheck === '/admin' || cleanCheck === '/admin.html' || cleanCheck === '/panel' || cleanCheck === '/dashboard' || cleanCheck === '/dashboard.html')
+        );
+        if (rel.startsWith('/') && !rel.startsWith('//') && !isRootPortal) {
+          params.set('redirect', rel);
+        }
+      }
+      const base = window.location.protocol === 'file:' ? 'index.html' : '/index.html';
+      const qs = params.toString();
+      return qs ? `${base}?${qs}` : base;
+    },
+
+    getViewUrl(view, role = null, extraParams = null) {
+      const r = role || this.detectRole();
+      const map = r === 'admin' ? ADMIN_VIEW_SLUGS : CLIENT_VIEW_SLUGS;
+      const cleanView = String(view || 'dashboard').trim();
+
+      if (this.usesCleanPaths()) {
+        const base = r === 'admin' ? '/admin' : '/panel';
+        const slug = Object.prototype.hasOwnProperty.call(map, cleanView) ? map[cleanView] : cleanView;
+        const path = slug ? `${base}/${slug}` : base;
+        if (extraParams) {
+          const qs = (extraParams instanceof URLSearchParams ? extraParams : new URLSearchParams(extraParams)).toString();
+          if (qs) return `${path}?${qs}`;
+        }
+        return path;
+      }
+
+      const base = r === 'admin' ? '/admin.html' : '/dashboard.html';
+      const params = new URLSearchParams(extraParams || '');
+      if (cleanView && cleanView !== 'dashboard') {
+        params.set('view', cleanView);
+      } else {
+        params.delete('view');
+      }
+      const qs = params.toString();
+      return qs ? `${base}?${qs}` : base;
+    },
+
+    resolveViewFromUrl(role = null) {
+      const r = role || this.detectRole();
+      const viewToSlug = r === 'admin' ? ADMIN_VIEW_SLUGS : CLIENT_VIEW_SLUGS;
+      const slugToView = r === 'admin' ? ADMIN_SLUG_TO_VIEW : CLIENT_SLUG_TO_VIEW;
+
+      const matchToken = (raw) => {
+        if (!raw) return '';
+        let clean = '';
+        try {
+          clean = decodeURIComponent(String(raw)).trim().replace(/^\/+|\/+$/g, '');
+        } catch (_) {
+          clean = String(raw).trim().replace(/^\/+|\/+$/g, '');
+        }
+        const lower = clean.toLowerCase();
+        if (!lower) return '';
+        if (Object.prototype.hasOwnProperty.call(viewToSlug, lower)) return lower;
+        if (Object.prototype.hasOwnProperty.call(slugToView, lower)) return slugToView[lower];
+        return '';
+      };
+
+      // 1. Parámetros explícitos ?view= o ?modulo=
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const fromQuery = matchToken(params.get('view') || params.get('modulo') || '');
+        if (fromQuery) return fromQuery;
+      } catch (_) {}
+
+      // 2. Segmentos de ruta limpia (/admin/<slug>, /panel/<slug>, /dashboard/<slug>, /conteo)
+      const segments = (window.location.pathname || '').split('/').filter(Boolean);
+      if (r === 'admin') {
+        if (segments.length === 1) {
+          const s0 = segments[0].toLowerCase();
+          if (s0 === 'conteo' || s0 === 'inventario-movil') return 'inventory_count';
+        } else if (segments.length >= 2 && segments[0].toLowerCase() === 'admin') {
+          const fromPath = matchToken(segments[1]);
+          if (fromPath) return fromPath;
+        }
+      } else {
+        if (segments.length >= 2) {
+          const s0 = segments[0].toLowerCase();
+          if (s0 === 'panel' || s0 === 'dashboard') {
+            const fromPath = matchToken(segments[1]);
+            if (fromPath) return fromPath;
+          }
+        }
+      }
+
+      // 3. Hash legado (#orders_admin o #pedidos), ignorando hashes de pedido o de Supabase Auth
+      const rawHash = (window.location.hash || '').replace(/^#/, '').trim();
+      if (
+        rawHash &&
+        !/^(?:order|pedido)=/i.test(rawHash) &&
+        !rawHash.includes('access_token=') &&
+        !rawHash.includes('type=recovery') &&
+        !rawHash.includes('error_description=')
+      ) {
+        const fromHash = matchToken(rawHash);
+        if (fromHash) return fromHash;
+      }
+
+      return '';
+    },
+
+    isModifiedClick(e) {
+      return Boolean(e && (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || (typeof e.button === 'number' && e.button !== 0)));
+    },
+
+    syncBrowserHistory(view, role = null, options = {}) {
+      if (this._isHandlingPopState) return;
+      const r = role || this.detectRole();
+      let extraParams = null;
+
+      if (options.preserveExtraParams) {
+        try {
+          const currentParams = new URLSearchParams(window.location.search);
+          currentParams.delete('view');
+          currentParams.delete('modulo');
+          currentParams.delete('order');
+          currentParams.delete('pedido');
+          if (Array.from(currentParams.keys()).length > 0) {
+            extraParams = currentParams;
+          }
+        } catch (_) {}
+      }
+
+      const nextUrl = this.getViewUrl(view || 'dashboard', r, extraParams);
+      const rawHash = (window.location.hash || '').replace(/^#/, '');
+      const keepAuthHash = (rawHash.includes('access_token=') || rawHash.includes('type=recovery')) ? window.location.hash : '';
+      const fullTarget = nextUrl + keepAuthHash;
+      const fullCurrent = (window.location.pathname || '') + (window.location.search || '') + (window.location.hash || '');
+
+      if (fullCurrent === fullTarget) return;
+
+      try {
+        if (options.replace) {
+          window.history.replaceState({ view: view || 'dashboard' }, '', fullTarget);
+        } else {
+          window.history.pushState({ view: view || 'dashboard' }, '', fullTarget);
+        }
+      } catch (_) {}
+    },
+
+    syncMenuHrefs(rootEl = document, role = null) {
+      if (!rootEl) return;
+      const r = role || this.detectRole();
+      rootEl.querySelectorAll('a.nav-item[data-view]').forEach(a => {
+        if (a.getAttribute('target') === '_blank') return;
+        const view = a.getAttribute('data-view');
+        if (!view) return;
+        a.setAttribute('href', this.getViewUrl(view, r));
+      });
+      rootEl.querySelectorAll('a.sidebar-fav-item[data-fav-view]').forEach(a => {
+        const view = a.getAttribute('data-fav-view');
+        if (!view) return;
+        a.setAttribute('href', this.getViewUrl(view, r));
+      });
+      rootEl.querySelectorAll('a[data-quick-view]').forEach(a => {
+        const view = a.getAttribute('data-quick-view');
+        if (!view) return;
+        a.setAttribute('href', this.getViewUrl(view, r));
+      });
+    },
+
+    updateDocumentTitle(view, role = null, customLabel = '') {
+      const r = role || this.detectRole();
+      const titlesMap = r === 'admin' ? ADMIN_VIEW_TITLES : CLIENT_VIEW_TITLES;
+      const cleanView = String(view || '').trim();
+      let label = String(customLabel || '').trim();
+
+      if (!label && cleanView) {
+        label = titlesMap[cleanView] || '';
+      }
+      if (!label && cleanView) {
+        const linkText = document.querySelector(`.nav-item[data-view="${cleanView}"] .nav-text`)?.textContent?.trim();
+        label = linkText || cleanView;
+      }
+      if (!label) {
+        label = 'Dashboard';
+      }
+
+      const suffix = r === 'admin' ? 'Admin WMS STOCKA' : 'WMS STOCKA';
+      document.title = `${label} · ${suffix}`;
+    }
+  };
+
+  // Hidratación instantánea (0ms) del título de la pestaña según la URL antes de cargar el DOM
+  try {
+    const rawDocTitle = (document.title || '').trim();
+    if (rawDocTitle === 'Admin - WMS STOCKA' || rawDocTitle === 'Dashboard - WMS STOCKA') {
+      const initRole = rawDocTitle.startsWith('Admin') ? 'admin' : 'client';
+      const urlParams = new URLSearchParams(window.location.search);
+      const rawHash = (window.location.hash || '').replace(/^#/, '').trim();
+      const ordMatch = rawHash.match(/^(?:order|pedido)=(.+)$/i);
+      const initOrd = (urlParams.get('order') || urlParams.get('pedido') || (ordMatch ? decodeURIComponent(ordMatch[1]) : '') || '').trim();
+      if (initOrd) {
+        window.StockaRouter.updateDocumentTitle('', initRole, `Pedido #${initOrd.slice(0, 10)}`);
+      } else {
+        const initView = window.StockaRouter.resolveViewFromUrl(initRole) || 'dashboard';
+        window.StockaRouter.updateDocumentTitle(initView, initRole);
+      }
+    }
+  } catch (_) {}
+})();
+
 // 1. Get preferred theme
 const getPreferredTheme = () => {
   const savedTheme = localStorage.getItem('stocka-theme');
@@ -61,7 +490,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target.matches('input[type="date"]')) {
       try { e.target.showPicker(); } catch(err) {}
     }
+    // Evitar que enlaces vacíos href="#" naveguen a "/" cuando existe <base href="/">
+    const emptyAnchor = e.target.closest('a[href="#"]');
+    if (emptyAnchor) {
+      e.preventDefault();
+    }
   });
+
+  // Sincronizar todos los href de módulos de navegación según entorno (rutas limpias o local)
+  if (window.StockaRouter) {
+    window.StockaRouter.syncMenuHrefs(document);
+  }
 
   // Fetch UF del día desde mindicador.cl
   const ufValueEls = document.querySelectorAll('#uf-value, #uf-display-val, .uf-display-text');
@@ -185,10 +624,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     overlay.addEventListener('click', closeMenu);
 
-    // Cerrar al hacer click en cualquier opción de navegación
+    // Cerrar al hacer click normal en cualquier opción de navegación
     const navLinks = sidebar.querySelectorAll('.sidebar-nav a.nav-item');
     navLinks.forEach(link => {
-      link.addEventListener('click', () => {
+      link.addEventListener('click', (e) => {
+        if (window.StockaRouter && window.StockaRouter.isModifiedClick(e)) return;
         closeMenu();
       });
     });
@@ -299,8 +739,9 @@ document.addEventListener('DOMContentLoaded', () => {
             li.appendChild(pinBtn);
           }
 
-          // Cerrar el flyout inmediatamente al seleccionar un módulo en Desktop
-          navLink.addEventListener('click', () => {
+          // Cerrar el flyout inmediatamente al seleccionar un módulo en Desktop (salvo Ctrl/Cmd+Clic para abrir varias pestañas)
+          navLink.addEventListener('click', (e) => {
+            if (window.StockaRouter && window.StockaRouter.isModifiedClick(e)) return;
             group.classList.remove('flyout-open');
             if (panel) {
               panel.style.pointerEvents = 'none';
@@ -386,8 +827,11 @@ document.addEventListener('DOMContentLoaded', () => {
           li.className = 'sidebar-fav-li';
           li.setAttribute('data-fav-li-view', view);
           const favTitleAttr = view === 'declarations_admin' ? '' : `title="${label}"`;
+          const favHref = (canonicalLink.getAttribute('target') === '_blank' && canonicalLink.getAttribute('href'))
+            ? canonicalLink.getAttribute('href')
+            : (window.StockaRouter ? window.StockaRouter.getViewUrl(view, role) : '#');
           li.innerHTML = `
-            <a href="#" class="sidebar-fav-item ${isActive ? 'active' : ''}" data-fav-view="${view}" ${favTitleAttr}>
+            <a href="${favHref}" class="sidebar-fav-item ${isActive ? 'active' : ''}" data-fav-view="${view}" ${favTitleAttr}>
               <i class="${iconClass} fav-item-icon"></i>
               <span class="fav-text">${label}</span>
               <span class="menu-badge fav-item-badge" style="display: none;">0</span>
@@ -458,6 +902,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
           const favAnchor = e.target.closest('.sidebar-fav-item');
           if (favAnchor) {
+            if (window.StockaRouter && window.StockaRouter.isModifiedClick(e)) return;
             e.preventDefault();
             e.stopPropagation();
             const view = favAnchor.getAttribute('data-fav-view');
@@ -479,6 +924,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const quickTrackerBtn = document.getElementById('sidebar-quick-tracker-btn');
       if (quickTrackerBtn) {
         quickTrackerBtn.addEventListener('click', (e) => {
+          if (window.StockaRouter && window.StockaRouter.isModifiedClick(e)) return;
           e.preventDefault();
           e.stopPropagation();
           const targetView = quickTrackerBtn.getAttribute('data-quick-view') || 'tracking_widget';
@@ -1560,6 +2006,10 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         e.stopPropagation();
         const targetView = navTrigger.getAttribute('data-admin-nav');
+        if (window.StockaRouter && window.StockaRouter.isModifiedClick(e)) {
+          window.open(window.StockaRouter.getViewUrl(targetView, 'admin'), '_blank');
+          return;
+        }
         navigateToAdminView(targetView);
       }
     });
@@ -1803,6 +2253,10 @@ document.addEventListener('DOMContentLoaded', () => {
         e.stopPropagation();
         const view = item.getAttribute('data-cmd-view');
         const query = item.getAttribute('data-cmd-query') || '';
+        if (!query && window.StockaRouter && window.StockaRouter.isModifiedClick(e)) {
+          window.open(window.StockaRouter.getViewUrl(view, 'admin'), '_blank');
+          return;
+        }
         navigateToAdminView(view, query);
       });
     }
@@ -2184,6 +2638,10 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         e.stopPropagation();
         const targetView = navTrigger.getAttribute('data-client-nav');
+        if (window.StockaRouter && window.StockaRouter.isModifiedClick(e)) {
+          window.open(window.StockaRouter.getViewUrl(targetView, 'client'), '_blank');
+          return;
+        }
         navigateToClientView(targetView);
       }
     });
@@ -2447,6 +2905,10 @@ document.addEventListener('DOMContentLoaded', () => {
         e.stopPropagation();
         const view = item.getAttribute('data-cmd-view');
         const query = item.getAttribute('data-cmd-query') || '';
+        if (!query && window.StockaRouter && window.StockaRouter.isModifiedClick(e)) {
+          window.open(window.StockaRouter.getViewUrl(view, 'client'), '_blank');
+          return;
+        }
         navigateToClientView(view, query);
       });
     }

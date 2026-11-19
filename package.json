@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "dev": "node scripts/dev_server.js",
     "build": "node scripts/build.js",
     "compile-rates": "node scripts/compile_rates_excel.js",
     "sync:bluex": "node sync_bluex.js",
