@@ -105690,24 +105690,29 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
     }));
 
     // Recopilar listas de SKUs eliminados, agregados y modificados para protección granular
-    const deletedSkusList = [];
+    const origQtyBySku = {};
     for (const orig of window.originalEditOrderItems) {
-      if (!currentMap.has(orig.id)) {
-        if (orig.sku) deletedSkusList.push(orig.sku.trim());
+      if (orig.sku) {
+        const skuKey = orig.sku.trim();
+        origQtyBySku[skuKey] = (origQtyBySku[skuKey] || 0) + (Number(orig.quantity) || 0);
       }
     }
 
-    const addedSkusList = [];
-    for (const curr of window.tempEditOrderItems) {
-      if (!curr.id && curr.sku) {
-        addedSkusList.push(curr.sku.trim());
-      }
-    }
-
-    const modifiedQuantitiesMap = {};
+    const currQtyBySku = {};
     for (const curr of window.tempEditOrderItems) {
       if (curr.sku) {
-        modifiedQuantitiesMap[curr.sku.trim()] = curr.quantity;
+        const skuKey = curr.sku.trim();
+        currQtyBySku[skuKey] = (currQtyBySku[skuKey] || 0) + (Number(curr.quantity) || 0);
+      }
+    }
+
+    const deletedSkusList = Object.keys(origQtyBySku).filter(skuKey => !(skuKey in currQtyBySku));
+    const addedSkusList = Object.keys(currQtyBySku).filter(skuKey => !(skuKey in origQtyBySku));
+
+    const modifiedQuantitiesMap = {};
+    for (const [skuKey, currQty] of Object.entries(currQtyBySku)) {
+      if (!(skuKey in origQtyBySku) || origQtyBySku[skuKey] !== currQty) {
+        modifiedQuantitiesMap[skuKey] = currQty;
       }
     }
 

@@ -600,9 +600,27 @@ async function syncOrders(integration) {
 
       const manualDeletedSet = new Set((manualEdits.deleted_skus || []).map(s => s.trim().toLowerCase()));
       const manualAddedSet = new Set((manualEdits.added_skus || []).map(s => s.trim().toLowerCase()));
+      const manualQtyBySkuLower = new Map();
+      for (const [mSku, mQty] of Object.entries(manualEdits.modified_quantities || {})) {
+        const key = String(mSku || '').trim().toLowerCase();
+        const qtyNum = Number(mQty);
+        if (key && Number.isFinite(qtyNum) && qtyNum > 0) {
+          manualQtyBySkuLower.set(key, qtyNum);
+        }
+      }
+      const appliedManualPackKeys = new Set();
 
       // 1. Calcular el desglose total de productos físicos esperados para la orden
       const expectedQuantities = new Map(); // product_id -> total_quantity
+      const productManualCandidates = new Map(); // product_id -> Set<string> (skus/variant_ids normalizados)
+      const registerProductCandidates = (prodId, candidates) => {
+        if (!productManualCandidates.has(prodId)) productManualCandidates.set(prodId, new Set());
+        const set = productManualCandidates.get(prodId);
+        candidates.forEach(c => {
+          const norm = String(c || '').trim().toLowerCase();
+          if (norm) set.add(norm);
+        });
+      };
       const lineItems = order.line_items || [];
 
       for (const item of lineItems) {
@@ -627,16 +645,6 @@ async function syncOrders(integration) {
         if (manualDeletedSet.has(searchLower) || manualDeletedSet.has(rawLower) || manualDeletedSet.has(cleanLower) || (varLower && manualDeletedSet.has(varLower))) {
           console.log(`[Shopify Sync] Omitiendo SKU ${searchSku} (${item.title}) por protección de eliminación manual en WMS.`);
           continue;
-        }
-
-        // Respetar cantidad manual si existe
-        for (const [mSku, mQty] of Object.entries(manualEdits.modified_quantities || {})) {
-          const mLower = mSku.trim().toLowerCase();
-          if (mLower === searchLower || mLower === rawLower || mLower === cleanLower || mLower === varLower) {
-            effectiveQty = mQty;
-            console.log(`[Shopify Sync] SKU ${searchSku} mantiene cantidad manual WMS (${mQty})`);
-            break;
-          }
         }
 
         // Buscar producto en catálogo por comercio y sku (exacto con espacios o versión sin espacios)
@@ -684,7 +692,7 @@ async function syncOrders(integration) {
               description: 'Creado automáticamente desde sincronización de Shopify' + (hasEquivalence ? ` (Equivalencia de SKU: ${rawSku})` : ''),
               status: 'active'
             }])
-            .select('id, is_pack')
+            .select('id, sku, is_pack')
             .single();
 
           if (!prodErr && newProd) {
@@ -697,13 +705,59 @@ async function syncOrders(integration) {
         if (product) {
           const packMembers = packMembersMap.get(product.id);
           if (product.is_pack && packMembers && packMembers.length > 0) {
+            const packCandidates = [product.sku, searchLower, rawLower, cleanLower, varLower]
+              .map(c => String(c || '').trim().toLowerCase())
+              .filter(Boolean);
+            const matchedPackKey = packCandidates.find(k => manualQtyBySkuLower.has(k));
+            let packQty = effectiveQty;
+            if (matchedPackKey) {
+              if (appliedManualPackKeys.has(matchedPackKey)) {
+                continue;
+              }
+              appliedManualPackKeys.add(matchedPackKey);
+              packQty = manualQtyBySkuLower.get(matchedPackKey);
+              console.log(`[Shopify Sync] Pack SKU ${searchSku} mantiene cantidad manual WMS (${packQty})`);
+            }
             for (const pm of packMembers) {
               const currentQty = expectedQuantities.get(pm.member_product_id) || 0;
-              expectedQuantities.set(pm.member_product_id, currentQty + (effectiveQty * pm.quantity));
+              expectedQuantities.set(pm.member_product_id, currentQty + (packQty * pm.quantity));
             }
           } else {
             const currentQty = expectedQuantities.get(product.id) || 0;
             expectedQuantities.set(product.id, currentQty + effectiveQty);
+            registerProductCandidates(product.id, [product.sku, searchSku, rawSku, cleanSku, varLower]);
+          }
+        }
+      }
+
+      // Aplicar overrides manuales de WMS una sola vez por producto consolidado (evita multiplicar si Shopify trae N líneas del mismo SKU)
+      if (manualQtyBySkuLower.size > 0 || manualDeletedSet.size > 0) {
+        const missingCandidateProdIds = Array.from(expectedQuantities.keys()).filter(pid => !productManualCandidates.has(pid));
+        if (missingCandidateProdIds.length > 0) {
+          const { data: memberProds } = await supabase
+            .from('products')
+            .select('id, sku')
+            .in('id', missingCandidateProdIds);
+          (memberProds || []).forEach(mp => {
+            if (mp?.id && mp?.sku) registerProductCandidates(mp.id, [mp.sku]);
+          });
+        }
+
+        for (const [prodId, shopifyQty] of Array.from(expectedQuantities.entries())) {
+          const candidates = Array.from(productManualCandidates.get(prodId) || []);
+          const matchedDel = candidates.find(k => manualDeletedSet.has(k));
+          if (matchedDel) {
+            expectedQuantities.delete(prodId);
+            console.log(`[Shopify Sync] Omitiendo producto consolidado (${matchedDel}) por protección de eliminación manual en WMS.`);
+            continue;
+          }
+          const matchedManualKey = candidates.find(k => manualQtyBySkuLower.has(k));
+          if (matchedManualKey) {
+            const mQty = manualQtyBySkuLower.get(matchedManualKey);
+            expectedQuantities.set(prodId, mQty);
+            if (mQty !== shopifyQty) {
+              console.log(`[Shopify Sync] SKU ${matchedManualKey.toUpperCase()} mantiene cantidad manual WMS (${mQty}) en lugar de Shopify (${shopifyQty})`);
+            }
           }
         }
       }
@@ -724,7 +778,7 @@ async function syncOrders(integration) {
       for (const [prodId, rows] of existingByProduct.entries()) {
         const pSku = (rows[0]?.products?.sku || "").trim().toLowerCase();
         if (manualAddedSet.has(pSku) && !expectedQuantities.has(prodId)) {
-          const manualQty = manualEdits.modified_quantities[rows[0]?.products?.sku] || rows[0]?.quantity || 1;
+          const manualQty = manualQtyBySkuLower.get(pSku) ?? manualEdits.modified_quantities[rows[0]?.products?.sku] ?? rows[0]?.quantity ?? 1;
           expectedQuantities.set(prodId, manualQty);
           console.log(`[Shopify Sync] Preservando SKU ${rows[0]?.products?.sku} por haber sido agregado manualmente en WMS.`);
         }
