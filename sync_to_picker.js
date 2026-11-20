@@ -744,6 +744,32 @@ async function run() {
       const isCourier = !isStk && !isRetiro && !isPorPagar && !isBodegaCompra && !isSucursal;
 
       if (pickerItemsForOrder.length > 0) {
+        // 0.0 Auto-saneamiento silencioso ante inserciones duplicadas por condición de carrera (múltiples lotes created_at donde sum(quantity) > totu)
+        const expectedTotu = parseInt(pickerItemsForOrder[0].totu, 10) || 0;
+        const currentSumQty = pickerItemsForOrder.reduce((s, it) => s + (parseInt(it.quantity, 10) || 0), 0);
+        if (expectedTotu > 0 && currentSumQty > expectedTotu && currentSumQty % expectedTotu === 0) {
+          const byCreatedAt = new Map();
+          pickerItemsForOrder.forEach(it => {
+            const ts = String(it.created_at || '');
+            if (!byCreatedAt.has(ts)) byCreatedAt.set(ts, []);
+            byCreatedAt.get(ts).push(it);
+          });
+          if (byCreatedAt.size > 1) {
+            const batches = Array.from(byCreatedAt.values()).sort((a, b) => (Number(a[0]?.id) || 0) - (Number(b[0]?.id) || 0));
+            const validBatches = batches.filter(b => b.reduce((s, it) => s + (parseInt(it.quantity, 10) || 0), 0) === expectedTotu);
+            if (validBatches.length > 0) {
+              const keepBatch = validBatches[validBatches.length - 1];
+              const keepIdSet = new Set(keepBatch.map(it => it.id));
+              const dupIds = pickerItemsForOrder.filter(it => !keepIdSet.has(it.id)).map(it => it.id).filter(Boolean);
+              if (dupIds.length > 0) {
+                console.log(`🧹 [SYNC PICKER] Auto-corrigiendo ${dupIds.length} fila(s) duplicada(s) por carrera en active_orders para ${orderNo} (totu=${expectedTotu})...`);
+                await pickerClient.from('active_orders').delete().in('id', dupIds);
+                pickerItemsForOrder.splice(0, pickerItemsForOrder.length, ...keepBatch);
+              }
+            }
+          }
+        }
+
         const firstAct = pickerItemsForOrder[0];
         const currentPickerTrack = String(firstAct.tracking || '').trim();
 
@@ -820,11 +846,15 @@ async function run() {
           continue;
         }
 
+        const matchedPickerIds = pickerItemsForOrder.map(it => it.id).filter(Boolean);
+
         // 1. Si el pedido requiere courier pero no tiene tracking ni en Picker ni en WMS, y aún está EN PREPARACIÓN,
         // retirarlo temporalmente de active_orders para que el operario NO reciba pedidos "SIN TRACKING".
         if (isCourier && !cleanTracking && !currentPickerTrack && firstAct.sheet_status === 'EN PREPARACIÓN') {
           console.log(`🧹 [SYNC] Retirando pedido ${orderNo} de Picker porque no tiene tracking asignado aún (${wmsOrder.operador || 'Courier'}). Se reinsertará cuando se genere su etiqueta.`);
-          await pickerClient.from('active_orders').delete().eq('order_number', orderNo);
+          if (matchedPickerIds.length > 0) {
+            await pickerClient.from('active_orders').delete().in('id', matchedPickerIds);
+          }
           continue;
         }
 
@@ -837,7 +867,7 @@ async function run() {
               tracking: cleanTracking,
               operator: wmsOrder.operador || firstAct.operator || ''
             })
-            .in('order_number', [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')]);
+            .in('id', matchedPickerIds);
           if (trkErr) {
             console.error(`Error actualizando tracking en Picker para ${orderNo}:`, trkErr.message);
           } else {
@@ -855,7 +885,7 @@ async function run() {
               sucursal: targetPickerSucursal, 
               sheet_status: 'EN PREPARACIÓN' 
             })
-            .in('order_number', [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')]);
+            .in('id', matchedPickerIds);
           pickerItemsForOrder.forEach(it => { it.sucursal = targetPickerSucursal; it.sheet_status = 'EN PREPARACIÓN'; });
         }
 
@@ -934,11 +964,13 @@ async function run() {
           const prOp = existingPickingReq ? existingPickingReq.picking_requests_operator : (wmsPr ? wmsPr.completed_by_operator : null);
           const prAt = existingPickingReq ? existingPickingReq.picking_requests_confirmed_at : (wmsPr ? wmsPr.completed_at : null);
 
-          // 1. Eliminar anteriores en Picker
-          await pickerClient
-            .from('active_orders')
-            .delete()
-            .eq('order_number', orderNo);
+          // 1. Eliminar anteriores en Picker (solo IDs del mismo comercio)
+          if (matchedPickerIds.length > 0) {
+            await pickerClient
+              .from('active_orders')
+              .delete()
+              .in('id', matchedPickerIds);
+          }
 
           // 2. Insertar los actualizados con advertencia
           const payloads = [];
@@ -1063,10 +1095,12 @@ async function run() {
             if (wmsHasPr && !wmsPrConfirmed && pickerItemsForOrder[0]?.sheet_status === 'EN PREPARACIÓN') {
               prUpdatePayload.sheet_status = 'Pendiente (Obs)';
             }
-            await pickerClient
-              .from('active_orders')
-              .update(prUpdatePayload)
-              .in('order_number', [orderNo, '#' + cleanNo, cleanNo]);
+            if (matchedPickerIds.length > 0) {
+              await pickerClient
+                .from('active_orders')
+                .update(prUpdatePayload)
+                .in('id', matchedPickerIds);
+            }
 
             pickerItemsForOrder.forEach(it => {
               Object.assign(it, prUpdatePayload);
@@ -1387,7 +1421,18 @@ async function run() {
           });
 
           if (payloads.length > 0) {
-            await pickerClient.from('active_orders').delete().eq('order_number', orderNo);
+            const selfHealVariants = Array.from(new Set([orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')].filter(Boolean)));
+            const { data: existingShRows } = await pickerClient
+              .from('active_orders')
+              .select('id, comercio')
+              .in('order_number', selfHealVariants);
+            const staleShIds = (existingShRows || [])
+              .filter(r => arePickerCommercesCompatible(wmsOrder.comercio, r.comercio))
+              .map(r => r.id)
+              .filter(Boolean);
+            if (staleShIds.length > 0) {
+              await pickerClient.from('active_orders').delete().in('id', staleShIds);
+            }
             const { error: insErr } = await pickerClient.from('active_orders').insert(payloads);
             if (insErr) {
               console.error(`❌ [SELF-HEALING] Error insertando pedido ${orderNo} en Picker:`, insErr.message);

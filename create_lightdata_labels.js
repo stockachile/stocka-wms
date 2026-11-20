@@ -242,6 +242,20 @@ async function runWithConcurrency(items, concurrencyLimit, asyncFn) {
   return results;
 }
 
+function arePickerCommercesCompatible(comA, comB) {
+  const a = String(comA || '').trim().toUpperCase();
+  const b = String(comB || '').trim().toUpperCase();
+  if (!a || !b) return true;
+  if (a === b) return true;
+  const stripLegal = (s) => s.replace(/\b(LTDA\.?|SPA|S\.?P\.?A\.?|S\.?A\.?|E\.?I\.?R\.?L\.?)\b/gi, '').replace(/[^A-Z0-9]/g, '');
+  const na = stripLegal(a);
+  const nb = stripLegal(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const minLen = Math.min(na.length, nb.length);
+  return minLen >= 4 && (na.startsWith(nb) || nb.startsWith(na));
+}
+
 async function sendSingleOrderToPicker(order) {
   if (!pickerSupabase) return;
 
@@ -258,7 +272,8 @@ async function sendSingleOrderToPicker(order) {
   const commerceStrict = await getCommerceStrictPicking(order.comercio);
 
   const cleanDid = String(order.raw_lightdata_data?.did || order.raw_lightdata_data?.id || order.tracking_number || '').trim();
-  const searchNumbers = [orderNumber, '#' + orderNumber.replace(/^#/, ''), orderNumber.replace(/^#/, '')];
+  const cleanOrderNo = orderNumber.replace(/^#/, '').trim();
+  const searchNumbers = Array.from(new Set([orderNumber, cleanOrderNo ? '#' + cleanOrderNo : '', cleanOrderNo].filter(Boolean)));
 
   // Consultar si la orden tiene solicitudes especiales de picking en WMS
   let pickingReq = null;
@@ -275,36 +290,82 @@ async function sendSingleOrderToPicker(order) {
     console.warn(`Error consultando order_picking_requests para ${orderNumber}:`, prErr.message);
   }
 
-  const hasPickingReq = Boolean(pickingReq && Array.isArray(pickingReq.items) && pickingReq.items.length > 0);
-  const pickingReqJson = hasPickingReq ? pickingReq.items : [];
-  const pickingReqConfirmed = Boolean(hasPickingReq && (pickingReq.status === 'completada' || pickingReq.items.every(i => i.checked || i.discarded)));
+  // Filtrar ítems consistentes con WMS admin.js (excluyendo virtuales, eliminados/qty<=0 e ítems de campaña en modo Solicitud de Picking)
+  const items = (order.order_items || []).filter(item => {
+    const qty = parseInt(item.quantity, 10);
+    if (!isNaN(qty) && qty <= 0) return false;
+    if (item.is_eliminated === true || item.eliminated === true) return false;
+    return true;
+  });
+  const allPhysicalItems = items.filter(item => !item.products?.is_virtual);
+  const pickingRequestItems = items.filter(item => item.is_picking_request);
+  const nonPickingPhysical = allPhysicalItems.filter(item => !item.is_picking_request);
+  const physicalItems = nonPickingPhysical.length > 0 ? nonPickingPhysical : allPhysicalItems;
+  const totu = physicalItems.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
+
+  let mergedPickingReqItems = (pickingReq && Array.isArray(pickingReq.items)) ? [...pickingReq.items] : [];
+  if (pickingRequestItems.length > 0) {
+    pickingRequestItems.forEach(pri => {
+      const pSku = pri.products?.sku || '-';
+      const pName = pri.products?.name || pSku;
+      const pQty = parseInt(pri.quantity, 10) || 1;
+      const reqId = pri.campaign_id ? `campaign_${pri.campaign_id}` : `item_req_${pri.product_id || pSku}`;
+      const idx = mergedPickingReqItems.findIndex(r => r && (r.id === reqId || (pri.campaign_id && String(r.campaign_id) === String(pri.campaign_id))));
+      const textVal = `🎁 [Campaña] Incluir ${pQty}x ${pName} (SKU: ${pSku})`;
+      if (idx === -1) {
+        mergedPickingReqItems.push({
+          id: reqId,
+          text: textVal,
+          checked: false,
+          checked_at: null,
+          checked_by: null,
+          is_campaign: true,
+          campaign_id: pri.campaign_id || null,
+          gift_sku: pSku,
+          quantity: pQty
+        });
+      } else if (mergedPickingReqItems[idx].quantity !== pQty) {
+        mergedPickingReqItems[idx] = {
+          ...mergedPickingReqItems[idx],
+          quantity: pQty,
+          text: mergedPickingReqItems[idx].text ? mergedPickingReqItems[idx].text.replace(/Incluir\s+\d+x/i, `Incluir ${pQty}x`) : textVal
+        };
+      }
+    });
+  }
+
+  const hasPickingReq = mergedPickingReqItems.length > 0;
+  const pickingReqJson = hasPickingReq ? mergedPickingReqItems : [];
+  const pickingReqConfirmed = Boolean(hasPickingReq && ((pickingReq && pickingReq.status === 'completada' && pickingRequestItems.length === 0) || mergedPickingReqItems.every(i => i.checked || i.discarded)));
   const pickingReqOperator = pickingReq ? pickingReq.completed_by_operator : null;
   const pickingReqConfirmedAt = pickingReq ? pickingReq.completed_at : null;
 
   let pickingTag = '';
   if (hasPickingReq) {
-    const allChecked = pickingReq.items.every(i => i.checked);
-    const allResolved = pickingReq.items.every(i => i.checked || i.discarded);
-    const discardedCount = pickingReq.items.filter(i => i.discarded).length;
+    const allChecked = mergedPickingReqItems.every(i => i.checked);
+    const allResolved = mergedPickingReqItems.every(i => i.checked || i.discarded);
+    const discardedCount = mergedPickingReqItems.filter(i => i.discarded).length;
     if (allChecked) {
       pickingTag = '✅ [SOLICITUD PICKING: COMPLETADA]';
     } else if (allResolved) {
       pickingTag = `⚠️ [SOLICITUD PICKING: REVISADA (${discardedCount} descartadas)]`;
     } else {
-      const pendingItems = pickingReq.items.filter(i => !i.checked && !i.discarded).map(i => i.text);
+      const pendingItems = mergedPickingReqItems.filter(i => !i.checked && !i.discarded).map(i => i.text);
       if (pendingItems.length > 0) {
         pickingTag = `🚨 [SOLICITUD PICKING: ${pendingItems.join('; ')}]`;
       }
     }
   }
 
-  // Si ya existe en active_orders, actualizar el tracking y operador directamente para no perder datos ni duplicar
-  const { data: existingActive } = await pickerSupabase
+  // Si ya existe en active_orders (filtrado por comercio compatible), actualizar el tracking y operador directamente para no perder datos ni duplicar
+  const { data: existingActiveRaw } = await pickerSupabase
     .from('active_orders')
-    .select('id, tracking, observation, sheet_status')
+    .select('id, comercio, tracking, observation, sheet_status')
     .in('order_number', searchNumbers);
 
-  if (existingActive && existingActive.length > 0) {
+  const existingActive = (existingActiveRaw || []).filter(r => arePickerCommercesCompatible(order.comercio, r.comercio));
+
+  if (existingActive.length > 0) {
     const orderMeta = buildPickerOrderMeta({ ...order, operador: 'ALPHA' });
     const updPayload = {
       tracking: cleanDid,
@@ -333,10 +394,11 @@ async function sendSingleOrderToPicker(order) {
       }
     }
 
+    const existingIds = existingActive.map(r => r.id).filter(Boolean);
     const { error: updErr } = await pickerSupabase
       .from('active_orders')
       .update(updPayload)
-      .in('order_number', searchNumbers);
+      .in('id', existingIds);
 
     if (updErr) {
       console.warn(`⚠️ Error actualizando tracking en active_orders para ${orderNumber}:`, updErr.message);
@@ -346,9 +408,6 @@ async function sendSingleOrderToPicker(order) {
     return;
   }
 
-  const items = order.order_items || [];
-  const physicalItems = items.filter(item => !item.products?.is_virtual);
-  const totu = physicalItems.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
   const payloads = [];
 
   const orderMeta = buildPickerOrderMeta({ ...order, operador: 'ALPHA' });
@@ -433,6 +492,37 @@ async function sendSingleOrderToPicker(order) {
       console.error(`❌ Error al insertar en Picker para la orden ${orderNumber}:`, insErr.message);
       throw insErr;
     }
+    // Salvaguarda post-inserción contra condiciones de carrera concurrentes (filtrada por comercio compatible)
+    try {
+      const { data: postRowsRaw } = await pickerSupabase
+        .from('active_orders')
+        .select('id, created_at, comercio')
+        .in('order_number', searchNumbers)
+        .order('id', { ascending: true });
+      const postRows = (postRowsRaw || []).filter(r => arePickerCommercesCompatible(order.comercio, r.comercio));
+      if (postRows.length > payloads.length) {
+        const groupsByTs = new Map();
+        postRows.forEach(r => {
+          const ts = String(r.created_at || '');
+          if (!groupsByTs.has(ts)) groupsByTs.set(ts, []);
+          groupsByTs.get(ts).push(r);
+        });
+        let keepIds;
+        if (groupsByTs.size > 1) {
+          const batches = Array.from(groupsByTs.values());
+          const matching = batches.filter(b => b.length === payloads.length);
+          const winner = matching.length > 0 ? matching[matching.length - 1] : batches[batches.length - 1];
+          keepIds = new Set(winner.slice(-payloads.length).map(r => r.id));
+        } else {
+          keepIds = new Set(postRows.slice(-payloads.length).map(r => r.id));
+        }
+        const staleIds = postRows.filter(r => !keepIds.has(r.id)).map(r => r.id);
+        if (staleIds.length > 0) {
+          console.warn(`🧹 [PICKER DEDUPE] Limpiando ${staleIds.length} fila(s) duplicada(s) por inserción concurrente en ${orderNumber}...`);
+          await pickerSupabase.from('active_orders').delete().in('id', staleIds);
+        }
+      }
+    } catch (_) {}
     console.log(`✅ Pedido ${orderNumber} enviado correctamente al Picker con ${payloads.length} productos.`);
   }
 }
@@ -504,7 +594,7 @@ async function handleIndividualMode(idPedido) {
   
   const { data: order, error: orderError } = await supabase
     .from('orders')
-    .select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))')
+    .select('*, order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, is_picking_request, products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))')
     .eq('id', idPedido)
     .maybeSingle();
 
@@ -877,6 +967,36 @@ async function handleIndividualMode(idPedido) {
       console.warn('⚠️ Error al actualizar bodega de los order_items:', itemsUpdateError.message);
     }
 
+    // Sincronizar en lightdata_envios y enviar al Picker ANTES de publicar tracking_number en orders,
+    // para que pollForLightDataTracking del navegador encuentre el pedido ya creado en active_orders y no lo inserte por duplicado.
+    try {
+      const fullDestAddress = [(order.shipping_address || '').trim(), (order.shipping_city || '').trim()].filter(Boolean).join(' - ');
+      await supabase.from('lightdata_envios').upsert({
+        id: cleanDid,
+        tracking: order.external_order_number || String(idPedido),
+        comercio: order.comercio || null,
+        courier: 'CARRIER EXTERNO',
+        nombre_destinatario: order.customer_name || null,
+        direccion_destino: fullDestAddress || null,
+        tracking_url: trackingUrlVal,
+        status: 'A retirar',
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'id' });
+      console.log(`✅ Registro sincronizado en lightdata_envios para DID ${cleanDid} (Pedido: ${order.external_order_number})`);
+    } catch (ldErr) {
+      console.warn('⚠️ No se pudo guardar en lightdata_envios:', ldErr.message);
+    }
+
+    const mergedOrder = {
+      ...order,
+      ...updatedOrderData
+    };
+    try {
+      await sendSingleOrderToPicker(mergedOrder);
+    } catch (pickerErr) {
+      console.error('❌ Error al enviar al sistema Picker:', pickerErr.message);
+    }
+
     const { error: updateError } = await supabase
       .from('orders')
       .update(updatedOrderData)
@@ -886,34 +1006,6 @@ async function handleIndividualMode(idPedido) {
       console.error('❌ Error al guardar datos en Supabase:', updateError.message);
     } else {
       console.log('🎉 Sincronización individual completada con éxito en orders.');
-      // Sincronizar en la tabla lightdata_envios para que envios_unificados lo asocie de inmediato
-      try {
-        const fullDestAddress = [(order.shipping_address || '').trim(), (order.shipping_city || '').trim()].filter(Boolean).join(' - ');
-        await supabase.from('lightdata_envios').upsert({
-          id: cleanDid,
-          tracking: order.external_order_number || String(idPedido),
-          comercio: order.comercio || null,
-          courier: 'CARRIER EXTERNO',
-          nombre_destinatario: order.customer_name || null,
-          direccion_destino: fullDestAddress || null,
-          tracking_url: trackingUrlVal,
-          status: 'A retirar',
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'id' });
-        console.log(`✅ Registro sincronizado en lightdata_envios para DID ${cleanDid} (Pedido: ${order.external_order_number})`);
-      } catch (ldErr) {
-        console.warn('⚠️ No se pudo guardar en lightdata_envios:', ldErr.message);
-      }
-      const mergedOrder = {
-        ...order,
-        ...updatedOrderData
-      };
-      // Enviar al sistema Picker
-      try {
-        await sendSingleOrderToPicker(mergedOrder);
-      } catch (pickerErr) {
-        console.error('❌ Error al enviar al sistema Picker:', pickerErr.message);
-      }
     }
 
     // Limpiar archivo temporal
@@ -934,7 +1026,7 @@ async function handleIndividualMode(idPedido) {
 async function handleBulkMode(limiteCarga) {
   console.log(`🔄 Iniciando procesamiento masivo de envíos (límite: ${limiteCarga})...`);
   
-  let query = supabase.from('orders').select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))');
+  let query = supabase.from('orders').select('*, order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, is_picking_request, products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))');
 
   if (typeof args.orderIds === 'string' && args.orderIds.trim() !== '') {
     const idsList = args.orderIds.split(',').map(id => id.trim()).filter(Boolean);
@@ -1503,29 +1595,29 @@ async function handleBulkMode(limiteCarga) {
       };
 
       const targetWarehouseId = getWarehouseIdFromSucursal(order.sucursal_pickeo);
-      const [, { error: updateError }] = await Promise.all([
+      const mergedOrder = {
+        ...order,
+        ...updatedOrderData
+      };
+      // Actualizar bodega y enviar al Picker ANTES de publicar tracking_number en orders,
+      // para evitar condición de carrera con pollForLightDataTracking del navegador WMS.
+      await Promise.all([
         supabase
           .from('order_items')
           .update({ warehouse_id: targetWarehouseId })
           .eq('order_id', order.id),
-        supabase
-          .from('orders')
-          .update(updatedOrderData)
-          .eq('id', order.id)
+        sendSingleOrderToPicker(mergedOrder).catch((pickerErr) => {
+          console.error(`❌ Error al enviar la orden ${order.external_order_number} al Picker:`, pickerErr.message);
+        })
       ]);
+
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update(updatedOrderData)
+        .eq('id', order.id);
 
       if (updateError) {
         console.error(`⚠️ Error al actualizar orden ${order.external_order_number}:`, updateError.message);
-      } else {
-        const mergedOrder = {
-          ...order,
-          ...updatedOrderData
-        };
-        try {
-          await sendSingleOrderToPicker(mergedOrder);
-        } catch (pickerErr) {
-          console.error(`❌ Error al enviar la orden ${order.external_order_number} al Picker:`, pickerErr.message);
-        }
       }
     });
 
