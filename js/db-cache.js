@@ -38,6 +38,38 @@
       });
     },
 
+    dedupeOrdersById(orders) {
+      if (!Array.isArray(orders) || orders.length <= 1) {
+        return Array.isArray(orders) ? orders : [];
+      }
+      const seenIndex = new Map();
+      const result = [];
+      for (let i = 0; i < orders.length; i++) {
+        const ord = orders[i];
+        if (!ord || ord.id === undefined || ord.id === null) continue;
+        const key = String(ord.id);
+        if (!seenIndex.has(key)) {
+          seenIndex.set(key, result.length);
+          result.push(ord);
+        } else {
+          const idx = seenIndex.get(key);
+          const existing = result[idx];
+          const existingItems = Array.isArray(existing.order_items) ? existing.order_items : [];
+          const incomingItems = Array.isArray(ord.order_items) ? ord.order_items : [];
+          let merged;
+          if (incomingItems.length > 0 && existingItems.length === 0) {
+            merged = Object.assign({}, existing, ord, { order_items: incomingItems });
+          } else if (existingItems.length > 0 && incomingItems.length === 0) {
+            merged = Object.assign({}, ord, existing, { order_items: existingItems });
+          } else {
+            merged = Object.assign({}, ord, existing);
+          }
+          result[idx] = merged;
+        }
+      }
+      return result;
+    },
+
     async getWindowCache(dateFrom, dateTo) {
       try {
         const db = await this.openDb();
@@ -52,6 +84,7 @@
               const ageMs = Date.now() - new Date(res.cachedAt).getTime();
               // Permitir hasta 24 horas de antigüedad para hidratación instantánea Stale-While-Revalidate
               if (isNaN(ageMs) || ageMs < 24 * 60 * 60 * 1000) {
+                res.orders = this.dedupeOrdersById(res.orders);
                 resolve(res);
               } else {
                 resolve(null);
@@ -72,6 +105,8 @@
       try {
         const db = await this.openDb();
         if (!db || !Array.isArray(orders) || orders.length === 0) return false;
+        const cleanOrders = this.dedupeOrdersById(orders);
+        if (cleanOrders.length === 0) return false;
         return new Promise((resolve) => {
           const tx = db.transaction(this.storeName, 'readwrite');
           const store = tx.objectStore(this.storeName);
@@ -79,7 +114,7 @@
             cacheKey: `${dateFrom || ''}_${dateTo || ''}`,
             dateFrom,
             dateTo,
-            orders,
+            orders: cleanOrders,
             shipments: Array.isArray(shipments) ? shipments : [],
             inventoryMap: (inventoryMap && typeof inventoryMap === 'object') ? inventoryMap : {},
             cachedAt: new Date().toISOString()

@@ -363,8 +363,14 @@ function classifyConsolidationGroupStage(orders) {
 export function detectConsolidatableOrders(ordersList = null) {
   const sourceOrders = Array.isArray(ordersList) ? ordersList : (window.loadedOrders || []);
   const buckets = new Map();
+  const seenOrderIds = new Set();
 
   for (const order of sourceOrders) {
+    if (!order || order.id === undefined || order.id === null) continue;
+    const orderIdKey = String(order.id);
+    if (seenOrderIds.has(orderIdKey)) continue;
+    seenOrderIds.add(orderIdKey);
+
     if (!isOrderEligibleForConsolidationDetection(order)) continue;
 
     const email = getNormalizedOrderEmail(order);

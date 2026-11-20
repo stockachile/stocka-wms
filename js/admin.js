@@ -11182,6 +11182,88 @@ window.isWmsOrderPaidForOverdue = function(order) {
   return payStatus === 'paid' || payStatus === 'authorized' || payStatus === 'pagado';
 };
 
+window.dedupeWmsOrdersList = function(orders) {
+  if (!Array.isArray(orders) || orders.length <= 1) {
+    return Array.isArray(orders) ? orders : [];
+  }
+  const seenIndex = new Map();
+  const result = [];
+  for (let i = 0; i < orders.length; i++) {
+    const ord = orders[i];
+    if (!ord || ord.id === undefined || ord.id === null) continue;
+    const key = String(ord.id);
+    if (!seenIndex.has(key)) {
+      seenIndex.set(key, result.length);
+      result.push(ord);
+    } else {
+      const idx = seenIndex.get(key);
+      const existing = result[idx];
+      const existingItems = Array.isArray(existing.order_items) ? existing.order_items : [];
+      const incomingItems = Array.isArray(ord.order_items) ? ord.order_items : [];
+      let merged;
+      if (incomingItems.length > 0 && existingItems.length === 0) {
+        merged = { ...existing, ...ord, order_items: incomingItems };
+      } else if (existingItems.length > 0 && incomingItems.length === 0) {
+        merged = { ...ord, ...existing, order_items: existingItems };
+      } else {
+        merged = { ...ord, ...existing };
+      }
+      result[idx] = merged;
+    }
+  }
+  return result;
+};
+
+window.upsertWmsLoadedOrder = function(order, options = {}) {
+  if (!order || order.id === undefined || order.id === null) return null;
+  const prepend = options.prepend !== false;
+  if (!Array.isArray(window.loadedOrders)) {
+    window.loadedOrders = [];
+  }
+  const targetKey = String(order.id);
+  let firstExisting = null;
+  let firstExistingIdx = -1;
+  const remaining = [];
+
+  for (let i = 0; i < window.loadedOrders.length; i++) {
+    const cur = window.loadedOrders[i];
+    if (!cur || cur.id === undefined || cur.id === null) continue;
+    if (String(cur.id) === targetKey) {
+      if (!firstExisting) {
+        firstExisting = cur;
+        firstExistingIdx = remaining.length;
+      } else if (
+        (!Array.isArray(firstExisting.order_items) || firstExisting.order_items.length === 0) &&
+        Array.isArray(cur.order_items) && cur.order_items.length > 0
+      ) {
+        firstExisting = { ...firstExisting, ...cur, order_items: cur.order_items };
+      }
+    } else {
+      remaining.push(cur);
+    }
+  }
+
+  let merged = firstExisting ? { ...firstExisting, ...order } : { ...order };
+  const incomingItems = Array.isArray(order.order_items) ? order.order_items : [];
+  const existingItems = firstExisting && Array.isArray(firstExisting.order_items) ? firstExisting.order_items : [];
+  if (incomingItems.length > 0) {
+    merged.order_items = incomingItems;
+  } else if (existingItems.length > 0) {
+    merged.order_items = existingItems;
+  }
+  delete merged._wmsTags;
+  delete merged._wmsShipmentGlobalStatus;
+  delete merged._wmsDateStr;
+
+  if (prepend || firstExistingIdx === -1) {
+    remaining.unshift(merged);
+  } else {
+    remaining.splice(firstExistingIdx, 0, merged);
+  }
+  window.loadedOrders = remaining;
+  return merged;
+};
+
 window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
   const merchantFilter = (options && options.merchant) ? String(options.merchant).trim() : null;
   const isBackground = Boolean(options && options.background);
@@ -11507,8 +11589,8 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
         }
       }
 
-      const orders = allOrders;
-      window.loadedOrders = orders || [];
+      const orders = window.dedupeWmsOrdersList(allOrders);
+      window.loadedOrders = orders;
       if (!window.allKnownComerciosSet) window.allKnownComerciosSet = new Set();
       (orders || []).forEach(o => {
         if (o.comercio) window.allKnownComerciosSet.add(o.comercio.trim());
@@ -11711,10 +11793,21 @@ window.initWmsOrdersRealtimeSync = function() {
         (payload) => {
           if (!payload || !payload.new || !payload.new.id) return;
           const inserted = payload.new;
+          if (
+            window.lastFetchedMerchant &&
+            inserted.comercio &&
+            String(inserted.comercio).trim() !== String(window.lastFetchedMerchant).trim()
+          ) {
+            return;
+          }
           if (Array.isArray(window.loadedOrders)) {
-            const exists = window.loadedOrders.some(o => String(o.id) === String(inserted.id));
+            const exists = window.loadedOrders.some(o => o && String(o.id) === String(inserted.id));
             if (!exists) {
-              window.loadedOrders.unshift(inserted);
+              if (typeof window.upsertWmsLoadedOrder === 'function') {
+                window.upsertWmsLoadedOrder(inserted, { prepend: true });
+              } else {
+                window.loadedOrders.unshift(inserted);
+              }
               if (typeof window.clearWmsTagsCache === 'function') {
                 window.clearWmsTagsCache();
               }
@@ -12730,7 +12823,9 @@ async function renderAdminOrders() {
       cachedWindow = await window.wmsDbCache.getWindowCache(initialDateFrom, initialDateTo);
       if (cachedWindow && Array.isArray(cachedWindow.orders) && cachedWindow.orders.length > 0) {
         hasCachedOrders = true;
-        window.loadedOrders = cachedWindow.orders;
+        window.loadedOrders = typeof window.dedupeWmsOrdersList === 'function'
+          ? window.dedupeWmsOrdersList(cachedWindow.orders)
+          : cachedWindow.orders;
         window.loadedShipments = cachedWindow.shipments || [];
         if (cachedWindow.pickerStatusMap && typeof cachedWindow.pickerStatusMap === 'object') {
           window.pickerStatusMap = Object.assign({}, cachedWindow.pickerStatusMap, window.pickerStatusMap || {});
@@ -15988,7 +16083,9 @@ async function renderAdminOrders() {
         try {
           const cachedWindow = await window.wmsDbCache.getWindowCache(fromStr, toStr);
           if (cachedWindow && Array.isArray(cachedWindow.orders) && cachedWindow.orders.length > 0) {
-            window.loadedOrders = cachedWindow.orders;
+            window.loadedOrders = typeof window.dedupeWmsOrdersList === 'function'
+              ? window.dedupeWmsOrdersList(cachedWindow.orders)
+              : cachedWindow.orders;
             window.loadedShipments = cachedWindow.shipments || [];
             if (cachedWindow.pickerStatusMap && typeof cachedWindow.pickerStatusMap === 'object') {
               window.pickerStatusMap = Object.assign({}, cachedWindow.pickerStatusMap, window.pickerStatusMap || {});
@@ -16174,7 +16271,9 @@ async function renderAdminOrders() {
           try {
             const cachedWindow = await window.wmsDbCache.getWindowCache(dateFrom, dateTo);
             if (cachedWindow && Array.isArray(cachedWindow.orders) && cachedWindow.orders.length > 0) {
-              window.loadedOrders = cachedWindow.orders;
+              window.loadedOrders = typeof window.dedupeWmsOrdersList === 'function'
+                ? window.dedupeWmsOrdersList(cachedWindow.orders)
+                : cachedWindow.orders;
               window.loadedShipments = cachedWindow.shipments || [];
               if (cachedWindow.pickerStatusMap && typeof cachedWindow.pickerStatusMap === 'object') {
                 window.pickerStatusMap = Object.assign({}, cachedWindow.pickerStatusMap, window.pickerStatusMap || {});
@@ -16508,7 +16607,13 @@ window.getWmsFilteredOrders = function(excludeColKey = null, forTab = null, opti
   const drawerCourier = drawerActive && window.wmsDrawerActiveFilters.courier ? window.wmsDrawerActiveFilters.courier.trim().toLowerCase() : '';
   const drawerShippingStatus = drawerActive && window.wmsDrawerActiveFilters.shippingStatus ? window.wmsDrawerActiveFilters.shippingStatus.trim().toLowerCase() : '';
 
+  const seenOrderIds = new Set();
   return orders.filter(order => {
+    if (!order || order.id === undefined || order.id === null) return false;
+    const orderIdKey = String(order.id);
+    if (seenOrderIds.has(orderIdKey)) return false;
+    seenOrderIds.add(orderIdKey);
+
     // 0. Validación temprana para modo rezagados (overdueOnly) o retiros antiguos en mesón (olderReadyPickupsOnly)
     if (isOverdueMode) {
       if (!overdueTargetStates.includes(order.estado_wms)) return false;
@@ -19756,20 +19861,36 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
       return;
     }
 
-    // 1. Fusionar (upsert) en window.loadedOrders
-    const updatedMap = new Map(refreshedOrders.map(o => [o.id, o]));
-    const currentOrders = window.loadedOrders || [];
+    // 1. Fusionar (upsert) en window.loadedOrders garantizando unicidad por ID
+    const updatedMap = new Map();
+    (refreshedOrders || []).forEach(o => {
+      if (o && o.id !== undefined && o.id !== null) {
+        updatedMap.set(String(o.id), o);
+      }
+    });
+    const currentOrders = typeof window.dedupeWmsOrdersList === 'function'
+      ? window.dedupeWmsOrdersList(window.loadedOrders || [])
+      : (window.loadedOrders || []);
     const mergedLoadedOrders = currentOrders.map(o => {
-      if (!updatedMap.has(o.id)) return o;
-      const updated = updatedMap.get(o.id);
+      const key = String(o.id);
+      if (!updatedMap.has(key)) return o;
+      const updated = updatedMap.get(key);
       if (o._isOverdueBacklog) updated._isOverdueBacklog = true;
+      if (o._isOlderReadyPickup) updated._isOlderReadyPickup = true;
       return updated;
     });
     
-    // Si hay pedidos recién creados o nuevos, agregarlos al inicio
-    const existingIds = new Set(currentOrders.map(o => o.id));
-    const newlyCreated = refreshedOrders.filter(o => !existingIds.has(o.id));
-    window.loadedOrders = [...newlyCreated, ...mergedLoadedOrders];
+    // Si hay pedidos recién creados o nuevos, agregarlos al inicio sin duplicar
+    const existingIds = new Set(currentOrders.map(o => String(o.id)));
+    const newlyCreated = [];
+    for (const [idKey, ord] of updatedMap.entries()) {
+      if (!existingIds.has(idKey)) {
+        newlyCreated.push(ord);
+      }
+    }
+    window.loadedOrders = typeof window.dedupeWmsOrdersList === 'function'
+      ? window.dedupeWmsOrdersList([...newlyCreated, ...mergedLoadedOrders])
+      : [...newlyCreated, ...mergedLoadedOrders];
 
     // 2. Extraer referencias solo de los pedidos actualizados de forma normalizada
     const uniqueSubsetRefs = typeof window.extractOrderReferencesForShipments === 'function'
@@ -19871,6 +19992,17 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
     // 8. Actualizar dropdowns si cambiaron comercios o etiquetas
     if (window.updateMerchantFilterOptions) window.updateMerchantFilterOptions();
     if (window.updateOrderTagFilterOptions) window.updateOrderTagFilterOptions();
+
+    // 8.5. Persistir estado deduplicado y actualizado en caché local IndexedDB
+    if (!window.lastFetchedMerchant && window.wmsDbCache && window.lastFetchedDateFrom && window.lastFetchedDateTo && Array.isArray(window.loadedOrders) && window.loadedOrders.length > 0) {
+      window.wmsDbCache.setWindowCache(
+        window.lastFetchedDateFrom,
+        window.lastFetchedDateTo,
+        window.loadedOrders,
+        window.loadedShipments || [],
+        window.loadedOrdersInventoryMap || {}
+      ).catch(() => {});
+    }
 
     // 9. Re-renderizar vista
     applyWmsFiltersAndRender();
@@ -21250,8 +21382,12 @@ window.applyBulkWmsStatus = async function() {
             try {
               for (const rOrd of missingRlOrders) {
                 const { liOrder } = await window.createFormalReverseLogisticsForPickupCancel(rOrd, bulkRlModal.value);
-                if (liOrder && Array.isArray(window.loadedOrders) && !window.loadedOrders.some(o => o.id === liOrder.id)) {
-                  window.loadedOrders.unshift(liOrder);
+                if (liOrder) {
+                  if (typeof window.upsertWmsLoadedOrder === 'function') {
+                    window.upsertWmsLoadedOrder(liOrder, { prepend: true });
+                  } else if (Array.isArray(window.loadedOrders) && !window.loadedOrders.some(o => o && String(o.id) === String(liOrder.id))) {
+                    window.loadedOrders.unshift(liOrder);
+                  }
                 }
               }
             } catch (rlBulkErr) {
@@ -24122,8 +24258,12 @@ window.handleCancelListoParaRetiroOrder = async function(order, opts = {}) {
       delete order._wmsTags;
     }
 
-    if (liOrder && Array.isArray(window.loadedOrders) && !window.loadedOrders.some(o => o.id === liOrder.id)) {
-      window.loadedOrders.unshift(liOrder);
+    if (liOrder) {
+      if (typeof window.upsertWmsLoadedOrder === 'function') {
+        window.upsertWmsLoadedOrder(liOrder, { prepend: true });
+      } else if (Array.isArray(window.loadedOrders) && !window.loadedOrders.some(o => o && String(o.id) === String(liOrder.id))) {
+        window.loadedOrders.unshift(liOrder);
+      }
     }
     if (window.wmsDbCache && typeof window.wmsDbCache.clearCache === 'function') {
       window.wmsDbCache.clearCache().catch(() => {});
@@ -138789,12 +138929,20 @@ setTimeout(() => {
       // Adjuntar order_items enriquecidos en memoria para Torre de Control
       insertedOrder.order_items = itemsPayload.map(ip => {
         const memItem = items.find(i => i.product_id === ip.product_id) || {};
+        const whName = window.ADMIN_ORDER_WAREHOUSE_MAP?.[ip.warehouse_id]?.name || 'Bodega Central';
         return {
           ...ip,
+          warehouses: {
+            id: ip.warehouse_id,
+            name: whName
+          },
           products: {
+            id: ip.product_id,
             sku: memItem.sku || '',
             name: memItem.name || '',
-            price: memItem.price || 0
+            price: memItem.price || 0,
+            image_url: memItem.image_url || '',
+            volumen: memItem.volumen || 0
           }
         };
       });
@@ -138903,10 +139051,27 @@ setTimeout(() => {
       window.tempClientNewOrderItems = [];
       window.tempClientNewOrderPacks = [];
 
-      // 6. Actualizar órdenes en memoria, ajustar filtro de fecha en Torre de Control si aplica y refrescar tabla in-place
+      // 6. Actualizar órdenes en memoria (upsert idempotente para evitar duplicación con Realtime INSERT),
+      // ajustar filtro de fecha en Torre de Control si aplica y refrescar tabla in-place
       if (insertedOrder) {
-        window.loadedOrders = window.loadedOrders || [];
-        window.loadedOrders.unshift(insertedOrder);
+        if (typeof window.upsertWmsLoadedOrder === 'function') {
+          window.upsertWmsLoadedOrder(insertedOrder, { prepend: true });
+        } else {
+          window.loadedOrders = (window.loadedOrders || []).filter(o => o && String(o.id) !== String(insertedOrder.id));
+          window.loadedOrders.unshift(insertedOrder);
+        }
+        if (typeof window.clearWmsTagsCache === 'function') {
+          window.clearWmsTagsCache();
+        }
+        if (!window.lastFetchedMerchant && window.wmsDbCache && window.lastFetchedDateFrom && window.lastFetchedDateTo && Array.isArray(window.loadedOrders)) {
+          window.wmsDbCache.setWindowCache(
+            window.lastFetchedDateFrom,
+            window.lastFetchedDateTo,
+            window.loadedOrders,
+            window.loadedShipments || [],
+            window.loadedOrdersInventoryMap || {}
+          ).catch(() => {});
+        }
 
         const orderDayStr = finalCreatedAt.slice(0, 10);
         const filterFromEl = document.getElementById('filter-date-from');

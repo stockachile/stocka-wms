@@ -1008,7 +1008,12 @@ window.confirmExecuteOrderSplit = async function() {
         products: { sku: i.sku, name: i.name, price: i.price },
         warehouses: { name: (window.tempWarehouses || []).find(w => w.id === i.warehouse_id)?.name || 'Bodega Central' }
       }));
-      window.loadedOrders.unshift(insertedChildOrder);
+      if (typeof window.upsertWmsLoadedOrder === 'function') {
+        window.upsertWmsLoadedOrder(insertedChildOrder, { prepend: true });
+      } else {
+        window.loadedOrders = window.loadedOrders.filter(o => o && String(o.id) !== String(insertedChildOrder.id));
+        window.loadedOrders.unshift(insertedChildOrder);
+      }
     }
 
     // Cerrar modal
