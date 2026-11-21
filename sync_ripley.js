@@ -119,7 +119,10 @@ function mapRipleyStatus(statusName) {
   if (['CANCELED', 'REFUSED', 'CANCELLED'].includes(s)) {
     return 'cancelado';
   }
-  if (['SHIPPED', 'RECEIVED', 'CLOSED'].includes(s)) {
+  if (['RECEIVED', 'CLOSED', 'DELIVERED'].includes(s)) {
+    return 'entregado';
+  }
+  if (['SHIPPED', 'IN_TRANSIT'].includes(s)) {
     return 'despachado';
   }
   if (['WAITING_ACCEPTANCE', 'WAITING_DEBIT_PAYMENT', 'WAITING_SHIPPING'].includes(s)) {
@@ -279,7 +282,8 @@ async function syncMerchantOrders(integration) {
 
       const targetStatus = mapRipleyStatus(statusName);
       const isCancelled = targetStatus === 'cancelado';
-      const isDelivered = targetStatus === 'despachado';
+      const isDelivered = targetStatus === 'entregado';
+      const isShipped = targetStatus === 'despachado';
       const isActive = !isDelivered && !isCancelled;
 
       // 1. Verificar si el pedido ya existe en el WMS
@@ -423,6 +427,15 @@ async function syncMerchantOrders(integration) {
             .update(orderDataToUpdate)
             .eq('id', existingOrder.id);
           console.log(`🏁 Pedido local ${finalOrderId} cerrado en Entregado (Ripley).`);
+        } else if (isShipped && ['en procesamiento', 'en preparación', 'pickeado', ''].includes((existingOrder.estado_wms || '').trim().toLowerCase())) {
+          orderDataToUpdate.status = 'despachado';
+          orderDataToUpdate.estado_wms = 'Despachado';
+          orderDataToUpdate.closed_by_automation = 'auto-transport-in-transit-to-despachado';
+          await supabase
+            .from('orders')
+            .update(orderDataToUpdate)
+            .eq('id', existingOrder.id);
+          console.log(`🚚 Pedido local ${finalOrderId} avanzado a Despachado por tránsito (Ripley).`);
         } else if (!isTerminalWMS) {
           await supabase
             .from('orders')

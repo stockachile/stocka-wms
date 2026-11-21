@@ -269,6 +269,7 @@ async function syncMerchantOrders(integration) {
       // Resolver estados desde subOrders
       let isCancelled = false;
       let isDelivered = false;
+      let isShipped = false;
       let statusName = 'created';
 
       if (order.subOrders && Array.isArray(order.subOrders) && order.subOrders.length > 0) {
@@ -282,6 +283,11 @@ async function syncMerchantOrders(integration) {
         isDelivered = order.subOrders.some(so => {
           const sName = (so.status?.name || '').toLowerCase();
           return sName === 'delivered' || so.status?.id === 4;
+        });
+
+        isShipped = !isDelivered && !isCancelled && order.subOrders.some(so => {
+          const sName = (so.status?.name || '').toLowerCase().trim();
+          return sName === 'shipped' || sName === 'shipped_by_seller' || sName.includes('transit');
         });
 
         // Usar el estado del primer sub-pedido como descriptivo principal
@@ -538,6 +544,10 @@ async function syncMerchantOrders(integration) {
             orderDataToUpdate.status = 'entregado';
             orderDataToUpdate.estado_wms = 'Entregado';
             orderDataToUpdate.closed_by_automation = 'auto-marketplace-delivered-to-entregado';
+          } else if (isShipped && ['en procesamiento', 'en preparación', 'pickeado'].includes(currentWmsState)) {
+            orderDataToUpdate.status = 'despachado';
+            orderDataToUpdate.estado_wms = 'Despachado';
+            orderDataToUpdate.closed_by_automation = 'auto-transport-in-transit-to-despachado';
           }
           // Actualizar datos del pedido manteniendo el estado WMS actual (o cerrando en Entregado si corresponde)
           await supabase

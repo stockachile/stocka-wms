@@ -685,6 +685,10 @@ async function syncMerchantOrders(integration) {
             updatePayload.status = 'entregado';
             updatePayload.estado_wms = 'Entregado';
             updatePayload.closed_by_automation = 'auto-marketplace-delivered-to-entregado';
+          } else if (targetStatus === 'despachado' && ['en procesamiento', 'en preparación', 'pickeado', ''].includes(existingWmsLow)) {
+            updatePayload.status = 'despachado';
+            updatePayload.estado_wms = 'Despachado';
+            updatePayload.closed_by_automation = 'auto-transport-in-transit-to-despachado';
           } else if (!terminalStatuses.includes(existingOrder.status)) {
             updatePayload.status = targetStatus;
           }

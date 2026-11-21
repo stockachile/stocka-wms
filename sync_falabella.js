@@ -401,6 +401,7 @@ async function syncMerchantOrders(integration) {
       const totalValue = items.reduce((sum, item) => sum + Number(item.ItemPrice || 0), 0);
 
       const isDelivered = statusName.includes('deliv') || statusName.includes('receiv');
+      const isShipped = !isDelivered && !isCancelled && (statusName === 'shipped' || statusName.includes('transit'));
 
       // 1. Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
@@ -455,7 +456,11 @@ async function syncMerchantOrders(integration) {
             updatePayload.status = 'entregado';
             updatePayload.estado_wms = 'Entregado';
             updatePayload.closed_by_automation = 'auto-marketplace-delivered-to-entregado';
-          } else if (!isDelivered && existingOrder.status === 'despachado' && !existingOrder.stock_descontado) {
+          } else if (isShipped && ['en procesamiento', 'en preparación', 'pickeado'].includes(currentWmsState)) {
+            updatePayload.status = 'despachado';
+            updatePayload.estado_wms = 'Despachado';
+            updatePayload.closed_by_automation = 'auto-transport-in-transit-to-despachado';
+          } else if (!isDelivered && !isShipped && existingOrder.status === 'despachado' && !existingOrder.stock_descontado) {
             if (currentWmsState === 'en procesamiento') {
               updatePayload.status = 'para procesar';
             } else if (currentWmsState === 'en preparación') {
@@ -649,6 +654,19 @@ async function syncMerchantOrders(integration) {
             console.warn(`   ⚠️ SKU ${sku} no encontrado/creado en la base de datos. No se pudo registrar en la orden.`);
           }
         }
+      }
+
+      // Si el pedido nuevo ya ingresó desde Falabella en estado 'shipped', avanzarlo a Despachado una vez registrados sus ítems
+      if (!existingOrder && isShipped && localOrderId) {
+        await supabase
+          .from('orders')
+          .update({
+            status: 'despachado',
+            estado_wms: 'Despachado',
+            closed_by_automation: 'auto-transport-in-transit-to-despachado'
+          })
+          .eq('id', localOrderId);
+        console.log(`🚚 Pedido nuevo ${finalOrderNumber} ya venía en tránsito en Falabella -> avanzado a Despachado.`);
       }
     }
   } catch (error) {
