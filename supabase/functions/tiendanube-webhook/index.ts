@@ -112,46 +112,74 @@ serve(async (req) => {
       return new Response("Missing Tiendanube event header", { status: 400 });
     }
 
-    // 2. Obtener merchant_id desde la URL (query parameter) o buscar por store_id
+    // 2. Resolver la integración priorizando ?comercio= y payload.store_id (soporte multi-comercio/conglomerado)
     const url = new URL(req.url);
-    let merchantId = url.searchParams.get("merchant_id") || "";
-    const storeIdFromPayload = payload.store_id ? String(payload.store_id).trim() : "";
+    let merchantId = (url.searchParams.get("merchant_id") || "").trim();
+    const comercioParam = (url.searchParams.get("comercio") || "").trim();
+    const storeIdFromPayload = payload.store_id ? String(payload.store_id).replace(/[^0-9]/g, "").trim() : "";
 
     let integration: any = null;
-    if (merchantId) {
-      const { data: intData, error: intError } = await supabase
+
+    if (comercioParam) {
+      const { data: intByCom } = await supabase
         .from("merchant_integrations")
         .select("merchant_id, webhook_secret, comercio, access_token, shop_url, is_main")
-        .eq("merchant_id", merchantId)
+        .ilike("comercio", comercioParam)
         .eq("platform", "Tiendanube")
         .eq("is_active", true)
-        .maybeSingle();
-
-      if (intError) {
-        console.error("Error fetching merchant integration:", intError);
-        return new Response("Internal Server Error", { status: 500 });
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (intByCom && intByCom.length > 0) {
+        integration = intByCom[0];
+        merchantId = integration.merchant_id || merchantId;
       }
-      integration = intData;
     }
 
     if (!integration && storeIdFromPayload) {
-      const { data: intByStore } = await supabase
+      const { data: intByStoreList } = await supabase
         .from("merchant_integrations")
         .select("merchant_id, webhook_secret, comercio, access_token, shop_url, is_main")
         .eq("platform", "Tiendanube")
         .eq("is_active", true)
         .ilike("shop_url", `%${storeIdFromPayload}%`)
-        .limit(1)
-        .maybeSingle();
+        .limit(10);
 
-      if (intByStore) {
-        integration = intByStore;
-        merchantId = intByStore.merchant_id;
+      if (intByStoreList && intByStoreList.length > 0) {
+        const exactStoreMatch = intByStoreList.find(
+          (row: any) => String(row.shop_url || "").replace(/[^0-9]/g, "") === storeIdFromPayload
+        );
+        const chosen = exactStoreMatch || (intByStoreList.length === 1 ? intByStoreList[0] : null);
+        if (chosen) {
+          integration = chosen;
+          merchantId = chosen.merchant_id || merchantId;
+        }
+      }
+    }
+
+    if (!integration && merchantId) {
+      // Fallback legacy por merchant_id solo cuando NO hay ambigüedad (única tienda Tiendanube activa)
+      const { data: intList, error: intError } = await supabase
+        .from("merchant_integrations")
+        .select("merchant_id, webhook_secret, comercio, access_token, shop_url, is_main")
+        .eq("merchant_id", merchantId)
+        .eq("platform", "Tiendanube")
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(2);
+
+      if (intError) {
+        console.error("Error fetching merchant integration:", intError);
+        return new Response("Internal Server Error", { status: 500 });
+      }
+      if (intList && intList.length === 1) {
+        integration = intList[0];
+      } else if (intList && intList.length > 1) {
+        console.error(`[Tiendanube Webhook] Ambigüedad: merchant_id ${merchantId} tiene múltiples tiendas Tiendanube activas y no se pudo resolver por ?comercio= ni store_id (${storeIdFromPayload || "vacío"}).`);
       }
     }
 
     if (!integration) {
-      console.error(`Integration not configured for merchant_id: ${merchantId} / store_id: ${storeIdFromPayload}`);
+      console.error(`Integration not configured for comercio: ${comercioParam} / merchant_id: ${merchantId} / store_id: ${storeIdFromPayload}`);
       return new Response("Integration not configured", { status: 200 }); // Retornar 200 para evitar reintentos infinitos si el merchant se borró
     }
 

@@ -100,7 +100,8 @@ serve(async (req) => {
       'onboarding_received',
       'onboarding_contract_received',
       'onboarding_admin_notification',
-      'merchant_integration_connected'
+      'merchant_integration_connected',
+      'new_store_conglomerate_request'
     ];
 
     // Validar autorización (soporta SUPABASE_SERVICE_ROLE_KEY interno, JWT service_role de triggers pg_net y usuarios autenticados)
@@ -429,6 +430,7 @@ serve(async (req) => {
       'stock_inbound_completed',
       'shopify_pin_submitted', 
       'merchant_integration_connected',
+      'new_store_conglomerate_request',
       'onboarding_contract_received', 
       'onboarding_catalog_ready', 
       'onboarding_enviame_instructions',
@@ -2662,6 +2664,118 @@ serve(async (req) => {
         </div>
       `;
     }
+    else if (emailType === 'new_store_conglomerate_request') {
+      const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const requestedStoreName = esc(payload.requestedStoreName || payload.storeName || 'Nueva Tienda').trim();
+      const platform = esc(payload.platform || 'Shopify').trim();
+      const shopUrl = esc(payload.shopUrl || 'No especificada').trim();
+      const billingMode = payload.billingMode === 'separate'
+        ? 'RUT / Razón Social Independiente'
+        : 'Conglomerado / Mismo RUT (Facturación Consolidada)';
+      const rut = esc(payload.rut || '').trim();
+      const razonSocial = esc(payload.razonSocial || '').trim();
+      const notes = esc(payload.notes || '').trim();
+      const ticketCode = esc(payload.ticketCode || '').trim();
+      const currentCommerces = esc(payload.currentCommerces || commerceName || '').trim();
+      const userEmail = esc(payload.userEmail || user?.email || 'N/A');
+      const userName = esc(payload.userName || user?.user_metadata?.full_name || 'Usuario Seller');
+      const requestedAt = new Date().toLocaleString('es-CL', {
+        timeZone: 'America/Santiago',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+
+      emailSubject = `🏢 [Solicitud Nueva Tienda / Conglomerado] ${requestedStoreName} (${platform}) - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #5e17eb, #3b82f6)';
+      emailTitle = 'Solicitud de Nueva Tienda / Marca';
+
+      emailBodyHtml = `
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.6;">
+          Un cliente seller ha solicitado habilitar un <strong>nuevo comercio / marca</strong> vinculado a su cuenta para operar en modalidad <strong>conglomerado</strong> y conectar una tienda adicional en <strong>${platform}</strong>.
+        </div>
+
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px; margin-bottom: 24px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #334155;">
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; width: 40%; color: #64748b;">Nueva Marca / Comercio:</td>
+              <td style="padding: 10px 0; font-weight: 800; color: #1e1b4b; font-size: 15px;">${requestedStoreName}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Plataforma a Conectar:</td>
+              <td style="padding: 10px 0;">
+                <span style="display: inline-block; padding: 4px 12px; font-weight: 700; font-size: 12px; border-radius: 9999px; background-color: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe;">
+                  ${platform}
+                </span>
+              </td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">URL / Dominio Tienda:</td>
+              <td style="padding: 10px 0; font-weight: 600; color: #0284c7; word-break: break-all;">${shopUrl}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Esquema de Facturación:</td>
+              <td style="padding: 10px 0; font-weight: 600; color: #334155;">${billingMode}</td>
+            </tr>
+            ${rut ? `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">RUT Informado:</td>
+              <td style="padding: 10px 0; color: #334155;">${rut}</td>
+            </tr>
+            ` : ''}
+            ${razonSocial ? `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Razón Social:</td>
+              <td style="padding: 10px 0; color: #334155;">${razonSocial}</td>
+            </tr>
+            ` : ''}
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Comercios Actuales:</td>
+              <td style="padding: 10px 0; color: #334155;">${currentCommerces}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Solicitado por:</td>
+              <td style="padding: 10px 0; color: #334155;"><strong>${userName}</strong> (${userEmail})</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Fecha y Hora (Chile):</td>
+              <td style="padding: 10px 0; color: #475569;">${requestedAt}</td>
+            </tr>
+            ${ticketCode ? `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Ticket de Seguimiento:</td>
+              <td style="padding: 10px 0; font-family: monospace; font-weight: 700; color: #5e17eb;">#${ticketCode}</td>
+            </tr>
+            ` : ''}
+            ${notes ? `
+            <tr>
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b; vertical-align: top;">Comentarios:</td>
+              <td style="padding: 10px 0; color: #475569; line-height: 1.5;">${notes}</td>
+            </tr>
+            ` : ''}
+          </table>
+        </div>
+
+        <div style="background-color: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 10px; padding: 16px 18px; font-size: 13px; color: #4c1d95; line-height: 1.6;">
+          <strong>📋 Pasos para habilitar en WMS Admin:</strong>
+          <ol style="margin: 8px 0 0 0; padding-left: 18px;">
+            <li>Crear el comercio <strong>${requestedStoreName}</strong> en <em>Comercios → Crear Comercio</em> (con su sigla y RUT/Holding).</li>
+            <li>Si consolida facturación, vincularlo al holding en <code>billing_mappings</code>.</li>
+            <li>Asignarlo al usuario <strong>${userEmail}</strong> en <em>Gestionar Usuarios → Asignar Comercios</em>.</li>
+            <li>Una vez asignado, el cliente podrá elegir <strong>${requestedStoreName}</strong> en su selector de <em>Integraciones</em> y conectar <strong>${platform}</strong> directamente.</li>
+          </ol>
+        </div>
+      `;
+
+      mainNoticeHtml = `
+        <div style="margin-top: 20px; padding: 14px; background-color: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; border-radius: 8px; font-size: 13px; line-height: 1.6; text-align: center;">
+          Solicitud enviada directamente desde el módulo de Integraciones del Portal Seller WMS STOCKA.
+        </div>
+      `;
+    }
     else {
       if (resolvedServiceType === 'fulfillment') {
         emailSubject = `${isCorrection ? '[CORRECCION]' : '[Facturación]'} Desglose de servicios Fulfillment ${periodName} - ${commerceName}`;
@@ -2767,10 +2881,11 @@ serve(async (req) => {
       'onboarding_enviame_instructions',
       'onboarding_e1_instructions',
       'onboarding_e1',
-      'merchant_integration_connected'
+      'merchant_integration_connected',
+      'new_store_conglomerate_request'
     ];
     const useInfoSender = infoSenderTypes.includes(emailType);
-    const finalRecipients = (emailType === 'shopify_pin_submitted' || emailType === 'merchant_integration_connected') 
+    const finalRecipients = (emailType === 'shopify_pin_submitted' || emailType === 'merchant_integration_connected' || emailType === 'new_store_conglomerate_request') 
       ? ["stockachile@gmail.com"] 
       : (recipientEmails && recipientEmails.length > 0 ? recipientEmails : ["stockachile@gmail.com"]);
 
@@ -2806,7 +2921,7 @@ serve(async (req) => {
         
         <!-- BUTTON ACCEDER A WMS STOCKA (Explicit inline color with !important to prevent email client override) -->
         <div style="text-align: center; margin: 25px 0;">
-          <a href="${emailType === 'merchant_integration_connected' ? 'https://wms.stocka.cl/admin.html' : 'https://wms.stocka.cl/dashboard.html'}" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff !important; padding: 12px 28px; font-size: 15px; font-weight: 600; border-radius: 8px; text-decoration: none; text-align: center; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">${emailType === 'merchant_integration_connected' ? 'Ver Integraciones en WMS Admin' : 'Acceder a WMS Stocka'}</a>
+          <a href="${(emailType === 'merchant_integration_connected' || emailType === 'new_store_conglomerate_request') ? 'https://wms.stocka.cl/admin.html' : 'https://wms.stocka.cl/dashboard.html'}" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff !important; padding: 12px 28px; font-size: 15px; font-weight: 600; border-radius: 8px; text-decoration: none; text-align: center; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">${emailType === 'new_store_conglomerate_request' ? 'Gestionar Comercios en WMS Admin' : (emailType === 'merchant_integration_connected' ? 'Ver Integraciones en WMS Admin' : 'Acceder a WMS Stocka')}</a>
         </div>
         
         ${mainNoticeHtml}
@@ -2879,7 +2994,7 @@ serve(async (req) => {
 
     const senderName = (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info' || emailType === 'lead_quote_fulfillment')
       ? "Felipe Trujillo - Stocka Fulfillment"
-      : (emailType === 'merchant_integration_connected' ? "WMS STOCKA Integraciones" : (emailType === 'stock_inbound_created' ? "Sistema WMS Stocka" : (useInfoSender ? "Stocka" : "Finanzas Stocka")));
+      : ((emailType === 'merchant_integration_connected' || emailType === 'new_store_conglomerate_request') ? "WMS STOCKA Integraciones" : (emailType === 'stock_inbound_created' ? "Sistema WMS Stocka" : (useInfoSender ? "Stocka" : "Finanzas Stocka")));
 
     const brevoPayload: any = {
       sender: {
@@ -3284,6 +3399,163 @@ serve(async (req) => {
       } catch (logErr: any) {
         console.warn("Fallo al registrar log de notificación:", logErr.message);
       }
+    }
+
+    // Enviar aviso Web Push en paralelo (best-effort, nunca interrumpe el envío de correo)
+    try {
+      const montoStr = totalMonto > 0 ? formatCLP(totalMonto) : '';
+      const periodLabel = periodName || 'Periodo actual';
+      const pushEventMap: Record<string, { title: string; body: string; url: string; category: string; role?: string; requireInteraction?: boolean }> = {
+        billing_summary: {
+          title: '🧾 Tu estado de cuenta está listo',
+          body: `${periodLabel}${montoStr ? ` · Total: ${montoStr}` : ''}. Revísalo en un clic en tu portal.`,
+          url: '/panel/facturacion',
+          category: 'billing'
+        },
+        invoice_uploaded: {
+          title: '🧾 Tu factura está lista',
+          body: `${periodLabel}${montoStr ? ` · ${montoStr}` : ''}. Descárgala y revisa tu pago en tu portal.`,
+          url: '/panel/facturacion',
+          category: 'billing'
+        },
+        payment_reminder: {
+          title: '⏰ Recordatorio de facturación',
+          body: `${periodLabel}${montoStr ? ` · Saldo pendiente: ${montoStr}` : ''}. Regulariza tu pago en el portal.`,
+          url: '/panel/facturacion',
+          category: 'billing'
+        },
+        payment_overdue: {
+          title: '⚠️ Factura con plazo vencido',
+          body: `${periodLabel}${montoStr ? ` · Monto pendiente: ${montoStr}` : ''}. Revisa tu facturación para evitar pausas.`,
+          url: '/panel/facturacion',
+          category: 'billing',
+          requireInteraction: true
+        },
+        payment_overdue_manual: {
+          title: '⚠️ Aviso de factura pendiente',
+          body: `${periodLabel}${montoStr ? ` · Pendiente: ${montoStr}` : ''}. Ingresa al módulo de Facturación.`,
+          url: '/panel/facturacion',
+          category: 'billing',
+          requireInteraction: true
+        },
+        suspension_warning: {
+          title: '🚨 Aviso preventivo de suspensión',
+          body: `Tienes saldos vencidos${montoStr ? ` (${montoStr})` : ''}. Regulariza hoy para mantener tu operación activa.`,
+          url: '/panel/facturacion',
+          category: 'billing',
+          requireInteraction: true
+        },
+        service_paused: {
+          title: '🛑 Servicio pausado temporalmente',
+          body: `Regulariza tu saldo pendiente${montoStr ? ` (${montoStr})` : ''} en Facturación para reactivar tu cuenta.`,
+          url: '/panel/facturacion',
+          category: 'billing',
+          requireInteraction: true
+        },
+        payment_received: {
+          title: '✅ Pago confirmado',
+          body: `Recibimos tu pago${montoStr ? ` por ${montoStr}` : ''} (${periodLabel}). ¡Gracias!`,
+          url: '/panel/facturacion',
+          category: 'billing'
+        },
+        service_restored: {
+          title: '🟢 Servicio reactivado',
+          body: `Tu cuenta ${commerceName} volvió a estar 100% operativa en STOCKA WMS.`,
+          url: '/panel',
+          category: 'billing'
+        },
+        out_of_stock: {
+          title: '📉 Producto agotado (Stock 0)',
+          body: `Uno o más productos de ${commerceName} llegaron a stock 0 en bodega.`,
+          url: '/panel/inventario',
+          category: 'stock'
+        },
+        critical_stock_report: {
+          title: '⚠️ Alerta de stock crítico',
+          body: `Tienes productos bajo el nivel de stock crítico en ${commerceName}.`,
+          url: '/panel/inventario',
+          category: 'stock'
+        },
+        order_no_stock_alert: {
+          title: '📦 Pedido detenido por falta de stock',
+          body: `Ingresó un pedido en ${commerceName} que requiere reposición de stock.`,
+          url: '/panel/pedidos',
+          category: 'stock',
+          requireInteraction: true
+        },
+        volume_alert: {
+          title: '📊 Alerta de volumen almacenado',
+          body: `El volumen de inventario de ${commerceName} superó tu umbral configurado.`,
+          url: '/panel/volumen-diario',
+          category: 'stock'
+        },
+        incident_report: {
+          title: '⚠️ Nueva incidencia reportada',
+          body: `Se registró una incidencia en ${commerceName}. Revisa el detalle en el portal.`,
+          url: '/panel/incidencias',
+          category: 'incidents',
+          requireInteraction: true
+        },
+        stock_inbound_created: {
+          title: `📥 Nuevo ingreso declarado (${commerceName})`,
+          body: `Se declaró un nuevo ingreso de stock. Revisa y asigna bodega en el panel.`,
+          url: '/admin/ingresos',
+          category: 'inbounds',
+          role: 'admin'
+        },
+        onboarding_approved: {
+          title: '🎉 ¡Tu cuenta Stocka fue aprobada!',
+          body: `Bienvenido a STOCKA Fulfillment. Ya puedes operar desde tu portal WMS.`,
+          url: '/panel',
+          category: 'announcements'
+        },
+        onboarding_observed: {
+          title: '📋 Observación en tu Onboarding',
+          body: `Necesitamos ajustar un detalle en tu alta de ${commerceName}. Revísalo aquí.`,
+          url: '/panel',
+          category: 'announcements'
+        },
+        onboarding_admin_notification: {
+          title: `🚀 Nueva solicitud de Onboarding`,
+          body: `${commerceName || 'Un comercio'} envió una solicitud de alta en el portal.`,
+          url: '/admin/onboarding',
+          category: 'announcements',
+          role: 'admin'
+        }
+      };
+
+      const pushSpec = pushEventMap[emailType];
+      if (pushSpec && supabaseUrl && cleanServiceKey) {
+        const pushReqBody: Record<string, unknown> = {
+          category: pushSpec.category,
+          title: pushSpec.title,
+          body: pushSpec.body,
+          url: pushSpec.url,
+          tag: `wms-${emailType}-${record?.id || commerceName || 'gen'}`,
+          requireInteraction: Boolean(pushSpec.requireInteraction)
+        };
+        if (pushSpec.role) {
+          pushReqBody.role = pushSpec.role;
+        } else if (commerceName && commerceName !== 'no asignado') {
+          pushReqBody.comercio = commerceName;
+        }
+
+        if (pushReqBody.role || pushReqBody.comercio) {
+          const pushRes = await fetch(`${supabaseUrl}/functions/v1/send-web-push`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${cleanServiceKey}`
+            },
+            body: JSON.stringify(pushReqBody)
+          });
+          if (!pushRes.ok) {
+            console.warn('[send-billing-email] Aviso send-web-push status:', pushRes.status);
+          }
+        }
+      }
+    } catch (pushErr: any) {
+      console.warn('[send-billing-email] Error no bloqueante al enviar Web Push:', pushErr?.message || pushErr);
     }
 
     return new Response(JSON.stringify({ 

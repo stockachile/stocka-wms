@@ -29,32 +29,18 @@ serve(async (req) => {
   }
 
   try {
-    // 1. Obtener merchant_id desde la URL (query parameter)
-    // El webhook debe configurarse en Jumpseller como:
-    // https://[PROYECTO].supabase.co/functions/v1/jumpseller-webhook?merchant_id=TU-UUID
+    // 1. Obtener merchant_id y comercio desde la URL (query parameters)
+    // El webhook idealmente incluye comercio para soportar conglomerados/multi-comercio:
+    // https://[PROYECTO].supabase.co/functions/v1/jumpseller-webhook?merchant_id=TU-UUID&comercio=MI_COMERCIO
     const url = new URL(req.url);
-    const merchantId = url.searchParams.get("merchant_id");
+    const merchantIdParam = (url.searchParams.get("merchant_id") || "").trim();
+    const comercioParam = (url.searchParams.get("comercio") || "").trim();
 
-    if (!merchantId) {
-      return new Response("Missing merchant_id in URL", { status: 400 });
+    if (!merchantIdParam && !comercioParam) {
+      return new Response("Missing merchant_id or comercio in URL", { status: 400 });
     }
 
-    // 2. Obtener la integración y su webhook_secret (Hooks Token) de Jumpseller
-    const { data: integration, error: intError } = await supabase
-      .from("merchant_integrations")
-      .select("webhook_secret, comercio, access_token")
-      .eq("merchant_id", merchantId)
-      .eq("platform", "Jumpseller")
-      .eq("is_active", true)
-      .maybeSingle();
-
-    if (intError || !integration || !integration.webhook_secret) {
-      console.error("Integración inactiva o webhook_secret no encontrado para:", merchantId);
-      // Retornar 200 para que Jumpseller no reintente indefinitely
-      return new Response("Integration not active or not configured", { status: 200 }); 
-    }
-
-    // 3. Verificación de Seguridad y Cabeceras (tolerante a formato X- y minúsculas)
+    // 2. Leer cabeceras y raw body antes para permitir verificación HMAC y desambiguación multi-tienda
     const hmacHeader = req.headers.get("jumpseller-hmac-sha256")
       || req.headers.get("x-jumpseller-hmac-sha256")
       || req.headers.get("x-hook-signature")
@@ -66,51 +52,107 @@ serve(async (req) => {
       || req.headers.get("x-hook-event")
       || "";
 
-    // Leemos el raw body como texto
     const rawBody = await req.text();
 
-    if (integration.webhook_secret) {
+    const computeHmacBase64 = async (secretStr: string) => {
+      const keyBuf = new TextEncoder().encode(secretStr.trim());
+      const key = await crypto.subtle.importKey(
+        "raw",
+        keyBuf,
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"]
+      );
+      const dataBuf = new TextEncoder().encode(rawBody);
+      const signature = await crypto.subtle.sign("HMAC", key, dataBuf);
+      return btoa(String.fromCharCode(...new Uint8Array(signature)));
+    };
+
+    const verifyIntegrationHmac = async (cand: any): Promise<boolean> => {
+      if (!cand?.webhook_secret) return false;
+      if (!hmacHeader) return false;
+      try {
+        const sigPrimary = await computeHmacBase64(cand.webhook_secret);
+        if (sigPrimary === hmacHeader.trim()) return true;
+        if (cand.access_token) {
+          try {
+            const parsedCreds = JSON.parse(cand.access_token);
+            if (parsedCreds?.auth_token) {
+              const sigFallback = await computeHmacBase64(String(parsedCreds.auth_token));
+              if (sigFallback === hmacHeader.trim()) return true;
+            }
+          } catch (_) {}
+        }
+        return false;
+      } catch (_err) {
+        return false;
+      }
+    };
+
+    // 3. Resolver la integración priorizando ?comercio= y desambiguando por HMAC si un usuario tiene varias tiendas Jumpseller
+    let integration: any = null;
+    let hmacAlreadyVerified = false;
+
+    if (comercioParam) {
+      const { data } = await supabase
+        .from("merchant_integrations")
+        .select("merchant_id, webhook_secret, comercio, access_token")
+        .ilike("comercio", comercioParam)
+        .eq("platform", "Jumpseller")
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (data && data.length > 0) integration = data[0];
+    }
+
+    if (!integration && merchantIdParam) {
+      const { data: candidates, error: intError } = await supabase
+        .from("merchant_integrations")
+        .select("merchant_id, webhook_secret, comercio, access_token")
+        .eq("merchant_id", merchantIdParam)
+        .eq("platform", "Jumpseller")
+        .eq("is_active", true)
+        .order("created_at", { ascending: false });
+
+      if (!intError && candidates && candidates.length === 1) {
+        integration = candidates[0];
+      } else if (!intError && candidates && candidates.length > 1) {
+        if (!hmacHeader) {
+          console.error(`[Jumpseller Webhook] Ambigüedad: merchant_id ${merchantIdParam} tiene ${candidates.length} tiendas Jumpseller activas y falta firma HMAC / ?comercio=.`);
+          return new Response("Unauthorized: Missing HMAC signature", { status: 401 });
+        }
+        for (const cand of candidates) {
+          if (await verifyIntegrationHmac(cand)) {
+            integration = cand;
+            hmacAlreadyVerified = true;
+            break;
+          }
+        }
+        if (!integration) {
+          console.error(`[Jumpseller Webhook] Ninguna de las ${candidates.length} tiendas Jumpseller del merchant ${merchantIdParam} coincidió con la firma HMAC.`);
+          return new Response("Unauthorized: Invalid HMAC signature", { status: 401 });
+        }
+      }
+    }
+
+    if (!integration || !integration.webhook_secret) {
+      console.error("Integración inactiva o webhook_secret no encontrado para:", comercioParam || merchantIdParam);
+      // Retornar 200 para que Jumpseller no reintente indefinidamente
+      return new Response("Integration not active or not configured", { status: 200 });
+    }
+
+    const merchantId = integration.merchant_id || merchantIdParam;
+
+    if (integration.webhook_secret && !hmacAlreadyVerified) {
       if (!hmacHeader) {
         console.error("Falta cabecera HMAC en petición de Jumpseller para merchant:", merchantId);
         return new Response("Unauthorized: Missing HMAC signature", { status: 401 });
       }
 
-      try {
-        const computeHmacBase64 = async (secretStr: string) => {
-          const keyBuf = new TextEncoder().encode(secretStr.trim());
-          const key = await crypto.subtle.importKey(
-            "raw",
-            keyBuf,
-            { name: "HMAC", hash: "SHA-256" },
-            false,
-            ["sign"]
-          );
-          const dataBuf = new TextEncoder().encode(rawBody);
-          const signature = await crypto.subtle.sign("HMAC", key, dataBuf);
-          return btoa(String.fromCharCode(...new Uint8Array(signature)));
-        };
-
-        const sigPrimary = await computeHmacBase64(integration.webhook_secret);
-        let isValidHmac = sigPrimary === hmacHeader.trim();
-
-        // Fallback en caso de que el comercio haya configurado su auth_token como secreto de firma
-        if (!isValidHmac && integration.access_token) {
-          try {
-            const parsedCreds = JSON.parse(integration.access_token);
-            if (parsedCreds?.auth_token) {
-              const sigFallback = await computeHmacBase64(String(parsedCreds.auth_token));
-              isValidHmac = sigFallback === hmacHeader.trim();
-            }
-          } catch (_) {}
-        }
-
-        if (!isValidHmac) {
-          console.error("Firma HMAC de Jumpseller inválida para merchant:", merchantId);
-          return new Response("Unauthorized: Invalid HMAC signature", { status: 401 });
-        }
-      } catch (cryptoErr: any) {
-        console.error("Error evaluando HMAC de Jumpseller:", cryptoErr.message);
-        return new Response("Unauthorized: HMAC evaluation failed", { status: 401 });
+      const isValidHmac = await verifyIntegrationHmac(integration);
+      if (!isValidHmac) {
+        console.error("Firma HMAC de Jumpseller inválida para merchant:", merchantId);
+        return new Response("Unauthorized: Invalid HMAC signature", { status: 401 });
       }
     }
 

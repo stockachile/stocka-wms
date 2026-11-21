@@ -34,20 +34,23 @@ serve(async (req) => {
       })
     }
 
-    // Obtener la plataforma según el método HTTP
+    // Obtener la plataforma y comercio opcional según el método HTTP
     let platform = 'MercadoLibre'
+    let requestedComercio = ''
     if (req.method === 'GET') {
       const url = new URL(req.url)
       platform = url.searchParams.get('platform') || 'MercadoLibre'
+      requestedComercio = (url.searchParams.get('comercio') || '').trim()
     } else {
       const body = await req.json().catch(() => ({}))
       platform = body.platform || 'MercadoLibre'
+      requestedComercio = String(body.comercio || '').trim()
     }
 
-    // Verificar el rol del usuario
+    // Verificar el rol y comercios asignados del usuario
     const { data: profile, error: profErr } = await supabaseClient
       .from('profiles')
-      .select('role')
+      .select('role, comercio')
       .eq('id', user.id)
       .maybeSingle()
 
@@ -58,22 +61,49 @@ serve(async (req) => {
       })
     }
 
-    const isAdmin = profile.role === 'admin' || profile.role === 'all'
+    const rawProfileComercio = String(profile.comercio || '').trim()
+    const isAdmin = profile.role === 'admin' || profile.role === 'all' || rawProfileComercio.toLowerCase() === 'all'
     let isAuthorized = isAdmin
 
     if (!isAuthorized && profile.role === 'client') {
-      // Verificar si el cliente tiene una integración activa para esta plataforma
-      const { data: integration, error: intErr } = await supabaseClient
-        .from('merchant_integrations')
-        .select('id')
-        .eq('platform', platform)
-        .eq('merchant_id', user.id)
-        .eq('is_active', true)
-        .limit(1)
-        .maybeSingle()
+      const assignedComercios = rawProfileComercio
+        .split(',')
+        .map((c: string) => c.trim())
+        .filter((c: string) => c && c.toLowerCase() !== 'no asignado')
 
-      if (!intErr && integration) {
-        isAuthorized = true
+      // Validar por comercio asignado (soporta conglomerados y conexiones creadas por otro usuario/admin)
+      let targetComercios = assignedComercios
+      if (requestedComercio) {
+        const matched = assignedComercios.find((c: string) => c.toLowerCase() === requestedComercio.toLowerCase())
+        targetComercios = matched ? [matched] : []
+      }
+
+      if (targetComercios.length > 0) {
+        const { data: intByCom, error: intComErr } = await supabaseClient
+          .from('merchant_integrations')
+          .select('id')
+          .eq('platform', platform)
+          .in('comercio', targetComercios)
+          .eq('is_active', true)
+          .limit(1)
+        if (!intComErr && intByCom && intByCom.length > 0) {
+          isAuthorized = true
+        }
+      }
+
+      if (!isAuthorized && !requestedComercio) {
+        const { data: integration, error: intErr } = await supabaseClient
+          .from('merchant_integrations')
+          .select('id')
+          .eq('platform', platform)
+          .eq('merchant_id', user.id)
+          .eq('is_active', true)
+          .limit(1)
+          .maybeSingle()
+
+        if (!intErr && integration) {
+          isAuthorized = true
+        }
       }
     }
 

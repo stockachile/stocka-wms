@@ -280,7 +280,8 @@ async function syncMerchantTiendanube(integration) {
 async function ensureTiendanubeWebhooks(integration, storeId, headers) {
   try {
     const webhookMerchantId = integration.original_merchant_id || integration.merchant_id;
-    const targetUrl = `${SUPABASE_URL}/functions/v1/tiendanube-webhook?merchant_id=${webhookMerchantId}`;
+    const comercioQuery = integration.comercio ? `&comercio=${encodeURIComponent(integration.comercio.trim())}` : '';
+    const targetUrl = `${SUPABASE_URL}/functions/v1/tiendanube-webhook?merchant_id=${webhookMerchantId}${comercioQuery}`;
     const requiredEvents = ['order/created', 'order/updated', 'product/created', 'product/updated'];
 
     const listRes = await fetch(`https://api.tiendanube.com/v1/${storeId}/webhooks`, {

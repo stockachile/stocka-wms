@@ -412,5 +412,165 @@
     }
   };
 
+  /**
+   * Notifica a Stocka (y al KAM del comercio si existe) cuando un seller solicita
+   * habilitar una nueva tienda / marca bajo modalidad conglomerado (Opción A).
+   * Intenta primero vía Edge Function send-billing-email y usa Brevo como fallback.
+   */
+  window.notifyNewStoreRequest = async function(data) {
+    if (!data || !data.requestedStoreName) {
+      return { ok: false, error: 'Datos insuficientes para enviar la solicitud.' };
+    }
+
+    const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const requestedStoreName = String(data.requestedStoreName || '').trim();
+    const platform = String(data.platform || 'Shopify').trim();
+    const shopUrl = String(data.shopUrl || '').trim() || 'No especificada';
+    const billingMode = data.billingMode === 'separate' ? 'separate' : 'conglomerate';
+    const billingModeLabel = billingMode === 'separate'
+      ? 'RUT / Razón Social Independiente'
+      : 'Conglomerado / Mismo RUT (Facturación Consolidada)';
+    const rut = String(data.rut || '').trim();
+    const razonSocial = String(data.razonSocial || '').trim();
+    const notes = String(data.notes || '').trim();
+    const ticketCode = String(data.ticketCode || '').trim();
+    const comercio = String(data.comercio || window.activeIntegrationCommerce || 'Comercio').trim();
+    const currentCommerces = String(data.currentCommerces || comercio).trim();
+    const kamEmail = String(data.kamEmail || '').trim();
+
+    let userEmail = data.userEmail || '';
+    let userName = data.userName || '';
+    let accessToken = '';
+
+    try {
+      const client = (window.supabaseClient && typeof window.supabaseClient.auth?.getSession === 'function')
+        ? window.supabaseClient
+        : (window.supabase && typeof window.supabase.auth?.getSession === 'function' ? window.supabase : null);
+      if (client) {
+        const { data: sessData } = await client.auth.getSession();
+        accessToken = sessData?.session?.access_token || '';
+        const user = sessData?.session?.user;
+        if (user) {
+          userEmail = userEmail || user.email || '';
+          userName = userName || user.user_metadata?.full_name || user.email || '';
+        }
+      }
+    } catch (e) {
+      console.warn('[Integration Notifications] Error leyendo sesión para solicitud de nueva tienda:', e);
+    }
+
+    if (!userEmail) userEmail = 'usuario@stocka.cl';
+    if (!userName) userName = comercio;
+
+    const ccEmails = kamEmail && kamEmail.includes('@') && kamEmail.toLowerCase() !== STOCKA_OPS_EMAIL.toLowerCase()
+      ? [kamEmail]
+      : [];
+
+    // 1. Intentar primero mediante Supabase Edge Function (send-billing-email)
+    if (accessToken) {
+      try {
+        const edgeRes = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({
+            emailType: 'new_store_conglomerate_request',
+            comercio,
+            commerceName: comercio,
+            requestedStoreName,
+            platform,
+            shopUrl,
+            billingMode,
+            rut,
+            razonSocial,
+            notes,
+            ticketCode,
+            currentCommerces,
+            userEmail,
+            userName,
+            ...(ccEmails.length > 0 ? { ccEmails } : {})
+          })
+        });
+        if (edgeRes.ok) {
+          return { ok: true, channel: 'edge_function' };
+        }
+        console.warn('[Integration Notifications] Edge function new_store_conglomerate_request respondió:', edgeRes.status);
+      } catch (edgeErr) {
+        console.warn('[Integration Notifications] Fallback a Brevo tras error en Edge Function:', edgeErr);
+      }
+    }
+
+    // 2. Fallback directo por Brevo API
+    try {
+      const nowStr = new Date().toLocaleString('es-CL', {
+        timeZone: 'America/Santiago',
+        dateStyle: 'full',
+        timeStyle: 'medium'
+      });
+      const subject = `🏢 [Solicitud Nueva Tienda / Conglomerado] ${requestedStoreName} (${platform}) - ${comercio}`;
+      const htmlContent = `
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f3f4f6; margin: 0; padding: 30px 15px;">
+  <div style="max-width: 620px; margin: 0 auto; background: #ffffff; border-radius: 14px; border: 1px solid #e5e7eb; overflow: hidden;">
+    <div style="height: 6px; background: linear-gradient(90deg, #5e17eb, #3b82f6);"></div>
+    <div style="padding: 28px 30px 16px; text-align: center;">
+      <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" alt="STOCKA WMS" style="height: 44px; margin-bottom: 14px;">
+      <h1 style="margin: 0; font-size: 22px; font-weight: 800; color: #1e1b4b;">Solicitud de Nueva Tienda / Marca</h1>
+      <p style="margin: 6px 0 0; font-size: 13px; color: #6b7280; text-transform: uppercase;">${esc(comercio)}</p>
+    </div>
+    <div style="padding: 10px 30px 28px; color: #334155; font-size: 14px;">
+      <p style="line-height: 1.6; margin-top: 0;">El usuario seller solicita habilitar un nuevo comercio/marca en modalidad <strong>conglomerado</strong> para conectar una tienda adicional en <strong>${esc(platform)}</strong>:</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border: 1px solid #e2e8f0; border-radius: 8px; border-collapse: collapse; margin: 16px 0; font-size: 13.5px;">
+        <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 14px; font-weight: 700; color: #64748b; width: 40%;">Nueva Marca / Comercio:</td><td style="padding: 10px 14px; font-weight: 800; color: #111827;">${esc(requestedStoreName)}</td></tr>
+        <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 14px; font-weight: 700; color: #64748b;">Plataforma:</td><td style="padding: 10px 14px; font-weight: 700; color: #4338ca;">${esc(platform)}</td></tr>
+        <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 14px; font-weight: 700; color: #64748b;">URL / Dominio:</td><td style="padding: 10px 14px; color: #0284c7;">${esc(shopUrl)}</td></tr>
+        <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 14px; font-weight: 700; color: #64748b;">Facturación:</td><td style="padding: 10px 14px;">${esc(billingModeLabel)}</td></tr>
+        ${rut ? `<tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 14px; font-weight: 700; color: #64748b;">RUT:</td><td style="padding: 10px 14px;">${esc(rut)}</td></tr>` : ''}
+        ${razonSocial ? `<tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 14px; font-weight: 700; color: #64748b;">Razón Social:</td><td style="padding: 10px 14px;">${esc(razonSocial)}</td></tr>` : ''}
+        <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 14px; font-weight: 700; color: #64748b;">Comercios Actuales:</td><td style="padding: 10px 14px;">${esc(currentCommerces)}</td></tr>
+        <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 14px; font-weight: 700; color: #64748b;">Usuario Seller:</td><td style="padding: 10px 14px;"><strong>${esc(userName)}</strong> (${esc(userEmail)})</td></tr>
+        <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 14px; font-weight: 700; color: #64748b;">Fecha:</td><td style="padding: 10px 14px;">${esc(nowStr)}</td></tr>
+        ${ticketCode ? `<tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 14px; font-weight: 700; color: #64748b;">Ticket:</td><td style="padding: 10px 14px; font-family: monospace; font-weight: 700; color: #5e17eb;">#${esc(ticketCode)}</td></tr>` : ''}
+        ${notes ? `<tr><td style="padding: 10px 14px; font-weight: 700; color: #64748b; vertical-align: top;">Comentarios:</td><td style="padding: 10px 14px;">${esc(notes)}</td></tr>` : ''}
+      </table>
+      <div style="text-align: center; margin-top: 22px;">
+        <a href="${STOCKA_ADMIN_URL}" target="_blank" style="display: inline-block; background: #5e17eb; color: #ffffff !important; padding: 12px 26px; border-radius: 8px; text-decoration: none; font-weight: 700;">Gestionar Comercios en WMS Admin &rarr;</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+
+      const brevoPayload = {
+        sender: { name: STOCKA_SENDER_NAME, email: STOCKA_SENDER_EMAIL },
+        to: [{ email: STOCKA_OPS_EMAIL, name: 'STOCKA Operaciones' }],
+        ...(ccEmails.length > 0 ? { cc: ccEmails.map(e => ({ email: e })) } : {}),
+        subject,
+        htmlContent
+      };
+
+      const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': getBrevoApiKey(),
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(brevoPayload)
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        return { ok: false, error: `Error Brevo (${res.status}): ${errText}` };
+      }
+      return { ok: true, channel: 'brevo' };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  };
+
   console.log('✅ [Integration Notifications] Módulo cargado correctamente.');
 })();

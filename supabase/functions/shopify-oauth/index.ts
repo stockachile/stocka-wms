@@ -45,10 +45,15 @@ serve(async (req) => {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("role")
+        .select("role, comercio")
         .eq("id", user.id)
         .maybeSingle();
-      const isAdmin = profile?.role === "admin";
+      const rawProfileComercio = String(profile?.comercio || "").trim();
+      const isAdmin = profile?.role === "admin" || rawProfileComercio.toLowerCase() === "all";
+      const assignedComercios = rawProfileComercio
+        .split(",")
+        .map((c: string) => c.trim())
+        .filter((c: string) => c && c.toLowerCase() !== "no asignado");
 
       let body: any = {};
       try {
@@ -56,10 +61,23 @@ serve(async (req) => {
       } catch (e) {}
 
       let targetMerchantId = user.id;
-      let targetComercio = body.comercio || "";
+      let targetComercio = String(body.comercio || "").trim();
 
       if (isAdmin && body.merchant_id) {
         targetMerchantId = body.merchant_id;
+      }
+
+      if (!isAdmin && targetComercio) {
+        const matchedComercio = assignedComercios.find(
+          (c: string) => c.toLowerCase() === targetComercio.toLowerCase()
+        );
+        if (!matchedComercio) {
+          return new Response(JSON.stringify({ error: "Forbidden: commerce not assigned to user" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+        }
+        targetComercio = matchedComercio;
       }
 
       let query = supabase
@@ -69,13 +87,17 @@ serve(async (req) => {
         .eq("is_active", true);
 
       if (targetComercio) {
-        query = query.eq("comercio", targetComercio);
-      }
-      if (!isAdmin && !targetComercio) {
+        query = query.ilike("comercio", targetComercio);
+      } else if (!isAdmin && assignedComercios.length === 1) {
+        query = query.ilike("comercio", assignedComercios[0]);
+      } else {
         query = query.eq("merchant_id", targetMerchantId);
       }
 
-      const { data: integration, error: intErr } = await query.maybeSingle();
+      const { data: integrationsFound, error: intErr } = await query
+        .order("created_at", { ascending: false })
+        .limit(1);
+      const integration = integrationsFound && integrationsFound.length > 0 ? integrationsFound[0] : null;
 
       if (intErr || !integration) {
         return new Response(JSON.stringify({ error: "Active Shopify integration not found" }), {
@@ -183,17 +205,42 @@ serve(async (req) => {
       const grantedScopes = grantedScopeStr ? grantedScopeStr.split(",").map((s: string) => s.trim()) : [];
       const hasFulfillmentScope = grantedScopes.includes("write_fulfillments") && grantedScopes.includes("write_merchant_managed_fulfillment_orders");
 
-      // Obtener el comercio exacto desde el perfil del usuario si existe
-      let resolvedComercio = comercio || "Shopify Store";
+      // Resolver el comercio objetivo respetando la selección de usuarios conglomerado/multi-comercio
+      const stateComercio = String(comercio || "").trim();
+      let resolvedComercio = stateComercio || "Shopify Store";
       try {
         const { data: userProfile } = await supabase
           .from("profiles")
-          .select("comercio, company_name")
+          .select("role, comercio, company_name")
           .eq("id", merchantId)
           .maybeSingle();
 
-        if (userProfile && (userProfile.comercio || userProfile.company_name)) {
-          resolvedComercio = userProfile.comercio || userProfile.company_name;
+        if (userProfile) {
+          const rawProfileComercio = String(userProfile.comercio || "").trim();
+          const isProfileAdmin = userProfile.role === "admin" || rawProfileComercio.toLowerCase() === "all";
+          const assignedComercios = rawProfileComercio
+            .split(",")
+            .map((c: string) => c.trim())
+            .filter((c: string) => c && c.toLowerCase() !== "no asignado");
+
+          if (isProfileAdmin) {
+            resolvedComercio = stateComercio || String(userProfile.company_name || "").trim() || "Shopify Store";
+          } else if (assignedComercios.length > 0) {
+            if (stateComercio) {
+              const canonicalMatch = assignedComercios.find(
+                (c: string) => c.toLowerCase() === stateComercio.toLowerCase()
+              );
+              if (!canonicalMatch) {
+                console.error(`[Shopify OAuth] Comercio '${stateComercio}' no pertenece al usuario ${merchantId} (${assignedComercios.join(", ")})`);
+                return new Response("Forbidden: Target commerce is not assigned to this user", { status: 403 });
+              }
+              resolvedComercio = canonicalMatch;
+            } else {
+              resolvedComercio = assignedComercios[0];
+            }
+          } else {
+            resolvedComercio = stateComercio || String(userProfile.company_name || "").trim() || "Shopify Store";
+          }
         }
       } catch (profErr) {
         console.warn("Aviso consultando profile en OAuth:", profErr);
@@ -371,9 +418,9 @@ serve(async (req) => {
       }
 
       const responseHeaders = new Headers();
-      const finalRedirect = redirectBackUrl 
-        ? `${redirectBackUrl}?integration=success&shop=${encodeURIComponent(shop)}` 
-        : `https://wms.stocka.cl/dashboard.html?integration=success&shop=${encodeURIComponent(shop)}`;
+      const baseRedirect = redirectBackUrl || "https://wms.stocka.cl/dashboard.html";
+      const sep = baseRedirect.includes("?") ? "&" : "?";
+      const finalRedirect = `${baseRedirect}${sep}integration=success&shop=${encodeURIComponent(shop)}&comercio=${encodeURIComponent(resolvedComercio)}`;
         
       responseHeaders.set("Location", finalRedirect);
       return new Response(null, {

@@ -61,26 +61,14 @@ serve(async (req) => {
     const signatureHeader = req.headers.get("x-wc-webhook-signature") || "";
     const shopSource = req.headers.get("x-wc-webhook-source") || "";
 
-    // 1. Buscar integración activa
+    // 1. Buscar integración activa priorizando comercio explícito y dominio origen (soporte multi-comercio/conglomerado)
     let integration: any = null;
 
-    if (merchantId) {
+    if (queryComercio && queryComercio.trim()) {
       const { data } = await supabase
         .from("merchant_integrations")
         .select("*")
-        .eq("merchant_id", merchantId)
-        .eq("platform", "WooCommerce")
-        .eq("is_active", true)
-        .order("created_at", { ascending: false })
-        .limit(1);
-      if (data && data.length > 0) integration = data[0];
-    }
-
-    if (!integration && queryComercio) {
-      const { data } = await supabase
-        .from("merchant_integrations")
-        .select("*")
-        .eq("comercio", queryComercio)
+        .ilike("comercio", queryComercio.trim())
         .eq("platform", "WooCommerce")
         .eq("is_active", true)
         .order("created_at", { ascending: false })
@@ -89,16 +77,38 @@ serve(async (req) => {
     }
 
     if (!integration && shopSource) {
-      const cleanSource = shopSource.replace(/^https?:\/\//, "").replace(/\/$/, "");
+      const sourceHost = normalizeShopHost(shopSource);
+      if (sourceHost) {
+        const { data } = await supabase
+          .from("merchant_integrations")
+          .select("*")
+          .ilike("shop_url", `%${sourceHost}%`)
+          .eq("platform", "WooCommerce")
+          .eq("is_active", true)
+          .order("created_at", { ascending: false })
+          .limit(10);
+        if (data && data.length > 0) {
+          const exactHostMatch = data.find((row: any) => normalizeShopHost(row.shop_url) === sourceHost);
+          integration = exactHostMatch || (data.length === 1 ? data[0] : null);
+        }
+      }
+    }
+
+    if (!integration && merchantId) {
+      // Fallback legacy por merchant_id solo cuando NO hay ambigüedad (única tienda WooCommerce activa para este usuario)
       const { data } = await supabase
         .from("merchant_integrations")
         .select("*")
-        .ilike("shop_url", `%${cleanSource}%`)
+        .eq("merchant_id", merchantId)
         .eq("platform", "WooCommerce")
         .eq("is_active", true)
         .order("created_at", { ascending: false })
-        .limit(1);
-      if (data && data.length > 0) integration = data[0];
+        .limit(2);
+      if (data && data.length === 1) {
+        integration = data[0];
+      } else if (data && data.length > 1) {
+        console.error(`[WooCommerce Webhook] Ambigüedad: merchant_id ${merchantId} tiene múltiples tiendas WooCommerce activas y no se pudo resolver por ?comercio ni x-wc-webhook-source (${shopSource || "vacío"}).`);
+      }
     }
 
     // 2. Verificación de Seguridad HMAC (obligatoria si la integración tiene webhook_secret)
@@ -187,6 +197,22 @@ serve(async (req) => {
 // =============================================================================
 // FUNCIÓN DE VERIFICACIÓN DE CONEXIÓN Y DIAGNÓSTICO
 // =============================================================================
+
+function normalizeShopHost(rawUrl: string): string {
+  try {
+    const cleaned = String(rawUrl || "").trim();
+    if (!cleaned) return "";
+    const withProto = /^https?:\/\//i.test(cleaned) ? cleaned : `https://${cleaned}`;
+    return new URL(withProto).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return String(rawUrl || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .split("/")[0];
+  }
+}
 
 function isSafeExternalStoreUrl(rawUrl: string): boolean {
   try {
@@ -407,12 +433,13 @@ async function handleVerifyConnection(req: Request, merchantIdQuery: string, com
     let consumerKey = payload.consumer_key;
     let consumerSecret = payload.consumer_secret;
     let effectiveMerchantId = targetMerchantId;
+    let effectiveComercio = String(targetComercio || "").trim();
 
     // Si no vienen en el payload, buscar en base de datos
     if (!shopUrl || !consumerKey || !consumerSecret) {
       let query = supabase.from("merchant_integrations").select("*").eq("platform", "WooCommerce");
       if (targetComercio) {
-        query = query.eq("comercio", targetComercio);
+        query = query.ilike("comercio", String(targetComercio).trim());
       } else if (targetMerchantId) {
         query = query.eq("merchant_id", targetMerchantId);
       }
@@ -432,6 +459,7 @@ async function handleVerifyConnection(req: Request, merchantIdQuery: string, com
       const dbInt = intList[0];
       shopUrl = dbInt.shop_url;
       effectiveMerchantId = dbInt.merchant_id;
+      effectiveComercio = String(dbInt.comercio || effectiveComercio || "").trim();
 
       try {
         const creds = JSON.parse(dbInt.access_token);
@@ -521,8 +549,8 @@ async function handleVerifyConnection(req: Request, merchantIdQuery: string, com
       });
     }
 
-    // 2. Verificar Webhooks existentes en WooCommerce
-    const expectedWebhookUrl = `https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/woocommerce-webhook?merchant_id=${effectiveMerchantId}`;
+    // 2. Verificar Webhooks existentes en WooCommerce (incluyendo &comercio= para soportar conglomerados)
+    const expectedWebhookUrl = `https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/woocommerce-webhook?merchant_id=${effectiveMerchantId}${effectiveComercio ? `&comercio=${encodeURIComponent(effectiveComercio)}` : ""}`;
     let webhooksList: any[] = [];
     let hasOrderCreatedWebhook = false;
     let hasOrderUpdatedWebhook = false;
@@ -567,7 +595,7 @@ async function handleVerifyConnection(req: Request, merchantIdQuery: string, com
             const reactRes = await fetch(`${baseUrl}/wp-json/wc/v3/webhooks/${pausedOrderCreatedWebhookId}`, {
               method: "PUT",
               headers,
-              body: JSON.stringify({ status: "active" })
+              body: JSON.stringify({ status: "active", delivery_url: expectedWebhookUrl })
             });
             if (reactRes.ok) {
               hasOrderCreatedWebhook = true;
@@ -599,7 +627,7 @@ async function handleVerifyConnection(req: Request, merchantIdQuery: string, com
             const reactRes = await fetch(`${baseUrl}/wp-json/wc/v3/webhooks/${pausedOrderUpdatedWebhookId}`, {
               method: "PUT",
               headers,
-              body: JSON.stringify({ status: "active" })
+              body: JSON.stringify({ status: "active", delivery_url: expectedWebhookUrl })
             });
             if (reactRes.ok) {
               hasOrderUpdatedWebhook = true;

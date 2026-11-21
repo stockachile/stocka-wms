@@ -119,7 +119,9 @@ document.addEventListener('DOMContentLoaded', () => {
       return true;
     }
     try {
-      const probe = await fetch('/admin', { method: 'HEAD', cache: 'no-store' });
+      // Probar /panel (no /admin) porque servidores como `npx serve` resuelven /admin -> admin.html
+      // automáticamente sin soportar rewrites de _redirects como /panel -> dashboard.html.
+      const probe = await fetch('/panel', { method: 'HEAD', cache: 'no-store' });
       _localCleanRoutesSupported = probe.ok;
     } catch (_) {
       _localCleanRoutesSupported = false;

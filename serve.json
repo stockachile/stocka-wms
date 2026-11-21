@@ -1,0 +1,27 @@
+{
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/panel", "destination": "/dashboard.html" },
+    { "source": "/panel/**", "destination": "/dashboard.html" },
+    { "source": "/dashboard", "destination": "/dashboard.html" },
+    { "source": "/dashboard/**", "destination": "/dashboard.html" },
+    { "source": "/admin", "destination": "/admin.html" },
+    { "source": "/admin/**", "destination": "/admin.html" },
+    { "source": "/conteo", "destination": "/admin.html" },
+    { "source": "/inventario-movil", "destination": "/admin.html" },
+    { "source": "/seguimiento", "destination": "/seguimiento.html" },
+    { "source": "/tracking", "destination": "/seguimiento.html" },
+    { "source": "/rastreo", "destination": "/seguimiento.html" },
+    { "source": "/cambios", "destination": "/cambios.html" },
+    { "source": "/devoluciones", "destination": "/cambios.html" },
+    { "source": "/reversa", "destination": "/cambios.html" },
+    { "source": "/cotizar", "destination": "/cotizaciones.html" },
+    { "source": "/cotizador", "destination": "/cotizaciones.html" },
+    { "source": "/cotizaciones", "destination": "/cotizaciones.html" },
+    { "source": "/vcard", "destination": "/vcard.html" },
+    { "source": "/cyber", "destination": "/cyber.html" },
+    { "source": "/cyber-2026", "destination": "/cyber.html" },
+    { "source": "/planes-cyber", "destination": "/cyber.html" },
+    { "source": "/encuesta-cyber", "destination": "/cyber.html" }
+  ]
+}

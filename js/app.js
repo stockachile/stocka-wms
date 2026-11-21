@@ -1590,7 +1590,7 @@ async function init() {
 
     // Si el usuario está logueado y viene con el parámetro shop (de la App Store), PERO no es el retorno de success
     if (session && shopParam && urlParams.get('integration') !== 'success') {
-      console.log('DEBUG: Detectada instalación de Shopify con sesión activa. Redirigiendo a OAuth...');
+      console.log('DEBUG: Detectada instalación de Shopify con sesión activa. Resolviendo comercio para OAuth...');
       const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
       const clientId = '4d04c58f432c53fb870d1fbcad92431c';
       const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders';
@@ -1602,20 +1602,77 @@ async function init() {
         .select('comercio')
         .eq('id', session.user.id)
         .maybeSingle();
-      if (profile?.comercio) {
-        userCommerce = profile.comercio.split(',')[0].trim();
+
+      const assignedList = (profile?.comercio || '')
+        .split(',')
+        .map(c => c.trim())
+        .filter(c => c && c.toLowerCase() !== 'no asignado');
+
+      if (assignedList.length === 1) {
+        userCommerce = assignedList[0];
+      } else if (assignedList.length > 1) {
+        // 1. Verificar si esta tienda ya está vinculada a alguno de los comercios del conglomerado
+        const { data: existingShopifyInts } = await supabase
+          .from('merchant_integrations')
+          .select('comercio, shop_url, is_active')
+          .eq('platform', 'Shopify')
+          .in('comercio', assignedList);
+
+        const existingForShop = (existingShopifyInts || []).find(
+          i => String(i.shop_url || '').trim().toLowerCase().replace(/^https?:\/\//, '') === cleanShopUrl
+        );
+        const paramComercio = (urlParams.get('comercio') || sessionStorage.getItem('pending_shopify_oauth_comercio') || '').trim();
+        const matchedParam = assignedList.find(c => c.toLowerCase() === paramComercio.toLowerCase());
+
+        if (existingForShop?.comercio) {
+          userCommerce = existingForShop.comercio;
+        } else if (matchedParam) {
+          userCommerce = matchedParam;
+        } else if (window.Swal) {
+          const shopByCom = new Map((existingShopifyInts || []).map(i => [String(i.comercio || '').toLowerCase(), i.shop_url]));
+          const firstAvailable = assignedList.find(c => !shopByCom.has(c.toLowerCase())) || assignedList[0];
+          const inputOptions = {};
+          assignedList.forEach(c => {
+            const linkedShop = shopByCom.get(c.toLowerCase());
+            inputOptions[c] = linkedShop ? `${c} (ya conectado a ${linkedShop})` : `${c} (Disponible)`;
+          });
+
+          const { value: pickedCommerce, isConfirmed } = await window.Swal.fire({
+            title: 'Seleccionar Comercio del Conglomerado',
+            html: `<p style="font-size:0.9rem;color:#475569;margin-bottom:0.5rem;">Elige a cuál de tus comercios deseas vincular la tienda Shopify <strong>${window.escapeHtml ? window.escapeHtml(cleanShopUrl) : cleanShopUrl}</strong>:</p>`,
+            input: 'select',
+            inputOptions,
+            inputValue: firstAvailable,
+            showCancelButton: true,
+            confirmButtonText: 'Continuar a Shopify',
+            cancelButtonText: 'Cancelar'
+          });
+
+          if (!isConfirmed || !pickedCommerce) {
+            const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.replaceState({}, '', cleanUrl);
+            userCommerce = null;
+          } else {
+            userCommerce = pickedCommerce;
+          }
+        } else {
+          userCommerce = assignedList[0];
+        }
       }
-      
-      const stateObj = {
-        merchant_id: session.user.id,
-        comercio: userCommerce,
-        redirect_back_url: window.location.origin + '/dashboard.html',
-        timestamp: Date.now(),
-        nonce: (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : Math.random().toString(36).substring(2)
-      };
-      const stateBase64 = btoa(JSON.stringify(stateObj));
-      window.location.replace(`https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`);
-      return;
+
+      if (userCommerce) {
+        try { sessionStorage.setItem('pending_shopify_oauth_comercio', userCommerce); } catch (_e) {}
+        const stateObj = {
+          merchant_id: session.user.id,
+          comercio: userCommerce,
+          redirect_back_url: window.location.origin + '/dashboard.html',
+          timestamp: Date.now(),
+          nonce: (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : Math.random().toString(36).substring(2)
+        };
+        const stateBase64 = btoa(JSON.stringify(stateObj));
+        window.location.replace(`https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`);
+        return;
+      }
     }
 
     console.log('DEBUG: Sesión activa encontrada para el usuario:', session.user.email);
@@ -1623,7 +1680,13 @@ async function init() {
     // Verificación de retorno exitoso de OAuth con Shopify
     if (urlParams.get('integration') === 'success') {
       const shop = urlParams.get('shop');
-      const cleanShopUrl = shop ? shop.trim().replace(/^https?:\/\//, '') : '';
+      const cleanShopUrl = shop ? shop.trim().replace(/^https?:\/\//, '').split('/')[0].toLowerCase() : '';
+      const comercioFromUrl = (urlParams.get('comercio') || '').trim();
+      let pendingOauthComercio = '';
+      try {
+        pendingOauthComercio = (sessionStorage.getItem('pending_shopify_oauth_comercio') || '').trim();
+        sessionStorage.removeItem('pending_shopify_oauth_comercio');
+      } catch (_e) {}
       
       const syncOverlay = window.showShopifySyncOverlay();
       syncOverlay.updateProgress(20, '🔒 Autenticando token y verificando tienda Shopify...');
@@ -1634,19 +1697,53 @@ async function init() {
         .select('comercio')
         .eq('id', session.user.id)
         .maybeSingle();
-      if (profile?.comercio) {
-        userCommerce = profile.comercio.split(',')[0].trim();
+
+      const assignedList = (profile?.comercio || '')
+        .split(',')
+        .map(c => c.trim())
+        .filter(c => c && c.toLowerCase() !== 'no asignado');
+
+      const matchAssigned = (candidate) => {
+        if (!candidate) return null;
+        if (assignedList.length === 0) return candidate;
+        return assignedList.find(c => c.toLowerCase() === candidate.toLowerCase()) || null;
+      };
+
+      let resolvedCommerce = matchAssigned(comercioFromUrl) || matchAssigned(pendingOauthComercio);
+
+      // Si no vino en URL ni en sessionStorage, verificar qué comercio guardó el callback OAuth para este shop_url
+      let savedIntegrationRow = null;
+      if (cleanShopUrl) {
+        const { data: existingRows } = await supabase
+          .from('merchant_integrations')
+          .select('id, comercio, merchant_id')
+          .eq('platform', 'Shopify')
+          .ilike('shop_url', cleanShopUrl)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (existingRows && existingRows.length > 0) {
+          savedIntegrationRow = existingRows[0];
+          if (!resolvedCommerce && savedIntegrationRow.comercio) {
+            resolvedCommerce = matchAssigned(savedIntegrationRow.comercio) || savedIntegrationRow.comercio;
+          }
+        }
       }
 
-      if (shop) {
-        console.log(`[Shopify Link] Vinculando tienda ${cleanShopUrl} a la cuenta del usuario:`, session.user.id);
+      userCommerce = resolvedCommerce || assignedList[0] || 'STOCKA STORE TEST';
+      window.activeIntegrationCommerce = userCommerce;
+
+      if (cleanShopUrl && savedIntegrationRow && (
+        savedIntegrationRow.merchant_id !== session.user.id ||
+        String(savedIntegrationRow.comercio || '').trim().toLowerCase() !== userCommerce.toLowerCase()
+      )) {
+        console.log(`[Shopify Link] Ajustando vínculo de tienda ${cleanShopUrl} al comercio ${userCommerce} (usuario: ${session.user.id})`);
         await supabase
           .from('merchant_integrations')
           .update({
             merchant_id: session.user.id,
             comercio: userCommerce
           })
-          .eq('shop_url', cleanShopUrl);
+          .eq('id', savedIntegrationRow.id);
       }
 
       syncOverlay.updateProgress(50, '⚡ Suscribiendo webhooks de eventos en tiempo real...');
@@ -1673,6 +1770,7 @@ async function init() {
       }
 
       syncOverlay.complete(prodsCount, ordsCount, () => {
+        window.activeIntegrationCommerce = userCommerce;
         // Notificar al equipo Stocka por correo (stockachile@gmail.com)
         if (window.notifyIntegrationConnected) {
           window.notifyIntegrationConnected({
@@ -1690,6 +1788,7 @@ async function init() {
         const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
         window.history.pushState({ path: newUrl }, '', newUrl);
         setTimeout(() => {
+          window.activeIntegrationCommerce = userCommerce;
           const integrationsTab = Array.from(document.querySelectorAll('.nav-item'))
             .find(n => n.getAttribute('data-view') === 'integrations');
           if (integrationsTab) integrationsTab.click();
@@ -15451,12 +15550,14 @@ async function renderIntegrations() {
       return;
     }
 
-    if (!window.activeIntegrationCommerce || !assignedComercios.includes(window.activeIntegrationCommerce)) {
-      window.activeIntegrationCommerce = assignedComercios[0];
-    }
+    const matchedActiveCommerce = assignedComercios.find(
+      c => c.toLowerCase() === String(window.activeIntegrationCommerce || '').toLowerCase()
+    );
+    window.activeIntegrationCommerce = matchedActiveCommerce || assignedComercios[0];
 
     // Obtener las integraciones de este comercio y su configuración adicional
     let emailColaborador = null;
+    let activeCommerceConfig = null;
     let integrationsList = [];
     let isCurrentIntegrationCommerceDeactivated = false;
     try {
@@ -15473,8 +15574,9 @@ async function renderIntegrations() {
       ]);
       if (integrationsRes.error) throw integrationsRes.error;
       integrationsList = integrationsRes.data || [];
-      emailColaborador = configRes.data ? configRes.data.email_colaborador : null;
-      if (configRes.data && (configRes.data.activo === false || configRes.data?.onboarding_checklist?.comercio_activo === false)) {
+      activeCommerceConfig = configRes.data || null;
+      emailColaborador = activeCommerceConfig ? activeCommerceConfig.email_colaborador : null;
+      if (activeCommerceConfig && (activeCommerceConfig.activo === false || activeCommerceConfig?.onboarding_checklist?.comercio_activo === false)) {
         isCurrentIntegrationCommerceDeactivated = true;
       }
     } catch(err) {
@@ -15488,17 +15590,29 @@ async function renderIntegrations() {
     }
 
     if (isCurrentIntegrationCommerceDeactivated) {
-      appContent.innerHTML = getObserverBanner() + `
-        <div class="card" style="margin: 2rem auto; max-width: 680px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 2rem; text-align: center;">
+      const deactivatedSwitcher = assignedComercios.length > 1 ? `
+        <div style="margin: 1.5rem auto 0 auto; max-width: 680px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <label style="font-weight: 600; color: var(--color-text-main); font-size: 0.92rem;"><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i> Cambiar Comercio del Conglomerado:</label>
+          <select id="select-integration-commerce-deactivated" class="form-input" style="max-width: 260px; font-weight: 600; cursor: pointer;">
+            ${assignedComercios.map(c => `<option value="${window.escapeHtml(c)}" ${c === window.activeIntegrationCommerce ? 'selected' : ''}>${window.escapeHtml(c)}</option>`).join('')}
+          </select>
+        </div>
+      ` : '';
+      appContent.innerHTML = getObserverBanner() + deactivatedSwitcher + `
+        <div class="card" style="margin: 1.5rem auto 2rem auto; max-width: 680px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 2rem; text-align: center;">
           <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(100, 116, 139, 0.12); color: #475569; display: flex; align-items: center; justify-content: center; font-size: 1.75rem; margin: 0 auto 1rem auto;">
             <i class="ri-shut-down-line"></i>
           </div>
-          <h3 style="margin: 0 0 0.5rem 0; font-size: 1.2rem; color: var(--color-text-main);">Integraciones Deshabilitadas (${window.activeIntegrationCommerce})</h3>
+          <h3 style="margin: 0 0 0.5rem 0; font-size: 1.2rem; color: var(--color-text-main);">Integraciones Deshabilitadas (${window.escapeHtml(window.activeIntegrationCommerce)})</h3>
           <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted); line-height: 1.5;">
             Este comercio se encuentra <strong>desactivado (modo solo lectura)</strong>. Sus integraciones fueron desconectadas para detener la recepción de nuevos pedidos. Si deseas reactivar tu cuenta, por favor contacta a tu ejecutivo de cuenta (KAM) en Stocka.
           </p>
         </div>
       `;
+      document.getElementById('select-integration-commerce-deactivated')?.addEventListener('change', (e) => {
+        window.activeIntegrationCommerce = e.target.value;
+        renderIntegrations();
+      });
       return;
     }
 
@@ -15677,7 +15791,7 @@ async function renderIntegrations() {
             '<button type="button" class="btn btn-primary" id="btn-sync-walmart" style="background-color: #0071ce; border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s; margin-left: 0.5rem;">Sincronizar Productos</button>');
 
     const wooMerchantId = wooIntegration ? wooIntegration.merchant_id : merchantId;
-    const wooWebhookUrl = `https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/woocommerce-webhook?merchant_id=${wooMerchantId}`;
+    const wooWebhookUrl = `https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/woocommerce-webhook?merchant_id=${wooMerchantId}&comercio=${encodeURIComponent(window.activeIntegrationCommerce || '')}`;
 
     const wooButtonHtml = isObserver 
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
@@ -15699,21 +15813,39 @@ async function renderIntegrations() {
           ? '<button type="submit" class="btn btn-primary" id="btn-save-tiendanube" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Tienda Tiendanube</button>'
           : '<button type="button" class="btn btn-outline" id="btn-disconnect-tiendanube" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Tiendanube</button>');
 
+    const requestNewStoreBtnHtml = isObserver ? '' : `
+      <button type="button" id="btn-request-new-store" class="btn btn-outline" style="display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.84rem; font-weight: 600; padding: 0.5rem 0.95rem; border-radius: var(--radius-md); border: 1px solid rgba(92, 36, 255, 0.35); background: rgba(92, 36, 255, 0.06); color: var(--color-primary, #5c24ff); cursor: pointer; white-space: nowrap; transition: all 0.2s;" title="Solicitar habilitar una nueva marca o tienda adicional para tu conglomerado">
+        <i class="ri-add-circle-line" style="font-size: 1rem;"></i> Solicitar nueva tienda / marca
+      </button>
+    `;
+
     let selectorHtml = '';
     if (assignedComercios.length > 1) {
       selectorHtml = `
-        <div style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem; background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-          <label style="font-weight: 600; color: var(--color-text-main); font-size: 0.95rem;"><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i> Seleccionar Comercio para Integrar:</label>
-          <select id="select-integration-commerce" class="form-input" style="max-width: 250px; font-weight: 600; cursor: pointer;">
-            ${assignedComercios.map(c => `<option value="${c}" ${c === window.activeIntegrationCommerce ? 'selected' : ''}>${c}</option>`).join('')}
-          </select>
+        <div style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; background: var(--color-surface); padding: 1rem 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <label for="select-integration-commerce" style="font-weight: 600; color: var(--color-text-main); font-size: 0.95rem; display: inline-flex; align-items: center; gap: 0.3rem;"><i class="ri-store-2-line" style="color: var(--color-primary);"></i> Seleccionar Comercio para Integrar:</label>
+            <select id="select-integration-commerce" class="form-input" style="max-width: 260px; font-weight: 600; cursor: pointer;">
+              ${assignedComercios.map(c => `<option value="${window.escapeHtml(c)}" ${c === window.activeIntegrationCommerce ? 'selected' : ''}>${window.escapeHtml(c)}</option>`).join('')}
+            </select>
+            <span class="badge" style="background: rgba(92, 36, 255, 0.1); color: var(--color-primary, #5c24ff); padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.75rem; font-weight: 700;">
+              <i class="ri-building-2-line"></i> Conglomerado (${assignedComercios.length} marcas)
+            </span>
+          </div>
+          ${requestNewStoreBtnHtml}
         </div>
       `;
     } else {
       selectorHtml = `
-        <div style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; background: var(--color-surface); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); font-size: 0.95rem;">
-          <span style="color: var(--color-text-muted);"><i class="ri-store-2-line" style="margin-right: 0.25rem;"></i> Comercio Activo:</span>
-          <strong style="color: var(--color-primary);">${window.activeIntegrationCommerce}</strong>
+        <div style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); font-size: 0.95rem;">
+          <div style="display: flex; flex-direction: column; gap: 0.2rem;">
+            <div style="display: flex; align-items: center; gap: 0.45rem;">
+              <span style="color: var(--color-text-muted);"><i class="ri-store-2-line"></i> Comercio Activo:</span>
+              <strong style="color: var(--color-primary);">${window.escapeHtml(window.activeIntegrationCommerce)}</strong>
+            </div>
+            <span style="font-size: 0.78rem; color: var(--color-text-muted);">¿Operas varias marcas o quieres conectar una segunda tienda (ej. otro Shopify)? Solicita habilitar una marca adicional en tu cuenta.</span>
+          </div>
+          ${requestNewStoreBtnHtml}
         </div>
       `;
     }
@@ -16987,6 +17119,7 @@ async function renderIntegrations() {
           timestamp: Date.now(),
           nonce: (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : Math.random().toString(36).substring(2)
         };
+        try { sessionStorage.setItem('pending_shopify_oauth_comercio', window.activeIntegrationCommerce || ''); } catch (_e) {}
         // Codificar el state en base64 para transportarlo de forma segura
         const stateBase64 = btoa(JSON.stringify(stateObj));
 
@@ -17038,6 +17171,7 @@ async function renderIntegrations() {
           timestamp: Date.now(),
           nonce: (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : Math.random().toString(36).substring(2)
         };
+        try { sessionStorage.setItem('pending_shopify_oauth_comercio', window.activeIntegrationCommerce || ''); } catch (_e) {}
         const stateBase64 = btoa(JSON.stringify(stateObj));
         window.location.href = `https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`;
       });
@@ -18655,11 +18789,309 @@ async function renderIntegrations() {
       });
     }
 
+    const btnRequestNewStore = document.getElementById('btn-request-new-store');
+    if (btnRequestNewStore) {
+      btnRequestNewStore.addEventListener('click', () => {
+        if (userRole === 'observer') {
+          alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+          return;
+        }
+        window.openRequestNewStoreModal({
+          merchantId,
+          assignedComercios,
+          activeCommerce: window.activeIntegrationCommerce,
+          commerceConfig: activeCommerceConfig
+        });
+      });
+    }
+
   } catch (error) {
     console.error('Error fetching integrations:', error);
     appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar las integraciones.</p>`;
   }
 }
+
+window.openRequestNewStoreModal = function({ merchantId, assignedComercios = [], activeCommerce = '', commerceConfig = null } = {}) {
+  const existing = document.getElementById('modal-request-new-store');
+  if (existing) existing.remove();
+
+  const existingRut = (commerceConfig?.rut || '').trim();
+  const existingRazonSocial = (commerceConfig?.razon_social || '').trim();
+  const kamEmail = (commerceConfig?.kam_email || '').trim();
+  const kamName = (commerceConfig?.kam_nombre || '').trim();
+  const currentCommercesStr = assignedComercios.length > 0 ? assignedComercios.join(', ') : (activeCommerce || 'Comercio');
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-request-new-store';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 560px; width: 92%; padding: 0; overflow: hidden; display: flex; flex-direction: column; max-height: 90vh;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(92, 36, 255, 0.12); color: var(--color-primary, #5c24ff); display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+            <i class="ri-building-2-line"></i>
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Solicitar Nueva Tienda / Marca</h3>
+            <p style="margin: 0.15rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">Modo Conglomerado · 1 comercio por marca/tienda</p>
+          </div>
+        </div>
+        <button type="button" class="modal-close" id="btn-close-request-new-store" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
+      </div>
+
+      <form id="form-request-new-store" style="margin: 0; display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+        <div class="modal-body" style="padding: 1.35rem 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1rem; background: var(--color-bg);">
+          <div style="background: rgba(92, 36, 255, 0.06); border: 1px solid rgba(92, 36, 255, 0.2); border-radius: 8px; padding: 0.85rem 1rem; font-size: 0.83rem; color: var(--color-text-main); line-height: 1.5;">
+            <strong style="color: var(--color-primary, #5c24ff);"><i class="ri-information-line"></i> ¿Cómo funciona?</strong>
+            El equipo de Stocka creará el nuevo comercio con su sigla operativa y lo vinculará a tu usuario. Una vez habilitado, aparecerá en tu selector de <strong>Integraciones</strong> para que conectes tu nueva tienda directamente.
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem;">Nombre de la nueva tienda o marca *</label>
+            <input type="text" id="req-store-name" class="form-input" placeholder="Ej: MI SEGUNDA MARCA" required maxlength="80" style="width: 100%; box-sizing: border-box; text-transform: uppercase;">
+            <small style="display: block; margin-top: 0.25rem; font-size: 0.75rem; color: var(--color-text-muted);">Este nombre identificará la nueva tienda en tu catálogo, pedidos e integraciones.</small>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem;">Plataforma principal *</label>
+              <select id="req-store-platform" class="form-input" required style="width: 100%; box-sizing: border-box;">
+                <option value="Shopify" selected>Shopify</option>
+                <option value="WooCommerce">WooCommerce</option>
+                <option value="MercadoLibre">MercadoLibre</option>
+                <option value="Tiendanube">Tiendanube</option>
+                <option value="Jumpseller">Jumpseller</option>
+                <option value="Falabella">Falabella</option>
+                <option value="París">París Marketplace</option>
+                <option value="Ripley">Ripley Marketplace</option>
+                <option value="Walmart">Walmart</option>
+                <option value="Otra">Otra plataforma</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem;">URL / Dominio de la tienda</label>
+              <input type="text" id="req-store-url" class="form-input" placeholder="ej. marca2.myshopify.com" maxlength="160" style="width: 100%; box-sizing: border-box;">
+            </div>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.45rem; font-size: 0.85rem;">Esquema de Facturación *</label>
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+              <label style="display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.7rem 0.85rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; cursor: pointer;">
+                <input type="radio" name="req-billing-mode" value="conglomerate" checked style="margin-top: 0.2rem; accent-color: var(--color-primary);">
+                <span style="font-size: 0.84rem; color: var(--color-text-main); line-height: 1.4;">
+                  <strong>Mismo RUT / Razón Social (Conglomerado)</strong><br>
+                  <span style="font-size: 0.76rem; color: var(--color-text-muted);">Facturación consolidada junto a ${window.escapeHtml(activeCommerce || 'tu comercio actual')}${existingRut ? ` (${window.escapeHtml(existingRut)})` : ''}.</span>
+                </span>
+              </label>
+              <label style="display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.7rem 0.85rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; cursor: pointer;">
+                <input type="radio" name="req-billing-mode" value="separate" style="margin-top: 0.2rem; accent-color: var(--color-primary);">
+                <span style="font-size: 0.84rem; color: var(--color-text-main); line-height: 1.4;">
+                  <strong>RUT / Razón Social Independiente</strong><br>
+                  <span style="font-size: 0.76rem; color: var(--color-text-muted);">Esta tienda pertenece a otra sociedad y se facturará por separado.</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div id="req-separate-billing-fields" style="display: none; grid-template-columns: 1fr 1.3fr; gap: 0.85rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.3rem; font-size: 0.8rem;">RUT Empresa</label>
+              <input type="text" id="req-store-rut" class="form-input" placeholder="Ej: 77.123.456-7" maxlength="25" style="width: 100%; box-sizing: border-box;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.3rem; font-size: 0.8rem;">Razón Social</label>
+              <input type="text" id="req-store-razon" class="form-input" placeholder="Ej: NUEVA MARCA SPA" maxlength="120" style="width: 100%; box-sizing: border-box; text-transform: uppercase;">
+            </div>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem;">Comentarios adicionales (opcional)</label>
+            <textarea id="req-store-notes" class="form-input" rows="3" placeholder="Ej: Misma bodega, fecha estimada de lanzamiento, prefijo de pedido deseado..." style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+          </div>
+        </div>
+
+        <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: flex-end; gap: 0.75rem;">
+          <button type="button" class="btn btn-outline" id="btn-cancel-request-new-store">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-request-new-store" style="display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 600;">
+            <i class="ri-send-plane-fill"></i> Enviar Solicitud a Stocka
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  setTimeout(() => modal.classList.add('active'), 10);
+
+  const closeModal = () => {
+    modal.classList.remove('active');
+    setTimeout(() => modal.remove(), 220);
+  };
+
+  modal.querySelector('#btn-close-request-new-store')?.addEventListener('click', closeModal);
+  modal.querySelector('#btn-cancel-request-new-store')?.addEventListener('click', closeModal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+  const separateFields = modal.querySelector('#req-separate-billing-fields');
+  modal.querySelectorAll('input[name="req-billing-mode"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      if (separateFields) {
+        separateFields.style.display = e.target.value === 'separate' ? 'grid' : 'none';
+      }
+    });
+  });
+
+  modal.querySelector('#form-request-new-store')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const storeNameInput = modal.querySelector('#req-store-name');
+    const requestedStoreName = (storeNameInput?.value || '').trim().toUpperCase();
+    const platform = modal.querySelector('#req-store-platform')?.value || 'Shopify';
+    const shopUrl = (modal.querySelector('#req-store-url')?.value || '').trim();
+    const billingMode = modal.querySelector('input[name="req-billing-mode"]:checked')?.value || 'conglomerate';
+    const rut = billingMode === 'separate'
+      ? (modal.querySelector('#req-store-rut')?.value || '').trim()
+      : existingRut;
+    const razonSocial = billingMode === 'separate'
+      ? (modal.querySelector('#req-store-razon')?.value || '').trim().toUpperCase()
+      : existingRazonSocial;
+    const notes = (modal.querySelector('#req-store-notes')?.value || '').trim();
+
+    if (!requestedStoreName) {
+      alert('Por favor ingresa el nombre de la nueva tienda o marca.');
+      storeNameInput?.focus();
+      return;
+    }
+
+    if (assignedComercios.some(c => c.toLowerCase() === requestedStoreName.toLowerCase())) {
+      alert(`El comercio "${requestedStoreName}" ya está asignado a tu cuenta. Selecciónalo directamente en el desplegable de Integraciones.`);
+      return;
+    }
+
+    const submitBtn = modal.querySelector('#btn-submit-request-new-store');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Enviando solicitud...';
+    }
+
+    try {
+      const { data: sessData } = await supabase.auth.getSession();
+      const user = sessData?.session?.user;
+      const userId = merchantId || user?.id;
+      const userEmail = user?.email || window.currentUserProfile?.email || '';
+      const userName = window.currentUserProfile?.full_name || user?.user_metadata?.full_name || userEmail || 'Seller';
+
+      // 1. Crear ticket de seguimiento en Soporte / Tickets para trazabilidad completa
+      let ticketCode = '';
+      let ticketCreated = false;
+      try {
+        const billingLabel = billingMode === 'separate'
+          ? `RUT independiente${rut ? ` (${rut})` : ''}${razonSocial ? ` - ${razonSocial}` : ''}`
+          : `Conglomerado / Mismo RUT${existingRut ? ` (${existingRut})` : ''}`;
+
+        const ticketDescription = [
+          `Solicitud de habilitación de nueva tienda / marca bajo modalidad Conglomerado.`,
+          ``,
+          `• Nueva Marca / Comercio: ${requestedStoreName}`,
+          `• Plataforma a conectar: ${platform}`,
+          `• URL / Dominio: ${shopUrl || 'No especificada'}`,
+          `• Facturación: ${billingLabel}`,
+          `• Comercios actuales del usuario: ${currentCommercesStr}`,
+          `• Solicitado por: ${userName} (${userEmail})`,
+          ...(notes ? [`• Comentarios: ${notes}`] : [])
+        ].join('\n');
+
+        const { data: createdTicket, error: ticketErr } = await supabase
+          .from('tickets')
+          .insert({
+            user_id: userId,
+            comercio: activeCommerce || assignedComercios[0] || requestedStoreName,
+            subject: `Solicitud Nueva Tienda / Marca: ${requestedStoreName} (${platform})`,
+            category: 'otros',
+            priority: 'alta',
+            description: ticketDescription,
+            status: 'abierto'
+          })
+          .select('id')
+          .single();
+
+        if (!ticketErr && createdTicket?.id) {
+          ticketCreated = true;
+          ticketCode = String(createdTicket.id).substring(0, 6).toUpperCase();
+          await supabase.from('ticket_messages').insert({
+            ticket_id: createdTicket.id,
+            sender_id: userId,
+            message: ticketDescription,
+            is_internal: false
+          });
+        }
+      } catch (ticketEx) {
+        console.warn('[Request New Store] No se pudo crear ticket automático:', ticketEx);
+      }
+
+      // 2. Enviar correo de notificación a Stocka (+ KAM del comercio si está configurado)
+      let emailSent = false;
+      if (typeof window.notifyNewStoreRequest === 'function') {
+        const mailRes = await window.notifyNewStoreRequest({
+          comercio: activeCommerce || assignedComercios[0] || 'Comercio',
+          currentCommerces: currentCommercesStr,
+          requestedStoreName,
+          platform,
+          shopUrl,
+          billingMode,
+          rut,
+          razonSocial,
+          notes,
+          ticketCode,
+          userEmail,
+          userName,
+          kamEmail
+        });
+        emailSent = !!mailRes?.ok;
+      }
+
+      if (!ticketCreated && !emailSent) {
+        throw new Error('No fue posible registrar la solicitud ni enviar la notificación. Por favor inténtalo nuevamente o contacta a tu KAM.');
+      }
+
+      closeModal();
+
+      const ticketInfoHtml = ticketCode
+        ? `<p style="margin: 0.65rem 0 0 0; font-size: 0.85rem; color: #5e17eb; font-weight: 700;">Ticket de seguimiento: #${ticketCode}</p>`
+        : '';
+      const kamNoticeHtml = kamEmail
+        ? `<br><span style="font-size: 0.8rem; color: #64748b;">También copiamos a tu ejecutivo KAM (${window.escapeHtml(kamName || kamEmail)}).</span>`
+        : '';
+
+      if (window.Swal) {
+        window.Swal.fire({
+          icon: 'success',
+          title: '¡Solicitud Enviada!',
+          html: `
+            <div style="font-size: 0.9rem; color: #334155; line-height: 1.55;">
+              Notificamos al equipo de Stocka para habilitar <strong>${window.escapeHtml(requestedStoreName)}</strong> (${window.escapeHtml(platform)}) en tu cuenta.${kamNoticeHtml}
+              ${ticketInfoHtml}
+              <p style="margin: 0.85rem 0 0 0; font-size: 0.82rem; color: #64748b;">
+                Apenas quede habilitada, la verás disponible en el desplegable <strong>«Seleccionar Comercio para Integrar»</strong> para conectar tu tienda.
+              </p>
+            </div>
+          `,
+          confirmButtonText: 'Entendido',
+          confirmButtonColor: '#5e17eb'
+        });
+      } else {
+        alert(`¡Solicitud enviada! Notificamos a Stocka para habilitar ${requestedStoreName} en tu cuenta.`);
+      }
+    } catch (err) {
+      console.error('Error enviando solicitud de nueva tienda:', err);
+      alert('Error al enviar la solicitud: ' + (err.message || err));
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="ri-send-plane-fill"></i> Enviar Solicitud a Stocka';
+      }
+    }
+  });
+};
 
   // ==========================================
   // Modal & Forms Logic

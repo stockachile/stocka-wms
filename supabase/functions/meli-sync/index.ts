@@ -41,7 +41,7 @@ serve(async (req) => {
 
       // Parse request body for comercio
       const body = await req.json();
-      const comercio = body.comercio;
+      const comercio = String(body.comercio || "").trim();
 
       if (!comercio) {
         return new Response(JSON.stringify({ error: "Missing comercio in request body" }), {
@@ -50,15 +50,41 @@ serve(async (req) => {
         });
       }
 
-      // 2. Fetch the active MercadoLibre integration for this merchant and commerce
-      const { data: integration, error: intErr } = await supabase
+      // 2. Verificar que el usuario tenga permisos sobre este comercio (soporte multi-comercio/conglomerado y admin)
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role, comercio")
+        .eq("id", user.id)
+        .maybeSingle();
+      const rawProfileComercio = String(profile?.comercio || "").trim();
+      const isAdmin = profile?.role === "admin" || rawProfileComercio.toLowerCase() === "all";
+      const assignedComercios = rawProfileComercio
+        .split(",")
+        .map((c: string) => c.trim())
+        .filter((c: string) => c && c.toLowerCase() !== "no asignado");
+
+      let resolvedComercio = comercio;
+      if (!isAdmin) {
+        const matched = assignedComercios.find((c: string) => c.toLowerCase() === comercio.toLowerCase());
+        if (!matched) {
+          return new Response(JSON.stringify({ error: "Forbidden: commerce not assigned to user" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+        }
+        resolvedComercio = matched;
+      }
+
+      // 3. Fetch the active MercadoLibre integration for this commerce
+      const { data: intList, error: intErr } = await supabase
         .from("merchant_integrations")
         .select("*")
         .eq("platform", "MercadoLibre")
-        .eq("merchant_id", user.id)
-        .eq("comercio", comercio)
+        .ilike("comercio", resolvedComercio)
         .eq("is_active", true)
-        .maybeSingle();
+        .order("created_at", { ascending: false })
+        .limit(1);
+      const integration = intList && intList.length > 0 ? intList[0] : null;
 
       if (intErr || !integration) {
         console.error("Integration Query Error / Not Found:", intErr, integration);
