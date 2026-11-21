@@ -1,0 +1,71 @@
+name: Sync WooDelivery (ALPHA) to Supabase
+
+on:
+  schedule:
+    # Se ejecuta cada 1 hora durante la ventana operativa de entregas Alpha (09:00 a 23:00 Chile -> UTC 12..23 y 00..02)
+    - cron: '15 0,1,2,12,13,14,15,16,17,18,19,20,21,22,23 * * *'
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Días hacia atrás a consultar (vacío = ventana dinámica automática)'
+        required: false
+        default: ''
+      max_pod:
+        description: 'Máximo de tareas a enriquecer con POD y timeline en esta corrida'
+        required: false
+        default: '30'
+      skip_pod:
+        description: 'Omitir captura de fotos POD / timeline (true/false)'
+        required: false
+        default: 'false'
+
+jobs:
+  sync:
+    name: Run WooDelivery Sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install --prefer-offline --no-audit --no-fund
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(npm ls playwright --json | jq -r '.dependencies.playwright.version')" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright Browser Binaries
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium
+
+      - name: Run Sincronización WooDelivery
+        env:
+          WOODELIVERY_EMAIL: ${{ secrets.WOODELIVERY_EMAIL }}
+          WOODELIVERY_PASSWORD: ${{ secrets.WOODELIVERY_PASSWORD }}
+          WOODELIVERY_STATE_JSON: ${{ secrets.WOODELIVERY_STATE_JSON }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          HEADLESS: 'true'
+          INPUT_DAYS: ${{ github.event.inputs.days }}
+          INPUT_MAX_POD: ${{ github.event.inputs.max_pod }}
+          INPUT_SKIP_POD: ${{ github.event.inputs.skip_pod }}
+        run: |
+          ARGS=""
+          if [ -n "$INPUT_DAYS" ]; then ARGS="$ARGS --days $INPUT_DAYS"; fi
+          if [ -n "$INPUT_MAX_POD" ]; then ARGS="$ARGS --max-pod $INPUT_MAX_POD"; fi
+          if [ "$INPUT_SKIP_POD" = "true" ]; then ARGS="$ARGS --skip-pod"; fi
+          node sync_woodelivery.js $ARGS

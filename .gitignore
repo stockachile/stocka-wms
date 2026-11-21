@@ -32,6 +32,7 @@ CONTRATO*
 !documentacion *.txt
 bluex_state.json
 starken_state.json
+woodelivery_state.json
 *.log
 # WhatsApp Bot Session Credentials
 .whatsapp_data/

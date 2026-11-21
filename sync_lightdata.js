@@ -358,7 +358,7 @@ async function syncLightData() {
         const candidateFilters = candidates.map(c => `"${c}"`).join(',');
         let orderQuery = supabase
           .from('orders')
-          .select('id, status, estado_wms, external_order_number, tracking_number, courier, operador, lightdata_status, raw_lightdata_data, comercio, categoria_entrega, agenda')
+          .select('id, status, estado_wms, external_order_number, tracking_number, tracking_url, courier, operador, lightdata_status, raw_lightdata_data, comercio, categoria_entrega, agenda')
           .or(`external_order_number.in.(${candidateFilters}),tracking_number.in.(${candidateFilters})`);
 
         // Solo filtrar por comercio en orders si resolvedComercio no es la cuenta genérica "Stocka 1" / "Stocka CL"
@@ -403,7 +403,10 @@ async function syncLightData() {
               updatePayload.tracking_number = id;
             }
 
-            if (shipmentPayload.tracking_url) {
+            const currentTrackUrl = String(dbOrder.tracking_url || '').trim();
+            const hasWooDeliveryUrl = currentTrackUrl.toLowerCase().includes('app.woodelivery.com/t?q=');
+
+            if (shipmentPayload.tracking_url && !hasWooDeliveryUrl) {
               updatePayload.tracking_url = shipmentPayload.tracking_url;
             }
 

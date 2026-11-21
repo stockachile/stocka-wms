@@ -121,6 +121,8 @@ serve(async (req) => {
       'Falabella': 'sync_falabella.yml',
       'Paris': 'sync_paris.yml',
       'LightData': 'sync_lightdata.yml',
+      'WooDelivery': 'sync_woodelivery.yml',
+      'Wodely': 'sync_woodelivery.yml',
       'BlueExpress': 'sync_bluex.yml',
       'Starken': 'sync_starken.yml',
       'StarkenPro': 'sync_starken.yml',
