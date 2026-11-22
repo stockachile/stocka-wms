@@ -49935,16 +49935,53 @@ async function initNotifications(userId) {
     }
   });
 
+  // Helpers compartidos para Borradores de Comunicaciones (compatibles con RLS actual + migración status)
+  window.isCommDraft = function(row) {
+    if (!row) return false;
+    if (row.status === 'draft') return true;
+    if (typeof row.target_role === 'string' && row.target_role.startsWith('draft:')) return true;
+    return false;
+  };
+  window.getCommRealTargetRole = function(row) {
+    const tr = String(row?.target_role || 'all');
+    if (tr.startsWith('draft:individual:')) return 'individual';
+    if (tr.startsWith('draft:')) return tr.slice('draft:'.length) || 'all';
+    return tr;
+  };
+  window.getCommDraftUserId = function(row) {
+    const tr = String(row?.target_role || '');
+    if (tr.startsWith('draft:individual:')) return tr.slice('draft:individual:'.length) || null;
+    return row?.user_id || null;
+  };
+  window.encodeDraftTargetRole = function(realRole, userId = null) {
+    if (realRole === 'individual' && userId) return `draft:individual:${userId}`;
+    return `draft:${realRole || 'all'}`;
+  };
+  window.parseSystemBannerMeta = function(banner) {
+    let working = String(banner?.content || '');
+    const logoMatch = working.match(/\s*<!--banner_logo:([^>]+)-->\s*/);
+    if (logoMatch) working = working.replace(/\s*<!--banner_logo:([^>]+)-->\s*/, ' ').trim();
+    const linkMatch = working.match(/\s*<!--news_link:([^|>]+)(?:\|([^>]*))?-->\s*/);
+    const cleanContent = linkMatch ? working.replace(/\s*<!--news_link:([^|>]+)(?:\|([^>]*))?-->\s*/, '').trim() : working.trim();
+    return {
+      cleanContent,
+      logoUrl: (banner?.logo_url || (logoMatch && logoMatch[1]) || '').trim(),
+      linkNewsId: (banner?.link_news_id || (linkMatch && linkMatch[1]) || '').trim(),
+      linkLabel: (banner?.link_label || (linkMatch && linkMatch[2]) || 'Ver detalle completo').trim()
+    };
+  };
+
   async function fetchNotifications() {
     try {
-      const { data, error } = await supabase
+      const { data: rawData, error } = await supabase
         .from('dashboard_notifications')
         .select('*')
         .lte('created_at', new Date().toISOString())
         .order('created_at', { ascending: false })
-        .limit(10);
+        .limit(20);
 
       if (error) throw error;
+      const data = (rawData || []).filter(n => !window.isCommDraft(n)).slice(0, 10);
 
       if (!data || data.length === 0) {
         list.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem;">No tienes notificaciones.</div>';
@@ -50295,7 +50332,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
         }
       });
 
-      news = newsRes?.data || [];
+      news = (newsRes?.data || []).filter(n => !(window.isCommDraft && window.isCommDraft(n)));
 
       results = [{ data: productsMap, rawInv: activeInv || [], warehouses: warehousesRes?.data || [] }, ordRes || { data: [] }, intRes || { data: [] }, decRes || { data: [] }, manualOrdersRes || { data: [] }];
 
@@ -52450,7 +52487,7 @@ window.updateDashboardCalendarView_admin = async function() {
     .gte('event_date', startOfMonth)
     .order('event_date', { ascending: true });
     
-  window.adminCalendarState.events = events || [];
+  window.adminCalendarState.events = (events || []).filter(e => !(window.isCommDraft && window.isCommDraft(e)));
   
   const gridContainer = document.getElementById('admin-dashboard-calendar-grid');
   const listContainer = document.getElementById('admin-dashboard-calendar-list');
@@ -52643,6 +52680,7 @@ window.checkAdminNewsPopup = async function(userId) {
 
     if (newsList && newsList.length > 0) {
       const latestNews = newsList.find(n => {
+        if (window.isCommDraft && window.isCommDraft(n)) return false;
         const target = n.target_role || 'all';
         return target === 'all' || target === 'admin';
       });
@@ -53525,10 +53563,13 @@ window.openSendNewsEmailModal = async function(newsItem) {
 async function renderNotificationsAdmin() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `
-    <div style="margin-bottom: 2rem;">
+    <div style="margin-bottom: 1.25rem;">
       <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Notificaciones y Comunicaciones</h2>
-      <p style="color: var(--color-text-muted); font-size: 1rem;">Administra el mini blog de noticias, eventos del calendario y notificaciones para los usuarios del WMS.</p>
+      <p style="color: var(--color-text-muted); font-size: 1rem; margin: 0;">Administra el mini blog de noticias, eventos del calendario, banners, pop-ups y notificaciones — con soporte completo de borradores antes de publicar.</p>
     </div>
+
+    <!-- Resumen Dinámico de Borradores Pendientes -->
+    <div id="admin-comms-drafts-summary-bar" style="display: none; margin-bottom: 1.5rem; background: linear-gradient(135deg, rgba(245, 158, 11, 0.14) 0%, rgba(217, 119, 6, 0.06) 100%); border: 1.5px solid rgba(245, 158, 11, 0.5); border-radius: var(--radius-lg); padding: 0.95rem 1.25rem;"></div>
 
     <div class="dashboard-grid">
       <!-- Gestión de Noticias 2.0 (Mini Blog) -->
@@ -53673,32 +53714,41 @@ async function renderNotificationsAdmin() {
               </div>
 
               <!-- Action Buttons -->
-              <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem; flex-wrap: wrap;">
-                <button type="submit" id="btn-save-news" class="btn btn-primary" style="flex: 2; min-width: 160px; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+              <div style="display: flex; gap: 0.6rem; margin-top: 1.5rem; flex-wrap: wrap;">
+                <button type="submit" id="btn-save-news" class="btn btn-primary" style="flex: 1.8; min-width: 155px; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
                   <i class="ri-send-plane-fill"></i> <span id="btn-save-news-text">Publicar Noticia</span>
                 </button>
-                <button type="button" id="btn-preview-news-email" class="btn btn-outline" style="flex: 1.3; min-width: 170px; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; color: #2563eb; border-color: #2563eb;">
-                  <i class="ri-mail-check-line"></i> Previsualizar Correo & Destinatarios
+                <button type="button" id="btn-save-news-draft" class="btn btn-outline" style="flex: 1.4; min-width: 150px; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; color: #b45309; border-color: #f59e0b; background: rgba(245, 158, 11, 0.08); font-weight: 600;">
+                  <i class="ri-draft-line"></i> <span id="btn-save-news-draft-text">Guardar Borrador</span>
                 </button>
-                <button type="button" id="btn-preview-news" class="btn btn-outline" style="flex: 1; min-width: 120px; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
+                <button type="button" id="btn-preview-news-email" class="btn btn-outline" style="flex: 1.3; min-width: 165px; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; color: #2563eb; border-color: #2563eb;">
+                  <i class="ri-mail-check-line"></i> Previsualizar Correo
+                </button>
+                <button type="button" id="btn-preview-news" class="btn btn-outline" style="flex: 1; min-width: 115px; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
                   <i class="ri-eye-line"></i> Vista Blog
                 </button>
-                <button type="button" id="btn-cancel-news" class="btn btn-outline" style="display: none; flex: 1;">
+                <button type="button" id="btn-cancel-news" class="btn btn-outline" style="display: none; flex: 0.8;">
                   Cancelar
                 </button>
               </div>
             </form>
           </div>
 
-          <!-- Columna Derecha: Lista de Noticias Publicadas con Buscador -->
+          <!-- Columna Derecha: Lista de Noticias (Borradores + Publicadas) con Buscador -->
           <div style="border-left: 1px solid var(--color-border); padding-left: 1.5rem; display: flex; flex-direction: column;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem;">
               <h4 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-text-main);">
-                Artículos Publicados
+                Artículos y Borradores
               </h4>
               <button type="button" id="btn-new-news-quick" class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
                 <i class="ri-add-line"></i> Nueva
               </button>
+            </div>
+
+            <div id="admin-news-filter-tabs" style="display: flex; gap: 0.35rem; margin-bottom: 0.65rem; flex-wrap: wrap;">
+              <button type="button" class="btn btn-sm admin-news-filter-pill active" data-filter="all" style="font-size: 0.75rem; padding: 0.25rem 0.65rem; border-radius: 999px; background: var(--color-primary); color: #fff; border: 1px solid var(--color-primary); font-weight: 600;">Todos (<span id="news-count-all">0</span>)</button>
+              <button type="button" class="btn btn-sm admin-news-filter-pill" data-filter="draft" style="font-size: 0.75rem; padding: 0.25rem 0.65rem; border-radius: 999px; background: rgba(245, 158, 11, 0.12); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.45); font-weight: 600;">Borradores (<span id="news-count-draft">0</span>)</button>
+              <button type="button" class="btn btn-sm admin-news-filter-pill" data-filter="published" style="font-size: 0.75rem; padding: 0.25rem 0.65rem; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); border: 1px solid var(--color-border); font-weight: 600;">Publicados (<span id="news-count-published">0</span>)</button>
             </div>
 
             <div style="margin-bottom: 0.75rem;">
@@ -53755,8 +53805,9 @@ async function renderNotificationsAdmin() {
                 <label class="form-label">Descripción</label>
                 <textarea id="event-desc" class="form-input" rows="2"></textarea>
               </div>
-              <div style="display: flex; gap: 1rem;">
-                <button type="submit" id="btn-save-event" class="btn btn-primary" style="flex: 1;">Agendar Evento</button>
+              <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
+                <button type="submit" id="btn-save-event" class="btn btn-primary" style="flex: 1.2;">Publicar Evento</button>
+                <button type="button" id="btn-save-event-draft" class="btn btn-outline" style="flex: 1; color: #b45309; border-color: #f59e0b; background: rgba(245, 158, 11, 0.08); font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem;"><i class="ri-draft-line"></i> Borrador</button>
                 <button type="button" id="btn-cancel-event" class="btn btn-outline" style="display: none;">Cancelar</button>
               </div>
             </form>
@@ -53773,14 +53824,27 @@ async function renderNotificationsAdmin() {
           <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2rem;">
             
             <!-- Barra Superior -->
-            <div style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.5rem;">
-              <h4 style="margin-top: 0; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-layout-top-line" style="color: var(--color-primary);"></i> Barra Superior</h4>
-              <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem;">Crea un banner visible en el tope de la pantalla para todos los usuarios. Solo un banner activo a la vez.</p>
+            <div id="admin-section-banners" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.5rem; display: flex; flex-direction: column;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                <h4 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-layout-top-line" style="color: var(--color-primary);"></i> Barra Superior</h4>
+                <button type="button" id="btn-new-banner-draft" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;"><i class="ri-add-line"></i> Nuevo</button>
+              </div>
+              <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem;">Crea un banner visible en el tope de la pantalla. Puedes guardar borradores inactivos y activarlos cuando estés listo.</p>
               <form id="form-create-banner">
                 <input type="hidden" id="banner-id">
                 <div class="form-group">
                   <label class="form-label">Texto del Aviso</label>
                   <input type="text" id="banner-content" class="form-input" required>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Enlazar a Noticia del WMS (Opcional)</label>
+                  <select id="banner-link-news-id" class="form-input">
+                    <option value="">-- Sin enlace a noticia --</option>
+                  </select>
+                </div>
+                <div class="form-group" id="banner-link-label-container" style="display: none;">
+                  <label class="form-label">Texto del Botón / Enlace</label>
+                  <input type="text" id="banner-link-label" class="form-input" placeholder="Ej: Ver detalle completo" value="Ver detalle completo">
                 </div>
                 <div class="form-group">
                   <label class="form-label">Destinatarios</label>
@@ -53798,6 +53862,7 @@ async function renderNotificationsAdmin() {
                       <option value="success">Éxito (Verde)</option>
                       <option value="warning">Alerta (Amarillo)</option>
                       <option value="danger">Peligro (Rojo)</option>
+                      <option value="blackfriday">Black Friday Chile (Morado Oficial)</option>
                       <option value="custom">Personalizado...</option>
                     </select>
                   </div>
@@ -53812,6 +53877,13 @@ async function renderNotificationsAdmin() {
                       <option value="ri-flashlight-fill">Novedad/Rayo</option>
                     </select>
                   </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Logo del Banner (Opcional — reemplaza al icono)</label>
+                  <select id="banner-logo-url" class="form-input">
+                    <option value="">-- Sin logo (usar icono) --</option>
+                    <option value="/img/blackfriday_chile_badge.png">Logo Oficial Black Friday Chile</option>
+                  </select>
                 </div>
                 <div id="banner-colors-container" style="display: none; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                   <div class="form-group" style="margin-bottom: 0;">
@@ -53831,14 +53903,24 @@ async function renderNotificationsAdmin() {
                   <input type="checkbox" id="banner-active" style="width: 1.2rem; height: 1.2rem;">
                   <label for="banner-active" style="font-weight: 600; cursor: pointer; margin: 0;">Activar este Banner</label>
                 </div>
-                <button type="submit" class="btn btn-primary" style="width: 100%;">Guardar Barra Superior</button>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button type="submit" class="btn btn-primary" style="flex: 1.2;">Guardar Barra</button>
+                  <button type="button" id="btn-save-banner-draft" class="btn btn-outline" style="flex: 1; color: #b45309; border-color: #f59e0b; background: rgba(245, 158, 11, 0.08); font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem;" title="Guardar desactivado como borrador"><i class="ri-draft-line"></i> Borrador</button>
+                </div>
               </form>
+              <div style="margin-top: 1rem; padding-top: 0.85rem; border-top: 1px dashed var(--color-border);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.04em;">Banners Guardados / Borradores</div>
+                <div id="admin-banners-list" style="max-height: 210px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.45rem;"></div>
+              </div>
             </div>
 
             <!-- Pop-up Interactivo -->
-            <div style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.5rem;">
-              <h4 style="margin-top: 0; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-window-line" style="color: var(--color-accent);"></i> Pop-up al Inicio</h4>
-              <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem;">Muestra una ventana modal bloqueante al iniciar sesión que exige confirmación de lectura.</p>
+            <div id="admin-section-popups" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.5rem; display: flex; flex-direction: column;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                <h4 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-window-line" style="color: var(--color-accent);"></i> Pop-up al Inicio</h4>
+                <button type="button" id="btn-new-popup-draft" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;"><i class="ri-add-line"></i> Nuevo</button>
+              </div>
+              <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem;">Muestra una ventana modal al iniciar sesión. Puedes dejar borradores inactivos para revisar antes de activar.</p>
               <form id="form-create-popup">
                 <input type="hidden" id="popup-id">
                 <div class="form-group">
@@ -53887,22 +53969,30 @@ async function renderNotificationsAdmin() {
                   <input type="checkbox" id="popup-active" style="width: 1.2rem; height: 1.2rem;">
                   <label for="popup-active" style="font-weight: 600; cursor: pointer; margin: 0;">Activar este Pop-up</label>
                 </div>
-                <button type="submit" class="btn btn-primary" style="width: 100%; background-color: var(--color-accent);">Guardar Pop-up</button>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button type="submit" class="btn btn-primary" style="flex: 1.2; background-color: var(--color-accent);">Guardar Pop-up</button>
+                  <button type="button" id="btn-save-popup-draft" class="btn btn-outline" style="flex: 1; color: #b45309; border-color: #f59e0b; background: rgba(245, 158, 11, 0.08); font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem;" title="Guardar desactivado como borrador"><i class="ri-draft-line"></i> Borrador</button>
+                </div>
               </form>
+              <div style="margin-top: 1rem; padding-top: 0.85rem; border-top: 1px dashed var(--color-border);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.04em;">Pop-ups Guardados / Borradores</div>
+                <div id="admin-popups-list" style="max-height: 210px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.45rem;"></div>
+              </div>
             </div>
 
             <!-- Notificación Inbox -->
-            <div style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.5rem;">
+            <div id="admin-section-inbox" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.5rem;">
               <h4 style="margin-top: 0; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-mail-send-line" style="color: var(--color-warning);"></i> Enviar a Inbox</h4>
-              <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem;">Envía una notificación directa a la campanita de los usuarios con segmentación.</p>
+              <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem;">Envía una notificación directa a la campanita de los usuarios o guárdala en borrador.</p>
               <form id="form-create-notification">
+                <input type="hidden" id="notif-id">
                 <div class="form-group">
                   <label class="form-label">Título del Mensaje</label>
                   <input type="text" id="notif-title" class="form-input" required>
                 </div>
                 <div class="form-group">
                   <label class="form-label">Mensaje</label>
-                  <input type="text" id="notif-message" class="form-input" required>
+                  <textarea id="notif-message" class="form-input" rows="3" required style="resize: vertical;"></textarea>
                 </div>
                 <div class="form-group">
                   <label class="form-label">Destinatarios</label>
@@ -53919,15 +54009,26 @@ async function renderNotificationsAdmin() {
                     <option value="">Cargando usuarios...</option>
                   </select>
                 </div>
-                <button type="submit" class="btn btn-primary" style="width: 100%; background-color: var(--color-warning); color: #000;">Enviar Notificación Directa</button>
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                  <button type="submit" id="btn-send-notif" class="btn btn-primary" style="flex: 1.3; background-color: var(--color-warning); color: #000; font-weight: 700;">Enviar Ahora</button>
+                  <button type="button" id="btn-save-notif-draft" class="btn btn-outline" style="flex: 1; color: #b45309; border-color: #f59e0b; background: rgba(245, 158, 11, 0.08); font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem;"><i class="ri-draft-line"></i> Borrador</button>
+                  <button type="button" id="btn-cancel-notif" class="btn btn-outline" style="display: none; width: 100%;">Cancelar Edición</button>
+                </div>
               </form>
             </div>
             
           </div>
           
           <hr style="margin: 2rem 0;">
-          <h4>Historial Reciente de Inbox</h4>
-          <div id="admin-notif-list" style="max-height: 300px; overflow-y: auto; margin-top: 1rem;">Cargando...</div>
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+            <h4 style="margin: 0;">Historial y Borradores de Inbox</h4>
+            <div id="admin-notif-filter-tabs" style="display: flex; gap: 0.35rem;">
+              <button type="button" class="btn btn-sm admin-notif-filter-pill active" data-filter="all" style="font-size: 0.75rem; padding: 0.22rem 0.65rem; border-radius: 999px; background: var(--color-primary); color: #fff; border: 1px solid var(--color-primary); font-weight: 600;">Todas (<span id="notif-count-all">0</span>)</button>
+              <button type="button" class="btn btn-sm admin-notif-filter-pill" data-filter="draft" style="font-size: 0.75rem; padding: 0.22rem 0.65rem; border-radius: 999px; background: rgba(245, 158, 11, 0.12); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.45); font-weight: 600;">Borradores (<span id="notif-count-draft">0</span>)</button>
+              <button type="button" class="btn btn-sm admin-notif-filter-pill" data-filter="published" style="font-size: 0.75rem; padding: 0.22rem 0.65rem; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); border: 1px solid var(--color-border); font-weight: 600;">Enviadas (<span id="notif-count-published">0</span>)</button>
+            </div>
+          </div>
+          <div id="admin-notif-list" style="max-height: 360px; overflow-y: auto; margin-top: 1rem;">Cargando...</div>
         </div>
       </div>
 
@@ -54330,6 +54431,270 @@ async function renderNotificationsAdmin() {
     });
   }
 
+  let adminNewsFilterMode = 'all'; // 'all' | 'draft' | 'published'
+  let adminNotifFilterMode = 'all'; // 'all' | 'draft' | 'published'
+
+  function previewBannerModal(banner) {
+    const meta = window.parseSystemBannerMeta(banner);
+    const preset = banner.style_preset || 'info';
+    let bgStyle = `background-color: ${banner.bg_color || '#2563eb'};`;
+    let textColor = banner.text_color || '#ffffff';
+    let borderStyle = 'border: 1px solid rgba(0,0,0,0.08);';
+    let isBf = preset === 'blackfriday' || (meta.logoUrl && meta.logoUrl.includes('blackfriday'));
+    if (isBf) {
+      bgStyle = 'background: linear-gradient(105deg, #5D11A9 0%, #48108B 44%, #241254 82%, #151236 100%);';
+      textColor = '#ffffff';
+      borderStyle = 'border: 1px solid rgba(196, 181, 253, 0.35);';
+    } else if (preset === 'info') { bgStyle = 'background-color: #2563eb;'; textColor = '#ffffff'; }
+    else if (preset === 'success') { bgStyle = 'background-color: #10b981;'; textColor = '#ffffff'; }
+    else if (preset === 'warning') { bgStyle = 'background-color: #f59e0b;'; textColor = '#ffffff'; }
+    else if (preset === 'danger') { bgStyle = 'background-color: #ef4444;'; textColor = '#ffffff'; }
+
+    const esc = window.escapeHtml || (s => String(s || ''));
+    const leadingHtml = meta.logoUrl
+      ? `<div style="display:flex;align-items:center;gap:0.9rem;flex-shrink:0;"><div style="background:#5D11A9;padding:0.36rem 0.72rem;border-radius:9px;border:1px solid rgba(255,255,255,0.24);display:inline-flex;align-items:center;"><img src="${esc(meta.logoUrl)}" alt="Logo" style="height:28px;width:auto;display:block;"></div><div style="width:1px;height:30px;background:rgba(255,255,255,0.22);"></div></div>`
+      : `<i class="${esc(banner.icon || 'ri-information-fill')}" style="font-size:1.2rem;flex-shrink:0;"></i>`;
+    const ctaHtml = meta.linkNewsId
+      ? `<button type="button" id="btn-preview-banner-open-news" style="background:${isBf ? '#ffffff' : 'rgba(255,255,255,0.18)'};border:1px solid rgba(255,255,255,0.5);color:${isBf ? '#4c1d95' : 'inherit'};padding:0.45rem 1rem;border-radius:999px;font-size:0.82rem;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:0.35rem;white-space:nowrap;"><i class="ri-article-line"></i> ${esc(meta.linkLabel)} <i class="ri-arrow-right-line"></i></button>`
+      : '';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay active';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);z-index:999999;display:flex;align-items:center;justify-content:center;padding:1.5rem;';
+    overlay.innerHTML = `
+      <div class="modal-content" style="max-width:960px;width:100%;background:var(--color-surface);border-radius:14px;padding:1.5rem;box-shadow:var(--shadow-xl);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+          <h4 style="margin:0;display:flex;align-items:center;gap:0.5rem;"><i class="ri-eye-line" style="color:var(--color-primary);"></i> Vista Previa de Barra Superior (Como lo verá el cliente)</h4>
+          <button type="button" id="close-banner-preview-btn" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--color-text-muted);"><i class="ri-close-line"></i></button>
+        </div>
+        <div style="${bgStyle} color:${textColor}; padding:0.85rem 1.35rem; border-radius:12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.85rem 1rem; font-size:0.9rem; ${borderStyle} box-shadow:0 8px 22px -6px rgba(0,0,0,0.28);">
+          <div style="display:flex;align-items:center;gap:0.9rem;flex:1;min-width:260px;flex-wrap:wrap;">
+            ${leadingHtml}
+            <div style="line-height:1.45;flex:1;min-width:220px;">${meta.cleanContent}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:0.65rem;flex-shrink:0;">
+            ${ctaHtml}
+            ${banner.is_dismissible !== false ? '<i class="ri-close-line" style="font-size:1.25rem;opacity:0.8;"></i>' : ''}
+          </div>
+        </div>
+        <div style="margin-top:1rem;font-size:0.8rem;color:var(--color-text-muted);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+          <span>Estado: <strong>${banner.is_active ? 'ACTIVO (visible a clientes)' : 'BORRADOR (oculto a clientes)'}</strong> · Destinatarios: <strong>${esc(banner.target_role || 'all')}</strong></span>
+          <button type="button" class="btn btn-primary btn-sm" id="close-banner-preview-footer">Cerrar Vista Previa</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('#close-banner-preview-btn').onclick = close;
+    overlay.querySelector('#close-banner-preview-footer').onclick = close;
+    overlay.onclick = (ev) => { if (ev.target === overlay) close(); };
+    const openNewsBtn = overlay.querySelector('#btn-preview-banner-open-news');
+    if (openNewsBtn && meta.linkNewsId) {
+      openNewsBtn.onclick = () => {
+        const linked = (window.adminNewsData || []).find(n => n.id === meta.linkNewsId);
+        close();
+        if (linked) openNewsModal(linked);
+        else alert('La noticia enlazada no fue encontrada.');
+      };
+    }
+  }
+
+  function loadBannerIntoForm(b) {
+    if (!b) return;
+    const meta = window.parseSystemBannerMeta(b);
+    const bannerNewsSelect = document.getElementById('banner-link-news-id');
+    document.getElementById('banner-id').value = b.id || '';
+    document.getElementById('banner-content').value = meta.cleanContent;
+    document.getElementById('banner-bg').value = b.bg_color || '#2563eb';
+    document.getElementById('banner-text').value = b.text_color || '#ffffff';
+    document.getElementById('banner-active').checked = !!b.is_active;
+    document.getElementById('banner-preset').value = b.style_preset || 'custom';
+    document.getElementById('banner-icon').value = b.icon || 'ri-information-fill';
+    document.getElementById('banner-target').value = window.getCommRealTargetRole(b);
+    document.getElementById('banner-dismissible').checked = b.is_dismissible !== false;
+
+    const bannerLogoSelect = document.getElementById('banner-logo-url');
+    if (bannerLogoSelect) {
+      if (meta.logoUrl && ![...bannerLogoSelect.options].some(o => o.value === meta.logoUrl)) {
+        const opt = document.createElement('option');
+        opt.value = meta.logoUrl;
+        opt.textContent = `Logo personalizado (${meta.logoUrl})`;
+        bannerLogoSelect.appendChild(opt);
+      }
+      bannerLogoSelect.value = meta.logoUrl;
+    }
+    if (bannerNewsSelect) bannerNewsSelect.value = meta.linkNewsId;
+    const labelInput = document.getElementById('banner-link-label');
+    if (labelInput) labelInput.value = meta.linkLabel || 'Ver detalle completo';
+    const labelContainer = document.getElementById('banner-link-label-container');
+    if (labelContainer) labelContainer.style.display = meta.linkNewsId ? 'block' : 'none';
+    const colorsContainer = document.getElementById('banner-colors-container');
+    if (colorsContainer) colorsContainer.style.display = (b.style_preset === 'custom' || !b.style_preset) ? 'grid' : 'none';
+  }
+
+  function loadPopupIntoForm(p) {
+    if (!p) return;
+    document.getElementById('popup-id').value = p.id || '';
+    document.getElementById('popup-title').value = p.title || '';
+    document.getElementById('popup-content').value = p.content || '';
+    document.getElementById('popup-active').checked = !!p.is_active;
+    document.getElementById('popup-preset').value = p.style_preset || 'info';
+    document.getElementById('popup-icon').value = p.icon || 'ri-notification-3-line';
+    document.getElementById('popup-target').value = window.getCommRealTargetRole(p);
+    document.getElementById('popup-dismissible').checked = p.is_dismissible !== false;
+  }
+
+  function updateDraftsSummaryBar() {
+    const bar = document.getElementById('admin-comms-drafts-summary-bar');
+    if (!bar) return;
+    const draftNews = (window.adminNewsData || []).filter(n => window.isCommDraft(n)).length;
+    const draftEvents = (window.adminCalendarState?.events || []).filter(e => window.isCommDraft(e)).length;
+    const draftBanners = (window.adminBannersData || []).filter(b => !b.is_active).length;
+    const draftPopups = (window.adminPopupsData || []).filter(p => !p.is_active).length;
+    const draftNotifs = (window.adminNotifsData || []).filter(n => window.isCommDraft(n)).length;
+    const total = draftNews + draftEvents + draftBanners + draftPopups + draftNotifs;
+
+    if (total === 0) {
+      bar.style.display = 'none';
+      return;
+    }
+
+    const parts = [];
+    if (draftNews) parts.push(`<a href="#form-create-news" style="color:#92400e;font-weight:700;text-decoration:underline;">${draftNews} noticia${draftNews > 1 ? 's' : ''}</a>`);
+    if (draftEvents) parts.push(`<a href="#form-create-event" style="color:#92400e;font-weight:700;text-decoration:underline;">${draftEvents} evento${draftEvents > 1 ? 's' : ''}</a>`);
+    if (draftBanners) parts.push(`<a href="#admin-section-banners" style="color:#92400e;font-weight:700;text-decoration:underline;">${draftBanners} banner${draftBanners > 1 ? 's' : ''}</a>`);
+    if (draftPopups) parts.push(`<a href="#admin-section-popups" style="color:#92400e;font-weight:700;text-decoration:underline;">${draftPopups} pop-up${draftPopups > 1 ? 's' : ''}</a>`);
+    if (draftNotifs) parts.push(`<a href="#admin-section-inbox" style="color:#92400e;font-weight:700;text-decoration:underline;">${draftNotifs} notificación${draftNotifs > 1 ? 'es' : ''} Inbox</a>`);
+
+    bar.style.display = 'flex';
+    bar.style.alignItems = 'center';
+    bar.style.justifyContent = 'space-between';
+    bar.style.flexWrap = 'wrap';
+    bar.style.gap = '0.75rem';
+    bar.innerHTML = `
+      <div style="display:flex;align-items:center;gap:0.75rem;flex:1;min-width:260px;">
+        <div style="width:36px;height:36px;border-radius:9px;background:#f59e0b;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.15rem;flex-shrink:0;">
+          <i class="ri-draft-line"></i>
+        </div>
+        <div style="font-size:0.86rem;line-height:1.45;color:var(--color-text-main);">
+          <strong>Borradores pendientes de revisión (${total}):</strong> ${parts.join(' · ')}.
+          <span style="color:var(--color-text-muted);display:block;font-size:0.78rem;">Los borradores están ocultos para clientes hasta que los revises y confirmes con <strong>Publicar / Activar</strong>.</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderAdminNotifsList(notifsToRender) {
+    const notifList = document.getElementById('admin-notif-list');
+    if (!notifList) return;
+    const all = window.adminNotifsData || [];
+    const draftCount = all.filter(n => window.isCommDraft(n)).length;
+    const pubCount = all.length - draftCount;
+    const cAll = document.getElementById('notif-count-all');
+    const cDraft = document.getElementById('notif-count-draft');
+    const cPub = document.getElementById('notif-count-published');
+    if (cAll) cAll.textContent = all.length;
+    if (cDraft) cDraft.textContent = draftCount;
+    if (cPub) cPub.textContent = pubCount;
+
+    const list = (notifsToRender || all).filter(n => {
+      if (adminNotifFilterMode === 'draft') return window.isCommDraft(n);
+      if (adminNotifFilterMode === 'published') return !window.isCommDraft(n);
+      return true;
+    }).sort((a, b) => {
+      const aD = window.isCommDraft(a) ? 0 : 1;
+      const bD = window.isCommDraft(b) ? 0 : 1;
+      if (aD !== bD) return aD - bD;
+      return new Date(b.created_at) - new Date(a.created_at);
+    });
+
+    if (list.length === 0) {
+      notifList.innerHTML = '<p style="color: var(--color-text-muted); font-size: 0.85rem;">No hay notificaciones en esta vista.</p>';
+      return;
+    }
+
+    const esc = window.escapeHtml || (s => String(s || ''));
+    notifList.innerHTML = list.map(n => {
+      const isDraft = window.isCommDraft(n);
+      const realRole = window.getCommRealTargetRole(n);
+      const roleLabel = realRole === 'individual' ? 'Usuario Individual' : (realRole === 'client' ? 'Solo Clientes' : (realRole === 'admin' ? 'Solo Admins' : 'Todos'));
+      return `
+        <div style="padding: 0.9rem 1rem; border: ${isDraft ? '1.5px dashed #f59e0b' : '1px solid var(--color-border)'}; border-radius: var(--radius-md); margin-bottom: 0.55rem; background: ${isDraft ? 'rgba(245, 158, 11, 0.06)' : 'var(--color-surface)'}; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 220px;">
+            <div style="font-weight: 700; display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+              ${isDraft ? '<span style="font-size:0.65rem;background:#f59e0b;color:#fff;padding:1px 7px;border-radius:999px;font-weight:800;letter-spacing:0.03em;">BORRADOR</span>' : '<span style="font-size:0.65rem;background:rgba(16,185,129,0.14);color:#047857;padding:1px 7px;border-radius:999px;font-weight:700;">ENVIADA</span>'}
+              <span>${esc(n.title)}</span>
+            </div>
+            <div style="font-size: 0.82rem; color: var(--color-text-main); margin-top: 0.25rem; line-height: 1.4;">${esc(n.message)}</div>
+            <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">Destinatarios: <strong>${roleLabel}</strong> · ${new Date(n.created_at).toLocaleString('es-CL')}</div>
+          </div>
+          <div style="display: flex; gap: 0.35rem; flex-shrink: 0;">
+            ${isDraft ? `<button type="button" class="btn btn-sm publish-notif-btn" data-id="${n.id}" style="background:#10b981;color:#fff;border:none;padding:0.3rem 0.65rem;font-size:0.78rem;font-weight:700;display:inline-flex;align-items:center;gap:0.25rem;cursor:pointer;" title="Confirmar y enviar ahora a los destinatarios"><i class="ri-send-plane-fill"></i> Enviar</button>` : ''}
+            <button type="button" class="btn btn-outline edit-notif-btn" data-id="${n.id}" style="padding: 0.28rem 0.5rem;" title="Editar"><i class="ri-edit-line"></i></button>
+            <button type="button" class="btn btn-outline delete-notif-btn" data-id="${n.id}" style="padding: 0.28rem 0.5rem; color: var(--color-danger); border-color: var(--color-danger);" title="Eliminar"><i class="ri-delete-bin-line"></i></button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderAdminBannersList(banners) {
+    const container = document.getElementById('admin-banners-list');
+    if (!container) return;
+    if (!banners || banners.length === 0) {
+      container.innerHTML = '<div style="font-size:0.78rem;color:var(--color-text-muted);">Sin banners guardados.</div>';
+      return;
+    }
+    const esc = window.escapeHtml || (s => String(s || ''));
+    container.innerHTML = banners.map(b => {
+      const meta = window.parseSystemBannerMeta(b);
+      const plainPreview = meta.cleanContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      return `
+        <div style="padding:0.55rem 0.7rem;border:${b.is_active ? '1.5px solid #10b981' : '1px dashed #f59e0b'};border-radius:8px;background:${b.is_active ? 'rgba(16,185,129,0.06)' : 'rgba(245,158,11,0.06)'};display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:0.35rem;margin-bottom:2px;">
+              <span style="font-size:0.62rem;padding:1px 6px;border-radius:999px;font-weight:800;background:${b.is_active ? '#10b981' : '#f59e0b'};color:#fff;">${b.is_active ? 'ACTIVO' : 'BORRADOR'}</span>
+              ${meta.logoUrl ? '<span style="font-size:0.62rem;padding:1px 5px;border-radius:4px;background:#5D11A9;color:#fff;font-weight:700;">LOGO</span>' : ''}
+              ${meta.linkNewsId ? '<span style="font-size:0.62rem;color:var(--color-primary);font-weight:700;"><i class="ri-link"></i> Noticia</span>' : ''}
+            </div>
+            <div style="font-size:0.76rem;color:var(--color-text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(plainPreview)}">${esc(plainPreview)}</div>
+          </div>
+          <div style="display:flex;gap:0.25rem;flex-shrink:0;">
+            <button type="button" class="btn btn-outline preview-banner-item-btn" data-id="${b.id}" title="Vista Previa" style="padding:0.2rem 0.42rem;font-size:0.78rem;"><i class="ri-eye-line"></i></button>
+            <button type="button" class="btn btn-outline edit-banner-item-btn" data-id="${b.id}" title="Cargar para editar" style="padding:0.2rem 0.42rem;font-size:0.78rem;"><i class="ri-edit-line"></i></button>
+            <button type="button" class="btn btn-outline toggle-banner-item-btn" data-id="${b.id}" title="${b.is_active ? 'Pasar a borrador (desactivar)' : 'Activar ahora'}" style="padding:0.2rem 0.45rem;font-size:0.78rem;color:${b.is_active ? '#b45309' : '#059669'};border-color:${b.is_active ? '#f59e0b' : '#10b981'};"><i class="${b.is_active ? 'ri-pause-circle-line' : 'ri-play-circle-fill'}"></i></button>
+            <button type="button" class="btn btn-outline delete-banner-item-btn" data-id="${b.id}" title="Eliminar" style="padding:0.2rem 0.42rem;font-size:0.78rem;color:var(--color-danger);border-color:var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderAdminPopupsList(popups) {
+    const container = document.getElementById('admin-popups-list');
+    if (!container) return;
+    if (!popups || popups.length === 0) {
+      container.innerHTML = '<div style="font-size:0.78rem;color:var(--color-text-muted);">Sin pop-ups guardados.</div>';
+      return;
+    }
+    const esc = window.escapeHtml || (s => String(s || ''));
+    container.innerHTML = popups.map(p => `
+      <div style="padding:0.55rem 0.7rem;border:${p.is_active ? '1.5px solid #10b981' : '1px dashed #f59e0b'};border-radius:8px;background:${p.is_active ? 'rgba(16,185,129,0.06)' : 'rgba(245,158,11,0.06)'};display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;gap:0.35rem;margin-bottom:2px;">
+            <span style="font-size:0.62rem;padding:1px 6px;border-radius:999px;font-weight:800;background:${p.is_active ? '#10b981' : '#f59e0b'};color:#fff;">${p.is_active ? 'ACTIVO' : 'BORRADOR'}</span>
+          </div>
+          <div style="font-size:0.76rem;font-weight:600;color:var(--color-text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(p.title)}">${esc(p.title)}</div>
+        </div>
+        <div style="display:flex;gap:0.25rem;flex-shrink:0;">
+          <button type="button" class="btn btn-outline edit-popup-item-btn" data-id="${p.id}" title="Cargar para editar" style="padding:0.2rem 0.42rem;font-size:0.78rem;"><i class="ri-edit-line"></i></button>
+          <button type="button" class="btn btn-outline toggle-popup-item-btn" data-id="${p.id}" title="${p.is_active ? 'Desactivar (borrador)' : 'Activar ahora'}" style="padding:0.2rem 0.45rem;font-size:0.78rem;color:${p.is_active ? '#b45309' : '#059669'};border-color:${p.is_active ? '#f59e0b' : '#10b981'};"><i class="${p.is_active ? 'ri-pause-circle-line' : 'ri-play-circle-fill'}"></i></button>
+          <button type="button" class="btn btn-outline delete-popup-item-btn" data-id="${p.id}" title="Eliminar" style="padding:0.2rem 0.42rem;font-size:0.78rem;color:var(--color-danger);border-color:var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
+        </div>
+      </div>
+    `).join('');
+  }
+
   async function loadAdminData() {
     const { data: news } = await supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
     window.adminNewsData = news || [];
@@ -54341,7 +54706,7 @@ async function renderNotificationsAdmin() {
       window.adminCalendarState = { currentDate: new Date(), selectedDateStr: null, events: [] };
     }
     window.adminCalendarState.events = events || [];
-    window._operationalCalendarEventsCache = events || [];
+    window._operationalCalendarEventsCache = (events || []).filter(e => !window.isCommDraft(e));
 
     const gridContainer = document.getElementById('admin-calendar-grid-container');
     const listContainer = document.getElementById('admin-calendar-list-container');
@@ -54352,62 +54717,41 @@ async function renderNotificationsAdmin() {
       setupCalendarListeners_admin();
     }
 
-    // Load Notifications (Inbox)
+    // Load Notifications (Inbox + Borradores)
     const { data: notifs } = await supabase
       .from('dashboard_notifications')
       .select('*')
       .lte('created_at', new Date().toISOString())
       .order('created_at', { ascending: false })
-      .limit(20);
-    const notifList = document.getElementById('admin-notif-list');
-    if(notifs && notifs.length > 0) {
-      notifList.innerHTML = notifs.map(n => `
-        <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <div style="font-weight: 600;">${n.title}</div>
-            <div style="font-size: 0.8rem; color: var(--color-text-muted);">Enviado a: ${n.target_role === 'individual' ? 'Usuario Individual' : n.target_role} - ${new Date(n.created_at).toLocaleString()}</div>
-          </div>
-          <div>
-            <button class="btn btn-outline delete-notif-btn" data-id="${n.id}" style="padding: 0.25rem 0.5rem; color: var(--color-danger); border-color: var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
-          </div>
-        </div>
-      `).join('');
-    } else {
-      notifList.innerHTML = '<p style="color: var(--color-text-muted);">No hay notificaciones enviadas recientemente.</p>';
+      .limit(40);
+    window.adminNotifsData = notifs || [];
+    renderAdminNotifsList(window.adminNotifsData);
+
+    // Poblar selector de noticia enlazada para la Barra Superior (incluye borradores para enlazar antes de publicar)
+    const bannerNewsSelect = document.getElementById('banner-link-news-id');
+    if (bannerNewsSelect) {
+      bannerNewsSelect.innerHTML = '<option value="">-- Sin enlace a noticia --</option>' + (window.adminNewsData || []).map(n => {
+        const dStr = n.created_at ? new Date(n.created_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+        const prefix = window.isCommDraft(n) ? '[BORRADOR] ' : `[${dStr}] `;
+        return `<option value="${n.id}">${prefix}${window.escapeHtml ? window.escapeHtml(n.title || '') : (n.title || '')}</option>`;
+      }).join('');
     }
 
-    const { data: banners } = await supabase.from('system_banners').select('*').order('created_at', { ascending: false }).limit(1);
-    if(banners && banners.length > 0) {
-      const b = banners[0];
-      document.getElementById('banner-id').value = b.id;
-      document.getElementById('banner-content').value = b.content;
-      document.getElementById('banner-bg').value = b.bg_color || '#2563eb';
-      document.getElementById('banner-text').value = b.text_color || '#ffffff';
-      document.getElementById('banner-active').checked = b.is_active;
-      
-      document.getElementById('banner-preset').value = b.style_preset || 'custom';
-      document.getElementById('banner-icon').value = b.icon || 'ri-information-fill';
-      document.getElementById('banner-target').value = b.target_role || 'all';
-      document.getElementById('banner-dismissible').checked = b.is_dismissible !== false;
-      
-      const colorsContainer = document.getElementById('banner-colors-container');
-      if (colorsContainer) {
-        colorsContainer.style.display = (b.style_preset === 'custom' || !b.style_preset) ? 'grid' : 'none';
-      }
+    const { data: banners } = await supabase.from('system_banners').select('*').order('created_at', { ascending: false }).limit(15);
+    window.adminBannersData = banners || [];
+    renderAdminBannersList(window.adminBannersData);
+    if (window.adminBannersData.length > 0 && !document.getElementById('banner-id').value) {
+      // Cargar primero el banner activo o el borrador más reciente
+      const preferred = window.adminBannersData.find(b => b.is_active) || window.adminBannersData[0];
+      loadBannerIntoForm(preferred);
     }
 
-    const { data: popups } = await supabase.from('system_popups').select('*').order('created_at', { ascending: false }).limit(1);
-    if(popups && popups.length > 0) {
-      const p = popups[0];
-      document.getElementById('popup-id').value = p.id;
-      document.getElementById('popup-title').value = p.title;
-      document.getElementById('popup-content').value = p.content;
-      document.getElementById('popup-active').checked = p.is_active;
-      
-      document.getElementById('popup-preset').value = p.style_preset || 'info';
-      document.getElementById('popup-icon').value = p.icon || 'ri-notification-3-line';
-      document.getElementById('popup-target').value = p.target_role || 'all';
-      document.getElementById('popup-dismissible').checked = p.is_dismissible !== false;
+    const { data: popups } = await supabase.from('system_popups').select('*').order('created_at', { ascending: false }).limit(15);
+    window.adminPopupsData = popups || [];
+    renderAdminPopupsList(window.adminPopupsData);
+    if (window.adminPopupsData.length > 0 && !document.getElementById('popup-id').value) {
+      const preferredPopup = window.adminPopupsData.find(p => p.is_active) || window.adminPopupsData[0];
+      loadPopupIntoForm(preferredPopup);
     }
 
     const { data: profiles } = await supabase.from('profiles').select('id, full_name, email').order('full_name', { ascending: true });
@@ -54416,6 +54760,7 @@ async function renderNotificationsAdmin() {
       userSelect.innerHTML = '<option value="">-- Seleccione un Usuario --</option>' + profiles.map(p => `<option value="${p.id}">${p.full_name || 'Sin Nombre'} (${p.email || 'Sin Correo'})</option>`).join('');
     }
 
+    updateDraftsSummaryBar();
     attachEditDeleteListeners(window.adminNewsData || [], window.adminCalendarState.events);
   }
 
@@ -54423,18 +54768,39 @@ async function renderNotificationsAdmin() {
     const newsList = document.getElementById('admin-news-list');
     if (!newsList) return;
 
-    if (!newsListToRender || newsListToRender.length === 0) {
-      newsList.innerHTML = '<div style="text-align: center; color: var(--color-text-muted); padding: 2rem 0; font-size: 0.85rem;">No hay noticias publicadas.</div>';
+    const allNews = window.adminNewsData || newsListToRender || [];
+    const draftCount = allNews.filter(n => window.isCommDraft(n)).length;
+    const pubCount = allNews.length - draftCount;
+    const cAll = document.getElementById('news-count-all');
+    const cDraft = document.getElementById('news-count-draft');
+    const cPub = document.getElementById('news-count-published');
+    if (cAll) cAll.textContent = allNews.length;
+    if (cDraft) cDraft.textContent = draftCount;
+    if (cPub) cPub.textContent = pubCount;
+
+    const filteredByTab = (newsListToRender || []).filter(n => {
+      if (adminNewsFilterMode === 'draft') return window.isCommDraft(n);
+      if (adminNewsFilterMode === 'published') return !window.isCommDraft(n);
+      return true;
+    });
+
+    if (filteredByTab.length === 0) {
+      newsList.innerHTML = `<div style="text-align: center; color: var(--color-text-muted); padding: 2rem 0; font-size: 0.85rem;">No hay ${adminNewsFilterMode === 'draft' ? 'borradores guardados' : 'noticias en esta vista'}.</div>`;
       return;
     }
 
-    const sorted = [...newsListToRender].sort((a, b) => {
+    const sorted = [...filteredByTab].sort((a, b) => {
+      const aDraft = window.isCommDraft(a) ? 0 : 1;
+      const bDraft = window.isCommDraft(b) ? 0 : 1;
+      if (aDraft !== bDraft) return aDraft - bDraft;
       if (a.is_pinned && !b.is_pinned) return -1;
       if (!a.is_pinned && b.is_pinned) return 1;
       return new Date(b.created_at) - new Date(a.created_at);
     });
 
     newsList.innerHTML = sorted.map(n => {
+      const isDraft = window.isCommDraft(n);
+      const realRole = window.getCommRealTargetRole(n);
       const cat = n.category || 'Actualización';
       let badgeClass = 'news-tag-update';
       let badgeIcon = 'ri-rocket-line';
@@ -54445,17 +54811,18 @@ async function renderNotificationsAdmin() {
       else if (cat.includes('Comercial') || cat.includes('Novedad')) { badgeClass = 'news-tag-commercial'; badgeIcon = 'ri-sparkling-line'; }
 
       return `
-        <div style="padding: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); display: flex; gap: 0.75rem; align-items: center; transition: all 0.2s;" class="${n.is_pinned ? 'is-pinned-card' : ''}">
+        <div style="padding: 0.85rem; border: ${isDraft ? '1.5px dashed #f59e0b' : '1px solid var(--color-border)'}; border-radius: var(--radius-md); background: ${isDraft ? 'rgba(245, 158, 11, 0.06)' : 'var(--color-surface)'}; display: flex; gap: 0.75rem; align-items: center; transition: all 0.2s;" class="${n.is_pinned && !isDraft ? 'is-pinned-card' : ''}">
           ${n.cover_image ? `
             <img src="${n.cover_image}" alt="Cover" style="width: 56px; height: 56px; border-radius: var(--radius-sm); object-fit: cover; border: 1px solid var(--color-border); flex-shrink: 0;" onerror="this.style.display='none'">
           ` : `
-            <div style="width: 56px; height: 56px; border-radius: var(--radius-sm); background: var(--color-bg); border: 1px solid var(--color-border); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); flex-shrink: 0;">
-              <i class="ri-newspaper-line" style="font-size: 1.25rem;"></i>
+            <div style="width: 56px; height: 56px; border-radius: var(--radius-sm); background: ${isDraft ? 'rgba(245, 158, 11, 0.14)' : 'var(--color-bg)'}; border: 1px solid ${isDraft ? 'rgba(245, 158, 11, 0.4)' : 'var(--color-border)'}; display: flex; align-items: center; justify-content: center; color: ${isDraft ? '#b45309' : 'var(--color-text-muted)'}; flex-shrink: 0;">
+              <i class="${isDraft ? 'ri-draft-line' : 'ri-newspaper-line'}" style="font-size: 1.25rem;"></i>
             </div>
           `}
           
           <div style="flex: 1; min-width: 0;">
             <div style="display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.2rem; flex-wrap: wrap;">
+              ${isDraft ? '<span style="font-size:0.65rem;background:#f59e0b;color:#fff;padding:0.1rem 0.48rem;border-radius:999px;font-weight:800;letter-spacing:0.03em;">BORRADOR</span>' : ''}
               <span class="news-tag ${badgeClass}" style="font-size: 0.65rem; padding: 0.1rem 0.45rem;"><i class="${badgeIcon}"></i> ${cat}</span>
               ${n.is_pinned ? `<span class="news-pinned-tag" style="font-size: 0.65rem; padding: 0.1rem 0.4rem;"><i class="ri-pushpin-fill"></i></span>` : ''}
               <span style="font-size: 0.72rem; color: var(--color-text-muted); margin-left: auto;">${new Date(n.created_at).toLocaleDateString('es-CL')}</span>
@@ -54464,15 +54831,16 @@ async function renderNotificationsAdmin() {
               ${n.title}
             </div>
             <div style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.5rem; margin-top: 0.15rem;">
-              <span><i class="ri-group-line"></i> ${n.target_role === 'client' ? 'Clientes' : (n.target_role === 'admin' ? 'Admins' : 'Todos')}</span>
+              <span><i class="ri-group-line"></i> ${realRole === 'client' ? 'Clientes' : (realRole === 'admin' ? 'Admins' : 'Todos')}</span>
             </div>
           </div>
 
-          <div style="display: flex; gap: 0.35rem; flex-shrink: 0;">
-            <button class="btn btn-outline send-email-news-btn" data-id="${n.id}" title="Enviar / Reenviar por Correo (Brevo)" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; color: #2563eb; border-color: #2563eb;"><i class="ri-mail-send-line"></i></button>
-            <button class="btn btn-outline preview-news-btn" data-id="${n.id}" title="Vista Previa" style="padding: 0.3rem 0.5rem; font-size: 0.85rem;"><i class="ri-eye-line"></i></button>
-            <button class="btn btn-outline edit-news-btn" data-id="${n.id}" title="Editar" style="padding: 0.3rem 0.5rem; font-size: 0.85rem;"><i class="ri-edit-line"></i></button>
-            <button class="btn btn-outline delete-news-btn" data-id="${n.id}" title="Eliminar" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; color: var(--color-danger); border-color: var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
+          <div style="display: flex; gap: 0.3rem; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end;">
+            ${isDraft ? `<button class="btn btn-sm publish-news-btn" data-id="${n.id}" title="Confirmar y Publicar ahora" style="padding: 0.3rem 0.6rem; font-size: 0.78rem; background: #10b981; color: #fff; border: none; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem; cursor: pointer;"><i class="ri-send-plane-fill"></i> Publicar</button>` : ''}
+            <button class="btn btn-outline send-email-news-btn" data-id="${n.id}" title="Previsualizar / Enviar por Correo (Brevo)" style="padding: 0.3rem 0.48rem; font-size: 0.85rem; color: #2563eb; border-color: #2563eb;"><i class="ri-mail-send-line"></i></button>
+            <button class="btn btn-outline preview-news-btn" data-id="${n.id}" title="Vista Previa" style="padding: 0.3rem 0.48rem; font-size: 0.85rem;"><i class="ri-eye-line"></i></button>
+            <button class="btn btn-outline edit-news-btn" data-id="${n.id}" title="Editar" style="padding: 0.3rem 0.48rem; font-size: 0.85rem;"><i class="ri-edit-line"></i></button>
+            <button class="btn btn-outline delete-news-btn" data-id="${n.id}" title="Eliminar" style="padding: 0.3rem 0.48rem; font-size: 0.85rem; color: var(--color-danger); border-color: var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
           </div>
         </div>
       `;
@@ -54480,6 +54848,34 @@ async function renderNotificationsAdmin() {
 
     attachEditDeleteListeners(window.adminNewsData || [], window.adminCalendarState ? window.adminCalendarState.events : []);
   }
+
+  // Filter pill listeners for News & Notifs
+  document.querySelectorAll('.admin-news-filter-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      adminNewsFilterMode = btn.getAttribute('data-filter') || 'all';
+      document.querySelectorAll('.admin-news-filter-pill').forEach(b => {
+        const active = b === btn;
+        b.style.background = active ? 'var(--color-primary)' : (b.getAttribute('data-filter') === 'draft' ? 'rgba(245, 158, 11, 0.12)' : 'var(--color-surface)');
+        b.style.color = active ? '#fff' : (b.getAttribute('data-filter') === 'draft' ? '#b45309' : 'var(--color-text-muted)');
+        b.style.borderColor = active ? 'var(--color-primary)' : (b.getAttribute('data-filter') === 'draft' ? 'rgba(245, 158, 11, 0.45)' : 'var(--color-border)');
+      });
+      renderAdminNewsList(window.adminNewsData || []);
+    });
+  });
+
+  document.querySelectorAll('.admin-notif-filter-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      adminNotifFilterMode = btn.getAttribute('data-filter') || 'all';
+      document.querySelectorAll('.admin-notif-filter-pill').forEach(b => {
+        const active = b === btn;
+        b.style.background = active ? 'var(--color-primary)' : (b.getAttribute('data-filter') === 'draft' ? 'rgba(245, 158, 11, 0.12)' : 'var(--color-surface)');
+        b.style.color = active ? '#fff' : (b.getAttribute('data-filter') === 'draft' ? '#b45309' : 'var(--color-text-muted)');
+        b.style.borderColor = active ? 'var(--color-primary)' : (b.getAttribute('data-filter') === 'draft' ? 'rgba(245, 158, 11, 0.45)' : 'var(--color-border)');
+      });
+      renderAdminNotifsList(window.adminNotifsData || []);
+      attachEditDeleteListeners(window.adminNewsData || [], window.adminCalendarState?.events || []);
+    });
+  });
 
   const searchInput = document.getElementById('admin-news-search');
   if (searchInput) {
@@ -54519,6 +54915,27 @@ async function renderNotificationsAdmin() {
       };
     });
 
+    document.querySelectorAll('.publish-news-btn').forEach(btn => {
+      btn.onclick = async (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        const n = newsData.find(x => x.id === id);
+        if (!n) return;
+        const realRole = window.getCommRealTargetRole(n);
+        if (!confirm(`¿Confirmas publicar "${n.title}" ahora para ${realRole === 'client' ? 'Clientes' : (realRole === 'admin' ? 'Admins' : 'Todos')}?`)) return;
+        const pubPayload = { target_role: realRole, created_at: new Date().toISOString() };
+        let res = await supabase.from('dashboard_news').update({ ...pubPayload, status: 'published' }).eq('id', id).select().maybeSingle();
+        if (res.error && (res.error.code === '42703' || res.error.code === 'PGRST204' || (res.error.message || '').includes('status'))) {
+          res = await supabase.from('dashboard_news').update(pubPayload).eq('id', id).select().maybeSingle();
+        }
+        if (res.error) { alert('Error al publicar: ' + res.error.message); return; }
+        const publishedItem = res.data || { ...n, ...pubPayload };
+        await loadAdminData();
+        if (confirm('✅ Noticia publicada en el WMS. ¿Deseas abrir ahora el envío masivo por correo (Brevo)?')) {
+          window.openSendNewsEmailModal(publishedItem);
+        }
+      };
+    });
+
     document.querySelectorAll('.send-email-news-btn').forEach(btn => {
       btn.onclick = (e) => {
         const id = e.currentTarget.getAttribute('data-id');
@@ -54540,11 +54957,12 @@ async function renderNotificationsAdmin() {
         const id = e.currentTarget.getAttribute('data-id');
         const n = newsData.find(x => x.id === id);
         if(n) {
+          const isDraft = window.isCommDraft(n);
           document.getElementById('news-id').value = n.id;
           document.getElementById('news-title').value = n.title;
           document.getElementById('news-subtitle').value = n.subtitle || '';
           document.getElementById('news-category').value = n.category || 'Actualización';
-          document.getElementById('news-target-role').value = n.target_role || 'all';
+          document.getElementById('news-target-role').value = window.getCommRealTargetRole(n);
           document.getElementById('news-is-pinned').checked = !!n.is_pinned;
           
           updateCoverPreview(n.cover_image || '');
@@ -54556,7 +54974,9 @@ async function renderNotificationsAdmin() {
             rawHtmlTextarea.value = n.body || '';
           }
 
-          document.getElementById('btn-save-news-text').textContent = 'Guardar Cambios';
+          document.getElementById('btn-save-news-text').textContent = isDraft ? 'Publicar Borrador' : 'Guardar Cambios';
+          const draftBtnTxt = document.getElementById('btn-save-news-draft-text');
+          if (draftBtnTxt) draftBtnTxt.textContent = isDraft ? 'Actualizar Borrador' : 'Pasar a Borrador';
           document.getElementById('btn-cancel-news').style.display = 'block';
           
           document.getElementById('form-create-news').scrollIntoView({ behavior: 'smooth' });
@@ -54573,11 +54993,45 @@ async function renderNotificationsAdmin() {
       };
     });
 
+    document.querySelectorAll('.publish-event-btn').forEach(btn => {
+      btn.onclick = async (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        const ev = eventsData.find(x => x.id === id);
+        if (!ev) return;
+        const realRole = window.getCommRealTargetRole(ev);
+        let res = await supabase.from('dashboard_events').update({ target_role: realRole, status: 'published' }).eq('id', id);
+        if (res.error && (res.error.code === '42703' || res.error.code === 'PGRST204' || (res.error.message || '').includes('status'))) {
+          res = await supabase.from('dashboard_events').update({ target_role: realRole }).eq('id', id);
+        }
+        if (res.error) alert('Error al publicar evento: ' + res.error.message);
+        else loadAdminData();
+      };
+    });
+
+    const publishAllDraftEventsBtn = document.getElementById('btn-publish-all-draft-events');
+    if (publishAllDraftEventsBtn) {
+      publishAllDraftEventsBtn.onclick = async () => {
+        const drafts = (eventsData || []).filter(e => window.isCommDraft(e));
+        if (drafts.length === 0) return;
+        if (!confirm(`¿Publicar los ${drafts.length} eventos en borrador en el calendario visible para todos los clientes?`)) return;
+        for (const ev of drafts) {
+          const realRole = window.getCommRealTargetRole(ev);
+          let res = await supabase.from('dashboard_events').update({ target_role: realRole, status: 'published' }).eq('id', ev.id);
+          if (res.error && (res.error.code === '42703' || res.error.code === 'PGRST204' || (res.error.message || '').includes('status'))) {
+            await supabase.from('dashboard_events').update({ target_role: realRole }).eq('id', ev.id);
+          }
+        }
+        alert(`✅ ${drafts.length} eventos publicados en el calendario.`);
+        loadAdminData();
+      };
+    }
+
     document.querySelectorAll('.edit-event-btn').forEach(btn => {
       btn.onclick = (e) => {
         const id = e.currentTarget.getAttribute('data-id');
         const ev = eventsData.find(x => x.id === id);
         if(ev) {
+          const isDraft = window.isCommDraft(ev);
           document.getElementById('event-id').value = ev.id;
           document.getElementById('event-title').value = ev.title;
           document.getElementById('event-desc').value = ev.description || '';
@@ -54587,25 +55041,147 @@ async function renderNotificationsAdmin() {
           document.getElementById('event-date').value = formattedDate;
           
           document.getElementById('event-color').value = ev.color_type;
-          document.getElementById('btn-save-event').textContent = 'Actualizar Evento';
+          document.getElementById('btn-save-event').textContent = isDraft ? 'Publicar Evento' : 'Actualizar Evento';
           document.getElementById('btn-cancel-event').style.display = 'block';
         }
       };
     });
+
+    // Banners list actions
+    document.querySelectorAll('.preview-banner-item-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        const b = (window.adminBannersData || []).find(x => x.id === e.currentTarget.getAttribute('data-id'));
+        if (b) previewBannerModal(b);
+      };
+    });
+    document.querySelectorAll('.edit-banner-item-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        const b = (window.adminBannersData || []).find(x => x.id === e.currentTarget.getAttribute('data-id'));
+        if (b) {
+          loadBannerIntoForm(b);
+          document.getElementById('form-create-banner')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      };
+    });
+    document.querySelectorAll('.toggle-banner-item-btn').forEach(btn => {
+      btn.onclick = async (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        const b = (window.adminBannersData || []).find(x => x.id === id);
+        if (!b) return;
+        const nextActive = !b.is_active;
+        if (nextActive && !confirm('¿Activar este banner ahora para los usuarios del WMS? (Se desactivarán los demás banners)')) return;
+        if (nextActive) {
+          await supabase.from('system_banners').update({ is_active: false }).neq('id', id);
+        }
+        await supabase.from('system_banners').update({ is_active: nextActive }).eq('id', id);
+        document.getElementById('banner-id').value = '';
+        loadAdminData();
+      };
+    });
+    document.querySelectorAll('.delete-banner-item-btn').forEach(btn => {
+      btn.onclick = async (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        if (confirm('¿Eliminar este banner?')) {
+          await supabase.from('system_banners').delete().eq('id', id);
+          if (document.getElementById('banner-id').value === id) document.getElementById('banner-id').value = '';
+          loadAdminData();
+        }
+      };
+    });
+
+    // Popups list actions
+    document.querySelectorAll('.edit-popup-item-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        const p = (window.adminPopupsData || []).find(x => x.id === e.currentTarget.getAttribute('data-id'));
+        if (p) loadPopupIntoForm(p);
+      };
+    });
+    document.querySelectorAll('.toggle-popup-item-btn').forEach(btn => {
+      btn.onclick = async (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        const p = (window.adminPopupsData || []).find(x => x.id === id);
+        if (!p) return;
+        const nextActive = !p.is_active;
+        if (nextActive && !confirm('¿Activar este pop-up ahora al inicio de sesión?')) return;
+        if (nextActive) {
+          await supabase.from('system_popups').update({ is_active: false }).neq('id', id);
+        }
+        await supabase.from('system_popups').update({ is_active: nextActive }).eq('id', id);
+        document.getElementById('popup-id').value = '';
+        loadAdminData();
+      };
+    });
+    document.querySelectorAll('.delete-popup-item-btn').forEach(btn => {
+      btn.onclick = async (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        if (confirm('¿Eliminar este pop-up?')) {
+          await supabase.from('system_popups').delete().eq('id', id);
+          if (document.getElementById('popup-id').value === id) document.getElementById('popup-id').value = '';
+          loadAdminData();
+        }
+      };
+    });
+
+    // Notifications (Inbox) actions
+    document.querySelectorAll('.edit-notif-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        const n = (window.adminNotifsData || []).find(x => x.id === id);
+        if (!n) return;
+        const realRole = window.getCommRealTargetRole(n);
+        const draftUid = window.getCommDraftUserId(n);
+        document.getElementById('notif-id').value = n.id;
+        document.getElementById('notif-title').value = n.title || '';
+        document.getElementById('notif-message').value = n.message || '';
+        document.getElementById('notif-target').value = realRole;
+        const indBox = document.getElementById('notif-individual-container');
+        if (indBox) indBox.style.display = realRole === 'individual' ? 'block' : 'none';
+        if (draftUid && document.getElementById('notif-user-id')) {
+          document.getElementById('notif-user-id').value = draftUid;
+        }
+        const cancelNotifBtn = document.getElementById('btn-cancel-notif');
+        if (cancelNotifBtn) cancelNotifBtn.style.display = 'block';
+        document.getElementById('form-create-notification')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      };
+    });
+
+    document.querySelectorAll('.publish-notif-btn').forEach(btn => {
+      btn.onclick = async (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        const n = (window.adminNotifsData || []).find(x => x.id === id);
+        if (!n) return;
+        const realRole = window.getCommRealTargetRole(n);
+        const targetUid = realRole === 'individual' ? window.getCommDraftUserId(n) : null;
+        if (!confirm(`¿Enviar ahora esta notificación al Inbox de ${realRole === 'client' ? 'Clientes' : (realRole === 'all' ? 'Todos' : realRole)}?`)) return;
+        const pubPayload = {
+          target_role: realRole,
+          user_id: targetUid,
+          created_at: new Date().toISOString()
+        };
+        let res = await supabase.from('dashboard_notifications').update({ ...pubPayload, status: 'published' }).eq('id', id);
+        if (res.error && (res.error.code === '42703' || res.error.code === 'PGRST204' || (res.error.message || '').includes('status'))) {
+          res = await supabase.from('dashboard_notifications').update(pubPayload).eq('id', id);
+        }
+        if (res.error) { alert('Error al enviar notificación: ' + res.error.message); return; }
+        alert('✅ Notificación enviada al Inbox.');
+        loadAdminData();
+      };
+    });
     
     document.querySelectorAll('.delete-notif-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
+      btn.onclick = async (e) => {
         if(confirm('¿Eliminar esta notificación?')) {
           await supabase.from('dashboard_notifications').delete().eq('id', e.currentTarget.getAttribute('data-id'));
           loadAdminData();
         }
-      });
+      };
     });
   }
 
   function renderAdminEventsListUI(events, selectedDateStr) {
     let filteredEvents = events;
     let title = 'Todos los Eventos (Admin)';
+    const draftEventsCount = (events || []).filter(e => window.isCommDraft(e)).length;
 
     if (selectedDateStr) {
       filteredEvents = events.filter(e => e.event_date.startsWith(selectedDateStr));
@@ -54613,10 +55189,15 @@ async function renderNotificationsAdmin() {
       title = `Eventos del ${d}/${m}/${y}`;
     }
 
+    const headerActionsHtml = draftEventsCount > 0
+      ? `<button type="button" id="btn-publish-all-draft-events" class="btn btn-sm" style="background:#10b981;color:#fff;border:none;padding:0.25rem 0.6rem;font-size:0.72rem;font-weight:700;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:0.25rem;" title="Publicar todos los eventos en borrador"><i class="ri-send-plane-fill"></i> Publicar borradores (${draftEventsCount})</button>`
+      : '';
+
     if (filteredEvents.length === 0) {
       return `
-        <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); background-color: var(--color-surface); border-radius: 0 var(--radius-md) 0 0;">
+        <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); background-color: var(--color-surface); border-radius: 0 var(--radius-md) 0 0; display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap;">
           <h4 style="margin: 0; font-size: 0.9rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;"><i class="ri-list-check" style="color: var(--color-primary);"></i> ${title}</h4>
+          ${headerActionsHtml}
         </div>
         <div style="padding: 3rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem;">
           <i class="ri-calendar-check-line" style="font-size: 3rem; display: block; margin-bottom: 1rem; opacity: 0.3; color: var(--color-text-muted);"></i>
@@ -54624,33 +55205,44 @@ async function renderNotificationsAdmin() {
         </div>`;
     }
 
-    const listHtml = filteredEvents.map(e => {
+    const sortedEvents = [...filteredEvents].sort((a, b) => {
+      const aD = window.isCommDraft(a) ? 0 : 1;
+      const bD = window.isCommDraft(b) ? 0 : 1;
+      if (aD !== bD) return aD - bD;
+      return new Date(b.event_date) - new Date(a.event_date);
+    });
+
+    const listHtml = sortedEvents.map(e => {
+      const isDraft = window.isCommDraft(e);
       const d = new Date(e.event_date);
       const timeStr = d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
       let colorClass = e.color_type || 'primary';
       if (colorClass === 'info') colorClass = 'primary';
       
       return `
-        <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: flex-start; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="this.style.backgroundColor='transparent'">
+        <div style="padding: 0.9rem 1rem; border-bottom: 1px solid var(--color-border); background: ${isDraft ? 'rgba(245, 158, 11, 0.06)' : 'transparent'}; display: flex; justify-content: space-between; align-items: flex-start; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='${isDraft ? 'rgba(245, 158, 11, 0.12)' : 'var(--color-surface-hover)'}'" onmouseout="this.style.backgroundColor='${isDraft ? 'rgba(245, 158, 11, 0.06)' : 'transparent'}'">
           <div style="flex: 1;">
-            <div style="font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);">
+            <div style="font-weight: 700; font-size: 0.92rem; display: flex; align-items: center; gap: 0.45rem; color: var(--color-text-main); flex-wrap: wrap;">
               <span style="width: 8px; height: 8px; border-radius: 50%; background-color: var(--color-${colorClass}); display: inline-block;"></span>
-              ${e.title}
+              ${isDraft ? '<span style="font-size:0.62rem;background:#f59e0b;color:#fff;padding:1px 6px;border-radius:999px;font-weight:800;">BORRADOR</span>' : ''}
+              <span>${e.title}</span>
             </div>
-            <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.25rem;"><i class="ri-time-line"></i> ${timeStr} - ${d.toLocaleDateString('es')}</div>
-            <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.4;">${e.description || 'Sin descripción'}</p>
+            <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.25rem;"><i class="ri-time-line"></i> ${d.toLocaleDateString('es-CL')} · ${timeStr}</div>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.82rem; color: var(--color-text-muted); line-height: 1.4;">${e.description || 'Sin descripción'}</p>
           </div>
-          <div style="display: flex; gap: 0.5rem; margin-left: 1rem;">
-            <button class="btn btn-outline edit-event-btn" data-id="${e.id}" style="padding: 0.25rem 0.5rem; border-color: var(--color-border);"><i class="ri-edit-line"></i></button>
-            <button class="btn btn-outline delete-event-btn" data-id="${e.id}" style="padding: 0.25rem 0.5rem; color: var(--color-danger); border-color: var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
+          <div style="display: flex; gap: 0.35rem; margin-left: 0.75rem; flex-shrink: 0;">
+            ${isDraft ? `<button class="btn btn-sm publish-event-btn" data-id="${e.id}" title="Publicar evento" style="padding: 0.25rem 0.5rem; background: #10b981; color: #fff; border: none; font-size: 0.75rem; font-weight: 700; cursor: pointer;"><i class="ri-send-plane-fill"></i></button>` : ''}
+            <button class="btn btn-outline edit-event-btn" data-id="${e.id}" style="padding: 0.25rem 0.45rem; border-color: var(--color-border);"><i class="ri-edit-line"></i></button>
+            <button class="btn btn-outline delete-event-btn" data-id="${e.id}" style="padding: 0.25rem 0.45rem; color: var(--color-danger); border-color: var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
           </div>
         </div>
       `;
     }).join('');
 
     return `
-      <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); background-color: var(--color-surface); border-radius: 0 var(--radius-md) 0 0;">
+      <div style="padding: 0.9rem 1rem; border-bottom: 1px solid var(--color-border); background-color: var(--color-surface); border-radius: 0 var(--radius-md) 0 0; display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap;">
         <h4 style="margin: 0; font-size: 0.9rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;"><i class="ri-list-check" style="color: var(--color-primary);"></i> ${title}</h4>
+        ${headerActionsHtml}
       </div>
       <div style="max-height: 380px; overflow-y: auto;">
         ${listHtml}
@@ -54707,23 +55299,61 @@ async function renderNotificationsAdmin() {
     if (quillInstance) quillInstance.root.innerHTML = '';
     if (rawHtmlTextarea) rawHtmlTextarea.value = '';
     document.getElementById('btn-save-news-text').textContent = 'Publicar Noticia';
+    const draftBtnTxt = document.getElementById('btn-save-news-draft-text');
+    if (draftBtnTxt) draftBtnTxt.textContent = 'Guardar Borrador';
     document.getElementById('btn-cancel-news').style.display = 'none';
   });
   
   document.getElementById('btn-cancel-event').addEventListener('click', () => {
     document.getElementById('form-create-event').reset();
     document.getElementById('event-id').value = '';
-    document.getElementById('btn-save-event').textContent = 'Agendar Evento';
+    document.getElementById('btn-save-event').textContent = 'Publicar Evento';
     document.getElementById('btn-cancel-event').style.display = 'none';
   });
 
+  const btnCancelNotif = document.getElementById('btn-cancel-notif');
+  if (btnCancelNotif) {
+    btnCancelNotif.addEventListener('click', () => {
+      document.getElementById('form-create-notification').reset();
+      document.getElementById('notif-id').value = '';
+      document.getElementById('notif-individual-container').style.display = 'none';
+      btnCancelNotif.style.display = 'none';
+    });
+  }
+
+  const btnNewBannerDraft = document.getElementById('btn-new-banner-draft');
+  if (btnNewBannerDraft) {
+    btnNewBannerDraft.addEventListener('click', () => {
+      document.getElementById('form-create-banner').reset();
+      document.getElementById('banner-id').value = '';
+      document.getElementById('banner-active').checked = false;
+      const lblBox = document.getElementById('banner-link-label-container');
+      if (lblBox) lblBox.style.display = 'none';
+      document.getElementById('banner-content')?.focus();
+    });
+  }
+
+  const btnNewPopupDraft = document.getElementById('btn-new-popup-draft');
+  if (btnNewPopupDraft) {
+    btnNewPopupDraft.addEventListener('click', () => {
+      document.getElementById('form-create-popup').reset();
+      document.getElementById('popup-id').value = '';
+      document.getElementById('popup-active').checked = false;
+      document.getElementById('popup-title')?.focus();
+    });
+  }
+
   loadAdminData();
 
-  document.getElementById('form-create-news').addEventListener('submit', async (e) => {
-    e.preventDefault();
+  async function saveNewsRecord(asDraft = false) {
     try {
       const id = document.getElementById('news-id').value;
-      const shouldSendEmail = document.getElementById('news-notify-email')?.checked;
+      const titleVal = document.getElementById('news-title').value.trim();
+      if (!titleVal) {
+        alert('Por favor ingresa un título para la noticia.');
+        return;
+      }
+      const shouldSendEmail = !asDraft && document.getElementById('news-notify-email')?.checked;
 
       let bodyContent = '';
       if (isHtmlMode) {
@@ -54737,57 +55367,54 @@ async function renderNotificationsAdmin() {
         return;
       }
 
-      const payload = {
-        title: document.getElementById('news-title').value.trim(),
+      const realTargetRole = document.getElementById('news-target-role').value || 'all';
+      const existingObj = id ? (window.adminNewsData || []).find(x => x.id === id) : null;
+      const wasDraft = existingObj ? window.isCommDraft(existingObj) : false;
+
+      const basePayload = {
+        title: titleVal,
         subtitle: document.getElementById('news-subtitle').value.trim() || null,
         body: bodyContent,
         cover_image: coverUrlInput.value.trim() || null,
         category: document.getElementById('news-category').value,
         is_pinned: document.getElementById('news-is-pinned').checked,
-        target_role: document.getElementById('news-target-role').value
+        target_role: asDraft ? window.encodeDraftTargetRole(realTargetRole) : realTargetRole
+      };
+      if (!asDraft && wasDraft) {
+        basePayload.created_at = new Date().toISOString();
+      }
+      const payloadWithStatus = { ...basePayload, status: asDraft ? 'draft' : 'published' };
+
+      const runNewsMutation = async (pl) => {
+        if (id) {
+          return supabase.from('dashboard_news').update(pl).eq('id', id).select().maybeSingle();
+        }
+        const { data: { user } } = await supabase.auth.getUser();
+        const ins = user ? { ...pl, created_by: user.id } : pl;
+        return supabase.from('dashboard_news').insert([ins]).select().maybeSingle();
       };
 
-      let savedNewsItem = null;
-
-      if (id) {
-        let res = await supabase.from('dashboard_news').update(payload).eq('id', id).select().maybeSingle();
-        if (res.error && (res.error.message.includes('category') || res.error.message.includes('cover_image') || res.error.message.includes('is_pinned') || res.error.code === 'PGRST204')) {
-          console.warn('Fallback: DB dashboard_news table missing new columns. Saving base fields.');
-          const fallbackPayload = {
-            title: payload.title,
-            subtitle: payload.subtitle,
-            body: payload.body,
-            target_role: payload.target_role
-          };
-          res = await supabase.from('dashboard_news').update(fallbackPayload).eq('id', id).select().maybeSingle();
-        }
-        if (res.error) throw res.error;
-        savedNewsItem = res.data ? { ...payload, ...res.data } : { id, ...payload };
-        alert('Noticia actualizada exitosamente');
-      } else {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) payload.created_by = user.id;
-        let res = await supabase.from('dashboard_news').insert([payload]).select().maybeSingle();
-        if (res.error && (res.error.message.includes('category') || res.error.message.includes('cover_image') || res.error.message.includes('is_pinned') || res.error.code === 'PGRST204')) {
-          console.warn('Fallback: DB dashboard_news table missing new columns. Saving base fields.');
-          const fallbackPayload = {
-            title: payload.title,
-            subtitle: payload.subtitle,
-            body: payload.body,
-            target_role: payload.target_role
-          };
-          if (user) fallbackPayload.created_by = user.id;
-          res = await supabase.from('dashboard_news').insert([fallbackPayload]).select().maybeSingle();
-        }
-        if (res.error) throw res.error;
-        savedNewsItem = res.data ? { ...payload, ...res.data } : payload;
-        alert('Noticia publicada exitosamente');
+      let res = await runNewsMutation(payloadWithStatus);
+      if (res.error && (res.error.code === '42703' || res.error.code === 'PGRST204' || (res.error.message || '').includes('status'))) {
+        res = await runNewsMutation(basePayload);
       }
-      
+      if (res.error && ((res.error.message || '').includes('category') || (res.error.message || '').includes('cover_image') || (res.error.message || '').includes('is_pinned') || res.error.code === 'PGRST204')) {
+        const fallbackPayload = {
+          title: basePayload.title,
+          subtitle: basePayload.subtitle,
+          body: basePayload.body,
+          target_role: basePayload.target_role
+        };
+        res = await runNewsMutation(fallbackPayload);
+      }
+      if (res.error) throw res.error;
+
+      const savedNewsItem = res.data ? { ...basePayload, ...res.data } : { id, ...basePayload };
+      alert(asDraft ? '📝 Borrador de noticia guardado (oculto para clientes).' : (id && !wasDraft ? 'Noticia actualizada exitosamente' : '✅ Noticia publicada exitosamente'));
+
       document.getElementById('btn-cancel-news').click();
       loadAdminData();
 
-      // If user selected to send email broadcast immediately upon publication
       if (shouldSendEmail && savedNewsItem) {
         window.openSendNewsEmailModal(savedNewsItem);
       }
@@ -54795,33 +55422,59 @@ async function renderNotificationsAdmin() {
       console.error(err); 
       alert('Error al guardar noticia: ' + err.message); 
     }
+  }
+
+  document.getElementById('form-create-news').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await saveNewsRecord(false);
   });
+  document.getElementById('btn-save-news-draft')?.addEventListener('click', async () => {
+    await saveNewsRecord(true);
+  });
+
+  async function saveEventRecord(asDraft = false) {
+    try {
+      const id = document.getElementById('event-id').value;
+      const titleVal = document.getElementById('event-title').value.trim();
+      const dateVal = document.getElementById('event-date').value;
+      if (!titleVal || !dateVal) {
+        alert('Por favor completa el título y la fecha del evento.');
+        return;
+      }
+      const basePayload = {
+        title: titleVal,
+        description: document.getElementById('event-desc').value,
+        event_date: new Date(dateVal).toISOString(),
+        color_type: document.getElementById('event-color').value,
+        target_role: asDraft ? 'draft:all' : 'all'
+      };
+      const payloadWithStatus = { ...basePayload, status: asDraft ? 'draft' : 'published' };
+
+      const runEventMutation = async (pl) => {
+        if (id) return supabase.from('dashboard_events').update(pl).eq('id', id);
+        const { data: { user } } = await supabase.auth.getUser();
+        const ins = user ? { ...pl, created_by: user.id } : pl;
+        return supabase.from('dashboard_events').insert([ins]);
+      };
+
+      let res = await runEventMutation(payloadWithStatus);
+      if (res.error && (res.error.code === '42703' || res.error.code === 'PGRST204' || (res.error.message || '').includes('status'))) {
+        res = await runEventMutation(basePayload);
+      }
+      if (res.error) throw res.error;
+
+      alert(asDraft ? '📝 Borrador de evento guardado (oculto para clientes).' : (id ? 'Evento actualizado/publicado exitosamente' : '✅ Evento publicado en el calendario'));
+      document.getElementById('btn-cancel-event').click();
+      loadAdminData();
+    } catch(err) { console.error(err); alert('Error al guardar evento: ' + err.message); }
+  }
 
   document.getElementById('form-create-event').addEventListener('submit', async (e) => {
     e.preventDefault();
-    try {
-      const id = document.getElementById('event-id').value;
-      const payload = {
-        title: document.getElementById('event-title').value,
-        description: document.getElementById('event-desc').value,
-        event_date: new Date(document.getElementById('event-date').value).toISOString(),
-        color_type: document.getElementById('event-color').value,
-        target_role: 'all'
-      };
-
-      if (id) {
-        await supabase.from('dashboard_events').update(payload).eq('id', id);
-        alert('Evento actualizado exitosamente');
-      } else {
-        const { data: { user } } = await supabase.auth.getUser();
-        payload.created_by = user.id;
-        await supabase.from('dashboard_events').insert([payload]);
-        alert('Evento agendado exitosamente');
-      }
-
-      document.getElementById('btn-cancel-event').click();
-      loadAdminData();
-    } catch(err) { console.error(err); alert('Error al guardar evento'); }
+    await saveEventRecord(false);
+  });
+  document.getElementById('btn-save-event-draft')?.addEventListener('click', async () => {
+    await saveEventRecord(true);
   });
 
   setTimeout(() => {
@@ -54850,76 +55503,142 @@ async function renderNotificationsAdmin() {
           bgInput.value = '#ef4444';
           textInput.value = '#ffffff';
           colorsContainer.style.display = 'none';
+        } else if (preset === 'blackfriday') {
+          bgInput.value = '#5D11A9';
+          textInput.value = '#ffffff';
+          colorsContainer.style.display = 'none';
+          const logoSel = document.getElementById('banner-logo-url');
+          if (logoSel && !logoSel.value) logoSel.value = '/img/blackfriday_chile_badge.png';
         } else {
           colorsContainer.style.display = 'grid';
         }
       };
       bannerPresetSelect.addEventListener('change', updateBannerColorsUI);
-      // Run once on load
       updateBannerColorsUI();
+    }
+
+    const bannerLinkNewsSelect = document.getElementById('banner-link-news-id');
+    const bannerLinkLabelContainer = document.getElementById('banner-link-label-container');
+    if (bannerLinkNewsSelect && bannerLinkLabelContainer) {
+      bannerLinkNewsSelect.addEventListener('change', () => {
+        bannerLinkLabelContainer.style.display = bannerLinkNewsSelect.value ? 'block' : 'none';
+      });
     }
   }, 100);
 
-  document.getElementById('form-create-banner').addEventListener('submit', async (e) => {
-    e.preventDefault();
+  async function saveBannerRecord(forceDraft = false) {
     try {
+      const cleanContentVal = (document.getElementById('banner-content').value || '')
+        .replace(/\s*<!--banner_logo:([^>]+)-->\s*/g, ' ')
+        .replace(/\s*<!--news_link:([^|>]+)(?:\|([^>]*))?-->\s*/g, ' ')
+        .trim();
+      if (!cleanContentVal) {
+        alert('Por favor ingresa el texto del aviso para el banner.');
+        return;
+      }
+      const selectedLogoUrl = (document.getElementById('banner-logo-url')?.value || '').trim();
+      const selectedNewsId = (document.getElementById('banner-link-news-id')?.value || '').trim();
+      const linkLabelVal = (document.getElementById('banner-link-label')?.value || 'Ver detalle completo').trim() || 'Ver detalle completo';
+      const isActiveVal = forceDraft ? false : document.getElementById('banner-active').checked;
+
       const payload = {
-        content: document.getElementById('banner-content').value,
+        content: cleanContentVal,
         bg_color: document.getElementById('banner-bg').value,
         text_color: document.getElementById('banner-text').value,
-        is_active: document.getElementById('banner-active').checked,
+        is_active: isActiveVal,
         style_preset: document.getElementById('banner-preset').value,
         icon: document.getElementById('banner-icon').value,
         target_role: document.getElementById('banner-target').value,
-        is_dismissible: document.getElementById('banner-dismissible').checked
+        is_dismissible: document.getElementById('banner-dismissible').checked,
+        logo_url: selectedLogoUrl || null,
+        link_news_id: selectedNewsId || null,
+        link_label: selectedNewsId ? linkLabelVal : null
       };
       
       const existingId = document.getElementById('banner-id').value;
       let res;
       try {
         if (existingId) {
-          res = await supabase.from('system_banners').update(payload).eq('id', existingId);
+          res = await supabase.from('system_banners').update(payload).eq('id', existingId).select().maybeSingle();
         } else {
-          res = await supabase.from('system_banners').insert([payload]);
+          res = await supabase.from('system_banners').insert([payload]).select().maybeSingle();
         }
         if (res.error) throw res.error;
       } catch (err) {
-        if (err.code === '42703' || (err.message && (err.message.includes('column') || err.message.includes('relation')))) {
-          console.warn("Nuevas columnas de banners no detectadas. Usando guardado básico...", err);
-          alert("Aviso: Las nuevas configuraciones (preset, icono, destinatarios y botón de cerrar) se omitirán porque no has ejecutado el script SQL de migración en Supabase. Se guardarán los datos básicos.");
-          const basicPayload = {
-            content: payload.content,
+        if (err.code === '42703' || err.code === 'PGRST204' || (err.message && (err.message.includes('column') || err.message.includes('relation') || err.message.includes('link_news_id') || err.message.includes('link_label') || err.message.includes('logo_url')))) {
+          const metaParts = [];
+          if (selectedLogoUrl) metaParts.push(`<!--banner_logo:${selectedLogoUrl.replace(/>/g, '')}-->`);
+          if (selectedNewsId) metaParts.push(`<!--news_link:${selectedNewsId}|${linkLabelVal.replace(/[|>]/g, '')}-->`);
+          const contentWithMeta = metaParts.length > 0 ? `${cleanContentVal} ${metaParts.join(' ')}` : cleanContentVal;
+          const compatPayload = {
+            content: contentWithMeta,
             bg_color: payload.bg_color,
             text_color: payload.text_color,
-            is_active: payload.is_active
+            is_active: payload.is_active,
+            style_preset: payload.style_preset,
+            icon: payload.icon,
+            target_role: payload.target_role,
+            is_dismissible: payload.is_dismissible
           };
           if (existingId) {
-            res = await supabase.from('system_banners').update(basicPayload).eq('id', existingId);
+            res = await supabase.from('system_banners').update(compatPayload).eq('id', existingId).select().maybeSingle();
           } else {
-            res = await supabase.from('system_banners').insert([basicPayload]);
+            res = await supabase.from('system_banners').insert([compatPayload]).select().maybeSingle();
           }
-          if (res.error) throw res.error;
+          if (res.error) {
+            const basicPayload = {
+              content: contentWithMeta,
+              bg_color: payload.bg_color,
+              text_color: payload.text_color,
+              is_active: payload.is_active
+            };
+            if (existingId) {
+              res = await supabase.from('system_banners').update(basicPayload).eq('id', existingId).select().maybeSingle();
+            } else {
+              res = await supabase.from('system_banners').insert([basicPayload]).select().maybeSingle();
+            }
+            if (res.error) throw res.error;
+          }
         } else {
           throw err;
         }
       }
-      
-      if (payload.is_active && existingId) {
-         await supabase.from('system_banners').update({is_active: false}).neq('id', existingId);
+
+      const savedId = res.data?.id || existingId;
+      if (isActiveVal && savedId) {
+        await supabase.from('system_banners').update({ is_active: false }).neq('id', savedId);
+      }
+      if (forceDraft) {
+        document.getElementById('banner-active').checked = false;
       }
 
-      alert('Barra superior guardada');
+      alert(forceDraft || !isActiveVal ? '📝 Banner guardado en borrador (inactivo).' : '✅ Barra superior guardada y activada.');
+      document.getElementById('banner-id').value = savedId || '';
       loadAdminData();
-    } catch(err) { console.error(err); alert('Error al guardar banner'); }
+    } catch(err) { console.error(err); alert('Error al guardar banner: ' + err.message); }
+  }
+
+  document.getElementById('form-create-banner').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await saveBannerRecord(false);
+  });
+  document.getElementById('btn-save-banner-draft')?.addEventListener('click', async () => {
+    await saveBannerRecord(true);
   });
 
-  document.getElementById('form-create-popup').addEventListener('submit', async (e) => {
-    e.preventDefault();
+  async function savePopupRecord(forceDraft = false) {
     try {
+      const titleVal = document.getElementById('popup-title').value.trim();
+      const contentVal = document.getElementById('popup-content').value.trim();
+      if (!titleVal || !contentVal) {
+        alert('Por favor completa el título y el contenido del pop-up.');
+        return;
+      }
+      const isActiveVal = forceDraft ? false : document.getElementById('popup-active').checked;
       const payload = {
-        title: document.getElementById('popup-title').value,
-        content: document.getElementById('popup-content').value,
-        is_active: document.getElementById('popup-active').checked,
+        title: titleVal,
+        content: contentVal,
+        is_active: isActiveVal,
         style_preset: document.getElementById('popup-preset').value,
         icon: document.getElementById('popup-icon').value,
         target_role: document.getElementById('popup-target').value,
@@ -54930,24 +55649,18 @@ async function renderNotificationsAdmin() {
       let res;
       try {
         if (existingId) {
-          res = await supabase.from('system_popups').update(payload).eq('id', existingId);
+          res = await supabase.from('system_popups').update(payload).eq('id', existingId).select().maybeSingle();
         } else {
-          res = await supabase.from('system_popups').insert([payload]);
+          res = await supabase.from('system_popups').insert([payload]).select().maybeSingle();
         }
         if (res.error) throw res.error;
       } catch (err) {
         if (err.code === '42703' || (err.message && (err.message.includes('column') || err.message.includes('relation')))) {
-          console.warn("Nuevas columnas de popups no detectadas. Usando guardado básico...", err);
-          alert("Aviso: Las nuevas configuraciones (preset, icono, destinatarios y botón de cerrar) se omitirán porque no has ejecutado el script SQL de migración en Supabase. Se guardarán los datos básicos.");
-          const basicPayload = {
-            title: payload.title,
-            content: payload.content,
-            is_active: payload.is_active
-          };
+          const basicPayload = { title: payload.title, content: payload.content, is_active: payload.is_active };
           if (existingId) {
-            res = await supabase.from('system_popups').update(basicPayload).eq('id', existingId);
+            res = await supabase.from('system_popups').update(basicPayload).eq('id', existingId).select().maybeSingle();
           } else {
-            res = await supabase.from('system_popups').insert([basicPayload]);
+            res = await supabase.from('system_popups').insert([basicPayload]).select().maybeSingle();
           }
           if (res.error) throw res.error;
         } else {
@@ -54955,18 +55668,29 @@ async function renderNotificationsAdmin() {
         }
       }
       
-      if (payload.is_active && existingId) {
-         await supabase.from('system_popups').update({is_active: false}).neq('id', existingId);
+      const savedId = res.data?.id || existingId;
+      if (isActiveVal && savedId) {
+        await supabase.from('system_popups').update({ is_active: false }).neq('id', savedId);
       }
+      if (forceDraft) document.getElementById('popup-active').checked = false;
 
-      alert('Pop-up guardado');
+      alert(forceDraft || !isActiveVal ? '📝 Pop-up guardado en borrador (inactivo).' : '✅ Pop-up guardado y activado.');
+      document.getElementById('popup-id').value = savedId || '';
       loadAdminData();
-    } catch(err) { console.error(err); alert('Error al guardar pop-up'); }
+    } catch(err) { console.error(err); alert('Error al guardar pop-up: ' + err.message); }
+  }
+
+  document.getElementById('form-create-popup').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await savePopupRecord(false);
+  });
+  document.getElementById('btn-save-popup-draft')?.addEventListener('click', async () => {
+    await savePopupRecord(true);
   });
 
-  document.getElementById('form-create-notification').addEventListener('submit', async (e) => {
-    e.preventDefault();
+  async function saveNotifRecord(asDraft = false) {
     try {
+      const id = document.getElementById('notif-id')?.value || '';
       const target = document.getElementById('notif-target').value;
       let userId = null;
       if (target === 'individual') {
@@ -54977,17 +55701,51 @@ async function renderNotificationsAdmin() {
         }
       }
 
-      await supabase.from('dashboard_notifications').insert([{
-        title: document.getElementById('notif-title').value,
-        message: document.getElementById('notif-message').value,
-        target_role: target,
-        user_id: userId
-      }]);
-      alert('Notificación de Inbox enviada exitosamente');
-      e.target.reset();
+      const notifTitle = document.getElementById('notif-title').value.trim();
+      const notifMessage = document.getElementById('notif-message').value.trim();
+      if (!notifTitle || !notifMessage) {
+        alert('Por favor completa el título y el mensaje de la notificación.');
+        return;
+      }
+
+      // Para borradores: user_id = null y target_role = 'draft:...' para garantizar aislamiento total por RLS
+      const basePayload = {
+        title: notifTitle,
+        message: notifMessage,
+        target_role: asDraft ? window.encodeDraftTargetRole(target, userId) : target,
+        user_id: asDraft ? null : userId
+      };
+      if (!asDraft && id) {
+        basePayload.created_at = new Date().toISOString();
+      }
+      const payloadWithStatus = { ...basePayload, status: asDraft ? 'draft' : 'published' };
+
+      const runNotifMutation = async (pl) => {
+        if (id) return supabase.from('dashboard_notifications').update(pl).eq('id', id);
+        return supabase.from('dashboard_notifications').insert([pl]);
+      };
+
+      let res = await runNotifMutation(payloadWithStatus);
+      if (res.error && (res.error.code === '42703' || res.error.code === 'PGRST204' || (res.error.message || '').includes('status'))) {
+        res = await runNotifMutation(basePayload);
+      }
+      if (res.error) throw res.error;
+
+      alert(asDraft ? '📝 Borrador de notificación guardado (no enviado aún).' : '✅ Notificación de Inbox enviada exitosamente');
+      document.getElementById('form-create-notification').reset();
+      if (document.getElementById('notif-id')) document.getElementById('notif-id').value = '';
       document.getElementById('notif-individual-container').style.display = 'none';
+      if (btnCancelNotif) btnCancelNotif.style.display = 'none';
       loadAdminData();
-    } catch(err) { console.error(err); alert('Error al enviar notificación'); }
+    } catch(err) { console.error(err); alert('Error al guardar notificación: ' + err.message); }
+  }
+
+  document.getElementById('form-create-notification').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await saveNotifRecord(false);
+  });
+  document.getElementById('btn-save-notif-draft')?.addEventListener('click', async () => {
+    await saveNotifRecord(true);
   });
 
   // =========================================================================

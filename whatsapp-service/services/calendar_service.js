@@ -96,7 +96,12 @@ async function getCalendarEvents(forceReload = false) {
       return [];
     }
 
-    cachedEvents = data || [];
+    cachedEvents = (data || []).filter(ev => {
+      if (!ev) return false;
+      if (ev.status === 'draft') return false;
+      if (typeof ev.target_role === 'string' && ev.target_role.startsWith('draft:')) return false;
+      return true;
+    });
     lastCacheFetch = now;
     return cachedEvents;
   } catch (err) {

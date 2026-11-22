@@ -94,6 +94,13 @@ window.escapeHtml = function(str) {
     .replace(/'/g, '&#39;');
 };
 
+window.isCommDraft = function(row) {
+  if (!row) return false;
+  if (row.status === 'draft') return true;
+  if (typeof row.target_role === 'string' && row.target_role.startsWith('draft:')) return true;
+  return false;
+};
+
 window.escapeHtmlAttr = function(str) {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -2277,6 +2284,7 @@ async function initNotifications(userId) {
       if (error) throw error;
 
       const filteredData = data ? data.filter(n => {
+        if (window.isCommDraft && window.isCommDraft(n)) return false;
         return (rolesToMatch.includes(n.target_role) && !n.user_id) || n.user_id === currentMerchantId;
       }) : [];
 
@@ -3054,8 +3062,8 @@ async function renderDashboard() {
         periodsData: periodsRes?.data || [],
         mappingsData: mappingsRes?.data || [],
         billingRecords: allBillingRecords,
-        newsData: newsRes?.data || [],
-        eventsData: eventsRes?.data || [],
+        newsData: (newsRes?.data || []).filter(n => !(window.isCommDraft && window.isCommDraft(n))),
+        eventsData: (eventsRes?.data || []).filter(ev => !(window.isCommDraft && window.isCommDraft(ev))),
         warehousesData: warehousesRes?.data || [],
         volHistoryData: volHistoryRes?.data || []
       };
@@ -5693,7 +5701,7 @@ window.updateCalendarView_app = async function(preloadedEvents) {
     
   if (window.currentActiveView && window.currentActiveView !== 'dashboard') return;
 
-  window.appCalendarState.events = events || [];
+  window.appCalendarState.events = (events || []).filter(ev => !(window.isCommDraft && window.isCommDraft(ev)));
   
   const gridContainer = document.getElementById('calendar-grid-container');
   const listContainer = document.getElementById('calendar-list-container');
@@ -31916,78 +31924,123 @@ window.checkSystemCommunications = async function(userId) {
     
     // 1. Fetch active Banner
     const { data: banners } = await supabase.from('system_banners').select('*').eq('is_active', true).order('created_at', { ascending: false });
-    if (banners && banners.length > 0) {
-      // Find latest banner matching role
-      const banner = banners.find(b => {
-        const target = b.target_role || 'all';
-        return target === 'all' || target === roleToUse;
-      });
+    const banner = (banners && banners.length > 0)
+      ? banners.find(b => {
+          const target = b.target_role || 'all';
+          return target === 'all' || target === roleToUse;
+        })
+      : null;
 
-      if (banner) {
-        const isDismissible = banner.is_dismissible !== false; // default true
-        let shouldShow = false;
+    if (banner) {
+      const isDismissible = banner.is_dismissible !== false; // default true
+      let shouldShow = false;
+      
+      if (!isDismissible) {
+        shouldShow = true; // permanent banner, always show
+      } else {
+        // Check if already dismissed
+        const { data: readBanner } = await supabase.from('user_notification_reads').select('id').eq('user_id', userId).eq('entity_type', 'banner').eq('entity_id', banner.id);
+        if (!readBanner || readBanner.length === 0) {
+          shouldShow = true;
+        }
+      }
+
+      if (shouldShow) {
+        const preset = banner.style_preset || 'info';
+        const iconClass = banner.icon || 'ri-information-fill';
         
-        if (!isDismissible) {
-          shouldShow = true; // permanent banner, always show
-        } else {
-          // Check if already dismissed
-          const { data: readBanner } = await supabase.from('user_notification_reads').select('id').eq('user_id', userId).eq('entity_type', 'banner').eq('entity_id', banner.id);
-          if (!readBanner || readBanner.length === 0) {
-            shouldShow = true;
-          }
+        let bgStyle = `background-color: ${banner.bg_color || '#2563eb'};`;
+        let textColor = banner.text_color || '#ffffff';
+        let borderStyle = 'border: 1px solid rgba(0,0,0,0.05);';
+        let shadowStyle = 'box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);';
+        let isBlackFridayTheme = preset === 'blackfriday';
+        
+        // Presets overrides if preset is not custom
+        if (preset === 'info') {
+          bgStyle = 'background-color: #2563eb;';
+          textColor = '#ffffff';
+        } else if (preset === 'success') {
+          bgStyle = 'background-color: #10b981;';
+          textColor = '#ffffff';
+        } else if (preset === 'warning') {
+          bgStyle = 'background-color: #f59e0b;';
+          textColor = '#ffffff';
+        } else if (preset === 'danger') {
+          bgStyle = 'background-color: #ef4444;';
+          textColor = '#ffffff';
+        } else if (preset === 'blackfriday') {
+          bgStyle = 'background: linear-gradient(105deg, #5D11A9 0%, #48108B 44%, #241254 82%, #151236 100%);';
+          textColor = '#ffffff';
+          borderStyle = 'border: 1px solid rgba(196, 181, 253, 0.35);';
+          shadowStyle = 'box-shadow: 0 8px 22px -6px rgba(93, 17, 169, 0.45);';
         }
 
-        if (shouldShow) {
-          const preset = banner.style_preset || 'info';
-          const iconClass = banner.icon || 'ri-information-fill';
-          
-          let bgColor = banner.bg_color || '#2563eb';
-          let textColor = banner.text_color || '#ffffff';
-          
-          // Presets overrides if preset is not custom
-          if (preset === 'info') {
-            bgColor = '#2563eb';
-            textColor = '#ffffff';
-          } else if (preset === 'success') {
-            bgColor = '#10b981';
-            textColor = '#ffffff';
-          } else if (preset === 'warning') {
-            bgColor = '#f59e0b';
-            textColor = '#ffffff';
-          } else if (preset === 'danger') {
-            bgColor = '#ef4444';
-            textColor = '#ffffff';
-          }
+        // Parse optional linked news & logo metadata (native columns or fallback comment tags)
+        let workingContent = String(banner.content || '');
+        const logoTagRegex = /\s*<!--banner_logo:([^>]+)-->\s*/;
+        const logoMatch = workingContent.match(logoTagRegex);
+        if (logoMatch) workingContent = workingContent.replace(logoTagRegex, ' ').trim();
+        const logoUrl = (banner.logo_url || (logoMatch && logoMatch[1]) || '').trim();
 
-          const closeButtonHtml = isDismissible 
-            ? `<button onclick="dismissSystemBanner('${banner.id}', '${userId}')" style="background: none; border: none; color: inherit; cursor: pointer; font-size: 1.25rem; opacity: 0.8; padding: 0; display: flex; transition: opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.8'"><i class="ri-close-line"></i></button>`
-            : '';
+        const linkTagRegex = /\s*<!--news_link:([^|>]+)(?:\|([^>]*))?-->\s*/;
+        const linkMatch = workingContent.match(linkTagRegex);
+        const cleanBannerContent = linkMatch ? workingContent.replace(linkTagRegex, '').trim() : workingContent.trim();
+        const linkNewsId = (banner.link_news_id || (linkMatch && linkMatch[1]) || '').trim();
+        const linkLabel = (banner.link_label || (linkMatch && linkMatch[2]) || 'Ver detalle completo').trim();
 
-          window.activeSystemBannerHtml = `
-            <div id="system-banner-${banner.id}" style="background-color: ${bgColor}; color: ${textColor}; padding: 0.75rem 1.25rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; font-weight: 500; display: flex; align-items: center; justify-content: space-between; font-size: 0.95rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 1px solid rgba(0,0,0,0.05); animation: slideDown 0.3s ease-out;">
-              <div style="display: flex; align-items: center; gap: 0.75rem;">
-                <i class="${iconClass}" style="font-size: 1.2rem; display: flex; align-items: center;"></i>
-                <div style="line-height: 1.4;">${banner.content}</div>
-              </div>
+        if (!isBlackFridayTheme && logoUrl.includes('blackfriday')) {
+          isBlackFridayTheme = true;
+          bgStyle = 'background: linear-gradient(105deg, #5D11A9 0%, #48108B 44%, #241254 82%, #151236 100%);';
+          textColor = '#ffffff';
+          borderStyle = 'border: 1px solid rgba(196, 181, 253, 0.35);';
+          shadowStyle = 'box-shadow: 0 8px 22px -6px rgba(93, 17, 169, 0.45);';
+        }
+
+        const escAttr = typeof window.escapeHtmlAttr === 'function' ? window.escapeHtmlAttr : (s => String(s || '').replace(/'/g, '&#39;').replace(/"/g, '&quot;'));
+        const escText = typeof window.escapeHtml === 'function' ? window.escapeHtml : (s => String(s || ''));
+
+        const leadingVisualHtml = logoUrl
+          ? `<div style="display: flex; align-items: center; gap: 0.9rem; flex-shrink: 0;">
+               <div style="background: #5D11A9; padding: 0.36rem 0.72rem; border-radius: 9px; border: 1px solid rgba(255,255,255,0.24); box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 3px 10px rgba(0,0,0,0.22); display: inline-flex; align-items: center; justify-content: center;">
+                 <img src="${escAttr(logoUrl)}" alt="Black Friday Chile" style="height: 28px; width: auto; display: block; object-fit: contain;" onerror="this.parentElement.style.display='none'">
+               </div>
+               <div style="width: 1px; height: 30px; background: rgba(255,255,255,0.22);"></div>
+             </div>`
+          : `<i class="${iconClass}" style="font-size: 1.2rem; display: flex; align-items: center; flex-shrink: 0;"></i>`;
+
+        const newsCtaHtml = linkNewsId
+          ? (isBlackFridayTheme
+              ? `<button type="button" onclick="window.openNewsById('${escAttr(linkNewsId)}')" style="background: #ffffff; border: 1px solid rgba(255,255,255,0.9); color: #4c1d95; padding: 0.48rem 1.05rem; border-radius: 999px; font-size: 0.82rem; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,0.22); transition: transform 0.15s, background 0.2s;" onmouseover="this.style.background='#f5f3ff'; this.style.transform='translateY(-1px)'" onmouseout="this.style.background='#ffffff'; this.style.transform='translateY(0)'"><i class="ri-article-line"></i> ${escText(linkLabel)} <i class="ri-arrow-right-line"></i></button>`
+              : `<button type="button" onclick="window.openNewsById('${escAttr(linkNewsId)}')" style="background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.45); color: inherit; padding: 0.36rem 0.85rem; border-radius: 999px; font-size: 0.82rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.18)'"><i class="ri-article-line"></i> ${escText(linkLabel)} <i class="ri-arrow-right-line"></i></button>`)
+          : '';
+
+        const closeButtonHtml = isDismissible 
+          ? `<button onclick="dismissSystemBanner('${banner.id}', '${userId}')" style="background: none; border: none; color: inherit; cursor: pointer; font-size: 1.25rem; opacity: 0.8; padding: 0; display: flex; transition: opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.8'"><i class="ri-close-line"></i></button>`
+          : '';
+
+        window.activeSystemBannerHtml = `
+          <div id="system-banner-${banner.id}" style="${bgStyle} color: ${textColor}; padding: ${logoUrl ? '0.85rem 1.35rem' : '0.75rem 1.25rem'}; border-radius: 12px; margin-bottom: 1.5rem; font-weight: 500; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.85rem 1rem; font-size: 0.9rem; ${shadowStyle} ${borderStyle} animation: slideDown 0.3s ease-out;">
+            <div style="display: flex; align-items: center; gap: 0.9rem; flex: 1; min-width: 260px; flex-wrap: wrap;">
+              ${leadingVisualHtml}
+              <div style="line-height: 1.45; flex: 1; min-width: 220px;">${cleanBannerContent}</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.65rem; flex-shrink: 0;">
+              ${newsCtaHtml}
               ${closeButtonHtml}
             </div>
-          `;
+          </div>
+        `;
+        
+        const appContent = document.getElementById('app-content');
+        if (appContent) {
+          // Remove previous active banners if any
+          const oldBanner = document.querySelector('[id^="system-banner-"]');
+          if (oldBanner) oldBanner.remove();
           
-          const appContent = document.getElementById('app-content');
-          if (appContent) {
-            // Remove previous active banners if any
-            const oldBanner = document.querySelector('[id^="system-banner-"]');
-            if (oldBanner) oldBanner.remove();
-            
-            const temp = document.createElement('div');
-            temp.innerHTML = window.activeSystemBannerHtml.trim();
-            appContent.prepend(temp.firstChild);
-          }
+          const temp = document.createElement('div');
+          temp.innerHTML = window.activeSystemBannerHtml.trim();
+          appContent.prepend(temp.firstChild);
         }
-      } else {
-        // Clean banner if no matching active banner
-        const oldBanner = document.querySelector('[id^="system-banner-"]');
-        if (oldBanner) oldBanner.remove();
       }
     } else {
       // Clean banner if none active
@@ -32022,6 +32075,7 @@ window.checkSystemCommunications = async function(userId) {
 
     if (newsList && newsList.length > 0) {
       const latestNews = newsList.find(n => {
+        if (window.isCommDraft && window.isCommDraft(n)) return false;
         const target = n.target_role || 'all';
         return target === 'all' || target === roleToUse;
       });
@@ -32907,6 +32961,49 @@ let clientUploadedFileBase64 = '';
 let clientUploadedFileName = '';
 let editingDeclarationId = null;
 
+// Aviso operativo temporal en Módulo de Ingresos de Stock (vigente 23 Nov al 3 Dic 2026, hora Chile)
+function getStockIntakeSeasonalNoticeBannerHtml(compact = false) {
+  try {
+    const todayCL = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Santiago',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(new Date());
+
+    const isInSeasonalWindow = todayCL >= '2026-11-23' && todayCL <= '2026-12-03';
+    if (!isInSeasonalWindow) return '';
+
+    return `
+      <div class="stock-intake-seasonal-banner" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.14) 0%, rgba(217, 119, 6, 0.08) 100%); border: 1.5px solid rgba(245, 158, 11, 0.55); border-radius: 10px; padding: ${compact ? '0.9rem 1.15rem' : '1.05rem 1.35rem'}; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; box-shadow: 0 3px 10px rgba(245, 158, 11, 0.08);">
+        <div style="display: flex; align-items: flex-start; gap: 0.85rem; flex: 1; min-width: 260px;">
+          <div style="width: 38px; height: 38px; border-radius: 8px; background: #f59e0b; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0; box-shadow: 0 2px 6px rgba(245, 158, 11, 0.32);">
+            <i class="ri-time-line"></i>
+          </div>
+          <div>
+            <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.94rem; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <span style="display: inline-flex; align-items: center; background: #5D11A9; padding: 0.16rem 0.5rem; border-radius: 6px; box-shadow: 0 1px 4px rgba(93, 17, 169, 0.25);">
+                <img src="/img/blackfriday_chile_badge.png" alt="Black Friday Chile" style="height: 15px; width: auto; display: block;" onerror="this.parentElement.style.display='none'">
+              </span>
+              <span>Aviso Operativo — Procesamiento de Ingresos de Stock</span>
+              <span style="font-size: 0.68rem; background: #d97706; color: #ffffff; padding: 0.14rem 0.52rem; border-radius: 999px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;">25 Nov al 3 Dic</span>
+            </div>
+            <div style="font-size: 0.83rem; color: var(--color-text-muted); line-height: 1.48;">
+              Los ingresos de stock continúan habilitados <strong style="color: var(--color-text-main);">sin multas adicionales</strong>. Sin embargo, debido a la alta demanda de Black Friday, las cargas recibidas entre el <strong style="color: var(--color-text-main);">25 de noviembre y el 3 de diciembre</strong> presentarán demoras en su conteo y disponibilidad en sistema (<strong style="color: var(--color-text-main);">3 a 5 días hábiles aproximados</strong>). Te recomendamos anticipar tus reposiciones y declarar siempre por esta plataforma.
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm" onclick="window.openNewsById('latest_blackfriday')" style="background: var(--color-surface); color: #b45309; border: 1.5px solid rgba(245, 158, 11, 0.7); border-radius: 7px; padding: 0.45rem 0.9rem; font-weight: 700; font-size: 0.8rem; white-space: nowrap; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; transition: all 0.2s;" onmouseover="this.style.background='rgba(245, 158, 11, 0.12)'" onmouseout="this.style.background='var(--color-surface)'">
+          <i class="ri-article-line"></i> Ver comunicado Black Friday
+        </button>
+      </div>
+    `;
+  } catch (e) {
+    console.warn('Error evaluating stock intake seasonal banner:', e);
+    return '';
+  }
+}
+
 window.renderDeclarations = async function() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando módulo de declaraciones...</p>`;
@@ -32983,6 +33080,7 @@ window.renderDeclarations = async function() {
           <div class="slide-over-body" style="padding: 0; overflow: hidden; flex: 1; display: flex; flex-direction: row;">
             <!-- Columna Izquierda: Formulario -->
             <div id="dec-form-scroll-container" style="flex: 1; padding: 1.5rem 2rem; overflow-y: auto; display: flex; flex-direction: column;">
+              ${getStockIntakeSeasonalNoticeBannerHtml(true)}
               
               <!-- BARRA COMPACTA CUANDO EL INSTRUCTIVO ESTÁ OCULTO -->
               <div id="dec-instructivo-collapsed-bar" style="display: ${isInstructivoHidden ? 'flex' : 'none'}; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; background: linear-gradient(90deg, rgba(37, 99, 235, 0.08) 0%, rgba(99, 102, 241, 0.04) 100%); border: 1px solid rgba(37, 99, 235, 0.28); border-radius: 10px; padding: 0.7rem 1.1rem; margin-bottom: 1.25rem; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.04);">
@@ -33989,6 +34087,7 @@ window.renderDeclarations = async function() {
     appContent.innerHTML = getObserverBanner() + `
       <div id="dec-view-container">
         ${pausedBannerHtml}
+        ${getStockIntakeSeasonalNoticeBannerHtml(false)}
 
         <!-- Render Slide Over Panel -->
         ${formHtml}
@@ -36542,7 +36641,7 @@ async function fetchAndRenderClientDeclarations() {
       
     if (error) throw error;
     if (!eventsRes.error && Array.isArray(eventsRes.data)) {
-      window.clientOperationalEventsCache = eventsRes.data;
+      window.clientOperationalEventsCache = eventsRes.data.filter(ev => !(window.isCommDraft && window.isCommDraft(ev)));
     }
     
     window.clientDeclarationsCache = declarations || [];
@@ -41953,6 +42052,7 @@ async function loadInboxData() {
     if (error) throw error;
 
     const filteredData = data ? data.filter(n => {
+      if (window.isCommDraft && window.isCommDraft(n)) return false;
       return (rolesToMatch.includes(n.target_role) && !n.user_id) || n.user_id === currentMerchantId;
     }) : [];
 
@@ -52578,6 +52678,52 @@ function openNewsModal(newsItem) {
     if (e.target === overlay) close();
   });
 }
+
+window.openNewsById = async function(newsIdOrKey) {
+  try {
+    if (!newsIdOrKey) return;
+    let newsItem = null;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(newsIdOrKey).trim());
+
+    if (isUuid) {
+      const { data, error } = await supabase
+        .from('dashboard_news')
+        .select('*')
+        .eq('id', newsIdOrKey)
+        .maybeSingle();
+      if (!error && data && !(window.isCommDraft && window.isCommDraft(data))) newsItem = data;
+    } else if (newsIdOrKey === 'latest_blackfriday') {
+      const { data } = await supabase
+        .from('dashboard_news')
+        .select('*')
+        .ilike('title', '%black%')
+        .order('created_at', { ascending: false })
+        .limit(5);
+      const publishedBf = (data || []).find(n => !(window.isCommDraft && window.isCommDraft(n)));
+      if (publishedBf) {
+        newsItem = publishedBf;
+      } else {
+        const { data: fallback } = await supabase
+          .from('dashboard_news')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(5);
+        const publishedFallback = (fallback || []).find(n => !(window.isCommDraft && window.isCommDraft(n)));
+        if (publishedFallback) newsItem = publishedFallback;
+      }
+    }
+
+    if (newsItem) {
+      openNewsModal(newsItem);
+    } else if (typeof window.showToast === 'function') {
+      window.showToast('No se encontró el comunicado solicitado.', 'warning');
+    } else {
+      alert('No se encontró el comunicado solicitado.');
+    }
+  } catch (err) {
+    console.error('Error abriendo noticia por ID:', err);
+  }
+};
 
 
 function getDeclarationProducts(dec) {
