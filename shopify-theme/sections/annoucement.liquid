@@ -1,84 +1,360 @@
-{% if section.settings.show_announcement and section.settings.message != blank %}
-    {% if section.settings.homepage_only == false or request.page_type == 'index' %}
-        {% style %}
-            .announcement-bar {
-                background-color: {{ settings.color_annoucement_bg | default: '#222' }};
-                {% if section.settings.show_divider %}
-                border-bottom: 1px solid var(--color-border);
-                {% endif %}
-            }
-            .announcement-bar__content, .sf-topbar__close {
-                color: {{ settings.color_annoucement_text | default: '#fff' }}
-            }
-            .announcement-bar a:hover {
-                opacity: .6;
-            }
-        {% endstyle %}
-        <section
-            data-section-id="{{ section.id }}"
-            data-section-type="announcement"
-            class="announcement-bar relative"
-        >
-            {%- unless section.settings.message_link == blank -%}
-                <a href="{{ section.settings.message_link }}" class="announcement-bar__link">
-            {%- endunless -%}
-                <div class="announcement-bar__content md:text-center py-2.5 text-base">{{ section.settings.message }}</div>
-            {%- unless section.settings.message_link == blank -%}
-                </a>
-            {%- endunless -%}
-            {% if section.settings.show_close %}
-                <div class="sf-topbar__close p-3 absolute top-0 right-0 cursor-pointer h-full flex items-center">
-                    {% render 'icon', name: 'x', size: 'medium' %}
-                </div>
-                <script>
-                    document.querySelector('.sf-topbar__close').addEventListener('click', function () {
-                        document.querySelector('.announcement-bar').remove()
-                        document.documentElement.style.setProperty('--sf-announcement-height', '0px')
-                    })
-                </script>
-            {% endif %}
-        </section>
+{%- assign show_bf = section.settings.show_blackfriday_banner -%}
+{%- if show_bf == nil -%}{%- assign show_bf = true -%}{%- endif -%}
+{%- assign show_legacy = false -%}
+{%- if show_bf == false and section.settings.show_announcement and section.settings.message != blank -%}
+  {%- if section.settings.homepage_only == false or request.page_type == 'index' -%}
+    {%- assign show_legacy = true -%}
+  {%- endif -%}
+{%- endif -%}
+
+{%- if show_bf or show_legacy -%}
+  {%- if show_bf -%}
+    {%- assign bar_badge = section.settings.bf_badge_text | default: "BLACK FRIDAY" -%}
+    {%- assign bar_message = section.settings.bf_message | default: "Operación enfocada en Black Friday: nuestra agenda de reuniones para información de servicio estará cerrada hasta el 9/12." -%}
+    {%- assign bar_cta_text = section.settings.bf_cta_text | default: "Cotizar online" -%}
+    {%- assign bar_cta_link = section.settings.bf_cta_link | default: "/pages/cotizador" -%}
+    {%- assign bar_show_close = section.settings.bf_show_close -%}
+    {%- if bar_show_close == nil -%}{%- assign bar_show_close = true -%}{%- endif -%}
+  {%- else -%}
+    {%- assign bar_badge = "" -%}
+    {%- assign bar_message = section.settings.message -%}
+    {%- assign bar_cta_text = "" -%}
+    {%- assign bar_cta_link = section.settings.message_link -%}
+    {%- assign bar_show_close = section.settings.show_close -%}
+  {%- endif -%}
+
+  {% style %}
+    .announcement-bar.stocka-bf-bar {
+      position: relative;
+      z-index: 85;
+      background: linear-gradient(90deg, #090d1a 0%, #151038 42%, #241263 72%, #0f172a 100%) !important;
+      color: #ffffff;
+      overflow: hidden;
+      border-bottom: none !important;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    .announcement-bar.stocka-bf-bar::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 2px;
+      background: linear-gradient(90deg, #5c24ff 0%, #3b82f6 52%, #06d6a0 100%);
+      pointer-events: none;
+    }
+    .announcement-bar.stocka-bf-bar .announcement-bar__content {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      flex-wrap: wrap;
+      gap: 0.45rem 0.75rem;
+      max-height: none !important;
+      margin: 0 auto !important;
+      max-width: 1280px;
+      padding: 0.62rem 2.75rem 0.68rem 1.25rem !important;
+      line-height: 1.4 !important;
+      text-align: center;
+      color: #f8fafc !important;
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+    .stocka-bf-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.2rem 0.65rem;
+      border-radius: 9999px;
+      background: rgba(92, 36, 255, 0.28);
+      border: 1px solid rgba(167, 139, 250, 0.48);
+      color: #ede9fe;
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .stocka-bf-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #06d6a0;
+      box-shadow: 0 0 8px rgba(6, 214, 160, 0.85);
+      flex-shrink: 0;
+    }
+    .stocka-bf-msg-wrap {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+      color: #f1f5f9;
+      font-size: 0.84rem;
+      font-weight: 500;
+      line-height: 1.4;
+    }
+    .stocka-bf-msg-wrap strong {
+      color: #ffffff;
+      font-weight: 700;
+    }
+    .stocka-bf-ico {
+      width: 15px;
+      height: 15px;
+      stroke: #a78bfa;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+      flex-shrink: 0;
+    }
+    .stocka-bf-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.28rem 0.78rem;
+      border-radius: 9999px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.24);
+      color: #ffffff !important;
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-decoration: none !important;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+    }
+    .stocka-bf-cta:hover {
+      background: #5c24ff !important;
+      border-color: #7c4dff !important;
+      opacity: 1 !important;
+      transform: translateY(-1px);
+    }
+    .stocka-bf-cta svg {
+      width: 13px;
+      height: 13px;
+      stroke: currentColor;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+    .announcement-bar.stocka-bf-bar .sf-topbar__close {
+      position: absolute;
+      top: 50%;
+      right: 0.65rem;
+      transform: translateY(-50%);
+      width: 28px;
+      height: 28px;
+      padding: 0 !important;
+      border-radius: 9999px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.06);
+      color: #cbd5e1 !important;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+    .announcement-bar.stocka-bf-bar .sf-topbar__close:hover {
+      background: rgba(255, 255, 255, 0.18);
+      color: #ffffff !important;
+    }
+    .announcement-bar.stocka-bf-bar .sf-topbar__close svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+    @media screen and (max-width: 767px) {
+      .announcement-bar.stocka-bf-bar .announcement-bar__content {
+        padding: 0.62rem 2.5rem 0.68rem 0.9rem !important;
+        gap: 0.35rem 0.5rem;
+        font-size: 0.78rem;
+      }
+      .stocka-bf-msg-wrap {
+        font-size: 0.78rem;
+        line-height: 1.38;
+      }
+      .stocka-bf-ico {
+        display: none;
+      }
+      .stocka-bf-badge {
+        font-size: 0.64rem;
+        padding: 0.16rem 0.55rem;
+      }
+      .stocka-bf-cta {
+        font-size: 0.72rem;
+        padding: 0.22rem 0.68rem;
+      }
+      .announcement-bar.stocka-bf-bar .sf-topbar__close {
+        top: 0.55rem;
+        right: 0.55rem;
+        transform: none;
+        width: 26px;
+        height: 26px;
+      }
+    }
+  {% endstyle %}
+  <section
+    id="stocka-announcement-bar"
+    data-section-id="{{ section.id }}"
+    data-section-type="announcement"
+    class="announcement-bar stocka-bf-bar relative"
+    role="region"
+    aria-label="Aviso Black Friday Stocka"
+  >
+    <div class="announcement-bar__content">
+      {%- if bar_badge != blank -%}
+        <span class="stocka-bf-badge">
+          <span class="stocka-bf-dot" aria-hidden="true"></span>
+          <span>{{ bar_badge }}</span>
+        </span>
+      {%- endif -%}
+
+      <span class="stocka-bf-msg-wrap">
+        <svg class="stocka-bf-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+        <span>{{ bar_message }}</span>
+      </span>
+
+      {%- if bar_cta_text != blank and bar_cta_link != blank -%}
+        <a href="{{ bar_cta_link }}" class="stocka-bf-cta">
+          <span>{{ bar_cta_text }}</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+        </a>
+      {%- endif -%}
+    </div>
+
+    {% if bar_show_close %}
+      <button
+        type="button"
+        class="sf-topbar__close"
+        aria-label="Cerrar aviso"
+        title="Cerrar aviso"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
     {% endif %}
-{% endif %}
+
+    <script>
+      (function () {
+        var bar = document.getElementById('stocka-announcement-bar');
+        if (!bar) return;
+        var dismissKey = 'stocka_bf_banner_closed_2026_12_09';
+        function syncAnnouncementHeight() {
+          var h = bar && bar.isConnected ? bar.offsetHeight : 0;
+          document.documentElement.style.setProperty('--sf-announcement-height', h + 'px');
+          if (window.spratlyThemeSettings) {
+            window.spratlyThemeSettings.topbarHeight = h;
+          }
+        }
+        try {
+          if (sessionStorage.getItem(dismissKey) === '1' && !(window.Shopify && window.Shopify.designMode)) {
+            bar.remove();
+            syncAnnouncementHeight();
+            return;
+          }
+        } catch (e) {}
+        syncAnnouncementHeight();
+        window.addEventListener('resize', syncAnnouncementHeight, { passive: true });
+        var closeBtn = bar.querySelector('.sf-topbar__close');
+        if (closeBtn) {
+          closeBtn.addEventListener('click', function () {
+            bar.remove();
+            syncAnnouncementHeight();
+            try { sessionStorage.setItem(dismissKey, '1'); } catch (e) {}
+          });
+        }
+      })();
+    </script>
+  </section>
+{%- endif -%}
+
 {% schema %}
-	{
-        "name": "Announcement bar",
-        "settings": [
-            {
-                "type": "checkbox",
-                "id": "show_announcement",
-                "label": "Show announcement",
-                "default": true
-            },
-            {
-                "type": "checkbox",
-                "id": "homepage_only",
-                "label": "Home page only",
-                "default": true
-            },
-            {
-                "type": "checkbox",
-                "id": "show_close",
-                "label": "Show close button",
-                "default": true
-            },
-            {
-                "type": "textarea",
-                "id": "message",
-                "label": "Message",
-                "default": "Free shipping for all orders from $60+"
-            },
-            {
-                "type": "url",
-                "id": "message_link",
-                "label": "Link"
-            },
-            {
-                "type": "checkbox",
-                "id": "show_divider",
-                "label": "Show divider",
-                "default": false
-            }
-        ]
-	}
+{
+  "name": "Announcement bar",
+  "settings": [
+    {
+      "type": "header",
+      "content": "Banner Black Friday / Aviso Agenda"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_blackfriday_banner",
+      "label": "Mostrar banner Black Friday (toda la web)",
+      "default": true
+    },
+    {
+      "type": "text",
+      "id": "bf_badge_text",
+      "label": "Etiqueta / Badge",
+      "default": "BLACK FRIDAY"
+    },
+    {
+      "type": "textarea",
+      "id": "bf_message",
+      "label": "Mensaje del banner",
+      "default": "Operación enfocada en Black Friday: nuestra agenda de reuniones para información de servicio estará cerrada hasta el 9/12."
+    },
+    {
+      "type": "text",
+      "id": "bf_cta_text",
+      "label": "Texto botón (opcional)",
+      "default": "Cotizar online"
+    },
+    {
+      "type": "url",
+      "id": "bf_cta_link",
+      "label": "Enlace del botón"
+    },
+    {
+      "type": "checkbox",
+      "id": "bf_show_close",
+      "label": "Permitir cerrar el banner",
+      "default": true
+    },
+    {
+      "type": "header",
+      "content": "Anuncio general (alternativo)"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_announcement",
+      "label": "Show announcement",
+      "default": false
+    },
+    {
+      "type": "checkbox",
+      "id": "homepage_only",
+      "label": "Home page only",
+      "default": false
+    },
+    {
+      "type": "checkbox",
+      "id": "show_close",
+      "label": "Show close button",
+      "default": true
+    },
+    {
+      "type": "textarea",
+      "id": "message",
+      "label": "Message",
+      "default": "Operación enfocada en Black Friday: nuestra agenda de reuniones para información de servicio estará cerrada hasta el 9/12."
+    },
+    {
+      "type": "url",
+      "id": "message_link",
+      "label": "Link"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_divider",
+      "label": "Show divider",
+      "default": false
+    }
+  ]
+}
 {% endschema %}
